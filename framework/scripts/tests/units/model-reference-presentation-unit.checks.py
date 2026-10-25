@@ -13,7 +13,7 @@ import pytest
 from design.common import code
 from design.document import DesignIndex
 from design.policy_tables import Policy, policy_document_lines, rendered_design
-from model.core import ModelNeedsFixError, literal
+from model.core import ModelNeedsFixError, ReferenceResolutionError, literal
 from model.identity import COUNTERS
 from model.projection import reference_display
 from model.reference_presentation import Position, Presentation
@@ -267,7 +267,11 @@ def test_no_guessed_destination(models, fault):
         ref = presentation.references[Position(rid, "value", "/--input")]
         assert ref.link is None
         if fault == "pending":
-            assert ref.value == "pending_deploy"
+            assert ref.value == "shared-name"
+        if fault == "unconfirmed-name":
+            with pytest.raises(ReferenceResolutionError):
+                generate_markdown(path, values, FRAMEWORK)
+            return
         markdown = generate_markdown(path, values, FRAMEWORK)
         assert "[shared-name]" not in markdown
 

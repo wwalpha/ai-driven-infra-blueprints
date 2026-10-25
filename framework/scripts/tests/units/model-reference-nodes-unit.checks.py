@@ -26,7 +26,7 @@ from design.policy_tables import (
 from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from json_intrinsics import project_document
 from model.adapters.observed import observed_destinations, propagate_references
-from model.core import ModelNeedsFixError, entries
+from model.core import ModelNeedsFixError, ReferenceResolutionError, entries
 from model.identity import Resolver
 from model.impact_graph import Graph
 from model.importing.sources import has_reference
@@ -315,7 +315,7 @@ def reference_decision(inputs, left, right, path):
     "observed,expected",
     [
         (None, "unresolved"),
-        ("PENDING_DEPLOY", "pending_deploy"),
+        ("PENDING_DEPLOY", "PENDING_DEPLOY"),
         (
             "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
             "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
@@ -326,6 +326,8 @@ def check_display_and_stable_design(tmp_path, models, observed, expected):
     producer, values, consumer, policy = models
     if observed is not None:
         values["observed.row.001-001.value"] = "`" + observed + "`"
+        if observed == "PENDING_DEPLOY":
+            values["desired.row.001-001.property"] = "KMS.Key.KeyId"
         save(producer, values)
     original = copy.deepcopy(policy)
     warnings = []
@@ -342,14 +344,18 @@ def check_display_and_stable_design(tmp_path, models, observed, expected):
         if observed == "PENDING_DEPLOY"
         else []
     )
-    displayed = reference_display(policy, consumer.path, tmp_path)
-    assert (
-        json.loads(displayed["desired.row.001-002.document"])["Statement"][0][
-            "Resource"
-        ]
-        == expected
-    )
-    assert "$modelRef" not in displayed["desired.row.001-002.document"]
+    if observed is None:
+        with pytest.raises(ReferenceResolutionError):
+            reference_display(policy, consumer.path, tmp_path)
+    else:
+        displayed = reference_display(policy, consumer.path, tmp_path)
+        assert (
+            json.loads(displayed["desired.row.001-002.document"])["Statement"][0][
+                "Resource"
+            ]
+            == expected
+        )
+        assert "$modelRef" not in displayed["desired.row.001-002.document"]
     assert policy == original
     with pytest.raises(ValueError, match="Model reference"):
         validate_aws_document(document)
@@ -570,7 +576,7 @@ def check_return_attribute_mapping_and_identifier_pending(tmp_path, models):
     values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
     save(producer, values)
     assert (
-        "pending_deploy"
+        "PENDING_DEPLOY"
         in reference_display(policy, consumer.path, tmp_path)[
             "desired.row.001-002.document"
         ]
@@ -603,6 +609,10 @@ def check_string_reference_cannot_replace_policy_objects(container):
 
 def check_scalar_value_and_json_are_stable(tmp_path, models):
     producer, values, consumer, policy = models
+    values["observed.row.001-001.value"] = (
+        "`arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012`"
+    )
+    save(producer, values)
     resource(
         tmp_path, "vpc", "EC2.VPC", attribute="VpcId", observed="vpc-0123456789abcdef0"
     )
@@ -1075,7 +1085,7 @@ def check_pipeline_context_order_and_repeated_producer(tmp_path, models):
     "observed,expected",
     [
         (None, "synthetic-codebuild-a"),
-        ("PENDING_DEPLOY", "pending_deploy"),
+        ("PENDING_DEPLOY", "PENDING_DEPLOY"),
         ("confirmed-build", "unresolved"),
     ],
 )
@@ -1156,6 +1166,14 @@ def check_pipeline_configuration_display_and_roundtrip(
         if not row[1].endswith(".Configuration")
     ]
     view = tmp_path / "docs/designs/qa/team/codepipeline.md"
+    if observed == "confirmed-build":
+        with pytest.raises(
+            ReferenceResolutionError, match="Desired and Observed differ"
+        ):
+            generate_markdown(view, values, tmp_path)
+        return
+    if observed == "PENDING_DEPLOY":
+        expected = "synthetic-codebuild-a"
     markdown = generate_markdown(view, values, tmp_path)
     assert "$modelRef" not in markdown
     displayed = (

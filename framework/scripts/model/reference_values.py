@@ -8,7 +8,6 @@ from typing import Literal
 from design.services.definitions.registry import POLICY_FORMATS
 from utils.arn_components import ARN_COMPONENTS
 from utils.arn_values import context_value, generated_attribute, named_arn
-from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
@@ -200,7 +199,9 @@ class ProducerValues:
             observed
             if observed is not None
             else None
-            if recorded or field in self.pending_fields
+            if recorded
+            or field in self.pending_fields
+            and generated_attribute(self.schema, field)
             else desired
         )
         if value is None:
@@ -215,7 +216,7 @@ class ProducerValues:
             else strict_json(value)
         )
 
-    def pending(self):
+    def validate_pending(self):
         for rid, row in self.rows:
             desired = literal(row["value"])
             observed = literal(
@@ -233,16 +234,11 @@ class ProducerValues:
                     if desired == "PENDING_DEPLOY"
                     else f"observed.row.{rid}.value",
                 )
-        outputs = catalog_outputs(self.resolver.root, self.kind)
-        states = [
-            literal(self.snapshot.authoritative.get(f"observed.row.{rid}.value", ""))
-            for rid, row in self.rows
-            if row["property"] in outputs
-        ]
-        return (
-            self.resource.get("resourceMode", "CREATE") == "CREATE"
-            and states
-            and all(state == "PENDING_DEPLOY" for state in states)
+
+    def waiting(self, fields):
+        return bool(fields) and all(
+            field in self.pending_fields and generated_attribute(self.schema, field)
+            for field in fields
         )
 
     def arn(self, attribute):
@@ -318,8 +314,21 @@ class ProducerValues:
             return direct
         missing = [field for field, value in values.items() if value is None]
         if missing:
+            # Validate independent components even while generated identity is absent.
+            provider = ARN_COMPONENTS.get(self.kind)
+            if provider:
+                provider[0](properties, confirmed)
+            for group in ("partition", "region", "account"):
+                if "{" + group + "}" in ARN_SHAPES[self.kind][1]:
+                    context_value(pseudo, group)
             raise ReferenceResolutionError(
-                "no confirmed ARN components: " + ", ".join(missing)
+                "no confirmed ARN components: " + ", ".join(missing),
+                category="REFERENCE_PENDING_DEPLOY"
+                if self.waiting(missing)
+                else "REFERENCE_UNRESOLVED",
+                code="REFERENCE_PENDING_DEPLOY"
+                if self.waiting(missing)
+                else "reference.unresolved",
             )
         try:
             assembled = named_arn(
@@ -342,7 +351,7 @@ def reference_value(resolver, scope, node, **contract):
             node, scope, resolver, **contract
         )
         producer = ProducerValues(snapshot, number, resource, resolver)
-        pending = producer.pending()
+        producer.validate_pending()
         attribute = reference_attribute(resource["resourceType"], attribute)
         try:
             value = (
@@ -355,18 +364,15 @@ def reference_value(resolver, scope, node, **contract):
                     )
                 )
             )
-        except ReferenceResolutionError as error:
-            value = None
-            reason = error.diagnostic["message"]
-        else:
-            reason = "no confirmed desired or observed value"
-        if pending or producer.pending_fields:
-            raise ReferenceResolutionError(
-                "explicit CREATE Producer output PENDING_DEPLOY",
-                category="REFERENCE_PENDING_DEPLOY",
-                code="REFERENCE_PENDING_DEPLOY",
-                action="Deploy the CREATE producer, synchronize observations, then regenerate.",
-            )
+        except ReferenceResolutionError:
+            if producer.drift_fields:
+                raise ReferenceResolutionError(
+                    "Desired and Observed differ: "
+                    + ", ".join(sorted(producer.drift_fields))
+                ) from None
+            raise
+        except Blocked as error:
+            raise FrameworkUnsupportedError(str(error)) from error
         if producer.drift_fields:
             raise ReferenceResolutionError(
                 "Desired and Observed differ: "
@@ -374,7 +380,19 @@ def reference_value(resolver, scope, node, **contract):
                 action="Confirm the intended and observed producer identity before regenerating.",
             )
         if value is None:
-            raise ReferenceResolutionError(reason)
+            field = RETURN_ATTRIBUTE_PROPERTIES.get(
+                (resource["resourceType"], attribute), attribute
+            )
+            pending = producer.waiting([field])
+            raise ReferenceResolutionError(
+                "explicit CREATE Producer output PENDING_DEPLOY"
+                if pending
+                else "no confirmed desired or observed value",
+                category="REFERENCE_PENDING_DEPLOY"
+                if pending
+                else "REFERENCE_UNRESOLVED",
+                code="REFERENCE_PENDING_DEPLOY" if pending else "reference.unresolved",
+            )
         return ReferenceValue("resolved", value)
     except ReferenceDiagnosticError as error:
         if producer is not None:

@@ -361,7 +361,7 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
         save(scope, values)
         path = tmp_path / "docs/designs/qa/team/codebuild.md"
         markdown = generate_markdown(path, values, FRAMEWORK)
-        assert "pending_deploy" in markdown and "reference-rows" not in markdown
+        assert "PENDING_DEPLOY" in markdown and "reference-rows" not in markdown
         assert "$modelRef" in "\n".join(
             DesignIndex(FRAMEWORK).get(path, text=markdown).raw.display_lines
         )
@@ -370,7 +370,7 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
         ):
             _ = (
                 DesignIndex(FRAMEWORK)
-                .get(path, text=markdown.replace("pending_deploy", "tampered"))
+                .get(path, text=markdown.replace("PENDING_DEPLOY", "tampered"))
                 .raw.display_lines
             )
 
@@ -378,7 +378,11 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
 @pytest.fixture
 def noted_policies(tmp_path):
     with mapping_alias(FRAMEWORK, tmp_path):
-        _, _, scope, values = project(tmp_path)
+        producer, key, scope, values = project(tmp_path)
+        key["observed.row.001-001.value"] = (
+            "`arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012`"
+        )
+        save(producer, key)
         for key, value in list(values.items()):
             if ".001" in key:
                 values[key.replace(".001", ".002")] = (

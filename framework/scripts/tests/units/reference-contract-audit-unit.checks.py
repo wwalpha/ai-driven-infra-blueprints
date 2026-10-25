@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex, model_reference_tables
-from model.core import entries
+from model.core import ReferenceResolutionError, entries
 from model.display import catalog_display_rows, display_rows, reference_rows
 from model.identity import Resolver
 from model.projection import reference_display
@@ -421,7 +421,7 @@ def test_catalog_and_context_boundaries(models):
     "observed,expected",
     [
         (None, "unresolved"),
-        ("PENDING_DEPLOY", "pending_deploy"),
+        ("PENDING_DEPLOY", "PENDING_DEPLOY"),
         ("confirmed-value", "confirmed-value"),
     ],
 )
@@ -465,6 +465,10 @@ def test_common_markdown_projection_and_restoration(
         )
     save(scope, values)
     original = copy.deepcopy(values)
+    if observed is None or observed == "PENDING_DEPLOY" and kind == "Glue.Job":
+        with pytest.raises(ReferenceResolutionError):
+            reference_display(values, scope.path, models)
+        return
     shown = reference_display(values, scope.path, models)
     rendered = display_rows(
         kind,

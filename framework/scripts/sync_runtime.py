@@ -37,6 +37,7 @@ from model.importing.scope import selected as import_selection
 from model.projection import design_target, resource_row_scope
 from model.references import _json as model_json
 from model.render import generate_files as generate_files
+from model.render import owned_artifacts
 from model.render import render_validated_model as markdown_for
 from model.sources import (
     _publish_transaction,
@@ -296,9 +297,12 @@ def generate_views(
     *,
     warnings=None,
     unavailable=None,
+    pending_artifacts=None,
+    strict=False,
 ):
     warnings = warnings if warnings is not None else []
     unavailable = unavailable if unavailable is not None else {}
+    pending_artifacts = pending_artifacts if pending_artifacts is not None else {}
     definitions_root = definitions_root or definition_root(root)
     total(len(destinations))
     generated = {}
@@ -306,6 +310,8 @@ def generate_views(
     for path, values in destinations.items():
         staged = stage / path.relative_to(root)
         artifacts = {}
+        deferred = {}
+        documents = {}
         failure_start = len(failures)
         try:
             check_model_inputs = _imports_model_validation.check_model_inputs
@@ -360,8 +366,15 @@ def generate_views(
                     raise ValueError(
                         f"authoritative JSON document missing: {path.name}: {identity}"
                     )
+                artifact = (staged.parent / match.group(1)).resolve()
+                safe(stage, staged.parent / match.group(1))
+                if artifact.parent != staged.with_suffix("").resolve():
+                    raise ValueError(
+                        f"JSON artifact must belong to owning service: {identity}"
+                    )
                 try:
                     raw_document = policy_json(row["document"])
+                    previous = documents.setdefault(artifact, raw_document)
                     document = _imports_model_projection.generated_document(
                         raw_document,
                         root,
@@ -379,14 +392,39 @@ def generate_views(
                     )
                 except ReferenceDiagnosticError as error:
                     diagnostics.extend(error.diagnostics)
+                    if error.diagnostics and all(
+                        d["category"] == "REFERENCE_PENDING_DEPLOY"
+                        for d in error.diagnostics
+                    ):
+                        if previous != raw_document:
+                            raise ValueError(
+                                "conflicting authoritative JSON documents: "
+                                + artifact.name
+                            ) from error
+                        # A deferred artifact must still have a valid authored document.
+                        if (
+                            not isinstance(raw_document, dict)
+                            or "$modelRef" in raw_document
+                        ):
+                            raise ValueError(
+                                f"JSON document must be an object: {identity}"
+                            ) from error
+                        _imports_model_projection.execution_document(
+                            raw_document,
+                            root,
+                            property_name=row["property"],
+                            scope=model.scope,
+                        )
+                        deferred[artifact] = {
+                            "service": "/".join(service_scope(root, path)),
+                            "target_path": str(artifact.relative_to(stage)),
+                            "status": "NOT_RUN",
+                            "reason": "REFERENCE_PENDING_DEPLOY",
+                            "diagnostics": error.diagnostics,
+                        }
                     continue
                 if not isinstance(document, dict):
                     raise ValueError(f"JSON document must be an object: {identity}")
-                artifact = (staged.parent / match.group(1)).resolve()
-                if artifact.parent != staged.with_suffix("").resolve():
-                    raise ValueError(
-                        f"JSON artifact must belong to owning service: {identity}"
-                    )
                 content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
                 if artifact in artifacts and artifacts[artifact] != content:
                     raise ValueError(
@@ -415,7 +453,11 @@ def generate_views(
                     path,
                     f"{path.relative_to(root)}: " + "\n- ".join(other_errors),
                 )
-            require_reference_diagnostics(diagnostics)
+            if strict or any(
+                d["category"] != "REFERENCE_PENDING_DEPLOY" for d in diagnostics
+            ):
+                require_reference_diagnostics(diagnostics)
+            warnings.extend(d for d in diagnostics if d not in warnings)
             if other_errors:
                 raise ValueError("\n- ".join(other_errors))
             if independent.diagnostics:
@@ -423,6 +465,15 @@ def generate_views(
                 advance()
                 continue
             validate_kms_policy_accounts(values, design_target(staged, stage))
+            if artifacts.keys() & deferred.keys():
+                raise ValueError("conflicting resolved and pending JSON ownership")
+            managed = owned_artifacts(path, values)
+            for artifact in deferred:
+                original = root / artifact.relative_to(stage)
+                safe(root, original)
+                if original not in managed:
+                    raise ValueError("unowned pending JSON artifact: " + str(original))
+                artifact.unlink(missing_ok=True)
             save_files(artifacts)
             staged.parent.mkdir(parents=True, exist_ok=True)
             staged.write_text(
@@ -431,6 +482,10 @@ def generate_views(
                 newline="",
             )
             generated[path] = [*artifacts, staged]
+            pending_artifacts.update(
+                (root / artifact.relative_to(stage), info)
+                for artifact, info in deferred.items()
+            )
         except ReferenceDiagnosticError as error:
             warnings.extend(
                 {**diagnostic, "source": str(path.relative_to(root))}
@@ -842,6 +897,7 @@ class Generation:
     warnings: dict = field(default_factory=dict)
     reference_warnings: list = field(default_factory=list)
     unavailable: dict = field(default_factory=dict)
+    pending_artifacts: dict = field(default_factory=dict)
     candidate: object = field(default_factory=object)
     accounts: object = None
     definitions_root: Path | None = None
@@ -872,6 +928,7 @@ def prepare_generation(
     target_directory=None,
     snapshot=None,
     definitions_root=None,
+    strict=False,
 ):
     """Prepare every selected target in a single disposable stage."""
     if scope == set():
@@ -991,6 +1048,8 @@ def prepare_generation(
             definitions_root=definitions_root,
             warnings=plan.reference_warnings,
             unavailable=plan.unavailable,
+            pending_artifacts=plan.pending_artifacts,
+            strict=strict,
         )
         return plan
     except BaseException:
@@ -1059,6 +1118,11 @@ def validate_generation(plan, *, jobs=4, write=True):
             plan.root / file.relative_to(plan.stage): file.read_bytes().decode("utf-8")
             for file in files
         }
+        expected.update(
+            (artifact, None)
+            for artifact in plan.pending_artifacts
+            if artifact.parent == path.with_suffix("")
+        )
         # Validate canonical candidates, then preserve the saved view's newline format.
         expected[path] = markdown_newlines(path, expected[path])
         plan.expected_outputs[path] = expected
@@ -1102,13 +1166,18 @@ def publish_generation(plan):
             changed = {
                 p: text
                 for p, text in expected.items()
-                if plan.snapshot.read(p) != text.encode("utf-8")
+                if plan.snapshot.read(p)
+                != (None if text is None else text.encode("utf-8"))
             }
             originals = {p: plan.snapshot.read(p) for p in changed}
             try:
                 if changed:
                     _publish_transaction(
-                        root, changed, (), journal, originals=originals
+                        root,
+                        {p: text for p, text in changed.items() if text is not None},
+                        {p for p, text in changed.items() if text is None},
+                        journal,
+                        originals=originals,
                     )
                 plan.saved[path] = originals
             except (OSError, ValueError, KeyError, TypeError) as error:
@@ -1200,7 +1269,9 @@ def generation_unavailable(plan):
 
 def generation_metadata(plan):
     return {
-        "complete": not plan.unavailable and not plan.failures,
+        "complete": not plan.unavailable
+        and not plan.failures
+        and not plan.pending_artifacts,
         "status": "FAIL"
         if plan.failures
         else "NOT_RUN"
@@ -1214,7 +1285,11 @@ def generation_metadata(plan):
             ): info
             for p, info in plan.unavailable.items()
         },
-        "unverified": [],
+        "unverified": [
+            info
+            for artifact, info in sorted(plan.pending_artifacts.items())
+            if artifact.parent.with_suffix(".md") in plan.generated
+        ],
         "warnings": plan.reference_warnings,
     }
 
@@ -1228,7 +1303,7 @@ def report_generation(plan):
             + json.dumps(warning, ensure_ascii=False),
             file=output_file(error=True),
         )
-    if plan.unavailable:
+    if plan.unavailable or plan.pending_artifacts:
         print(
             "View generation: "
             + json.dumps(generation_metadata(plan), ensure_ascii=False),
@@ -1343,7 +1418,9 @@ def _compare_generation(plan):
             ".properties"
         )
         for target, text in expected.items():
-            if not target.is_file() or target.read_bytes() != text.encode("utf-8"):
+            if (target.read_bytes() if target.is_file() else None) != (
+                None if text is None else text.encode("utf-8")
+            ):
                 stale = True
                 kind = "Markdown" if target.suffix == ".md" else "JSON"
                 if target == path and target.is_file() and target.suffix == ".md":

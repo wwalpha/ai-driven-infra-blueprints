@@ -34,6 +34,7 @@ from design.document import DesignIndex
 from model.files import load_model, read_model
 from model.format import serialize
 from model.sources import json_text
+from support.model_reference_fixtures import reference, resource, save
 from support.model_sources import allocate_fixture as allocate
 from support.model_sources import write_model as write_model
 from support.model_templates_fixtures import config_model, fixture, write_fixture
@@ -703,6 +704,139 @@ def check_unchanged_sidecar(generated_policy, note):
         )
         assert values["desired.note.001.text"] in design.read_text(encoding="utf-8")
     assert (artifact.read_bytes(), artifact.stat().st_mtime_ns) == before
+
+
+def _fail_pending_delete(original, target, /, path, *args, **kwargs):
+    if path == target:
+        raise OSError("injected pending artifact deletion failure")
+    return original(path, *args, **kwargs)
+
+
+def _fail_pending_write(original, target, /, path, *args, **kwargs):
+    if path == target:
+        raise OSError("injected pending Markdown write failure")
+    return original(path, *args, **kwargs)
+
+
+@pytest.mark.parametrize("failure", [None, "write", "delete"])
+def check_pending_artifact_transaction(generated_policy, failure):
+    root, model, values, design, trust, register = generated_policy
+    artifact = trust.with_name("iam-role-001-pending.json")
+    arn = "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc"
+    document = {
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "kms:Decrypt",
+                "Resource": ["arn:aws:s3:::confirmed-bucket", arn],
+            }
+        ]
+    }
+    values.update(
+        {
+            "desired.row.001-003.property": "IAM.Role.Policies[].PolicyName",
+            "desired.row.001-003.value": "`pending`",
+            "desired.row.001-003.comment": "合成",
+            "desired.row.001-004.property": "IAM.Role.Policies[].PolicyDocument",
+            "desired.row.001-004.value": "[Policy](iam/iam-role-001-pending.json)",
+            "desired.row.001-004.document": json.dumps(document),
+            "desired.row.001-004.comment": "合成",
+        }
+    )
+    write_model(model, values)
+    artifact.write_text(json.dumps(document) + "\n", encoding="utf-8")
+    design.write_text(
+        model_design.generate_markdown(
+            design, load_model(model).values, definition_root(root)
+        ),
+        encoding="utf-8",
+    )
+    producer, key = resource(
+        root,
+        "kms",
+        "KMS.Key",
+        target="123456789012",
+        attribute="KeyId",
+        observed="PENDING_DEPLOY",
+    )
+    # This fixture uses dev, while the shared reference helper defaults to qa.
+    producer = model_sources.Scope(root, "dev", "123456789012", "kms")
+    source = root / "model/qa/123456789012/kms.properties"
+    source.unlink()
+    save(producer, key)
+    document["Statement"][0]["Resource"][1] = reference()
+    values["desired.row.001-004.document"] = json.dumps(document)
+    write_model(model, values)
+    originals = {p: p.read_bytes() for p in (design, trust, artifact)}
+    authority = {p: p.read_bytes() for p in (model, producer.path)}
+    with patch.dict(os.environ, register({design, trust, artifact})):
+        with sync_runtime.generation_context(root, True):
+            plan = sync_runtime.prepare_generation(
+                root, {("dev", "123456789012", "iam")}
+            )
+            try:
+                assert not plan.failures and not plan.unavailable, plan.failures
+                sync_runtime.validate_generation(plan, jobs=1)
+                metadata = sync_runtime.generation_metadata(plan)
+                assert metadata["status"] == "PASS" and metadata["complete"] is False
+                assert len(metadata["unverified"]) == 1
+                assert metadata["unverified"][0]["status"] == "NOT_RUN"
+                candidate = plan.expected_outputs[design]
+                assert candidate[artifact] is None and trust in candidate
+                assert "iam/iam-role-001-pending.json" not in candidate[design]
+                assert (
+                    "PENDING_DEPLOY" in candidate[design]
+                    and "confirmed-bucket" in candidate[design]
+                )
+                with ExitStack() as injections:
+                    if failure == "delete":
+                        injections.enter_context(
+                            patch.object(
+                                Path,
+                                "unlink",
+                                autospec=True,
+                                side_effect=_bind_framework_callback(
+                                    _fail_pending_delete, Path.unlink, artifact
+                                ),
+                            )
+                        )
+                    elif failure == "write":
+                        injections.enter_context(
+                            patch.object(
+                                Path,
+                                "write_text",
+                                autospec=True,
+                                side_effect=_bind_framework_callback(
+                                    _fail_pending_write, Path.write_text, design
+                                ),
+                            )
+                        )
+                    sync_runtime.publish_generation(plan)
+                if failure:
+                    assert plan.failures and not plan.saved
+                    assert {p: p.read_bytes() for p in originals} == originals
+                else:
+                    assert not plan.failures and not artifact.exists()
+                    assert trust.read_bytes() == originals[trust]
+                    assert design.read_text(encoding="utf-8") == candidate[design]
+                    assert not list(root.glob(".model-publication*.json"))
+            finally:
+                plan.close()
+        assert {p: p.read_bytes() for p in authority} == authority
+        if failure:
+            return
+        # A complete observation restores strict JSON and its Markdown link.
+        key["observed.row.001-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
+        save(producer, key)
+        assert MODULE.sync(root, True, "dev", "123456789012", ["iam"], jobs=1) == 0
+        assert (
+            json.loads(artifact.read_text(encoding="utf-8"))["Statement"][0][
+                "Resource"
+            ][1]
+            == arn
+        )
+        assert "iam/iam-role-001-pending.json" in design.read_text(encoding="utf-8")
+        assert "PENDING_DEPLOY" not in artifact.read_text(encoding="utf-8")
 
 
 def check_changed_sidecar_publication(generated_policy):

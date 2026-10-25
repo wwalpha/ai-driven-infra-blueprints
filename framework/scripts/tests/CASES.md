@@ -1,5 +1,16 @@
 # UT / IT 全ケース台帳
 
+## ARN計算とPending成果物
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `arn-pending::named` | `test_named_arn_with_pending_output` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 5 | CodeBuild Id待ち、IAM Path、Lambda、Glue複合識別、Events EventBusの既存計算 | 追加 |
+| `arn-pending::identity` | `test_only_generated_identity_waits` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 3 | KMS・EC2・SecretのAWS生成識別子待ちと大文字表示 | 追加 |
+| `arn-pending::policy` | `test_pending_policy_display_keeps_resolved_positions` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 1 | Policyの確定位置維持・部分Pending・リンク/ハッシュ除外・厳格実行投影 | 追加 |
+| `arn-pending::transaction` | `check_pending_artifact_transaction` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 3 | 実Stage/必須Validation、正常JSON保存とPending JSON削除、書込/削除失敗の完全Rollback、解消後のJSON/リンク復旧 | 追加 |
+
+S3の計算可能なArn Pendingは既存test_explicit_pendingを更新。分類/表示UTは必要構成要素の待ちを証明できる合成入力へ修正し、未確認値/矛盾はReferenceResolutionErrorとして維持。Import strict、ARN組立、JSON整合性、Model/IaC比較は既存関連UTを利用。長時間ITと全ITは実行しない。
+
 ## Issues Scan failure isolation
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |

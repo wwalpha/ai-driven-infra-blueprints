@@ -87,7 +87,9 @@ def _callback_Validator_generate_and_validate_generated(plan, self, snapshot, /)
         "inputs": snapshot,
         "candidates": plan.expected_outputs,
         "validation": plan.validation,
-        "complete": not plan.unavailable and not plan.failures,
+        "complete": not plan.unavailable
+        and not plan.failures
+        and not plan.pending_artifacts,
         "reference_unavailable": plan.unavailable,
     }
 

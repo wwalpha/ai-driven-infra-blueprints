@@ -96,6 +96,8 @@ class Presentation:
                             position,
                             result.value
                             if result.status == "resolved"
+                            else "PENDING_DEPLOY"
+                            if result.status == "pending_deploy"
                             else result.status,
                             self.link(node) if result.status == "resolved" else None,
                         )

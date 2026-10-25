@@ -161,4 +161,10 @@ def project_text(value):
 
 def display_value(resolver, scope, node):
     result = reference_value(resolver, scope, node)
-    return result.value if result.status == "resolved" else result.status
+    return (
+        result.value
+        if result.status == "resolved"
+        else "PENDING_DEPLOY"
+        if result.status == "pending_deploy"
+        else result.status
+    )

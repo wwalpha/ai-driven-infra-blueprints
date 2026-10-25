@@ -98,7 +98,7 @@ def test_missing_generated_kms_value(fixture):
 
 
 @pytest.mark.parametrize(
-    "mode,expected", [("CREATE", "pending_deploy"), ("IMPORT", "unresolved")]
+    "mode,expected", [("CREATE", "resolved"), ("IMPORT", "unresolved")]
 )
 def test_explicit_pending(fixture, mode, expected):
     producer, values, consumer, _ = fixture
@@ -114,7 +114,94 @@ def test_explicit_pending(fixture, mode, expected):
         assert error.value.diagnostic["code"] == "MODEL_REF_INVALID_PENDING_STATE"
     else:
         value = result(consumer)
-        assert value.status == expected and value.reason
+        assert (
+            value.status == expected and value.value == "arn:aws:s3:::fixture-materials"
+        )
+
+
+@pytest.mark.parametrize(
+    "kind,fields,pending,expected",
+    [
+        (
+            "CodeBuild.Project",
+            {"Name": "fixture-build"},
+            "Id",
+            "arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build",
+        ),
+        (
+            "IAM.Role",
+            {"RoleName": "fixture-role", "Path": "/team/"},
+            "Arn",
+            "arn:aws:iam::123456789012:role/team/fixture-role",
+        ),
+        (
+            "Lambda.Function",
+            {"FunctionName": "fixture-function"},
+            "Arn",
+            "arn:aws:lambda:ap-northeast-1:123456789012:function:fixture-function",
+        ),
+        (
+            "Glue.Table",
+            {
+                "CatalogId": "123456789012",
+                "DatabaseName": "db",
+                "TableInput.Name": "table",
+            },
+            "Id",
+            "arn:aws:glue:ap-northeast-1:123456789012:table/db/table",
+        ),
+        (
+            "Events.Rule",
+            {"Name": "fixture-rule", "EventBusName": "custom"},
+            "Arn",
+            "arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule",
+        ),
+    ],
+)
+def test_named_arn_with_pending_output(fixture, kind, fields, pending, expected):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root, "named", kind, attribute=pending, observed="PENDING_DEPLOY"
+    )
+    for index, (field, value) in enumerate(fields.items(), 2):
+        prefix = f"desired.row.001-{index:03d}."
+        values.update(
+            {
+                prefix + "property": kind + "." + field,
+                prefix + "value": "`" + value + "`",
+                prefix + "comment": "合成",
+            }
+        )
+    save(scope, values)
+    resolved = result(consumer, kind.replace(".", "_") + "_001")
+    assert (resolved.status, resolved.value) == ("resolved", expected)
+
+
+@pytest.mark.parametrize(
+    "kind,field",
+    [
+        ("KMS.Key", "KeyId"),
+        ("EC2.Instance", "InstanceId"),
+        ("SecretsManager.Secret", "Id"),
+    ],
+)
+def test_only_generated_identity_waits(fixture, kind, field):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root, "waiting", kind, attribute=field, observed="PENDING_DEPLOY"
+    )
+    logical = kind.replace(".", "_") + "_001"
+    if kind == "KMS.Key":
+        logical = "KMS_Key_002"
+        values["desired.resource.001.logicalId"] = logical
+        values["desired.service.identity.lastAllocated"] = json.dumps({kind: 2})
+    save(scope, values)
+    resolved = result(consumer, logical)
+    assert resolved.status == "pending_deploy" and resolved.value is None
+    assert (
+        display_value(Resolver(consumer.root), consumer, parse(reference(logical)))
+        == "PENDING_DEPLOY"
+    )
 
 
 @pytest.mark.parametrize(

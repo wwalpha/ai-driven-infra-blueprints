@@ -127,7 +127,9 @@ class Resource:
 
 
 @input_scope
-def resources_in(lines: list[str], root: Path | None = None) -> list[Resource]:
+def resources_in(
+    lines: list[str], root: Path | None = None, *, pending_links=None
+) -> list[Resource]:
     lines = resource_heading_lines(lines)
     resources = []
     current_type = logical_id = anchor = pending_anchor = ""
@@ -161,6 +163,9 @@ def resources_in(lines: list[str], root: Path | None = None) -> list[Resource]:
         )
         for row in rows:
             row[1] = _module_design_layout.formal_property(row[1], current_type, root)
+        rows = _model_projection.restore_pending_artifact_links(
+            rows, anchor, pending_links or {}
+        )
         names = [literal(row[2]) for row in rows if row[1] == "IAM.Role.RoleName"]
         if len(names) > 1:
             raise ValueError(f"duplicate IAM RoleName: {logical_id}")
@@ -258,6 +263,33 @@ def policy_lines(path: Path, policy: Policy, *, presentation=None) -> list[str]:
         raise ValueError(
             f"policy artifact must belong to the owning service: {policy.link}"
         )
+    if presentation is not None:
+        pending = _model_projection.pending_documents(
+            presentation.values, presentation.scope, presentation.root
+        )
+        matching = [
+            (rid, row)
+            for rid, row in entries(presentation.values, "desired.row.")
+            if row["property"] == policy.property_name
+            and (link := MODEL_JSON_LINK.fullmatch(row.get("value", "")))
+            and link[1] == policy.link
+        ]
+        if len(matching) == 1 and matching[0][0] in pending:
+            if artifact.exists():
+                raise ValueError("pending policy JSON must be absent: " + policy.link)
+            rid, row = matching[0]
+            document = _model_projection.display_document(
+                policy_json(row["document"]),
+                presentation.root,
+                resolver=presentation.resolver,
+                scope=presentation.scope,
+                property_name=row["property"],
+            )
+            baseline = policy_document_lines(document, policy)
+            displayed = presentation.document(rid, "document", document)
+            return presentation.lines(
+                baseline, policy_document_lines(displayed, policy)
+            )
     document = policy_json(artifact.read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError(f"policy JSON must be an object: {policy.link}")
@@ -547,8 +579,8 @@ def rendered_design(path: Path, *, definitions_root: Path | None = None) -> str:
     original = path.read_text(encoding="utf-8")
     lines = without_policy_tables(original.splitlines())
     root = definitions_root or definition_root(path.resolve().parent)
-    resources = resources_in(lines, root)
     presentation = None
+    pending_links = {}
     if (
         len(path.parents) > 4
         and path.parents[2].name == "designs"
@@ -559,6 +591,10 @@ def rendered_design(path: Path, *, definitions_root: Path | None = None) -> str:
             presentation = _reference_presentation.Presentation(
                 values, path, path.parents[4]
             )
+            pending_links = _model_projection.pending_artifact_links(
+                values, presentation.scope, presentation.root
+            )
+    resources = resources_in(lines, root, pending_links=pending_links)
     if not resources:
         if START in original or IAM_START in original:
             raise ValueError("policy tables have no owning resource")

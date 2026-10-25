@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import partial
@@ -31,6 +32,7 @@ import model.identity as _imports_model_identity
 import model.importing.sources as _imports_model_importing_sources
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
+import model.validation as _model_validation
 from model.core import (
     LINK,
     ReferenceDiagnosticError,
@@ -45,7 +47,6 @@ from model.format import REFERENCE_NAME_SUFFIXES as REFERENCE_NAME_SUFFIXES
 from model.format import RESOURCE_LINK as RESOURCE_LINK
 from model.reference_nodes import (
     context_at,
-    display_value,
     nodes,
     project,
     receiving_property,
@@ -345,26 +346,32 @@ def reference_display(values, path, root, *, reference_values=None):
     resolver = reference_resolver(
         values if reference_values is None else reference_values, scope, root
     )
+    rows = dict(entries(values, "desired.row."))
     for key, value in values.items():
         if key.startswith("desired.row.") and key.endswith((".document", ".value")):
             raw, structured = _imports_model_references._json(key, value)
             if not structured or key.endswith(".value") and not any(nodes(raw)):
                 continue
-            projected = execution_document(
+            pending = []
+            displayed = display_document(
                 raw,
                 root,
+                resolver=resolver,
                 property_name=values[key.rsplit(".", 1)[0] + ".property"],
                 scope=scope,
                 logical_id=values.get(
                     f"desired.resource.{key.split('.')[2].rpartition('-')[0]}.logicalId"
                 ),
-            )
-            displayed = project(projected, partial(display_value, resolver, scope))
-            displayed = execution_document(
-                displayed,
-                root,
-                property_name=values[key.rsplit(".", 1)[0] + ".property"],
-                scope=scope,
+                model_key=key,
+                pending=pending,
+                context=_model_validation.reference_context_for(
+                    reference_values if reference_values is not None else values,
+                    key.split(".")[2],
+                    rows[key.split(".")[2]],
+                    raw,
+                    "",
+                    root,
+                ),
             )
             result[key] = json.dumps(displayed, ensure_ascii=False)
             if key.endswith(".value") and isinstance(displayed, str):
@@ -372,9 +379,12 @@ def reference_display(values, path, root, *, reference_values=None):
             elif key.endswith(".value") and value.startswith("`"):
                 result[key] = "`" + result[key] + "`"
             if key.endswith(".document"):
-                result[key.removesuffix("document") + "artifactSha256"] = (
-                    document_sha256(displayed)
-                )
+                prefix = key.removesuffix("document")
+                if pending:
+                    result[prefix + "value"] = "`PENDING_DEPLOY`"
+                    result.pop(prefix + "artifactSha256", None)
+                else:
+                    result[prefix + "artifactSha256"] = document_sha256(displayed)
     return result
 
 
@@ -429,6 +439,105 @@ def reference_resolver(values, scope, root):
 
 def _resolved_document_value(resolutions, node):
     return resolutions[node].value
+
+
+def _display_document_value(resolutions, node):
+    result = resolutions[node]
+    return "PENDING_DEPLOY" if result.status == "pending_deploy" else result.value
+
+
+def display_document(document, root, *, pending=None, **contract):
+    """Allow proven deployment waits only in the display projection."""
+    resolutions, diagnostics = document_references(document, **contract)
+    if any(d["category"] != "REFERENCE_PENDING_DEPLOY" for d in diagnostics):
+        require_reference_diagnostics(diagnostics)
+    if pending is not None:
+        pending.extend(diagnostics)
+    # Check the authored structure before replacing reference leaves for display.
+    execution_document(
+        document,
+        root,
+        property_name=contract.get("property_name"),
+        scope=contract["scope"],
+    )
+    return execution_document(
+        project(document, partial(_display_document_value, resolutions)),
+        root,
+        property_name=contract.get("property_name"),
+        scope=contract["scope"],
+        logical_id=contract.get("logical_id"),
+    )
+
+
+def pending_documents(values, scope, root):
+    """Return exact artifact rows whose only unresolved values are CREATE waits."""
+    resolver = reference_resolver(values, scope, root)
+    pending = {}
+    for rid, row in entries(values, "desired.row."):
+        if "document" not in row:
+            continue
+        diagnostics = []
+        document = display_document(
+            policy_json(row["document"]),
+            root,
+            resolver=resolver,
+            scope=scope,
+            property_name=row["property"],
+            logical_id=values.get(
+                f"desired.resource.{rid.rpartition('-')[0]}.logicalId"
+            ),
+            model_key=f"desired.row.{rid}.document",
+            pending=diagnostics,
+        )
+        if not isinstance(document, dict):
+            raise ValueError("JSON document must be an object: " + rid)
+        if diagnostics:
+            pending[rid] = diagnostics
+    return pending
+
+
+def pending_artifact_links(values, scope, root):
+    pending = pending_documents(values, scope, root)
+    counts, links = Counter(), {}
+    for rid, row in entries(values, "desired.row."):
+        anchor = values.get(f"desired.resource.{rid.rpartition('-')[0]}.anchor")
+        key = (anchor, row["property"])
+        counts[key] += 1
+        if rid in pending:
+            match = JSON_LINK.fullmatch(row["value"])
+            if match is None:
+                raise ValueError(
+                    "pending JSON document requires an artifact link: " + rid
+                )
+            path = (
+                root
+                / "docs/designs"
+                / scope.environment
+                / scope.target
+                / (scope.service + ".md")
+            )
+            artifact = path.parent / match[1]
+            _imports_model_sources.safe(root, artifact)
+            if artifact.resolve().parent != path.with_suffix("").resolve():
+                raise ValueError(
+                    "pending JSON artifact must belong to owning service: " + rid
+                )
+            links[(*key, counts[key])] = row["value"]
+    return links
+
+
+def restore_pending_artifact_links(rows, anchor, links):
+    """Semantic validators still check artifact names/placement for proven waits."""
+    counts, result = Counter(), []
+    for row in rows:
+        counts[row[1]] += 1
+        link = links.get((anchor, row[1], counts[row[1]]))
+        result.append(
+            [*row[:2], link, *row[3:]]
+            if link and literal(row[2]) == "PENDING_DEPLOY"
+            else list(row)
+        )
+    return result
 
 
 def document_references(

@@ -143,6 +143,7 @@ def generation_for(backend, views, deferred=(), failures=()):
             for service, view in views.items()
             if service not in deferred
         },
+        pending_artifacts={},
         unavailable={
             views[s]: {
                 "reason": "reference",
@@ -210,6 +211,7 @@ def invoke(backend, generation, publish=publish_candidate):
         ),
     ):
         M.run(backend)
+    assert all(call.kwargs["strict"] is True for call in prepare.call_args_list)
     return prepare
 
 
@@ -876,22 +878,25 @@ def check_real_indexed_producer_and_observed_cache(
             patch.object(sources, "_read_model", wraps=sources._read_model) as loaded,
         ):
             result = reference_value(Resolver(tmp_path), consumer, node)
-            assert result.category == "REFERENCE_PENDING_DEPLOY"
-            stage = tmp_path / "stage"
-            diagnostic = dict(result.diagnostic)
-            if staged:
-                diagnostic["producerModel"] = str(
-                    stage / producer.path.relative_to(tmp_path)
+            if kind != "KMS.Key":
+                assert result.status == "resolved"
+            else:
+                assert result.category == "REFERENCE_PENDING_DEPLOY"
+                stage = tmp_path / "stage"
+                diagnostic = dict(result.diagnostic)
+                if staged:
+                    diagnostic["producerModel"] = str(
+                        stage / producer.path.relative_to(tmp_path)
+                    )
+                waiting = M.producers(
+                    backend,
+                    tmp_path / "docs/designs/qa/team/iam.md",
+                    {"diagnostics": [diagnostic, diagnostic]},
+                    stage,
+                    Resolver(tmp_path),
                 )
-            waiting = M.producers(
-                backend,
-                tmp_path / "docs/designs/qa/team/iam.md",
-                {"diagnostics": [diagnostic, diagnostic]},
-                stage,
-                Resolver(tmp_path),
-            )
-            assert len(waiting) == 1 and waiting[0]["stack"] == "build"
-            assert waiting[0]["producerModel"] == str(producer.path)
+                assert len(waiting) == 1 and waiting[0]["stack"] == "build"
+                assert waiting[0]["producerModel"] == str(producer.path)
             text = patch_properties(
                 parse_properties(producer.path.read_text()),
                 {"observed.row.001-001.value": "`" + value + "`"},

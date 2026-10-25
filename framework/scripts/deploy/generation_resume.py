@@ -314,6 +314,7 @@ def run(backend):
                     for v in selected
                 },
                 snapshot=snapshot,
+                strict=True,
             )
             try:
                 sync_runtime.validate_generation(generation)

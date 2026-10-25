@@ -763,7 +763,7 @@ def render_markdown(
                 row_id = definitions[0][0]
                 raw = (
                     values[f"desired.row.{row_id}.document"]
-                    if JSON_LINK.fullmatch(definitions[0][2])
+                    if f"desired.row.{row_id}.document" in values
                     else _dependency_policy_tables.literal(
                         values[f"desired.row.{row_id}.value"]
                     )
@@ -811,7 +811,11 @@ def model_policy_views(values, *, presentation=None):
         rows = rows_by_resource[identity]
         for position, (row_id, row) in enumerate(rows):
             prop = row["property"]
-            link = JSON_LINK.fullmatch(row.get("value", ""))
+            link = JSON_LINK.fullmatch(
+                presentation.values.get(f"desired.row.{row_id}.value", "")
+                if presentation is not None
+                else row.get("value", "")
+            )
             if prop not in POLICY_FORMATS or not link or "document" not in row:
                 continue
             label, target = link.groups()
