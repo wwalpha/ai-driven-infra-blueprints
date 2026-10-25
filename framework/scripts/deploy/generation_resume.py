@@ -1,11 +1,13 @@
 """Durable service generation after the Stack's atomic Observed barrier."""
 
+import base64
 import copy
 from functools import partial
 from pathlib import Path
 
 import sync_runtime
 from generation_inputs import GenerationInputs
+from model.core import ReferenceResolutionError
 from model.identity import Resolver
 from model.sources import publication_lock, safe, scope_for
 from task_contract_core import task_read_scope
@@ -19,6 +21,7 @@ def complete(session):
     return (
         not session.get("pendingObserved")
         and not session.get("pendingGeneration")
+        and not session.get("generationError")
         and all(
             state["status"] == "SUCCESS" and state.get("observedSynced")
             for state in session["states"].values()
@@ -27,6 +30,8 @@ def complete(session):
 
 
 def describe(session):
+    if session.get("generationError"):
+        return session["generationError"]
     return "pending design generation: " + "; ".join(
         key + ": " + record["reason"] + " " + str(record["producers"])
         for key, record in session.get("pendingGeneration", {}).items()
@@ -241,17 +246,35 @@ def revision(session, record):
 
 def failed_services(generation, selected):
     failed = {}
-    if generation.failures and not generation.failure_records:
-        raise Blocked("generation failure has no structured service ownership")
+    unclassified = []
+    recorded = {d.message for d in generation.failure_records}
     for diagnostic in generation.failure_records:
         affected = set(diagnostic.affected_services)
         if diagnostic.service is not None:
             affected.add(diagnostic.service)
+        matched = False
         for view in selected:
             identity = (*Path(view).parts[2:4], Path(view).stem)
-            if not affected or identity in affected:
+            if identity in affected:
                 failed.setdefault(view, []).append(diagnostic.message)
-    return failed
+                matched = True
+        if not matched:
+            unclassified.append(diagnostic.message)
+    unclassified.extend(m for m in generation.failures if m not in recorded)
+    return failed, unclassified
+
+
+def retry_published(record):
+    """Start a retry only from candidate bytes already verified as published."""
+    record["generated"].update(
+        originals={
+            p: base64.b64encode(text.encode("utf-8")).decode("ascii")
+            for p, text in record["generated"]["outputs"].items()
+        },
+        outputs=None,
+        stage="PREPARED",
+    )
+    record.update(candidateManifest=None, candidateSelections=[])
 
 
 def run(backend):
@@ -268,6 +291,8 @@ def run(backend):
         if checked.get(view) != revision(session, record)
     }
     if not changed:
+        if session.get("generationError"):
+            raise Blocked(session["generationError"])
         return
     recovered = getattr(backend, "generation_recovery", {})
     current = {}
@@ -293,16 +318,20 @@ def run(backend):
         if outputs is not None and current[view] == observed.manifest(
             {p: text.encode("utf-8") for p, text in outputs.items()}
         ):
-            # Exact saved candidates already committed before interruption need no rendering.
-            del pending[view]
-        elif ready(session, record):
+            if not session.get("generationError"):
+                # Exact saved candidates need no rendering unless failure recovery remains.
+                del pending[view]
+                continue
+            # Recheck failed batches from their proven published bytes after interruption.
+            retry_published(record)
+        if ready(session, record) or record["reason"].startswith("FAILED:"):
             selected.append(view)
         else:
             checked[view] = copy.deepcopy(revision(session, record))
-    if not pending:
-        session.pop("generationError", None)
     backend.save()
     if not selected:
+        if session.get("generationError"):
+            raise Blocked(session["generationError"])
         return
     backend.guard()
     with publication_lock(root, read_only=True):
@@ -318,7 +347,7 @@ def run(backend):
             )
             try:
                 sync_runtime.validate_generation(generation)
-                failed = failed_services(generation, selected)
+                failed, unclassified = failed_services(generation, selected)
                 resolver = Resolver(root)
                 deferred = {
                     path.relative_to(root).as_posix(): producers(
@@ -337,7 +366,10 @@ def run(backend):
                     }
                     for path, files in generation.expected_outputs.items()
                 }
-                if set(candidates) != set(selected) - set(deferred) - set(failed):
+                expected = set(selected) - set(deferred) - set(failed)
+                if set(candidates) - expected or (
+                    expected - set(candidates) and not unclassified
+                ):
                     raise Blocked("generation candidate service set changed")
                 for view, candidate in candidates.items():
                     generated = pending[view]["generated"]
@@ -360,6 +392,14 @@ def run(backend):
                     )
                 for view, reasons in failed.items():
                     pending[view]["reason"] = "FAILED: " + "; ".join(reasons)
+                if unclassified:
+                    session["generationError"] = (
+                        "unclassified generation errors: " + "; ".join(unclassified)
+                    )
+                    for view in selected:
+                        pending[view]["reason"] = "FAILED: " + "; ".join(
+                            [*failed.get(view, []), session["generationError"]]
+                        )
                 for view, candidate in candidates.items():
                     pending[view]["generated"].update(
                         outputs=candidate, stage="CANDIDATE"
@@ -402,7 +442,11 @@ def run(backend):
                     sync_runtime.publish_generation(generation)
                 except Exception as error:
                     publication_error = error
-                failed = failed_services(generation, selected)
+                failed, unclassified = failed_services(generation, selected)
+                if unclassified:
+                    session["generationError"] = (
+                        "unclassified generation errors: " + "; ".join(unclassified)
+                    )
                 for view in candidates:
                     if root / view not in generation.saved:
                         continue
@@ -419,12 +463,17 @@ def run(backend):
                     except (Blocked, OSError, ValueError) as error:
                         publication_error = publication_error or error
                         continue
-                    del pending[view]
+                    if not unclassified:
+                        del pending[view]
                 backend.save()
                 if publication_error is not None:
                     raise publication_error
                 for view in candidates.keys() & pending.keys():
                     record = pending[view]
+                    if unclassified and root / view in generation.saved:
+                        retry_published(record)
+                        record["reason"] = "FAILED: " + session["generationError"]
+                        continue
                     current = observed.check_generated(root, record)
                     before, _ = observed.generated_manifests(root, record)
                     if current != before:
@@ -442,16 +491,40 @@ def run(backend):
                             session["modelInputManifest"]
                         )
                         checked[view] = copy.deepcopy(revision(session, pending[view]))
-                if any(r["reason"].startswith("FAILED:") for r in pending.values()):
-                    session["generationError"] = describe(session)
+                if unclassified or any(
+                    r["reason"].startswith("FAILED:") for r in pending.values()
+                ):
+                    session["generationError"] = (
+                        "pending design generation: "
+                        + "; ".join(
+                            key + ": " + record["reason"]
+                            for key, record in pending.items()
+                        )
+                        + (
+                            "; unclassified generation errors: "
+                            + "; ".join(unclassified)
+                            if unclassified
+                            else ""
+                        )
+                    )
                 else:
                     session.pop("generationError", None)
                 backend.guard()
                 backend.save()
                 try:
                     sync_runtime.report_generation(generation)
-                except ValueError:
-                    if not generation.failures and not deferred:
+                except ReferenceResolutionError as error:
+                    if (
+                        error.diagnostic["category"] != "REFERENCE_PENDING_DEPLOY"
+                        or generation.failures
+                        or not deferred
+                    ):
                         raise
+                except ValueError as error:
+                    if session.get("generationError"):
+                        raise Blocked(session["generationError"]) from error
+                    raise
+                if session.get("generationError"):
+                    raise Blocked(session["generationError"])
             finally:
                 generation.close()

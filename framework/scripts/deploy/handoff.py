@@ -35,7 +35,7 @@ from worktree_task import bind_deploy_workflow as register_workflow
 
 import deploy.change_sets as _imports_deploy_change_sets
 import deploy.inputs as _imports_deploy_inputs
-from deploy import failures, retry_policy
+from deploy import failures, generation_resume, retry_policy
 from deploy.model_cache import SessionModels
 from deploy.typing import InputPaths, Manifest, PathsFor, Session, StackUnit
 
@@ -988,7 +988,7 @@ def record_outcomes(session: Session) -> None:
             current["status"] = "NEEDS_DIAGNOSIS"
         elif (
             session.get("result") == "COMPLETE"
-            and not session.get("pendingGeneration")
+            and generation_resume.complete(session)
             and not any(
                 "schedulerError" in state for state in session["states"].values()
             )

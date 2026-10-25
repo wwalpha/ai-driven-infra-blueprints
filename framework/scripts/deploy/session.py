@@ -120,7 +120,11 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
         if session["states"][u["name"]]["status"] == "SUCCESS"
         and not session["states"][u["name"]].get("observedSynced")
     ]
-    if not unsynced and not session.get("pendingGeneration"):
+    if (
+        not unsynced
+        and not session.get("pendingGeneration")
+        and not session.get("generationError")
+    ):
         return True
     started = time.perf_counter()
     stage = "OBSERVED" if unsynced else "GENERATION"
@@ -143,11 +147,9 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
             session.pop("pendingObserved", None)
             session.pop("observedError", None)
             session.pop("observedRecoveryError", None)
-        if session.get("pendingGeneration"):
+        if session.get("pendingGeneration") or session.get("generationError"):
             stage = "GENERATION"
             generation_resume.run(backend)
-        if not session.get("pendingGeneration"):
-            session.pop("generationError", None)
         return True
     except Exception as error:
         backend.sync_failed = True

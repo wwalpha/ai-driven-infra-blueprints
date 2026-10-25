@@ -189,7 +189,7 @@ def resolved_producer(backend, logical, scope):
     )
 
 
-def invoke(backend, generation, publish=publish_candidate):
+def invoke(backend, generation, publish=publish_candidate, operation=M.run):
     with (
         patch.object(
             M.sync_runtime,
@@ -210,7 +210,7 @@ def invoke(backend, generation, publish=publish_candidate):
             side_effect=partial(resolved_producer, backend),
         ),
     ):
-        M.run(backend)
+        operation(backend)
     assert all(call.kwargs["strict"] is True for call in prepare.call_args_list)
     return prepare
 
@@ -237,7 +237,8 @@ def check_failed_service_does_not_reject_successes(owned, revision):
     fail_service(
         generation, failed, message="iam appears here but kms owns the failure"
     )
-    invoke(backend, generation)
+    with pytest.raises(Blocked, match="kms owns"):
+        invoke(backend, generation)
     key = failed.relative_to(backend.root).as_posix()
     assert set(backend.session["pendingGeneration"]) == {key}
     assert set(generation.saved) == {views["iam"], views["athena"]}
@@ -255,7 +256,8 @@ def check_failed_service_does_not_reject_successes(owned, revision):
         patch.object(M.sync_runtime, "prepare_generation") as prepare,
     ):
         for _ in range(10):
-            M.run(backend)
+            with pytest.raises(Blocked, match="kms owns"):
+                M.run(backend)
         check.assert_not_called()
         prepare.assert_not_called()
     if revision == "repair":
@@ -286,7 +288,8 @@ def check_publication_results_and_rollback_are_service_scoped(owned, rollback):
     backend, views, _ = owned
     generation = generation_for(backend, views)
     original = {p: p.read_bytes() for p in generation.expected_outputs[views["kms"]]}
-    invoke(backend, generation, partial(publish_with_rollback, views, rollback))
+    with pytest.raises(Blocked, match="publication rolled back"):
+        invoke(backend, generation, partial(publish_with_rollback, views, rollback))
     expected = {views["kms"], *([views["iam"]] if rollback else [])}
     assert set(backend.session["pendingGeneration"]) == {
         p.relative_to(backend.root).as_posix() for p in expected
@@ -378,7 +381,8 @@ def check_fresh_resume_rechecks_and_retries_once(owned, failed):
     if failed:
         generation.expected_outputs.clear()
         fail_service(generation, affected={("dev", "team", s) for s in views})
-    invoke(backend, generation)
+    with pytest.raises(Blocked) if failed else nullcontext():
+        invoke(backend, generation)
     backend.session = json.loads(json.dumps(saved[-1]))
     backend.save = partial(save_copy, saved, backend.session)
     with patch.object(
@@ -515,7 +519,6 @@ def check_partial_generation_then_dependency_completion(owned):
         "failed",
         "ambiguous",
         "empty",
-        "failures",
     ],
 )
 def check_invalid_references_stop(owned, problem):
@@ -544,8 +547,6 @@ def check_invalid_references_stop(owned, problem):
         backend.session["states"]["build"]["status"] = "FAILED"
     if problem == "empty":
         generation.unavailable[views["iam"]]["diagnostics"] = []
-    if problem == "failures":
-        generation.failures = ["unclassified error"]
     before = {p: p.read_bytes() for p in views.values()}
     with (
         patch.object(
@@ -700,6 +701,18 @@ def mark_observed(backend, units, states):
     return None
 
 
+def run_deploy(backend):
+    with patch.object(controller, "sync_successful", side_effect=mark_observed):
+        backend.result = controller.run_session(
+            backend.units,
+            1,
+            backend.session,
+            backend,
+            backend.save,
+            sleep=lambda _: None,
+        )
+
+
 def check_service_failure_keeps_observed_barriers_and_final_pending(owned):
     backend, views, _ = owned
     runtime = Fake()
@@ -708,43 +721,200 @@ def check_service_failure_keeps_observed_barriers_and_final_pending(owned):
     generation = generation_for(runtime, views)
     generation.expected_outputs.pop(views["kms"])
     fail_service(generation, views["kms"])
-    with (
-        patch.object(controller, "sync_successful", side_effect=mark_observed),
-        patch.object(
-            M.sync_runtime,
-            "generation_context",
-            return_value=nullcontext(SimpleNamespace(contents={}, selections={})),
-        ),
-        patch.object(
-            M.sync_runtime, "prepare_generation", return_value=generation
-        ) as prepare,
-        patch.object(M.sync_runtime, "validate_generation"),
-        patch.object(
-            M.sync_runtime, "publish_generation", side_effect=publish_candidate
-        ),
-    ):
-        assert (
-            controller.run_session(
-                runtime.units,
-                1,
-                runtime.session,
-                runtime,
-                runtime.save,
-                sleep=lambda _: None,
-            )
-            == "STOPPED"
-        )
+    prepare = invoke(runtime, generation, operation=run_deploy)
+    assert runtime.result == "STOPPED" and runtime.sync_failed
     prepare.assert_called_once()
-    assert starts(runtime) == ["build", "release"]
+    assert starts(runtime) == []
+    assert runtime.session["states"]["early"]["observedSynced"]
     assert all(
-        s["status"] == "SUCCESS" and s["observedSynced"]
-        for s in runtime.session["states"].values()
+        runtime.session["states"][name]["status"] == "NOT_STARTED"
+        for name in ("build", "release")
     )
     assert "kms" in runtime.session["generationError"]
     assert not any(
         name in runtime.session
         for name in ("observedError", "observedRecoveryError", "observedFailures")
     )
+    runtime.session = json.loads(json.dumps(runtime.session))
+    runtime.save = partial(save_copy, [], runtime.session)
+    retry = generation_for(runtime, {"kms": views["kms"]})
+    invoke(runtime, retry, operation=run_deploy)
+    assert runtime.result == "COMPLETE" and not runtime.sync_failed
+    assert starts(runtime) == ["build", "release"]
+    assert not runtime.session["pendingGeneration"]
+    assert "generationError" not in runtime.session
+
+
+def add_unclassified(generation, ownership):
+    if ownership == "unstructured":
+        generation.failures.append("orphan generation failure")
+    else:
+        fail_service(
+            generation,
+            generation.root / "docs/designs/other/target/kms.md"
+            if ownership == "foreign"
+            else None,
+            message="orphan generation failure",
+        )
+
+
+def publish_with_unclassified(ownership, generation):
+    publish_candidate(generation)
+    add_unclassified(generation, ownership)
+
+
+@pytest.mark.parametrize("ownership", ["foreign", "none", "unstructured"])
+@pytest.mark.parametrize("phase", ["validation", "publication", "no-candidates"])
+def check_unclassified_failure_stops_and_revalidates_saved_services(
+    owned, ownership, phase
+):
+    backend, views, saved = owned
+    runtime = Fake()
+    runtime.__dict__.update(backend.__dict__)
+    generation = generation_for(runtime, views)
+    if phase != "publication":
+        add_unclassified(generation, ownership)
+    if phase == "no-candidates":
+        generation.expected_outputs.clear()
+    publish = (
+        partial(publish_with_unclassified, ownership)
+        if phase == "publication"
+        else publish_candidate
+    )
+    invoke(runtime, generation, publish, operation=run_deploy)
+    assert runtime.result == "STOPPED" and runtime.sync_failed
+    assert starts(runtime) == []
+    assert runtime.session["states"]["early"]["observedSynced"]
+    assert "orphan generation failure" in runtime.session["generationError"]
+    assert set(runtime.session["pendingGeneration"]) == {
+        v.relative_to(runtime.root).as_posix() for v in views.values()
+    }
+    assert set(generation.saved) == (
+        set() if phase == "no-candidates" else set(views.values())
+    )
+    assert "orphan generation failure" in saved[-1]["generationError"]
+    assert not M.complete(runtime.session)
+    assert not any(
+        key in runtime.session
+        for key in ("observedError", "observedRecoveryError", "observedFailures")
+    )
+    runtime.session = json.loads(json.dumps(saved[-1]))
+    runtime.save = partial(save_copy, saved, runtime.session)
+    retry = generation_for(runtime, views)
+    prepare = invoke(runtime, retry, operation=run_deploy)
+    prepare.assert_called_once()
+    assert runtime.result == "COMPLETE"
+    assert starts(runtime) == ["build", "release"]
+    assert not runtime.session["pendingGeneration"]
+    assert "generationError" not in runtime.session
+
+
+def check_unstructured_failure_cannot_hide_behind_mapped_failure(owned):
+    backend, views, _ = owned
+    generation = generation_for(backend, views)
+    generation.expected_outputs.pop(views["kms"])
+    fail_service(generation, views["kms"], message="owned failure")
+    add_unclassified(generation, "unstructured")
+    selected = [v.relative_to(backend.root).as_posix() for v in views.values()]
+    failed, unclassified = M.failed_services(generation, selected)
+    assert failed == {
+        views["kms"].relative_to(backend.root).as_posix(): ["owned failure"]
+    }
+    assert unclassified == ["orphan generation failure"]
+    with pytest.raises(Blocked, match="orphan generation failure"):
+        invoke(backend, generation)
+    assert "orphan generation failure" in backend.session["generationError"]
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+def check_unclassified_retry_rechecks_errors_before_returning_to_pending(
+    owned, deferred
+):
+    backend, views, saved = owned
+    generation = generation_for(backend, views, ["iam"] if deferred else [])
+    add_unclassified(generation, "foreign")
+    with pytest.raises(Blocked, match="orphan"):
+        invoke(backend, generation)
+    assert all(
+        record["generated"]["outputs"] is None
+        for record in saved[-1]["pendingGeneration"].values()
+    )
+    backend.session = copy.deepcopy(saved[-1])
+    backend.save = partial(save_copy, saved, backend.session)
+    retry = generation_for(backend, views, ["iam"] if deferred else [])
+    add_unclassified(retry, "foreign")
+    with pytest.raises(Blocked, match="orphan"):
+        invoke(backend, retry)
+    assert "orphan" in saved[-1]["generationError"]
+    backend.session = copy.deepcopy(saved[-1])
+    backend.save = partial(save_copy, saved, backend.session)
+    resolved = generation_for(backend, views, ["iam"] if deferred else [])
+    for files in resolved.expected_outputs.values():
+        for path in files:
+            files[path] = "corrected generation\n"
+    invoke(backend, resolved)
+    assert "generationError" not in backend.session
+    assert len(backend.session["pendingGeneration"]) == int(deferred)
+    if deferred:
+        assert next(iter(backend.session["pendingGeneration"].values()))["reason"] == (
+            "REFERENCE_PENDING_DEPLOY"
+        )
+
+
+@pytest.mark.parametrize("pause", [False, True])
+@pytest.mark.parametrize("pending", [False, True])
+def check_all_successful_stacks_cannot_complete_with_generation_error(
+    owned, pause, pending
+):
+    backend, _, _ = owned
+    for state in backend.session["states"].values():
+        state.update(status="SUCCESS", observedSynced=True)
+    if not pending:
+        backend.session["pendingGeneration"].clear()
+    backend.session["generationError"] = "unclassified generation failure"
+    assert not M.complete(backend.session)
+    with patch.object(M, "run") as generate:
+        # The final completion gate must also reject an ineffective recovery callback.
+        assert (
+            controller.run_session(
+                backend.units,
+                1,
+                backend.session,
+                backend,
+                backend.save,
+                pause_after_group=pause,
+                sleep=lambda _: None,
+            )
+            == "STOPPED"
+        )
+    generate.assert_called_once()
+    assert "unclassified generation failure" in backend.session["generationError"]
+    backend.session["result"] = "COMPLETE"
+    handoff.record_outcomes(backend.session)
+    assert backend.session["workflow"]["status"] != "COMPLETE"
+
+
+def check_unexpected_report_error_is_not_suppressed_for_deferred_generation(owned):
+    backend, views, _ = owned
+    generation = generation_for(backend, views, ["iam"])
+    with (
+        patch.object(
+            M.sync_runtime, "report_generation", side_effect=ValueError("report failed")
+        ),
+        pytest.raises(ValueError, match="report failed"),
+    ):
+        invoke(backend, generation)
+
+
+def check_success_has_no_pending_or_errors(owned):
+    backend, views, _ = owned
+    runtime = Fake()
+    runtime.__dict__.update(backend.__dict__)
+    invoke(runtime, generation_for(runtime, views), operation=run_deploy)
+    assert runtime.result == "COMPLETE" and not runtime.sync_failed
+    assert starts(runtime) == ["build", "release"]
+    assert not runtime.session["pendingGeneration"]
+    assert "generationError" not in runtime.session
 
 
 @pytest.mark.parametrize("pause", [False, True])
@@ -1042,7 +1212,8 @@ def check_pending_generation_deduplicates_new_observations(owned):
 
 
 @pytest.mark.parametrize("change", ["bytes", "symlink", "file-set"])
-def check_published_candidate_preserves_model_input_guards(owned, change):
+@pytest.mark.parametrize("failed", [False, True])
+def check_published_candidate_preserves_model_input_guards(owned, change, failed):
     backend, views, _ = owned
     source = backend.root / "model/dev/team/iam.properties"
     source.parent.mkdir(parents=True)
@@ -1072,6 +1243,8 @@ def check_published_candidate_preserves_model_input_guards(owned, change):
             stage="CANDIDATE",
         )
     publish_candidate(generation)
+    if failed:
+        backend.session["generationError"] = "unclassified generation failure"
     if change == "bytes":
         source.write_bytes(b"external change")
     elif change == "symlink":
