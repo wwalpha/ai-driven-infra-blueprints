@@ -63,6 +63,11 @@ def main(argv=None):
     incoming.add_argument("resource")
     listing = commands.add_parser("list")
     listing.add_argument("--repository-root", type=Path, default=Path.cwd())
+    indexing = commands.add_parser(
+        "index",
+        help="rebuild derived ownership/reference metadata offline; never deploy",
+    )
+    indexing.add_argument("--repository-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
     return module("model/cli_runtime.py", "model.cli_runtime").execute(args)
 

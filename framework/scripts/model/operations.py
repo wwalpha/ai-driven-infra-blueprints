@@ -321,10 +321,13 @@ def prepare_edit(
         if before != (None if text is None else text.encode("utf-8")):
             output[path] = text
     reads = CandidateReads(policy.snapshot, output)
-    after = load_model(snapshot.scope, reads)
-    warnings = list(after.warnings)
-    validate_json_settings(after.authoritative, entry, warnings=warnings)
-    after = after._replace(warnings=tuple(warnings))
+    if policy.operation.action == "observed":
+        after = _imports_model_sources.observed_snapshot(snapshot, output)
+    else:
+        after = load_model(snapshot.scope, reads)
+        warnings = list(after.warnings)
+        validate_json_settings(after.authoritative, entry, warnings=warnings)
+        after = after._replace(warnings=tuple(warnings))
     if policy.operation.action == "observed":
         verify_observed_outputs = _imports_model_observed.verify_observed_outputs
         verify_observed_outputs(
@@ -428,6 +431,7 @@ def _publish_plans(plans, context):
                     start=context._start,
                     finish=finish,
                     receipt=context._receipt,
+                    observed=context.operation.action == "observed",
                 )
             else:
                 finish()

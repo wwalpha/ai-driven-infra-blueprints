@@ -90,7 +90,7 @@ def fixture(root, stacks=1, services=("s3", "cloudwatch-logs", "sqs"), parts=Fal
     write(
         root / "issues/dev/123456789012/human-confirmations.yaml",
         json.dumps(
-            dict(version=1, environment="dev", target="123456789012", confirmations=[])
+            dict(version=2, environment="dev", target="123456789012", confirmations=[])
         ),
     )
     target = {
@@ -269,7 +269,7 @@ def fixture(root, stacks=1, services=("s3", "cloudwatch-logs", "sqs"), parts=Fal
 
 
 @contextmanager
-def task(root, services, name="save", allowed=None, cleanup=()):
+def task(root, services, name="save", allowed=None):
     reports = [
         "issues/dev/123456789012/issues.md",
         "issues/dev/123456789012/iac-issues.md",
@@ -281,20 +281,6 @@ def task(root, services, name="save", allowed=None, cleanup=()):
     )
     for heading in ("Allowed paths", "Modified files"):
         text += "\n## " + heading + "\n\n" + "".join(f"- `{file}`\n" for file in files)
-    if cleanup:
-        text += "\n## Human-requested confirmation cleanup\n" + "".join(
-            "- "
-            + json.dumps(
-                dict(
-                    environment="dev",
-                    target="123456789012",
-                    confirmation_id=confirmation,
-                    record_id=record,
-                )
-            )
-            + "\n"
-            for confirmation, record in cleanup
-        )
     write(root / f"tasks/{name}.md", text)
     previous = os.environ.get(SELECTOR)
     os.environ[SELECTOR] = f"tasks/{name}.md"
@@ -418,7 +404,7 @@ def summary_fixture():
     ]
     context = dict(rules={}, target_context={}, review_policy="review all")
     artifact = dict(
-        version=4,
+        version=5,
         scan_id="a" * 32,
         naming_context=context,
         naming_context_id=identifier(context),
@@ -430,7 +416,7 @@ def summary_fixture():
         naming=dict(names=names),
         judgments=judgments,
         human_confirmations=dict(
-            version=1, environment="dev", target="cde", confirmations=[]
+            version=2, environment="dev", target="cde", confirmations=[]
         ),
         checks=1,
         executed_at="2026-10-08T00:00:00Z",
@@ -563,7 +549,6 @@ def review_for(artifact):
                 *(item for item in artifact["judgments"] if "message" in item),
             ]
         ],
-        confirmation_cleanup=[],
         unverified=[],
     )
 
@@ -574,7 +559,7 @@ def snapshot_artifact(
     """A complete synthetic Scan boundary, with no validators or real Project reads."""
     services = sorted(services)
     return dict(
-        version=4,
+        version=5,
         root=str(root),
         scan_id="a" * 32,
         naming_context_id=identifier({}),
@@ -591,7 +576,7 @@ def snapshot_artifact(
         judgments=[],
         executed_at="2026-10-25T00:00:00Z",
         human_confirmations=dict(
-            version=1, environment="dev", target=target, confirmations=[]
+            version=2, environment="dev", target=target, confirmations=[]
         ),
         warnings=[],
         information=[],
@@ -604,7 +589,6 @@ def snapshot_artifact(
                 status="PASS",
                 complete=True,
                 scope=[f"dev/{target}/{service}" for service in services],
-                targets=[],
             )
         ],
         **aggregate(list(records), "dev", target, services),

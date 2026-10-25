@@ -4,12 +4,16 @@ import copy
 from pathlib import Path
 
 import worktree_task as _imports_worktree_task
-from utils.cloudformation.inputs import Blocked
+from utils.cloudformation.inputs import Blocked, load_template_inputs
 from utils.sealed_evidence import read_sealed
 
 import deploy.contracts as _dependency_deploy_contracts
 import deploy.scheduler as _imports_deploy_scheduler
 from deploy import handoff, recovery
+
+
+def recovery_inputs(backend, unit):
+    return load_template_inputs(*backend.paths(unit))
 
 
 def accept(root, result_path, session, backend, units, current_units, current_manifest):
@@ -103,7 +107,10 @@ def accept(root, result_path, session, backend, units, current_units, current_ma
         )
     handoff.verify_inputs(root, session, child_paths=changed)
     effective = handoff.effective(
-        root, units, backend.paths, backend.deployment_input_paths
+        root,
+        [u for u in units if u["name"] in session["unitDigests"]],
+        backend.paths,
+        backend.deployment_input_paths,
     )
     if result.get("effectiveInputs") != {
         "before": session["effectiveDigests"],
@@ -120,7 +127,9 @@ def accept(root, result_path, session, backend, units, current_units, current_ma
         & changed
     }
     if not affected or any(
-        effective[name] == session["effectiveDigests"][name] for name in affected
+        effective.get(name) == session["effectiveDigests"].get(name)
+        for name in affected
+        if name in session["effectiveDigests"]
     ):
         raise Blocked(
             "repair has no effective input change (comments/formatting do not count)"
@@ -131,12 +140,14 @@ def accept(root, result_path, session, backend, units, current_units, current_ma
             for o in session.get("failureObservations", [])
             if o["stack"] == name
         }
-        if effective[name] in failed:
+        if name in effective and effective[name] in failed:
             raise Blocked("known failed effective input resubmitted")
     # Declared Import/Export dependencies only; never scan Model mappings to start deploy.
     consumers = copy.deepcopy(session.get("declaredConsumers", {}))
     for unit in units:
-        backend.load_inputs(unit)
+        if unit["name"] in session["unitDigests"] or unit["name"] in affected:
+            backend.templates.pop(unit["name"], None)
+            backend.templates[unit["name"]] = recovery_inputs(backend, unit)
     new_consumers = handoff.dependencies(backend, units)
     for name, values in new_consumers.items():
         consumers[name] = sorted(set(consumers.get(name, [])) | set(values))

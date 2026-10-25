@@ -472,7 +472,7 @@ def check_incomplete_setting_artifact():
                 comparison.display_differences,
                 redact=comparison.redacted,
             )
-            artifact = dict(version=4, **data)
+            artifact = dict(version=5, **data)
             counts = data["overview"]["records"]
             assert counts == dict(
                 difference=1, uncompared=1, error=1, matched=0, deferred=0, excluded=0
@@ -594,7 +594,7 @@ def check_iac_partial_error_artifact():
             comparison.display_differences,
             redact=comparison.redacted,
         )
-        artifact = dict(version=4, **data)
+        artifact = dict(version=5, **data)
         counts = data["overview"]["records"]
         detail = detail_payload(artifact, "iac")["items"]
         report = iac_report(

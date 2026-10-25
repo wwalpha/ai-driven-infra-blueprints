@@ -535,7 +535,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     )
     aggregation_seconds = time.perf_counter() - begin
     artifact = dict(
-        version=4,
+        version=5,
         target_services=all_services,
         service_results=[
             dict(service=service, status="scanned") for service in sorted(set(services))
@@ -586,24 +586,6 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             unavailable_services=result.metadata.get("unavailable_services", {}),
             unverified=result.metadata.get("unverified", []),
             checks=result.checks,
-            # Only this complete service check validates the selected setting tables.
-            # Other checks (including lint) have no proven per-setting PASS coverage.
-            targets=[
-                dict(
-                    service=service,
-                    resource=identity,
-                    property=row["property"],
-                    rule=result.check_id,
-                )
-                for env, target, service in sorted(result.scope or [])
-                if (env, target) == (environment, directory)
-                for identity, rows in comparison.rows.get(service, {}).items()
-                for _, row in rows
-            ]
-            if result.check_id == "design.service"
-            and result.status == "PASS"
-            and result.checks > 0
-            else [],
         )
         for result in [*validator.findings.results.values(), *stages.results.values()]
     ]

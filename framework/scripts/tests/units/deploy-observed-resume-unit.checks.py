@@ -142,8 +142,8 @@ def proposal(tmp_path):
             "afterManifest": after,
             "outputs": {relative: new},
             "originals": {relative: base64.b64encode(old.encode()).decode()},
-            "directories": ["model/dev/team"],
-            "inventory": [relative],
+            "directories": ["model/dev/team/service"],
+            "inventory": [],
             "stage": "PREPARED",
         },
     }
@@ -188,7 +188,8 @@ def check_plan_validation(proposal, problem):
     if problem == "bytes":
         plan["outputs"][relative] = "# unrelated\n" + new
     if problem == "file-set":
-        source.with_name("extra.properties").write_text(old)
+        source.with_suffix("").mkdir()
+        (source.with_suffix("") / "extra.properties").write_text(old)
     if problem == "allowed":
         (root / "tasks/deploy.md").write_text("## Modified files\n## Allowed paths\n")
     if problem == "stage":
@@ -218,7 +219,7 @@ def check_intent_save_failure(proposal):
     )
     with (
         patch.object(M, "_identity", return_value={}),
-        patch.object(M, "authority_snapshot", return_value={source: old.encode()}),
+        patch.object(M, "source_snapshot", return_value={source: old.encode()}),
         patch.object(M, "generated_plan", return_value={}),
     ):
         with pytest.raises(OSError, match="intent write failed"):
@@ -610,7 +611,7 @@ def check_owned_resume_boundaries(owned_proposal, problem):
     if problem == "external-model":
         source.write_text(old + "# external edit\n", encoding="utf-8")
     before = source.read_bytes()
-    with patch.object(M, "authority_snapshot", return_value={source: before}):
+    with patch.object(M, "source_snapshot", return_value={source: before}):
         if problem == "external-model":
             with pytest.raises(Blocked, match="cannot explain"):
                 M.reconcile(root, restored, {}, "dev", "team")
@@ -632,9 +633,7 @@ def check_owned_interrupted_stages(owned_proposal, stage):
     root, session, source, old, new = owned_proposal
     source.write_text(old if stage == "PREPARED" else new, encoding="utf-8")
     # On disk the intent may still say PREPARED after the Model transaction committed.
-    with patch.object(
-        M, "authority_snapshot", return_value={source: source.read_bytes()}
-    ):
+    with patch.object(M, "source_snapshot", return_value={source: source.read_bytes()}):
         assert M.reconcile(root, session, {}, "dev", "team") == stage
     assert session["pendingObserved"]["stage"] == stage
     assert (
@@ -660,7 +659,7 @@ def check_finish_guard_precedes_publication(owned_proposal, stage):
     )
     before = source.read_bytes()
     with (
-        patch.object(M, "authority_snapshot", return_value={source: before}),
+        patch.object(M, "source_snapshot", return_value={source: before}),
         patch.object(
             observed,
             "collect_successful",
@@ -706,7 +705,7 @@ def check_finish_io_failure(owned_proposal, stage):
     with (
         patch.object(
             M,
-            "authority_snapshot",
+            "source_snapshot",
             side_effect=_bind_framework_callback(read_proposal_source, source),
         ),
         patch.object(
@@ -784,7 +783,7 @@ def check_finish_committed_stages(owned_proposal, committed, mismatch):
     with (
         patch.object(
             M,
-            "authority_snapshot",
+            "source_snapshot",
             side_effect=_bind_framework_callback(read_proposal_source, source),
         ),
         patch.object(

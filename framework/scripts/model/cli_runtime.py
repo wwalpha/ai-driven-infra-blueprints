@@ -8,6 +8,7 @@ import task_contract_core as _imports_task_contract
 from task_contract_core import model_operation, selected_task, task_path
 from utils.script_loader import module
 
+import model.dependency_index as dependency_index
 from model import prepare_edit, publish_edit, render_model
 from model.files import find_model, read_resource, trace_model
 from model.references import incoming as reference_incoming
@@ -25,7 +26,7 @@ def execute(args):
     try:
         root = (
             args.repository_root.resolve()
-            if args.command == "list"
+            if args.command in {"list", "index"}
             else scope_for(args.model).root
         )
         with _imports_task_contract.task_reads(root):
@@ -117,6 +118,8 @@ def execute(args):
                         for scope, usage in records
                     ],
                 }
+            elif args.command == "index":
+                result = {"indexedModels": len(dependency_index.rebuild(root))}
             elif args.command == "list":
                 result = [
                     str(scope.path) for scope in list_models(args.repository_root)

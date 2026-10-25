@@ -57,7 +57,9 @@ from model.core import (
 from model.format import JSON_LINK
 
 
-def stack_markdown(path, values, root, *, definitions_root=None):
+def stack_markdown(
+    path, values, root, *, definitions_root=None, validate_delivery=True
+):
     reference_display = _imports_model_projection.reference_display
     limit, stacks = stack_model(values)
     settings, artifacts = deployment_settings(values)
@@ -83,12 +85,15 @@ def stack_markdown(path, values, root, *, definitions_root=None):
             + " |"
             for number, (identity, artifact) in enumerate(artifacts, 1)
         ]
-    if settings:
+    if settings and validate_delivery:
         _dependency_model_projection.deployment_bucket(
             settings["templateBucket"], path, root
         )
-    for _, artifact in artifacts:
-        _dependency_model_projection.deployment_bucket(artifact["bucket"], path, root)
+    if validate_delivery:
+        for _, artifact in artifacts:
+            _dependency_model_projection.deployment_bucket(
+                artifact["bucket"], path, root
+            )
     return (
         "\n".join(
             [

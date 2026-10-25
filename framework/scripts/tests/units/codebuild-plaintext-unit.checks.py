@@ -898,7 +898,6 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                     )
                     for item in diagnostics
                 ],
-                confirmation_cleanup=[],
                 unverified=[],
             )
             with task(tmp_path, services):

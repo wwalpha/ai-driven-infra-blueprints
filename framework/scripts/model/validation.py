@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -30,7 +31,7 @@ from utils import iac_values
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_is_file, memoized
 from utils.input_cache import input_scope as input_scope
-from utils.json_format import policy_json
+from utils.json_format import fingerprint, policy_json
 from utils.reference_contracts import action_contexts, reference_error, row_contexts
 from validation.diagnostics import Diagnostic, service_scope
 
@@ -837,6 +838,53 @@ def _callback_check_model_inputs_literal_check(
 
 
 def check_model_inputs(path, values, root, *, definitions_root=None):
+    shared = _imports_model_sources.session_reads(root)
+    if shared is None:
+        return _check_model_inputs(
+            path, values, root, definitions_root=definitions_root
+        )
+    key = (
+        "desired-validation",
+        _imports_model_importing_scope.read_context(root),
+        shared.canonical(path),
+        definitions_root,
+        fingerprint({k: v for k, v in values.items() if not k.startswith("observed.")}),
+    )
+    with shared.lock:
+        if key not in shared.checks:
+            shared.checks[key] = _check_model_inputs(
+                path,
+                values,
+                root,
+                definitions_root=definitions_root,
+                observations=False,
+            )
+        findings = copy.deepcopy(shared.checks[key])
+    model = (
+        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+            ".properties"
+        )
+        if path.is_relative_to(root / "docs/designs")
+        else path
+    )
+    view = (root / "docs/designs" / model.relative_to(root / "model")).with_suffix(
+        ".md"
+    )
+    observations = _bind_framework_callback(
+        _imports_validation_design.check_observed_values,
+        [model],
+        findings=findings,
+        root=root,
+        scope=None,
+        design_sources={view: _imports_model_sources.load_model(model).values},
+    )
+    findings.evaluate("model.observed", None, observations)
+    return findings
+
+
+def _check_model_inputs(
+    path, values, root, *, definitions_root=None, observations=True
+):
     """Validate authoritative inputs even when their View cannot be rendered."""
     _state_check_model_inputs_337 = _CallbackState()
     validate_mappings = _imports_aws_mapping_display.validate_mappings
@@ -959,17 +1007,18 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     _state_check_model_inputs_337.view = (
         root / "docs/designs" / model.relative_to(root / "model")
     ).with_suffix(".md")
-    findings.evaluate(
-        "model.observed",
-        None,
-        lambda: check_observed_values(
-            [model],
-            findings=findings,
-            root=root,
-            scope=None,
-            design_sources={_state_check_model_inputs_337.view: values},
-        ),
-    )
+    if observations:
+        findings.evaluate(
+            "model.observed",
+            None,
+            lambda: check_observed_values(
+                [model],
+                findings=findings,
+                root=root,
+                scope=None,
+                design_sources={_state_check_model_inputs_337.view: values},
+            ),
+        )
     service = path.stem
     owned = values.get(
         f"desired.service.{service}.ownedCatalogResourceTypes", ""

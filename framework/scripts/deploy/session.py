@@ -15,8 +15,8 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
-import model.observed as _imports_model_observed
-from model.sources import authority_snapshot, load_model, model_paths, source_scope
+from model.dependency_index import revision as file_revision
+from model.sources import model_session
 from task_contract_core import (
     TaskSnapshot,
     paths_in,
@@ -25,20 +25,18 @@ from task_contract_core import (
 )
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
-from utils.source_reads import FileReads
 from utils.type_contracts import JsonValue as JsonValue
-from validation_scope import active_scope as validation_scope
 
 import deploy.context as _imports_deploy_context
 import deploy.contracts as _imports_deploy_contracts
 import deploy.observed as _dependency_deploy_observed
-from deploy import failures, handoff, observed_resume
+from deploy import handoff, observed_resume
 from deploy import resume as repair_resume
+from deploy.model_cache import SessionModels
 from deploy.scheduler import run_group
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
 from deploy.timing import Timing
 from deploy.typing import (
-    Manifest,
     Save,
     SchedulerBackend,
     Session,
@@ -96,56 +94,9 @@ def active_scope(
     )
 
 
-def design_digest(
-    root: Path, environment: str, directory: str, *, contract_file: str | None = None
-) -> str:
-    scope = validation_scope(root, contract_file=contract_file)
-    pending = (
-        [
-            root / "model" / env / target / (service + ".properties")
-            for env, target, service in scope
-            if (env, target) == (environment, directory)
-        ]
-        if scope is not None
-        else model_paths(root, environment, directory)
-    )
-    pending.append(
-        root / "model" / environment / directory / "cloudformation-stacks.properties"
-    )
-    snapshot, reads = {}, FileReads()
-    while pending:
-        path = pending.pop().resolve()
-        if path in snapshot:
-            continue
-        if reads.kind(path) == "missing":
-            snapshot[path] = None
-            continue
-        model = load_model(path, reads)
-        snapshot[path] = {
-            key: value
-            for key, value in model.authoritative.items()
-            if not key.startswith("observed.")
-        }
-        for dependency in model.dependencies:
-            if dependency.is_relative_to(root / "model"):
-                pending.append(source_scope(root, dependency).path)
-    return fingerprint(
-        {str(path.relative_to(root)): values for path, values in snapshot.items()}
-    )
-
-
-def model_input_manifest(root: Path, environment: str, directory: str) -> Manifest:
-    return {
-        path.relative_to(root).as_posix(): None
-        if raw is None
-        else hashlib.sha256(raw).hexdigest()
-        for path, raw in authority_snapshot(root, environment, directory).items()
-    }
-
-
 def require_session_format(session: Session) -> None:
     expected = {
-        "version": 4,
+        "version": 5,
         "modelFormat": 2,
         "snapshotVersion": 2,
         "referenceMeaningVersion": 1,
@@ -154,28 +105,9 @@ def require_session_format(session: Session) -> None:
         type(session.get(key)) is not int or session[key] != value
         for key, value in expected.items()
     ):
-        raise Blocked("controller session format is incompatible")
-
-
-def verify_observed_transition(
-    root: Path,
-    environment: str,
-    directory: str,
-    previous: dict[Path, bytes | None],
-    outputs: dict[Path, str],
-    intended_design: str,
-) -> Manifest:
-    verify_observed_outputs = _imports_model_observed.verify_observed_outputs
-    verify_observed_outputs(previous, outputs)
-    expected = {
-        **previous,
-        **{path: text.encode("utf-8") for path, text in outputs.items()},
-    }
-    if authority_snapshot(root, environment, directory) != expected:
-        raise Blocked("Model sources changed outside authorized observed publication")
-    if design_digest(root, environment, directory) != intended_design:
-        raise Blocked("observed publication changed intended Model design")
-    return model_input_manifest(root, environment, directory)
+        raise Blocked(
+            "controller session format is incompatible; v5 lazy input identities and consumed manifests are required; retain the original session/controller without automatic migration"
+        )
 
 
 def _callback_run_session_sync_once(backend, save, session, units, /):
@@ -191,12 +123,9 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
     try:
         if hasattr(backend, "guard"):
             backend.guard()
-        previous = (
-            backend.before_observed() if hasattr(backend, "before_observed") else None
-        )
         outputs = sync_successful(backend, unsynced, session["states"])
         if hasattr(backend, "after_observed"):
-            backend.after_observed(previous, outputs or {})
+            backend.after_observed(outputs or {})
         session.pop("pendingObserved", None)
         session.pop("observedError", None)
         session.pop("observedRecoveryError", None)
@@ -309,11 +238,47 @@ def run_session(
         return result
 
 
-def _callback_run_infra_manifest(backend, root, units, /):
+def current_manifest(root, session, backend):
     return {
-        path.relative_to(root).as_posix(): backend.file_digest(path)
-        for path in sorted(set(backend.deployment_input_paths(units)))
+        relative: backend.file_digest(root / relative)
+        for relative in session["infraManifest"]
     }
+
+
+def _callback_claim_inputs(root, session, backend, save, /, unit):
+    name = unit["name"]
+    paths = backend.deployment_input_paths([unit])
+    if getattr(backend, "phase", None) == "deploy" and paths:
+        revision = subprocess.run(
+            [
+                "git",
+                "status",
+                "--porcelain",
+                "--",
+                *[p.relative_to(root).as_posix() for p in paths],
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if revision.returncode or revision.stdout.strip():
+            raise Blocked("deploy inputs must be committed before use: " + name)
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        if file_revision(path) != session["inputIdentities"][relative]:
+            raise Blocked("deployment inputs changed before first use: " + relative)
+    digest = backend.input_digest(unit, fresh=True)
+    expected = session["unitDigests"].get(name)
+    if expected is not None and digest != expected:
+        raise Blocked("prepared/executed unit IaC changed: " + name)
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        if file_revision(path) != session["inputIdentities"][relative]:
+            raise Blocked("deployment inputs changed while claiming: " + relative)
+        session["infraManifest"][relative] = backend.file_digest(path)
+    session["unitDigests"][name] = digest
+    save()
 
 
 def _callback_run_save(
@@ -329,19 +294,7 @@ def _callback_run_save(
 
 
 def _callback_run_guard(
-    args,
-    backend,
-    context,
-    current_design,
-    directory,
-    infra_manifest,
-    root,
-    selected,
-    session,
-    target,
-    unit_digests,
-    units,
-    /,
+    args, backend, context, root, selected, session, target, /
 ) -> TaskSnapshot:
     with task_reads(root, live=True):
         snapshot = task_snapshot(root)
@@ -358,32 +311,11 @@ def _callback_run_guard(
             != target
         ):
             raise Blocked("project target changed before mutation")
-        if design_digest(root, args.environment, directory) != current_design:
-            raise Blocked("intended model changed before mutation")
-        if (
-            model_input_manifest(root, args.environment, directory)
-            != session["modelInputManifest"]
-        ):
-            raise Blocked(
-                "Model raw inputs or dependency file set changed before mutation"
-            )
-        if infra_manifest() != session["infraManifest"]:
-            raise Blocked("unauthorized IaC change outside accepted input revision")
         if snapshot.task_digest != session["taskDigest"]:
             raise Blocked("task contract changed before mutation")
-        if any(
-            backend.input_digest(unit) != unit_digests[unit["name"]] for unit in units
-        ):
-            raise Blocked("deployment inputs changed before mutation")
+        if current_manifest(root, session, backend) != session["infraManifest"]:
+            raise Blocked("unauthorized IaC change outside accepted input revision")
         return snapshot
-
-
-def _callback_run_after_observed(
-    args, current_design, directory, root, session, /, previous, outputs
-):
-    session["modelInputManifest"] = verify_observed_transition(
-        root, args.environment, directory, previous, outputs, current_design
-    )
 
 
 # Runtime bootstrap does not change IaC or grant a validation/hash exception.
@@ -410,6 +342,7 @@ def run(
     session = None
     persist = None
     handoff_lock = None
+    model_scope = None
     invocation_started = time.perf_counter()
     try:
         if state_path.is_relative_to(root):
@@ -469,7 +402,7 @@ def run(
                 if session.get("pendingObserved") and not getattr(
                     args, "observe_only", False
                 ):
-                    # Recovery must precede load_units/design_digest and all read-only Model snapshots.
+                    # Recovery precedes Stack metadata and every read-only Model snapshot.
                     sha = _imports_deploy_contracts.sha
                     try:
                         if any(
@@ -487,6 +420,11 @@ def run(
                         save_session(state_path, session)
                         raise
                     save_session(state_path, session)
+            if session is None:
+                session = {"modelInputManifest": {}}
+            models = SessionModels(root, session)
+            model_scope = model_session(models)
+            model_scope.__enter__()
             limit, units = load_units(root, args.environment, directory, args.stack)
             if args.sequential:
                 limit = 1
@@ -499,37 +437,25 @@ def run(
                 args.approve_change_set,
             )
             backend.timing = timing
-            if phase == "deploy" and not args.resume:
-                paths = sorted(
-                    {
-                        str(path.relative_to(root))
-                        for unit in units
-                        for path in backend.paths(unit)
-                    }
-                )
-                revision = subprocess.run(
-                    ["git", "status", "--porcelain", "--", *paths],
-                    cwd=root,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if revision.returncode or revision.stdout.strip():
-                    raise Blocked(
-                        "deploy template/parameter revision must be clean; cannot deploy uncommitted IaC"
-                    )
+            backend.phase = phase
             digest = fingerprint(
                 [str(root), target, args.environment, phase, limit, units]
             )
-            current_design = design_digest(root, args.environment, directory)
             backend.workdir = state_path.with_name(state_path.name + ".files").resolve()
             if backend.workdir.is_relative_to(root):
                 raise Blocked("deployment files directory must be outside repository")
-            unit_digests = {unit["name"]: backend.input_digest(unit) for unit in units}
-            infra_manifest = _bind_framework_callback(
-                _callback_run_infra_manifest, backend, root, units
+            units_by_name = {u["name"]: u for u in units}
+            unit_digests = {
+                name: backend.input_digest(units_by_name[name], fresh=True)
+                for name in session.get("unitDigests", {})
+            }
+            current_infra = (
+                current_manifest(root, session, backend) if args.resume else {}
             )
-            current_infra = infra_manifest()
+            identities = {
+                p.relative_to(root).as_posix(): file_revision(p)
+                for p in backend.deployment_input_paths(units)
+            }
             if args.resume:
                 if getattr(args, "observe_only", False):
                     if (
@@ -580,79 +506,73 @@ def run(
                         "unauthorized IaC change outside recorded repair; cannot resume"
                     )
                 session["infraManifest"] = current_infra
-                if phase == "deploy":
-                    paths = sorted(
-                        {
-                            str(path.relative_to(root))
-                            for path in backend.deployment_input_paths(units)
-                        }
-                    )
-                    revision = subprocess.run(
-                        ["git", "status", "--porcelain", "--", *paths],
-                        cwd=root,
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                    if revision.returncode or revision.stdout.strip():
-                        raise Blocked(
-                            "resumed deploy inputs must be committed verified child bytes"
-                        )
                 require_session_format(session)
-                if session.get("modelInputManifest") != model_input_manifest(
-                    root, args.environment, directory
-                ):
-                    raise Blocked(
-                        "Model raw inputs or dependency file set changed; cannot resume this session"
+                for relative, expected in session["modelInputManifest"].items():
+                    path = root / relative
+                    actual = (
+                        hashlib.sha256(path.read_bytes()).hexdigest()
+                        if path.is_file()
+                        else None
                     )
+                    if actual != expected:
+                        raise Blocked(
+                            "consumed Model input changed; cannot resume: " + relative
+                        )
+                prior_identities = session["inputIdentities"]
+                writable = update_handoff if phase == "update" else set()
+                if any(
+                    prior_identities.get(path) != current
+                    for path, current in identities.items()
+                    if path not in writable
+                    and path not in session["infraManifest"]
+                    and not getattr(args, "repair_result", None)
+                ):
+                    raise Blocked("deployment input identity changed; cannot resume")
+                session["inputIdentities"] = identities
                 if session["inputDigest"] != digest:
                     raise Blocked(
                         "target, design or scope changed; cannot resume this session"
                     )
                 for name, state in session["states"].items():
                     if (
-                        phase == "deploy" or state["status"] != "NOT_STARTED"
-                    ) and session["unitDigests"][name] != unit_digests[name]:
+                        (phase == "deploy" or state["status"] != "NOT_STARTED")
+                        and name in session["unitDigests"]
+                        and session["unitDigests"][name] != unit_digests[name]
+                    ):
                         raise Blocked(
                             f"prepared/executed unit IaC changed; cannot resume: {name}"
                         )
                 session["unitDigests"] = unit_digests
-                if (
-                    session["designDigest"] != current_design
-                    or session["profile"] != backend.profile
-                ):
-                    raise Blocked(
-                        "intended model or AWS profile changed; cannot resume"
-                    )
+                if session["profile"] != backend.profile:
+                    raise Blocked("AWS profile changed; cannot resume")
             else:
                 if state_path.exists() or args.approve_change_set:
                     raise Blocked(
                         "new session requires unused state path and no approvals"
                     )
-                session = {
-                    "inputDigest": digest,
-                    "unitDigests": unit_digests,
-                    "workflow": handoff.new_workflow(),
-                    "inputRevision": 0,
-                    "states": {
-                        unit["name"]: {"status": "NOT_STARTED"} for unit in units
-                    },
-                }
                 session.update(
-                    version=4,
+                    {
+                        "inputDigest": digest,
+                        "unitDigests": unit_digests,
+                        "workflow": handoff.new_workflow(),
+                        "inputRevision": 0,
+                        "states": {
+                            unit["name"]: {"status": "NOT_STARTED"} for unit in units
+                        },
+                    }
+                )
+                session.update(
+                    version=5,
                     modelFormat=2,
                     snapshotVersion=2,
                     referenceMeaningVersion=1,
-                    designDigest=current_design,
                     profile=backend.profile,
-                    modelInputManifest=model_input_manifest(
-                        root, args.environment, directory
-                    ),
                 )
                 session["repository"] = str(root)
                 session["taskFile"] = initial_task.name
                 session["taskDigest"] = initial_task.task_digest
                 session["infraManifest"] = current_infra
+                session["inputIdentities"] = identities
                 session["unitInputPaths"] = {
                     u["name"]: [
                         p.relative_to(root).as_posix()
@@ -680,17 +600,8 @@ def run(
                 session["validationScope"] = sorted(
                     paths_in(initial_task.text, "## Validation scope")
                 )
-                session["effectiveDigests"] = handoff.effective(
-                    root, units, backend.paths, backend.deployment_input_paths
-                )
-            if (
-                phase == "update"
-                and args.resume
-                and not getattr(args, "repair_result", None)
-            ):
-                session["effectiveDigests"] = handoff.effective(
-                    root, units, backend.paths, backend.deployment_input_paths
-                )
+                session["effectiveDigests"] = {}
+                session["declaredConsumers"] = {}
             handoff.bind(root, state_path, session)
             backend.session = session
             contract = initial_task.text
@@ -739,70 +650,26 @@ def run(
             )
             backend.save = save
             persist = save
-            guard = _bind_framework_callback(
+            backend.claim_inputs = _bind_framework_callback(
+                _callback_claim_inputs, root, session, backend, save
+            )
+            backend.guard = _bind_framework_callback(
                 _callback_run_guard,
                 args,
                 backend,
                 context,
-                current_design,
-                directory,
-                infra_manifest,
                 root,
                 selected,
                 session,
                 target,
-                unit_digests,
-                units,
             )
-            backend.guard = guard
-            backend.before_observed = lambda: authority_snapshot(
-                root, args.environment, directory
-            )
-            after_observed = _bind_framework_callback(
-                _callback_run_after_observed,
-                args,
-                current_design,
-                directory,
-                root,
-                session,
-            )
-            backend.after_observed = after_observed
+            backend.after_observed = models.apply_observed
             refresh_validation = _bind_framework_callback(
                 _callback_run_refresh_validation, backend, unit_digests
             )
             backend.refresh_validation = refresh_validation
             backend.units = units
-        started = time.perf_counter()
-        try:
-            for unit in units:
-                state = session["states"][unit["name"]]
-                try:
-                    backend.load_inputs(unit)
-                except Exception as error:
-                    state["preparationId"] = (
-                        state.get("preparationId") or __import__("uuid").uuid4().hex
-                    )
-                    failures.exception(
-                        state,
-                        error,
-                        "INPUT_DECODE"
-                        if getattr(error, "deploy_input_kind", None) == "DECODE"
-                        else "INPUT_GUARD",
-                    )
-                    if state["status"] not in {"RUNNING", "FAILED", "SUCCESS"}:
-                        state["status"] = "BLOCKED"
-                    handoff.record_stop(session, units)
-                    save()
-                    raise
-            session.setdefault(
-                "declaredConsumers", handoff.dependencies(backend, units)
-            )
-            save()
-        except Exception:
-            run_group(units, limit, session["states"], backend, save, drain_only=True)
-            raise
-        finally:
-            metrics["inputLoadSeconds"] += time.perf_counter() - started
+        save()
         for unit in units:
             state = session["states"][unit["name"]]
             repair_resume.recover(backend, unit, state)
@@ -844,6 +711,8 @@ def run(
                 if handoff_lock is not None:
                     handoff_lock.__exit__(None, None, None)
             finally:
+                if model_scope is not None:
+                    model_scope.__exit__(None, None, None)
                 if lock is not None:
                     lock.close()
                     lock_path.unlink(missing_ok=True)

@@ -7,13 +7,13 @@ Human指定のenvironment/alias、resource/execution account、Region/profile、
 
 Read before changing filesの必須本文と対象入力、Task候補を漏れなく読む。hash一致を未読範囲の読了証明にしない。生成物の存在・内容hash・scope・変更検知・機械検証を維持し、generated viewへのfallbackや値の推測をしない。設計変更・scenario実行は禁止。
 
-固定したworktree Python/PATH/PYTHONPATHで、明示serviceと全Stackを一度に準備する。load_units()が既存のStack Model/generated Stack view一致を確認する。
+固定したworktree Python/PATH/PYTHONPATHで、Stack一覧・DeployOrder・並列数・Task/Targetと固定入力の識別情報を準備する。load_units()がStack Model/generated Stack view一致を確認する。未着手StackのIaC本文と全service Modelを先読み・全件検証しない。
 
 ```console
 <fixed-python> framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --service <service-id> [--service <service-id> ...] --task-file tasks/<task-name>.md [--profile <profile>] [--sequential] [--allow-external-repair] [--repair-budget 20]
 ```
 
-aliasなしは--aws-account-id。preparation.jsonのdocuments（<=6,000文字/chunk）、対象要約、契約候補を漏れなく確認する。確認済みの同一範囲だけ再読込を省略できる。inputs/generatedViewsのhashは読了やPASS証明ではない。欠損・不一致では停止する。Do not newly reregister already registered tasks. 新Taskは次の登録を最初の変更とし、runtime/hash/Task競合/最新Issuesを再確認する。
+aliasなしは--aws-account-id。preparation.jsonのdocuments（<=6,000文字/chunk）、対象要約、契約候補を漏れなく確認する。確認済みの同一範囲だけ再読込を省略できる。inputsのhashとinputIdentities/generatedViewsの識別情報は読了やPASS証明ではない。欠損・不一致では停止する。Do not newly reregister already registered tasks. 新Taskは次の登録を最初の変更とし、runtime/hash/Task競合/最新Issuesを再確認する。
 
 ```console
 <fixed-python> framework/scripts/deploy_preparation.py --register <external-preparation.json>
@@ -22,20 +22,50 @@ aliasなしは--aws-account-id。preparation.jsonのdocuments（<=6,000文字/ch
 
 全Stackに一つのcontroller/sessionを使う。preparationはAWSなし。controllerが認証、Task/入力guard、Issue診断・警告、既存Stack所有権、配送barrier、ValidateTemplate、ChangeSet、承認・実行・poll・drain・成功後同期を担当する。同じpreflight/APIをAgent側で重複実行しない。通常起動/Create/ExecuteはRemoveを含め全体mapping/lintなし。失敗修復/bootstrap/未同期SUCCESSだけ必要ownerと参照を解決する。DeployOrder/並行数を保ち、失敗時は新規開始を止めpeerをdrainする。SUCCESSは再実行しない。
 
+## Lazy inputs and Model reuse
+
+One controller invocation owns one session `FileReads.models` cache. It shares normalized
+Model paths, read permissions, checked source snapshots, reference dependencies and desired
+validation across Stacks. First loads are serialized; unrelated Tasks and resumed processes
+never inherit unchecked in-memory results. A resumed process verifies the signed session's
+consumed input revisions and loads only the Models it actually needs.
+
+The scheduler claims at most the available concurrent Stack slots in the current DeployOrder.
+Each claimed Stack pins its template/parameters/artifacts, decodes inputs and prepares delivery,
+ValidateTemplate and ChangeSet. AWS success and observedSynced remain separate. Import/Export
+checks stay fresh at each Stack boundary; pending Stack templates are explicitly unloaded.
+External repair resolves affected/previously started inputs and blocks any effect on SUCCESS;
+unknown dependencies never authorize execution. Issue diagnostics remain non-blocking warnings.
+
+Observed ownership and incoming references use the sealed, derived Model dependency index.
+It is maintained inside Model publication, including deletion/retarget; observed-only changes
+update file revisions without rebuilding desired metadata. The index is checkout-local external
+metadata, not Model authority. Its explicit offline bootstrap is
+`<fixed-python> framework/scripts/model/cli.py index --repository-root .`; this is separate
+maintenance, never controller/preparation startup or an automatic Deploy fallback. Missing,
+stale, inconsistent or ambiguous ownership stops observation with its reason. Do not build an
+index by loading all Models during Deploy. Preserve AWS SUCCESS and resume the same session
+after the blocker is resolved. Resume journal recovery updates only proven observed file revisions.
+
+Observation plans contain only selected Models, necessary dependencies, exact before/after
+bytes, source part sets, generated outputs and execution evidence. Publication keeps the Task
+boundary, CAS, publication lock and rollback journal. Apply verified observed deltas to cached
+snapshots and retain byte-identical desired validation; do not rescan unrelated Models.
+
 ## Read before changing files
 
 1. `AGENTS.md`
 2. [task-contract](../../rules/task-contract.md)
 3. `tasks/<task-name>.md` if present. Otherwise treat as idle and create it first under Create active task contract.
 4. `project.json`
-5. Runtime `model/<environment>/<target-directory>/<service-id>.properties` selectors and their source inputs for services owned/referenced by deployment scope, and referenced models needed for reference resolution
+5. Identify explicit service selectors and authorized source/view paths without expanding every Model. Read a service Model and its necessary producers only when the current Stack, runtime bootstrap, observation or diagnosis actually needs it.
 6. For CloudFormation, same-target `cloudformation-stacks.properties`. Delegate StackName mappings/generated stack Markdown matching to existing controller `load_units()`; AI must not manually compare the same values twice
 7. [Policy account selection](../../rules/detailed-design.md#policy-account-selection). For CloudFormation, add [CloudFormation stack detailed design](../../rules/detailed-design.md#cloudformation-stack-detailed-design); add related display sections only when changing/investigating design display.
 8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).
 9. [cloudformation](../../rules/cloudformation.md) or [terraform](../../rules/terraform.md) for the selected engine
 10. [observed-values](../../rules/observed-values.md)
 11. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope). [Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
-12. Target IaC files, stack-specific parameters, and declared execution inputs
+12. Identify declared IaC/parameter/artifact paths initially; read/decode bodies only for the current scheduled Stack. Agent repair diagnosis reads only its explicitly identified inputs.
 
 - [project-configuration](../../rules/project-configuration.md).
 
@@ -47,7 +77,7 @@ Ordinary deploy AI design inputs are authoritative model properties. Obtain desi
 
 Markdown Resource links are internal Model addresses. Resolve them through the common scope-checked resolver and read only necessary producer groups; use the producer Model saved anchor as selector; never use generated Markdown as authority. No generated Markdown fallback is permitted.
 
-Retain generated artifact existence verification, hash monitoring, machine generated artifact validation, and stop conditions. Only for explicit display defect/mismatch investigation, necessary artifact portions may be read. Classify model/generated artifact/IaC mismatches and deployment failures under [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair). The supervising LLM handles proven IaC defects through the separate implement handoff below. The same controller handles authorized RUNTIME_BOOTSTRAP without repository changes. Secrets Manager initial-value bootstrap classification, CREATE ownership/account/region/schema/value checks, intent/token persistence, AWS mutation and failed-stack retry belong exclusively to the controller; do not manually run put-secret-value.
+Retain generated artifact existence/identity checks and scoped machine validation. Pin body hashes for consumed inputs and generated publication candidates when needed; keep save conflicts and stop conditions. Only for explicit display defect/mismatch investigation, necessary artifact portions may be read. Classify model/generated artifact/IaC mismatches and deployment failures under [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair). The supervising LLM handles proven IaC defects through the separate implement handoff below. The same controller handles authorized RUNTIME_BOOTSTRAP without repository changes. Secrets Manager initial-value bootstrap classification, CREATE ownership/account/region/schema/value checks, intent/token persistence, AWS mutation and failed-stack retry belong exclusively to the controller; do not manually run put-secret-value.
 
 `<target-directory>` is the selected target's alias if present, otherwise AWS account ID.
 
@@ -88,7 +118,7 @@ CloudFormation failure stops new starts, drains accepted peers and synchronizes 
 
 Resume the existing Task/session with --resume and only Human-approved --approve-change-set IDs. Preserve original intent/token, ChangeSet/approval and input evidence. Reacquire boundary AWS data; historical static validation metadata is never execution permission. Unsafe migration stops with its reason, retaining SUCCESS and unsynchronized work. Do not replace a session or rerun successful Stacks merely because modules/transport changed. External changes require --resume --repair-result, signed child validation/integration evidence, unchanged intended Model/target/scope, verified execution inputs and the original workflow ledger.
 
-For session format/history migration, use the explicit procedure in [Controller sessions](../../rules/cloudformation.md#controller-sessions-and-execution-timing). --resume --observe-only observes/drains existing identities without mutation or Model publication.
+Session v5 requires lazy input identities and consumed-input manifests. Older formats stop before execution/publication; do not create a replacement session or reset its history. Retain the old controller/session for its supported observation procedure. For v5, --resume --observe-only observes/drains existing identities without mutation or Model publication. See [Controller sessions](../../rules/cloudformation.md#controller-sessions-and-execution-timing).
 
 ## External IaC repair handoff
 

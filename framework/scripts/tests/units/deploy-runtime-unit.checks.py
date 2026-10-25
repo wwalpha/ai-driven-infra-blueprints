@@ -13,11 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import deploy.handoff as _imports_deploy_handoff
 import deploy.s3_delivery as _imports_deploy_s3_delivery
-import deploy.session as _imports_deploy_session
-import model.format as _imports_model_format
 from botocore.exceptions import ReadTimeoutError
 from deploy import failures
-from deploy.session import authority_snapshot, design_digest, model_input_manifest
 from deploy.timing import Timing
 from model.adapters.observed import mappings
 from model.core import entries
@@ -62,7 +59,6 @@ from support.cloudformation_deploy_fixtures import (
     zipfile,
 )
 from support.model_sources import allocate_fixture as allocate
-from support.model_v2_fixtures import deploy_properties_fixture
 from task_contract_core import selected_task, task_snapshot
 from utils.aws import cloudformation as cfn
 from utils.aws import secretsmanager as secrets
@@ -915,8 +911,8 @@ def check_delivery(tmp_path):
     )
     _, loaded = M.load_units(root, "dev", "123456789012", ["A"])
     assert (
-        loaded[0]["templateBucket"] == "app-dev-assets"
-        and loaded[0]["artifacts"][0]["bucket"] == "app-dev-assets"
+        loaded[0]["templateBucket"] == reference
+        and loaded[0]["artifacts"][0]["bucket"] == reference
     )
     rejects(
         lambda: deployment_bucket(
@@ -1504,7 +1500,7 @@ def check_delivery_encryption(tmp_path):
     resumed.default_algorithm, resumed.default_key = "aws:kms", "alias/test"
     resumed.key_arn = resumed.key_arn.replace("test-key", "rotated-key")
     rejects(lambda: resumed.verify_object(obj), "CHANGED")
-    # Entire same-order delivery barrier precedes any change set even at concurrency 1.
+    # Each scheduled Stack finishes delivery before its own change set.
     backend, source = fresh()
     scoped = units(10, 10)
     for unit in scoped:
@@ -1521,10 +1517,11 @@ def check_delivery_encryption(tmp_path):
     assert finish(scoped, 1, state, backend) == "COMPLETE"
     put_indices = [i for i, (op, _) in enumerate(backend.calls) if op == "put_object"]
     assert len(put_indices) == 2
-    assert max(put_indices) < next(
+    create_indices = [
         i for i, (op, _) in enumerate(backend.calls) if op == "create_change_set"
-    )
-    # A later peer's actual placement refusal prevents all new stacks, preserving drain.
+    ]
+    assert put_indices[0] < create_indices[0] < put_indices[1] < create_indices[1]
+    # A later peer placement refusal retains earlier success and stops new starts.
     backend.calls.clear()
     backend.uploaded, backend.objects = {}, {}
     state = states(scoped)
@@ -1536,11 +1533,12 @@ def check_delivery_encryption(tmp_path):
     )
     backend.aws = refuse_second
     assert finish(scoped, 1, state, backend) == "STOPPED"
-    assert "AccessDenied" in state["A"]["reason"]
-    assert state["B"]["status"] == "NOT_STARTED"
-    assert not any(
-        op in {"create_change_set", "execute_change_set"} for op, _ in backend.calls
-    )
+    assert state["A"]["status"] == "SUCCESS"
+    assert "AccessDenied" in state["B"]["reason"]
+    assert [
+        args["StackName"] for op, args in backend.calls if op == "execute_change_set"
+    ] == ["stackid-A"]
+    backend.calls.clear()
     backend.aws, backend.fail = _state_check_delivery_encryption_595.aws, "put_object"
     state = states(scoped)
     state["A"]["status"] = "RUNNING"
@@ -1997,9 +1995,6 @@ def check_session_cli(tmp_path, monkeypatch):
     for path, text in (
         (params / "a.json", '[{"ParameterKey":"Name","ParameterValue":"changed"}]'),
         (template, "Resources: {}\n# shared dev/stg template changed\n"),
-        (source, read_model(source) + "display.deployment.comment=changed\n"),
-        (consumer, read_model(consumer) + "desired.row.002.value=changed\n"),
-        (reference, "desired.row.001.value=changed\n"),
         (contract, contract.read_text() + "\n# contract changed\n"),
     ):
         canonical = path.suffix == ".properties" and path.is_relative_to(root / "model")
@@ -4541,100 +4536,6 @@ def check_destroy_absence():
     destroy.rejects(
         lambda: destroy.M.preflight(state, fake, 1, lambda: None), "mismatch"
     )
-
-
-@pytest.mark.parametrize("field", ["display", "reference", "placement"])
-def check_deploy_digest_covers_all_nonobserved_authority(tmp_path, monkeypatch, field):
-    parse = _imports_model_format.parse
-    patch = _imports_model_format.patch
-    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
-    scope, stacks = deploy_properties_fixture(tmp_path)
-    before = design_digest(tmp_path, scope.environment, scope.target)
-    manifest = model_input_manifest(tmp_path, scope.environment, scope.target)
-    original = scope.path.read_text(encoding="utf-8")
-    scope.path.write_text(
-        patch(parse(original), {"observed.row.007-001.value": "vpc-observed"}),
-        encoding="utf-8",
-    )
-    assert design_digest(tmp_path, scope.environment, scope.target) == before
-    assert model_input_manifest(tmp_path, scope.environment, scope.target) != manifest
-    path, changes = scope.path, {"display.resource.007.label": "Changed display"}
-    if field == "placement":
-        path, changes = stacks, {"desired.stack.009.placementName": "ChangedPlacement"}
-    elif field == "reference":
-        spec = {
-            "consumerKey": "desired.row.007-001.value",
-            "text": parse(original).values["desired.row.007-001.value"],
-            "occurrence": "1",
-            "producerKind": "resource",
-            "producerScope": "qa-synthetic/team-a/network",
-            "producerLogicalId": "EC2_VPC_001",
-            "resourceType": "EC2.VPC",
-            "format": "link",
-            "labelPolicy": "fixed",
-        }
-        changes = {
-            f"desired.reference.stable.{key}": value for key, value in spec.items()
-        }
-    path.write_text(
-        patch(parse(path.read_text(encoding="utf-8")), changes), encoding="utf-8"
-    )
-    assert design_digest(tmp_path, scope.environment, scope.target) != before
-
-
-@pytest.mark.parametrize(
-    "change", ["observed", "desired", "display", "raw", "concurrent"]
-)
-def check_deploy_observed_baseline_advances_only_proven_outputs(
-    tmp_path, monkeypatch, change
-):
-    design_digest = _imports_deploy_session.design_digest
-    model_input_manifest = _imports_deploy_session.model_input_manifest
-    verify_observed_transition = _imports_deploy_session.verify_observed_transition
-    parse = _imports_model_format.parse
-    patch = _imports_model_format.patch
-    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
-    scope, _ = deploy_properties_fixture(tmp_path)
-    before = authority_snapshot(tmp_path, scope.environment, scope.target)
-    intended = design_digest(tmp_path, scope.environment, scope.target)
-    prior_manifest = model_input_manifest(tmp_path, scope.environment, scope.target)
-    original = scope.path.read_text(encoding="utf-8")
-    changes = {"observed.row.007-001.value": "vpc-new"}
-    if change == "desired":
-        changes["desired.row.007-001.comment"] = "unrelated edit"
-    elif change == "display":
-        changes["display.resource.007.label"] = "unrelated edit"
-    output = patch(parse(original), changes)
-    if change == "raw":
-        output += "# unrelated reformat\n"
-    scope.path.write_text(
-        output + ("# concurrent edit\n" if change == "concurrent" else ""),
-        encoding="utf-8",
-    )
-    if change == "observed":
-        advanced = verify_observed_transition(
-            tmp_path,
-            scope.environment,
-            scope.target,
-            before,
-            {scope.path: output},
-            intended,
-        )
-        assert advanced != prior_manifest
-        assert design_digest(tmp_path, scope.environment, scope.target) == intended
-    else:
-        with pytest.raises(
-            (RuntimeError, ValueError),
-            match="non-observed|unrelated|outside authorized",
-        ):
-            verify_observed_transition(
-                tmp_path,
-                scope.environment,
-                scope.target,
-                before,
-                {scope.path: output},
-                intended,
-            )
 
 
 def check_mutation_and_recovery_with_issues(tmp_path, monkeypatch, capsys):

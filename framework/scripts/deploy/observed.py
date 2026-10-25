@@ -63,6 +63,8 @@ def collect_successful(backend, units, states, *, generated_views=None):
     }
     for unit in units:
         name = unit["name"]
+        if name not in backend.templates:
+            backend.load_inputs(unit)
         document, parameters = backend.templates[name]
         pseudo = {
             "AWS::StackName": name,

@@ -31,6 +31,7 @@ from botocore.exceptions import ClientError
 from deploy import session
 from deploy.controller import main
 from model.core import properties, stack_model
+from model.dependency_index import rebuild as rebuild_index
 from model.files import read_model
 from support.fixture_cases import load_case, materialize_files
 from support.model_sources import allocate_fixture, write_model
@@ -189,6 +190,7 @@ def seed(root, state_path, case="orders", *, same_group=False):
             )
             == 0
         )
+    rebuild_index(root)
     ignore = root / ".gitignore"
     ignore.write_text("tasks/**\n__pycache__/\n")
     git(root, "init", "-q", "-b", "main")
@@ -372,15 +374,7 @@ def _callback_clients_request(
                         values["observed.row.001-001.value"].strip("`") == "vpc-fixture"
                     )
                 if knobs.get("delivery"):
-                    group = [
-                        u["name"]
-                        for u in designed
-                        if int(u["deployOrder"]) == current_order
-                    ]
-                    assert all(
-                        saved["states"][n].get("delivery", {}).get("objects")
-                        for n in group
-                    )
+                    assert saved["states"][name].get("delivery", {}).get("objects")
                 state.setdefault("barriers", {})[name] = {
                     "earlier": earlier,
                     "states": {n: saved["states"][n] for n in earlier},

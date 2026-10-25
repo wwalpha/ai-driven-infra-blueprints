@@ -6,10 +6,9 @@ from functools import partial as _bind_framework_callback
 
 import utils.cloudformation.inputs as _imports_cfn_inputs
 import utils.project_targets as _imports_project_targets
-from model.core import deployment_settings, properties, stack_model
-from model.files import read_model
-from model.projection import deployment_bucket
-from model.render import markdown_for
+from model.core import deployment_settings, stack_model
+from model.render import stack_markdown
+from model.sources import stack_snapshot
 from task_contract_core import (
     section,
     task_snapshot,
@@ -17,19 +16,19 @@ from task_contract_core import (
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint as fingerprint
 
-import deploy.delivery as _imports_deploy_delivery
-
 
 def load_units(root, environment, directory, scope):
     source = (
         root / "model" / environment / directory / "cloudformation-stacks.properties"
     )
-    values = properties(read_model(source))
+    values = dict(stack_snapshot(source).values)
     limit, stacks = stack_model(values)
     design = (
         root / "docs/designs" / environment / directory / "cloudformation-stacks.md"
     )
-    if design.read_text(encoding="utf-8") != markdown_for(design, values, root):
+    if design.read_text(encoding="utf-8") != stack_markdown(
+        design, values, root, validate_delivery=False
+    ):
         raise Blocked(
             "stack model/generated design mismatch; run sync-model before deploy"
         )
@@ -41,16 +40,11 @@ def load_units(root, environment, directory, scope):
     for unit in selected:
         if settings:
             unit.update(settings)
-            unit["templateBucket"] = deployment_bucket(
-                settings["templateBucket"], design, root
-            )
         assigned = [
             dict(artifact)
             for _, artifact in artifacts
             if artifact["stack"] == unit["name"]
         ]
-        for artifact in assigned:
-            artifact["bucket"] = deployment_bucket(artifact["bucket"], design, root)
         if assigned:
             unit["artifacts"] = assigned
     return limit, selected
@@ -71,13 +65,12 @@ def paths(root, environment, directory, target, unit):
 
 
 def deployment_input_paths(root, environment, directory, target, units):
-    source_path = _imports_deploy_delivery.source_path
     return [
         path
         for unit in units
         for path in [
             *paths(root, environment, directory, target, unit),
-            *[source_path(root, a) for a in unit.get("artifacts", [])],
+            *[(root / a["source"]).resolve() for a in unit.get("artifacts", [])],
         ]
     ]
 

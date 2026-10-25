@@ -694,7 +694,11 @@ def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(
         patch.object(scan_runner, "review_materials", return_value=[]),
         patch.object(scan_runner, "naming_materials", return_value=({"names": []}, [])),
         patch.object(
-            scan_runner, "human_confirmations", return_value={"confirmations": []}
+            scan_runner,
+            "human_confirmations",
+            return_value=dict(
+                version=2, environment="dev", target="team", confirmations=[]
+            ),
         ),
         patch.object(scan_runner, "target_services", return_value=["s3"]),
         patch.object(
@@ -704,7 +708,7 @@ def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(
         first = scan_runner.scan(tmp_path, "dev", "team", ["s3"])
     assert len(first["ordinary"]) == 2
     assert [item["message"] for item in first["judgments"]] == [independent]
-    assert first["version"] == 4
+    assert first["version"] == 5
     assert (
         first["ordinary"][1]["diagnostic"]["source_path"]
         == "model/dev/team/s3.properties"

@@ -148,7 +148,7 @@ def artifact_fixture(count=150):
         for i in range(count)
     ]
     artifact = dict(
-        version=4,
+        version=5,
         root="/fixture",
         scan_id="a" * 32,
         naming_context_id=identifier({}),
@@ -493,7 +493,7 @@ def check_scan_changes_without_cache():
                         "team",
                         ["codepipeline"],
                     )
-                    assert result["version"] == 4 and result["checks"] == 20
+                    assert result["version"] == 5 and result["checks"] == 20
                     assert bool(result["processing_errors"]) == (
                         _state_check_scan_cache_guard_order_256.failure == "exception"
                     )

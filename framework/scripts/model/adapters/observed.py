@@ -29,8 +29,10 @@ from utils.project_targets import load_target_directory as load_target
 from utils.source_reads import FileReads
 from validation_scope import active_scope
 
+import model.dependency_index as dependency_index
 import model.observed as _imports_model_observed
 import model.projection as _imports_model_projection
+import model.sources as source_models
 from model import projection as model_projection
 from model.core import entries, properties, stack_model
 from model.files import read_model, resource_row_index
@@ -580,10 +582,21 @@ def resolve_resources(
                 wanted.add((unit["name"], parent["Ref"]))
     wanted = {name + "-" + logical for name, logical in wanted}
     loaded, reads = {}, FileReads()
-    for path in model_paths(root, environment, directory, reads):
+    owner_paths = (
+        dependency_index.owners(root, environment, directory, wanted)
+        if wanted and source_models.session_reads(root) is not None
+        else []
+        if not wanted
+        else model_paths(root, environment, directory, reads)
+    )
+    for path in owner_paths:
         if path.stem == "cloudformation-stacks":
             continue
-        raw = raw_model(path, reads)
+        raw = (
+            load_model(path)
+            if source_models.session_reads(root) is not None
+            else raw_model(path, reads)
+        )
         owners = any(
             key.startswith("desired.resource.")
             and key.endswith(".cfn-logicalId")
@@ -618,14 +631,31 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
         if own_key(path, resource) in identifiers
     }
     reads, typed_usages = FileReads(), {}
-    for path in model_paths(root, read_context=reads) if identifiers else []:
+    shared = source_models.session_reads(root)
+    paths = (
+        dependency_index.consumers(
+            root,
+            {
+                "/".join(own_key(p, r)[:3])
+                for p, values in loaded.items()
+                for _, r in entries(values, "desired.resource.")
+                if own_key(p, r) in identifiers
+            },
+            set(identifiers),
+        )
+        if shared is not None and identifiers
+        else model_paths(root, read_context=reads)
+        if identifiers
+        else []
+    )
+    for path in paths:
         if path in loaded or path.stem == "cloudformation-stacks":
             continue
         _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(
             ".md"
         )
         linked = False
-        snapshot = raw_model(path, reads)
+        snapshot = load_model(path) if shared is not None else raw_model(path, reads)
         values = snapshot.authoritative
         if any(
             node
@@ -660,7 +690,10 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
         ):
             typed_usages[path] = [
                 usage
-                for usage in usages(raw_model(path, reads), reads)
+                for usage in usages(
+                    load_model(path) if shared is not None else raw_model(path, reads),
+                    shared or reads,
+                )
                 if usage.attribute
             ]
         for usage in typed_usages.get(path, ()):

@@ -9,7 +9,7 @@ import generation_inputs as _imports_generation_inputs
 import model.adapters.observed as _imports_model_adapters_observed
 import sync_runtime as _imports_sync_runtime
 from model.observed import verify_observed_outputs
-from model.sources import authority_snapshot, publication_lock, safe
+from model.sources import load_model, publication_lock, safe, source_scope
 from task_contract_core import (
     matches,
     paths_in,
@@ -22,6 +22,25 @@ from task_contract_core import task_digest as task_digest
 from utils.cloudformation.inputs import Blocked
 
 import deploy.observed as _imports_deploy_observed
+from model import dependency_index
+
+
+def source_snapshot(root, outputs):
+    snapshots = {source_scope(root, path) for path in outputs}
+    return {
+        path: raw
+        for scope in snapshots
+        for path, raw in load_model(scope).dependencies.items()
+    }
+
+
+def plan_snapshot(root, plan):
+    return {
+        root / relative: (root / relative).read_bytes()
+        if (root / relative).is_file()
+        else None
+        for relative in plan["beforeManifest"]
+    }
 
 
 def manifest(snapshot):
@@ -266,13 +285,16 @@ def _identity(root, session, target, environment, directory):
 def prepare(backend, units, outputs, services, views):
     root, session = backend.root, backend.session
     with publication_lock(root, read_only=True):
-        before = authority_snapshot(root, backend.environment, backend.directory)
+        before = source_snapshot(root, outputs)
         verify_observed_outputs(before, outputs)
         relative = {
             path.relative_to(root).as_posix(): raw for path, raw in before.items()
         }
         before_manifest = manifest(relative)
-        if before_manifest != session["modelInputManifest"]:
+        if any(
+            session["modelInputManifest"].get(p) != digest
+            for p, digest in before_manifest.items()
+        ):
             raise Blocked("Model inputs changed before observed plan")
         after = {
             **relative,
@@ -281,20 +303,16 @@ def prepare(backend, units, outputs, services, views):
                 for path, text in outputs.items()
             },
         }
-        directories = {f"model/{backend.environment}/{backend.directory}"}
-        directories.update(
-            "/".join(path.split("/")[:3])
-            for path in relative
-            if path.startswith("model/")
-        )
+        directories = {
+            str(source_scope(root, path).path.with_suffix("").relative_to(root))
+            for path in outputs
+        }
         generated = generated_plan(root, views)
         if (
             manifest(
                 {
                     p.relative_to(root).as_posix(): raw
-                    for p, raw in authority_snapshot(
-                        root, backend.environment, backend.directory
-                    ).items()
+                    for p, raw in source_snapshot(root, outputs).items()
                 }
             )
             != before_manifest
@@ -357,10 +375,9 @@ def validate_plan(root, session, target, environment, directory):
         for name, state in plan["evidence"].items()
     ):
         raise Blocked("observed execution evidence does not match unit inputs")
-    if session["modelInputManifest"] not in (
-        plan["beforeManifest"],
-        plan["afterManifest"],
-    ):
+    if {
+        p: session["modelInputManifest"].get(p) for p in plan["beforeManifest"]
+    } not in (plan["beforeManifest"], plan["afterManifest"]):
         raise Blocked("observed plan/session manifest mismatch")
     if plan["stage"] not in {"PREPARED", "MODEL_PUBLISHED"}:
         raise Blocked("unknown observed plan stage")
@@ -397,10 +414,9 @@ def validate_plan(root, session, target, environment, directory):
         raise Blocked("observed plan candidate/manifest mismatch")
     for relative in plan["beforeManifest"]:
         safe(root, root / relative)
-    directories = {f"model/{environment}/{directory}"} | {
-        "/".join(path.split("/")[:3])
-        for path in plan["beforeManifest"]
-        if path.startswith("model/")
+    directories = {
+        str(source_scope(root, root / path).path.with_suffix("").relative_to(root))
+        for path in plan["outputs"]
     }
     if plan["directories"] != sorted(directories):
         raise Blocked("observed discovery scope changed")
@@ -462,16 +478,22 @@ def reconcile(root, session, target, environment, directory):
         plan = validate_plan(root, session, target, environment, directory)
         current = {
             path.relative_to(root).as_posix(): raw
-            for path, raw in authority_snapshot(root, environment, directory).items()
+            for path, raw in plan_snapshot(root, plan).items()
         }
         stage = classify(
             manifest(current), plan["beforeManifest"], plan["afterManifest"]
         )
         check_generated(root, plan)
-        plan["stage"] = stage
-        session["modelInputManifest"] = (
-            plan["beforeManifest"] if stage == "PREPARED" else plan["afterManifest"]
+        dependency_index.update(
+            root, {root / p for p in plan["outputs"]}, observed=True
         )
+        plan["stage"] = stage
+        session["modelInputManifest"] = {
+            **session["modelInputManifest"],
+            **(
+                plan["beforeManifest"] if stage == "PREPARED" else plan["afterManifest"]
+            ),
+        }
     return stage
 
 
@@ -491,7 +513,7 @@ def finish(backend, units):
         [unit for unit in units if unit["name"] in plan["evidence"]],
         session["states"],
     )
-    previous = authority_snapshot(root, backend.environment, backend.directory)
+    previous = plan_snapshot(root, plan)
     expected = {
         **previous,
         **{path: text.encode("utf-8") for path, text in fresh.items()},
@@ -506,6 +528,8 @@ def finish(backend, units):
     backend.guard()
     if stage == "PREPARED":
         publish_observed(root, outputs, previous)
+        if hasattr(backend, "after_observed"):
+            backend.after_observed(outputs)
         # The journal may be gone while the on-disk session still says PREPARED.
         if (
             reconcile(

@@ -35,8 +35,8 @@ from worktree_task import bind_deploy_workflow as register_workflow
 
 import deploy.change_sets as _imports_deploy_change_sets
 import deploy.inputs as _imports_deploy_inputs
-import deploy.session as _imports_deploy_session
 from deploy import failures, retry_policy
+from deploy.model_cache import SessionModels
 from deploy.typing import InputPaths, Manifest, PathsFor, Session, StackUnit
 
 # Metrics and ledger location are not execution authority.
@@ -233,14 +233,21 @@ def bind(root: Path, path: Path, session: Session) -> None:
 
 
 def effective(
-    root: Path, units: Iterable[StackUnit], paths_for: PathsFor, input_paths: InputPaths
+    root: Path,
+    units: Iterable[StackUnit],
+    paths_for: PathsFor,
+    input_paths: InputPaths,
+    *,
+    templates=None,
 ) -> dict[str, str]:
     """Existing CFn decoder, JSON parameters and artifact hashes; no intrinsic evaluation."""
     result = {}
     for unit in units:
         template, parameters = paths_for(unit)
-        raw = template.read_bytes()
-        document, errors = decode(raw)
+        if templates is not None and unit["name"] in templates:
+            document, errors = templates[unit["name"]][0], []
+        else:
+            document, errors = decode(template.read_bytes())
         try:
             # The decoder can emit date scalars. Preserve their type deterministically.
             template_hash = (
@@ -315,7 +322,24 @@ def _reference(root, manifest, reference):
 def diagnose(root: Path, session: Session, diagnosis: JsonObject) -> str:
     """Publish a complete diagnosis atomically, without partially rewriting histories."""
     candidate = copy.deepcopy(session)
-    result = _diagnose(root, candidate, diagnosis)
+    cache = SessionModels(root, candidate)
+    with _imports_model_sources.model_session(cache):
+        for problem in diagnosis.get("problems", []):
+            for reference in problem.get("modelRefs", []):
+                relative = reference["path"]
+                if relative in candidate["modelInputManifest"]:
+                    continue
+                path = safe_path(root, relative)
+                scope = _imports_model_sources.source_scope(root, path)
+                identity = f"{scope.environment}/{scope.target}/{scope.service}"
+                if identity not in candidate.get("validationScope", []) or sha(
+                    path
+                ) != reference.get("sha256"):
+                    raise Blocked(
+                        "new diagnosis Model input is outside scope or has changed"
+                    )
+                _imports_model_sources.load_model(scope)
+        result = _diagnose(root, candidate, diagnosis)
     session.clear()
     session.update(candidate)
     return result
@@ -787,7 +811,6 @@ def issue_request(
         "allowedPaths": sorted(allowed_paths),
         "infraManifest": copy.deepcopy(session["infraManifest"]),
         "modelInputManifest": copy.deepcopy(session["modelInputManifest"]),
-        "designDigest": session["designDigest"],
         "observations": copy.deepcopy(
             [
                 o
@@ -816,8 +839,6 @@ def verify_inputs(
 
     deployment_input_paths = _imports_deploy_inputs.deployment_input_paths
     load_units = _imports_deploy_inputs.load_units
-    design_digest = _imports_deploy_session.design_digest
-    model_input_manifest = _imports_deploy_session.model_input_manifest
     environment, directory, target = (
         session["environment"],
         session["directory"],
@@ -829,24 +850,21 @@ def verify_inputs(
     if current != target:
         raise Blocked("project target changed during handoff")
     with selected_task(root, contract_file or session["taskFile"]):
-        if (
-            design_digest(
-                root,
-                environment,
-                directory,
-                contract_file=contract_file or session["taskFile"],
-            )
-            != session["designDigest"]
-            or model_input_manifest(root, environment, directory)
-            != session["modelInputManifest"]
+        if any(
+            sha(root / relative) != digest
+            for relative, digest in session["modelInputManifest"].items()
         ):
-            raise Blocked(
-                "approved design/Model dependency inputs changed during handoff"
-            )
+            raise Blocked("consumed Model inputs changed during handoff")
         _, units = load_units(root, environment, directory, list(session["states"]))
         actual = {
             p.relative_to(root).as_posix(): sha(p)
-            for p in deployment_input_paths(root, environment, directory, target, units)
+            for p in deployment_input_paths(
+                root,
+                environment,
+                directory,
+                target,
+                [u for u in units if u["name"] in session["unitDigests"]],
+            )
         }
     allowed = set(child_paths)
     if actual.keys() != session["infraManifest"].keys() or any(
@@ -867,6 +885,8 @@ def dependencies(
     import_names = _imports_deploy_change_sets.import_names
     producers, imports = {}, {}
     for unit in units:
+        if unit["name"] not in backend.templates:
+            continue
         document, parameters = backend.templates[unit["name"]]
         pseudo = {
             "AWS::StackName": unit["name"],
@@ -893,7 +913,10 @@ def dependencies(
         except Blocked:
             # Keep uncertainty explicit; the normal fresh AWS boundary still rejects it.
             imports[unit["name"]] = None
-    result = {unit["name"]: [] for unit in units}
+    result = {unit["name"]: [] for unit in units if unit["name"] in backend.templates}
+    unloaded = [unit["name"] for unit in units if unit["name"] not in backend.templates]
+    if unloaded:
+        result["__unloaded__"] = unloaded
     for consumer, names in imports.items():
         if names is None:
             result.setdefault("__unresolved__", []).append(consumer)

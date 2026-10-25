@@ -14,3 +14,10 @@ labels and never requests repair. Schema pointer/label changes cannot prove NEW;
 only validates observations and enforces shared-cause attempts, cycles and input safety.
 Budget extensions are unavailable without external verifiable Human approval; arbitrary
 authorization text fails closed. Close/new Tasks cannot reset unresolved histories.
+
+Use the prompt's lazy-input flow: claim only available Stack slots, reuse the invocation's
+shared Model snapshots/desired checks, and apply verified observed deltas. Never read all
+service Models or pending IaC bodies to start or guard Deploy. Missing/stale dependency
+metadata stops only when ownership/reference synchronization needs it; never rebuild the
+index inside Deploy. Keep Task/target/IaC/ChangeSet guards, atomic publication and SUCCESS
+recovery. Session v5 has no automatic older-format migration. Issue diagnostics are warnings.

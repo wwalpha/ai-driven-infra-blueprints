@@ -446,7 +446,7 @@ def deploy_validate(where, task_id, request_path):
                 )
             candidate_effective = handoff.effective(
                 target,
-                candidate_units,
+                [u for u in candidate_units if u["name"] in session["unitDigests"]],
                 lambda u: unit_paths(
                     target,
                     session["environment"],
@@ -482,6 +482,7 @@ def deploy_validate(where, task_id, request_path):
                     if o["stack"] == name and o["observationId"] in previous_ids
                 }
                 for name in direct
+                if name in session["effectiveDigests"]
             ):
                 candidate_error = (
                     "unchanged or known failed effective inputs for this problem"
@@ -648,7 +649,7 @@ def deploy_finalize(where, task_id):
             )
         effective_after = handoff.effective(
             target,
-            units,
+            [u for u in units if u["name"] in session["unitDigests"]],
             lambda unit: input_paths(
                 target,
                 session["environment"],

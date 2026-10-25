@@ -74,10 +74,10 @@ def identifier_outputs(root: Path) -> dict[str, set[str]]:
 
 
 def bound_stack_names(path):
-    load_model = _imports_model_sources.load_model
+    stack_snapshot = _imports_model_sources.stack_snapshot
     return {
         stack["placementName"]: stack["name"]
-        for _, stack in entries(load_model(path).authoritative, "desired.stack.")
+        for _, stack in entries(stack_snapshot(path).authoritative, "desired.stack.")
     }
 
 

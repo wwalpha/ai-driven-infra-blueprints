@@ -4,10 +4,10 @@
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `issues-isolation::references` | `check_reference_diagnostic_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | 参照診断全体/個別・PLAINTEXT全体/個別・Issue候補のValueError隔離、正常ID/重複排除、資料→IaC→mock raw lint→artifact v4保存の順序、ERROR/終了2、既存Issue不変 | 追加 |
+| `issues-isolation::references` | `check_reference_diagnostic_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | 参照診断全体/個別・PLAINTEXT全体/個別・Issue候補のValueError隔離、正常ID/重複排除、資料→IaC→mock raw lint→artifact v5保存の順序、ERROR/終了2、既存Issue不変 | 追加 |
 | `issues-isolation::view` | `check_view_failure_isolation` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 3 | View構築・展開・表示ValueErrorのファイル別隔離、原因とNOT_RUN、独立した保存済みリンク検査 | 追加 |
-| `issues-isolation::stage` | `check_scan_stage_failures` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | mechanical/Model/lint/naming/既存Issue/レビュー/View事前読取り/診断対応付けの障害隔離、取得済み診断保持、独立比較/lint継続、CLI artifact v4保存とERROR終了、既存Issue読取り失敗時の報告保存・解消禁止 | 拡張 |
-| `issues-isolation::materials` | `check_material_service_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 3 | naming/レビューのサービス別失敗・秘匿化、別サービス資料と比較/lintの継続、通常の命名資料・context同等性 | 追加 |
+| `issues-isolation::stage` | `check_scan_stage_failures` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | mechanical/Model/lint/naming/既存Issue/レビュー/View事前読取り/診断対応付けの障害隔離、取得済み診断保持、独立比較/lint継続、CLI artifact v5保存とERROR終了、既存Issue読取り失敗時の報告保存・解消禁止 | 拡張 |
+| `issues-isolation::materials` | `check_material_service_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 3 | naming/レビューのサービス別失敗・秘匿化、別サービス資料と比較/lintの継続、通常の命名資料・context同等性、Scan/SaveでHuman原文不変と2レポート保存 | 追加 |
 | `issues-isolation::worker` | `check_service_worker_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | service内部/workerの想定外例外、別service結果回収、既存診断とModel/observed検査、非cacheとNOT_RUN | 追加 |
 
 ## Markdown生成と保存済み参照の検証責務
@@ -150,7 +150,7 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 
 | `model-cli::entrypoints` | `check_cli_entrypoints` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py#L53) | pytest / 1 | 直接起動と公開mainのhelp一致・既存Module起動結果保持 | Python品質 |
 
-## Issues package, artifact v4 and isolated cfn-lint
+## Issues package, artifact v5 and isolated cfn-lint
 
 「元ID」の `issues-v2::` / `issues-v4::` は履歴上の識別子であり、現行Scan Artifactのversionではない。ID・関数名・検証責務は維持する。
 
@@ -158,16 +158,16 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `issues-v2::check_classification` | `check_classification` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 9 | severity・E0000 provenance・特殊Error分類 | Issues Artifact v4 |
-| `issues-v2::check_explicit_plan` | `check_explicit_plan` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | Stack parametersと独立した対象・共有dedup・owner・対象外 | Issues Artifact v4 |
-| `issues-artifact::check_artifact_index_and_status` | `check_artifact_index_and_status` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 一次集計・page先行・未対応形式拒否・status・bounded notice・review照合 | Issues Artifact v4 |
-| `issues-v2::check_deferred_cache_finalization` | `check_deferred_cache_finalization` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 最終入力確認まで候補保留・変更時不採用 | Issues Artifact v4 |
-| `issues-v2::check_scan_changes_without_cache` | `check_scan_changes_without_cache` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | codepipeline.md変更中も集計完了・PASS cacheと監視artifactフィールドなし・例外をERRORへ隔離し中断は伝播 | Issues Artifact v4 |
-| `issues-v2::check_worker_protocol_and_fatal` | `check_worker_protocol_and_fatal` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | protocol拒否・共通runtime失敗後not_run | Issues Artifact v4 |
-| `issues-v2::check_cli_equivalence` | `check_cli_equivalence` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py#L63) | pytest / 2 | 固定版CLIの正常/異常代表各1入力、Rule/Level/Location/MessageとRegion一致 | Issues Artifact v4 |
-| `issues-v2::check_plan_without_stack` | `check_plan_without_stack` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 4 | IMPORT/API-only先行分類・混在CREATE未検証・Stack loader回数 | Issues Artifact v4 |
-| `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 3 | schema障害時の診断0件/混在の未完了coverageと通常/未知type診断保持・exit 2・分類途中例外でも取得済診断を保持 | Issues Artifact v4 |
-| `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・変更後再読取許容・通常Validatorの読取障害隔離 | Issues Artifact v4 |
+| `issues-v2::check_classification` | `check_classification` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 9 | severity・E0000 provenance・特殊Error分類 | Issues Artifact v5 |
+| `issues-v2::check_explicit_plan` | `check_explicit_plan` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | Stack parametersと独立した対象・共有dedup・owner・対象外 | Issues Artifact v5 |
+| `issues-artifact::check_artifact_index_and_status` | `check_artifact_index_and_status` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 一次集計・page先行・未対応形式拒否・status・bounded notice・review照合 | Issues Artifact v5 |
+| `issues-v2::check_deferred_cache_finalization` | `check_deferred_cache_finalization` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 最終入力確認まで候補保留・変更時不採用 | Issues Artifact v5 |
+| `issues-v2::check_scan_changes_without_cache` | `check_scan_changes_without_cache` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | codepipeline.md変更中も集計完了・PASS cacheと監視artifactフィールドなし・例外をERRORへ隔離し中断は伝播 | Issues Artifact v5 |
+| `issues-v2::check_worker_protocol_and_fatal` | `check_worker_protocol_and_fatal` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | protocol拒否・共通runtime失敗後not_run | Issues Artifact v5 |
+| `issues-v2::check_cli_equivalence` | `check_cli_equivalence` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py#L63) | pytest / 2 | 固定版CLIの正常/異常代表各1入力、Rule/Level/Location/MessageとRegion一致 | Issues Artifact v5 |
+| `issues-v2::check_plan_without_stack` | `check_plan_without_stack` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 4 | IMPORT/API-only先行分類・混在CREATE未検証・Stack loader回数 | Issues Artifact v5 |
+| `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 3 | schema障害時の診断0件/混在の未完了coverageと通常/未知type診断保持・exit 2・分類途中例外でも取得済診断を保持 | Issues Artifact v5 |
+| `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・変更後再読取許容・通常Validatorの読取障害隔離 | Issues Artifact v5 |
 | `issues-v4::check_child_builtin_packets_preserve_progress` | `check_child_builtin_packets_preserve_progress` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 2 | JSON組込み型へのIPC正規化・途中例外でも取得済み全channel/dependencies保持 | Issues residual repair |
 
 
@@ -2040,8 +2040,6 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_properties_normal_generation_uses_new_authority` | `check_properties_normal_generation_uses_new_authority` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L187) | pytest / 1 | 新正本からの通常生成・原文保持・stage 入力完全性 | Model v2 |
 | `model-v2::check_managed_properties_save` | `check_managed_properties_save` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L248) | pytest / 13 | 実 Task・HEAD・原文・集合競合・一回保存・rollback・中断 journal | Model v2 |
 | `model-v2::check_properties_context_requires_managed_running_task` | `check_properties_context_requires_managed_running_task` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L547) | pytest / 1 | 管理 worktree と running Task の保存権限 | Model v2 |
-| `model-v2::check_deploy_digest_covers_all_nonobserved_authority` | `check_deploy_digest_covers_all_nonobserved_authority` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L2140) | pytest / 3 | display/reference/placement を含む非観測設計 digest | Model v2 |
-| `model-v2::check_deploy_observed_baseline_advances_only_proven_outputs` | `check_deploy_observed_baseline_advances_only_proven_outputs` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L2164) | pytest / 5 | 観測差分だけの baseline 更新と同時設計変更拒否 | Model v2 |
 | `model-v2::check_deploy_preparation_separates_producer_reads_from_writes` | `check_deploy_preparation_separates_producer_reads_from_writes` | IT | [integrations/cloudformation-deploy.checks.py](integrations/cloudformation-deploy.checks.py#L850) | pytest / 1 | producer 読取依存と許可書込先の分離 | Model v2 |
 | `model-v2::check_properties_import_acquire_review_publish` | `check_properties_import_acquire_review_publish` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L733) | pytest / 2 | 実取得/ReviewからReview改ざんの保存前拒否とReceipt失敗時の実Rollback | Model v2 |
 | `model-v2::check_properties_standalone_audit_has_no_framework_runtime` | `check_properties_standalone_audit_has_no_framework_runtime` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L352) | pytest / 1 | 独立 audit の生成・Framework import 不要・未取得 ERROR | Model v2 |
@@ -3639,7 +3637,7 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | `pending-excluded::report` | `check_pending_deploy_is_count_only_exclusion` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | 1/2件の専用分類行・Issue 0・通常詳細なし・Artifact/明示detail原因保持 | Synthetic records |
 | `pending-excluded::status` | `check_pending_deploy_does_not_change_comparison_status` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | pending単独/一致/差分/未比較/エラー/他deferredの全体判定・Issue件数分離 | Synthetic records |
 | `pending-excluded::dedup` | `check_pending_deploy_parent_child_count_and_issue_separation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 親子同原因を1件・別Consumerを独立集計・CFn非対応とIssue分類を維持 | Synthetic records |
-| `import-wait::artifact` | `check_artifact_v4_rejects_invalid_indexes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 24 | deferred/excludedのcause/category/count/index整合性検証、旧分類互換なし | Synthetic Artifact |
+| `import-wait::artifact` | `check_artifact_v5_rejects_invalid_indexes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 24 | deferred/excludedのcause/category/count/index整合性検証、旧分類互換なし | Synthetic Artifact |
 
 ## CodeBuild PLAINTEXT Resource link prohibition
 
@@ -3652,7 +3650,7 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | JSON context | `test_container_references_use_exact_context` | 2 | Value/document structured and Markdown references use their own array object's Type |
 | Display restoration | `test_markdown_rejects_plaintext_link` | 4 | Explicit/missing PLAINTEXT marker rejects links in CREATE/IMPORT |
 | Non-PLAINTEXT | `test_non_plaintext_round_trip` | 2 | PARAMETER_STORE/SECRETS_MANAGER display round trip is preserved |
-| Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 18 | Model-only, Markdown-only and combined policy errors; one/two variables and independent ownership errors; readable/unreadable Markdown and typed IAM.Role; scan/save twice retains Issue IDs and counts, independent S3 comparison/lint, CLI artifact v4 and strict generation rejection |
+| Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 18 | Model-only, Markdown-only and combined policy errors; one/two variables and independent ownership errors; readable/unreadable Markdown and typed IAM.Role; scan/save twice retains Issue IDs and counts, independent S3 comparison/lint, CLI artifact v5 and strict generation rejection |
 | Structured display | `test_structured_reference_display_is_rejected` | 2 | Projected typed Resource values remain forbidden for PLAINTEXT in CREATE/IMPORT |
 | Valid producers | `test_non_plaintext_model_links_pass` | 2 | Authoritative Model passes correct SSM.Parameter/SecretsManager.Secret links |
 
@@ -3678,7 +3676,7 @@ Existing partial-comparison UTs retain confirmed sibling differences and reject 
 | `design-expansion::model-display-match` | `test_recovery_rejects_independent_markdown_tampering` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 1 | Recovery refuses mismatched independent Model displays and continues the remaining matched Resource | Synthetic Models/Markdown |
 | `design-expansion::grouped-models` | `check_grouped_resource_recovery_keeps_parent_and_children_together` | UT | [units/model-reference-display-unit.checks.py](units/model-reference-display-unit.checks.py) | pytest / 2 | Existing renderer binds each complete parent/child group; malformed child and tampered sibling displays cannot bypass typed validation | Synthetic Models/Markdown |
 
-The existing CodeBuild scan/save UT also checks Issues v4 ordinary policy errors, aggregate FAIL, incomplete NOT_RUN checks, no derived catalog/identifier errors and no policy processing errors. Generation failures retain FAIL independently from saved raw validation and per-Resource semantic NOT_RUN; pure reference waits retain their existing completion policy.
+The existing CodeBuild scan/save UT also checks Issues v5 ordinary policy errors, aggregate FAIL, incomplete NOT_RUN checks, no derived catalog/identifier errors and no policy processing errors. Generation failures retain FAIL independently from saved raw validation and per-Resource semantic NOT_RUN; pure reference waits retain their existing completion policy.
 
 ## desired直接値PENDING_DEPLOYの正常除外
 
@@ -3690,10 +3688,10 @@ The existing CodeBuild scan/save UT also checks Issues v4 ordinary policy errors
 | `direct-pending::route53` | `test_route53_direct_pending_deploy_classification` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 12 | dev/stg cde Resource003 DNSNameの除外1件・Issue0、未確定4値と通常差分の維持 | Synthetic Models/IaC |
 | `direct-pending::siblings` | `test_direct_pending_deploy_preserves_sibling_comparison` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 8 | 同Resourceの2直接値を2件、親内/別親の一致・差分・真の未比較を維持 | Synthetic Models/IaC |
 | `direct-pending::actual` | `test_direct_pending_deploy_retains_actual_sibling_failures` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | 除外先IaC未解決値の無視と別propertyの未解決参照維持 | Synthetic Models/IaC |
-| `direct-pending::reports` | `check_direct_pending_deploy_reports_and_dedup` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | 異property独立件数・親子重複排除・IMPORT件数維持・Artifact v4・issues/reportのIssue0 | Synthetic records |
-| `direct-pending::artifact` | `check_direct_pending_deploy_artifact_rejects_invalid_causes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 8 | 原因schema・分類・除外件数の不整合を拒否、互換分岐なし | Synthetic Artifact v4 |
+| `direct-pending::reports` | `check_direct_pending_deploy_reports_and_dedup` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | 異property独立件数・親子重複排除・IMPORT件数維持・Artifact v5・issues/reportのIssue0 | Synthetic records |
+| `direct-pending::artifact` | `check_direct_pending_deploy_artifact_rejects_invalid_causes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 8 | 原因schema・分類・除外件数の不整合を拒否、互換分岐なし | Synthetic Artifact v5 |
 
-## Immutable issues Snapshot v4
+## Immutable issues Snapshot v5
 
 旧inventory merge・旧ID/Service block/Human文面保持・continuing/resolved/unverified状態遷移・
 verification_targets復元・resolved互換ProjectionのUTを削除した。部分結果を追記する旧CLIと
@@ -3702,22 +3700,17 @@ verification_targets復元・resolved互換ProjectionのUTを削除した。部�
 
 | Origin | Case | Level | Entry | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
-| `issues-snapshot::check_snapshot_replaces_inventory` | `check_snapshot_replaces_inventory` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | 旧Markdownを読まない全置換、決定性、immutable値、解消後の最新Snapshot | Synthetic v4 |
-| `issues-snapshot::check_human_exception_and_conflict` | `check_human_exception_and_conflict` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | Human例外の除外と矛盾時のIssue/未検証保持、Review後status | Synthetic v4 |
-| `issues-snapshot::check_exclusion_scope` | `check_exclusion_scope` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 15 | Human id/Service/Resource/Property/Rule/診断ID/根拠/例外の一致、欠落・wildcard・公開アクセス誤除外拒否 | Synthetic v4 |
-| `issues-snapshot::check_human_cleanup_preserves_facts` | `check_human_cleanup_preserves_facts` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | Task許可付き関連Issue記録削除、raw確定事実・他項目保持 | Synthetic v4 |
-| `issues-snapshot::check_cleanup_requires_evidence` | `check_cleanup_requires_evidence` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 22 | 未実行/不完全/失敗/無関係PASS/他Resource・Property・Rule/未検証/処理エラー/conflict/重複/不明/事実編集の拒否 | Synthetic v4 |
-| `issues-snapshot::check_cleanup_blocker_scope` | `check_cleanup_blocker_scope` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 21 | Issue/未検証/処理エラーの不明・wildcard対象は削除を止め、異なるResource/Property/Ruleや確定した他Serviceは分離 | Synthetic v4 |
-| `issues-snapshot::check_human_contract_refuses_unsupported_records` | `check_human_contract_refuses_unsupported_records` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 5 | 旧文字列例外・id/messageのみ関連記録・wildcard・空Rule/条件を具体的不足項目とともに拒否し原文保持 | Synthetic v4 |
-| `issues-snapshot::check_cleanup_current_record_authority` | `check_cleanup_current_record_authority` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 4 | 現Human関連記録のService/Resource/Property/Rule不一致で全保存拒否 | Synthetic v4 |
-| `issues-snapshot::check_incomplete_is_not_pass` | `check_incomplete_is_not_pass` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 4 | 処理エラー/未検証Service/LLM未確認をPASSにしない | Synthetic v4 |
-| `issues-snapshot::check_partial_scope_refused` | `check_partial_scope_refused` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 5 | 部分Service/欠落結果/重複/理由欠落/Target未確定で保存拒否 | Synthetic v4 |
-| `issues-snapshot::check_atomic_rollback` | `check_atomic_rollback` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 6 | 両Markdownと任意Human fileのreplace前後失敗を全rollback | Synthetic v4 |
-| `issues-snapshot::check_review_rejects_incomplete_and_old_inputs` | `check_review_rejects_incomplete_and_old_inputs` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 8 | Scan/context/全材料review/診断網羅と旧Artifact/旧field拒否 | Synthetic v4 |
-| `issues-snapshot::check_explicit_human_file_and_service_discovery` | `check_explicit_human_file_and_service_discovery` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | 必須Human file/strict YAML/ModelとViewのTarget membership | Synthetic v4 |
-| `issues-snapshot::check_reviewed_sources_are_not_reread` | `check_reviewed_sources_are_not_reread` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | Scan後の入力変更を監視せずScan時根拠行のまま保存・Git非参照 | Synthetic v4 |
-| `issues-snapshot::check_snapshot_rejects_invalid_current_values` | `check_snapshot_rejects_invalid_current_values` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 6 | 範囲外診断/IaC、timezone、根拠path/line、未確認Serviceの保存前拒否 | Synthetic v4 |
-| `issues-f6::cleanup-authority` | `check_cleanup_authority` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 6 | Human依頼の対象ID/環境/Target/構造と現在の関連記録実在、拒否時は保存なし | F6 synthetic only |
+| `issues-snapshot::check_snapshot_replaces_inventory` | `check_snapshot_replaces_inventory` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | 旧Markdownを読まない全置換、決定性、immutable値、解消後の最新Snapshot | Synthetic v5 |
+| `issues-snapshot::check_human_exception_and_conflict` | `check_human_exception_and_conflict` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | Human v2読取・2レポートのみ保存・Human原文保持、例外除外と矛盾時のIssue/未検証保持 | Synthetic v5 |
+| `issues-snapshot::check_exclusion_scope` | `check_exclusion_scope` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 15 | Human id/Service/Resource/Property/Rule/診断ID/根拠/例外の一致、欠落・wildcard・公開アクセス誤除外拒否 | Synthetic v5 |
+| `issues-snapshot::check_human_contract_refuses_unsupported_records` | `check_human_contract_refuses_unsupported_records` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 7 | v2のみ読取、旧field/version・欠落fact・wildcard・空Rule/条件・不正例外を拒否し原文保持 | Synthetic v5 |
+| `issues-snapshot::check_incomplete_is_not_pass` | `check_incomplete_is_not_pass` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 4 | 処理エラー/未検証Service/LLM未確認をPASSにしない | Synthetic v5 |
+| `issues-snapshot::check_partial_scope_refused` | `check_partial_scope_refused` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 5 | 部分Service/欠落結果/重複/理由欠落/Target未確定で保存拒否 | Synthetic v5 |
+| `issues-snapshot::check_atomic_rollback` | `check_atomic_rollback` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 4 | 両Markdownのreplace前後失敗をrollbackしHuman原文保持 | Synthetic v5 |
+| `issues-snapshot::check_review_rejects_incomplete_and_old_inputs` | `check_review_rejects_incomplete_and_old_inputs` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 9 | Scan/context/全材料review/診断網羅と旧Artifact/旧cleanup field拒否 | Synthetic v5 |
+| `issues-snapshot::check_explicit_human_file_and_service_discovery` | `check_explicit_human_file_and_service_discovery` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | 必須Human file/strict YAML/ModelとViewのTarget membership | Synthetic v5 |
+| `issues-snapshot::check_reviewed_sources_are_not_reread` | `check_reviewed_sources_are_not_reread` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | Scan後の入力変更を監視せずScan時根拠行のまま保存・Git非参照 | Synthetic v5 |
+| `issues-snapshot::check_snapshot_rejects_invalid_current_values` | `check_snapshot_rejects_invalid_current_values` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 6 | 範囲外診断/IaC、timezone、根拠path/line、未確認Serviceの保存前拒否 | Synthetic v5 |
 
 | `resource-impact::routes` | `check_task_snapshot_routes` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py#L425) | direct / 1 | 実managed保存・Candidate・stage/commit・最終Validation・Snapshot/graph回数 | Resource impact |
 | `deploy-runtime::issues` | `check_mutation_and_recovery_with_issues` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | mutation継続・Issue警告なし・recovery継続、入力guard/危険rollback状態は停止 | Mock SDK / real guards |
@@ -3734,4 +3727,28 @@ verification_targets復元・resolved互換ProjectionのUTを削除した。部�
 | `validation-diagnostics::invalid-links` | `check_invalid_json_links_continue_without_external_reads` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 4 | サービス外/リポジトリ外/絶対/外部symlinkの配置違反、正常参照継続、外部ファイル非読込、正常索引への不正パス非登録 | Synthetic Markdown/JSON |
 | `validation-diagnostics::child-correspondence` | `check_child_validator_keeps_diagnostic_correspondence` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | 親子統合で診断IDと表示エラー対応を維持、独立した文字列エラーを保持 | Synthetic Findings |
 | `validation-diagnostics::candidate-correspondence` | `check_candidate_failure_preserves_each_artifact_diagnostic` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 2 | FindingsError集約でwrapper付き表示も同一診断として保持 | Existing UT extended |
-| `validation-diagnostics::scan-correspondence` | `check_scan_artifact_keeps_diagnostics_and_incomplete_metadata` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 8 | 同文/ラッパー/親子伝搬/独立同文/ReferenceDiagnostic/PLAINTEXTで二重Issueを防止、v4と未検証metadataを保持 | Existing UT extended |
+| `validation-diagnostics::scan-correspondence` | `check_scan_artifact_keeps_diagnostics_and_incomplete_metadata` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 8 | 同文/ラッパー/親子伝搬/独立同文/ReferenceDiagnostic/PLAINTEXTで二重Issueを防止、v5と未検証metadataを保持 | Existing UT extended |
+
+## Deploy lazy inputs and session Model reuse
+
+The former whole-target digest/observed-baseline UTs are replaced by scoped revision,
+publication and cache checks; no whole-target Model scan is an acceptance condition.
+Existing Deploy handoff tests retain shared-input/SUCCESS protection; observed-resume
+checks retain exact journals, CAS, partial publication and execution/approval evidence.
+
+| Case ID | Function | Kind | File | Runner / Cases | Responsibility | Change |
+| --- | --- | --- | --- | --- | --- | --- |
+| `deploy-lazy::bounded-100` | `check_100_stacks_bounded` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 2 | 100 Stacks, first-slot failure, concurrency 1/3, no pending decode/delivery | Added |
+| `deploy-lazy::model-once` | `check_model_load_once_parallel_and_observed` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | 100 concurrent requests, one source parse/check, incremental observations, no recheck | Added |
+| `deploy-lazy::unrelated-and-index` | `check_unrelated_invalid_model_and_missing_stale_index` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Unrelated authority excluded; missing/stale ownership metadata fails closed | Added |
+| `deploy-lazy::owners` | `check_index_owners_duplicate_and_unknown` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Unique, absent and duplicate owner discovery without inference | Added |
+| `deploy-lazy::input-revision` | `check_claim_immutable_inputs_and_no_eager_decode` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Pin only claimed input hashes; reject changed IaC before use | Added |
+| `deploy-lazy::observed-authority` | `check_observed_patch_rejects_authority_changes` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 3 | Reject desired, display and unrelated-byte changes | Replaces eager baseline tests |
+| `deploy-lazy::success-resume` | `check_resume_skips_success_and_dependency_unknown` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | SUCCESS never starts twice; pending dependencies stay explicitly unloaded | Added |
+| `deploy-lazy::desired-once` | `check_desired_validation_reused_after_observed` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Desired confirmation cached across observed deltas | Added |
+| `deploy-lazy::cas` | `check_observed_publication_rejects_conflict` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Real observed writer rejects concurrent bytes before publishing | Added |
+| `deploy-lazy::stack-delivery` | `check_stack_metadata_defers_delivery_model` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Stack/generated metadata equality needs no delivery Model; ordinary generation retains delivery validation | Added |
+| `deploy-lazy::index-publication` | `check_index_delta_retarget_delete_and_invalid_unrelated` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Observed index patch without reparse, retarget/delete maintenance, invalid unrelated authority excluded | Added |
+| `deploy-lazy::mapping-denial` | `check_owner_ambiguity_blocks_mapping` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Absent/duplicate owners cannot produce an observed mapping | Added |
+| `deploy-lazy::cache-authority` | `check_cache_permission_and_input_revision` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Distinct permission context, reused checked snapshot, changed revision rejection | Added |
+| `deploy-lazy::generation-stage` | `check_generation_stage_reuses_checked_model` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Reuse checked authority for byte-identical generation-stage copies; reject modified candidate bytes | Added |
