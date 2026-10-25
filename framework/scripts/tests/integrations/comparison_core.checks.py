@@ -54,13 +54,15 @@ assert alternate.Expression is inputs.Expression is values.Expression
 assert alternate.ResourceReference is inputs.ResourceReference is values.ResourceReference
 assert alternate.Blocked is inputs.Blocked is evaluation.Blocked
 from utils.script_loader import module
+import issues.inputs as issue_inputs
 import issues.runner as scan
 from deploy import s3_delivery as delivery
 aws = module('model/adapters/aws.py', 'model.adapters.aws')
 from deploy import controller as deploy
 assert delivery.module('model/adapters/aws.py', 'model.adapters.aws') is aws
 assert aws.Unresolved is rows.Unresolved and aws.put_row is rows.put_row
-assert scan.Comparison is iac.Comparison
+assert scan.Comparison is issue_inputs.Comparison
+assert issubclass(scan.Comparison, iac.Comparison)
 assert deploy.Blocked is inputs.Blocked
 import model.render as model_design, model.core as model_core
 from model.adapters import observed

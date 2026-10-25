@@ -85,19 +85,6 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
         task.check_task_scope()
     assert active_scope(tmp_path) == {('dev', 'cde', 's3')}
     assert (tmp_path / name).read_text() == text  # No suspension or replacement Task.
-    if kind != 'reports':
-        assert any('outside task scope: committed.txt' in error for error in findings.errors)
-        assert 'committed.txt' in task.changed_paths and task.baseline == baseline
-        return
-    assert not findings.errors, findings.errors
-    assert task.changed_paths == permitted and task.scope_paths == permitted
-    task.check_issue_gate()
-    task.check_acceptance_checks({})
-    assert not findings.errors, findings.errors
-    # Preserve independent index changes, including a file restored only in the worktree.
-    git('add', 'issues/dev/cde/issues.md')
-    (tmp_path / 'issues/dev/cde/issues.md').write_text('')
-    assert task.final_paths() == permitted
     for state in ('unstaged', 'staged', 'untracked'):
         outside = tmp_path / ('untracked.txt' if state == 'untracked' else 'outside.txt')
         outside.write_text(state)
@@ -106,10 +93,27 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
             outside.write_text('')
         blocked = TaskValidation(tmp_path, Findings(tmp_path))
         blocked.check_task_scope()
-        assert any(f'outside task scope: {outside.name}' in error for error in blocked.findings.errors)
+        if kind == 'reports':
+            assert not blocked.findings.errors, blocked.findings.errors
+            assert blocked.changed_paths == blocked.scope_paths == set()
+        else:
+            assert any(f'outside task scope: {outside.name}' in error for error in blocked.findings.errors)
     (tmp_path / 'outside.txt').write_text('')
     git('add', 'outside.txt')
     (tmp_path / 'untracked.txt').unlink()
+    if kind != 'reports':
+        assert any('outside task scope: committed.txt' in error for error in findings.errors)
+        assert 'committed.txt' in task.changed_paths and task.baseline == baseline
+        return
+    assert not findings.errors, findings.errors
+    assert task.changed_paths == task.scope_paths == set()
+    task.check_issue_gate()
+    task.check_acceptance_checks({})
+    assert not findings.errors, findings.errors
+    # Preserve independent index changes, including a file restored only in the worktree.
+    git('add', 'issues/dev/cde/issues.md')
+    (tmp_path / 'issues/dev/cde/issues.md').write_text('')
+    assert task.final_paths() == set()
     task.check_task_scope()
     assert not findings.errors, findings.errors
     with mock.patch('model.importing.repository.task_start_commit', side_effect=AssertionError('report completion used a baseline')):
