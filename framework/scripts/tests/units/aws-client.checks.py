@@ -252,6 +252,24 @@ def check_failed_continuation_returns_no_inventory(monkeypatch):
         cloudformation.describe_change_set(("context",), ChangeSetName="change")
 
 
+@pytest.mark.parametrize("missing_page", [0, 1])
+def check_failed_changeset_missing_changes_is_not_empty(monkeypatch, missing_page):
+    replies = [
+        {"Status": "FAILED", "Changes": [], "NextToken": "second"},
+        {"Status": "FAILED", "Changes": []},
+    ]
+    replies[missing_page].pop("Changes")
+    monkeypatch.setattr(
+        sdk,
+        "request",
+        _bind_framework_callback(
+            _callback_check_failed_continuation_returns_no_inventory_request, replies
+        ),
+    )
+    with pytest.raises(sdk.AwsError, match="InvalidPage"):
+        cloudformation.describe_change_set(("context",), ChangeSetName="change")
+
+
 def check_effective_default_profile(tmp_path, monkeypatch):
     """Use the actual SDK provider chain with private, synthetic config files."""
     config = tmp_path / "config"

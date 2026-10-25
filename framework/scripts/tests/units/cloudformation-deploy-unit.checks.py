@@ -380,14 +380,29 @@ class MarkedString(str):
     pass
 
 
+def no_change_inputs():
+    return (
+        {
+            "stackId": "stack",
+            "changeSetId": "change",
+            "operationType": "UPDATE",
+            "absentBeforeCreate": False,
+        },
+        {
+            "Status": "FAILED",
+            "StatusReason": "The submitted information didn't contain changes.",
+            "ExecutionStatus": "UNAVAILABLE",
+            "Changes": [],
+            "ChangeSetId": "change",
+            "StackId": "stack",
+            "StackName": "A",
+        },
+    )
+
+
 @pytest.mark.parametrize("status", sorted(scheduler.SUCCESS))
 def check_no_change_success_evidence(status):
-    change = {
-        "Status": "FAILED",
-        "StatusReason": "The submitted information didn't contain changes.",
-        "StackId": "stack",
-    }
-    state = {"stackId": "stack"}
+    state, change = no_change_inputs()
     backend = StubAws()
     with patch.object(
         backend,
@@ -397,6 +412,59 @@ def check_no_change_success_evidence(status):
         assert backend.review_prepared({"name": "A"}, state, change) == "SUCCESS"
     assert state["stackId"] == "stack" and state["stackStatus"] == status
     aws.assert_called_once_with("describe_stacks", StackName="A")
+
+
+@pytest.mark.parametrize(
+    "record,field,value",
+    [
+        ("state", "operationType", "CREATE"),
+        ("state", "absentBeforeCreate", True),
+        ("change", "ExecutionStatus", "AVAILABLE"),
+        ("change", "Changes", [{"ResourceChange": {"Action": "Add"}}]),
+        ("change", "NextToken", "more"),
+        ("change", "NextToken", ""),
+        ("change", "ChangeSetId", "other"),
+        ("change", "StackName", "other"),
+    ]
+    + [
+        ("state", field, "executed")
+        for field in (
+            "executionEvidence",
+            "executionStarted",
+            "clientToken",
+            "changeDigest",
+            "approvedChangeDigest",
+        )
+    ]
+    + [
+        ("change", field, None)
+        for field in (
+            "ExecutionStatus",
+            "Changes",
+            "ChangeSetId",
+            "StackId",
+            "StackName",
+        )
+    ]
+    + [
+        ("state", field, None)
+        for field in ("operationType", "absentBeforeCreate", "changeSetId", "stackId")
+    ],
+)
+def check_no_change_contradictory_or_missing_proof(record, field, value):
+    state, change = no_change_inputs()
+    target = state if record == "state" else change
+    if value is None:
+        target.pop(field)
+    else:
+        target[field] = value
+    original = dict(state)
+    backend = StubAws()
+    with patch.object(backend, "aws") as aws, pytest.raises(M.Blocked):
+        backend.review_prepared({"name": "A"}, state, change)
+    aws.assert_not_called()
+    assert state.get("stackId") == original.get("stackId")
+    assert "stackStatus" not in state and "reason" not in state
 
 
 @pytest.mark.parametrize(
@@ -417,7 +485,9 @@ def check_no_change_success_evidence(status):
 )
 def check_no_change_invalid_evidence_blocks(stack, saved_id, change_id):
     backend = StubAws()
-    state = {"stackId": saved_id}
+    state, change = no_change_inputs()
+    state["stackId"] = saved_id
+    change["StackId"] = change_id
     with patch.object(
         backend, "aws", return_value={"Stacks": [] if stack is None else [stack]}
     ) as aws:
@@ -425,11 +495,7 @@ def check_no_change_invalid_evidence_blocks(stack, saved_id, change_id):
             backend.review_prepared(
                 {"name": "A"},
                 state,
-                {
-                    "Status": "FAILED",
-                    "StatusReason": "No updates are to be performed",
-                    "StackId": change_id,
-                },
+                change,
             )
     assert "stackStatus" not in state
     assert all(call.args[0] != "execute_change_set" for call in aws.call_args_list)

@@ -732,6 +732,15 @@ def no_change_aws(replies, operation, **arguments):
     return copy.deepcopy(replies[operation])
 
 
+def no_change_with_late_task(replies, task, operation, **arguments):
+    result = no_change_aws(replies, operation, **arguments)
+    if operation == "describe_stack_events":
+        task.write_text(
+            task.read_text(encoding="utf-8") + "\nchanged authority\n", encoding="utf-8"
+        )
+    return result
+
+
 @pytest.fixture
 def legacy_proposal(owned_proposal):
     root, session, source, old, new = owned_proposal
@@ -790,6 +799,7 @@ def legacy_proposal(owned_proposal):
     return root, session, source, old, new, replies, aws
 
 
+@pytest.mark.parametrize("pending_observed", [False, True])
 @pytest.mark.parametrize(
     "problem",
     [
@@ -811,8 +821,10 @@ def legacy_proposal(owned_proposal):
         "unavailable",
     ],
 )
-def check_legacy_no_change_proof(legacy_proposal, problem):
+def check_legacy_no_change_proof(legacy_proposal, problem, pending_observed):
     root, session, source, old, new, replies, aws = legacy_proposal
+    if not pending_observed:
+        session.pop("pendingObserved")
     state = session["states"]["A"]
     change = replies["describe_change_set"]
     stack = replies["describe_stacks"]["Stacks"][0]
@@ -849,28 +861,41 @@ def check_legacy_no_change_proof(legacy_proposal, problem):
         aws.side_effect = Blocked("AWS evidence unavailable")
     original = copy.deepcopy(session)
     backend = SimpleNamespace(aws=aws)
+    if problem == "state-mismatch" and not pending_observed:
+        assert no_change_recovery.candidate(backend, session) is None
+        aws.assert_not_called()
+        return
     if problem != "none":
         with pytest.raises(Blocked):
             no_change_recovery.candidate(backend, session)
     else:
         candidate = no_change_recovery.candidate(backend, session)
         assert candidate["states"]["A"]["stackStatus"] == "UPDATE_COMPLETE"
-        assert (
-            candidate["pendingObserved"]["evidence"]["A"]["stackStatus"]
-            == "UPDATE_COMPLETE"
-        )
-        with patch.object(M, "source_snapshot", return_value={source: old.encode()}):
-            assert M.reconcile(root, candidate, {}, "dev", "team") == "PREPARED"
+        if pending_observed:
+            assert (
+                candidate["pendingObserved"]["evidence"]["A"]["stackStatus"]
+                == "UPDATE_COMPLETE"
+            )
+            with patch.object(
+                M, "source_snapshot", return_value={source: old.encode()}
+            ):
+                assert M.reconcile(root, candidate, {}, "dev", "team") == "PREPARED"
+        else:
+            assert "pendingObserved" not in candidate
         assert no_change_recovery.candidate(backend, candidate) is None
         assert aws.call_count == 4
         candidate["states"]["A"]["stackStatus"] = None
-        candidate["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
+        if pending_observed:
+            candidate["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
         assert candidate == original
     assert session == original and source.read_text() == old
 
 
-def check_legacy_stack_changes_during_verification(legacy_proposal):
+@pytest.mark.parametrize("pending_observed", [False, True])
+def check_legacy_stack_changes_during_verification(legacy_proposal, pending_observed):
     _, session, _, _, _, replies, aws = legacy_proposal
+    if not pending_observed:
+        session.pop("pendingObserved")
     updated = copy.deepcopy(replies["describe_stacks"])
     updated["Stacks"][0]["LastUpdatedTime"] += timedelta(minutes=3)
     aws.side_effect = [
@@ -882,6 +907,53 @@ def check_legacy_stack_changes_during_verification(legacy_proposal):
     original = copy.deepcopy(session)
     with pytest.raises(Blocked, match="changed during verification"):
         no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
+    assert session == original
+
+
+@pytest.mark.parametrize("problem", ["none", "second-aws", "second-local"])
+def check_unplanned_recovery_is_private_for_all_stacks(legacy_proposal, problem):
+    _, session, _, _, _, replies, aws = legacy_proposal
+    session.pop("pendingObserved")
+    session["states"]["B"] = copy.deepcopy(session["states"]["A"])
+    session["states"]["C"] = {
+        "status": "SUCCESS",
+        "stackStatus": "CREATE_COMPLETE",
+        "reason": "other success",
+    }
+    session["states"]["D"] = {
+        "status": "SUCCESS",
+        "stackStatus": None,
+        "observedSynced": True,
+    }
+    session["states"]["E"] = {"status": "NOT_STARTED"}
+    second_change = {**replies["describe_change_set"], "StackName": "B"}
+    if problem == "second-aws":
+        second_change["ChangeSetId"] = "other"
+    if problem == "second-local":
+        session["states"]["B"]["clientToken"] = "executed"
+    aws.side_effect = [
+        replies["describe_change_set"],
+        replies["describe_stacks"],
+        replies["describe_stack_events"],
+        replies["describe_stacks"],
+        second_change,
+        replies["describe_stacks"],
+        replies["describe_stack_events"],
+        replies["describe_stacks"],
+    ]
+    original = copy.deepcopy(session)
+    if problem == "none":
+        result = no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
+        assert result["states"]["A"]["stackStatus"] == "UPDATE_COMPLETE"
+        assert result["states"]["B"]["stackStatus"] == "UPDATE_COMPLETE"
+        assert "pendingObserved" not in result
+        result["states"]["A"]["stackStatus"] = None
+        result["states"]["B"]["stackStatus"] = None
+        assert result == original
+    else:
+        with pytest.raises(Blocked):
+            no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
+        assert aws.call_count == (0 if problem == "second-local" else 5)
     assert session == original
 
 
@@ -898,30 +970,38 @@ def finish_recovered_generation(backend):
     backend.events.append(("generated", "A"))
 
 
-def sync_recovered_group(backend, units, states):
-    if backend.session.get("pendingObserved"):
-        return M.finish(backend, units)
-    for unit in units:
-        states[unit["name"]]["observedSynced"] = True
-    return {}
+def collect_recovered_observations(
+    source, new, /, backend, units, states, *, generated_views=None
+):
+    if [unit["name"] for unit in units] != ["A"]:
+        return {}, [], None
+    if generated_views is not None:
+        generated_views.add(backend.root / "docs/designs/dev/team/service.md")
+    return {source: new}, ["service"], None
 
 
-def check_recovered_observed_barrier_releases_next_order(legacy_proposal):
+@pytest.mark.parametrize("pending_observed", [False, True])
+def check_recovered_observed_barrier_releases_next_order(
+    legacy_proposal, pending_observed
+):
     root, session, source, old, new, _, aws = legacy_proposal
     session["states"]["B"] = {"status": "NOT_STARTED"}
     session["metrics"] = {"observedSyncSeconds": 0}
     session["pendingObserved"]["services"] = ["service"]
+    if not pending_observed:
+        session.pop("pendingObserved")
     path = root.parent / (root.name + "-session.json")
     handoff.bind(root, path, session)
     handoff.save(path, session)
     original = copy.deepcopy(session)
     candidate = no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
-    with patch.object(
-        M,
-        "source_snapshot",
-        side_effect=_bind_framework_callback(read_proposal_source, source),
-    ):
-        M.reconcile(root, candidate, {}, "dev", "team")
+    if pending_observed:
+        with patch.object(
+            M,
+            "source_snapshot",
+            side_effect=_bind_framework_callback(read_proposal_source, source),
+        ):
+            M.reconcile(root, candidate, {}, "dev", "team")
     session.clear()
     session.update(candidate)
     handoff.save(path, session)
@@ -948,7 +1028,9 @@ def check_recovered_observed_barrier_releases_next_order(legacy_proposal):
         patch.object(
             observed,
             "collect_successful",
-            return_value=({source: new}, ["service"], None),
+            side_effect=_bind_framework_callback(
+                collect_recovered_observations, source, new
+            ),
         ),
         patch(
             "model.adapters.observed.publish_observed",
@@ -956,7 +1038,6 @@ def check_recovered_observed_barrier_releases_next_order(legacy_proposal):
                 publish_recovered_observations, backend.events
             ),
         ),
-        patch.object(controller, "sync_successful", side_effect=sync_recovered_group),
         patch.object(
             controller.generation_resume, "run", side_effect=finish_recovered_generation
         ),
@@ -983,6 +1064,7 @@ def check_recovered_observed_barrier_releases_next_order(legacy_proposal):
     assert handoff.protected(restored) == handoff.protected(session)
 
 
+@pytest.mark.parametrize("pending_observed", [False, True])
 @pytest.mark.parametrize(
     "problem",
     [
@@ -992,12 +1074,13 @@ def check_recovered_observed_barrier_releases_next_order(legacy_proposal):
         "candidate",
         "task",
         "late-model",
+        "late-task",
         "scope",
         "unavailable",
         "tampered",
     ],
 )
-def check_formal_no_change_resume(legacy_proposal, problem):
+def check_formal_no_change_resume(legacy_proposal, problem, pending_observed):
     root, session, source, old, new, replies, aws = legacy_proposal
     task = root / "tasks/deploy.md"
     task.write_text(
@@ -1029,6 +1112,10 @@ def check_formal_no_change_resume(legacy_proposal, problem):
         plan["identity"]["infraManifest"] = copy.deepcopy(session["infraManifest"])
     if problem == "candidate":
         plan["outputs"][source.relative_to(root).as_posix()] = new + "# changed\n"
+    if not pending_observed:
+        session.pop("pendingObserved")
+        if problem == "candidate":
+            session["modelInputManifest"][source.relative_to(root).as_posix()] = "other"
     path = root.parent / (root.name + "-session.json")
     handoff.bind(root, path, session)
     handoff.save(path, session)
@@ -1041,6 +1128,10 @@ def check_formal_no_change_resume(legacy_proposal, problem):
         )
     if problem == "unavailable":
         aws.side_effect = Blocked("AWS evidence unavailable")
+    if problem == "late-task":
+        aws.side_effect = _bind_framework_callback(
+            no_change_with_late_task, replies, task
+        )
     if problem == "tampered":
         tampered = json.loads(path.read_text())
         tampered["states"]["A"]["reason"] = "changed"
@@ -1106,10 +1197,14 @@ def check_formal_no_change_resume(legacy_proposal, problem):
         if problem == "none":
             scheduler_run.assert_called_once()
             assert restored["states"]["A"]["stackStatus"] == "UPDATE_COMPLETE"
-            assert (
-                restored["pendingObserved"]["evidence"]["A"]["stackStatus"]
-                == "UPDATE_COMPLETE"
-            )
+            assert restored["metrics"]["totalControllerSeconds"] > 0
+            if pending_observed:
+                assert (
+                    restored["pendingObserved"]["evidence"]["A"]["stackStatus"]
+                    == "UPDATE_COMPLETE"
+                )
+            else:
+                assert "pendingObserved" not in restored
             assert aws.call_count == 4
             # The same signed session resumes again without recovery calls or execution.
             assert (
@@ -1125,15 +1220,22 @@ def check_formal_no_change_resume(legacy_proposal, problem):
             )
             assert aws.call_count == 4
             restored["states"]["A"]["stackStatus"] = None
-            restored["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
+            if pending_observed:
+                restored["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
             assert restored["states"] == original["states"]
-            assert restored["pendingObserved"] == original["pendingObserved"]
+            assert restored.get("pendingObserved") == original.get("pendingObserved")
             assert restored["workflow"] == original["workflow"]
         else:
             scheduler_run.assert_not_called()
             assert restored["states"] == original["states"]
-            assert restored["pendingObserved"] == original["pendingObserved"]
-            assert restored.get("observedRecoveryError")
+            assert restored["workflow"] == original["workflow"]
+            assert restored.get("pendingObserved") == original.get("pendingObserved")
+            if pending_observed:
+                assert restored.get("observedRecoveryError")
+            elif problem == "late-task":
+                assert aws.call_count == 4 and restored.get("observedRecoveryError")
+            elif problem != "unavailable":
+                aws.assert_not_called()
 
 
 @pytest.mark.parametrize("stage", ["PREPARED", "MODEL_PUBLISHED"])

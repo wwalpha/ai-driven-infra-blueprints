@@ -160,6 +160,13 @@ def pages(context, service, operation, field, arguments):
             deadline=deadline,
         )
         values = response.get(field, [])
+        if (
+            service == "cloudformation"
+            and operation == "describe_change_set"
+            and response.get("Status") == "FAILED"
+            and field not in response
+        ):
+            raise AwsError(service, operation, "InvalidPage")
         if not isinstance(values, list):
             raise AwsError(service, operation, "InvalidPage")
         items.extend(values)

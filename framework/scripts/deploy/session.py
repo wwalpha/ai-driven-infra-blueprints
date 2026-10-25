@@ -704,6 +704,17 @@ def run(
                     raise Blocked(
                         "approve only the saved blocked change set after human confirmation"
                     )
+            if args.resume and not session.get("pendingObserved"):
+                if initial_task.task_digest != session["taskDigest"]:
+                    raise Blocked(
+                        "task contract changed; cannot recover no-change SUCCESS"
+                    )
+                candidate = no_change_recovery.candidate(backend, session)
+                if candidate is not None:
+                    no_change_original = copy.deepcopy(session)
+                    session.clear()
+                    session.update(candidate)
+                    metrics = session["metrics"]
             backend.states = session["states"]
             backend.expected_digests = session["unitDigests"]
             previous_duration = metrics["totalControllerSeconds"]
@@ -738,9 +749,10 @@ def run(
             backend.units = units
         if no_change_original is not None:
             backend.guard()
-            observed_resume.validate_plan(
-                root, session, target, args.environment, directory
-            )
+            if session.get("pendingObserved"):
+                observed_resume.validate_plan(
+                    root, session, target, args.environment, directory
+                )
         no_change_original = None
         save()
         for unit in units:

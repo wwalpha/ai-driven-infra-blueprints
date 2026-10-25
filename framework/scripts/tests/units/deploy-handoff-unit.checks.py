@@ -1523,7 +1523,10 @@ def check_signed_protected_fields(tmp_path, field):
 
 
 @pytest.mark.parametrize("after_replace", [False, True])
-def check_no_change_recovery_save_is_one_signed_revision(tmp_path, after_replace):
+@pytest.mark.parametrize("pending_observed", [False, True])
+def check_no_change_recovery_save_is_one_signed_revision(
+    tmp_path, after_replace, pending_observed
+):
     root = tmp_path / "repo"
     root.mkdir()
     path = tmp_path / "session.json"
@@ -1539,11 +1542,14 @@ def check_no_change_recovery_save_is_one_signed_revision(tmp_path, after_replace
             "afterManifest": {"source": "after"},
         },
     }
+    if not pending_observed:
+        session.pop("pendingObserved")
     handoff.bind(root, path, session)
     handoff.save(path, session)
     original = copy.deepcopy(session)
     session["states"]["A"]["stackStatus"] = "UPDATE_COMPLETE"
-    session["pendingObserved"]["evidence"]["A"]["stackStatus"] = "UPDATE_COMPLETE"
+    if pending_observed:
+        session["pendingObserved"]["evidence"]["A"]["stackStatus"] = "UPDATE_COMPLETE"
     repaired = copy.deepcopy(session)
     interrupted = _bind_framework_callback(
         _callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted,
@@ -1566,7 +1572,8 @@ def check_no_change_recovery_save_is_one_signed_revision(tmp_path, after_replace
     assert proof.read_bytes() == receipt
     assert restored["workflow"] == original["workflow"]
     restored["states"]["A"]["stackStatus"] = None
-    restored["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
+    if pending_observed:
+        restored["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
     assert restored == original
 
 

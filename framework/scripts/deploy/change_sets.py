@@ -255,6 +255,44 @@ def no_changes(change_set):
     )
 
 
+def verify_no_change_state(name, state):
+    """A no-change UPDATE cannot have any saved execution or approval contract."""
+    if (
+        state.get("operationType") != "UPDATE"
+        or state.get("absentBeforeCreate") is not False
+        or any(
+            not isinstance(state.get(key), str) or not state[key].strip()
+            for key in ("stackId", "changeSetId")
+        )
+        or any(
+            state.get(key) is not None
+            for key in (
+                "executionEvidence",
+                "executionStarted",
+                "clientToken",
+                "changeDigest",
+                "approvedChangeDigest",
+            )
+        )
+    ):
+        raise Blocked("not a saved unexecuted no-change UPDATE: " + name)
+
+
+def verify_no_change(name, state, change_set):
+    """Require complete identity and non-execution evidence for an existing UPDATE."""
+    verify_no_change_state(name, state)
+    if (
+        not no_changes(change_set)
+        or change_set.get("ExecutionStatus") != "UNAVAILABLE"
+        or change_set.get("Changes") != []
+        or change_set.get("NextToken") is not None
+        or change_set.get("ChangeSetId") != state["changeSetId"]
+        or change_set.get("StackId") != state["stackId"]
+        or change_set.get("StackName") != name
+    ):
+        raise Blocked("cannot prove the saved unexecuted no-change UPDATE: " + name)
+
+
 def review_prepared(unit, state, approvals, aws, describe_change_set, change_set=None):
     change_set = describe_change_set(unit, state) if change_set is None else change_set
     if change_set["Status"] in {"CREATE_PENDING", "CREATE_IN_PROGRESS"}:
@@ -266,16 +304,12 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
         - state.get("changeSetCreateSeconds", 0),
     )
     if no_changes(change_set):
+        verify_no_change(unit["name"], state, change_set)
         stacks = aws("describe_stacks", StackName=unit["name"]).get("Stacks", [])
         if len(stacks) != 1 or stacks[0].get("StackStatus") not in SUCCESS:
             raise Blocked("no-change stack has no terminal success evidence")
         stack = stacks[0]
-        if (
-            not isinstance(state.get("stackId"), str)
-            or not state["stackId"].strip()
-            or stack.get("StackId") != state["stackId"]
-            or change_set.get("StackId") != state["stackId"]
-        ):
+        if stack.get("StackId") != state["stackId"]:
             raise Blocked("no-change Stack ID differs from saved ChangeSet target")
         state.update(stackId=stack["StackId"], stackStatus=stack["StackStatus"])
         state["reason"] = "no changes; existing stack terminal success"
