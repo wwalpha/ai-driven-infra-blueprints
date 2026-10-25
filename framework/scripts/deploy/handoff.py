@@ -401,7 +401,7 @@ def _lambda__diagnose_target_389(value):
     )
 
 
-def observed_unresolved(session):
+def observed_unresolved(session: Session) -> bool:
     """Drain peers and commit their Observed transaction before repair handoff."""
     return bool(
         session.get("observedError")

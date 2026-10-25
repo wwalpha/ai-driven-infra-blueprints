@@ -76,6 +76,7 @@ def check_generated_journal_recovery_uses_observed_owner(tmp_path, monkeypatch):
     state = {
         "status": "SUCCESS",
         "stackId": "stack",
+        "stackStatus": "UPDATE_COMPLETE",
         "changeSetId": "change",
         "clientToken": "token",
         "changeDigest": "digest",
