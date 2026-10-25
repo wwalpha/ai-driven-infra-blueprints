@@ -28,6 +28,7 @@ from support.issues_scan_fixtures import (
     write,
 )
 from support.pytest_cli import run
+from utils.function_wrapper import BoundCallback
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -90,7 +91,7 @@ def check_snapshot_replaces_inventory(tmp_path):
     original = deepcopy(data)
     with (
         task(tmp_path, data["services"]),
-        patch.object(Path, "read_text", partial(forbid_report_text, Path.read_text)),
+        patch.object(Path, "read_text", BoundCallback(forbid_report_text, Path.read_text)),
     ):
         outputs, snapshot = save_scan(tmp_path, data, review_for(data))
     text = outputs[0].read_text()

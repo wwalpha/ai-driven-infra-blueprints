@@ -40,6 +40,7 @@ from support.issues_scan_fixtures import pytestmark as pytestmark
 from support.model_sources import allocate_fixture as allocate
 from support.model_sources import write_model
 from support.pytest_cli import run
+from utils.function_wrapper import BoundCallback
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -54,7 +55,7 @@ def check_scan_publish_mismatch(tmp_path):
     write(root / "issues/dev/123456789012/iac-issues.md", "obsolete comparison")
     with (
         patch("socket.socket", side_effect=AssertionError("network forbidden")),
-        patch.object(Path, "read_text", partial(forbid_report_text, Path.read_text)),
+        patch.object(Path, "read_text", BoundCallback(forbid_report_text, Path.read_text)),
     ):
         artifact = json.loads(
             json.dumps(

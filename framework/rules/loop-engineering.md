@@ -270,7 +270,7 @@ checks. Framework development runs related dedicated UTs and necessary
 IT cases under Validation policy. CI always runs all tests.
 
 All UT and IT run in [Framework IT](../../.github/workflows/framework-it.yml) on every pull request,
-push to `main`/`master`, and manual dispatch, using Python 3.12 and the existing requirements.
+push to `main`/`master`, and manual dispatch, using Python 3.14 and the existing requirements.
 Its sole entrypoint is `framework/scripts/tests/run_it.py`. CI has no changed-file or case selection
 and no path filters. The existing loop scheduler runs every UT with at most 2 workers,
 then the IT runner executes every registered suite; either failure fails the job, and UT

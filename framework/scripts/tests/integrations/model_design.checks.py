@@ -216,6 +216,7 @@ def check_import_optional_name_label(root, project):
 
 def check_kms_policy_execution_account(root):
     identity, execution = "111111111111", "222222222222"
+    key_id = "12345678-1234-1234-1234-123456789012"
     target = {
         "environment": "dev",
         "awsAccountId": identity,
@@ -259,7 +260,7 @@ def check_kms_policy_execution_account(root):
     values.update(
         {
             "observed.row.001-001.property": "KMS.Key.KeyId",
-            "observed.row.001-001.value": "`PENDING_DEPLOY`",
+            "observed.row.001-001.value": f"`{key_id}`",
             "observed.row.001-001.comment": "キーを識別するID",
         }
     )
@@ -299,7 +300,7 @@ def check_kms_policy_execution_account(root):
     artifact = path.with_suffix("") / "test-key-policy.json"
     saved = path.read_bytes(), artifact.read_bytes()
     assert b"reference-rows" not in saved[0] and b"reference-value" not in saved[0]
-    assert "pending_deploy" in saved[0].decode("utf-8")
+    assert key_id in saved[0].decode("utf-8")
     assert "$modelRef" in "\n".join(DesignIndex(root).get(path).raw.display_lines)
     assert SYNC.sync(root, False, "dev", identity, services=["kms"]) == 0
     invalid = {

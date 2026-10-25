@@ -73,7 +73,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 `blueprint-loop.py` の `task` / `local` はProjectのValidation scopeに従って検証し、Framework回帰UT／ITを自動実行しない。通常TaskではFrameworkを不変として扱い、FrameworkファイルのGit差分から回帰テストを選択しない。`full` / `--all` は `units/**/*.checks.py` と `units/**/test_*.py` の全UTを既存のPython直接実行入口で起動する。`full` は既存のProject Validation scopeを維持し、`--all` はProject全体を検証する。Scope `all` だけではFramework UTを実行しない。`blueprint-loop.py` からFramework ITは実行しない。
 
 
-[Framework IT](../../../.github/workflows/framework-it.yml) はすべてのPRおよびmain/masterへのpushと手動 `workflow_dispatch` で、変更ファイルによる選別をせず全UT・全ITを実行する。ファイル種別による起動除外も行わない。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が既存schedulerで全UTを最大2並列、その後 `integrations/**/*.checks.py` を独立プロセスで全件実行する。UT失敗後もITを実行し、いずれかの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式と手動baseline計測を維持する。
+[Framework IT](../../../.github/workflows/framework-it.yml) はすべてのPRおよびmain/masterへのpushと手動 `workflow_dispatch` で、変更ファイルによる選別をせず全UT・全ITを実行する。ファイル種別による起動除外も行わない。Python 3.14と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が既存schedulerで全UTを最大2並列、その後 `integrations/**/*.checks.py` を独立プロセスで全件実行する。UT失敗後もITを実行し、いずれかの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式と手動baseline計測を維持する。
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
@@ -170,7 +170,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/func
 ```
 
 関数・メソッド内のImportとネスト関数は禁止する。Callbackの状態は明示引数や既存の共有実装で渡す。
-`Python quality` WorkflowはPython 3.12でRuffだけを導入し、上記の静的チェックを独立実行する。
+`Python quality` WorkflowはPython 3.14でRuffだけを導入し、上記の静的チェックを独立実行する。
 共有Python環境の更新は自動実行せず、[明示的メンテナンス手順](../../../.agents/skills/worktree/SKILL.md#explicit-shared-python-maintenance)に従う。
 Formatterの全件適用はこのチェックに含めない。
 

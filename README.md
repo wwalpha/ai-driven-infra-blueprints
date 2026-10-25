@@ -503,7 +503,7 @@ nonzero failure exits and `BLUEPRINT_PROFILE_DIR`; the local loop selects UT onl
 
 [Framework IT](.github/workflows/framework-it.yml) invokes only
 `python -B framework/scripts/tests/run_it.py` on PRs, pushes to `main`/`master`, and manual
-dispatch with Python 3.12 and the existing requirements. The runner discovers all 66 IT
+dispatch with Python 3.14 and the existing requirements. The runner discovers all 66 IT
 suites and retains independent processes for pytest and direct/top-level scripts. It
 continues after suite failures and records PASS/FAIL, duration and runtime case receipts.
 The existing [case ledger](framework/scripts/tests/CASES.md) is checked against actual
