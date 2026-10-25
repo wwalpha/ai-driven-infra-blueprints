@@ -38,7 +38,7 @@ def check_invalid_boolean_literal(raw):
     ('${!aws:username}', True), ('${!aws:PrincipalTag/JobName}', True),
     ('${!aws:PrincipalTag/RoleName}', True), ('${!literal with spaces-/$}', True),
     ('${!aws:username}${!aws:PrincipalTag/JobName}/${BucketArn}', True),
-    ('${!', False), ('${!aws:PrincipalTag/JobName', False), ('${!}', False),
+    ('${!', False), ('${!aws:PrincipalTag/JobName', False), ('${!}', True),
     ('${!outer${BucketArn}}', False), ('${!outer${!inner}}', False),
     ('${!outer{inner}}', False), ('${!valid}${Missing', False),
     ('${!valid}${BucketArn/illegal}', False),

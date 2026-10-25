@@ -364,6 +364,8 @@ def test_import_name_cannot_depend_on_a_resource(models):
 
 def test_pseudo_parameters_and_formal_escaping(models):
     inputs, symbol = producer(models, 'Lambda.Function', {'FunctionName': 'fixture'})
+    assert inputs.evaluate('producer', {'Fn::Sub': '${!}'}) == '${}'
+    assert inputs.evaluate('producer', {'Fn::Sub': ['${!}', {}]}) == '${}'
     expression = inputs.evaluate('producer', {'Fn::Sub': ['${AWS::Partition}/${AWS::Region}/${AWS::AccountId}/${!Literal}/${R}', {'R': symbol}]})
     expected = 'aws/ap-northeast-1/123456789012/${Literal}/' + CONTEXT.format(service='lambda', tail='function:fixture')
     assert inputs.reference_same(expression, expected, 'Glue.Job', 'DefaultArguments') is True

@@ -138,7 +138,7 @@ def intrinsic_shape_error(name, argument):
         valid = (isinstance(argument, str) or sequence(2) and isinstance(argument[0], str) and isinstance(argument[1], dict))
         if valid:
             text = argument if isinstance(argument, str) else argument[0]
-            valid = '${' not in re.sub(r'\$\{(?:[A-Za-z0-9_.:]+|![^{}]+)\}', '', text)
+            valid = '${' not in re.sub(r'\$\{(?:[A-Za-z0-9_.:]+|![^{}]*)\}', '', text)
     elif name in {'Fn::Join', 'Fn::Split', 'Fn::Select'}:
         valid = sequence(2)
         if valid and name == 'Fn::Join':
