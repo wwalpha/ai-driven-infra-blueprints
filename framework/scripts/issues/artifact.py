@@ -54,8 +54,8 @@ def channel_summary(values, section):
 
 
 def summary(artifact):
-    if artifact.get("version") != 4:
-        raise ValueError("unsupported scan artifact version; version 4 required")
+    if artifact.get("version") != 5:
+        raise ValueError("unsupported scan artifact version; version 5 required")
     comparison_status = _imports_issues_aggregate.comparison_status
     view = artifact["overview"]
     counts = view["records"]
@@ -144,7 +144,7 @@ def detail_payload(
     issue_id=None,
     record_category=None,
 ):
-    if artifact.get("version") != 4:
+    if artifact.get("version") != 5:
         raise ValueError("unsupported scan artifact version")
     if offset < 0 or limit < 1:
         raise ValueError("invalid detail range")
@@ -237,7 +237,7 @@ def detail_payload(
 
 def validate_artifact(artifact):
     """Validate the saved six-category index without reclassification or regrouping."""
-    if artifact.get("version") != 4:
+    if artifact.get("version") != 5:
         raise ValueError("unsupported scan artifact version")
     if not re.fullmatch(r"[0-9a-f]{32}", artifact.get("scan_id", "")):
         raise ValueError("invalid scan_id")

@@ -328,7 +328,7 @@ def summary_scale_cases():
 
     records = artifact["iac"]
     original = json.dumps(artifact, sort_keys=True)
-    assert artifact["version"] == 4
+    assert artifact["version"] == 5
     entries, actions, fields = iac_dataset(
         records, "dev", "cde", artifact["services"], artifact["iac_display"]
     )
@@ -767,7 +767,7 @@ def check_scan_accepts_input_changes(tmp_path, input_name):
             scan_runner,
             "human_confirmations",
             return_value=dict(
-                version=1, environment="dev", target="team", confirmations=[]
+                version=2, environment="dev", target="team", confirmations=[]
             ),
         ),
         patch.object(scan_runner, "target_services", return_value=["s3"]),
@@ -1006,7 +1006,7 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
             scan_runner,
             "human_confirmations",
             return_value=dict(
-                version=1, environment="dev", target="team", confirmations=[]
+                version=2, environment="dev", target="team", confirmations=[]
             ),
         ),
         patch.object(scan_runner, "target_services", return_value=["s3"]),
@@ -1120,7 +1120,7 @@ def check_scan_exception_classification(tmp_path, exception):
             scan_runner,
             "human_confirmations",
             return_value=dict(
-                version=1, environment="dev", target="team", confirmations=[]
+                version=2, environment="dev", target="team", confirmations=[]
             ),
         ),
         patch.object(scan_runner, "target_services", return_value=["s3"]),
@@ -1331,7 +1331,7 @@ def check_reference_diagnostic_isolation(tmp_path, stage):
         assert issues_main() == (1 if stage == "normal" else 2)
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
     validate_artifact(artifact)
-    assert artifact["version"] == 4
+    assert artifact["version"] == 5
     assert artifact["validation_status"] == ("FAIL" if stage == "normal" else "ERROR")
     phases = {
         "references": "diagnostics.references",
@@ -1495,6 +1495,9 @@ def fail_service_materials(original, comparison, service=None, **kwargs):
 @pytest.mark.parametrize("stage", ["naming", "review", "normal"])
 def check_material_service_isolation(tmp_path, stage):
     _exports_support_issues_scan_fixtures.fixture(tmp_path, services=("s3", "sqs"))
+    services = ["cloudformation-stacks", "s3", "sqs"]
+    human = tmp_path / "issues/dev/123456789012/human-confirmations.yaml"
+    original_human = human.read_bytes()
     doc = tmp_path / "docs/designs/dev/123456789012/sqs.md"
     doc.write_text(
         doc.read_text(encoding="utf-8") + "\nIndependent review prose\n",
@@ -1509,7 +1512,7 @@ def check_material_service_isolation(tmp_path, stage):
         if stage != "normal"
         else nullcontext()
     ):
-        artifact = scan_runner.scan(tmp_path, "dev", "123456789012", ["s3", "sqs"])
+        artifact = scan_runner.scan(tmp_path, "dev", "123456789012", services)
     validate_artifact(artifact)
     failures = [
         item
@@ -1540,28 +1543,14 @@ def check_material_service_isolation(tmp_path, stage):
             dict(item, naming_context_id=artifact["naming_context_id"])
             for item in material["names"]
         ]
-        covered = [result for result in artifact["check_results"] if result["targets"]]
-        assert {result["scope"][0] for result in covered} == {
-            "dev/123456789012/s3",
-            "dev/123456789012/sqs",
-        }
-        for result in covered:
-            assert (
-                result["check_id"] == "design.service"
-                and result["status"] == "PASS"
-                and result["complete"]
+        with _exports_support_issues_scan_fixtures.task(tmp_path, services):
+            outputs, _ = publication.save_scan(
+                tmp_path,
+                artifact,
+                _exports_support_issues_scan_fixtures.review_for(artifact),
             )
-            service = result["scope"][0].rsplit("/", 1)[1]
-            assert result["targets"] == [
-                dict(
-                    service=service,
-                    resource=identity,
-                    property=row["property"],
-                    rule="design.service",
-                )
-                for identity, rows in comparison.rows[service].items()
-                for _, row in rows
-            ]
+        assert [path.name for path in outputs] == ["issues.md", "iac-issues.md"]
+    assert human.read_bytes() == original_human
 
 
 def interrupted_service(instance):
@@ -1922,7 +1911,7 @@ def check_confirmed_difference_direction(reason, mapped):
     assert (
         data["overview"]["issue_count"] == 1 and data["overview"]["record_count"] == 2
     )
-    artifact = dict(version=4, ordinary=[], judgments=[], naming={"names": []}, **data)
+    artifact = dict(version=5, ordinary=[], judgments=[], naming={"names": []}, **data)
     assert scan_exit_code(artifact) == 0
     assert detail_payload(artifact, "iac_issues", category="要修正")["items"] == [
         action
@@ -2092,7 +2081,7 @@ def check_cli_repair_category(tmp_path, capsys, section):
         )
     ]
     artifact = dict(
-        version=4,
+        version=5,
         scan_id="a" * 32,
         naming_context={},
         naming_context_id=identifier({}),
@@ -2153,7 +2142,7 @@ def deferred_artifact(count=13, phase="unobserved"):
         for i in range(count)
     ]
     return dict(
-        version=4,
+        version=5,
         scan_id="a" * 32,
         naming_context={},
         naming_context_id=identifier({}),
@@ -2367,7 +2356,7 @@ def check_direct_pending_deploy_reports_and_dedup(count, tmp_path):
     artifact.update(aggregate(records, "dev", "cde", ["route53", "codebuild"]))
     validate_artifact(artifact)
     view = summary(artifact)
-    assert artifact["version"] == 4
+    assert artifact["version"] == 5
     assert view["iac_pending_deploy_excluded"] == count + 1
     assert view["iac_excluded"] == count + 2
     assert view["iac_uncompared"] == view["iac_deferred"] == 0
@@ -2446,7 +2435,7 @@ def check_direct_pending_deploy_artifact_rejects_invalid_causes(fault):
 @pytest.mark.parametrize(
     "fault",
     [
-        "version2",
+        "old_version",
         "category",
         "counts",
         "issue-count",
@@ -2460,10 +2449,10 @@ def check_direct_pending_deploy_artifact_rejects_invalid_causes(fault):
         "cause-category",
     ],
 )
-def check_artifact_v4_rejects_invalid_indexes(fault, phase):
+def check_artifact_v5_rejects_invalid_indexes(fault, phase):
     artifact = deferred_artifact(1, phase)
-    if fault == "version2":
-        artifact["version"] = 2
+    if fault == "old_version":
+        artifact["version"] = 4
     elif fault == "category":
         artifact["iac"][0]["category"] = "unknown"
     elif fault == "counts":
@@ -2492,7 +2481,7 @@ def check_artifact_v4_rejects_invalid_indexes(fault, phase):
         artifact["overview"]["issue_count"] = 1
     elif fault == "missing-membership":
         artifact = dict(
-            version=4,
+            version=5,
             scan_id="a" * 32,
             naming_context={},
             naming_context_id=identifier({}),
@@ -2516,7 +2505,7 @@ def check_artifact_v4_rejects_invalid_indexes(fault, phase):
         artifact["record_meta"][0]["issue_id"] = None
     with pytest.raises(ValueError):
         validate_artifact(artifact)
-    if fault == "version2":
+    if fault == "old_version":
         with pytest.raises(ValueError, match="version"):
             detail_payload(artifact, "iac")
         with pytest.raises(ValueError, match="version"):

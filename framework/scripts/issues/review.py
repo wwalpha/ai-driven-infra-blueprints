@@ -16,7 +16,6 @@ class Snapshot:
     """Serialized values cannot be changed by callers after review validation."""
 
     data: str
-    cleanup: tuple[tuple[str, ...], ...]
 
 
 def required_text(item, key):
@@ -44,7 +43,7 @@ def target_identity(record):
 
 
 def matches_target(record, target, *, uncertain=False):
-    """Unknown identity can block removal, but can never authorize it."""
+    """Unknown identity may signal a conflict, but never authorizes exclusion."""
     return all(
         uncertain if actual is None or expected is None else actual == expected
         for actual, expected in zip(
@@ -65,26 +64,26 @@ def validate_confirmations(data, environment, directory):
         not isinstance(data, dict)
         or set(data) != {"version", "environment", "target", "confirmations"}
         or type(data["version"]) is not int
-        or data["version"] != 1
+        or data["version"] != 2
         or data["environment"] != environment
         or data["target"] != directory
     ):
-        raise ValueError("invalid Human confirmation file scope/version")
+        raise ValueError(
+            "Human confirmation file requires version 2, exact environment/target scope and confirmations"
+        )
     items = data["confirmations"]
     if not isinstance(items, list):
         raise ValueError("confirmations must be a list")
     seen = set()
     for item in items:
-        if not isinstance(item, dict) or set(item) != {
-            "id",
-            "service",
-            "fact",
-            "scope",
-            "exceptions",
-            "evidence",
-            "related_issues",
-        }:
-            raise ValueError("invalid Human confirmation fields")
+        fields = {"id", "service", "fact", "scope", "exceptions", "evidence"}
+        if not isinstance(item, dict):
+            raise ValueError("Human confirmation must be an object")
+        if set(item) != fields:
+            raise ValueError(
+                f"invalid Human confirmation fields: missing {sorted(fields - set(item))}; "
+                f"unexpected {sorted(set(item) - fields, key=str)}"
+            )
         key = required_text(item, "id")
         if key in seen:
             raise ValueError("duplicate Human confirmation ID")
@@ -114,25 +113,6 @@ def validate_confirmations(data, environment, directory):
             required_identity(exception, ("rule",), f"confirmation {key} exception")
             required_text(exception, "diagnostic_id")
             required_text(exception, "condition")
-        related = item["related_issues"]
-        if not isinstance(related, list) or any(
-            not isinstance(record, dict)
-            or set(record) != {"id", "message", "resource", "property", "rule"}
-            for record in related
-        ):
-            raise ValueError(
-                f"confirmation {key} related Issue needs id/message/resource/property/rule"
-            )
-        ids = [required_text(record, "id") for record in related]
-        if len(ids) != len(set(ids)):
-            raise ValueError("duplicate related Issue record")
-        for record in related:
-            required_text(record, "message")
-            required_identity(
-                record,
-                ("resource", "property", "rule"),
-                f"related Issue {record['id']}",
-            )
     return data
 
 
@@ -158,24 +138,6 @@ def reviewed_ids(values, expected, channel):
         raise ValueError(f"all {channel} IDs require explicit review")
 
 
-def affects_target(record, target, environment, directory):
-    if record.get("service") is None and record.get("scope"):
-        scope = record["scope"]
-        scopes = [scope] if isinstance(scope, str) else scope
-        # Labels such as lint's "selected" do not prove a different target.
-        if (
-            all(
-                isinstance(entry, str)
-                and len(entry.split("/")) == 3
-                and "*" not in entry
-                for entry in scopes
-            )
-            and f"{environment}/{directory}/{target['service']}" not in scopes
-        ):
-            return False
-    return matches_target(record, target, uncertain=True)
-
-
 def review_snapshot(artifact, review):
     required = {
         "scan_id",
@@ -187,7 +149,6 @@ def review_snapshot(artifact, review):
         "diagnostic_decisions",
         "issues",
         "unverified",
-        "confirmation_cleanup",
     }
     if not isinstance(review, dict) or set(review) != required:
         raise ValueError("invalid snapshot review fields")
@@ -346,79 +307,11 @@ def review_snapshot(artifact, review):
         for result in data["service_results"]
         if result["status"] == "unverified"
     )
-    cleanups = review["confirmation_cleanup"]
-    if not isinstance(cleanups, list):
-        raise ValueError("confirmation_cleanup must be a list")
-    removed = set()
-    cleanup_targets = []
-    for cleanup in cleanups:
-        if not isinstance(cleanup, dict) or set(cleanup) != {
-            "confirmation_id",
-            "record_id",
-            "reason",
-            "check_id",
-            "evidence",
-        }:
-            raise ValueError("invalid confirmation cleanup")
-        key = (cleanup["confirmation_id"], cleanup["record_id"])
-        confirmation = confirmations.get(key[0])
-        related = (
-            next(
-                (
-                    record
-                    for record in confirmation["related_issues"]
-                    if record["id"] == key[1]
-                ),
-                None,
-            )
-            if confirmation
-            else None
-        )
-        if key in removed or related is None:
-            raise ValueError("unknown or duplicate related Issue cleanup")
-        required_text(cleanup, "reason")
-        required_text(cleanup, "evidence")
-        target = dict(related, service=confirmation["service"])
-        checks = [
-            item
-            for item in artifact["check_results"]
-            if item["id"] == cleanup["check_id"]
-        ]
-        if len(checks) != 1 or not (
-            checks[0]["status"] == "PASS"
-            and checks[0]["check_id"] == target["rule"]
-            and checks[0]["complete"] is True
-            and f"{artifact['environment']}/{artifact['target']}/{confirmation['service']}"
-            in checks[0]["scope"]
-            and isinstance(checks[0].get("targets"), list)
-            and any(matches_target(covered, target) for covered in checks[0]["targets"])
-        ):
-            raise ValueError(
-                "cleanup needs a completed current check covering the related Issue resource/property/rule"
-            )
-        if any(
-            affects_target(item, target, artifact["environment"], artifact["target"])
-            for item in [
-                *data["ordinary"],
-                *data["unverified"],
-                *data["processing_errors"],
-            ]
-        ):
-            raise ValueError("cleanup contradicts current Issues or Human conflicts")
-        removed.add(key)
-        cleanup_targets.append((*key, *target_identity(target)))
-    for item in data["human_confirmations"]["confirmations"]:
-        item["related_issues"] = [
-            record
-            for record in item["related_issues"]
-            if (item["id"], record["id"]) not in removed
-        ]
     stamp = datetime.fromisoformat(
         required_text(data, "executed_at").replace("Z", "+00:00")
     )
     if stamp.utcoffset() is None:
         raise ValueError("Scan execution time requires an explicit timezone")
     return Snapshot(
-        json.dumps(data, ensure_ascii=False, sort_keys=True, allow_nan=False),
-        tuple(sorted(cleanup_targets)),
+        json.dumps(data, ensure_ascii=False, sort_keys=True, allow_nan=False)
     )

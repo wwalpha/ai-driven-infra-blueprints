@@ -163,10 +163,12 @@ python3 framework/scripts/blueprint-loop.py --mode local --task-file tasks/<task
 
 Before switching a target, explicitly register confirmed Human facts in the required
 `issues/<environment>/<target>/human-confirmations.yaml` (an empty confirmations list
-is permitted). No automatic Markdown migration exists. Only artifact v4 and the new
-complete Review contract are accepted. Scan → Review → immutable Snapshot → atomic
-replacement of both reports; authorized obsolete Human related-record cleanup joins
-that same rollback-protected batch. Ordinary issues run in the selected checkout
+is permitted). Human confirmations use schema v2 and are read-only for issues; they
+store facts, scope, exceptions and evidence without Issue history. No automatic data
+migration exists. Only artifact v5 and the complete Review contract are accepted.
+Scan → Review → immutable Snapshot → atomic replacement of only issues.md and
+iac-issues.md with rollback. Human-file edits require a separate explicitly authorized
+Task with ordinary permissions. Ordinary issues run in the selected checkout
 without a worktree; Framework maintenance uses its separate workflow.
 
 Repeat `--service` for every Human-authorized service in the target before publication. Partial scans report missing services and cannot overwrite the target reports. External evidence can join the complete Scan Review. Follow the linked document for all-name/remaining-judgment review, save-only contracts, partial/error handling, and supported/unsupported CloudFormation scope.

@@ -31,7 +31,7 @@ extraction or fallback. Never infer Human facts from naming strings or LLM guess
 Use the common strict YAML reader; JSON syntax is also valid YAML.
 
 ```yaml
-version: 1
+version: 2
 environment: dev
 target: cde
 confirmations:
@@ -46,26 +46,19 @@ confirmations:
         diagnostic_id: current-diagnostic-id
         condition: Existing name is allowed for this Resource and Property
     evidence: Explicit Human instruction and its context
-    related_issues:
-      - id: obsolete-note
-        message: Related issue information, separate from the confirmed fact
-        resource: '001'
-        property: S3.Bucket.BucketName
-        rule: design.service
 ```
 
-Every listed field is mandatory; empty exceptions/related_issues lists are permitted.
+Every listed field is mandatory; an empty exceptions list is permitted.
 IDs are unique, service/environment/target are explicit, scope contains resource and
 property as concrete exact identities; `*`, missing and blank identities are rejected.
 Each exception has exactly `rule`, `diagnostic_id` and nonempty `condition`: the
 Human explicitly permits that condition for that existing diagnostic ID and Rule/Check.
-Each related record has exactly `id`, `message`, `resource`, `property`, `rule`;
-service/environment/target are inherited from its confirmation/file. Evidence is nonempty. Unknown
-fields, duplicate YAML keys and wrong target/version fail closed. The file contains
-facts and their exception scope, never generated runtime values or a report cache.
-This is the single supported contract. Old string exceptions and id/message-only
-related records report the required fields and refuse Scan/publication. Never convert,
-discard or automatically migrate Human facts to satisfy the contract.
+Evidence is nonempty. Unknown fields, duplicate YAML keys and wrong target/version
+fail closed. The file contains confirmed facts, scope, exceptions and evidence only;
+it never stores Issue history, generated runtime values or a report cache.
+Only schema v2 is supported. Report missing or invalid fields and refuse unsupported
+data without fallback, automatic migration or deletion of existing Human facts.
+Any necessary data switch requires a separate explicitly authorized Task.
 
 Read all confirmations at Scan and review them against current diagnostics. An
 exception excludes only a diagnostic whose structured service/resource/property and
@@ -81,51 +74,13 @@ never silently call it resolved. Do not modify or delete a confirmed fact withou
 Human authorization. New facts require actual Human confirmation and an explicitly
 authorized Task file change, not a Review suggestion.
 
-Only an explicit Human request may authorize removal of obsolete `related_issues`.
-Record its actual request context in the Task Goal and the exact authorized records
-in the same Task, independently of the Review:
-
-```markdown
-## Human-requested confirmation cleanup
-- {"environment":"dev","target":"cde","confirmation_id":"human-name-1","record_id":"obsolete-note"}
-```
-
-Each entry has exactly these four fields. Record only targets requested by the Human;
-an LLM Review entry alone is not Human consent. No approval ledger or token is created.
-The general Allowed paths / Modified files contain only `issues.md`, `iac-issues.md`
-and the selected Task. Adding the Human file to either declaration forfeits the
-report-only exception; it never grants cleanup or direct-edit authority.
-
-The requested records must also appear in the validated Review with a current complete
-PASS check covering that related record's service/resource/property/Rule and concrete
-reason/evidence, with no remaining Issue, conflict, processing failure or unverified
-coverage potentially affecting that problem. The selected current check result must
-be unique, PASS and complete, its `check_id` must equal the related record's `rule`,
-and its structured `targets` must contain the exact service/resource/property/rule.
-A service Scope alone proves no per-setting coverage. Scan projects selected setting
-targets only for an executed `design.service` check, which validates the service's
-setting tables. Other mechanical/lint checks have empty targets because their
-per-setting Rule coverage is not proven; no LLM can fill it in. A narrower Rule cannot
-borrow a broad Check's PASS. Current structured reference diagnostics retain their
-existing code as Rule, fixed Resource number from `modelKey` and formal Property only
-when the Model position belongs to the diagnosed owner. Cross-Model positions and
-missing fields stay unknown.
-
-Exclusion and cleanup share exact identity matching. Removal blockers use the same
-fields conservatively: missing/`*` identity or unscoped processing failure can still
-affect the target; a proven different service/resource/property/rule cannot. All
-unverified and processing channels are considered, including Human conflicts.
-Independent services may still fail; their incomplete status remains visible. This cleanup does not
-change confirmation ID, service, fact, scope, exceptions, evidence, other confirmations
-or unrelated records. Only `save_scan()` obtains this bounded cleanup authority;
-`save_authority()` permits reports only. Publication requires the records to exist
-in the current strict-YAML-validated Human file and applies only those reviewed
-removals under the publication lock, checking each selected record's current structured
-identity against the immutable reviewed removal and preserving raw facts even when the Scan displays
-masked values. Both reports and the necessary Human file share `atomic_files()` and
-full rollback on failure. Without cleanup the Human file is never rewritten.
-Ordinary Human fact creation/edit/deletion requires a separately Human-authorized
-independent Task with its ordinary permissions.
+The issues skill reads Human confirmations only. It never rewrites the Human file,
+records Issue history, removes related records or writes Review results back to it.
+Human fact creation/edit/deletion requires a separately Human-authorized independent
+Task with ordinary Task permissions. This workflow adds no Human-file editing API.
+Current structured reference diagnostics retain their existing code as Rule, fixed
+Resource number from `modelKey` and formal Property only when the Model position
+belongs to the diagnosed owner. Cross-Model positions and missing fields stay unknown.
 
 ## Commands and complete Review
 
@@ -146,12 +101,11 @@ python3 framework/scripts/issues_scan.py --task-file tasks/save-local-issues.md 
 
 Register the migration contract before any repository write. Declare all authorized
 services and exact report paths, its own Task, Requirement IDs and `exists:` Acceptance.
-Keep the Human file out of both path declarations; record separately requested cleanup
-in the dedicated Task section above. Complete
+Keep the read-only Human file out of both path declarations. Complete
 final validation under [Validation policy](loop-engineering.md#validation-policy).
 Actual validation errors are FAIL, even when diagnostic reports were saved.
 
-Only artifact v4 is supported. Temporary Scan/Review files remain outside the
+Only artifact v5 is supported. Temporary Scan/Review files remain outside the
 repository. No old artifact conversion, aliases or alternative partial-result save
 API exists. External evidence belongs in the whole Scan's Review `issues`, within
 its authorized services; never append partial evidence directly to a target report.
@@ -170,8 +124,7 @@ The Review has exactly these keys:
     {"id": "diagnostic ID", "outcome": "issue", "reason": "Current problem confirmed"}
   ],
   "issues": [],
-  "unverified": [],
-  "confirmation_cleanup": []
+  "unverified": []
 }
 ```
 
@@ -188,16 +141,12 @@ source path/positive line, resource/property/rule. `unverified` contains current
 LLM limitations with exactly service/check/reason. Report missing knowledge as
 unverified coverage; do not invent a defect or claim unexecuted AWS checks succeeded.
 
-`confirmation_cleanup` entries contain exactly `confirmation_id`, `record_id`,
-`reason`, `check_id` (the current check result's ID) and `evidence`. Related-record
-cleanup never matches against an old report or reconstructs an old Issue.
-
 ## Snapshot and publication
 
 Scan → complete LLM Review → validated immutable Snapshot → deterministic Markdown
-rendering → atomic replacement. The frozen Snapshot stores serialized values and
-an immutable tuple of reviewed Human record removals; caller mutations cannot alter
-it. Its execution time comes from Scan, never the save clock. Ordinary Issue IDs are
+rendering → atomic replacement. The frozen Snapshot stores serialized values; caller
+mutations cannot alter it. Its execution time comes from Scan, never the save clock.
+Ordinary Issue IDs are
 deterministic from the current service/diagnostic; service headings and numbered
 lists retain explicit service ownership and deterministic Issue IDs.
 
@@ -211,8 +160,8 @@ resolved history, service blocks or verification-target restoration metadata.
 Reuse `iac_report()` and the one existing aggregation/index. No second scan,
 comparison, lint or regrouping occurs during publication. The same Snapshot renders
 the same bytes. Under the shared publication lock, validate running Task and actual
-destination paths, then use the common atomic-files transaction for both reports
-(and authorized Human cleanup). Old bytes are held only for rollback. Any failed
+destination paths, then use the common atomic-files transaction for only issues.md
+and iac-issues.md. Old bytes are held only for rollback. Any failed
 replacement restores all outputs, including a replacement that failed after rename.
 
 Do not fingerprint inputs, compare Git/bytes/file sets, reject input changes or
@@ -277,7 +226,7 @@ Aggregation runs once over finished comparison records, using dictionaries and d
 
 All comparison records (including matched/excluded), unchanged `iac_key` identities, masked field-display information and deterministic Issue-to-record membership belong to the execution's temporary artifact outside the repository. `iac_issues[].members` indexes the original `iac` list. `detail` retrieves category/Issue filters before offset/limit pagination without source reads or comparison. No persistent sidecar, embedded JSON, record restoration, old-result merge, or Markdown digest check.
 
-`iac-issues.md` is replaced from the current valid artifact only. Never restore old results, human annotations, embedded JSON or out-of-scope Services. Existing `iac-issues.state.json` is ignored even if stale, malformed or inconsistent; do not read, write, migrate or automatically delete it. Do not replace state with another persistent file/cache. Both Markdown reports belong to the indivisible save batch; an explicitly authorized Human related-record cleanup joins that same rollback-protected batch. Preserve destination authority, atomic writes and rollback of all outputs on failure. Saving performs no comparison, lint, full regrouping or input freshness checks. Ordinary CREATE/IMPORT logic remain unchanged.
+`iac-issues.md` is replaced from the current valid artifact only. Never restore old results, human annotations, embedded JSON or out-of-scope Services. Existing `iac-issues.state.json` is ignored even if stale, malformed or inconsistent; do not read, write, migrate or automatically delete it. Do not replace state with another persistent file/cache. Only the two Markdown reports belong to the indivisible save batch; the Human file is read-only. Preserve destination authority, atomic writes and rollback of all outputs on failure. Saving performs no comparison, lint, full regrouping or input freshness checks. Ordinary CREATE/IMPORT logic remain unchanged.
 
 
 ## Offline cfn-lint and coverage
