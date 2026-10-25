@@ -571,9 +571,15 @@ def render_validated_model(
 
 @input_scope
 def generate_markdown(
-    path: Path, values: dict[str, str], root: Path, *, reference_tables=None
+    path: Path,
+    values: dict[str, str],
+    root: Path,
+    *,
+    reference_tables=None,
+    reference_values=None,
 ) -> str:
-    """Render the selected service without deciding whether its design is correct."""
+    """Render selected values; reference_values supplies the complete candidate context."""
+    reference_values = values if reference_values is None else reference_values
     reference_display = _imports_model_projection.reference_display
     scope_for = _imports_model_sources.scope_for
     validate_json_settings = _imports_model_validation.validate_json_settings
@@ -584,10 +590,15 @@ def generate_markdown(
             / "model"
             / path.relative_to(path.parents[4] / "docs/designs")
         ).with_suffix(".properties"),
+        reference_values=reference_values,
     )
     references = _dependency_model_display.reference_rows(values)
-    presentation = _reference_presentation.Presentation(values, path, path.parents[4])
-    values = reference_display(values, path, path.parents[4])
+    presentation = _reference_presentation.Presentation(
+        values, path, path.parents[4], reference_values=reference_values
+    )
+    values = reference_display(
+        values, path, path.parents[4], reference_values=reference_values
+    )
     service = path.stem
     owned = values.get(
         f"desired.service.{service}.ownedCatalogResourceTypes", ""

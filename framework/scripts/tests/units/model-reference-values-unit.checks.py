@@ -21,6 +21,7 @@ from model.reference_nodes import display_value, parse
 from model.reference_values import reference_value
 from model.render import generate_files
 from model.sources import load_model
+from model.validation import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -342,6 +343,40 @@ def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
     assert {(stage / path.relative_to(root)).read_bytes() for path in original} == set(
         original.values()
     )
+
+
+@pytest.mark.parametrize("empty_snapshot", [False, True])
+def test_partial_json_reference_context(fixture, empty_snapshot):
+    producer, values, _, _ = fixture
+    selected = {
+        "desired.row.001-002.property": "S3.Bucket.Tags[].Value",
+        "desired.row.001-002.value": "`"
+        + json.dumps(reference("S3_Bucket_001", "BucketName"))
+        + "`",
+        "desired.row.001-002.comment": "合成参照",
+    }
+    snapshot = (
+        {}
+        if empty_snapshot
+        else {
+            **values,
+            # Unselected JSON is reference context only, never another validation target.
+            "desired.row.001-099.property": "S3.Bucket.NotificationConfiguration",
+            "desired.row.001-099.document": "invalid JSON",
+            "desired.row.001-099.value": "[Settings](s3/settings.json)",
+            "desired.row.001-099.comment": "未選択",
+        }
+    )
+    if empty_snapshot:
+        with pytest.raises(ValueError, match="MODEL_REF_TARGET_MISSING"):
+            validate_json_settings(selected, producer.path, reference_values=snapshot)
+    else:
+        validate_json_settings(selected, producer.path, reference_values=snapshot)
+        shown = reference_display(
+            selected, producer.path, producer.root, reference_values=snapshot
+        )
+        assert shown["desired.row.001-002.value"] == "`fixture-materials`"
+    assert "$modelRef" in selected["desired.row.001-002.value"]
 
 
 if __name__ == "__main__":

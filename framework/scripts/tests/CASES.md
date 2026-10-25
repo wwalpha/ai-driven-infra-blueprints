@@ -3749,3 +3749,13 @@ checks retain exact journals, CAS, partial publication and execution/approval ev
 | `deploy-lazy::mapping-denial` | `check_owner_ambiguity_blocks_mapping` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Absent/duplicate owners cannot produce an observed mapping | Added |
 | `deploy-lazy::cache-authority` | `check_cache_permission_and_input_revision` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Distinct permission context, reused checked snapshot, changed revision rejection | Added |
 | `deploy-lazy::generation-stage` | `check_generation_stage_reuses_checked_model` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Reuse checked authority for byte-identical generation-stage copies; reject modified candidate bytes | Added |
+
+## Partial reference snapshots
+
+| Case ID | Function | Layer | File | Mode / count | Coverage | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `sqs-partial::producer` | `check_other_group_producer` | UT | [units/sqs-partial-reference-unit.checks.py](units/sqs-partial-reference-unit.checks.py) | pytest / 1 | 別グループQueueの参照をQueuePolicy部分表示で解決 | 追加 |
+| `sqs-partial::deleted` | `check_deleted_candidate_producer` | UT | [units/sqs-partial-reference-unit.checks.py](units/sqs-partial-reference-unit.checks.py) | pytest / 1 | 候補削除済みQueueを旧ディスクModelから復活させない | 追加 |
+| `sqs-partial::attribute` | `check_candidate_producer_attribute` | UT | [units/sqs-partial-reference-unit.checks.py](units/sqs-partial-reference-unit.checks.py) | pytest / 1 | 候補QueueNameからARNと表示リンクを解決、旧値を使用しない | 追加 |
+| `sqs-partial::independent` | `check_unrelated_group_generation_failure` | UT | [units/sqs-partial-reference-unit.checks.py](units/sqs-partial-reference-unit.checks.py) | pytest / 1 | 無関係グループの全体表示失敗時も正常QueuePolicyを検証 | 追加 |
+| `reference-values::partial-context` | `test_partial_json_reference_context` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 2 | JSON検証と投影の参照文脈分離、空候補からの旧Model補完禁止、未選択JSON非検証 | 追加 |

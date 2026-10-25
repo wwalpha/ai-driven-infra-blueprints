@@ -324,7 +324,7 @@ def resource_display_rows(
     return rows
 
 
-def reference_display(values, path, root):
+def reference_display(values, path, root, *, reference_values=None):
     """Preserve saved links/anchors and project only execution documents for display."""
     scope_for = _imports_model_sources.scope_for
     model_path = (
@@ -336,7 +336,9 @@ def reference_display(values, path, root):
     )
     scope = scope_for(model_path)
     result = dict(values)
-    resolver = reference_resolver(values, scope, root)
+    resolver = reference_resolver(
+        values if reference_values is None else reference_values, scope, root
+    )
     for key, value in values.items():
         if key.startswith("desired.row.") and key.endswith((".document", ".value")):
             raw, structured = _imports_model_references._json(key, value)

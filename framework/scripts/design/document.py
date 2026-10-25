@@ -196,7 +196,7 @@ def model_resource_reference_tables(path, text, values, root):
                 raise FindingsError(findings)
             tables = []
             expected = _model_render.generate_markdown(
-                path, selected, root, reference_tables=tables
+                path, selected, root, reference_tables=tables, reference_values=source
             )
             expected_blocks = resource_blocks(
                 _dependency_design_layout.resource_heading_lines(expected.splitlines())

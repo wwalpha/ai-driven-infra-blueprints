@@ -126,7 +126,7 @@ def reference_context_for(values, row_id, row, value, pointer, root):
 
 
 def validate_json_settings(
-    values, model_path, *, warnings=None, excluded_references=()
+    values, model_path, *, warnings=None, excluded_references=(), reference_values=None
 ):
     """Validate JSON links and intrinsic structure without rewriting Model authority."""
     reference_tokens = _imports_model_identity.reference_tokens
@@ -158,11 +158,10 @@ def validate_json_settings(
                     continue
                 if resolver is None:
                     scope = _imports_model_sources.scope_for(path)
-                    resolver = _imports_model_identity.Resolver(
-                        scope.root, _imports_model_sources._invocation_reads(scope.root)
-                    )
-                    resolver.models[scope.path] = SimpleNamespace(
-                        scope=scope, authoritative=values, dependencies={}
+                    resolver = _imports_model_projection.reference_resolver(
+                        values if reference_values is None else reference_values,
+                        scope,
+                        scope.root,
                     )
                 field_name = receiving_property(row["property"], node.pointer)
                 context = reference_context_for(

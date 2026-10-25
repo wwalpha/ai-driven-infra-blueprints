@@ -57,14 +57,16 @@ def input_strings(value):
 class Presentation:
     """Carry typed positions through existing, lossless service display transforms."""
 
-    def __init__(self, values, path, root):
+    def __init__(self, values, path, root, *, reference_values=None):
         self.values, self.root = values, root
         self.scope = sources.scope_for(
             (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
                 ".properties"
             )
         )
-        self.resolver = projection.reference_resolver(values, self.scope, root)
+        self.resolver = projection.reference_resolver(
+            values if reference_values is None else reference_values, self.scope, root
+        )
         self.references = {}
         for rows in files.resource_row_index(values).values():
             for rid, row in rows:
