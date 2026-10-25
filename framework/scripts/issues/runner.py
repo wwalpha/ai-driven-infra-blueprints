@@ -183,17 +183,13 @@ def reference_issues(findings, comparison, services):
     for diagnostic in findings.reference_errors:
         if diagnostic["category"] != "MODEL_NEEDS_FIX":
             continue
-        model = diagnostic.get("model")
-        owner = next(
-            (
-                service
-                for service in services
-                if model and model.endswith("/" + service + ".properties")
-            ),
-            None,
-        )
-        if owner is None:
-            continue
+        fix_models = diagnostic.get("fixModels", ())
+        if not fix_models and (
+            diagnostic["code"] == "MODEL_REF_INVALID_SYNTAX"
+            or diagnostic["code"] == "MODEL_REF_TARGET_AMBIGUOUS"
+            and diagnostic.get("modelKey", "").startswith("desired.resource.")
+        ):
+            fix_models = [diagnostic.get("model")]
         identity = [
             diagnostic.get(field)
             for field in (
@@ -206,24 +202,35 @@ def reference_issues(findings, comparison, services):
                 "attribute",
             )
         ]
-        key = identifier(
-            [
-                value.replace(str(comparison.root) + "/", "")
-                if isinstance(value, str)
-                else value
-                for value in identity
-            ]
-        )
-        records[key] = dict(
-            id=key,
-            key=key,
-            service=owner,
-            severity="ERROR",
-            message=safe_text(
-                comparison.redacted(json.dumps(diagnostic, ensure_ascii=False))
-            ),
-            diagnostic=comparison.redacted(diagnostic),
-        )
+        for model in fix_models:
+            owner = next(
+                (
+                    service
+                    for service in services
+                    if model and model.endswith("/" + service + ".properties")
+                ),
+                None,
+            )
+            if owner is None:
+                continue
+            key = identifier(
+                [
+                    value.replace(str(comparison.root) + "/", "")
+                    if isinstance(value, str)
+                    else value
+                    for value in [model, *identity]
+                ]
+            )
+            records[key] = dict(
+                id=key,
+                key=key,
+                service=owner,
+                severity="ERROR",
+                message=safe_text(
+                    comparison.redacted(json.dumps(diagnostic, ensure_ascii=False))
+                ),
+                diagnostic=comparison.redacted(diagnostic),
+            )
     return list(records.values())
 
 
@@ -269,7 +276,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
     validator = validators[0]
-    ordinary.extend(reference_issues(validator.findings, comparison, services))
+    ordinary.extend(reference_issues(validator.findings, comparison, all_services))
     reference_messages = {
         json.dumps(d, ensure_ascii=False) for d in validator.findings.reference_errors
     }

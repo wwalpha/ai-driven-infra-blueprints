@@ -481,11 +481,8 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
         == {}
     )
     assert any("Name must appear exactly once" in error for error in failures)
-    assert warnings and unverified[path]["retainedView"] is None
-    assert (
-        unverified[path]["reason"] == "reference"
-        and not (stage / path.relative_to(root)).exists()
-    )
+    assert warnings and not unverified
+    assert not (stage / path.relative_to(root)).exists()
 
 
 def _callback_check_unavailable_service_keeps_source_errors_and_no_cache_generation(
@@ -614,8 +611,7 @@ def check_analysis_generation_keeps_independent_checks(
         assert plan.reference_warnings
         view = tmp_path / "docs/designs/dev/target/codebuild.md"
         if missing_name:
-            assert plan.unavailable[view]["reason"] == "reference"
-            assert plan.unavailable[view]["retainedView"] is None
+            assert not plan.unavailable and view not in plan.generated
         else:
             assert view in plan.generated and view not in plan.unavailable
         assert load_model(model).authoritative == snapshot.authoritative

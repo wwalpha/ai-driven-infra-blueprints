@@ -277,6 +277,7 @@ def generate_views(
     for path, values in destinations.items():
         staged = stage / path.relative_to(root)
         artifacts = {}
+        failure_start = len(failures)
         try:
             check_model_inputs = _imports_model_validation.check_model_inputs
             model = load_model(
@@ -292,14 +293,6 @@ def generate_views(
                 for warning in (*model.warnings, *independent.warnings)
                 if warning not in warnings
             )
-            if independent.errors and (independent.unverified or model.warnings):
-                unavailable[path] = dict(
-                    reason="reference",
-                    status="NOT_RUN",
-                    retainedView=str(path.relative_to(root))
-                    if input_is_file(path)
-                    else None,
-                )
             diagnostics = list(getattr(independent, "reference_errors", ()))
             resolver = _imports_model_projection.reference_resolver(
                 values, model.scope, root
@@ -402,7 +395,7 @@ def generate_views(
                 message = f"{path.relative_to(root)}: {error}"
                 failures.append(message)
                 reference_failures.add(message)
-            if any(d["status"] == "NOT_RUN" for d in error.diagnostics):
+            if len(failures) == failure_start:
                 unavailable[path] = {
                     "reason": "reference",
                     "status": "NOT_RUN",
@@ -418,6 +411,7 @@ def generate_views(
             restore_view(stage, root, path)
         advance()
     for path in list(generated):
+        failure_start = len(failures)
         try:
             staged = stage / path.relative_to(root)
             if path.name != STACK_DESIGN:
@@ -435,7 +429,7 @@ def generate_views(
                 message = f"{path.relative_to(root)}: {error}"
                 failures.append(message)
                 reference_failures.add(message)
-            if any(d["status"] == "NOT_RUN" for d in error.diagnostics):
+            if len(failures) == failure_start:
                 unavailable[path] = {
                     "reason": "reference",
                     "status": "NOT_RUN",
@@ -1088,6 +1082,18 @@ def publish_generation(plan):
             )
 
 
+def generation_unavailable(plan):
+    """Service failures take precedence; individual wait diagnostics stay on the plan."""
+    return {
+        path: info
+        for path, info in plan.unavailable.items()
+        if not any(
+            error.startswith(f"{path.relative_to(plan.root)}:")
+            for error in plan.failures
+        )
+    }
+
+
 def generation_metadata(plan):
     return {
         "complete": not plan.unavailable and not plan.failures,
@@ -1102,7 +1108,7 @@ def generation_metadata(plan):
             "/".join(
                 (*p.relative_to(plan.root / "docs/designs").parts[:2], p.stem)
             ): info
-            for p, info in plan.unavailable.items()
+            for p, info in generation_unavailable(plan).items()
         },
         "warnings": plan.reference_warnings,
     }
@@ -1143,15 +1149,7 @@ def report_generation(plan):
         )
         for p in plan.model_paths
     }
-    # An independent validation error takes precedence over a reference NOT_RUN.
-    not_run = {
-        path
-        for path in plan.unavailable
-        if not any(
-            error.startswith(f"{path.relative_to(plan.root)}:")
-            for error in plan.failures
-        )
-    }
+    not_run = set(generation_unavailable(plan))
     failed = selected - plan.saved.keys() - not_run
     summary = f"{len(plan.saved)} services succeeded; {len(failed)} services failed; {len(not_run)} services NOT_RUN"
     print("Design Markdown generation: " + summary, file=output_file())

@@ -46,36 +46,42 @@ class ReferenceValue:
 
 def resolve(node, scope, resolver, *, field=None, property_name=None, context=None):
     snapshot, number, resource = resolver.resolve_logical(node.logical_id, scope)
-    operand = any(token.startswith("Fn::") for token in node.pointer.split("/"))
-    resolver.validate_attribute(
-        resource["resourceType"],
-        node.attribute,
-        field=field,
-        context=context,
-        operand=operand,
-    )
-    if field and not operand:
-        resolver.validate_reference_type(
-            resource["resourceType"], node.attribute, field
+    try:
+        operand = any(token.startswith("Fn::") for token in node.pointer.split("/"))
+        resolver.validate_attribute(
+            resource["resourceType"],
+            node.attribute,
+            field=field,
+            context=context,
+            operand=operand,
         )
-    terminal = next(
-        (
-            token
-            for token in reversed(node.pointer.rstrip("/").split("/"))
-            if not token.isdigit()
-        ),
-        "",
-    )
-    if (
-        POLICY_FORMATS.get(property_name) in {"statement", "wrapped-statement"}
-        and terminal in {"Resource", "NotResource", "AWS"}
-        and reference_attribute(resource["resourceType"], node.attribute)
-        != reference_attribute(resource["resourceType"], "Arn")
-    ):
-        raise ModelNeedsFixError(
-            "policy Resource/Principal requires the ARN attribute",
-            code="MODEL_REF_INVALID_ATTRIBUTE",
+        if field and not operand:
+            resolver.validate_reference_type(
+                resource["resourceType"], node.attribute, field
+            )
+        terminal = next(
+            (
+                token
+                for token in reversed(node.pointer.rstrip("/").split("/"))
+                if not token.isdigit()
+            ),
+            "",
         )
+        if (
+            POLICY_FORMATS.get(property_name) in {"statement", "wrapped-statement"}
+            and terminal in {"Resource", "NotResource", "AWS"}
+            and reference_attribute(resource["resourceType"], node.attribute)
+            != reference_attribute(resource["resourceType"], "Arn")
+        ):
+            raise ModelNeedsFixError(
+                "policy Resource/Principal requires the ARN attribute",
+                code="MODEL_REF_INVALID_ATTRIBUTE",
+            )
+    except ReferenceDiagnosticError as error:
+        error.diagnostic["producerModel"] = str(snapshot.scope.path)
+        if isinstance(error, ModelNeedsFixError):
+            error.diagnostic["fixModels"] = [str(scope.path)]
+        raise
     return snapshot, number, resource, node.attribute
 
 
@@ -371,7 +377,11 @@ def reference_value(resolver, scope, node, **contract):
             raise ReferenceResolutionError(reason)
         return ReferenceValue("resolved", value)
     except ReferenceDiagnosticError as error:
-        if "modelKey" in error.diagnostic:
+        if producer is not None:
+            error.diagnostic["producerModel"] = str(producer.snapshot.scope.path)
+            if isinstance(error, ModelNeedsFixError):
+                error.diagnostic["fixModels"] = [str(producer.snapshot.scope.path)]
+        if "modelKey" in error.diagnostic and "producerModel" in error.diagnostic:
             error.diagnostic["producerModelKey"] = error.diagnostic.pop("modelKey")
         error.diagnostic.update(
             model=str(scope.path),
@@ -379,8 +389,6 @@ def reference_value(resolver, scope, node, **contract):
             attribute=node.attribute,
             pointer=node.pointer,
         )
-        if producer is not None:
-            error.diagnostic["producerModel"] = str(producer.snapshot.scope.path)
         if not isinstance(error, ReferenceResolutionError):
             raise
         return ReferenceValue(

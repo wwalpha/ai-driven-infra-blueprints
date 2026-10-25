@@ -206,19 +206,27 @@ class Resolver:
             for producer in scopes.values():
                 if producer.service == "cloudformation-stacks":
                     continue
-                if producer.path not in self.models:
-                    with _imports_model_importing_scope.reference_reader(producer.path):
-                        self.models[producer.path] = sources._source_snapshot(
-                            producer, self.reads
+                try:
+                    if producer.path not in self.models:
+                        with _imports_model_importing_scope.reference_reader(
+                            producer.path
+                        ):
+                            self.models[producer.path] = sources._source_snapshot(
+                                producer, self.reads
+                            )
+                    snapshot = self.models[producer.path]
+                    if snapshot is None:
+                        raise FrameworkUnsupportedError(
+                            "producer Model is unreadable", targetLogicalId=logical_id
                         )
-                snapshot = self.models[producer.path]
-                if snapshot is None:
-                    raise FrameworkUnsupportedError(
-                        "producer Model is unreadable", targetLogicalId=logical_id
+                    resources = resource_index(snapshot.authoritative)
+                except ModelNeedsFixError as error:
+                    error.diagnostic.update(
+                        producerModel=str(producer.path),
+                        fixModels=[str(producer.path)],
                     )
-                for logical, (number, resource) in resource_index(
-                    snapshot.authoritative
-                ).items():
+                    raise
+                for logical, (number, resource) in resources.items():
                     index.setdefault(logical, []).append((snapshot, number, resource))
             self.logical_indexes[key] = index
         matches = self.logical_indexes[key].get(logical_id, ())
@@ -231,6 +239,11 @@ class Resolver:
                 if not matches
                 else "MODEL_REF_TARGET_AMBIGUOUS",
                 targetLogicalId=logical_id,
+                fixModels=sorted(
+                    {str(snapshot.scope.path) for snapshot, _, _ in matches}
+                )
+                if matches
+                else [str(scope.path)],
             )
         return matches[0]
 

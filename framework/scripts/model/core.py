@@ -505,6 +505,11 @@ def resource_index(values):
                 targetLogicalId=logical,
                 resourceLogicalId=logical,
                 modelKey=f"desired.resource.{number}.logicalId",
+                resourceIds=[
+                    candidate
+                    for candidate, fields in entries(values, "desired.resource.")
+                    if fields.get("logicalId") == logical
+                ],
             )
         if state.get(kind, -1) < serial:
             raise ValueError("lastAllocated is missing or behind logicalId: " + logical)

@@ -147,6 +147,8 @@ def materialize(consumer, role, document):
         ("attribute", "MODEL_REF_INVALID_ATTRIBUTE"),
         ("pending-import", "MODEL_REF_INVALID_PENDING_STATE"),
         ("pending-desired", "MODEL_REF_INVALID_PENDING_STATE"),
+        ("invalid-arn", "MODEL_REF_INVALID_VALUE"),
+        ("local-ambiguous", "MODEL_REF_TARGET_AMBIGUOUS"),
     ],
 )
 def test_invalid_reference_has_origin_code_and_position(models, fault, code):
@@ -160,6 +162,25 @@ def test_invalid_reference_has_origin_code_and_position(models, fault, code):
         resource(consumer.root, "duplicate", "KMS.Key", number="004")
     elif fault == "attribute":
         node["$modelRef"]["attribute"] = "RoleName"
+    elif fault == "invalid-arn":
+        key.update(
+            {
+                "observed.row.004-001.value": "`12345678-1234-1234-1234-123456789abc`",
+                "desired.row.004-002.property": "KMS.Key.Arn",
+                "desired.row.004-002.value": "[self](#saved-004)",
+                "desired.row.004-002.comment": "合成",
+                "observed.row.004-002.value": "`invalid-arn`",
+            }
+        )
+        save(producer, key)
+    elif fault == "local-ambiguous":
+        key.update(
+            {
+                "desired.resource.005.resourceType": "KMS.Key",
+                "desired.resource.005.logicalId": "KMS_Key_004",
+            }
+        )
+        save(producer, key)
     else:
         if fault == "pending-import":
             key["desired.resource.004.resourceMode"] = "IMPORT"
@@ -183,6 +204,32 @@ def test_invalid_reference_has_origin_code_and_position(models, fault, code):
         and diagnostic["action"]
     )
     assert not isinstance(caught.value, ReferenceResolutionError)
+    findings = Findings(consumer.root)
+    findings.warn(caught.value)
+    comparison = SimpleNamespace(root=consumer.root, redacted=lambda value: value)
+    issues = reference_issues(findings, comparison, ["iam", "kms", "duplicate"])
+    owners = {issue["service"] for issue in issues}
+    if fault == "ambiguous":
+        assert owners == {"kms", "duplicate"}
+        assert set(diagnostic["fixModels"]) == {
+            str(producer.path),
+            str(producer.path.with_name("duplicate.properties")),
+        }
+    elif fault in {
+        "pending-import",
+        "pending-desired",
+        "invalid-arn",
+        "local-ambiguous",
+    }:
+        assert owners == {"kms"} and diagnostic["producerModel"] == str(producer.path)
+        assert diagnostic["fixModels"] == [str(producer.path)]
+        if fault == "local-ambiguous":
+            assert diagnostic["resourceIds"] == ["004", "005"]
+            assert diagnostic["producerModelKey"] == "desired.resource.005.logicalId"
+    else:
+        assert owners == {"iam"}
+        if fault == "attribute":
+            assert diagnostic["producerModel"] == str(producer.path)
 
 
 def test_duplicate_local_logical_id_is_model_error(models):
@@ -209,6 +256,10 @@ def test_proven_type_mismatch_and_framework_gap_are_distinct(models):
             field="Lambda.Function.Role",
         )
     assert caught.value.diagnostic["code"] == "MODEL_REF_TYPE_MISMATCH"
+    findings = Findings(consumer.root)
+    findings.warn(caught.value)
+    comparison = SimpleNamespace(root=consumer.root, redacted=lambda value: value)
+    assert reference_issues(findings, comparison, ["iam", "kms"])[0]["service"] == "iam"
     with pytest.raises(FrameworkUnsupportedError) as caught:
         resolver.validate_attribute("Future.Resource", "Arn")
     assert caught.value.diagnostic["category"] == "FRAMEWORK_UNSUPPORTED"
@@ -243,6 +294,10 @@ def test_observed_identity_conflict_is_proven(models):
             Resolver(consumer.root), consumer, parse(reference("S3_Bucket_001"))
         )
     assert caught.value.diagnostic["code"] == "MODEL_REF_VALUE_CONFLICT"
+    findings = Findings(consumer.root)
+    findings.warn(caught.value)
+    comparison = SimpleNamespace(root=consumer.root, redacted=lambda value: value)
+    assert reference_issues(findings, comparison, ["iam", "s3"])[0]["service"] == "s3"
 
 
 def test_pending_and_every_invalid_sibling_are_collected(models):
@@ -364,9 +419,12 @@ def test_issues_use_structured_codes_and_stable_identity(models):
     assert load_model(consumer).warnings[0]["category"] == "MODEL_NEEDS_FIX"
 
 
-@pytest.mark.parametrize("invalid", [False, True])
-def test_generation_keeps_failed_service_and_saves_healthy_service(models, invalid):
+@pytest.mark.parametrize("state", ["pending", "invalid", "mixed"])
+def test_generation_keeps_failed_service_and_saves_healthy_service(models, state):
     _, _, consumer, role, document = models
+    invalid = state != "pending"
+    if state == "invalid":
+        document["Statement"][6]["Resource"] = "*"
     if invalid:
         document["Statement"][0]["Resource"] = reference("KMS_Key_999")
         role["desired.row.070-004.document"] = json.dumps(document)
@@ -403,7 +461,15 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, inval
             unavailable=unavailable,
         )
     assert set(generated) == {good} and len(failures) == int(invalid)
-    assert bad in unavailable and not any("UNKNOWN" in str(d) for d in warnings)
+    assert (bad in unavailable) == (not invalid)
+    assert not any("UNKNOWN" in str(d) for d in warnings)
+    assert {d["category"] for d in warnings} == (
+        {"MODEL_NEEDS_FIX", "REFERENCE_PENDING_DEPLOY"}
+        if state == "mixed"
+        else {"MODEL_NEEDS_FIX"}
+        if invalid
+        else {"REFERENCE_PENDING_DEPLOY"}
+    )
     assert {path: path.read_bytes() for path in original} == original
     assert {(stage / path.relative_to(root)).read_bytes() for path in original} == set(
         original.values()
@@ -436,6 +502,8 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, inval
         metadata["status"] == ("FAIL" if invalid else "NOT_RUN")
         and not metadata["complete"]
     )
+    assert len(metadata["unverified"]) == int(not invalid)
+    assert metadata["warnings"] == warnings
     with pytest.raises(
         ValueError,
         match="1 services failed; 0 services NOT_RUN"
@@ -465,23 +533,35 @@ def test_reference_wait_findings_are_not_pass(models):
         require_reference_diagnostics(list(result.warnings))
 
 
-@pytest.mark.parametrize("invalid", [False, True])
-def test_real_generation_and_issues_scan_keep_reference_categories(models, invalid):
-    _, _, consumer, role, document = models
-    if invalid:
+@pytest.mark.parametrize("state", ["pending", "mixed", "producer-invalid"])
+def test_real_generation_and_issues_scan_keep_reference_categories(models, state):
+    producer, key, consumer, role, document = models
+    invalid = state != "pending"
+    if state == "mixed":
         document["Statement"][0]["Resource"] = reference("KMS_Key_999")
         role["desired.row.070-004.document"] = json.dumps(document)
         save(consumer, role)
+    elif state == "producer-invalid":
+        key.update(
+            {
+                "observed.row.004-001.value": "`12345678-1234-1234-1234-123456789abc`",
+                "desired.row.004-002.property": "KMS.Key.Arn",
+                "desired.row.004-002.value": "[self](#saved-004)",
+                "desired.row.004-002.comment": "合成",
+                "observed.row.004-002.value": "`invalid-arn`",
+            }
+        )
+        save(producer, key)
     plan = sync_runtime.prepare_generation(
         consumer.root, {("qa", "team", "iam")}, write=False, definitions_root=FRAMEWORK
     )
     try:
         assert bool(plan.failures) == invalid, plan.failures
-        assert len(plan.unavailable) == 1 and not plan.generated
+        assert len(plan.unavailable) == int(not invalid) and not plan.generated
         assert any(
             d.get("category") == "REFERENCE_PENDING_DEPLOY"
             for d in plan.reference_warnings
-        )
+        ) == (state != "producer-invalid")
     finally:
         plan.close()
     lint = dict(
@@ -513,9 +593,13 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, inval
         if record.get("diagnostic", {}).get("category") == "MODEL_NEEDS_FIX"
     ]
     assert len(classified) == int(invalid), artifact["ordinary"]
+    if classified:
+        assert classified[0]["service"] == (
+            "kms" if state == "producer-invalid" else "iam"
+        )
     assert any(
         w.get("category") == "REFERENCE_PENDING_DEPLOY" for w in artifact["warnings"]
-    )
+    ) == (state != "producer-invalid")
     assert not any(
         record.get("code") == "MODEL_REF_TARGET_MISSING"
         for record in artifact["processing_errors"]
@@ -578,6 +662,17 @@ def test_unknown_validation_exception_is_fail(models):
     assert result.status == "FAIL" and result.errors
     assert findings.processing_errors and not reference_issues(
         findings, SimpleNamespace(root=consumer.root), ["iam"]
+    )
+    findings = Findings(consumer.root)
+    findings.warn(
+        ModelNeedsFixError(
+            "violation location is unknown",
+            model=str(consumer.path),
+            producerModel=str(consumer.path.with_name("kms.properties")),
+        )
+    )
+    assert findings.reference_errors and not reference_issues(
+        findings, SimpleNamespace(root=consumer.root), ["iam", "kms"]
     )
 
 

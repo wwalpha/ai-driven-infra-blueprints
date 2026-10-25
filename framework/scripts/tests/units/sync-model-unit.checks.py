@@ -1507,6 +1507,11 @@ def check_failure_counts(tmp_path, capsys, extra_inputs, write, unavailable):
             path: {"reason": "reference", "status": "NOT_RUN", "retainedView": None}
             for path in (reference, paths[0])
         }
+    metadata = sync_runtime.generation_metadata(plan)
+    assert metadata["status"] == "FAIL"
+    assert set(metadata["unverified"]) == (
+        {"dev/team/unresolved"} if unavailable else set()
+    )
     with pytest.raises(ValueError) as error:
         sync_runtime.report_generation(plan)
     failed = 11 if extra_inputs else 9

@@ -130,6 +130,13 @@ def validate_json_settings(
     reference_tokens = _imports_model_identity.reference_tokens
     _json = _imports_model_references._json
     string_leaves = _imports_model_references.string_leaves
+    path = Path(model_path)
+    if path.suffix == ".md" and path.parents[2].name == "designs":
+        path = (
+            path.parents[4]
+            / "model"
+            / path.relative_to(path.parents[4] / "docs/designs")
+        ).with_suffix(".properties")
     resolver = None
     diagnostics = []
     for row_id, row in entries(values, "desired.row."):
@@ -148,13 +155,6 @@ def validate_json_settings(
                 if (row_id, field, node.pointer) in excluded_references:
                     continue
                 if resolver is None:
-                    path = Path(model_path)
-                    if path.suffix == ".md" and path.parents[2].name == "designs":
-                        path = (
-                            path.parents[4]
-                            / "model"
-                            / path.relative_to(path.parents[4] / "docs/designs")
-                        ).with_suffix(".properties")
                     scope = _imports_model_sources.scope_for(path)
                     resolver = _imports_model_identity.Resolver(
                         scope.root, _imports_model_sources._invocation_reads(scope.root)
@@ -187,7 +187,7 @@ def validate_json_settings(
                     )
             for diagnostic in row_diagnostics:
                 diagnostic.update(
-                    model=str(model_path),
+                    model=str(path),
                     modelKey=f"desired.row.{row_id}.{field}",
                     property=row["property"],
                     resourceLogicalId=values.get(
