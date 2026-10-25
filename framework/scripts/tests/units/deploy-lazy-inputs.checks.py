@@ -783,12 +783,8 @@ def readiness_fixture(root):
         "duplicate",
         "type",
         "stale",
-        "scope",
         "structure",
-        "declared",
         "invalid",
-        "consumer",
-        "pending-scope",
     ],
 )
 @pytest.mark.parametrize("status", ["NOT_STARTED", "READY"])
@@ -806,25 +802,6 @@ def check_readiness_blocks_before_mutation(tmp_path, monkeypatch, problem, statu
                 {"desired.row.007-002.property": "EC2.VPC.Unknown"},
             )
         )
-    if problem == "pending-scope":
-        scope.path.write_text(
-            patch_properties(
-                parse(scope.path.read_text()),
-                {"observed.row.007-001.value": "`PENDING_DEPLOY`"},
-            )
-        )
-    if problem == "consumer":
-        values = dict(parse(scope.path.read_text()).values)
-        values.update(
-            {
-                "desired.resource.007.resourceMode": "IMPORT",
-                "desired.resource.007.cfn-logicalId": None,
-                "desired.row.007-001.value": "[vpc](network.md#network-existing)",
-            }
-        )
-        scope.path.with_name("consumer.properties").write_text(
-            serialize({k: v for k, v in values.items() if v is not None})
-        )
     dependency_index.rebuild(tmp_path)
     index_path = dependency_index.location(tmp_path)
     if problem == "missing":
@@ -841,21 +818,6 @@ def check_readiness_blocks_before_mutation(tmp_path, monkeypatch, problem, statu
         )
     elif problem == "stale":
         scope.path.write_text(scope.path.read_text() + "# direct edit\n")
-    elif problem in {"scope", "pending-scope"}:
-        task = tmp_path / "tasks/active.md"
-        task.write_text(
-            task.read_text().replace(
-                f"- `{scope.path.relative_to(tmp_path).as_posix()}`\n", ""
-            )
-        )
-    elif problem == "declared":
-        task = tmp_path / "tasks/active.md"
-        modified, allowed = task.read_text().split("## Allowed paths")
-        task.write_text(
-            modified.replace(f"- `{scope.path.relative_to(tmp_path).as_posix()}`\n", "")
-            + "## Allowed paths"
-            + allowed
-        )
     elif problem == "structure":
         dependency_index.write_sealed(tmp_path, index_path, {"version": 1})
     units = [{"name": "fixture", "deployOrder": 10}] + [
@@ -957,6 +919,7 @@ def check_readiness_removal_and_ready_execution(tmp_path, monkeypatch):
                     "Action": "Remove",
                     "LogicalResourceId": "Unknown",
                     "ResourceType": "AWS::EC2::VPC",
+                    "PolicyAction": "Delete",
                 }
             }
         ]
@@ -981,6 +944,221 @@ def check_readiness_removal_and_ready_execution(tmp_path, monkeypatch):
         controller.execute(backend, unit, state)
         assert verify.call_count == 2 and record.call_count == 1
         assert aws.call_args.args[0] == "execute_change_set"
+
+
+@pytest.mark.parametrize(
+    "policy", ["Retain", "RetainExceptOnCreate", "Delete", "Snapshot", None]
+)
+def check_readiness_and_collection_removal_scope(tmp_path, monkeypatch, policy):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, backend = readiness_fixture(tmp_path)
+    values = dict(parse(scope.path.read_text()).values)
+    values.pop("desired.resource.007.cfn-logicalId")
+    values["desired.resource.007.resourceMode"] = "IMPORT"
+    values["desired.row.007-001.value"] = "[vpc](network.md#network-existing)"
+    consumer = scope.path.with_name("consumer.properties")
+    consumer.write_text(serialize(values))
+    dependency_index.rebuild(tmp_path)
+    unit = {"name": "fixture"}
+    # Static ownership/Model validation must not project unconfirmed changes.
+    with sources.model_session(SessionModels(tmp_path, {})):
+        with patch.object(observed, "observed_destinations") as destinations:
+            backend.observed_readiness(unit)
+            destinations.assert_not_called()
+        backend.templates["fixture"] = ({"Resources": {}}, {})
+        removal = {
+            "Action": "Remove",
+            "LogicalResourceId": "OriginalVpc",
+            "ResourceType": "AWS::EC2::VPC",
+            "PhysicalResourceId": "vpc-original",
+            "PolicyAction": policy,
+        }
+        state = {
+            "changes": [removal],
+            "stackId": "stack",
+            "changeSetId": "change",
+            "changeDigest": "digest",
+            "clientToken": "token",
+        }
+        state["executionEvidence"] = {
+            "resources": [removal],
+            "StackId": "stack",
+            "ChangeSetId": "change",
+            "changeDigest": "digest",
+            "clientToken": "token",
+        }
+        responses = [
+            {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]},
+            {
+                "StackResourceSummaries": [
+                    {
+                        "LogicalResourceId": "OriginalVpc",
+                        "ResourceType": "AWS::EC2::VPC",
+                        "PhysicalResourceId": "vpc-original",
+                        "ResourceStatus": "DELETE_COMPLETE",
+                    }
+                ]
+            },
+        ]
+        with patch.object(backend, "aws", create=True, side_effect=responses) as aws:
+            if policy in {"Retain", "RetainExceptOnCreate"}:
+                with (
+                    patch.object(observed, "propagate_references") as propagate,
+                    patch.object(observed, "observed_destinations") as destinations,
+                    patch.object(
+                        dependency_index, "owners", wraps=dependency_index.owners
+                    ) as owners,
+                ):
+                    backend.observed_readiness(unit, state)
+                    assert observed.collect_successful(
+                        backend, [unit], {"fixture": state}
+                    ) == ({}, [], None)
+                    propagate.assert_not_called()
+                    destinations.assert_not_called()
+                    owners.assert_not_called()
+                    aws.assert_not_called()
+            else:
+                message = (
+                    "removal policy is unknown"
+                    if policy is None
+                    else "observed reference requires qa-synthetic/team-a/consumer"
+                )
+                with pytest.raises(Blocked, match=message):
+                    backend.observed_readiness(unit, state)
+                with pytest.raises(ValueError, match=message):
+                    observed.collect_successful(backend, [unit], {"fixture": state})
+
+
+@pytest.mark.parametrize("problem", ["scope", "declared", "pending-scope"])
+def check_readiness_declared_destinations_after_changeset(
+    tmp_path, monkeypatch, problem
+):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, backend = readiness_fixture(tmp_path)
+    if problem == "pending-scope":
+        scope.path.write_text(
+            patch_properties(
+                parse(scope.path.read_text()),
+                {
+                    "observed.row.007-001.value": "`PENDING_DEPLOY`",
+                },
+            )
+        )
+    task = tmp_path / "tasks/active.md"
+    modified, allowed = task.read_text().split("## Allowed paths")
+    entry = f"- `{scope.path.relative_to(tmp_path).as_posix()}`\n"
+    task.write_text(
+        modified.replace(entry, "")
+        + "## Allowed paths"
+        + (allowed if problem == "declared" else allowed.replace(entry, ""))
+    )
+    dependency_index.rebuild(tmp_path)
+    with sources.model_session(SessionModels(tmp_path, {})):
+        backend.observed_readiness({"name": "fixture"})
+        with pytest.raises(Blocked, match="observed"):
+            backend.observed_readiness({"name": "fixture"}, {"changes": []})
+
+
+@pytest.mark.parametrize("other_action", ["Modify", "Remove"])
+def check_retained_and_updating_resources(tmp_path, monkeypatch, other_action):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, backend = readiness_fixture(tmp_path)
+    values = dict(parse(scope.path.read_text()).values)
+    consumer_values = dict(values)
+    consumer_values.pop("desired.resource.007.cfn-logicalId")
+    consumer_values["desired.resource.007.resourceMode"] = "IMPORT"
+    consumer_values["desired.row.007-001.value"] = "[vpc](network.md#network-existing)"
+    scope.path.with_name("consumer.properties").write_text(serialize(consumer_values))
+    values.update(
+        {
+            key.replace(".007", ".008"): value.replace("EC2_VPC_001", "EC2_VPC_002")
+            .replace("network-existing", "network-other")
+            .replace("OriginalVpc", "OtherVpc")
+            .replace("app-qa-synthetic-vpc", "app-qa-synthetic-other-vpc")
+            for key, value in list(values.items())
+            if ".007" in key
+        }
+    )
+    values["desired.service.identity.lastAllocated"] = '{"EC2.VPC":2}'
+    scope.path.write_text(serialize(values))
+    removal = {
+        "Action": "Remove",
+        "LogicalResourceId": "OriginalVpc",
+        "ResourceType": "AWS::EC2::VPC",
+        "PolicyAction": "Retain",
+    }
+    other = {
+        "Action": other_action,
+        "LogicalResourceId": "OtherVpc",
+        "ResourceType": "AWS::EC2::VPC",
+        "PolicyAction": "Delete",
+        "PhysicalResourceId": "vpc-other",
+    }
+    backend.templates["fixture"] = (
+        {
+            "Resources": {"OtherVpc": {"Type": "AWS::EC2::VPC"}}
+            if other_action == "Modify"
+            else {}
+        },
+        {},
+    )
+    state = {
+        "changes": [removal, other],
+        "stackId": "stack",
+        "changeSetId": "change",
+        "changeDigest": "digest",
+        "clientToken": "token",
+    }
+    state["executionEvidence"] = {
+        "resources": [removal, other],
+        "StackId": "stack",
+        "ChangeSetId": "change",
+        "changeDigest": "digest",
+        "clientToken": "token",
+    }
+    dependency_index.rebuild(tmp_path)
+    with (
+        sources.model_session(SessionModels(tmp_path, {})),
+        patch.object(
+            observed, "propagate_references", wraps=observed.propagate_references
+        ) as propagate,
+        patch.object(
+            backend,
+            "aws",
+            create=True,
+            side_effect=[
+                {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]},
+                {
+                    "StackResourceSummaries": [
+                        {
+                            "LogicalResourceId": "OtherVpc",
+                            "ResourceType": "AWS::EC2::VPC",
+                            "PhysicalResourceId": "vpc-other",
+                            "ResourceStatus": "DELETE_COMPLETE"
+                            if other_action == "Remove"
+                            else "UPDATE_COMPLETE",
+                        }
+                    ]
+                },
+            ],
+        ),
+    ):
+        backend.observed_readiness({"name": "fixture"}, state)
+        destinations, services, _ = observed.collect_successful(
+            backend, [{"name": "fixture"}], {"fixture": state}
+        )
+        assert services == ["network"] and scope.path in destinations
+        output = parse(destinations[scope.path]).values
+        expected = "`PENDING_DEPLOY`" if other_action == "Remove" else "`vpc-other`"
+        assert output["observed.row.008-001.value"] == expected
+        assert (
+            output["observed.row.007-001.value"] == values["observed.row.007-001.value"]
+        )
+        assert propagate.call_count == 2
+        for call in propagate.call_args_list:
+            assert set(call.args[3]) == {
+                (scope.environment, scope.target, "network", "EC2_VPC_002")
+            }
 
 
 def check_index_noop_preserves_file_and_cache(tmp_path, monkeypatch):

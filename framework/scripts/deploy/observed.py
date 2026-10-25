@@ -53,6 +53,33 @@ def removed_resources(units, states):
     return result
 
 
+def removal_candidate(name, logical, removal):
+    """Deletion intent can require synchronization, but never proves destruction."""
+    policy = removal.get("PolicyAction")
+    if policy in {"Retain", "RetainExceptOnCreate"}:
+        return False
+    if policy not in {"Delete", "Snapshot"}:
+        ambiguous(f"{name}/{logical}: removal policy is unknown")
+    return True
+
+
+def selected_resources(document, parameters, pseudo, removed, grouped):
+    """Select the same possible identifier updates before and after execution."""
+    selected = {
+        logical
+        for logical, definition in document.get("Resources", {}).items()
+        if logical not in removed
+        and _imports_cfn_inputs.condition_active(
+            document, parameters, pseudo, definition
+        )
+    }
+    for logical, definition in removed.items():
+        if removal_candidate(pseudo["AWS::StackName"], logical, definition):
+            if definition["Type"] not in grouped:
+                selected.add(logical)
+    return selected
+
+
 def readiness(backend, unit, state=None):
     """Check only this Stack's known synchronization inputs; never publish placeholders."""
     name = unit["name"]
@@ -60,32 +87,50 @@ def readiness(backend, unit, state=None):
         dependency_index.load(backend.root)
         document, parameters = backend.templates[name]
         removed = removed_resources([unit], {name: state or {}})
-        key = (name, fingerprint([document, parameters, removed]))
+        key = (name, fingerprint([document, parameters, removed, state is not None]))
         checked = getattr(backend, "observed_checks", set())
         if key in checked:
             return
+        pseudo = {
+            "AWS::StackName": name,
+            "AWS::Region": backend.target["awsRegion"],
+            "AWS::AccountId": backend.target.get(
+                "awsExecutionAccountId", backend.target["awsAccountId"]
+            ),
+        }
+        grouped = {
+            DesignSchemaCatalog(backend.root).cloudformation_type(kind)
+            for kind, rule in _imports_design_layout.GROUPED.items()
+            if rule["identityProperty"] is None
+        }
+        selected = selected_resources(
+            document, parameters, pseudo, removed[name], grouped
+        )
         loaded, mapped = resolve_resources(
             backend.root,
             backend.environment,
             backend.directory,
             backend.templates,
             [unit],
-            {name: set(document.get("Resources", {})) | set(removed[name])},
+            {name: selected},
             removed,
             target=backend.target,
         )
         changes, identifiers = {}, {}
-        for path, _identity, resource, rows, outputs in mapped[name].values():
+        for path, _identity, resource, rows, outputs in (
+            mapped[name].values() if state is not None else ()
+        ):
             for rid, row in rows:
                 if row["property"] in outputs:
                     changes.setdefault(path, {})[f"observed.row.{rid}.value"] = (
                         "`PENDING_DEPLOY`"
                     )
                     identifiers[own_key(path, resource)] = "PENDING_DEPLOY"
-        propagate_references(backend.root, loaded, changes, identifiers)
-        observed_destinations(
-            backend.root, backend.environment, backend.directory, loaded, changes
-        )
+        if changes:
+            propagate_references(backend.root, loaded, changes, identifiers)
+            observed_destinations(
+                backend.root, backend.environment, backend.directory, loaded, changes
+            )
         models = getattr(backend, "observed_models", set())
         for path in loaded.keys() - models:
             view = (
@@ -109,7 +154,6 @@ def readiness(backend, unit, state=None):
 
 def collect_successful(backend, units, states, *, generated_views=None):
     """Resolve exact candidates from fresh successful Stack reads without writing."""
-    condition_active = _imports_cfn_inputs.condition_active
     GROUPED = _imports_design_layout.GROUPED
     root, environment, directory = backend.root, backend.environment, backend.directory
     removed = removed_resources(units, states)
@@ -131,15 +175,9 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 "awsExecutionAccountId", backend.target["awsAccountId"]
             ),
         }
-        selected[name] = {
-            logical
-            for logical, definition in document.get("Resources", {}).items()
-            if condition_active(document, parameters, pseudo, definition)
-        } | {
-            logical
-            for logical, definition in removed[name].items()
-            if definition["Type"] not in grouped
-        }
+        selected[name] = selected_resources(
+            document, parameters, pseudo, removed[name], grouped
+        )
     loaded, mapped = resolve_resources(
         root,
         environment,
@@ -274,9 +312,9 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     )
                 identifiers[anchor_key] = value
                 changes.setdefault(path, {})[f"observed.row.{rid}.value"] = f"`{value}`"
-    propagate_references(root, loaded, changes, identifiers)
     if not changes:
         return {}, [], None
+    propagate_references(root, loaded, changes, identifiers)
     destinations, views, sync = observed_destinations(
         root, environment, directory, loaded, changes
     )
@@ -336,7 +374,7 @@ def sync_successful(backend, units, states):
 
 def deleted_resource(runtime, name, logical, removal, state, actuals):
     """A Remove is intent. Only execution-bound physical destruction resets an identifier."""
-    if removal["PolicyAction"] in {"Retain", "RetainExceptOnCreate"}:
+    if not removal_candidate(name, logical, removal):
         return False
     evidence = state.get("executionEvidence", {})
     if any(
@@ -351,8 +389,6 @@ def deleted_resource(runtime, name, logical, removal, state, actuals):
         ambiguous(f"{name}/{logical}: original execution evidence missing or changed")
     if not evidence or not removal.get("PhysicalResourceId"):
         ambiguous(f"{name}/{logical}: physical deletion identity unknown")
-    if removal["PolicyAction"] not in {"Delete", "Snapshot"}:
-        ambiguous(f"{name}/{logical}: removal policy is unknown")
     actual = actuals.get(logical)
     if actual and actual.get("ResourceStatus") == "DELETE_SKIPPED":
         return False

@@ -200,9 +200,53 @@ def check_remove_without_startup_mapping(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "policy,expected",
+    [
+        ("Retain", set()),
+        ("RetainExceptOnCreate", set()),
+        ("Delete", {"Old"}),
+        ("Snapshot", {"Old"}),
+        (None, None),
+        ("Unsupported", None),
+    ],
+)
+def check_observed_selection(policy, expected):
+    document = {
+        "Conditions": {"Disabled": False},
+        "Resources": {
+            "Current": {"Type": "AWS::EC2::VPC"},
+            "Inactive": {"Type": "AWS::EC2::VPC", "Condition": "Disabled"},
+        },
+    }
+    removed = {
+        "Old": {"Type": "AWS::EC2::VPC", "PolicyAction": policy},
+        "Retained": {"Type": "AWS::EC2::VPC", "PolicyAction": "Retain"},
+    }
+    arguments = (document, {}, {"AWS::StackName": "A"}, removed, set())
+    if expected is None:
+        with pytest.raises(ValueError, match="removal policy is unknown"):
+            observed.selected_resources(*arguments)
+    else:
+        assert observed.selected_resources(*arguments) == {"Current"} | expected
+        removed["Child"] = {"Type": "AWS::S3::BucketPolicy", "PolicyAction": "Delete"}
+        assert (
+            observed.selected_resources(
+                document,
+                {},
+                {"AWS::StackName": "A"},
+                removed,
+                {"AWS::S3::BucketPolicy"},
+            )
+            == {"Current"} | expected
+        )
+
+
+@pytest.mark.parametrize(
     "action,status,physical,expected",
     [
         ("Retain", None, None, False),
+        ("RetainExceptOnCreate", None, None, False),
+        (None, None, None, None),
         ("Delete", "DELETE_SKIPPED", "vpc-old", False),
         ("Delete", "DELETE_COMPLETE", "vpc-old", True),
         ("Snapshot", "DELETE_COMPLETE", "vpc-old", True),
