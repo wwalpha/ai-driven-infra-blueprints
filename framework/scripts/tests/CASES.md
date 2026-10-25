@@ -2924,7 +2924,7 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `issues19::check_scan_publish_mismatch` | `check_scan_publish_mismatch` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py#L47) | pytest / 1 | 実Scan→実Lint→JSON Artifact→review→Save→Report/Detail、一度だけ実行・再集計/再比較/再Lint禁止・stale保存拒否 | 統合 |
+| `issues19::check_scan_publish_mismatch` | `check_scan_publish_mismatch` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py#L47) | pytest / 1 | 実Scan→実Lint→JSON Artifact→review→Save→Report/Detail、一度だけ実行・再集計/再比較/再Lint禁止・入力変更後も既存Reviewで保存 | 統合 |
 | `issues19::check_save_scope_and_rollback` | `check_save_scope_and_rollback` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py#L92) | pytest / 1 | 実Task scope・対象外ordinary保持/current IaC置換・2出力目のreplace後失敗で原子的Rollback | 統合 |
 | `issues19::check_cli_save_results` | `check_cli_save_results` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py#L116) | pytest / 1 | 独立CLI save-results二回→最新reportへのservice別合成・契約running保持 | 統合 |
 | `issues19::check_detail_cli` | `check_detail_cli` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py#L132) | pytest / 1 | 小さい保存Artifact→Detail CLI→filter/paginationのJSON一致 | 統合 |
