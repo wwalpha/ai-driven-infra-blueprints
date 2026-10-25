@@ -753,11 +753,12 @@ def check_codebuild_variable_display(tmp_path, catalog) -> None:
         in "\n".join(expanded_display_rows(path.read_text().splitlines()))
     )
     literal_link = codebuild.replace("SECRETS_MANAGER -->", "PLAINTEXT -->")
-    assert not errors(literal_link), errors(literal_link)
-    assert (
-        "| CodeBuild.Project.Environment.EnvironmentVariables[].Type | `PLAINTEXT` |"
-        in "\n".join(expanded_display_rows(path.read_text().splitlines()))
+    assert any(
+        "PLAINTEXT" in error and "Resource link" in error
+        for error in errors(literal_link)
     )
+    with pytest.raises(ValueError, match="PLAINTEXT"):
+        expanded_display_rows(literal_link.splitlines())
     parameter_link = codebuild.replace("SECRETS_MANAGER -->", "PARAMETER_STORE -->")
     expanded = "\n".join(expanded_display_rows(parameter_link.splitlines()))
     assert (

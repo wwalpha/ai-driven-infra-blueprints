@@ -1187,6 +1187,17 @@ def row_contexts(kind, rows):
     return contexts
 
 
+def reference_error(prop, context=None):
+    """Policy for a Resource reference, independent of its producer or attribute."""
+    if (
+        re.sub(r"\[\d+\]", "[]", prop)
+        == "CodeBuild.Project.Environment.EnvironmentVariables[].Value"
+        and (context or {}).get("Type", "PLAINTEXT") == "PLAINTEXT"
+    ):
+        return "PLAINTEXTではResource linkは禁止 (Resource links are forbidden for PLAINTEXT)"
+    return None
+
+
 def reference_context(path, value, context):
     """Bind context to its containing object, never a sibling or a previous traversal."""
     path = re.sub(r"\[\d+\]", "[]", path)
@@ -1275,7 +1286,8 @@ def requires_context(prop, context=None):
         prop == "CodeBuild.Project.Environment.EnvironmentVariables[].Value"
         and (context or {}).get("Type") == "PLAINTEXT"
     ):
-        return False  # Arbitrary string values still undergo producer attribute/type validation.
+        # The CodeBuild reference hook rejects PLAINTEXT before resolution.
+        return False
     return (
         any(
             candidate in CONTEXT_PROPERTIES

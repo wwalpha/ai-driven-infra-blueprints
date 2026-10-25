@@ -4,7 +4,7 @@ from functools import partial as _bind_framework_callback
 
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import ResourceReference, same
-from utils.reference_contracts import contract, row_contexts
+from utils.reference_contracts import contract, reference_error, row_contexts
 
 
 def contexts(rows):
@@ -14,29 +14,16 @@ def contexts(rows):
 def reference_contract(path, attribute, context):
     if path != "Environment.EnvironmentVariables[].Value":
         return NotImplemented
-    variable_type = context.get("Type")
+    if error := reference_error("CodeBuild.Project." + path, context):
+        raise Blocked(error)
     declared = contract("CodeBuild.Project." + path, context)
     if declared:
         (kind,) = declared
         forms = declared[kind]
         return kind, attribute if attribute in forms else forms[0]
-    if variable_type != "PLAINTEXT":
-        raise Blocked(
-            "reference property contract unproven: CodeBuild environment Type is required"
-        )
-    return None, attribute
-
-
-def validate_reference(path, attribute, context, refkind):
-    if (
-        path == "Environment.EnvironmentVariables[].Value"
-        and context.get("Type") == "PLAINTEXT"
-        and attribute is None
-        and refkind != "S3.Bucket"
-    ):
-        raise Blocked(
-            f"CodeBuild PLAINTEXT reference requires an explicit attribute for {refkind}; only S3.Bucket defaults to BucketName"
-        )
+    raise Blocked(
+        "reference property contract unproven: CodeBuild environment Type is required"
+    )
 
 
 def _callback_reference_compare_secret_value(

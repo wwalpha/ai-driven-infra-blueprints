@@ -826,11 +826,18 @@ def expanded_display_rows(
             if prop.startswith(CODEBUILD_VARIABLE):
                 changed = True
                 kind = "CodeBuild environment variable"
-                rows.extend(
-                    design.services.codebuild.codebuild_formal_rows(
-                        cells, codebuild_names, mode=mode, typed=_verified_reference
+                try:
+                    rows.extend(
+                        design.services.codebuild.codebuild_formal_rows(
+                            cells, codebuild_names, mode=mode, typed=_verified_reference
+                        )
                     )
-                )
+                except ReferenceResolutionError:
+                    raise
+                except ValueError as error:
+                    raise ValueError(
+                        f"Resource={resource_type}#{anchor}: {error}"
+                    ) from error
             elif item := linked_list_property(display_property, resource_type, root):
                 list_prop, first_index = item
                 expected = linked_list_counts.get(list_prop, 0) + 1

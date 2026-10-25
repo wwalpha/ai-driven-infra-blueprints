@@ -31,7 +31,7 @@ from utils.aws_mappings import definition_root
 from utils.input_cache import input_is_file, memoized
 from utils.input_cache import input_scope as input_scope
 from utils.json_format import policy_json
-from utils.reference_contracts import action_contexts, row_contexts
+from utils.reference_contracts import action_contexts, reference_error, row_contexts
 
 import model.core as _imports_model_core
 import model.files as _imports_model_files
@@ -93,7 +93,9 @@ def configuration_context(values, row_id, root):
     return contexts.get(parent, {})
 
 
-def validate_json_settings(values, model_path, *, warnings=None):
+def validate_json_settings(
+    values, model_path, *, warnings=None, excluded_references=()
+):
     """Validate JSON links and intrinsic structure without rewriting Model authority."""
     reference_tokens = _imports_model_identity.reference_tokens
     _json = _imports_model_references._json
@@ -111,6 +113,8 @@ def validate_json_settings(values, model_path, *, warnings=None):
                     )
                 continue
             for node in nodes(value):
+                if (row_id, field, node.pointer) in excluded_references:
+                    continue
                 if resolver is None:
                     path = Path(model_path)
                     if path.suffix == ".md" and path.parents[2].name == "designs":
@@ -161,6 +165,8 @@ def validate_json_settings(values, model_path, *, warnings=None):
             number = row_id.rpartition("-")[0]
             resource = values.get(f"desired.resource.{number}.logicalId", number)
             for pointer, text in string_leaves(value):
+                if (row_id, field, pointer) in excluded_references:
+                    continue
                 if any(reference_tokens(text)):
                     raise ValueError(
                         f"JSON setting contains a Markdown Resource link: Model={model_path}, "
@@ -598,12 +604,53 @@ def validate_resource_identities(
                 )
 
 
+def codebuild_reference_errors(path, values):
+    """Check source references before resolution or display can fail."""
+    errors = {}
+    rows = entries(values, "desired.row.")
+    for identity, resource in entries(values, "desired.resource."):
+        if resource["resourceType"] != "CodeBuild.Project":
+            continue
+        selected = [
+            (rid, row) for rid, row in rows if rid.rpartition("-")[0] == identity
+        ]
+        contexts = row_contexts("CodeBuild.Project", selected)
+        for rid, row in selected:
+            prop = row["property"]
+            if not prop.startswith("CodeBuild.Project.Environment"):
+                continue
+            for source_field in ("value", "document"):
+                if source_field not in row:
+                    continue
+                try:
+                    value, _ = _imports_model_references._json(
+                        "desired.row." + rid + "." + source_field, row[source_field]
+                    )
+                    occurrences = [(node.pointer, True) for node in nodes(value)]
+                except (ValueError, TypeError):
+                    continue  # JSON validation reports syntax errors independently.
+                occurrences.extend(
+                    (pointer, bool(_dependency_model_identity.resource_link(text)))
+                    for pointer, text in _imports_model_references.string_leaves(value)
+                )
+                for pointer, linked in occurrences:
+                    if not linked:
+                        continue
+                    field = receiving_property(prop, pointer)
+                    context = context_at(value, prop, pointer, contexts.get(rid, {}))
+                    if error := reference_error(field, context):
+                        errors[rid, source_field, pointer] = (
+                            f"Model={path}, Resource={resource['logicalId']} ({identity}), "
+                            f"Name={context.get('Name', '')}, Type=PLAINTEXT, Property={field}: {error}"
+                        )
+    return errors
+
+
 def _callback_check_model_inputs_structure(
-    findings, path, resource_row_index, validate_model_keys, values, /
+    resource_row_index, validate_model_keys, values, /
 ):
     validate_model_keys(values)
     resource_row_index(values)
-    validate_json_settings(values, path, warnings=findings.warnings)
 
 
 def _callback_check_model_inputs_presentation(
@@ -761,16 +808,31 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
         if path.is_relative_to(root / "model")
         else path
     )
+    model_path = (
+        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+            ".properties"
+        )
+        if path.is_relative_to(root / "docs/designs")
+        else path
+    )
     structure = _bind_framework_callback(
         _callback_check_model_inputs_structure,
-        findings,
-        path,
         resource_row_index,
         validate_model_keys,
         values,
     )
     if findings.evaluate("model.structure", None, structure).errors:
         return findings
+    prohibited = codebuild_reference_errors(model_path, values)
+    for message in prohibited.values():
+        findings.check(False, message)
+    findings.evaluate(
+        "model.json-settings",
+        None,
+        lambda: validate_json_settings(
+            values, path, warnings=findings.warnings, excluded_references=prohibited
+        ),
+    )
     if entries(values, "desired.stack."):
         findings.evaluate(
             "model.stacks",
@@ -870,7 +932,11 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
         owned,
         path,
         resource_details,
-        resources,
+        [
+            (identity, resource)
+            for identity, resource in resources
+            if not any(rid.rpartition("-")[0] == identity for rid, _, _ in prohibited)
+        ],
         root,
         service,
         values,

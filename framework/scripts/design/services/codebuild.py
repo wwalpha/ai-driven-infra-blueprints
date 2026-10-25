@@ -3,6 +3,7 @@
 import re
 
 from model.core import LINK, ReferenceResolutionError, literal
+from utils.reference_contracts import reference_error
 
 from design.services.definitions.codebuild import (
     ARRAY_VARIABLE,
@@ -44,6 +45,14 @@ def codebuild_display_row(rows, index, comment, *, mode="CREATE", typed=False):
             "invalid CodeBuild environment variable Type: " + variable_type
         )
     prop = CODEBUILD_VARIABLE + name
+    if (typed or LINK.fullmatch(block[2][2])) and (
+        error := reference_error(
+            CODEBUILD_FORMAL_VARIABLE + "Value", {"Type": variable_type}
+        )
+    ):
+        raise ValueError(
+            f"{prop}: Name={name}, Type={variable_type}, Property={CODEBUILD_FORMAL_VARIABLE}Value: {error}"
+        )
     if LINK.fullmatch(block[2][2]):
         value = block[2][2]
         comment = f"<!-- codebuild-variable-type: {variable_type} --> {comment}"
@@ -80,9 +89,14 @@ def codebuild_formal_rows(cells, names, *, mode="CREATE", typed=False):
         )
     if "<!-- codebuild-variable-type:" in cells[3] and not marker:
         raise ValueError(f"invalid CodeBuild environment variable Type marker: {name}")
-    if linked and not marker:
+    variable_type = marker.group(1) if marker else "PLAINTEXT"
+    if linked and (
+        error := reference_error(
+            CODEBUILD_FORMAL_VARIABLE + "Value", {"Type": variable_type}
+        )
+    ):
         raise ValueError(
-            f"CodeBuild resource variable requires a link and Type marker: {name}"
+            f"Name={name}, Type={variable_type}, Property={CODEBUILD_FORMAL_VARIABLE}Value: {error}"
         )
     if marker and not linked and mode != "IMPORT" and not typed:
         raise ReferenceResolutionError(
@@ -92,7 +106,6 @@ def codebuild_formal_rows(cells, names, *, mode="CREATE", typed=False):
         raise ValueError(
             f"CodeBuild environment variable must omit the Type prefix: {name}"
         )
-    variable_type = marker.group(1) if marker else "PLAINTEXT"
     comment = cells[3][marker.end() :] if marker else cells[3]
     value = cells[2] if linked else f"`{raw}`"
     return [

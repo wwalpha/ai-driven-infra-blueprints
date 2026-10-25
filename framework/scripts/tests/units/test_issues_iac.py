@@ -640,6 +640,17 @@ def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attri
     )
 
 
+def _callback_resource_attribute_symbol(
+    comparison, /, logical, attribute=None, name="VALUE"
+):
+    service = {"Bucket": "s3", "Vpc": "vpc", "Secret": "secrets-manager"}.get(
+        logical, "kms"
+    )
+    return comparison.reference(
+        "codebuild", f"[resource]({service}.md#existing-{logical})", attribute
+    )
+
+
 class ImportValueResolutionTests(unittest.TestCase):
     def test_codecommit_name_uses_only_explicit_repository_name(self):
         with (
@@ -775,7 +786,7 @@ class ImportValueResolutionTests(unittest.TestCase):
                             )
                         comparison._index = None
 
-    def test_codebuild_plaintext_resource_attributes(self):
+    def test_resource_attributes_and_codebuild_plaintext_prohibition(self):
         # Authored identities and templates only; no consumer inputs or physical identifiers.
         with tempfile.TemporaryDirectory() as directory:
             comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
@@ -864,9 +875,12 @@ class ImportValueResolutionTests(unittest.TestCase):
             comparison.exports = None
             comparison.export_failures = []
             prop = "Environment.EnvironmentVariables[].Value"
-            desired = _bind_framework_callback(
+            codebuild_desired = _bind_framework_callback(
                 _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired,
                 comparison,
+            )
+            desired = _bind_framework_callback(
+                _callback_resource_attribute_symbol, comparison
             )
             equal = _bind_framework_callback(
                 _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_equal,
@@ -874,6 +888,19 @@ class ImportValueResolutionTests(unittest.TestCase):
                 prop,
             )
             with patch("comparison.inputs.catalog_outputs", return_value=set()):
+                for logical in [
+                    "Key",
+                    "Alias",
+                    "OtherKey",
+                    "Bucket",
+                    "Vpc",
+                    "Secret",
+                    "Missing",
+                ]:
+                    for attribute in [None, "Arn", "Name", "BucketName"]:
+                        with self.subTest(logical=logical, attribute=attribute):
+                            with self.assertRaisesRegex(Blocked, "PLAINTEXT"):
+                                codebuild_desired(logical, attribute)
                 key, alias = desired("Key", "Arn"), desired("Alias", "AliasArn")
                 for model, actual, exported in [
                     (key, {"Fn::GetAtt": ["Key", "Arn"]}, "key-export"),
@@ -930,13 +957,8 @@ class ImportValueResolutionTests(unittest.TestCase):
                 self.assertEqual(
                     desired("Key", "KeyId", name="KEY_ARN")["$attribute"], "KeyId"
                 )
-                for logical in ["Key", "Alias"]:
-                    with self.assertRaisesRegex(
-                        Blocked, "requires an explicit attribute for KMS"
-                    ):
-                        desired(logical)
                 self.assertEqual(
-                    desired("Secret", variable_type="SECRETS_MANAGER"),
+                    codebuild_desired("Secret", variable_type="SECRETS_MANAGER"),
                     comparison.evaluate("producer", {"Ref": "Secret"}),
                 )
                 for variable_type in [None, "INVALID"]:
@@ -947,11 +969,11 @@ class ImportValueResolutionTests(unittest.TestCase):
                             "reference context or receiving property contract unproven",
                         ),
                     ):
-                        desired("Bucket", variable_type=variable_type)
+                        codebuild_desired("Bucket", variable_type=variable_type)
                 with self.assertRaisesRegex(
                     Blocked, "reference attribute not confirmed: Name"
                 ):
-                    desired("Bucket", variable_type="PARAMETER_STORE")
+                    codebuild_desired("Bucket", variable_type="PARAMETER_STORE")
                 comparison.resources["kms"]["001"]["resourceMode"] = "IMPORT"
                 comparison.models["kms"].values["desired.resource.001.resourceMode"] = (
                     "IMPORT"
@@ -963,8 +985,6 @@ class ImportValueResolutionTests(unittest.TestCase):
                 comparison.models["kms"].values.pop("desired.resource.001.resourceMode")
                 comparison.reference_anchor_indexes.pop("kms")
                 for logical, attribute in [
-                    ("Key", None),
-                    ("Alias", None),
                     ("Missing", "Arn"),
                     ("Key", "AliasArn"),
                 ]:

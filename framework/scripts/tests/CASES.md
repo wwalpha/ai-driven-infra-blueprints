@@ -372,7 +372,7 @@ remain separate. Dry-run/incomplete/display-failed sessions are retained.
 | `s3-kms-reference::iac` | `check_iac_matrix` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py#L135) | pytest / 1 | Alias参照、通常KeyリンクとCFn Ref/GetAtt比較 | Synthetic CFn |
 | `issues-iac::codecommit-name` | `ImportValueResolutionTests.test_codecommit_name_uses_only_explicit_repository_name` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | pytest / 1 | Name→RepositoryName、Ref RepositoryId区別、文字列一致/差分、未解決/非文字列/欠落、Condition/Transform/型/Resource・Stack曖昧性を保留、ネットワーク禁止 | Synthetic CFn |
 
-CodeBuild PLAINTEXTの属性参照比較は `units/test_issues_iac.py::ImportValueResolutionTests.test_codebuild_plaintext_resource_attributes`
+CodeBuild PLAINTEXTの属性参照比較は `units/test_issues_iac.py::ImportValueResolutionTests.test_resource_attributes_and_codebuild_plaintext_prohibition`
 （UT / unittest 1 case）で検証する。合成Model identityとCFn定義を使用し、Key ARN/GetAtt、Alias ARN/Subと両Export値の一致、Key/Alias・別対象・別属性の不一致、未確定参照、Export名literalの非一致、既存S3 BucketName参照を確認する。実行中repoのproject/Model入力・AWSは使用しない。
 
 同UTに非S3属性不足の専用診断、Secret/Typeコンテキスト、IMPORT受け渡し不足と具体値未証明の保留を追加。既存IT `issues_scan::check_reference_property_contract` はCodeCommit名literalのmatched/difference/uncompared、`check_aws_standard_comparison` はS3・Secret・PolicyとCFn関数の接続を検証する。IT入口数は変更しない。
@@ -2997,7 +2997,7 @@ CloudFormation共通入力判定は `units/cloudformation-inputs-unit.checks.py`
 | `check_eventbridge_reference_literals` | UT移設: partition/region/account/qualifier/service/name/別resource/属性/欠落/inactive対応は `test_eventbridge_literal_requires_exact_lambda_identity`。重複削除: 順序/多重度/selected subset/maskingはcomparison_coreと既存reference-evidence、S3 literalはissues_policy_equivalence IT。 |
 | `check_glue_connection_names` | UT移設: `test_glue_connection_name` にscalar/Fn入力・別名/未解決/自己参照/相互循環/stray Name・Sub置換を小入力化。重複削除: 他サービスの明示Name/Subは既存 `test_issues_iac::test_codecommit_name_uses_only_explicit_repository_name`。 |
 | `check_added_reference_properties` | UT移設: receiving property全件・formal producer/attribute・wrong type/anchor/IMPORTは `test_receiver_contracts`、SecurityGroup VpcIdは `test_security_group_ref_requires_vpc`、FlowLog contextは `test_flowlog_resource_type_context`、API-only QuickSight Groupのidentity/Arn構築/不正/未確定/禁止mode/Permissions順序は `test_quicksight_api_group_principal`。重複削除: KMS形式matrixとrecorded evidenceは既存reference-evidence、generic array順序/重複はcomparison_core。 |
-| `check_aws_standard_comparison` | UT移設: inverse policy role edge/disabled/missing/unresolvedは `test_managed_policy_attachment_edges`、Secret Type/context/selectorは `test_codebuild_secret_context`、Statement全単射/不明と確定差分は `test_policy_statement_bijection` / `test_unordered_augmenting_paths`。重複削除: mixed PLAINTEXT/SECRETS_MANAGER/属性は既存 `test_issues_iac::test_codebuild_plaintext_resource_attributes`、Sub/Fnは既存IntrinsicWarningTests、IAM Action/Policyの実結合はissues_policy_equivalence IT。 |
+| `check_aws_standard_comparison` | UT移設: inverse policy role edge/disabled/missing/unresolvedは `test_managed_policy_attachment_edges`、Secret Type/context/selectorは `test_codebuild_secret_context`、Statement全単射/不明と確定差分は `test_policy_statement_bijection` / `test_unordered_augmenting_paths`。重複削除: mixed PLAINTEXT/SECRETS_MANAGER/属性は既存 `test_issues_iac::test_resource_attributes_and_codebuild_plaintext_prohibition`、Sub/Fnは既存IntrinsicWarningTests、IAM Action/Policyの実結合はissues_policy_equivalence IT。 |
 | `check_comparison_repair` | UT移設: strict typed/default/invalid/supplied/duplicate/permissive parameterはcomparison_core、partitionとsecret取得は `test_stack_partition_and_noecho`。IT維持: cross-service real bindingは `check_cross_service_reference`。重複削除: ServiceRoleとRoleNameは既存reference contract、explicit IDがない場合の候補探索禁止/duplicate/typeはtest_issues_iac。 |
 | `check_local_reference` | IT維持: `check_cross_service_reference`。UT移設: healthy Export/unknown/conditional output/不正export name/名前cycleと再探索禁止は `test_export_isolation_and_substitution_failures`。重複削除: recorded declaration/権威不変/未観測・import cycle/duplicate/inactive/wrong contextは既存reference-evidence/test_issues_iac、deployでsymbolicを許可しない境界はcomparison_core。 |
 | `check_symbolic_string` | UT移設: 実setting categoryとbound symbolic対不明/型不正は `test_symbolic_setting_classification`、Model linkのbindingと未binding intrinsic警告は `test_model_policy_links_bind_but_raw_intrinsics_do_not`。重複削除: Select/Split/Join/Sub・型/境界/操作/identity・deploy modeは既存comparison_core、未解決intrinsicの独立比較はtest_issues_iac。 |
@@ -3383,7 +3383,7 @@ No old service-specific tests or CodePipeline acceptance checks are duplicated o
 | `reference-audit::expression` | `test_unknown_expression_operand_never_matches` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L287) | pytest / 1 | Identical expression spelling cannot hide an unresolved operand | Symbolic values |
 | `reference-audit::unsupported` | `test_unsupported_ssm_and_name_id_equivalence` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L293) | pytest / 1 | Unsupported SSM cannot be authorized by a receiving contract; Secret Name and Id are not automatically equivalent | Synthetic Models |
 | `reference-audit::split-context` | `test_cloudtrail_split_context` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L310) | pytest / 2 | S3/Lambda split Type/Values rows use the same context boundary | Synthetic Models |
-| `reference-audit::plaintext` | `test_codebuild_plaintext_and_missing_sibling_type` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L326) | pytest / 1 | Explicit string PLAINTEXT reference and missing sibling Type remain distinct | Synthetic JSON |
+| `reference-audit::plaintext` | `test_codebuild_plaintext_and_missing_sibling_type` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L326) | pytest / 1 | PLAINTEXT Resource reference is rejected; missing sibling Type remains unproven | Synthetic JSON |
 
 ## 共通Issue Markdown分類
 
@@ -3705,3 +3705,18 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | `pending-excluded::status` | `check_pending_deploy_does_not_change_comparison_status` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | pending単独/一致/差分/未比較/エラー/他deferredの全体判定・Issue件数分離 | Synthetic records |
 | `pending-excluded::dedup` | `check_pending_deploy_parent_child_count_and_issue_separation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 親子同原因を1件・別Consumerを独立集計・CFn非対応とIssue分類を維持 | Synthetic records |
 | `import-wait::artifact` | `check_artifact_v3_rejects_invalid_indexes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 24 | deferred/excludedのcause/category/count/index整合性検証、旧分類互換なし | Synthetic Artifact |
+
+## CodeBuild PLAINTEXT Resource link prohibition
+
+| Case | UT | Count | Responsibility |
+| --- | --- | --- | --- |
+| Model policy | `units/codebuild-plaintext-unit.checks.py::test_model_policy` | 18 | CREATE/IMPORT; literal ARN/URL strings pass; every producer kind, missing target and structured reference are blocking errors |
+| Exact variable context | `test_exact_sibling_type_and_continuation` | 2 | Repeated/indexed rows use their own Name/Type; rendering unavailable and unrelated invalid literals do not hide policy errors |
+| JSON context | `test_container_references_use_exact_context` | 2 | Value/document structured and Markdown references use their own array object's Type |
+| Display restoration | `test_markdown_rejects_plaintext_link` | 4 | Explicit/missing PLAINTEXT marker rejects links in CREATE/IMPORT |
+| Non-PLAINTEXT | `test_non_plaintext_round_trip` | 2 | PARAMETER_STORE/SECRETS_MANAGER display round trip is preserved |
+| Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 2 | Real multi-service scan → ordinary CodeBuild Issue → numbered issues.md → Issue gate; readable/unreadable Markdown and repeat scan/save create no duplicate |
+| Structured display | `test_structured_reference_display_is_rejected` | 2 | Projected typed Resource values remain forbidden for PLAINTEXT in CREATE/IMPORT |
+| Valid producers | `test_non_plaintext_model_links_pass` | 2 | Authoritative Model passes correct SSM.Parameter/SecretsManager.Secret links |
+
+Existing partial-comparison UTs retain confirmed sibling differences and reject matches for prohibited references. Their comparison rejection reason is PLAINTEXT prohibition; authoritative Model validation owns the blocking ordinary Issue.

@@ -2689,9 +2689,10 @@ def test_incomplete_codebuild_missing_structure(actual):
     differences = [item for item in result.records if item["category"] == "difference"]
     assert len(differences) == 1, result.records
     unresolved = [item for item in result.records if item["category"] == "uncompared"]
-    assert len(unresolved) == 1 and "explicit attribute" in unresolved[0]["reason"], (
-        result.records
-    )
+    assert (
+        len(unresolved) == 1
+        and "PLAINTEXTではResource linkは禁止" in unresolved[0]["reason"]
+    ), result.records
     assert not any(item["category"] in {"error", "matched"} for item in result.records)
     shown = json.dumps(result.display_differences)
     assert "RELEASE_BUCKET_KMS_KEY_ID" in shown and "Environment" in shown
@@ -2864,7 +2865,7 @@ def test_incomplete_setting_presence_and_siblings(scenario):
     ]
     assert len(children) == 1 and children[0]["category"] == "uncompared"
     assert (
-        "explicit attribute" in children[0]["reason"]
+        "PLAINTEXTではResource linkは禁止" in children[0]["reason"]
         and children[0]["iac"]["path"] == "synthetic.yaml"
     )
     if scenario == "siblings":
@@ -2977,7 +2978,7 @@ def test_incomplete_json_preserves_declared_children(document_row, scenario):
     prepared = comparison.prepare_value(
         "codebuild", rows[0][1], "CodeBuild.Project", stack="producer"
     )
-    with pytest.raises(Blocked, match="explicit attribute"):
+    with pytest.raises(Blocked, match="PLAINTEXTではResource linkは禁止"):
         prepared.require_value()
     document = comparison.stack_inputs["producer"][0]
     batch = comparison.compare_rows(
@@ -2999,7 +3000,7 @@ def test_incomplete_json_preserves_declared_children(document_row, scenario):
     )
     assert unresolved["property"].endswith("EnvironmentVariables[].Value")
     assert unresolved["model"]["pointer"] == "/EnvironmentVariables/0/Value"
-    assert "explicit attribute" in unresolved["reason"]
+    assert "PLAINTEXTではResource linkは禁止" in unresolved["reason"]
 
 
 def fail_image_preparation(error, original, service, row, kind, **kwargs):
@@ -3739,7 +3740,7 @@ def test_iac_partial_errors_preserve_known_fields(
         unresolved = next(
             item for item in batch.records if item["category"] == "uncompared"
         )
-        assert "explicit attribute" in unresolved["reason"]
+        assert "PLAINTEXTではResource linkは禁止" in unresolved["reason"]
 
 
 @pytest.mark.parametrize("exact", [False, True])

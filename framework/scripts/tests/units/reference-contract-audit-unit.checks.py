@@ -762,7 +762,7 @@ def test_codebuild_plaintext_and_missing_sibling_type(models):
         models, "CodeBuild.Project", "Environment", payload, attribute="BucketName"
     )
     good, missing = prepared.require_value()["EnvironmentVariables"]
-    assert isinstance(good["Value"], ResourceReference), good
+    assert isinstance(good["Value"], Expression), good
     assert isinstance(missing["Value"], Expression), missing
 
 

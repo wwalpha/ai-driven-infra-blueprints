@@ -138,7 +138,12 @@ def _callback_Validator_check_scoped_designs_source_checks(
     independent = check_model_inputs(
         path, analysis.authoritative, self.root, definitions_root=self.definitions_root
     )
-    self.errors.extend(independent.errors)
+    # Generation may already contain these source diagnostics in its aggregate error.
+    self.errors.extend(
+        error
+        for error in independent.errors
+        if not any(error in existing for existing in self.errors)
+    )
     self.warnings.extend((*analysis.warnings, *independent.warnings))
     self.checks += independent.checks
 
