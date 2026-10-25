@@ -149,6 +149,10 @@ class Resolver:
         self.logical_indexes = {}
         self.catalog = None
 
+    def target(self, scope):
+        target, _ = _imports_model_sources.target_for(scope, self.reads)
+        return target
+
     def resolve(self, value, scope):
         Scope = _imports_model_sources.Scope
         _source_snapshot = _imports_model_sources._source_snapshot

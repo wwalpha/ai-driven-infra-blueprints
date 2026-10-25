@@ -316,14 +316,26 @@ uncompared. Structural equality retains runtime Select-bounds uncertainty and
 
 Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Artifact hashes are derived values that can be checked during generation; do not make them authoritative design values.
 
-Independent AWS configuration/policy JSON is an AWS API document, not a CloudFormation
-template. The shared execution projection must reject nested `Fn::*`, CloudFormation
-`Ref`, unresolved `${AWS::...}` and dynamic references, including JSON encoded inside
-strings. These expressions require template/Stack/Export context; do not infer that
-context or persist generated ARNs. Report the Model path, Resource logicalId, Property,
-JSON Pointer, expression and reason, requesting a Model correction with confirmed values.
-Generation, policy display and artifact hashes use the same projected document; validate
-the result before any publication. IAM `Resource`/`NotResource` must be strings or arrays
+Model JSON retains typed `$modelRef` nodes as authority. `execution_document()` is the
+design projection and preserves them. Generated artifacts use `generated_document()` to
+resolve them through the common Reference Value Resolver; Markdown uses the same resolver.
+Confirmed desired attributes can derive ARNs without observed values, including CREATE S3
+BucketName. CREATE does not imply undeployed. AWS-generated identifiers require measured
+values; never infer them. Explicit PENDING_DEPLOY retains its existing CREATE semantics.
+Reject desired/observed conflicts rather than selecting one silently. Resolution reports
+resolved/pending_deploy/unresolved with its cause and never writes values back to authority.
+ARN assembly is shared with comparison, with ARN_SHAPES as the sole format definition.
+
+Independent AWS configuration/policy JSON has no CloudFormation execution context. The
+AWS submission boundary rejects internal Model nodes, nested Fn::*/Ref, unresolved
+AWS substitutions and dynamic references, including JSON encoded in strings. The existing
+CFn evaluator may locally resolve supported expressions; unproven expressions retain their
+design structure and warning and do not certify AWS readiness. Unresolved Model nodes fail
+artifact generation for that service, reporting Model path, consumer/producer logicalId,
+attribute, Property, JSON Pointer, status and cause. Other services continue; failed services
+retain saved artifacts. Never guess missing values or persist generated ARNs.
+Generation, policy display and artifact hashes use the corresponding projected document;
+validate candidates before publication. IAM Resource/NotResource must be strings or arrays
 of strings. Legitimate IAM variables such as `${aws:username}` remain literal strings.
 CloudFormation templates and their IaC comparison evaluator retain their own semantics.
 
@@ -422,7 +434,7 @@ desired.row.001-004.artifactSha256=<linked-json-sha256>
 desired.note.001.text=実装注記: 必要最小限の注記
 ```
 
-Specify resource and row numbers in authoritative Model inputs. Validate deterministic output order with saved-view comparison. Exclude `## リソース一覧` tables from Model inputs for all services as human-readable generated guides. Markdown property rows follow materials properties row order, omitting unselected/hidden items. Markdown retains model row order; do not move names or identifiers back to the beginning. Retain existing special display positions for design-only `.Name` and `S3.Bucket.Region`. Match `S3.Bucket` heading identifiers to BucketName; retain internal logicalId from hidden metadata. Missing identity markers are not permission to infer logicalId from BucketName. For identity-free grouped `S3.BucketPolicy.PolicyDocument` and formal `EC2.SubnetRouteTableAssociation.RouteTableId` displayed as `EC2.RouteTableId` in Markdown, do not create independent `desired.resource.*`; reflect them into the containing parent's `desired.row.*` with formal Property names. Resolve omitted `S3.BucketPolicy.Bucket` and `EC2.SubnetRouteTableAssociation.SubnetId` from containing parents; do not generate `EC2.SubnetRouteTableAssociation.Id` in models. For catalog `IDENTIFIER_OUTPUT` rows, generate the resource's own fully scoped Markdown Resource link into `desired.*` and Markdown current values into `observed.*` of the same row key. For Markdown link rows referencing identifier outputs too, retain fully scoped Markdown Resource links in `desired.*` and Markdown link display text into `observed.*` of the same row key. Retain Alias Markdown Resource links losslessly in `desired.*` for rows referencing KMS aliases. Policy JSON bodies are authoritative in document; retain in `desired.row.*` the SHA-256 of parsed JSON deterministically serialized with object-key order, no whitespace, and UTF-8. Do not change hashes for changes only to whitespace, indentation, line breaks, LF/CRLF, trailing file newlines, or object-key order.
+Specify resource and row numbers in authoritative Model inputs. Validate deterministic output order with saved-view comparison. Exclude `## リソース一覧` tables from Model inputs for all services as human-readable generated guides. Markdown property rows follow materials properties row order, omitting unselected/hidden items. Markdown retains model row order; do not move names or identifiers back to the beginning. Retain existing special display positions for design-only `.Name` and `S3.Bucket.Region`. Match `S3.Bucket` heading identifiers to BucketName; retain internal logicalId from hidden metadata. Missing identity markers are not permission to infer logicalId from BucketName. For identity-free grouped `S3.BucketPolicy.PolicyDocument` and formal `EC2.SubnetRouteTableAssociation.RouteTableId` displayed as `EC2.RouteTableId` in Markdown, do not create independent `desired.resource.*`; reflect them into the containing parent's `desired.row.*` with formal Property names. Resolve omitted `S3.BucketPolicy.Bucket` and `EC2.SubnetRouteTableAssociation.SubnetId` from containing parents; do not generate `EC2.SubnetRouteTableAssociation.Id` in models. For catalog `IDENTIFIER_OUTPUT` rows, generate the resource's own fully scoped Markdown Resource link into `desired.*` and Markdown current values into `observed.*` of the same row key. For Markdown link rows referencing identifier outputs too, retain fully scoped Markdown Resource links in `desired.*` and Markdown link display text into `observed.*` of the same row key. Retain Alias Markdown Resource links losslessly in `desired.*` for rows referencing KMS aliases. Policy JSON bodies are authoritative in document; artifactSha256 is runtime-only and hashes the document of that projection, including resolved reference values for generated artifacts, using canonical JSON and UTF-8. Do not change hashes for changes only to whitespace, indentation, line breaks, LF/CRLF, trailing file newlines, or object-key order.
 
 Follow [observed-values](observed-values.md) for identifier states and saving conditions.
 

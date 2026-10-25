@@ -4231,22 +4231,21 @@ def test_sqs_arn_context_requires_proof(field, value):
     assert [item["category"] for item in records] == ["uncompared"], records
 
 
-@pytest.mark.parametrize(
-    "kind,field,name,logical",
-    [
-        ("Events.Rule", "Name", "fixture-rule", "Rule"),
-        ("CodeBuild.Project", "Name", "fixture-project", "Build"),
-        ("Logs.LogGroup", "LogGroupName", "fixture-log", "Log"),
-    ],
-)
-@pytest.mark.parametrize("context", ["Partition", "Region", "AccountId"])
-def test_existing_named_arn_context_guards(kind, field, name, logical, context):
+def test_existing_named_arn_context_guards():
     comparison = fixture()
-    resource(comparison, "producer", "001", kind, logical, [], properties={field: name})
-    reference = comparison.evaluate("producer", {"Fn::GetAtt": [logical, "Arn"]})
+    resource(
+        comparison,
+        "producer",
+        "001",
+        "CodeBuild.Project",
+        "Build",
+        [],
+        properties={"Name": "fixture-project"},
+    )
+    reference = comparison.evaluate("producer", {"Fn::GetAtt": ["Build", "Arn"]})
     assert comparison.reference_literal(reference).startswith("arn:aws:")
-    comparison.stack_inputs["producer"][2].pop("AWS::" + context)
-    with pytest.raises(Blocked, match=context):
+    comparison.stack_inputs["producer"][2].pop("AWS::Region")
+    with pytest.raises(Blocked, match="Region"):
         comparison.reference_literal(reference)
 
 

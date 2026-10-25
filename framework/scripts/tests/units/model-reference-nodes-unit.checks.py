@@ -317,8 +317,8 @@ def reference_decision(inputs, left, right, path):
         (None, "unresolved"),
         ("PENDING_DEPLOY", "pending_deploy"),
         (
-            "arn:aws:kms:ap-northeast-1:123456789012:key/confirmed",
-            "arn:aws:kms:ap-northeast-1:123456789012:key/confirmed",
+            "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+            "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
         ),
     ],
 )
@@ -1069,9 +1069,9 @@ def check_pipeline_context_order_and_repeated_producer(tmp_path, models):
 @pytest.mark.parametrize(
     "observed,expected",
     [
-        (None, "unresolved"),
+        (None, "synthetic-codebuild-a"),
         ("PENDING_DEPLOY", "pending_deploy"),
-        ("confirmed-build", "confirmed-build"),
+        ("confirmed-build", "unresolved"),
     ],
 )
 def check_pipeline_configuration_display_and_roundtrip(

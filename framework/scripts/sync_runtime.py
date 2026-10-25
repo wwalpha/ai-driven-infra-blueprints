@@ -294,6 +294,9 @@ def generate_views(
                     }
                 raise ValueError("\n- ".join(independent.errors))
             validate_kms_policy_accounts(values, design_target(staged, stage))
+            resolver = _imports_model_projection.reference_resolver(
+                values, model.scope, root
+            )
             for identity, row in entries(values, "desired.row."):
                 match = JSON_LINK.fullmatch(row.get("value", ""))
                 if not match:
@@ -306,12 +309,12 @@ def generate_views(
                     raise ValueError(
                         f"authoritative JSON document missing: {path.name}: {identity}"
                     )
-                execution_document = _imports_model_projection.execution_document
-                document = execution_document(
+                document = _imports_model_projection.generated_document(
                     policy_json(row["document"]),
                     root,
                     property_name=row["property"],
                     scope=model.scope,
+                    resolver=resolver,
                     logical_id=values.get(
                         f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
                     ),

@@ -35,7 +35,14 @@ from model.core import (
 from model.format import JSON_LINK as JSON_LINK
 from model.format import REFERENCE_NAME_SUFFIXES as REFERENCE_NAME_SUFFIXES
 from model.format import RESOURCE_LINK as RESOURCE_LINK
-from model.reference_nodes import display_value, nodes, project
+from model.reference_nodes import (
+    context_at,
+    display_value,
+    nodes,
+    project,
+    receiving_property,
+)
+from model.reference_values import reference_value
 
 ANCHOR = re.compile(r'^<a\s+id="([^"]+)"\s*></a>$')
 
@@ -327,12 +334,7 @@ def reference_display(values, path, root):
     )
     scope = scope_for(model_path)
     result = dict(values)
-    resolver = _imports_model_identity.Resolver(
-        root, _imports_model_sources._invocation_reads(root)
-    )
-    resolver.models[scope.path] = SimpleNamespace(
-        scope=scope, authoritative=values, dependencies={}
-    )
+    resolver = reference_resolver(values, scope, root)
     for key, value in values.items():
         if key.startswith("desired.row.") and key.endswith((".document", ".value")):
             raw, structured = _imports_model_references._json(key, value)
@@ -348,6 +350,12 @@ def reference_display(values, path, root):
                 ),
             )
             displayed = project(projected, partial(display_value, resolver, scope))
+            displayed = execution_document(
+                displayed,
+                root,
+                property_name=values[key.rsplit(".", 1)[0] + ".property"],
+                scope=scope,
+            )
             result[key] = json.dumps(displayed, ensure_ascii=False)
             if key.endswith(".value") and isinstance(displayed, str):
                 result[key] = "`" + displayed + "`"
@@ -397,3 +405,64 @@ def execution_document(
             f"Property={property_name}; {error}"
         ) from error
     return projected
+
+
+def reference_resolver(values, scope, root):
+    resolver = _imports_model_identity.Resolver(
+        root, _imports_model_sources._invocation_reads(root)
+    )
+    resolver.models[scope.path] = SimpleNamespace(
+        scope=scope, authoritative=values, dependencies={}
+    )
+    return resolver
+
+
+def _resolved_document_value(resolutions, node):
+    return resolutions[node].value
+
+
+def generated_document(
+    document,
+    root,
+    *,
+    resolver,
+    scope,
+    property_name=None,
+    logical_id=None,
+    warnings=None,
+):
+    """Materialize confirmed Model references only in the generated artifact."""
+    resolutions, failures = {}, []
+    for node in nodes(document):
+        result = reference_value(
+            resolver,
+            scope,
+            node,
+            field=receiving_property(property_name, node.pointer)
+            if property_name
+            else None,
+            property_name=property_name,
+            context=context_at(document, property_name, node.pointer)
+            if property_name
+            else None,
+        )
+        resolutions[node] = result
+        if result.status != "resolved":
+            failures.append(
+                f"Producer logicalId={node.logical_id}, attribute={node.attribute}, "
+                f"JSON Pointer={node.pointer!r}, status={result.status}: {result.reason}"
+            )
+    if failures:
+        raise ValueError(
+            f"Model={scope.path}, Resource logicalId={logical_id}, Property={property_name}; "
+            + "; ".join(failures)
+        )
+    resolved = project(document, partial(_resolved_document_value, resolutions))
+    return execution_document(
+        resolved,
+        root,
+        property_name=property_name,
+        scope=scope,
+        logical_id=logical_id,
+        warnings=warnings,
+    )

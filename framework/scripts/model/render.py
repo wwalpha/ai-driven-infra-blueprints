@@ -823,6 +823,12 @@ def generate_files(path, values, root, *, warnings=None):
         ),
         warnings=warnings,
     )
+    scope = scope_for(
+        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+            ".properties"
+        )
+    )
+    resolver = _imports_model_projection.reference_resolver(values, scope, root)
     artifacts = {}
     for identity, row in entries(values, "desired.row."):
         if "document" not in row:
@@ -835,16 +841,12 @@ def generate_files(path, values, root, *, warnings=None):
         safe(root, artifact)
         if artifact.parent != path.with_suffix("").resolve():
             raise ValueError("JSON artifact must belong to owning service")
-        execution_document = _imports_model_projection.execution_document
-        document = execution_document(
+        document = _imports_model_projection.generated_document(
             policy_json(row["document"]),
             root,
             property_name=row["property"],
-            scope=scope_for(
-                (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
-                    ".properties"
-                )
-            ),
+            resolver=resolver,
+            scope=scope,
             logical_id=values.get(
                 f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
             ),

@@ -3334,7 +3334,7 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 
 | Requirement | Function | Layer | Source | Mode / cases | Responsibility | Notes |
 |---|---|---|---|---|---|---|
-| `model-reference::round-trip` | `main` | IT | [integrations/model-reference-nodes.checks.py](integrations/model-reference-nodes.checks.py#L26) | direct / 1 | Cross-service properties read → design artifact/Markdown generation → artifact-backed policy rendering, observed display changes with unchanged Consumer Desired and JSON/hash, AWS boundary refusal | Authored synthetic fixture; local execution forbidden |
+| `model-reference::round-trip` | `main` | IT | [integrations/model-reference-nodes.checks.py](integrations/model-reference-nodes.checks.py#L26) | direct / 1 | Cross-service properties read → design artifact/Markdown generation → artifact-backed policy rendering, concrete observed ARN in artifact/Markdown with unchanged Consumer Desired; unresolved/pending generation refusal and concrete AWS JSON validation | Authored synthetic fixture; local execution forbidden |
 
 `units/model-reference-nodes-unit.checks.py` owns strict syntax, target-local uniqueness/cache,
 producer/attribute contracts, logical comparison with Ref/GetAtt/Export, ambiguity and missing
@@ -3405,7 +3405,7 @@ No old service-specific tests or CodePipeline acceptance checks are duplicated o
 | `sqs-arn::name-proof` | `test_sqs_unproven_names` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1767) | pytest / 12 | 明示名欠落・不正・未確定・長さ超過はuncompared | 合成Queue |
 | `sqs-arn::name-boundary` | `test_sqs_explicit_name_boundaries` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1781) | pytest / 3 | 1/80文字・FIFO接尾辞込み80文字 | 合成Queue |
 | `sqs-arn::context` | `test_sqs_arn_context_requires_proof` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1790) | pytest / 18 | partition/region/accountの欠落・空・placeholder・型・形式不正はSQS個別証明でもuncompared | 合成実行context |
-| `sqs-arn::shared-regression` | `test_existing_named_arn_context_guards` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1809) | pytest / 9 | Events/CodeBuild/Logsの既存ARN評価とcontext欠落時のproof境界 | 合成既存NAMED_ARN producer |
+| `sqs-arn::shared-regression` | `test_existing_named_arn_context_guards` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1809) | pytest / 1 | 比較器から共通ARN組立への接続とcontext欠落時のproof境界 | 形式・context組合せはarn-values-unitへ移管 |
 | `sqs-arn::correspondence` | `test_sqs_arn_correspondence_and_mode_guards` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1820) | pytest / 9 | formal type/Stack/Logical ID/一意性/Model/Condition/Transform/IMPORTの証明不足 | 合成Resource対応 |
 | `sqs-arn::attributes` | `test_sqs_queue_url_is_not_getatt_arn` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1845) | pytest / 1 | Ref QueueUrl/GetAtt Arnを区別、IMPORTの推測禁止 | 合成Queue |
 | `sqs-arn::errors` | `test_sqs_reference_processing_errors_propagate` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1859) | pytest / 3 | ARN評価のI/O/Value/Type実例外は上位へ伝搬 | 合成処理障害 |
@@ -3439,6 +3439,23 @@ All patterns use the common evaluator and authored temporary Models. An incomple
 | `aws-reference::test_template_cannot_supply_aws_generated_return_values` | `test_template_cannot_supply_aws_generated_return_values` | UT | [units/aws-reference-expressions-unit.checks.py](units/aws-reference-expressions-unit.checks.py) | pytest / 3 | template cannot supply aws generated return values | Synthetic Models and Framework schemas |
 | `aws-reference::test_sub_arn_uses_contract_even_with_a_spoofed_template_field` | `test_sub_arn_uses_contract_even_with_a_spoofed_template_field` | UT | [units/aws-reference-expressions-unit.checks.py](units/aws-reference-expressions-unit.checks.py) | pytest / 60 | sub arn uses contract even with a spoofed template field | Synthetic Models and Framework schemas |
 | `reference-audit::returns` | `test_all_aws_return_contracts_are_explicit_and_schema_supported` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | Every pinned ResourceType: read-only/GetAtt and derived attributes, Ref setting types, no primaryIdentifier guessing | Framework schemas |
+
+## Confirmed Model Reference values
+
+- `units/arn-values-unit.checks.py`: 38 synthetic cases own shared ARN assembly, defaults,
+  invalid components, required context, S3 context independence and generated-ID evidence.
+  `reference-evidence-unit::test_existing_named_arn_context_guards` retains one comparison
+  wiring case; its repeated assembly/context combinations now belong to the common UT.
+- `units/model-reference-values-unit.checks.py`: 15 synthetic cases own desired S3 resolution
+  without observed, rename propagation through the existing Graph, ListQuarantine display,
+  unresolved generated KMS identifiers, explicit pending, duplicate/missing/invalid/conflicting
+  producers, two policy references and JSON-string resolution, hashes and immutable authority,
+  all unresolved pointers, explicit unknown optional properties versus absence defaults, and batch
+  service isolation with saved-view retention.
+- Existing typed-node tests retain canonical design JSON preservation; pipeline display now
+  expects confirmed desired Name without observed and rejects contradictory observed Name.
+  Existing Model Reference IT remains one round-trip case and is not run locally.
+
 
 ## Shared Reference contract completion
 

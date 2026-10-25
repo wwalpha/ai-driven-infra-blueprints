@@ -240,13 +240,32 @@ wrapper and the existing script entrypoint. `integrations/model-reference-nodes.
 one artifact/Markdown round-trip to the official IT runner; do not run it locally.
 
 Desired stores exactly `{"$modelRef":{"logicalId":"…","attribute":"…"}}`. Producer lookup is
-limited to the Consumer's environment/target and rejects duplicate logical IDs. Design JSON
-retains nodes; Markdown projects confirmed observations, explicitly pending observations or
-`unresolved`. Missing observations and Deploy Session start state do not prove absence.
-The AWS JSON boundary rejects internal nodes, including JSON encoded in strings.
-No automatic migration or AWS execution projection is provided. LLM migration must prove the
-producer and attribute, preserve Resource/logicalId/anchor/Observed and unrelated fields, and
-change only the proved reference expression under a separately authorized Model Task.
+limited to the Consumer's environment/target and rejects duplicate logical IDs. `execution_document`
+is the design projection and retains nodes. `generated_document` resolves nodes through
+`model.reference_values`, including JSON encoded inside strings, before existing CFn evaluation.
+Both `render.generate_files` and batch `sync_runtime.generate_views` use this artifact path.
+An unresolved node fails that service with Producer logicalId, attribute, JSON Pointer, status
+and reason; successful other services continue and failed services retain their saved views.
+The independent AWS JSON boundary still rejects internal nodes and unresolved CFn intrinsics.
+
+`utils/arn_values.py` owns ARN assembly for comparison and Model resolution. `ARN_SHAPES` and
+`ARN_DEFAULTS` remain the sole format/default definitions; service component guards live in
+`utils/arn_components.py`. Confirmed desired names (including CREATE S3 BucketName with no
+observations) can resolve ARNs. Generated IDs require confirmed observations. Region/account
+come from the selected Project target and Partition from the offline SDK region catalog;
+no AWS existence check or acquisition occurs. Desired/observed conflicts fail resolution.
+Explicit CREATE PENDING_DEPLOY retains `pending_deploy`; missing observations alone prove
+neither pending deployment nor absence. The result carries `resolved`, `pending_deploy` or
+`unresolved` and a reason. Markdown delegates to this same resolver.
+
+`units/arn-values-unit.checks.py` owns assembly formats/defaults/context/generated-ID guards.
+`units/model-reference-values-unit.checks.py` owns Model value resolution, concrete artifact
+and display/hash equality, encoded JSON, diagnostics, authority preservation, per-service
+failure isolation and the existing dependency graph's propagation after BucketName changes.
+Canonical Model hashes describe canonical documents; display/artifact hashes describe their
+projected document, including resolved values. No hash or resolved ARN is saved into authority.
+No automatic Model migration is provided. LLM migration must prove the producer and attribute
+and change only the proved expression under a separately authorized Model Task.
 
 ## Framework IT→UT移行（74252f5）
 

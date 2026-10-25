@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from design.policy_tables import rendered_design
 from model.projection import json_sha256
-from model.render import generate_files
+from model.render import generate_files, generate_markdown
 from model.sources import load_model
 from support.it_case_receipt import it_case
 from support.model_reference_fixtures import FRAMEWORK, project, save
@@ -31,38 +31,44 @@ def main():
             view = root / "docs/designs/qa/team/iam.md"
             artifact = view.with_suffix("") / "policy.json"
             original = consumer.path.read_bytes()
-            json_bytes = None
             for observed, expected in [
                 (None, "unresolved"),
                 ("PENDING_DEPLOY", "pending_deploy"),
                 (
-                    "arn:aws:kms:ap-northeast-1:123456789012:key/confirmed",
-                    "arn:aws:kms:ap-northeast-1:123456789012:key/confirmed",
+                    "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+                    "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
                 ),
             ]:
                 if observed is not None:
                     values["observed.row.001-001.value"] = "`" + observed + "`"
                     save(producer, values)
-                files = generate_files(view, load_model(consumer).values, root)
+                snapshot = load_model(consumer)
+                markdown = generate_markdown(view, snapshot.values, root)
+                assert "$modelRef" not in markdown and expected in markdown
+                if observed in (None, "PENDING_DEPLOY"):
+                    try:
+                        generate_files(view, snapshot.values, root)
+                    except ValueError as error:
+                        assert expected in str(
+                            error
+                        ) and "/Statement/0/Resource" in str(error)
+                    else:
+                        raise AssertionError(
+                            "unresolved reference generated an artifact"
+                        )
+                    assert not artifact.exists() and not view.exists()
+                    continue
+                files = generate_files(view, snapshot.values, root)
                 save_files(files)
-                assert "$modelRef" not in files[view] and expected in files[view]
                 display = rendered_design(view, definitions_root=FRAMEWORK)
                 assert "$modelRef" not in display and expected in display
-                if json_bytes is None:
-                    json_bytes = artifact.read_bytes()
-                assert artifact.read_bytes() == json_bytes
-                document = json.loads(json_bytes)
+                document = json.loads(artifact.read_bytes())
+                assert document["Statement"][0]["Resource"] == expected
                 assert json_sha256(artifact) == document_sha256(document)
+                validate_aws_document(document)
                 assert consumer.path.read_bytes() == original
                 assert load_model(consumer).authoritative == policy
-                try:
-                    validate_aws_document(document)
-                except ValueError as error:
-                    assert "Model reference" in str(error)
-                else:
-                    raise AssertionError(
-                        "internal reference reached the AWS JSON boundary"
-                    )
+                assert "$modelRef" in policy["desired.row.001-002.document"]
     print("Model reference round-trip: PASS")
 
 
