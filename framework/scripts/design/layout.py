@@ -648,12 +648,12 @@ def expanded_display_rows(
                 raise ValueError(
                     "Markdown table differs from Model expected display: " + anchor
                 )
-            # Parse the actual, matched display before exposing Model semantic rows.
+            # Validate the unlinked source display before exposing Model semantic rows.
             expanded_display_rows(
                 [
                     f'<a id="{anchor}"></a>',
                     f"### {resource_type}: reference",
-                    *lines[start:stop],
+                    *table.baseline,
                 ],
                 root,
                 modes=modes,

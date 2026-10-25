@@ -12,8 +12,11 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import json_intrinsics as _imports_json_intrinsics
+import model.projection as _model_projection
+import model.reference_presentation as _reference_presentation
 import utils.aws_mappings as _imports_utils_aws_mappings
-from model.core import literal
+from model.core import entries, literal
+from model.format import JSON_LINK as MODEL_JSON_LINK
 from model.identity import Resolver
 from model.reference_nodes import display_value, is_reference, nodes, project
 from model.sources import scope_for
@@ -249,7 +252,7 @@ def settings_rows(value: object, pointer: str = "") -> list[list[str]]:
     return [[code(pointer), kind, code(value)]]
 
 
-def policy_lines(path: Path, policy: Policy) -> list[str]:
+def policy_lines(path: Path, policy: Policy, *, presentation=None) -> list[str]:
     artifact = (path.parent / policy.link).resolve()
     if artifact.parent != (path.parent / path.stem).resolve():
         raise ValueError(
@@ -268,7 +271,34 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
         document = project(
             document, _bind_framework_callback(display_value, Resolver(root), scope)
         )
-    return policy_document_lines(document, policy)
+    baseline = policy_document_lines(document, policy)
+    if presentation is not None:
+        rows = [
+            (rid, row)
+            for rid, row in entries(presentation.values, "desired.row.")
+            if row["property"] == policy.property_name
+            and "document" in row
+            and (link := MODEL_JSON_LINK.fullmatch(row.get("value", "")))
+            and link[1] == policy.link
+        ]
+        if len(rows) == 1:
+            rid, row = rows[0]
+            projected = _model_projection.generated_document(
+                policy_json(row["document"]),
+                presentation.root,
+                resolver=presentation.resolver,
+                scope=presentation.scope,
+                property_name=row["property"],
+            )
+            if projected != document:
+                raise ValueError(
+                    "policy JSON differs from authoritative Model: " + policy.link
+                )
+            displayed = presentation.document(rid, "document", document)
+            return presentation.lines(
+                baseline, policy_document_lines(displayed, policy)
+            )
+    return baseline
 
 
 def _lambda_validate_policy_document_pending_259(design, intrinsic, /, value):
@@ -518,6 +548,17 @@ def rendered_design(path: Path, *, definitions_root: Path | None = None) -> str:
     lines = without_policy_tables(original.splitlines())
     root = definitions_root or definition_root(path.resolve().parent)
     resources = resources_in(lines, root)
+    presentation = None
+    if (
+        len(path.parents) > 4
+        and path.parents[2].name == "designs"
+        and path.parents[3].name == "docs"
+    ):
+        values = _module_design_layout.design_model_values(path, path.parents[4])
+        if values is not None:
+            presentation = _reference_presentation.Presentation(
+                values, path, path.parents[4]
+            )
     if not resources:
         if START in original or IAM_START in original:
             raise ValueError("policy tables have no owning resource")
@@ -532,7 +573,9 @@ def rendered_design(path: Path, *, definitions_root: Path | None = None) -> str:
         )
         generated = ["", start]
         for policy in resource.policies:
-            generated.extend(["", *policy_lines(path, policy)])
+            generated.extend(
+                ["", *policy_lines(path, policy, presentation=presentation)]
+            )
         generated.extend(["", end])
         lines[resource.table_end : resource.table_end] = generated
     return "\n".join(lines) + "\n"

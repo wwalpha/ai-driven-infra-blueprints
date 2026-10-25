@@ -1153,8 +1153,13 @@ def check_pipeline_configuration_display_and_roundtrip(
     view = tmp_path / "docs/designs/qa/team/codepipeline.md"
     markdown = generate_markdown(view, values, tmp_path)
     assert "$modelRef" not in markdown
+    displayed = (
+        f"[{expected}](codebuild.md#saved-001)"
+        if observed is None
+        else "`" + expected + "`"
+    )
     assert any(
-        "Configuration.ProjectName" in line and "`" + expected + "`" in line
+        "Configuration.ProjectName" in line and displayed in line
         for line in markdown.splitlines()
     )
     assert execution_document(stages, tmp_path, scope=scope) == design_before

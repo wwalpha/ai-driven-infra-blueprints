@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import aws_mapping_display as _imports_aws_mapping_display
+from model.core import LINK
 from utils.input_cache import input_scope, memoized
 
 from design.catalog import DesignSchemaCatalog
@@ -131,7 +132,9 @@ def indexed_rows(rows, kind, root=ROOT):
                     parsed = None  # A resource link remains one selected element.
                 if isinstance(parsed, list):
                     items = [
-                        "`"
+                        item
+                        if isinstance(item, str) and LINK.fullmatch(item)
+                        else "`"
                         + (
                             item
                             if isinstance(item, str)

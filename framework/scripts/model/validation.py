@@ -93,6 +93,34 @@ def configuration_context(values, row_id, root):
     return contexts.get(parent, {})
 
 
+def reference_context_for(values, row_id, row, value, pointer, root):
+    """Share the existing split-row and nested JSON receiving-context contract."""
+    context = (
+        configuration_context(values, row_id, root)
+        if row["property"].startswith(
+            "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
+        )
+        else None
+    )
+    if context is None:
+        kind = ".".join(row["property"].split(".")[:2])
+        number = row_id.rpartition("-")[0]
+        contexts = row_contexts(
+            kind,
+            [
+                (rid, item)
+                for rid, item in entries(values, "desired.row.")
+                if rid.rpartition("-")[0] == number
+            ],
+        )
+        prop = row["property"].removeprefix(kind + ".")
+        context = contexts.get(
+            row_id, contexts.get(prop, contexts.get(prop.rsplit(".", 1)[0]))
+        )
+    context = context_at(value, row["property"], pointer, context)
+    return context
+
+
 def validate_json_settings(
     values, model_path, *, warnings=None, excluded_references=()
 ):
@@ -131,29 +159,9 @@ def validate_json_settings(
                         scope=scope, authoritative=values, dependencies={}
                     )
                 field_name = receiving_property(row["property"], node.pointer)
-                context = (
-                    configuration_context(values, row_id, scope.root)
-                    if row["property"].startswith(
-                        "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
-                    )
-                    else None
+                context = reference_context_for(
+                    values, row_id, row, value, node.pointer, scope.root
                 )
-                if context is None:
-                    kind = ".".join(row["property"].split(".")[:2])
-                    number = row_id.rpartition("-")[0]
-                    contexts = row_contexts(
-                        kind,
-                        [
-                            (rid, item)
-                            for rid, item in entries(values, "desired.row.")
-                            if rid.rpartition("-")[0] == number
-                        ],
-                    )
-                    prop = row["property"].removeprefix(kind + ".")
-                    context = contexts.get(
-                        row_id, contexts.get(prop, contexts.get(prop.rsplit(".", 1)[0]))
-                    )
-                context = context_at(value, row["property"], node.pointer, context)
                 resolve(
                     node,
                     scope,

@@ -62,6 +62,7 @@ class ReferenceTable:
     resources: tuple[ReferenceRows, ...]
     expected: tuple[str, ...]
     semantic: tuple[str, ...]
+    baseline: tuple[str, ...]
 
 
 def reference_rows(values):
@@ -78,9 +79,16 @@ def reference_rows(values):
             resource.get("resourceMode", "CREATE"),
             rows,
             tuple(
-                (row[0], references)
-                for row in rows
-                if (references := tuple(nodes(literal(row[2]))))
+                (rid, references)
+                for rid, source in rows_by_resource[identity]
+                if (
+                    references := tuple(
+                        node
+                        for field in ("value", "document")
+                        if field in source
+                        for node in nodes(literal(source[field]))
+                    )
+                )
             ),
         )
     return result

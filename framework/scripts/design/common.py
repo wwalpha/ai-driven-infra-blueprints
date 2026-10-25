@@ -5,6 +5,7 @@ import json
 import re
 from pathlib import Path
 
+from model.core import LINK
 from utils.aws_catalogs import catalogs_for
 from utils.input_cache import memoized
 
@@ -59,6 +60,8 @@ def subnet_list_items(prop: str, value: str) -> list[str]:
 
 
 def code(value: object) -> str:
+    if isinstance(value, str) and LINK.fullmatch(value):
+        return value
     text = (
         value
         if isinstance(value, str)

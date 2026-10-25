@@ -7,7 +7,7 @@ it never stores validation results or survives an invocation.
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
 from threading import RLock
@@ -20,12 +20,13 @@ import model.render as _model_render
 import model.sources as _imports_model_sources
 import model.validation as _model_validation
 import validation_scope as _dependency_validation_scope
+from model.core import ReferenceResolutionError
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
 
 import design.layout as _dependency_design_layout
 import design.services.ec2.security_groups as _dependency_security_group_tables
-from design.layout_schema import ANCHOR
+from design.layout_schema import ANCHOR, HEADER
 
 
 @memoized
@@ -43,21 +44,51 @@ def model_reference_tables(path, text, values, root):
     if prohibited:
         raise ValueError("\n".join(prohibited.values()))
     if path.stem == "codebuild":
-        lines = text.splitlines()
-        # Diagnose display policy here; exact Model equality below binds typed rows.
-        _dependency_design_layout.expanded_display_rows(
-            lines,
-            root,
-            modes=_dependency_design_layout.resource_modes(lines, source),
-            _verified_reference=True,
-        )
+        try:
+            _dependency_design_layout.expanded_display_rows(
+                text.splitlines(),
+                root,
+                modes=_dependency_design_layout.resource_modes(
+                    text.splitlines(), source
+                ),
+            )
+        except ReferenceResolutionError:
+            pass  # Only a Model-matched table may validate unavailable typed values below.
     tables = []
     expected = _model_render.generate_markdown(
         path, source, root, reference_tables=tables
     )
     if text.splitlines() != expected.splitlines():
         raise ValueError("Markdown differs from Model expected display: " + str(path))
+    tables = [
+        _security_group_reference_table(table, expected, root)
+        if table.resources[0].kind == "EC2.SecurityGroup"
+        else table
+        for table in tables
+    ]
     return tuple(tables)
+
+
+def _security_group_reference_table(table, document, root):
+    """Match the parser's existing horizontal-rule normalization, including sources."""
+    start = document.index(f'<a id="{table.anchor}"></a>')
+    table_start = document.index("\n".join(table.expected), start)
+    table_end = table_start + len("\n".join(table.expected))
+    normalized = []
+    for rows in (table.expected, table.baseline, table.semantic):
+        candidate = document[:table_start] + "\n".join(rows) + document[table_end:]
+        lines = _dependency_security_group_tables.security_group_table_lines(
+            candidate.splitlines(), root
+        )
+        anchor = lines.index(f'<a id="{table.anchor}"></a>')
+        first = lines.index(HEADER, anchor)
+        last = first + 2
+        while last < len(lines) and lines[last].startswith("|"):
+            last += 1
+        normalized.append(tuple(lines[first:last]))
+    return replace(
+        table, expected=normalized[0], baseline=normalized[1], semantic=normalized[2]
+    )
 
 
 @dataclass(frozen=True)

@@ -38,6 +38,7 @@ import model.files as _imports_model_files
 import model.identity as _imports_model_identity
 import model.projection as _dependency_model_projection
 import model.projection as _imports_model_projection
+import model.reference_presentation as _reference_presentation
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
 import model.validation as _dependency_model_validation
@@ -525,6 +526,7 @@ def render_validated_model(
     if path.stem == "cloudformation-stacks":
         return stack_markdown(path, values, root, definitions_root=definitions_root)
     references = _dependency_model_display.reference_rows(values)
+    presentation = _reference_presentation.Presentation(values, path, root)
     values = reference_display(values, path, root)
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
@@ -558,6 +560,7 @@ def render_validated_model(
         details,
         grouped_resources(values, details, by_anchor, scope=scope),
         references=references,
+        presentation=presentation,
     )
 
 
@@ -578,6 +581,7 @@ def generate_markdown(
         ).with_suffix(".properties"),
     )
     references = _dependency_model_display.reference_rows(values)
+    presentation = _reference_presentation.Presentation(values, path, path.parents[4])
     values = reference_display(values, path, path.parents[4])
     service = path.stem
     owned = values.get(
@@ -613,9 +617,10 @@ def generate_markdown(
         owned,
         details,
         grouped,
-        model_policy_views(values),
+        model_policy_views(values, presentation=presentation),
         references=references,
         reference_tables=reference_tables,
+        presentation=presentation,
     )
 
 
@@ -630,6 +635,7 @@ def render_markdown(
     *,
     references=None,
     reference_tables=None,
+    presentation=None,
 ):
     service = path.stem
     children = {item[0] for items in grouped.values() for item in items}
@@ -687,6 +693,22 @@ def render_markdown(
         table = resource_table_lines(
             resource, name, rows, children, root, references=references
         )
+        baseline = table
+        if presentation is not None and any(
+            ref.link for ref in presentation.references.values()
+        ):
+            marked = resource_table_lines(
+                resource,
+                name,
+                presentation.rows(rows),
+                [
+                    (rid, child, child_name, presentation.rows(child_rows))
+                    for rid, child, child_name, child_rows in children
+                ],
+                root,
+                references=references,
+            )
+            table = presentation.lines(baseline, marked)
         output += table
         sources = (
             tuple(
@@ -704,7 +726,11 @@ def render_markdown(
             )
             reference_tables.append(
                 _dependency_model_display.ReferenceTable(
-                    resource["anchor"], sources, tuple(table), tuple(semantic)
+                    resource["anchor"],
+                    sources,
+                    tuple(table),
+                    tuple(semantic),
+                    tuple(baseline),
                 )
             )
         output += (policy_views or {}).get(identity, [])
@@ -743,7 +769,7 @@ def render_markdown(
     return "\n".join(output) + "\n"
 
 
-def model_policy_views(values):
+def model_policy_views(values, *, presentation=None):
     END = _imports_policy_tables.END
     IAM_END = _imports_policy_tables.IAM_END
     IAM_START = _imports_policy_tables.IAM_START
@@ -762,7 +788,7 @@ def model_policy_views(values):
     for identity, resource in entries(values, "desired.resource."):
         policies = []
         rows = rows_by_resource[identity]
-        for position, (_, row) in enumerate(rows):
+        for position, (row_id, row) in enumerate(rows):
             prop = row["property"]
             link = JSON_LINK.fullmatch(row.get("value", ""))
             if prop not in POLICY_FORMATS or not link or "document" not in row:
@@ -798,9 +824,12 @@ def model_policy_views(values):
             policy = Policy(
                 label, target, resource["anchor"] + "-" + suffix, kind, prop
             )
-            policies.extend(
-                ["", *policy_document_lines(json.loads(row["document"]), policy)]
-            )
+            document = json.loads(row["document"])
+            lines = policy_document_lines(document, policy)
+            if presentation is not None:
+                marked = presentation.document(row_id, "document", document)
+                lines = presentation.lines(lines, policy_document_lines(marked, policy))
+            policies.extend(["", *lines])
         if policies:
             start, end = (
                 (IAM_START, IAM_END)

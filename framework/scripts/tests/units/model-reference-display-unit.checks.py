@@ -38,13 +38,16 @@ if not __debug__:
 def pipeline(tmp_path):
     with mapping_alias(FRAMEWORK, tmp_path):
         project(tmp_path)
-        resource(
+        producer, producer_values = resource(
             tmp_path,
             "codebuild",
             "CodeBuild.Project",
             attribute="Name",
             observed="build-project",
         )
+        producer_values["desired.row.001-001.value"] = "`build-project`"
+        producer_values.pop("observed.row.001-001.value")
+        save(producer, producer_values)
         scope, values = resource(
             tmp_path, "codepipeline", "CodePipeline.Pipeline", attribute="Name"
         )
@@ -122,7 +125,11 @@ def pipeline(tmp_path):
 def check_pipeline_visible_baseline(pipeline):
     root, _, path, values, golden = pipeline
     markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "\n".join(golden) in markdown
+    linked_golden = [
+        line.replace("`build-project`", "[build-project](codebuild.md#saved-001)")
+        for line in golden
+    ]
+    assert "\n".join(linked_golden) in markdown
     assert "reference-rows" not in markdown and "reference-value" not in markdown
     assert "$modelRef" not in markdown
     snapshot = reference_rows(values)["CodePipeline_Pipeline_001"]
@@ -135,16 +142,21 @@ def check_pipeline_visible_baseline(pipeline):
     semantic = "\n".join(document.raw.expanded[0])
     assert semantic.count("$modelRef") == 5 and semantic.count("ビルド対象") == 5
     assert generate_markdown(path, values, FRAMEWORK) == markdown
-    # Identical fixture with ordinary values retains precisely the same visible table.
+    # Equal ordinary values remain plain text; only actual nodes produce links.
     ordinary = {
         key: value.replace(
             json.dumps(reference("CodeBuild_Project_001", "Name")), '"build-project"'
         )
         for key, value in values.items()
     }
-    assert generate_markdown(path, ordinary, FRAMEWORK) == markdown
+    ordinary_markdown = generate_markdown(path, ordinary, FRAMEWORK)
+    assert "\n".join(golden) in ordinary_markdown
+    assert "[build-project]" not in ordinary_markdown
     assert (
-        model_reference_tables(path, markdown, tuple(ordinary.items()), FRAMEWORK) == ()
+        model_reference_tables(
+            path, ordinary_markdown, tuple(ordinary.items()), FRAMEWORK
+        )
+        == ()
     )
 
 
@@ -167,10 +179,16 @@ def check_pipeline_visible_baseline(pipeline):
 def check_actual_markdown_must_match(pipeline, change):
     _, _, path, values, golden = pipeline
     markdown = generate_markdown(path, values, FRAMEWORK)
-    row = next(line for line in golden if "Configuration.ProjectName" in line)
+    row = next(
+        line for line in markdown.splitlines() if "Configuration.ProjectName" in line
+    )
     changes = {
         "property": markdown.replace("ActionTypeId.Version", "ActionTypeId.Other", 1),
-        "value": markdown.replace("`build-project`", "`edited-project`", 1),
+        "value": markdown.replace(
+            "[build-project](codebuild.md#saved-001)",
+            "[edited-project](codebuild.md#saved-001)",
+            1,
+        ),
         "comment": markdown.replace("ビルド対象", "改変", 1),
         "key": markdown.replace("Configuration.ProjectName", "Configuration.Other", 1),
         "order": markdown.replace(
@@ -335,7 +353,9 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
         assert "$modelRef" in "\n".join(
             DesignIndex(FRAMEWORK).get(path, text=markdown).raw.display_lines
         )
-        with pytest.raises(ValueError, match="Markdown differs from Model expected display"):
+        with pytest.raises(
+            ValueError, match="Markdown differs from Model expected display"
+        ):
             _ = (
                 DesignIndex(FRAMEWORK)
                 .get(path, text=markdown.replace("pending_deploy", "tampered"))
