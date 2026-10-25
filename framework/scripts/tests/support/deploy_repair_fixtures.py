@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from deploy import handoff, inputs
 from deploy.contracts import accepted_changes, sha, validation_snapshot
+from model.dependency_index import rebuild as rebuild_index
 from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
@@ -247,6 +248,7 @@ def assert_receipt_rejections(context):
         invoke(parent, session, aws, ["--resume", "--repair-result", str(result)]) == 2
     )
     model_path.write_bytes(raw)
+    rebuild_index(parent)
 
 
 def assert_same_result_reapplication(context):

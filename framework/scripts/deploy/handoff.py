@@ -238,7 +238,7 @@ def effective(
     paths_for: PathsFor,
     input_paths: InputPaths,
     *,
-    templates=None,
+    templates: dict[str, tuple[JsonObject, JsonObject]] | None = None,
 ) -> dict[str, str]:
     """Existing CFn decoder, JSON parameters and artifact hashes; no intrinsic evaluation."""
     result = {}

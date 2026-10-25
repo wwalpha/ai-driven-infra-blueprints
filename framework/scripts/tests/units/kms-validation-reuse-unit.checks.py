@@ -137,7 +137,10 @@ def check_service_reuse_and_direct_call_diagnostics(tmp_path, monkeypatch):
         target["awsExecutionAccountId"] = "333333333333"
         findings = validation.check_model_inputs(path, values, tmp_path)
         assert actual.call_count == 6
-        assert len(findings.errors) == 2 and findings.errors[0] == findings.errors[1]
+        assert len(findings.errors) == 2
+        assert findings.errors[0].removeprefix(
+            "model.identity.001: "
+        ) == findings.errors[1].removeprefix("model.identity.002: ")
         with patch.object(
             validation,
             "_kms_policy_account_check",

@@ -16,6 +16,7 @@ import model.files as model_files
 import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
+from deploy.model_cache import SessionModels
 from deploy.observed import removed_resources, sync_successful
 from deploy.preparation import candidate
 from model.adapters import observed
@@ -1747,7 +1748,12 @@ def check_deploy_preparation_separates_producer_reads_from_writes(
         ["network", "cloudformation-stacks"],
     )
     allowed = paths_in(text, "## Allowed paths")
-    assert producer in sources
+    assert producer not in sources
+    cache = SessionModels(tmp_path, {})
+    with model_sources.model_session(cache):
+        snapshot = load_model(scope.path)
+    assert producer in snapshot.dependencies
+    assert producer.relative_to(tmp_path).as_posix() in cache.session["modelInputManifest"]
     assert producer.relative_to(tmp_path).as_posix() not in allowed
     assert "project.json" not in allowed and tmp_path / "project.json" in sources
     assert scope.path.relative_to(tmp_path).as_posix() in allowed

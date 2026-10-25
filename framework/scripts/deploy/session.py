@@ -238,7 +238,9 @@ def run_session(
         return result
 
 
-def current_manifest(root, session, backend):
+def current_manifest(
+    root: Path, session: Session, backend: SimpleNamespace
+) -> dict[str, str]:
     return {
         relative: backend.file_digest(root / relative)
         for relative in session["infraManifest"]

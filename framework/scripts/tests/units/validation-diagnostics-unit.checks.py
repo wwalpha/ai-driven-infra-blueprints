@@ -498,7 +498,7 @@ def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(tmp_path):
         ),
     ):
         first = scan_runner.scan(tmp_path, "dev", "team", ["s3"])
-    assert first["version"] == 4
+    assert first["version"] == 5
     assert (
         first["ordinary"][0]["diagnostic"]["source_path"]
         == "model/dev/team/s3.properties"
