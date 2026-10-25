@@ -722,6 +722,7 @@ def check_scan_accepts_input_changes(tmp_path, input_name):
     path.parent.mkdir(parents=True)
     path.write_bytes(b"original")
     comparison = scan_runner.Comparison.__new__(scan_runner.Comparison)
+    comparison.environment, comparison.directory = "dev", "team"
     comparison.root, comparison.inputs, comparison.read_hashes = tmp_path, set(), {}
     comparison.model_reads = SimpleNamespace(contents={path: b"original"})
     comparison.view_errors, comparison.warnings, comparison.results = {}, [], []
@@ -1522,21 +1523,58 @@ def interrupted_mechanical(root, scope, *, validator_out, **kwargs):
     raise RuntimeError("interrupted mechanical stage")
 
 
-@pytest.mark.parametrize("stage", ["mechanical", "models", "lint"])
+def retained_mechanical(original, *args, **kwargs):
+    result = original(*args, **kwargs)
+    kwargs["validator_out"][0].check(
+        False, "model/dev/123456789012/s3.properties: retained diagnostic"
+    )
+    return result
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "mechanical",
+        "models",
+        "lint",
+        "naming",
+        "existing",
+        "review",
+        "preflight",
+        "correspondence",
+    ],
+)
 def check_scan_stage_failures(tmp_path, stage):
     _exports_support_issues_scan_fixtures.fixture(tmp_path, services=("s3",))
     owner, method = {
         "mechanical": (scan_runner, "mechanical"),
         "models": (Validator, "check_model_files"),
         "lint": (scan_runner._imports_issues_cfn_lint, "run_lint"),
+        "naming": (scan_runner, "naming_materials"),
+        "existing": (scan_runner, "existing_materials"),
+        "review": (scan_runner, "review_materials"),
+        "preflight": (scan_runner, "view_text"),
+        "correspondence": (scan_runner, "issue_key"),
     }[stage]
     failure = (
         interrupted_mechanical
         if stage == "mechanical"
+        else ValueError("synthetic existing issues read failure")
+        if stage == "existing"
         else RuntimeError("interrupted stage")
     )
     artifact_path = tmp_path.parent / "partial-scan.json"
+    report = tmp_path / "issues/dev/123456789012/issues.md"
+    write(report, "# Issues\n\n### s3\n\n1. Keep this existing Issue\n")
+    before = report.read_bytes()
     with (
+        patch.object(
+            scan_runner,
+            "mechanical",
+            side_effect=partial(retained_mechanical, scan_runner.mechanical),
+        )
+        if stage != "mechanical"
+        else nullcontext(),
         patch.object(owner, method, side_effect=failure),
         patch.object(
             sys,
@@ -1561,7 +1599,7 @@ def check_scan_stage_failures(tmp_path, stage):
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
     validate_artifact(artifact)
     assert artifact["validation_status"] == "ERROR"
-    assert len(artifact["processing_errors"]) == 1
+    assert artifact["processing_errors"]
     assert artifact["unverified"]
     assert any(
         result["status"] == "NOT_RUN" and not result["complete"]
@@ -1570,14 +1608,86 @@ def check_scan_stage_failures(tmp_path, stage):
     assert any(record["category"] == "matched" for record in artifact["iac"])
     if stage != "lint":
         assert artifact["cfn_lint"]["jobs"][0]["completed"]
-    if stage == "mechanical":
-        assert (
-            len(artifact["ordinary"]) == 1
-            and "retained diagnostic" in artifact["ordinary"][0]["message"]
-        )
+    assert any(
+        "retained diagnostic" in item["message"] for item in artifact["ordinary"]
+    )
     assert not any(
         "interrupted" in record["message"] for record in artifact["ordinary"]
     )
+    if stage == "existing":
+        assert len(artifact["processing_errors"]) == 1
+        error = artifact["processing_errors"][0]
+        assert error["phase"] == "materials.existing-issues"
+        assert error["exception"] == "ValueError"
+        assert "synthetic existing issues read failure" in error["message"]
+        assert error["scope"] == ["dev/123456789012/s3"]
+        assert any(item["phase"] == error["phase"] for item in artifact["unverified"])
+        with (
+            patch.object(publication, "existing_decisions") as decisions,
+            patch.object(publication, "save") as save_report,
+            pytest.raises(ValueError, match="existing Issue acquisition failed"),
+        ):
+            publication.save_scan(tmp_path, artifact, {})
+        decisions.assert_not_called()
+        save_report.assert_not_called()
+        assert report.read_bytes() == before
+
+
+def fail_service_materials(original, comparison, service=None, **kwargs):
+    if service == "s3":
+        comparison.sensitive_values.add("material-secret")
+        raise ValueError("material-secret collection failure")
+    return original(comparison, service=service, **kwargs)
+
+
+@pytest.mark.parametrize("stage", ["naming", "review", "normal"])
+def check_material_service_isolation(tmp_path, stage):
+    _exports_support_issues_scan_fixtures.fixture(tmp_path, services=("s3", "sqs"))
+    doc = tmp_path / "docs/designs/dev/123456789012/sqs.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8") + "\nIndependent review prose\n",
+        encoding="utf-8",
+    )
+    method = "naming_materials" if stage == "naming" else "review_materials"
+    original = getattr(scan_runner, method)
+    with (
+        patch.object(
+            scan_runner, method, side_effect=partial(fail_service_materials, original)
+        )
+        if stage != "normal"
+        else nullcontext()
+    ):
+        artifact = scan_runner.scan(tmp_path, "dev", "123456789012", ["s3", "sqs"])
+    validate_artifact(artifact)
+    failures = [
+        item
+        for item in artifact["processing_errors"]
+        if item.get("phase", "").startswith("materials.")
+    ]
+    assert len(failures) == (0 if stage == "normal" else 1)
+    if failures:
+        assert failures[0]["scope"] == ["dev/123456789012/s3"]
+    assert "material-secret" not in json.dumps(artifact)
+    assert any(record["service"] == "sqs" for record in artifact["iac"])
+    if stage == "naming":
+        assert any(item["service"] == "sqs" for item in artifact["naming"]["names"])
+    assert any(
+        item.get("kind") == "nonmechanical-design-prose" and item["service"] == "sqs"
+        for item in artifact["judgments"]
+    )
+    assert artifact["cfn_lint"]["jobs"][0]["completed"]
+    if stage == "normal":
+        comparison = scan_runner.Comparison(
+            tmp_path, "dev", "123456789012", ["s3", "sqs"]
+        )
+        material, _ = scan_runner.naming_materials(comparison)
+        assert artifact["naming_context"] == comparison.redacted(
+            {key: value for key, value in material.items() if key != "names"}
+        )
+        assert artifact["naming"]["names"] == [
+            dict(item, naming_context_id=artifact["naming_context_id"])
+            for item in material["names"]
+        ]
 
 
 def interrupted_service(instance):

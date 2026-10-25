@@ -3,7 +3,7 @@ import os
 import re
 import time
 import uuid
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from functools import partial
 
 from model.core import ReferenceResolutionError, entries
@@ -12,6 +12,7 @@ from task_contract_core import task_read_scope
 from utils.input_cache import input_scope
 from utils.reference_contracts import reference_error
 from utils.script_loader import module
+from validation.findings import Findings
 
 import issues.artifact as _imports_issues_artifact
 import issues.cfn_lint as _imports_issues_cfn_lint
@@ -64,6 +65,46 @@ def mechanical(
     if warnings is not None:
         warnings.extend(validator.warnings)
     return validator.errors, validator.checks, output.getvalue()
+
+
+@contextmanager
+def scan_stage(findings, phase, scope):
+    try:
+        yield
+    except Exception as error:
+        findings.processing_failure(phase, scope, error)
+
+
+def review_materials(comparison, service):
+    doc = (
+        comparison.root
+        / "docs/designs"
+        / comparison.environment
+        / comparison.directory
+        / (service + ".md")
+    )
+    if not doc.is_file() or doc in comparison.view_errors:
+        return []
+    text = view_text(comparison, doc, phase="review-prose")
+    if text is None:
+        return []
+    # Only notes/implementation prose remains; verified tables are not repeated.
+    known_notes = (
+        {
+            value
+            for key, value in comparison.models[service].values.items()
+            if key.startswith("desired.note.")
+        }
+        if service in comparison.models
+        else set()
+    )
+    return [
+        safe_text(line)
+        for line in text.splitlines()
+        if line.strip()
+        and not line.startswith(("#", "|", "<", "- Design", "- Owned", "```"))
+        and line.removeprefix("- ").strip() not in known_notes
+    ]
 
 
 def check_targets(result):
@@ -155,9 +196,11 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     scope = selected_scope(environment, directory, services)
     scan_id = uuid.uuid4().hex
     comparison = Comparison(root, environment, directory, services)
+    stages = Findings(root)
     for service in services:
         doc = root / "docs/designs" / environment / directory / (service + ".md")
-        view_text(comparison, doc, phase="view-preflight")
+        with scan_stage(stages, "view-preflight", {(environment, directory, service)}):
+            view_text(comparison, doc, phase="view-preflight")
     warnings = list(comparison.warnings)
     begin = time.perf_counter()
     validators = []
@@ -228,43 +271,37 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             ],
         }
         (ordinary if owner else judgments).append(candidate)
-    naming, naming_judgments = naming_materials(comparison)
-    judgments.extend(naming_judgments)
-    existing, human = existing_materials(root, environment, directory, services)
-    judgments.extend(
-        {
-            "id": item["id"],
-            "service": item["service"],
-            "kind": "existing-issue-correspondence",
-            "materials": item,
-        }
-        for item in existing
-    )
-    for service in services:
-        doc = root / "docs/designs" / environment / directory / (service + ".md")
-        if doc.is_file() and doc not in comparison.view_errors:
-            text = view_text(comparison, doc, phase="review-prose")
-            if text is None:
-                continue
-            # Only notes/implementation prose remains for LLM review; verified tables are not repeated.
-            known_notes = (
-                {
-                    value
-                    for key, value in comparison.models[service].values.items()
-                    if key.startswith("desired.note.")
-                }
-                if service in comparison.models
-                else set()
+    naming = {"names": [], "rules": {}}
+    for service in sorted(set(services)):
+        with scan_stage(
+            stages, "materials.naming", {(environment, directory, service)}
+        ):
+            material, naming_judgments = naming_materials(comparison, service=service)
+            naming["names"].extend(material["names"])
+            naming["rules"].update(material.get("rules", {}))
+            naming.update(
+                (key, value)
+                for key, value in material.items()
+                if key not in {"names", "rules"}
             )
-            notes = []
-            for line in text.splitlines():
-                if (
-                    line.strip()
-                    and not line.startswith(("#", "|", "<", "- Design", "- Owned"))
-                    and not line.startswith("```")
-                    and line.removeprefix("- ").strip() not in known_notes
-                ):
-                    notes.append(safe_text(line))
+            judgments.extend(naming_judgments)
+    human = []
+    with scan_stage(stages, "materials.existing-issues", scope):
+        existing, human = existing_materials(root, environment, directory, services)
+        judgments.extend(
+            {
+                "id": item["id"],
+                "service": item["service"],
+                "kind": "existing-issue-correspondence",
+                "materials": item,
+            }
+            for item in existing
+        )
+    for service in services:
+        with scan_stage(
+            stages, "materials.review-prose", {(environment, directory, service)}
+        ):
+            notes = review_materials(comparison, service)
             if notes:
                 judgments.append(
                     {
@@ -355,7 +392,12 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     warnings.extend(lint.pop("warnings"))
     current = {}
     for record in ordinary:
-        current.setdefault(issue_key(root, record), []).append(record["id"])
+        with scan_stage(
+            stages,
+            "materials.correspondence",
+            {(environment, directory, record["service"])},
+        ):
+            current.setdefault(issue_key(root, record), []).append(record["id"])
     for item in judgments:
         if item.get("kind") == "existing-issue-correspondence":
             item["materials"]["current_diagnostic_ids"] = current.get(
@@ -377,14 +419,15 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     )
     for entry in sorted(scope):
         view = root / "docs/designs" / entry[0] / entry[1] / (entry[2] + ".md")
-        if not view.is_file():
-            unverified.append(
-                {
-                    "code": "mechanical.view_missing",
-                    "service": entry[2],
-                    "message": "saved View checks unavailable",
-                }
-            )
+        with scan_stage(stages, "materials.view-availability", {entry}):
+            if not view.is_file():
+                unverified.append(
+                    {
+                        "code": "mechanical.view_missing",
+                        "service": entry[2],
+                        "message": "saved View checks unavailable",
+                    }
+                )
     for entry, info in (
         validator.findings.result("framework.generated-service-model", scope)
         .metadata.get("unverified", {})
@@ -393,8 +436,10 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         unverified.append(
             {"code": "mechanical.view_unverified", "scope": entry, "details": info}
         )
+    unverified.extend(stages.unverified)
     processing = lint.pop("processing_errors")
     processing.extend(validator.findings.processing_errors)
+    processing.extend(stages.processing_errors)
     processing.extend(view_errors)
     # Stage failures are distinct from the number of affected comparison records.
     stage_errors = {}
@@ -458,7 +503,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         "human_confirmations",
     ):
         artifact[key] = comparison.redacted(artifact[key])
-    artifact["checks"] = validator.checks
+    artifact["checks"] = validator.checks + stages.checks
     artifact["check_results"] = [
         dict(
             id=identifier([result.check_id, sorted(result.scope or [])]),
@@ -471,7 +516,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             checks=result.checks,
             verification_targets=check_targets(result),
         )
-        for result in validator.findings.results.values()
+        for result in [*validator.findings.results.values(), *stages.results.values()]
     ]
     artifact["metrics"] = comparison.metrics | dict(
         mechanical_seconds=mechanical_seconds,

@@ -35,9 +35,10 @@ def rule_section(text, heading):
     return "\n".join(result)
 
 
-def naming_materials(comparison):
+def naming_materials(comparison, *, service=None):
     rules, names, judgments = {}, [], []
-    for service in comparison.services:
+    services = comparison.services if service is None else [service]
+    for service in services:
         if service not in comparison.models:
             if service in comparison.reference_unavailable:
                 continue

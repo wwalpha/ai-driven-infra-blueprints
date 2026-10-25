@@ -116,6 +116,13 @@ def save_scan(root, artifact, review):
         raise ValueError("invalid scan artifact/root")
     validate_artifact = _imports_issues_artifact.validate_artifact
     validate_artifact(artifact)
+    if any(
+        item.get("phase") == "materials.existing-issues"
+        for item in artifact.get("processing_errors", [])
+    ):
+        raise ValueError(
+            "existing Issue acquisition failed; report publication forbidden"
+        )
     required = {
         "scan_id",
         "reviewed_naming_context_id",
