@@ -14,6 +14,8 @@ from threading import RLock
 from types import MappingProxyType
 
 import model.display as _model_display
+import model.files as _model_files
+import model.format as _model_format
 import model.identity as _model_identity
 import model.projection as _imports_model_projection
 import model.render as _model_render
@@ -26,16 +28,14 @@ from utils.input_cache import input_text, memoized
 
 import design.layout as _dependency_design_layout
 import design.services.ec2.security_groups as _dependency_security_group_tables
-from design.layout_schema import ANCHOR, HEADER
+from design.layout_schema import ANCHOR, GROUPED, HEADER, RESOURCE
 
 
 @memoized
 def model_reference_tables(path, text, values, root):
     """Bind original typed rows only after the actual document matches its Model."""
     source = dict(values)
-    if not any(
-        item.references for item in _model_display.reference_rows(source).values()
-    ):
+    if not source:
         return ()
     model_path = (
         path.parents[4] / "model" / path.relative_to(path.parents[4] / "docs/designs")
@@ -43,6 +43,10 @@ def model_reference_tables(path, text, values, root):
     prohibited = _model_validation.codebuild_reference_errors(model_path, source)
     if prohibited:
         raise ValueError("\n".join(prohibited.values()))
+    if not any(
+        item.references for item in _model_display.reference_rows(source).values()
+    ):
+        return ()
     if path.stem == "codebuild":
         try:
             _dependency_design_layout.expanded_display_rows(
@@ -67,6 +71,145 @@ def model_reference_tables(path, text, values, root):
         for table in tables
     ]
     return tuple(tables)
+
+
+def resource_blocks(lines):
+    """Keep saved Resource sections intact, including their identity metadata."""
+    starts = []
+    for index, line in enumerate(lines):
+        if RESOURCE.fullmatch(line):
+            start = index
+            while start and (
+                not lines[start - 1].strip()
+                or ANCHOR.fullmatch(lines[start - 1])
+                or lines[start - 1].startswith("<!-- resource-logical-id:")
+            ):
+                start -= 1
+            starts.append(start)
+    blocks = []
+    for start, end in zip(starts, [*starts[1:], len(lines)], strict=False):
+        block = lines[start:end]
+        for index, line in enumerate(block):
+            if line.startswith(("# ", "## ")):
+                block = block[:index]
+                break
+        while block and not block[0]:
+            block = block[1:]
+        while block and not block[-1]:
+            block = block[:-1]
+        blocks.append(block)
+    return blocks
+
+
+def model_resource_groups(path, source):
+    """Use Model ownership and grouped-parent addresses, never diagnostic prose."""
+    _model_identity.resource_index(source)
+    _model_files.resource_row_index(source)
+    resources = dict(_model_display.entries(source, "desired.resource."))
+    if not resources:
+        raise ValueError("Resource ownership unavailable")
+    anchors = {}
+    for identity, resource in resources.items():
+        anchor = _model_identity.display_anchor(resource)
+        if anchor in anchors:
+            raise ValueError("duplicate Model Resource anchor: " + anchor)
+        anchors[anchor] = identity
+    scope = _imports_model_sources.scope_for(
+        (
+            path.parents[4]
+            / "model"
+            / path.relative_to(path.parents[4] / "docs/designs")
+        ).with_suffix(".properties")
+    )
+    parents = {}
+    for identity, resource in resources.items():
+        if resource["resourceType"] not in GROUPED:
+            continue
+        address = _model_identity.parse_reference(
+            resource.get("parentReference"), scope
+        )
+        if address[:3] != (scope.environment, scope.target, scope.service):
+            raise ValueError("grouped parent is outside this Model: " + identity)
+        if address[3] not in anchors:
+            raise ValueError("grouped parent ownership unavailable: " + identity)
+        parents[identity] = anchors[address[3]]
+    groups = {}
+    for identity in resources:
+        parent = identity
+        seen = set()
+        while parent in parents:
+            if parent in seen:
+                raise ValueError("cyclic grouped parent ownership: " + identity)
+            seen.add(parent)
+            parent = parents[parent]
+        groups.setdefault(parent, set()).add(identity)
+    return resources, groups
+
+
+def model_resource_reference_tables(path, text, values, root):
+    """Recover only complete Resource groups proven equal by the existing renderer."""
+    source = dict(values)
+    resources, groups = model_resource_groups(path, source)
+    blocks = resource_blocks(
+        _dependency_design_layout.resource_heading_lines(text.splitlines())
+    )
+    saved = {}
+    for block in blocks:
+        identities = _dependency_design_layout.resource_logical_ids(block)
+        if len(identities) != 1:
+            raise ValueError("Resource/Row display ownership unavailable: " + str(path))
+        anchor, logical_id = next(iter(identities.items()))
+        if anchor in saved:
+            raise ValueError("duplicate saved Resource anchor: " + anchor)
+        saved[anchor] = (logical_id, block)
+    owned = {key: _model_format.owner(key, source) for key in source}
+    results = []
+    for parent, members in groups.items():
+        resource = resources[parent]
+        anchor = _model_identity.display_anchor(resource)
+        selected = {
+            key: value
+            for key, value in source.items()
+            if owned[key][0] != "resource" or owned[key][1] in members
+        }
+        try:
+            model_path = (
+                path.parents[4]
+                / "model"
+                / path.relative_to(path.parents[4] / "docs/designs")
+            ).with_suffix(".properties")
+            prohibited = _model_validation.codebuild_reference_errors(
+                model_path, selected
+            )
+            if prohibited:
+                raise ValueError("\n".join(prohibited.values()))
+            tables = []
+            expected = _model_render.generate_markdown(
+                path, selected, root, reference_tables=tables
+            )
+            expected_blocks = resource_blocks(
+                _dependency_design_layout.resource_heading_lines(expected.splitlines())
+            )
+            if (
+                len(expected_blocks) != 1
+                or anchor not in saved
+                or saved[anchor][0] != resource["logicalId"]
+                or saved[anchor][1] != expected_blocks[0]
+            ):
+                raise ValueError(
+                    "Markdown differs from Model expected display: " + anchor
+                )
+            normalized = []
+            for table in tables:
+                if table.resources[0].kind == "EC2.SecurityGroup":
+                    table = _security_group_reference_table(table, expected, root)
+                normalized.append(table)
+            results.append((anchor, tuple(normalized), None))
+        except (OSError, ValueError) as error:
+            results.append((anchor, None, error))
+    if set(saved) != {_model_identity.display_anchor(resources[rid]) for rid in groups}:
+        raise ValueError("Markdown Resource groups differ from Model: " + str(path))
+    return results
 
 
 def _security_group_reference_table(table, document, root):

@@ -300,11 +300,14 @@ def design_dependency_not_run(
     path, target, stage, error, *, findings, checks=SEMANTIC_CHECKS
 ):
     scope = frozenset({(*path.parent.parts[-2:], path.stem)})
-    reason = "expansion"
+    reason = findings.result("design.tables.semantic", scope).metadata.get(
+        "reason", "expansion"
+    )
     if isinstance(error, ReferenceResolutionError):
         findings.warn(error)
         reason = "reference"
     elif isinstance(error, Exception):
+        reason = "expansion"
         findings.check(False, f"{stage}: {findings.relative(path)}: {error}")
     entry = dict(
         code="design.tables.dependency",
@@ -438,22 +441,26 @@ def check_raw_design_tables(path, lines, *, findings):
 
 
 def expanded_table_units(
-    path, lines, *, identities, bound_anchors, modes, reference_tables, root, findings
+    path,
+    lines,
+    *,
+    identities,
+    bound_anchors,
+    modes,
+    reference_tables,
+    root,
+    findings,
+    available_anchors=None,
 ):
-    starts = []
-    for index, line in enumerate(lines):
-        if RESOURCE_HEADING_PATTERN.fullmatch(line):
-            start = index
-            while start and (
-                not lines[start - 1].strip()
-                or ANCHOR_PATTERN.fullmatch(lines[start - 1])
-                or lines[start - 1].startswith("<!-- resource-logical-id:")
-            ):
-                start -= 1
-            starts.append(start)
+    blocks = _design_document.resource_blocks(lines)
     units = []
-    for start, end in zip(starts, [*starts[1:], len(lines)], strict=False):
-        block = lines[start:end]
+    for block in blocks:
+        if available_anchors is not None and not any(
+            ANCHOR_PATTERN.fullmatch(line)
+            and ANCHOR_PATTERN.fullmatch(line).group(1) in available_anchors
+            for line in block
+        ):
+            continue
         target = next(
             line for line in block if RESOURCE_HEADING_PATTERN.fullmatch(line)
         )
@@ -477,8 +484,8 @@ def expanded_table_units(
             continue
         units.append((display, children))
     # Local expansion cannot prove cross-resource grouped identities after a failure.
-    if len(starts) > 1:
-        if len(units) != len(starts):
+    if len(blocks) > 1:
+        if len(units) != len(blocks):
             design_dependency_not_run(
                 path,
                 "document",
@@ -579,6 +586,7 @@ def check_design_tables(
             if line.strip():
                 previous = line.strip()
 
+        available_anchors = None
         try:
             reference_tables = _design_document.model_reference_tables(
                 path,
@@ -587,14 +595,48 @@ def check_design_tables(
                 definitions_root,
             )
         except (OSError, ValueError) as error:
-            design_dependency_not_run(
-                path,
-                "document",
-                "invalid Model reference display",
-                error,
-                findings=findings,
+            try:
+                recovered = _design_document.model_resource_reference_tables(
+                    path,
+                    input_text(path, encoding="utf-8"),
+                    values or {},
+                    definitions_root,
+                )
+            except (OSError, ValueError):
+                design_dependency_not_run(
+                    path,
+                    "document",
+                    "invalid Model reference display",
+                    error,
+                    findings=findings,
+                )
+                continue
+            failures = "\n".join(
+                str(failure) for _, _, failure in recovered if failure is not None
             )
-            continue
+            if str(error) not in failures:
+                design_dependency_not_run(
+                    path,
+                    "document",
+                    "invalid Model reference display",
+                    error,
+                    findings=findings,
+                    checks=("document reference integrity",),
+                )
+            available_anchors = set()
+            reference_tables = []
+            for anchor, tables, failure in recovered:
+                if failure is not None:
+                    design_dependency_not_run(
+                        path,
+                        identities.get(anchor, anchor),
+                        "invalid Model reference display",
+                        failure,
+                        findings=findings,
+                    )
+                else:
+                    available_anchors.add(anchor)
+                    reference_tables.extend(tables)
         try:
             lines = security_group_table_lines(lines, definitions_root)
         except (ReferenceResolutionError, ValueError) as error:
@@ -611,6 +653,7 @@ def check_design_tables(
             reference_tables=reference_tables,
             root=definitions_root,
             findings=findings,
+            available_anchors=available_anchors,
         )
         for lines, children in units:
             children_ready = True

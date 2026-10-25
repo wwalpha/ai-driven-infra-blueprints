@@ -61,9 +61,13 @@ def unavailable_semantics(
     if path in failures:
         return
     failures.add(path)
+    reason = "dependency"
+    if isinstance(error, ReferenceResolutionError):
+        reason = "reference"
     findings.unverified.append(
         dict(
             code="design.links_unverified",
+            reason=reason,
             path=relative,
             service=path.stem,
             phase=phase,

@@ -528,7 +528,9 @@ def check_unavailable_service_keeps_source_errors_and_no_cache(
     if missing_name:
         assert any("Name must appear exactly once" in e for e in validator.errors)
     result = validator.findings.result("design.service", scope)
-    assert result.metadata["reason"] == "reference"
+    assert result.metadata["reason"] == "dependency"
+    # A missing saved raw View prevents completion even when generation only waits.
+    assert not result.model_completion_allowed
     validator.cache.save.assert_not_called()
 
 

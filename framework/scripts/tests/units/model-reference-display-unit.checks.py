@@ -11,7 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import model.sources as sources
 import pytest
-from design.document import DesignIndex, model_reference_tables
+from design.catalog import DesignSchemaCatalog
+from design.document import (
+    DesignIndex,
+    model_reference_tables,
+    model_resource_reference_tables,
+)
 from design.layout import expanded_display_rows
 from model.display import reference_rows, row_table
 from model.render import generate_markdown
@@ -29,6 +34,7 @@ from sync_runtime import _compare_generation
 from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context
 from validation.findings import Findings
+from validation.runner import Validator
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -396,6 +402,80 @@ def check_grouped_rows_keep_identity_and_references(tmp_path):
         assert "$modelRef" in "\n".join(expanded)
         assert "Permission.SourceArn" in markdown and "lambda-permission:" in markdown
         assert "reference-rows" not in markdown and "reference-value" not in markdown
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(markdown, encoding="utf-8")
+        validator = Validator(
+            tmp_path, {("qa", "team", "lambda")}, definitions_root=FRAMEWORK
+        )
+        validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+        with patch(
+            "design.document.model_resource_reference_tables",
+            wraps=model_resource_reference_tables,
+        ) as fallback:
+            validator.check_design_tables(
+                *validator.check_design_service_ownership([path]), paths=[path]
+            )
+        assert (
+            not validator.findings.unverified
+            and not validator.findings.processing_errors
+        )
+        fallback.assert_not_called()
+        recovered = model_resource_reference_tables(path, markdown, current, FRAMEWORK)
+        assert len(recovered) == 1 and recovered[0][2] is None
+        assert recovered[0][1] == model_reference_tables(
+            path, markdown, tuple(current.items()), FRAMEWORK
+        )
+
+
+@pytest.mark.parametrize("tamper", [False, True])
+def check_grouped_resource_recovery_keeps_parent_and_children_together(
+    tmp_path, tamper
+):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        project(tmp_path)
+        resource(
+            tmp_path,
+            "s3",
+            "S3.Bucket",
+            attribute="Arn",
+            observed="arn:aws:s3:::synthetic-bucket",
+        )
+        values = permission_fixture(parents=2)
+        for identity in ("002", "004"):
+            values.update(
+                {
+                    f"desired.row.{identity}-007.property": "Lambda.Permission.SourceArn",
+                    f"desired.row.{identity}-007.value": "`"
+                    + json.dumps(reference("S3_Bucket_001", "Arn"))
+                    + "`",
+                    f"desired.row.{identity}-007.comment": "呼出元",
+                }
+            )
+        scope = sources.Scope(tmp_path, "qa", "team", "lambda")
+        write_model(scope.path, values)
+        path = tmp_path / "docs/designs/qa/team/lambda.md"
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        del values["desired.resource.002.parentProperty"]
+        write_model(scope.path, values)
+        if tamper:
+            markdown = markdown.replace(
+                "### Lambda.Function: app-dev-worker-2",
+                "### Lambda.Function: tampered-worker",
+            )
+        with pytest.raises(ValueError, match="parentProperty"):
+            model_reference_tables(path, markdown, tuple(values.items()), FRAMEWORK)
+        recovered = model_resource_reference_tables(path, markdown, values, FRAMEWORK)
+        assert len(recovered) == 2
+        assert "parentProperty" in str(recovered[0][2])
+        if tamper:
+            assert "differs from Model" in str(recovered[1][2])
+        else:
+            assert recovered[1][2] is None
+            assert {
+                resource.logical_id
+                for table in recovered[1][1]
+                for resource in table.resources
+            } == {"Lambda_Function_002", "Lambda_Permission_002"}
 
 
 if __name__ == "__main__":

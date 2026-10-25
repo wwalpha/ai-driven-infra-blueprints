@@ -193,6 +193,7 @@ def check_boundaries():
         with (
             patch.object(first, "check_design_service_ownership") as ownership,
             patch.object(first, "check_stack_designs") as stacks,
+            patch.object(MODULE.Validator, "check_generated_service_models"),
             patch.object(
                 MODULE.Validator,
                 "check_designs",

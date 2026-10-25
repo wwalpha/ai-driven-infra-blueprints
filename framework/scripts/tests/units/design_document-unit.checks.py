@@ -628,6 +628,7 @@ def check_view_failure_isolation(tmp_path, phase):
     assert findings.unverified == [
         dict(
             code="design.links_unverified",
+            reason="dependency",
             path="docs/designs/dev/team/codebuild.md",
             service="codebuild",
             phase=phase,

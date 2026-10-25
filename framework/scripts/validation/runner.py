@@ -34,7 +34,7 @@ from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import contract_reads as contract_reads
 from task_contract_core import contract_snapshot, task_reads
 from task_contract_core import verify_contract_reads as verify_contract_reads
-from utils.input_cache import input_is_file, input_scope, recording_inputs
+from utils.input_cache import input_is_file, input_scope, input_text, recording_inputs
 from validation import (
     cloudformation,
     design,
@@ -133,6 +133,92 @@ def _callback_Validator_check_scoped_designs_validate(self, snapshot, /, scope):
             ),
             isolate=True,
         )
+    return validator
+
+
+def _callback_Validator_check_unavailable_design(self, entry, info, /):
+    scope = {entry}
+    self.check_source_inputs(entry)
+    self.findings.evaluate(
+        "design.observed-values",
+        scope,
+        lambda: self.check_observed_values(
+            scoped_files(self.root, "model", ".properties", scope)
+        ),
+        isolate=True,
+    )
+    path = self.root / "docs/designs" / entry[0] / entry[1] / (entry[2] + ".md")
+    try:
+        if path in self.unavailable_views:
+            raise OSError(str(self.unavailable_views[path]))
+        input_text(path, encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raw = self.findings.result("design.tables.raw", scope)
+        raw.metadata = dict(complete=False, reason="view-read", message=str(error))
+        self.findings.unverified.append(
+            dict(
+                code="design.tables.raw",
+                reason="view-read",
+                complete=False,
+                path=self.findings.relative(path),
+                message=str(error),
+                scope=["/".join(entry)],
+            )
+        )
+    else:
+        self.findings.evaluate(
+            "design.tables",
+            scope,
+            lambda: self.check_design_tables(
+                *self.check_design_service_ownership([path]), paths=[path]
+            ),
+            isolate=True,
+        )
+    reason = info.get("reason", "expansion")
+    source = self.findings.result("design.model-inputs", scope)
+    if source.errors:
+        reason = "expansion"
+    semantic = self.findings.result("design.tables.semantic", scope)
+    if semantic.metadata.get("reason") == "expansion":
+        reason = "expansion"
+    entry_info = dict(
+        code="design.tables.dependency",
+        phase="generation",
+        reason=reason,
+        scope=["/".join(entry)],
+        path=self.findings.relative(path),
+        resource="document",
+        message="generated View unavailable",
+        checks=["generated View equality", "cross-resource reference integrity"],
+        complete=False,
+    )
+    self.findings.unverified.append(entry_info)
+    semantic.metadata.update(complete=False, reason=reason)
+    semantic.metadata.setdefault("unverified", []).append(entry_info)
+    for check_id in ("framework.policy-tables", "design.links"):
+        result = self.findings.result(check_id, scope)
+        result.metadata.update(complete=False, reason=reason, unverified=[entry_info])
+    return dict(complete=False, reason=reason)
+
+
+def unavailable_service_result(parent, entry, info):
+    validator = Validator(
+        parent.root, {entry}, definitions_root=parent.definitions_root
+    )
+    validator.accounts = parent.accounts
+    validator.schema_catalog = parent.schema_catalog or DesignSchemaCatalog(
+        parent.definitions_root
+    )
+    validator.generated_models_checked = True
+    validator.unavailable_views = parent.unavailable_views
+    validator.findings.evaluate(
+        "design.service",
+        {entry},
+        _bind_framework_callback(
+            _callback_Validator_check_unavailable_design, validator, entry, info
+        ),
+        isolate=True,
+    )
     return validator
 
 
@@ -654,11 +740,10 @@ class Validator:
         # Generated equality is covered by each service record; keep target counts stable.
         self.checks += len({entry[:2] for entry in generation_scope})
 
-        unavailable = dict(
-            generator.findings.result(
-                "framework.generated-service-model", generation_scope
-            ).metadata.get("unverified", {})
-        )
+        generation_info = generator.findings.result(
+            "framework.generated-service-model", generation_scope
+        ).metadata
+        unavailable = dict(generation_info.get("unverified", {}))
         unavailable.update(
             {
                 "/".join(entry): dict(reason="view-read", complete=False)
@@ -666,9 +751,13 @@ class Validator:
             }
         )
         skipped = {tuple(entry.split("/")) for entry in unavailable}
-        # Only View checks are unavailable; source checks remain independent.
-        for _state_check_scoped_designs_351.entry in sorted(skipped):
-            self.check_source_inputs(_state_check_scoped_designs_351.entry)
+        failed = set()
+        if "generated" in generation_info:
+            generated = {
+                tuple(entry.split("/")) for entry in generation_info["generated"]
+            }
+            failed = generation_scope - generated - skipped
+        skipped.update(failed)
         missing -= skipped
         captured = contract_snapshot(self.root)
         selected_name, selected_text = task_revision(self.root)
@@ -703,23 +792,21 @@ class Validator:
                     entry: service_result(self, entry, future.result)
                     for entry, future in futures.items()
                 }
+        for entry in sorted(skipped):
+            results[entry] = service_result(
+                self,
+                entry,
+                _bind_framework_callback(
+                    unavailable_service_result,
+                    self,
+                    entry,
+                    unavailable.get(
+                        "/".join(entry), dict(reason="expansion", complete=False)
+                    ),
+                ),
+            )
         successful = []
         for _state_check_scoped_designs_351.entry in sorted(self.scope):
-            if _state_check_scoped_designs_351.entry in skipped:
-                result = self.findings.result(
-                    "design.service", {_state_check_scoped_designs_351.entry}
-                )
-                source = self.findings.result(
-                    "design.model-inputs", {_state_check_scoped_designs_351.entry}
-                )
-                result.errors, result.warnings = source.errors, source.warnings
-                result.status = "FAIL" if source.errors else "NOT_RUN"
-                result.metadata = {
-                    "complete": False,
-                    "reason": "reference",
-                    **unavailable["/".join(_state_check_scoped_designs_351.entry)],
-                }
-                continue
             if _state_check_scoped_designs_351.entry in reused:
                 self.checks += reused[_state_check_scoped_designs_351.entry]
             else:
@@ -738,7 +825,11 @@ class Validator:
                     self.findings.results[
                         result.check_id, result.scope, self.findings.candidate
                     ] = replace(result, candidate=self.findings.candidate)
-            if self.cache and keys[_state_check_scoped_designs_351.entry] is not None:
+            if (
+                _state_check_scoped_designs_351.entry not in skipped
+                and self.cache
+                and keys[_state_check_scoped_designs_351.entry] is not None
+            ):
                 try:
                     unchanged = keys[
                         _state_check_scoped_designs_351.entry
@@ -800,13 +891,18 @@ class Validator:
             else "PASS"
         )
         if policy.status == "NOT_RUN":
+            reason = "reference"
+            if failed or any(
+                info.get("reason") != "reference" for info in unavailable.values()
+            ):
+                reason = "dependency"
+            if unreadable:
+                reason = "view-read"
+            if self.findings.processing_errors:
+                reason = "processing"
             policy.metadata = {
                 "complete": False,
-                "reason": "processing"
-                if self.findings.processing_errors
-                else "view-read"
-                if unreadable
-                else "reference",
+                "reason": reason,
                 "unverified": unavailable,
             }
         policy.warnings = tuple(w for p in policies for w in p.warnings)

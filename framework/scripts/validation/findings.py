@@ -110,13 +110,17 @@ class Findings:
         if len(self.unverified) > incomplete_start:
             unverified = self.unverified[incomplete_start:]
             reason = "reference"
-            if any(item.get("reason") == "expansion" for item in unverified):
+            if any(
+                item.get("reason") != "reference"
+                and item.get("category")
+                not in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
+                for item in unverified
+            ):
                 reason = "dependency"
-            result.metadata.update(
-                complete=False,
-                reason=reason,
-                unverified=unverified,
-            )
+            result.metadata.update(complete=False, reason=reason)
+            # Generation's service map is consumed by the runner; diagnostics stay in Findings.
+            if not isinstance(result.metadata.get("unverified"), dict):
+                result.metadata["unverified"] = unverified
         return result
 
     def processing_failure(self, check_id, scope, error):

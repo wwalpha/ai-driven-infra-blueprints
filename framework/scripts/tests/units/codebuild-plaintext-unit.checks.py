@@ -11,6 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+import validation.design_tables as design_tables
+from design.catalog import DesignSchemaCatalog
+from design.document import model_reference_tables
 from design.services.codebuild import codebuild_display_row, codebuild_formal_rows
 from issue_gate import issue_errors, unresolved_services
 from issues.artifact import scan_exit_code, validate_artifact
@@ -19,7 +22,7 @@ from issues.publication import save_scan
 from issues.runner import codebuild_plaintext_diagnostics, scan
 from model.core import entries
 from model.display import display_rows
-from model.render import markdown_for
+from model.render import generate_markdown, markdown_for
 from model.validation import (
     check_model_inputs as _check_model_inputs,
 )
@@ -31,6 +34,7 @@ from support.model_sources import write_model
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
 from utils.reference_contracts import reference_error
+from validation.runner import Validator
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -106,6 +110,322 @@ def models(tmp_path):
     )
     with mapping_alias(FRAMEWORK, tmp_path):
         yield tmp_path
+
+
+def dependency_projects(
+    root, *, schema_error=False, typed=False, pending=False, target="team"
+):
+    if target == "team":
+        project_path = root / "project.json"
+        project = json.loads(project_path.read_text(encoding="utf-8"))
+        project["targets"].append(
+            {**project["targets"][0], "alias": "other", "awsAccountId": "987654321098"}
+        )
+        project["targets"].sort(key=lambda target: target["alias"])
+        project_path.write_text(json.dumps(project) + "\n", encoding="utf-8")
+    values = values_for([("VALUE", "PLAINTEXT", "`literal`")])
+    values.update(
+        {
+            "desired.row.001-900.property": "CodeBuild.Project.Id",
+            "desired.row.001-900.value": "`PENDING_DEPLOY`",
+            "desired.row.001-900.comment": "合成識別子",
+        }
+    )
+    if typed:
+        role = {
+            "desired.service.iam.serviceId": "iam",
+            "desired.service.iam.ownedCatalogResourceTypes": "IAM.Role",
+            "desired.service.identity.lastAllocated": '{"IAM.Role":1}',
+            "desired.resource.001.resourceType": "IAM.Role",
+            "desired.resource.001.resourceMode": "IMPORT",
+            "desired.resource.001.logicalId": "IAM_Role_001",
+            "desired.resource.001.anchor": "role",
+            "desired.row.001-001.property": "IAM.Role.RoleName",
+            "desired.row.001-001.value": "`role`",
+            "desired.row.001-001.comment": "合成Role",
+            "desired.row.001-002.property": "IAM.Role.Arn",
+            "desired.row.001-002.value": "[role](#role)",
+            "desired.row.001-002.comment": "合成ARN",
+        }
+        if not pending:
+            role["observed.row.001-002.value"] = "`arn:aws:iam::123456789012:role/role`"
+        if pending:
+            role["desired.resource.001.resourceMode"] = "CREATE"
+            role["observed.row.001-002.value"] = "`PENDING_DEPLOY`"
+        write_model(root / "model/dev" / target / "iam.properties", role)
+        values["desired.row.001-006.value"] = (
+            '`{"$modelRef":{"logicalId":"IAM_Role_001","attribute":"Arn"}}`'
+        )
+    original = dict(values)
+    for identity, name in (("002", "second"), ("003", "third")):
+        for key, value in original.items():
+            if key.startswith(
+                ("desired.resource.001.", "display.resource.001.", "desired.row.001-")
+            ):
+                key = key.replace(".001.", "." + identity + ".").replace(
+                    ".001-", "." + identity + "-"
+                )
+                values[key] = value
+        values[f"desired.resource.{identity}.logicalId"] = (
+            "CodeBuild_Project_" + identity
+        )
+        values[f"desired.resource.{identity}.anchor"] = name
+        values[f"display.resource.{identity}.label"] = name
+        values[f"desired.row.{identity}-001.value"] = "`" + name + "`"
+    values["desired.service.identity.lastAllocated"] = '{"CodeBuild.Project":3}'
+    if schema_error:
+        values.update(
+            {
+                "desired.row.002-901.property": "CodeBuild.Project.TimeoutInMinutes",
+                "desired.row.002-901.value": "`invalid`",
+                "desired.row.002-901.comment": "独立した型違反",
+            }
+        )
+    path = root / "model/dev" / target / "codebuild.properties"
+    view = root / "docs/designs/dev" / target / "codebuild.md"
+    write_model(path, values)
+    view.parent.mkdir(parents=True, exist_ok=True)
+    view.write_text(generate_markdown(view, values, FRAMEWORK), encoding="utf-8")
+    return path, view, values
+
+
+def assert_dependency_errors(findings):
+    assert any(REASON in error for error in findings.errors), findings.errors
+    assert any(
+        "provider schema violation" in error and "TimeoutInMinutes" in error
+        for error in findings.errors
+    ), findings.errors
+    assert not any(
+        "not selected by design catalog" in error or "identifier output row" in error
+        for error in findings.errors
+    ), findings.errors
+    assert not findings.processing_errors, findings.processing_errors
+    semantic = findings.result("design.tables.semantic", {("dev", "team", "codebuild")})
+    assert semantic.status == "NOT_RUN" and not semantic.model_completion_allowed
+    assert any(
+        item.get("resource") == "CodeBuild_Project_001"
+        for item in semantic.metadata["unverified"]
+    )
+
+
+def test_model_reference_failure_keeps_independent_schema_and_valid_resource(models):
+    path, view, values = dependency_projects(models, schema_error=True, typed=True)
+    values["desired.row.001-010.value"] = "[bucket](s3.md#bucket)"
+    write_model(path, values)
+    validator = Validator(
+        models, {("dev", "team", "codebuild")}, definitions_root=FRAMEWORK
+    )
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    with patch.object(
+        design_tables,
+        "check_generated_identifier",
+        wraps=design_tables.check_generated_identifier,
+    ) as identifiers:
+        result = validator.findings.evaluate(
+            "design.tables",
+            validator.scope,
+            lambda: validator.check_design_tables(
+                *validator.check_design_service_ownership([view]), paths=[view]
+            ),
+            isolate=True,
+        )
+    assert result.status == "FAIL" and not result.model_completion_allowed
+    assert_dependency_errors(validator.findings)
+    assert [call.args[2] for call in identifiers.call_args_list] == [
+        "CodeBuild_Project_002",
+        "CodeBuild_Project_003",
+    ]
+
+
+@pytest.mark.parametrize("raw_error", [False, True])
+def test_scoped_generation_failure_keeps_saved_raw_and_schema(models, raw_error):
+    path, view, values = dependency_projects(models, schema_error=True, typed=True)
+    values["desired.row.001-010.value"] = "[bucket](s3.md#bucket)"
+    write_model(path, values)
+    if raw_error:
+        view.write_text(
+            view.read_text(encoding="utf-8") + "\n# 重複H1\n", encoding="utf-8"
+        )
+    validator = Validator(
+        models, {("dev", "team", "codebuild")}, definitions_root=FRAMEWORK, workers=1
+    )
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    with patch.object(
+        design_tables,
+        "check_raw_design_tables",
+        wraps=design_tables.check_raw_design_tables,
+    ) as raw:
+        validator.check_project_topology()
+        validator.check_scoped_designs()
+    assert raw.call_count == 1
+    assert_dependency_errors(validator.findings)
+    assert any("exactly one H1" in error for error in validator.errors) == raw_error, (
+        validator.errors
+    )
+    service = validator.findings.result("design.service", validator.scope)
+    assert service.status == "FAIL" and not service.model_completion_allowed
+    generation = validator.findings.result(
+        "framework.generated-service-model", validator.scope
+    )
+    assert generation.status == "FAIL" and not generation.model_completion_allowed
+    assert (
+        validator.findings.result("design.observed-values", validator.scope).status
+        == "PASS"
+    )
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_generation_failure_unreadable_raw_is_not_run(models, missing):
+    path, view, values = dependency_projects(models)
+    values["desired.row.001-010.value"] = "[bucket](s3.md#bucket)"
+    write_model(path, values)
+    if missing:
+        view.unlink()
+    else:
+        view.write_bytes(b"\xff")
+    validator = Validator(
+        models, {("dev", "team", "codebuild")}, definitions_root=FRAMEWORK, workers=1
+    )
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    view_errors = {}
+    if not missing:
+        view_errors[view] = {"message": "invalid UTF-8"}
+    validator.check_scoped_designs(view_errors=view_errors)
+    raw = validator.findings.result("design.tables.raw", validator.scope)
+    assert raw.status == "NOT_RUN" and not raw.model_completion_allowed
+    assert raw.metadata["reason"] == "view-read" and raw.metadata["message"]
+    assert not validator.findings.processing_errors, (
+        validator.findings.processing_errors
+    )
+
+
+@pytest.mark.parametrize("pending", [False, True])
+def test_scoped_normal_typed_reference_checks_raw_once(models, pending):
+    _, view, values = dependency_projects(models, typed=True, pending=pending)
+    validator = Validator(
+        models, {("dev", "team", "codebuild")}, definitions_root=FRAMEWORK, workers=1
+    )
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    with patch.object(
+        design_tables,
+        "check_raw_design_tables",
+        wraps=design_tables.check_raw_design_tables,
+    ) as raw:
+        validator.check_project_topology()
+        validator.check_scoped_designs()
+    assert not validator.errors, validator.errors
+    assert not validator.findings.processing_errors
+    assert raw.call_count == 1
+    assert model_reference_tables(
+        view, view.read_text(encoding="utf-8"), tuple(values.items()), FRAMEWORK
+    )
+    service = validator.findings.result("design.service", validator.scope)
+    assert service.model_completion_allowed, service
+    if pending:
+        assert service.status in {"PASS", "NOT_RUN"}
+        if service.status == "NOT_RUN":
+            assert service.metadata["reason"] == "reference"
+    else:
+        assert service.status == "PASS" and not validator.findings.unverified
+
+
+def test_missing_typed_target_is_model_error_not_reference_wait(models):
+    dependency_projects(models, typed=True)
+    (models / "model/dev/team/iam.properties").unlink()
+    validator = Validator(
+        models, {("dev", "team", "codebuild")}, definitions_root=FRAMEWORK, workers=1
+    )
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    validator.check_project_topology()
+    with patch.object(
+        design_tables,
+        "check_raw_design_tables",
+        wraps=design_tables.check_raw_design_tables,
+    ) as raw:
+        validator.check_scoped_designs()
+    assert any("MODEL_REF_TARGET_MISSING" in error for error in validator.errors)
+    assert not validator.findings.processing_errors
+    assert raw.call_count == 1
+    service = validator.findings.result("design.service", validator.scope)
+    assert service.status == "FAIL" and service.metadata["reason"] == "dependency"
+    assert not service.model_completion_allowed
+    semantic = validator.findings.result("design.tables.semantic", validator.scope)
+    assert semantic.status == "NOT_RUN" and not semantic.model_completion_allowed
+
+
+@pytest.mark.usefixtures("catalog_display_fixture")
+def test_issues_retains_mixed_causes_and_resource_dependencies(tmp_path):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        fixture(tmp_path, services=("s3",))
+        path, view, values = dependency_projects(
+            tmp_path, schema_error=True, target="123456789012"
+        )
+        values["desired.row.001-010.value"] = (
+            "[bucket-app-dev-data1](s3.md#s3-bucket-app-dev-data1)"
+        )
+        write_model(path, values)
+        view.write_text(
+            view.read_text(encoding="utf-8") + "\n# 重複H1\n", encoding="utf-8"
+        )
+        artifact = scan(tmp_path, "dev", "123456789012", ["codebuild"], jobs=1)
+        validate_artifact(artifact)
+        messages = [item["message"] for item in artifact["ordinary"]]
+        assert any(REASON in message for message in messages), messages
+        assert any(
+            "TimeoutInMinutes" in message and "provider schema violation" in message
+            for message in messages
+        ), messages
+        assert any("exactly one H1" in message for message in messages), messages
+        assert not any(
+            "identifier output row" in message
+            or "not selected by design catalog" in message
+            for message in messages
+        ), messages
+        assert not artifact["processing_errors"], artifact["processing_errors"]
+        assert any(
+            item.get("resource") == "CodeBuild_Project_001"
+            and item.get("reason") == "expansion"
+            for item in artifact["unverified"]
+        )
+        assert any(
+            item["check_id"] == "design.service" and item["status"] == "FAIL"
+            for item in artifact["check_results"]
+        )
+        assert any(
+            item["check_id"] == "design.tables.semantic"
+            and item["status"] == "NOT_RUN"
+            and not item["complete"]
+            for item in artifact["check_results"]
+        )
+
+
+def test_recovery_rejects_independent_markdown_tampering(models):
+    path, view, values = dependency_projects(models, typed=True)
+    values["desired.row.001-010.value"] = "[bucket](s3.md#bucket)"
+    write_model(path, values)
+    view.write_text(
+        view.read_text(encoding="utf-8").replace("`second`", "`tampered`"),
+        encoding="utf-8",
+    )
+    validator = Validator(
+        models, {("dev", "team", "codebuild")}, definitions_root=FRAMEWORK
+    )
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    with patch.object(
+        design_tables,
+        "check_generated_identifier",
+        wraps=design_tables.check_generated_identifier,
+    ) as identifiers:
+        validator.check_design_tables(
+            *validator.check_design_service_ownership([view]), paths=[view]
+        )
+    assert [call.args[2] for call in identifiers.call_args_list] == [
+        "CodeBuild_Project_003"
+    ]
+    assert any(
+        "differs from Model expected display" in error for error in validator.errors
+    )
+    assert not validator.findings.processing_errors
 
 
 @pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
@@ -496,6 +816,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                 assert all(
                     REASON in item["message"]
                     or "generated Markdown is stale or missing" in item["message"]
+                    or "Markdown differs from Model expected display" in item["message"]
                     for item in artifact["ordinary"]
                     if item["service"] == "codebuild"
                 ), artifact["ordinary"]
@@ -548,7 +869,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                 or markdown_link
                 or not any(
                     REASON in str(item)
-                    for channel in ("warnings", "unverified")
+                    for channel in ("warnings",)
                     for item in artifact[channel]
                 )
             )
