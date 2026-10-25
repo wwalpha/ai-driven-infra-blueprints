@@ -1,5 +1,6 @@
 """Synthetic Deploy read counts and incremental Model/publication safety."""
 
+import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
@@ -15,10 +16,10 @@ import model.observed as model_observed
 import model.sources as sources
 import model.validation as model_validation
 import pytest
-from deploy import controller, handoff, inputs, scheduler, session
+from deploy import controller, handoff, inputs, model_cache, scheduler, session
 from deploy.model_cache import SessionModels
 from model.adapters.observed import mapped_resource, resource_index
-from model.format import parse, serialize
+from model.format import FORMAT, INDEX, parse, serialize
 from model.format import patch as patch_properties
 from model.render import stack_markdown
 from support.model_v2_fixtures import deploy_properties_fixture
@@ -84,9 +85,31 @@ def diagnose_cached(cache, diagnose, snapshot, reads):
     return diagnose(snapshot, reads)
 
 
+def guard_model_io(root, function, path, *args, **kwargs):
+    assert not path.is_relative_to(root / "model"), "repeated Model I/O"
+    return function(path, *args, **kwargs)
+
+
+def interrupt_journal_unlink(journal, unlink, path, *args, **kwargs):
+    if path == journal:
+        raise OSError("interrupted unlink")
+    return unlink(path, *args, **kwargs)
+
+
 def check_model_load_once_parallel_and_observed(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, _ = deploy_properties_fixture(tmp_path)
+    scope.path.write_text(
+        patch_properties(
+            parse(scope.path.read_text()),
+            {
+                "desired.row.007-002.property": "EC2.VPC.CidrBlock",
+                "desired.row.007-002.value": "`10.0.0.0/16`",
+                "desired.row.007-002.comment": "合成 CIDR",
+            },
+        )
+    )
+    dependency_index.rebuild(tmp_path)
     cache = SessionModels(tmp_path, {})
     loader = sources._read_model
     diagnose = sources._imports_model_references.diagnose
@@ -104,6 +127,7 @@ def check_model_load_once_parallel_and_observed(tmp_path, monkeypatch):
                 pool.map(partial(load_shared, cache, scope.path), range(100))
             )
         first = sources.load_model(scope.path)
+        dependency_index.load(tmp_path)
         assert all(value is first for value in results)
         assert (
             sum(call.args[0].path == scope.path for call in loads.call_args_list) == 1
@@ -112,36 +136,107 @@ def check_model_load_once_parallel_and_observed(tmp_path, monkeypatch):
             sum(call.args[0].scope.path == scope.path for call in checks.call_args_list)
             == 1
         )
+        with (
+            patch.object(
+                model_cache, "revision", side_effect=AssertionError("repeated revision")
+            ),
+            patch.object(
+                Path,
+                "read_bytes",
+                autospec=True,
+                side_effect=partial(guard_model_io, tmp_path, Path.read_bytes),
+            ),
+            patch.object(
+                Path,
+                "stat",
+                autospec=True,
+                side_effect=partial(guard_model_io, tmp_path, Path.stat),
+            ),
+        ):
+            for _ in range(100):
+                assert sources.load_model(scope.path) is first
         load_count, check_count = loads.call_count, checks.call_count
-        for row, value in [("007-001", "vpc-first"), ("007-001", "vpc-second")]:
+        accumulated = {}
+        for row, value in [
+            ("007-001", "vpc-first"),
+            ("007-002", "10.0.0.0/16"),
+            ("007-001", "vpc-second"),
+        ]:
             text = patch_properties(
                 parse(scope.path.read_text()),
                 {f"observed.row.{row}.value": f"`{value}`"},
             )
             scope.path.write_text(text)
-            cache.apply_observed({scope.path: text})
-            assert (
-                sources.load_model(scope.path).authoritative[
-                    f"observed.row.{row}.value"
-                ]
-                == f"`{value}`"
-            )
+            with (
+                patch.object(
+                    dependency_index,
+                    "inventory",
+                    side_effect=AssertionError("inventory"),
+                ),
+                patch.object(
+                    dependency_index,
+                    "read_sealed",
+                    side_effect=AssertionError("index reload"),
+                ),
+                patch.object(
+                    dependency_index, "record", side_effect=AssertionError("reanalysis")
+                ),
+                patch.object(
+                    model_cache,
+                    "verify_snapshot",
+                    side_effect=AssertionError("index recheck"),
+                ),
+            ):
+                dependency_index.update(tmp_path, {scope.path}, observed=True)
+                cache.apply_observed({scope.path: text})
+                cache.source(scope, cache)
+                assert dependency_index.owners(
+                    tmp_path, scope.environment, scope.target, ["fixture-OriginalVpc"]
+                ) == [scope.path]
+            accumulated[f"observed.row.{row}.value"] = f"`{value}`"
+            current = sources.load_model(scope.path).authoritative
+            assert all(current[key] == value for key, value in accumulated.items())
         assert loads.call_count == load_count and checks.call_count == check_count
     print(
         "100 shared Model requests: load=1, check=1; subsequent/Observed reload=0, recheck=0"
     )
 
 
-def check_unrelated_invalid_model_and_missing_stale_index(tmp_path, monkeypatch):
+def check_unrelated_invalid_model_and_shared_index(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, _ = deploy_properties_fixture(tmp_path)
+    existing = scope.path.with_name("existing.properties")
+    existing.write_text(serialize({}))
     dependency_index.rebuild(tmp_path)
+    existing.write_text("unrelated invalid change")
     unconnected = scope.path.with_name("unrelated.properties")
     unconnected.write_text("this is invalid properties")
-    with sources.model_session(SessionModels(tmp_path, {})):
+    with (
+        sources.model_session(SessionModels(tmp_path, {})),
+        patch.object(
+            dependency_index, "inventory", side_effect=AssertionError("inventory")
+        ),
+        patch.object(
+            dependency_index, "read_sealed", wraps=dependency_index.read_sealed
+        ) as index_reads,
+    ):
         assert sources.load_model(scope.path).scope == scope
-    with pytest.raises(ValueError, match="stale"):
-        dependency_index.owners(tmp_path, scope.environment, scope.target, ["unused"])
+        for _ in range(100):
+            assert dependency_index.owners(
+                tmp_path, scope.environment, scope.target, ["fixture-OriginalVpc"]
+            ) == [scope.path]
+            dependency_index.logical_models(
+                tmp_path, scope.environment, scope.target, "EC2_VPC_001"
+            )
+            dependency_index.consumers(tmp_path, set(), set())
+        assert index_reads.call_count == 1
+        unconnected.write_text("another unrelated change")
+        assert (
+            dependency_index.owners(
+                tmp_path, scope.environment, scope.target, ["unused"]
+            )
+            == []
+        )
     dependency_index.location(tmp_path).unlink()
     with pytest.raises(ValueError, match="missing"):
         dependency_index.owners(tmp_path, scope.environment, scope.target, ["unused"])
@@ -341,9 +436,14 @@ def check_index_delta_retarget_delete_and_invalid_unrelated(tmp_path, monkeypatc
             {"observed.row.007-001.value": "`vpc-updated`"},
         )
     )
-    with patch.object(
-        dependency_index, "record", wraps=dependency_index.record
-    ) as reindex:
+    with (
+        patch.object(
+            dependency_index, "record", wraps=dependency_index.record
+        ) as reindex,
+        patch.object(
+            dependency_index, "inventory", side_effect=AssertionError("inventory")
+        ),
+    ):
         dependency_index.update(tmp_path, {scope.path}, observed=True)
         reindex.assert_not_called()
     assert dependency_index.owners(
@@ -402,16 +502,26 @@ def check_cache_permission_and_input_revision(tmp_path, monkeypatch):
         patch.object(permission, "read_context", return_value=("first",)) as context,
         patch.object(sources, "_read_model", wraps=sources._read_model) as loaded,
     ):
-        sources.load_model(scope.path)
-        sources.load_model(scope.path)
+        first = sources.load_model(scope.path)
+        assert sources.load_model(scope.path) is first
         context.return_value = ("second",)
         sources.load_model(scope.path)
         assert (
             sum(call.args[0].path == scope.path for call in loaded.call_args_list) == 2
         )
         scope.path.write_bytes(scope.path.read_bytes() + b"# changed input revision\n")
-        with pytest.raises(ValueError, match="consumed Model input changed"):
-            sources.load_model(scope.path)
+        assert sources.load_model(scope.path).files == first.files
+        with pytest.raises(ValueError, match="differs from consumed inputs"):
+            sources.load_model(scope.path, sources.FileReads())
+        with patch.object(
+            permission, "require_readable", side_effect=ValueError("denied")
+        ):
+            with pytest.raises(ValueError, match="denied"):
+                sources.load_model(scope.path)
+    with sources.model_session(SessionModels(tmp_path, cache.session)):
+        for _ in range(2):
+            with pytest.raises(ValueError, match="differs from saved session"):
+                sources.load_model(scope.path)
 
 
 def check_generation_stage_reuses_checked_model(tmp_path, monkeypatch):
@@ -444,9 +554,159 @@ def check_generation_stage_reuses_checked_model(tmp_path, monkeypatch):
             candidate_path.write_bytes(
                 candidate_path.read_bytes() + b"# changed candidate\n"
             )
+            assert sources.load_model(candidate_path) is candidate
+        with sources.model_stage(tmp_path, stage):
             with pytest.raises(ValueError, match="staged Model differs"):
                 sources.load_model(candidate_path)
         assert not cache.stages
+        with pytest.raises(ValueError, match="unsupported Model format"):
+            sources.load_model(
+                scope.path,
+                sources.CandidateReads(cache, {scope.path: "invalid candidate"}),
+            )
+
+
+def check_first_read_revision_race(tmp_path):
+    path = tmp_path / "model.properties"
+    path.write_text("input")
+    cache = SessionModels(tmp_path, {})
+    with patch.object(model_cache, "revision", side_effect=[[1] * 5, [2] * 5]):
+        with pytest.raises(ValueError, match="changed during first read"):
+            cache.read(path)
+    assert path not in cache.contents
+
+
+@pytest.mark.parametrize(
+    "problem", ["signature", "shape", "membership", "owners", "missing"]
+)
+@pytest.mark.parametrize("loaded_first", [False, True])
+def check_index_corruption_and_related_model(
+    tmp_path, monkeypatch, problem, loaded_first
+):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, _ = deploy_properties_fixture(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    path = dependency_index.location(tmp_path)
+    index = dependency_index.load(tmp_path)
+    relative = scope.path.relative_to(tmp_path).as_posix()
+    if problem == "signature":
+        envelope = json.loads(path.read_text())
+        envelope["signature"] = "0" * 64
+        path.write_text(json.dumps(envelope))
+    else:
+        if problem == "shape":
+            index = []
+        elif problem == "membership":
+            index["models"][relative]["files"] = []
+        elif problem == "owners":
+            index["models"][relative]["owners"] = ["wrong-owner"]
+        else:
+            del index["models"][relative]
+            del index["files"][relative]
+        dependency_index.write_sealed(tmp_path, path, index)
+    cache = SessionModels(tmp_path, {})
+    with sources.model_session(cache):
+        if loaded_first:
+            sources.load_model(scope.path)
+        with pytest.raises(ValueError, match="evidence|dependency index"):
+            dependency_index.load(tmp_path)
+            sources.load_model(scope.path)
+
+
+def check_index_service_part_add_retarget_delete(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, _ = deploy_properties_fixture(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    added = scope.path.with_name("added.properties")
+    part = added.with_suffix("") / "part-001.properties"
+    part.parent.mkdir()
+    part.write_text(scope.path.read_text())
+    added.write_text(FORMAT + "\n" + INDEX + "\n# part: added/part-001.properties\n")
+    untouched = dependency_index.load(tmp_path)["models"][
+        scope.path.relative_to(tmp_path).as_posix()
+    ]
+    with patch.object(
+        dependency_index, "inventory", side_effect=AssertionError("inventory")
+    ):
+        dependency_index.update(tmp_path, {added, part})
+        text = patch_properties(
+            parse(part.read_text()),
+            {
+                "desired.resource.007.cfn-logicalId": "fixture-AddedVpc",
+                "desired.row.007-002.property": "EC2.VPC.Name",
+                "desired.row.007-002.value": "[link](network.md#resource-EC2_VPC_001)",
+            },
+        )
+        part.write_text(text)
+        dependency_index.update(tmp_path, {part})
+        assert dependency_index.owners(
+            tmp_path, scope.environment, scope.target, ["fixture-AddedVpc"]
+        ) == [added]
+        assert added in dependency_index.consumers(
+            tmp_path, {f"{scope.environment}/{scope.target}/network"}, set()
+        )
+        assert (
+            dependency_index.load(tmp_path)["models"][
+                scope.path.relative_to(tmp_path).as_posix()
+            ]
+            == untouched
+        )
+        part.unlink()
+        added.unlink()
+        dependency_index.update(tmp_path, {added, part})
+        assert (
+            dependency_index.owners(
+                tmp_path, scope.environment, scope.target, ["fixture-AddedVpc"]
+            )
+            == []
+        )
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def check_index_transaction_rollback_and_recovery(tmp_path, monkeypatch, interrupted):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, _ = deploy_properties_fixture(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    original = scope.path.read_bytes()
+    output = patch_properties(
+        parse(original.decode()),
+        {"desired.resource.007.cfn-logicalId": "fixture-NewVpc"},
+    )
+    with sources.publication_lock(tmp_path) as journal:
+        if interrupted:
+            with patch.object(
+                Path,
+                "unlink",
+                autospec=True,
+                side_effect=partial(interrupt_journal_unlink, journal, Path.unlink),
+            ):
+                with pytest.raises(OSError, match="interrupted unlink"):
+                    sources._publish_transaction(
+                        tmp_path, {scope.path: output}, (), journal
+                    )
+            assert dependency_index.owners(
+                tmp_path, scope.environment, scope.target, ["fixture-NewVpc"]
+            ) == [scope.path]
+        else:
+            with patch.object(
+                dependency_index, "record", side_effect=ValueError("index failure")
+            ):
+                with pytest.raises(ValueError, match="index failure"):
+                    sources._publish_transaction(
+                        tmp_path, {scope.path: output}, (), journal
+                    )
+            assert not journal.exists()
+    with patch.object(
+        dependency_index, "inventory", side_effect=AssertionError("inventory")
+    ):
+        with sources.publication_lock(tmp_path):
+            pass
+        assert scope.path.read_bytes() == original
+        with sources.model_session(SessionModels(tmp_path, {})):
+            sources.load_model(scope.path)
+            assert dependency_index.owners(
+                tmp_path, scope.environment, scope.target, ["fixture-OriginalVpc"]
+            ) == [scope.path]
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 """Derived ownership/reference metadata, maintained by atomic Model publication."""
 
+from contextlib import nullcontext
+
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.identity as identity
@@ -27,6 +29,10 @@ def inventory(root):
 
 def record(path, reads):
     snapshot = sources.raw_model(path, reads)
+    return snapshot_record(snapshot)
+
+
+def snapshot_record(snapshot):
     values, scope = snapshot.authoritative, snapshot.scope
     resources = [resource for _, resource in entries(values, "desired.resource.")]
     links, logical = set(), set()
@@ -67,19 +73,61 @@ def rebuild(root):
 
 
 def load(root):
+    shared = sources.session_reads(root)
+    with shared.lock if shared is not None else nullcontext():
+        if shared is not None and shared.dependency_index is not None:
+            return shared.dependency_index
+        index = _load(root)
+        if shared is not None:
+            for key, snapshot in shared.models.items():
+                if key[0] == "source":
+                    verify_snapshot(index, snapshot, shared.revisions)
+                    shared.index_checks[key] = snapshot.dependencies
+            shared.dependency_index = index
+        return index
+
+
+def _load(root):
     path = location(root)
     if not path.is_file():
         raise ValueError(
             "Model dependency index missing; run model/cli.py index offline before Deploy"
         )
     index = read_sealed(root, path)
-    if index.get("version") != 1 or index.get("files") != inventory(root):
-        raise ValueError(
-            "Model dependency index stale; rebuild offline before observed synchronization"
-        )
+    validate(root, index)
+    return index
+
+
+def validate(root, index):
+    if (
+        not isinstance(index, dict)
+        or index.get("version") != 1
+        or not isinstance(index.get("files"), dict)
+        or not isinstance(index.get("models"), dict)
+    ):
+        raise ValueError("invalid Model dependency index")
+    for path, value in index["files"].items():
+        if (
+            not isinstance(path, str)
+            or ".." in path.split("/")
+            or not path.startswith("model/")
+            or not isinstance(value, list)
+            or len(value) != 5
+            or any(type(item) is not int for item in value)
+        ):
+            raise ValueError("invalid Model dependency index file revision")
+        sources.source_scope(root, root / path)
     entrances = {p for p in index["files"] if len(p.split("/")) == 4}
-    if set(index.get("models", {})) != entrances or any(
-        set(entry["files"])
+    if set(index["models"]) != entrances or any(
+        not isinstance(entry, dict)
+        or set(entry) != {"files", "owners", "logical", "links", "typed"}
+        or any(
+            not isinstance(items, list)
+            or any(not isinstance(item, str) for item in items)
+            or len(items) != len(set(items))
+            for items in entry.values()
+        )
+        or set(entry["files"])
         != {
             p
             for p in index["files"]
@@ -88,43 +136,71 @@ def load(root):
         for entrance, entry in index["models"].items()
     ):
         raise ValueError("Model dependency index has inconsistent source membership")
-    return index
+
+
+def verify_snapshot(index, snapshot, revisions):
+    """Check only a first-used service against the signed index, without disk reads."""
+    relative = snapshot.scope.path.relative_to(snapshot.scope.root).as_posix()
+    if index["models"].get(relative) != snapshot_record(snapshot) or any(
+        index["files"].get(p.relative_to(snapshot.scope.root).as_posix())
+        != revisions.get(p)
+        for p in snapshot.files
+    ):
+        raise ValueError(
+            "Model dependency index differs from checked Model: " + relative
+        )
 
 
 def update(root, changed, *, observed=False):
     """Called inside the Model transaction; an absent index stays absent until bootstrap."""
     if not location(root).is_file():
         return
-    try:
-        index = read_sealed(root, location(root))
-    except (ValueError, OSError):
-        if observed:
-            raise
-        return  # An invalid derived index must not prevent ordinary Model corrections.
-    if index.get("version") != 1:
-        if observed:
-            raise ValueError("unsupported Model dependency index")
-        return
-    current = inventory(root)
-    untouched = index["files"].keys() | current.keys()
-    if any(
-        index["files"].get(p) != current.get(p)
-        for p in untouched
-        if root / p not in changed
-    ):
-        if observed:
-            raise ValueError("Model dependency index changed outside publication")
-        return
+    previous = load(root)
+    index = {
+        **previous,
+        "files": dict(previous["files"]),
+        "models": dict(previous["models"]),
+    }
     scopes = {sources.source_scope(root, p).path for p in changed}
     reads = sources.FileReads()
+    for path in changed:
+        sources.safe(root, path)
+        relative = path.relative_to(root).as_posix()
+        if observed and relative not in index["files"]:
+            raise ValueError(
+                "observed Model is missing from dependency index: " + relative
+            )
+        if path.is_file():
+            index["files"][relative] = revision(path)
+        else:
+            index["files"].pop(relative, None)
     for path in () if observed else scopes:
         relative = path.relative_to(root).as_posix()
+        files = set(index["models"].get(relative, {}).get("files", ()))
+        for changed_path in changed:
+            if sources.source_scope(root, changed_path).path == path:
+                changed_relative = changed_path.relative_to(root).as_posix()
+                if changed_relative in index["files"]:
+                    files.add(changed_relative)
+                else:
+                    files.discard(changed_relative)
         if path.is_file():
-            index["models"][relative] = record(path, reads)
+            entry = record(path, reads)
+            if set(entry["files"]) != files:
+                raise ValueError(
+                    "Model dependency index has inconsistent source membership"
+                )
+            index["models"][relative] = entry
         else:
+            if files:
+                raise ValueError("deleted Model still has indexed parts: " + relative)
             index["models"].pop(relative, None)
-    index["files"] = current
     write_sealed(root, location(root), index)
+    shared = sources.session_reads(root)
+    if shared is not None:
+        shared.dependency_index = index
+        if not observed:
+            shared.index_checks.clear()
 
 
 def owners(root, environment, directory, identities):

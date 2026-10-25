@@ -83,6 +83,16 @@ def model_stage(root: Path, stage: Path) -> Iterator[None]:
     finally:
         if shared is not None:
             shared.stages.remove(stage)
+            shared.contents = {
+                p: raw
+                for p, raw in shared.contents.items()
+                if not p.is_relative_to(stage)
+            }
+            shared.consumed = {
+                key: value
+                for key, value in shared.consumed.items()
+                if key[0].root != stage
+            }
             shared.kinds = {
                 p: kind
                 for p, kind in shared.kinds.items()
@@ -180,6 +190,11 @@ def publication_lock(
                                 if "importReceipt" in record
                                 else set()
                             ),
+                            *(
+                                {"dependencyIndex"}
+                                if "dependencyIndex" in record
+                                else set()
+                            ),
                         },
                         "publication journal",
                     )
@@ -202,7 +217,13 @@ def publication_lock(
                         originals.update(
                             _receipt_original(root, record["importReceipt"])
                         )
+                    originals.update(_index_original(root, record))
                     sync_files.restore_files(originals)
+                    shared = session_reads(root)
+                    if shared is not None and "dependencyIndex" in record:
+                        shared.dependency_index = None
+                        shared.index_checks.clear()
+                    _restore_index_revisions(root, record, originals)
                     if memo_table() is not None:
                         memo_table().clear()
                     journal.unlink()
@@ -214,6 +235,22 @@ def publication_lock(
                     msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
                     fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def _index_original(root, record):
+    if "dependencyIndex" not in record:
+        return {}
+    path = module("model/dependency_index.py", "model.dependency_index").location(root)
+    return {path: base64.b64decode(record["dependencyIndex"], validate=True)}
+
+
+def _restore_index_revisions(root, record, originals):
+    if "dependencyIndex" in record:
+        module("model/dependency_index.py", "model.dependency_index").update(
+            root,
+            {p for p in originals if p.is_relative_to(root / "model")},
+            observed=True,
+        )
 
 
 def _publish_transaction(
@@ -257,6 +294,18 @@ def _publish_transaction(
             else base64.b64encode(original).decode(),
         }
         originals = {**originals, **_receipt_original(root, record["importReceipt"])}
+    model_changes = {
+        p for p in set(output) | set(obsolete) if p.is_relative_to(root / "model")
+    }
+    index = module("model/dependency_index.py", "model.dependency_index")
+    shared = session_reads(root)
+    if model_changes and index.location(root).is_file():
+        index.load(root)
+        record["dependencyIndex"] = base64.b64encode(
+            index.location(root).read_bytes()
+        ).decode("ascii")
+        originals = {**originals, **_index_original(root, record)}
+    previous_index = None if shared is None else shared.dependency_index
     atomic_replace_file(journal, json_text(record), fsync=True, mode=0o666)
     if memo_table() is not None:
         memo_table().clear()
@@ -273,15 +322,14 @@ def _publish_transaction(
             path.unlink(missing_ok=True)
         if finish is not None:
             finish()
-        model_changes = {
-            p for p in set(output) | set(obsolete) if p.is_relative_to(root / "model")
-        }
         if model_changes:
-            module("model/dependency_index.py", "model.dependency_index").update(
-                root, model_changes, observed=observed
-            )
+            index.update(root, model_changes, observed=observed)
     except Exception:
         sync_files.restore_files(originals)
+        if shared is not None:
+            shared.dependency_index = previous_index
+            shared.index_checks.clear()
+        _restore_index_revisions(root, record, originals)
         journal.unlink()
         raise
     finally:

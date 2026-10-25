@@ -1,11 +1,13 @@
 """One Deploy invocation's FileReads/models, shared by all scheduled Stacks."""
 
 import hashlib
+import os
+from pathlib import Path
 from threading import RLock
 from types import MappingProxyType
 
 import model.sources as sources
-from model.dependency_index import logical_models, revision
+from model.dependency_index import logical_models, revision, verify_snapshot
 from utils.input_cache import input_recorder
 from utils.source_reads import FileReads
 
@@ -29,8 +31,12 @@ class SessionModels(FileReads):
         self.digests = {}
         self.stages = set()
         self.checks = {}
+        self.consumed = {}
+        self.dependency_index = None
+        self.index_checks = {}
 
     def canonical(self, path):
+        path = Path(os.path.abspath(path))
         return next(
             (
                 self.root / path.relative_to(stage)
@@ -42,6 +48,9 @@ class SessionModels(FileReads):
 
     def read(self, path):
         with self.lock:
+            path = Path(os.path.abspath(path))
+            if path in self.contents:
+                return self.contents[path]
             canonical = self.canonical(path)
             if path != canonical:
                 raw = self.read(canonical)
@@ -49,11 +58,13 @@ class SessionModels(FileReads):
                     raise ValueError(
                         "staged Model differs from checked authority: " + str(path)
                     )
+                self.contents[path] = raw
                 return raw
             current = revision(path) if path.is_file() else None
-            if path in self.revisions and self.revisions[path] != current:
-                raise ValueError("consumed Model input changed: " + str(path))
             raw = super().read(path)
+            if (revision(path) if path.is_file() else None) != current:
+                self.contents.pop(path, None)
+                raise ValueError("Model input changed during first read: " + str(path))
             self.revisions[path] = current
             expected = self.session.setdefault("modelInputManifest", {})
             relative = path.relative_to(self.root).as_posix()
@@ -63,21 +74,35 @@ class SessionModels(FileReads):
                 )
             digest = self.digests[path]
             if relative in expected and expected[relative] != digest:
+                self.contents.pop(path, None)
+                self.revisions.pop(path, None)
+                self.digests.pop(path, None)
                 raise ValueError(
                     "consumed Model revision differs from saved session: " + relative
                 )
             expected[relative] = digest
             return raw
 
-    def consume(self, snapshot, reads):
-        for path, raw in snapshot.dependencies.items():
+    def consume(self, snapshot, reads, scope, *, source=False):
+        recorder = input_recorder(self.canonical(snapshot.scope.path))
+        key = (
+            scope,
+            source,
+            sources._imports_model_importing_scope.read_context(self.root),
+            reads,
+            recorder,
+        )
+        checked = self.consumed.get(key)
+        if checked is not None and checked[0] is snapshot.dependencies:
+            return checked[1]
+        projected = self.rebased(snapshot, scope.root)
+        for path, raw in projected.dependencies.items():
             if self.read(path) != raw or reads is not self and reads.read(path) != raw:
                 raise ValueError(
                     "Model snapshot differs from consumed inputs: " + str(path)
                 )
-        recorder = input_recorder(self.canonical(snapshot.scope.path))
         if recorder is not None and recorder is not reads:
-            for path, raw in snapshot.dependencies.items():
+            for path, raw in projected.dependencies.items():
                 if recorder.read(self.canonical(path)) != raw:
                     raise ValueError(
                         "Model snapshot differs from publication inputs: " + str(path)
@@ -92,7 +117,8 @@ class SessionModels(FileReads):
                     != paths
                 ):
                     raise ValueError("Model file set changed: " + str(base))
-        return snapshot
+        self.consumed[key] = snapshot.dependencies, projected
+        return projected
 
     def rebased(self, snapshot, root):
         if root == self.root:
@@ -129,19 +155,26 @@ class SessionModels(FileReads):
             primary = sources.Scope(
                 self.root, scope.environment, scope.target, scope.service
             )
-            return self.consume(
-                self.rebased(sources._read_source_snapshot(primary, self), scope.root),
-                reads,
+            snapshot = sources._read_source_snapshot(primary, self)
+            key = (
+                "source",
+                primary,
+                sources._imports_model_importing_scope.read_context(self.root),
             )
+            if (
+                self.dependency_index is not None
+                and self.index_checks.get(key) is not snapshot.dependencies
+            ):
+                verify_snapshot(self.dependency_index, snapshot, self.revisions)
+                self.index_checks[key] = snapshot.dependencies
+            return self.consume(snapshot, reads, scope, source=True)
 
     def load(self, scope, reads):
         with self.lock, sources.model_session(self):
             primary = sources.Scope(
                 self.root, scope.environment, scope.target, scope.service
             )
-            return self.consume(
-                self.rebased(sources._load_model(primary, self), scope.root), reads
-            )
+            return self.consume(sources._load_model(primary, self), reads, scope)
 
     def logical_models(self, scope, logical):
         return [
@@ -177,6 +210,8 @@ class SessionModels(FileReads):
                 self.models[key] = candidate._replace(
                     dependencies=MappingProxyType(dependencies)
                 )
+                if self.index_checks.get(key) is snapshot.dependencies:
+                    self.index_checks[key] = self.models[key].dependencies
             for path, text in outputs.items():
                 if path in self.contents:
                     self.contents[path] = text.encode("utf-8")
