@@ -884,12 +884,14 @@ def check_it_inventory(tmp_path):
 
 
 def _check_it_run_lifecycle_build(root, name):
+    assert "BLUEPRINT_TASK_FILE" not in os.environ
     (root / name).mkdir()
     (root / name / "seed").write_text(name)
     sys.audit("blueprint.it_fixture.generated", name)
 
 
 def _callback_check_it_run_lifecycle_execute(*args):
+    assert "BLUEPRINT_TASK_FILE" not in os.environ
     assert os.environ[fixtures.ENV]
     assert os.environ["BLUEPRINT_VALIDATION_CACHE_DIR"] != "previous-cache"
     return [{"suite": "example", "code": 0}], [
@@ -920,6 +922,7 @@ def check_it_run_lifecycle(tmp_path):
             {
                 fixtures.ENV: "previous-bundle",
                 "BLUEPRINT_VALIDATION_CACHE_DIR": "previous-cache",
+                "BLUEPRINT_TASK_FILE": "tasks/parent.md",
             },
         ),
         patch.object(fixtures, "build", side_effect=build),
@@ -931,6 +934,13 @@ def check_it_run_lifecycle(tmp_path):
         assert not result["reachability_errors"]
         assert os.environ[fixtures.ENV] == "previous-bundle"
         assert os.environ["BLUEPRINT_VALIDATION_CACHE_DIR"] == "previous-cache"
+        assert os.environ["BLUEPRINT_TASK_FILE"] == "tasks/parent.md"
+        with (
+            patch.object(fixtures, "build", side_effect=ValueError("fixture failed")),
+            pytest.raises(ValueError, match="fixture failed"),
+        ):
+            run_it.run_all(tmp_path, io.StringIO())
+        assert os.environ["BLUEPRINT_TASK_FILE"] == "tasks/parent.md"
     assert result["selection"] == "full"
     # Old baseline may have neither ledger nor markers; only process results are comparable.
     (tmp_path / "CASES.md").unlink()

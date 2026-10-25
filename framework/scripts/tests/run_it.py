@@ -24,6 +24,7 @@ import support.it_fixture_bundle as _imports_support_it_fixture_bundle
 import validation.loop as _imports_validation_loop
 from support.worktree_test_policy import audit as worktree_audit
 from support.worktree_test_policy import ordinary_suite, violations
+from task_contract_core import SELECTOR
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -429,6 +430,7 @@ def run_all(tests, summary, baseline=False):
     sys.addaudithook(audit)
     previous = os.environ.pop(ENV, None)
     previous_cache = os.environ.get("BLUEPRINT_VALIDATION_CACHE_DIR")
+    previous_task = os.environ.pop(SELECTOR, None)
     rows, receipts = [], []
     try:
         with tempfile.TemporaryDirectory(prefix="framework-it-receipts-") as directory:
@@ -454,6 +456,8 @@ def run_all(tests, summary, baseline=False):
             os.environ.pop("BLUEPRINT_VALIDATION_CACHE_DIR", None)
         else:
             os.environ["BLUEPRINT_VALIDATION_CACHE_DIR"] = previous_cache
+        if previous_task is not None:
+            os.environ[SELECTOR] = previous_task
     for receipt in receipts:
         metrics.update(receipt.get("metrics", {}))
     result = {

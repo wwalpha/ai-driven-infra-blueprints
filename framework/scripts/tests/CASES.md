@@ -3331,7 +3331,7 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 
 | Requirement | Function | Layer | Source | Mode / cases | Responsibility | Notes |
 |---|---|---|---|---|---|---|
-| `model-reference::round-trip` | `main` | IT | [integrations/model-reference-nodes.checks.py](integrations/model-reference-nodes.checks.py#L26) | direct / 1 | Cross-service properties read → design artifact/Markdown generation → artifact-backed policy rendering, concrete observed ARN in artifact/Markdown with unchanged Consumer Desired; unresolved/pending generation refusal and concrete AWS JSON validation | Authored synthetic fixture; local execution forbidden |
+| `model-reference::round-trip` | `main` | IT | [integrations/model-reference-nodes.checks.py](integrations/model-reference-nodes.checks.py#L26) | direct / 1 | Cross-service properties read → design artifact/Markdown generation → artifact-backed policy rendering, concrete observed ARN in JSON and saved Resource link in Markdown with unchanged Consumer Desired; unresolved/pending generation refusal and concrete AWS JSON validation | Authored synthetic fixture; local execution forbidden |
 
 `units/model-reference-nodes-unit.checks.py` owns strict syntax, target-local uniqueness/cache,
 producer/attribute contracts, logical comparison with Ref/GetAtt/Export, ambiguity and missing

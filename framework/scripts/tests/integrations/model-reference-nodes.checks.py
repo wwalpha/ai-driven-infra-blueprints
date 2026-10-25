@@ -44,14 +44,19 @@ def main():
                     save(producer, values)
                 snapshot = load_model(consumer)
                 markdown = generate_markdown(view, snapshot.values, root)
-                assert "$modelRef" not in markdown and expected in markdown
+                expected_display = (
+                    expected
+                    if observed in (None, "PENDING_DEPLOY")
+                    else "[KMS.Key](kms.md#saved-001)"
+                )
+                assert "$modelRef" not in markdown and expected_display in markdown
                 if observed in (None, "PENDING_DEPLOY"):
                     try:
                         generate_files(view, snapshot.values, root)
                     except ValueError as error:
                         assert expected in str(
                             error
-                        ) and "/Statement/0/Resource" in str(error)
+                        ).lower() and "/Statement/0/Resource" in str(error)
                     else:
                         raise AssertionError(
                             "unresolved reference generated an artifact"
@@ -61,7 +66,7 @@ def main():
                 files = generate_files(view, snapshot.values, root)
                 save_files(files)
                 display = rendered_design(view, definitions_root=FRAMEWORK)
-                assert "$modelRef" not in display and expected in display
+                assert display == markdown and expected not in display
                 document = json.loads(artifact.read_bytes())
                 assert document["Statement"][0]["Resource"] == expected
                 assert json_sha256(artifact) == document_sha256(document)
