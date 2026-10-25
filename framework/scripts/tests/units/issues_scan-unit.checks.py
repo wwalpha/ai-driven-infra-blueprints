@@ -1179,6 +1179,228 @@ def retained_mechanical(original, *args, **kwargs):
     return result
 
 
+def diagnostic_mechanical(validator, *args, validator_out, **kwargs):
+    validator_out.append(validator)
+    return validator.errors, validator.checks, "retained machine output"
+
+
+def fail_diagnostic(original, failed, value, *args, **kwargs):
+    if value == failed or (
+        failed == "reference-message" and isinstance(value, list) and "REF_BAD" in value
+    ):
+        raise ValueError("injected diagnostic conversion failure")
+    return original(value, *args, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "references",
+        "reference-message",
+        "plaintext",
+        "plaintext-message",
+        "candidate-message",
+        "normal",
+    ],
+)
+def check_reference_diagnostic_isolation(tmp_path, stage):
+    _exports_support_issues_scan_fixtures.fixture(tmp_path, services=("s3",))
+    scope = {("dev", "123456789012", "s3")}
+    validator = Validator(tmp_path, scope)
+    for code in ("REF_FIRST", "REF_BAD", "REF_LAST"):
+        validator.findings.warn(
+            dict(
+                category="MODEL_NEEDS_FIX",
+                code=code,
+                model=str(tmp_path / "model/dev/123456789012/s3.properties"),
+                message=code,
+                fixModels=[str(tmp_path / "model/dev/123456789012/s3.properties")],
+            )
+        )
+    messages = [
+        "model/dev/123456789012/s3.properties: " + label
+        for label in ("first diagnostic", "bad diagnostic", "last diagnostic")
+    ]
+    for message in [*messages, messages[0]]:
+        validator.check(False, message)
+    view = tmp_path / "docs/designs/dev/123456789012/s3.md"
+    view.write_text(
+        view.read_text(encoding="utf-8") + "\nRetained review prose\n",
+        encoding="utf-8",
+    )
+    report = tmp_path / "issues/dev/123456789012/issues.md"
+    write(report, "# Issues\n\n### s3\n\n1. Keep existing Issue\n")
+    report_before = report.read_bytes()
+    expected_references = scan_runner.reference_issues(
+        validator.findings, Comparison(tmp_path, "dev", "123456789012", ["s3"]), ["s3"]
+    )
+    artifact_path = tmp_path.parent / "reference-failure.json"
+    order = Mock()
+    lint_result = dict(
+        status="checked",
+        completed=True,
+        decode_complete=True,
+        matches=[
+            dict(Rule={"Id": "W3001"}, Level="Warning", Message="retained lint warning")
+        ],
+        unverified=[],
+        processing_errors=[],
+    )
+    with (
+        patch.object(
+            scan_runner,
+            "mechanical",
+            side_effect=partial(diagnostic_mechanical, validator),
+        ),
+        patch.object(
+            scan_runner, "reference_issues", wraps=scan_runner.reference_issues
+        ) as references,
+        patch.object(
+            scan_runner,
+            "codebuild_plaintext_diagnostics",
+            wraps=scan_runner.codebuild_plaintext_diagnostics,
+        ) as plaintext,
+        patch.object(
+            scan_runner,
+            "identifier",
+            side_effect=partial(
+                fail_diagnostic,
+                identifier,
+                "reference-message"
+                if stage == "reference-message"
+                else messages[1]
+                if stage == "candidate-message"
+                else None,
+            ),
+        ),
+        patch.object(
+            scan_runner, "naming_materials", wraps=scan_runner.naming_materials
+        ) as naming,
+        patch.object(
+            scan_runner, "review_materials", wraps=scan_runner.review_materials
+        ) as review,
+        patch.object(
+            Comparison, "run", autospec=True, side_effect=Comparison.run
+        ) as compare,
+        patch.object(
+            scan_runner._imports_issues_cfn_lint,
+            "run_lint",
+            wraps=scan_runner._imports_issues_cfn_lint.run_lint,
+        ) as lint,
+        patch("issues.cfn_lint.lint_session", return_value=nullcontext(None)),
+        patch(
+            "issues.cfn_lint.validate_template", return_value=lint_result
+        ) as raw_lint,
+        patch.object(
+            sys,
+            "argv",
+            [
+                "issues",
+                "--repository-root",
+                str(tmp_path),
+                "scan",
+                "--environment",
+                "dev",
+                "--target-directory",
+                "123456789012",
+                "--service",
+                "s3",
+                "--artifact",
+                str(artifact_path),
+            ],
+        ),
+    ):
+        for name, mock in (
+            ("references", references),
+            ("plaintext", plaintext),
+            ("naming", naming),
+            ("review", review),
+            ("compare", compare),
+            ("lint", lint),
+        ):
+            order.attach_mock(mock, name)
+        if stage == "references":
+            references.side_effect = ValueError("injected reference failure")
+        if stage == "plaintext":
+            plaintext.side_effect = ValueError("injected PLAINTEXT failure")
+        elif stage == "plaintext-message":
+            plaintext.side_effect = partial(
+                fail_diagnostic, plaintext._mock_wraps, messages[1]
+            )
+        assert issues_main() == (1 if stage == "normal" else 2)
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    validate_artifact(artifact)
+    assert artifact["version"] == 4
+    assert artifact["validation_status"] == ("FAIL" if stage == "normal" else "ERROR")
+    phases = {
+        "references": "diagnostics.references",
+        "reference-message": "diagnostics.references",
+        "plaintext": "diagnostics.codebuild-plaintext",
+        "plaintext-message": "diagnostics.codebuild-plaintext",
+        "candidate-message": "diagnostics.issue-candidates",
+    }
+    if stage != "normal":
+        phase = phases[stage]
+        assert any(
+            item["phase"] == phase
+            and item["exception"] == "ValueError"
+            and item["scope"] == ["dev/123456789012/s3"]
+            for item in artifact["processing_errors"]
+        )
+        assert any(
+            item.get("phase") == phase and not item["complete"]
+            for item in artifact["unverified"]
+        )
+        assert any(
+            item["check_id"] == phase
+            and item["status"] == "FAIL"
+            and not item["complete"]
+            for item in artifact["check_results"]
+        )
+        assert all(message in artifact["machine_diagnostics"] for message in messages)
+        assert "REF_BAD" in artifact["machine_diagnostics"]
+    else:
+        assert not artifact["processing_errors"]
+    assert "retained machine output" in artifact["machine_diagnostics"]
+    candidates = artifact["ordinary"]
+    assert len({item["id"] for item in candidates}) == len(candidates)
+    for message in () if stage == "plaintext" else (messages[0], messages[-1]):
+        assert (
+            sum(
+                item["id"] == identifier(message) and item["service"] == "s3"
+                for item in candidates
+            )
+            == 1
+        )
+    if stage in {"plaintext", "plaintext-message", "candidate-message"}:
+        assert all(item["id"] != identifier(messages[1]) for item in candidates)
+    if stage != "references":
+        assert all(
+            item in candidates
+            for item in expected_references
+            if stage != "reference-message" or item["diagnostic"]["code"] != "REF_BAD"
+        )
+    assert artifact["naming"]["names"]
+    assert any(
+        "Retained review prose" in item.get("materials", [])
+        for item in artifact["judgments"]
+    )
+    compare.assert_called_once()
+    lint.assert_called_once()
+    raw_lint.assert_called_once()
+    assert any(record["category"] == "matched" for record in artifact["iac"])
+    assert artifact["cfn_lint"]["jobs"][0]["completed"]
+    assert artifact["cfn_lint"]["coverage"][0]["status"] == "completed"
+    assert any(
+        item.get("message") == "retained lint warning" for item in artifact["warnings"]
+    )
+    names = [call[0] for call in order.mock_calls]
+    assert names[0] == "references" and names.index("plaintext") < names.index(
+        "naming"
+    ) < names.index("review") < names.index("compare") < names.index("lint")
+    assert report.read_bytes() == report_before
+
+
 @pytest.mark.parametrize(
     "stage",
     [

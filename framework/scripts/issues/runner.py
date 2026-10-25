@@ -177,75 +177,76 @@ def codebuild_plaintext_diagnostics(message, comparison):
     return result
 
 
-def reference_issues(findings, comparison, services):
+def reference_issues(findings, comparison, services, *, scope=None):
     """Use the existing stable identifier on Model position/code, independent of prose."""
     records = {}
     for diagnostic in findings.reference_errors:
-        if diagnostic["category"] != "MODEL_NEEDS_FIX":
-            continue
-        fix_models = diagnostic.get("fixModels", ())
-        if not fix_models and (
-            diagnostic["code"] == "MODEL_REF_INVALID_SYNTAX"
-            or diagnostic["code"] == "MODEL_REF_TARGET_AMBIGUOUS"
-            and diagnostic.get("modelKey", "").startswith("desired.resource.")
-        ):
-            fix_models = [diagnostic.get("model")]
-        identity = [
-            diagnostic.get(field)
-            for field in (
-                "code",
-                "model",
-                "resourceLogicalId",
-                "modelKey",
-                "pointer",
-                "targetLogicalId",
-                "attribute",
-            )
-        ]
-        for model in fix_models:
-            owner = next(
-                (
-                    service
-                    for service in services
-                    if model and model.endswith("/" + service + ".properties")
-                ),
-                None,
-            )
-            if owner is None:
+        with scan_stage(findings, "diagnostics.references", scope):
+            if diagnostic["category"] != "MODEL_NEEDS_FIX":
                 continue
-            key = identifier(
-                [
-                    value.replace(str(comparison.root) + "/", "")
-                    if isinstance(value, str)
-                    else value
-                    for value in [model, *identity]
-                ]
-            )
-            records[key] = dict(
-                id=key,
-                key=key,
-                service=owner,
-                severity="ERROR",
-                message=safe_text(
-                    comparison.redacted(json.dumps(diagnostic, ensure_ascii=False))
-                ),
-                diagnostic=comparison.redacted(diagnostic),
-                resource=(
-                    match[1]
-                    if model == diagnostic.get("model")
-                    and (
-                        match := re.fullmatch(
-                            r"desired\.(?:row|resource)\.(\d+)(?:-\d+)?\.[^.]+",
-                            diagnostic.get("modelKey", ""),
+            fix_models = diagnostic.get("fixModels", ())
+            if not fix_models and (
+                diagnostic["code"] == "MODEL_REF_INVALID_SYNTAX"
+                or diagnostic["code"] == "MODEL_REF_TARGET_AMBIGUOUS"
+                and diagnostic.get("modelKey", "").startswith("desired.resource.")
+            ):
+                fix_models = [diagnostic.get("model")]
+            identity = [
+                diagnostic.get(field)
+                for field in (
+                    "code",
+                    "model",
+                    "resourceLogicalId",
+                    "modelKey",
+                    "pointer",
+                    "targetLogicalId",
+                    "attribute",
+                )
+            ]
+            for model in fix_models:
+                owner = next(
+                    (
+                        service
+                        for service in services
+                        if model and model.endswith("/" + service + ".properties")
+                    ),
+                    None,
+                )
+                if owner is None:
+                    continue
+                key = identifier(
+                    [
+                        value.replace(str(comparison.root) + "/", "")
+                        if isinstance(value, str)
+                        else value
+                        for value in [model, *identity]
+                    ]
+                )
+                records[key] = dict(
+                    id=key,
+                    key=key,
+                    service=owner,
+                    severity="ERROR",
+                    message=safe_text(
+                        comparison.redacted(json.dumps(diagnostic, ensure_ascii=False))
+                    ),
+                    diagnostic=comparison.redacted(diagnostic),
+                    resource=(
+                        match[1]
+                        if model == diagnostic.get("model")
+                        and (
+                            match := re.fullmatch(
+                                r"desired\.(?:row|resource)\.(\d+)(?:-\d+)?\.[^.]+",
+                                diagnostic.get("modelKey", ""),
+                            )
                         )
-                    )
-                    else None
-                ),
-                property=diagnostic.get("property")
-                if model == diagnostic.get("model")
-                else None,
-                rule=diagnostic["code"],
-            )
+                        else None
+                    ),
+                    property=diagnostic.get("property")
+                    if model == diagnostic.get("model")
+                    else None,
+                    rule=diagnostic["code"],
+                )
     return list(records.values())
 
 
@@ -291,45 +292,60 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
     validator = validators[0]
-    ordinary.extend(reference_issues(validator.findings, comparison, all_services))
-    reference_messages = {
-        json.dumps(d, ensure_ascii=False) for d in validator.findings.reference_errors
-    }
+    reference_messages = set()
+    with scan_stage(stages, "diagnostics.references", scope):
+        ordinary.extend(
+            reference_issues(validator.findings, comparison, all_services, scope=scope)
+        )
+        reference_messages = {
+            json.dumps(d, ensure_ascii=False)
+            for d in validator.findings.reference_errors
+        }
     seen = set()
-    diagnostic_messages = [
-        (message, diagnostic)
-        for message in dict.fromkeys(errors)
-        if message not in reference_messages
-        for diagnostic in codebuild_plaintext_diagnostics(message, comparison)
-    ]
-    for message, diagnostic in diagnostic_messages:
-        if any(
+    for message in dict.fromkeys(errors):
+        if message in reference_messages or any(
             message == item["message"] for item in validator.findings.processing_errors
         ):
             continue
-        found = [
-            service
-            for service in services
-            if re.search(
-                r"/" + re.escape(service) + r"(?:\.md|\.properties|/)", diagnostic
-            )
-        ]
-        owner = (
-            found[0] if len(found) == 1 else services[0] if len(services) == 1 else None
-        )
-        # Model diagnostics retain their identity across View error context wrappers.
-        diagnostic = re.sub(r"^[^\n]*?: (?=Model=)", "", diagnostic)
-        key = identifier(diagnostic)
-        if key in seen:
-            continue
-        seen.add(key)
-        candidate = {
-            "id": key,
-            "service": owner,
-            "message": safe_text(comparison.redacted(diagnostic)),
-            "key": key,
-        }
-        (ordinary if owner else judgments).append(candidate)
+        diagnostic_messages = []
+        with scan_stage(stages, "diagnostics.codebuild-plaintext", scope):
+            diagnostic_messages = codebuild_plaintext_diagnostics(message, comparison)
+        for diagnostic in diagnostic_messages:
+            with scan_stage(stages, "diagnostics.issue-candidates", scope):
+                found = [
+                    service
+                    for service in services
+                    if re.search(
+                        r"/" + re.escape(service) + r"(?:\.md|\.properties|/)",
+                        diagnostic,
+                    )
+                ]
+                owner = (
+                    found[0]
+                    if len(found) == 1
+                    else services[0]
+                    if len(services) == 1
+                    else None
+                )
+                # Model diagnostics retain their identity across View error context wrappers.
+                diagnostic = re.sub(r"^[^\n]*?: (?=Model=)", "", diagnostic)
+                key = identifier(diagnostic)
+                if key in seen:
+                    continue
+                candidate = {
+                    "id": key,
+                    "service": owner,
+                    "message": safe_text(comparison.redacted(diagnostic)),
+                    "key": key,
+                }
+                (ordinary if owner else judgments).append(candidate)
+                seen.add(key)
+    if any(
+        item.get("phase", "").startswith("diagnostics.")
+        for item in [*stages.processing_errors, *validator.findings.processing_errors]
+    ):
+        # Keep source diagnostics when their Issue conversion is incomplete.
+        diagnostics = "\n".join([diagnostics, *dict.fromkeys(errors)])
     naming = {"names": [], "rules": {}}
     for service in sorted(set(services)):
         with scan_stage(

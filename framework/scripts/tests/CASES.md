@@ -4,6 +4,7 @@
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
+| `issues-isolation::references` | `check_reference_diagnostic_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | 参照診断全体/個別・PLAINTEXT全体/個別・Issue候補のValueError隔離、正常ID/重複排除、資料→IaC→mock raw lint→artifact v4保存の順序、ERROR/終了2、既存Issue不変 | 追加 |
 | `issues-isolation::view` | `check_view_failure_isolation` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 3 | View構築・展開・表示ValueErrorのファイル別隔離、原因とNOT_RUN、独立した保存済みリンク検査 | 追加 |
 | `issues-isolation::stage` | `check_scan_stage_failures` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | mechanical/Model/lint/naming/既存Issue/レビュー/View事前読取り/診断対応付けの障害隔離、取得済み診断保持、独立比較/lint継続、CLI artifact v4保存とERROR終了、既存Issue読取り失敗時の報告保存・解消禁止 | 拡張 |
 | `issues-isolation::materials` | `check_material_service_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 3 | naming/レビューのサービス別失敗・秘匿化、別サービス資料と比較/lintの継続、通常の命名資料・context同等性 | 追加 |
