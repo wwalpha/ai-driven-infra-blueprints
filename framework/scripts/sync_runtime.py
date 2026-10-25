@@ -660,6 +660,7 @@ def validate_candidates(
                 validation[None] = _state_validate_candidates_260.context.findings
                 if _state_validate_candidates_260.context.errors:
                     findings = _state_validate_candidates_260.context.findings
+                    failure_start = len(failures)
                     generation_failure(
                         root,
                         failures,
@@ -668,25 +669,12 @@ def validate_candidates(
                         FindingsError(findings),
                         affected={service_scope(root, p) for p in generated},
                     )
-                    affected = {
-                        service
-                        for diagnostic in findings.diagnostics
-                        for service in (
-                            diagnostic.service,
-                            *diagnostic.affected_services,
-                        )
-                        if service is not None
-                    }
-                    rejected = [
-                        p
-                        for p in generated
-                        if findings.unstructured_errors
-                        or any(
-                            d.service is None and not d.affected_services
-                            for d in findings.diagnostics
-                        )
-                        or service_scope(root, p) in affected
-                    ]
+                    failed, unclassified = generation_failed_services(
+                        root,
+                        [*findings.diagnostics, *failures[failure_start:]],
+                        generated,
+                    )
+                    rejected = list(generated if unclassified else failed)
                     if not rejected:
                         rejected = list(generated)
                     for path in rejected:
@@ -1058,6 +1046,12 @@ def prepare_generation(
 
 
 def validate_generation(plan, *, jobs=4, write=True):
+    failed, unclassified = generation_failures(plan)
+    for path in (
+        list(plan.generated) if unclassified else failed.keys() & plan.generated.keys()
+    ):
+        del plan.generated[path]
+        restore_view(plan.stage, plan.root, path)
     validate_candidates(
         plan.stage,
         plan.root,
@@ -1255,35 +1249,65 @@ def publish_generation(plan):
             )
 
 
+def generation_failed_services(root, diagnostics, paths):
+    """Structured ownership is shared by validation, scheduling and reporting."""
+    failed, unclassified = {}, []
+    for diagnostic in diagnostics:
+        affected = set(diagnostic.affected_services)
+        if diagnostic.service is not None:
+            affected.add(diagnostic.service)
+        matched = False
+        for path in paths:
+            if service_scope(root, path) in affected:
+                failed.setdefault(path, []).append(diagnostic.message)
+                matched = True
+        if not matched:
+            unclassified.append(diagnostic.message)
+    return failed, unclassified
+
+
+def generation_failures(plan, selected=None):
+    if selected is None:
+        selected = (
+            set(plan.markdown_paths)
+            | set(plan.unavailable)
+            | {
+                (
+                    plan.root / "docs/designs" / path.relative_to(plan.root / "model")
+                ).with_suffix(".md")
+                for path in plan.model_paths
+            }
+        )
+    failed, unclassified = generation_failed_services(
+        plan.root, plan.failure_records, selected
+    )
+    recorded = {diagnostic.message for diagnostic in plan.failure_records}
+    unclassified.extend(message for message in plan.failures if message not in recorded)
+    return failed, unclassified
+
+
 def generation_unavailable(plan):
     """Service failures take precedence; individual wait diagnostics stay on the plan."""
-    return {
-        path: info
-        for path, info in plan.unavailable.items()
-        if not any(
-            diagnostic.service == service_scope(plan.root, path)
-            for diagnostic in plan.failure_records
-        )
-    }
+    failed, unclassified = generation_failures(plan)
+    if unclassified:
+        return {}
+    return {path: info for path, info in plan.unavailable.items() if path not in failed}
 
 
 def generation_metadata(plan):
+    unavailable = generation_unavailable(plan)
     return {
-        "complete": not plan.unavailable
+        "complete": not unavailable
         and not plan.failures
         and not plan.pending_artifacts,
-        "status": "FAIL"
-        if plan.failures
-        else "NOT_RUN"
-        if plan.unavailable
-        else "PASS",
+        "status": "FAIL" if plan.failures else "NOT_RUN" if unavailable else "PASS",
         "failures": list(plan.failures),
         "generated": sorted("/".join(scope) for scope in plan.generated_scope),
         "unavailable_services": {
             "/".join(
                 (*p.relative_to(plan.root / "docs/designs").parts[:2], p.stem)
             ): info
-            for p, info in plan.unavailable.items()
+            for p, info in unavailable.items()
         },
         "unverified": [
             info

@@ -9,7 +9,8 @@ import sync_runtime
 from generation_inputs import GenerationInputs
 from model.core import ReferenceResolutionError
 from model.identity import Resolver
-from model.sources import publication_lock, safe, scope_for
+from model.importing.scope import read_context
+from model.sources import publication_lock, safe, scope_for, session_reads, source_scope
 from task_contract_core import task_read_scope
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import cfn_resource_identity
@@ -60,7 +61,7 @@ def enqueue(backend, plan):
             "service": Path(view).stem,
             "reason": "Observed committed; generation required",
             "producers": [],
-            "waitingModelManifest": copy.deepcopy(session["modelInputManifest"]),
+            "waitingModelManifest": retry_manifest(root, session, view),
             "candidateSelections": []
             if generated["outputs"] is None
             else [
@@ -226,6 +227,70 @@ def ready(session, record):
     return all(p["observedSynced"] for p in record["producers"])
 
 
+def retry_manifest(root, session, view):
+    """Reuse checked Model dependencies; unknown references wait for explicit Resume."""
+    entrance = (root / "model" / Path(view).relative_to("docs/designs")).with_suffix(
+        ".properties"
+    )
+    shared = session_reads(root)
+    paths, visited, pending = {entrance}, set(), [entrance]
+    while pending:
+        path = pending.pop()
+        if path in visited:
+            continue
+        visited.add(path)
+        relative = path.relative_to(root).as_posix()
+        paths.update(
+            root / p
+            for p in session["modelInputManifest"]
+            if p == relative or p.startswith(relative.removesuffix(".properties") + "/")
+        )
+        if shared is None:
+            continue
+        model = shared.models.get((scope_for(path), read_context(root)))
+        if model is None:
+            continue
+        paths.update(model.dependencies)
+        pending.extend(
+            source_scope(root, p).path
+            for p in model.dependencies
+            if p.is_relative_to(root / "model")
+        )
+    return {
+        p.relative_to(root).as_posix(): session["modelInputManifest"].get(
+            p.relative_to(root).as_posix()
+        )
+        for p in sorted(paths)
+    }
+
+
+def retry_producers(session, record):
+    root = Path(session["repository"])
+    shared = session_reads(root)
+    if shared is None or shared.dependency_index is None:
+        return {}
+    stacks = set()
+    for path in record["waitingModelManifest"]:
+        if not path.startswith("model/"):
+            continue
+        entrance = source_scope(root, root / path).path.relative_to(root).as_posix()
+        entry = shared.dependency_index["models"].get(entrance)
+        if entry is None:
+            continue
+        for owner in entry["owners"]:
+            try:
+                stack, _ = cfn_resource_identity(owner)
+            except ValueError:
+                # Unknown ownership cannot supply retry evidence; Resume re-evaluates it.
+                continue
+            if stack in session["states"]:
+                stacks.add(stack)
+    return {
+        stack: bool(session["states"][stack].get("observedSynced"))
+        for stack in sorted(stacks)
+    }
+
+
 def revision(session, record):
     """In-process invalidation only; a fresh backend/session always recovers evidence."""
     return (
@@ -234,9 +299,7 @@ def revision(session, record):
             p: session["modelInputManifest"].get(p)
             for p in record["waitingModelManifest"]
         },
-        session["taskDigest"],
-        session["inputDigest"],
-        session.get("inputRevision", 0),
+        retry_producers(session, record),
         [
             bool(producer_state(session, p["stack"]).get("observedSynced"))
             for p in record["producers"]
@@ -245,23 +308,14 @@ def revision(session, record):
 
 
 def failed_services(generation, selected):
-    failed = {}
-    unclassified = []
-    recorded = {d.message for d in generation.failure_records}
-    for diagnostic in generation.failure_records:
-        affected = set(diagnostic.affected_services)
-        if diagnostic.service is not None:
-            affected.add(diagnostic.service)
-        matched = False
-        for view in selected:
-            identity = (*Path(view).parts[2:4], Path(view).stem)
-            if identity in affected:
-                failed.setdefault(view, []).append(diagnostic.message)
-                matched = True
-        if not matched:
-            unclassified.append(diagnostic.message)
-    unclassified.extend(m for m in generation.failures if m not in recorded)
-    return failed, unclassified
+    failed, unclassified = sync_runtime.generation_failures(
+        generation,
+        [generation.root / view for view in selected],
+    )
+    return {
+        path.relative_to(generation.root).as_posix(): reasons
+        for path, reasons in failed.items()
+    }, unclassified
 
 
 def retry_published(record):
@@ -487,8 +541,8 @@ def run(backend):
                     )
                 for view in selected:
                     if view in pending:
-                        pending[view]["waitingModelManifest"] = copy.deepcopy(
-                            session["modelInputManifest"]
+                        pending[view]["waitingModelManifest"] = retry_manifest(
+                            root, session, view
                         )
                         checked[view] = copy.deepcopy(revision(session, pending[view]))
                 if unclassified or any(

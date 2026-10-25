@@ -262,10 +262,15 @@ def check_failed_service_does_not_reject_successes(owned, revision):
         prepare.assert_not_called()
     if revision == "repair":
         backend.session["inputRevision"] = 1
-    else:
-        backend.session["modelInputManifest"]["model/dev/team/kms.properties"] = (
-            "authorized-repair-revision"
-        )
+        with (
+            patch.object(M.sync_runtime, "prepare_generation") as prepare,
+            pytest.raises(Blocked, match="kms owns"),
+        ):
+            M.run(backend)
+        prepare.assert_not_called()
+    backend.session["modelInputManifest"]["model/dev/team/kms.properties"] = (
+        "authorized-repair-revision"
+    )
     retry = generation_for(backend, {"kms": failed})
     prepare = invoke(backend, retry)
     assert prepare.call_args.args[1] == {("dev", "team", "kms")}
