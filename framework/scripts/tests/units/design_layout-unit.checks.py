@@ -4,6 +4,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -16,6 +17,7 @@ from types import SimpleNamespace as _CallbackState
 import design.layout as _imports_design_layout
 import pytest as _imports_pytest
 import support.design_layout_fixtures as _exports_support_design_layout_fixtures
+import validation.design_tables as design_tables
 from design.layout import (
     is_import_pending_reference,
     resource_display_selection,
@@ -56,6 +58,7 @@ from support.design_layout_fixtures import (
     write_model,
 )
 from support.design_layout_fixtures import pytestmark as pytestmark
+from support.security_group_tables_fixtures import DESIGN as SECURITY_GROUP_DESIGN
 from support.validator import diagnostics
 
 if not __debug__:
@@ -1728,7 +1731,7 @@ def check_workflow(tmp_path, catalog) -> None:
         (KMS.replace(marker, ""), "requires anchor and logical ID"),
         (
             KMS.replace("KMS.Alias.AliasName", "AliasName").replace(marker, ""),
-            "full catalog name",
+            "child identity marker is only allowed on a grouped identity row",
         ),
         (
             KMS.replace(
@@ -1954,6 +1957,208 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
         assert errors(
             service_config, service_firehose.replace(link, "`AWSServiceRoleForConfig`")
         ), prop
+
+
+def table_validation(
+    tmp_path, catalog, text, service="codebuild", kinds=("CodeBuild.Project",)
+):
+    path = tmp_path / "docs/designs/dev/123456789012" / (service + ".md")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    validator = VALIDATOR.Validator(tmp_path, definitions_root=REPOSITORY)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    scope = {("dev", "123456789012", service)}
+    result = validator.findings.evaluate(
+        "design.tables",
+        scope,
+        _bind_framework_callback(
+            validator.check_design_tables,
+            {path: (service, kinds)},
+            *catalog,
+            paths=[path],
+        ),
+        isolate=True,
+    )
+    return validator, result
+
+
+def check_expansion_failure_preserves_raw_and_independent_resources(tmp_path, catalog):
+    good, result = table_validation(tmp_path, catalog, CODEBUILD)
+    assert not good.errors and result.status == "PASS", good.errors
+    assert not good.findings.unverified
+    body = CODEBUILD[CODEBUILD.index("<a id=") :]
+    broken = CODEBUILD.replace("`hello:world`", "[bucket](s3.md#bucket)")
+    broken += "| 11 | VpcConfig.Subnets[1] | [subnet](subnet.md#subnet) | 配置先 |\n"
+    broken = broken.replace("projectの名前", "English comment").replace(
+        "# CodeBuild 詳細設計", "# CodeBuild 詳細設計\n# 重複タイトル"
+    )
+    second = (
+        body.replace("codebuild-buildproject", "codebuild-second")
+        .replace("BuildProject", "Second")
+        .replace("build-project", "second")
+    )
+    third = (
+        body.replace("codebuild-buildproject", "codebuild-third")
+        .replace("BuildProject", "Third")
+        .replace("build-project", "third")
+    )
+    third += "| 11 | NotSelected | `invalid` | 不正な属性 |\n"
+    third += "| 12 | TimeoutInMinutes | `invalid` | 不正な型 |\n"
+    with patch.object(
+        design_tables,
+        "check_generated_identifier",
+        wraps=design_tables.check_generated_identifier,
+    ) as identifiers:
+        validator, result = table_validation(
+            tmp_path, catalog, broken + "\n" + second + "\n" + third
+        )
+    assert result.status == "FAIL" and result.metadata["reason"] == "dependency"
+    assert not result.model_completion_allowed
+    assert (
+        sum("PLAINTEXTではResource linkは禁止" in error for error in validator.errors)
+        == 1
+    )
+    assert any("exactly one H1" in error for error in validator.errors)
+    assert any(
+        "Source / Comment must be Japanese" in error for error in validator.errors
+    )
+    assert any(
+        "not selected by design catalog" in error and "NotSelected" in error
+        for error in validator.errors
+    )
+    assert any(
+        "provider schema violation" in error and "TimeoutInMinutes" in error
+        for error in validator.errors
+    )
+    assert [call.args[2] for call in identifiers.call_args_list] == ["Second", "Third"]
+    assert not any("identifier output row" in error for error in validator.errors)
+    assert not any(
+        "not selected by design catalog" in error
+        and ("Variables" in error or "Subnets" in error)
+        for error in validator.errors
+    )
+    assert not validator.findings.processing_errors
+    blocked = validator.findings.result(
+        "design.tables.semantic", {("dev", "123456789012", "codebuild")}
+    )
+    assert blocked.status == "NOT_RUN" and not blocked.model_completion_allowed
+    entries = blocked.metadata["unverified"]
+    assert any(
+        entry["resource"] == "### CodeBuild.Project: BuildProject"
+        and "identifier outputs" in entry["checks"]
+        for entry in entries
+    )
+
+
+@pytest.mark.parametrize("stage", ["references", "rows", "grouped"])
+@pytest.mark.parametrize("reference", [False, True])
+def check_expansion_dependency_boundaries(tmp_path, catalog, stage, reference):
+    error = ValueError("synthetic expansion violation")
+    if reference:
+        error = model_core.ReferenceResolutionError("synthetic unresolved reference")
+    target = design_tables
+    function = "validation_rows"
+    if stage == "references":
+        target = design_tables._design_document
+        function = "model_reference_tables"
+    elif stage == "grouped":
+        function = "expanded_design"
+    text = CODEBUILD.replace("projectの名前", "English comment")
+    with patch.object(target, function, side_effect=error):
+        validator, result = table_validation(tmp_path, catalog, text)
+    assert result.status == "FAIL"  # Independent raw error remains an ERROR.
+    assert any("Source / Comment must be Japanese" in item for item in validator.errors)
+    assert not any("invalid resource identity" in item for item in validator.errors)
+    assert not any(
+        "identifier output" in item or "not selected by design catalog" in item
+        for item in validator.errors
+    )
+    assert bool(validator.warnings) == reference
+    assert sum(
+        "synthetic expansion violation" in item for item in validator.errors
+    ) == int(not reference)
+    assert not validator.findings.processing_errors
+    assert any(
+        item.get("checks") and item.get("phase") and item.get("resource")
+        for item in validator.findings.unverified
+    )
+
+
+def child_projection_failure(rows, source, kind, *args, **kwargs):
+    if kind == "KMS.Alias":
+        raise ValueError("synthetic child projection violation")
+    return rows
+
+
+def check_grouped_projection_failure_stops_dependent_schema(tmp_path, catalog):
+    with patch.object(
+        design_tables, "validation_rows", side_effect=child_projection_failure
+    ):
+        validator, result = table_validation(
+            tmp_path, catalog, KMS, "kms", ("KMS.Key", "KMS.Alias")
+        )
+    assert result.status == "FAIL"
+    assert validator.errors and all(
+        "synthetic child projection violation" in error for error in validator.errors
+    )
+    assert not validator.findings.processing_errors
+    assert any(
+        item.get("resource") == "AliasOne" for item in validator.findings.unverified
+    )
+
+
+def check_grouped_expansion_failure_has_no_derived_errors(tmp_path, catalog):
+    text = KMS.replace("<!-- logical-id: AliasTwo -->", "").replace(
+        "| 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |\n",
+        "",
+    )
+    validator, result = table_validation(
+        tmp_path, catalog, text, "kms", ("KMS.Key", "KMS.Alias")
+    )
+    assert result.status == "FAIL"
+    assert any("requires anchor and logical ID" in error for error in validator.errors)
+    assert not any(
+        "identifier output" in error or "provider schema" in error
+        for error in validator.errors
+    )
+    assert any(
+        "grouped child schema/identity" in item.get("checks", [])
+        for item in validator.findings.unverified
+    )
+    assert not validator.findings.processing_errors
+
+
+def check_horizontal_raw_checks_survive_reference_failure(tmp_path, catalog):
+    text = SECURITY_GROUP_DESIGN.replace("`10.0.0.0/24`", "`PENDING_DEPLOY`").replace(
+        "`IPv4 outbound` |", "`IPv4 outbound` | extra |"
+    )
+    with patch.object(
+        design_tables._design_document,
+        "model_reference_tables",
+        side_effect=ValueError("unavailable Model display"),
+    ):
+        validator, result = table_validation(
+            tmp_path, catalog, text, "security-group", ("EC2.SecurityGroup",)
+        )
+    assert result.status == "FAIL"
+    assert any(
+        "CIDR must not use PENDING_DEPLOY" in error for error in validator.errors
+    )
+    assert any(
+        "invalid Security Group table row" in error for error in validator.errors
+    )
+    assert any("unavailable Model display" in error for error in validator.errors)
+    assert not validator.findings.processing_errors
+
+
+def check_unexpected_expansion_exception_is_processing(tmp_path, catalog):
+    with patch.object(
+        design_tables, "expanded_design", side_effect=RuntimeError("framework failure")
+    ):
+        validator, result = table_validation(tmp_path, catalog, CODEBUILD)
+    assert result.status == "NOT_RUN" and result.metadata["reason"] == "processing"
+    assert len(validator.findings.processing_errors) == 1
+    assert validator.findings.processing_errors[0]["exception"] == "RuntimeError"
 
 
 if __name__ == "__main__":

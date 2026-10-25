@@ -3749,6 +3749,19 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 
 Existing partial-comparison UTs retain confirmed sibling differences and reject matches for prohibited references. Their comparison rejection reason is PLAINTEXT prohibition; authoritative Model validation owns the blocking ordinary Issue.
 
+## Design table expansion dependency isolation
+
+| Origin | Case | Level | Entry | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `design-expansion::independence` | `check_expansion_failure_preserves_raw_and_independent_resources` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 1 | Valid CodeBuild PASS; PLAINTEXT cause retained, no derived Variables/Subnets/Id errors, raw failures and independent catalog/schema failures remain; blocked scope recorded | Synthetic Markdown |
+| `design-expansion::stages` | `check_expansion_dependency_boundaries` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 6 | Model reference tables, display expansion and hidden-row projection: input ERROR versus unresolved-reference warning, raw continuation, no identity misclassification or processing error | Synthetic exceptions |
+| `design-expansion::child-projection` | `check_grouped_projection_failure_stops_dependent_schema` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 1 | Child projection failure blocks dependent grouped schema and identifier checks | Synthetic KMS |
+| `design-expansion::child-expansion` | `check_grouped_expansion_failure_has_no_derived_errors` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 1 | Actual grouped child expansion violation retains its cause without secondary schema or identifier errors | Synthetic KMS |
+| `design-expansion::horizontal-raw` | `check_horizontal_raw_checks_survive_reference_failure` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 1 | Horizontal Security Group cell structure and CIDR checks continue when Model reference validation fails | Synthetic Security Group |
+| `design-expansion::processing` | `check_unexpected_expansion_exception_is_processing` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 1 | Unexpected RuntimeError remains a processing failure | Synthetic exception |
+
+The existing CodeBuild scan/save UT also checks Issues v3 ordinary policy errors, aggregate FAIL, incomplete NOT_RUN checks, no derived catalog/identifier errors and no policy processing errors. Generation-level unavailable Views retain their existing NOT_RUN classification.
+
 ## desired直接値PENDING_DEPLOYの正常除外
 
 | Origin | Case | Level | Entry | Execution | Contract | Inputs |

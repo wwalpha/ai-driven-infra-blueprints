@@ -107,10 +107,14 @@ class Findings:
         if isinstance(metadata, dict):
             result.metadata = metadata
         if len(self.unverified) > incomplete_start:
+            unverified = self.unverified[incomplete_start:]
+            reason = "reference"
+            if any(item.get("reason") == "expansion" for item in unverified):
+                reason = "dependency"
             result.metadata.update(
                 complete=False,
-                reason="reference",
-                unverified=self.unverified[incomplete_start:],
+                reason=reason,
+                unverified=unverified,
             )
         return result
 

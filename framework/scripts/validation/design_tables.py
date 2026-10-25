@@ -32,10 +32,9 @@ from design.layout_schema import (
 )
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
 from design.policy_tables import iam_role_policy_artifact_filename
-from design.services.codebuild import PlaintextReferenceError
 from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
 from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
-from design.services.ec2.security_groups import security_group_table_lines
+from design.services.ec2.security_groups import security_group_table_lines, table_at
 from design.services.macie import job_bucket_tables
 from model.core import ReferenceResolutionError, literal
 from model.core import entries as entries
@@ -286,6 +285,227 @@ def check_markdown_iam_policy_artifacts(
         markdown_iam_policy_artifacts.setdefault(key, artifact)
 
 
+SEMANTIC_CHECKS = (
+    "catalog membership",
+    "service ownership",
+    "provider schema",
+    "required properties",
+    "identifier outputs",
+    "catalog order",
+    "grouped child schema/identity",
+)
+
+
+def design_dependency_not_run(
+    path, target, stage, error, *, findings, checks=SEMANTIC_CHECKS
+):
+    scope = frozenset({(*path.parent.parts[-2:], path.stem)})
+    reason = "expansion"
+    if isinstance(error, ReferenceResolutionError):
+        findings.warn(error)
+        reason = "reference"
+    elif isinstance(error, Exception):
+        findings.check(False, f"{stage}: {findings.relative(path)}: {error}")
+    entry = dict(
+        code="design.tables.dependency",
+        reason=reason,
+        phase=stage,
+        scope=["/".join(item) for item in sorted(scope)],
+        path=findings.relative(path),
+        resource=target,
+        message=str(error),
+        checks=list(checks),
+        complete=False,
+    )
+    findings.unverified.append(entry)
+    result = findings.result("design.tables.semantic", scope)
+    if result.metadata.get("reason") == "expansion":
+        reason = "expansion"
+    result.metadata.update(complete=False, reason=reason)
+    result.metadata.setdefault("unverified", []).append(entry)
+
+
+def check_raw_design_tables(path, lines, *, findings):
+    findings.check(
+        len([line for line in lines if re.fullmatch(r"# [^#].+", line)]) == 1,
+        f"design must contain exactly one H1 title: {findings.relative(path)}",
+    )
+    for line in lines:
+        findings.check(
+            FORBIDDEN_DESIGN_METADATA_PATTERN.match(line) is None,
+            f"forbidden design file metadata: {findings.relative(path)}: {line}",
+        )
+        findings.check(
+            FORBIDDEN_DESIGN_SECTION_PATTERN.fullmatch(line) is None,
+            f"forbidden design section: {findings.relative(path)}: {line}",
+        )
+    resource_type = ""
+    for index, line in enumerate(lines):
+        if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
+            resource_type = heading.group(1)
+            findings.check(
+                (resource_type in SECURITY_GROUP_TYPES)
+                == (path.stem == "security-group"),
+                f"Security Group resources must belong only to security-group: {findings.relative(path)}: {resource_type}",
+            )
+        elif line.startswith("#"):
+            resource_type = ""
+        if line != TABLE_HEADER or not resource_type:
+            continue
+        cursor = index + 2
+        while cursor < len(lines) and lines[cursor].startswith("|"):
+            cells = [cell.strip() for cell in lines[cursor].strip("|").split("|")]
+            if len(cells) == 4 and cells[1].startswith(resource_type + "."):
+                findings.check(
+                    False,
+                    f"resource table Property must omit heading resource type: {findings.relative(path)}:{cursor + 1}: {cells[1]}",
+                )
+            cursor += 1
+    table_count = 0
+    current_resource_type = ""
+    previous = ""
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        heading = RESOURCE_HEADING_PATTERN.fullmatch(line)
+        if heading:
+            current_resource_type = heading.group(1)
+            findings.check(
+                current_resource_type not in GROUPED_CHILD_RESOURCE_TYPES,
+                f"grouped resource type must not have an independent heading: {findings.relative(path)}: {current_resource_type}",
+            )
+            findings.check(
+                ANCHOR_PATTERN.fullmatch(previous) is not None,
+                f"resource heading lacks explicit anchor: {findings.relative(path)}: {line}",
+            )
+        elif line.startswith("#"):
+            current_resource_type = ""
+        if line.strip():
+            previous = line.strip()
+        if not current_resource_type or not line.startswith("|"):
+            index += 1
+            continue
+        table_start = index
+        table = []
+        while index < len(lines) and lines[index].startswith("|"):
+            table.append(lines[index])
+            index += 1
+        table_count += 1
+        # Horizontal SG tables retain their existing structural parser.
+        if current_resource_type in SECURITY_GROUP_TYPES and table[0] != TABLE_HEADER:
+            headers = [cell.strip() for cell in table[0].strip("|").split("|")]
+            for row in table[2:]:
+                cells = [cell.strip() for cell in row.strip("|").split("|")]
+                for property_name, value in zip(headers, cells, strict=False):
+                    check_cidr_value(path, property_name, value, findings=findings)
+            try:
+                table_at(lines, table_start)
+            except ValueError as error:
+                findings.check(
+                    False,
+                    f"invalid grouped design: {findings.relative(path)}: {error}",
+                )
+            continue
+        findings.check(len(table) >= 2, f"incomplete table: {findings.relative(path)}")
+        if len(table) < 2:
+            continue
+        findings.check(
+            table[0] == TABLE_HEADER, f"invalid table header: {findings.relative(path)}"
+        )
+        findings.check(
+            table[1] == TABLE_ALIGNMENT,
+            f"invalid table alignment: {findings.relative(path)}",
+        )
+        for number, row in enumerate(table[2:], 1):
+            cells = [cell.strip() for cell in row.strip("|").split("|")]
+            findings.check(
+                len(cells) == 4,
+                f"table row must have four cells: {findings.relative(path)}",
+            )
+            findings.check(
+                len(cells) == 4 and cells[0] == str(number),
+                f"table numbering error: {findings.relative(path)}",
+            )
+            if len(cells) == 4:
+                check_cidr_value(path, cells[1], cells[2], findings=findings)
+                findings.check(
+                    JAPANESE_TEXT_PATTERN.search(cells[3]) is not None,
+                    f"Source / Comment must be Japanese: {findings.relative(path)}: {cells[3]}",
+                )
+    findings.check(
+        table_count > 0, f"resource design has no table: {findings.relative(path)}"
+    )
+
+
+def expanded_table_units(
+    path, lines, *, identities, bound_anchors, modes, reference_tables, root, findings
+):
+    starts = []
+    for index, line in enumerate(lines):
+        if RESOURCE_HEADING_PATTERN.fullmatch(line):
+            start = index
+            while start and (
+                not lines[start - 1].strip()
+                or ANCHOR_PATTERN.fullmatch(lines[start - 1])
+                or lines[start - 1].startswith("<!-- resource-logical-id:")
+            ):
+                start -= 1
+            starts.append(start)
+    units = []
+    for start, end in zip(starts, [*starts[1:], len(lines)], strict=False):
+        block = lines[start:end]
+        target = next(
+            line for line in block if RESOURCE_HEADING_PATTERN.fullmatch(line)
+        )
+        try:
+            _, children = expanded_design(
+                block,
+                normalized=True,
+                logical_ids=identities,
+                bound_anchors=bound_anchors,
+                root=root,
+                modes=modes,
+                reference_tables=reference_tables,
+            )
+            display = expanded_display_rows(
+                block, root, modes=modes, reference_tables=reference_tables
+            )
+        except (ReferenceResolutionError, ValueError) as error:
+            design_dependency_not_run(
+                path, target, "invalid grouped design", error, findings=findings
+            )
+            continue
+        units.append((display, children))
+    # Local expansion cannot prove cross-resource grouped identities after a failure.
+    if len(starts) > 1:
+        if len(units) != len(starts):
+            design_dependency_not_run(
+                path,
+                "document",
+                "grouped identity dependencies",
+                "resource expansion unavailable",
+                findings=findings,
+                checks=("cross-resource grouped identity",),
+            )
+        else:
+            try:
+                expanded_design(
+                    lines,
+                    normalized=True,
+                    logical_ids=identities,
+                    bound_anchors=bound_anchors,
+                    root=root,
+                    modes=modes,
+                    reference_tables=reference_tables,
+                )
+            except (ReferenceResolutionError, ValueError) as error:
+                design_dependency_not_run(
+                    path, "document", "invalid grouped design", error, findings=findings
+                )
+                return []
+    return units
+
+
 @input_scope
 def check_design_tables(
     service_metadata: dict[Path, tuple[str, tuple[str, ...]]],
@@ -306,6 +526,7 @@ def check_design_tables(
     definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
         lines = resource_heading_lines(input_text(path, encoding="utf-8").splitlines())
+        check_raw_design_tables(path, lines, findings=findings)
         try:
             identities = resource_logical_ids(lines)
             values = design_model_values(path, design_sources=design_sources, root=root)
@@ -320,12 +541,6 @@ def check_design_tables(
                 }
             )
             modes = resource_modes(lines, values)
-            reference_tables = _design_document.model_reference_tables(
-                path,
-                input_text(path, encoding="utf-8"),
-                tuple((values or {}).items()),
-                definitions_root,
-            )
             heading_modes = {}
             anchor = ""
             for line in lines:
@@ -333,465 +548,16 @@ def check_design_tables(
                     anchor = match.group(1)
                 elif match := RESOURCE_HEADING_PATTERN.fullmatch(line):
                     heading_modes[match.groups()] = modes.get(anchor, "CREATE")
-        except ReferenceResolutionError as error:
-            findings.warn(error)
-            continue
         except (OSError, ValueError) as error:
-            findings.check(
-                False, f"invalid resource identity: {findings.relative(path)}: {error}"
+            design_dependency_not_run(
+                path, "document", "invalid resource identity", error, findings=findings
             )
             continue
-        resource_type = ""
-        for index, line in enumerate(lines):
-            if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
-                resource_type = heading.group(1)
-                findings.check(
-                    (resource_type in SECURITY_GROUP_TYPES)
-                    == (path.stem == "security-group"),
-                    f"Security Group resources must belong only to security-group: {findings.relative(path)}: {resource_type}",
-                )
-            elif line.startswith("#"):
-                resource_type = ""
-            if line != TABLE_HEADER or not resource_type:
-                continue
-            cursor = index + 2
-            while cursor < len(lines) and lines[cursor].startswith("|"):
-                cells = [cell.strip() for cell in lines[cursor].strip("|").split("|")]
-                if len(cells) == 4 and cells[1].startswith(resource_type + "."):
-                    findings.check(
-                        False,
-                        f"resource table Property must omit heading resource type: {findings.relative(path)}:{cursor + 1}: {cells[1]}",
-                    )
-                cursor += 1
-        try:
-            lines = security_group_table_lines(lines, definitions_root)
-            _, children = expanded_design(
-                lines,
-                normalized=True,
-                bound_anchors=bound_anchors,
-                root=definitions_root,
-                modes=modes,
-                reference_tables=reference_tables,
-            )
-            lines = expanded_display_rows(
-                lines, definitions_root, modes=modes, reference_tables=reference_tables
-            )
-        except ReferenceResolutionError as error:
-            findings.warn(error)
-            continue
-        except PlaintextReferenceError as error:
-            findings.check(
-                False, f"invalid grouped design: {findings.relative(path)}: {error}"
-            )
-            lines, children = error.lines, {}
-        except ValueError as error:
-            findings.check(
-                False, f"invalid grouped design: {findings.relative(path)}: {error}"
-            )
-            children = {}
-        for child in children.values():
-            resource_type = child["resourceType"]
-            child["rows"] = validation_rows(
-                child["rows"],
-                values,
-                resource_type,
-                child["logicalId"],
-                definitions_root,
-                scope=(*path.parent.parts[-2:], path.stem),
-            )
-            if schema_catalog is not None:
-                present = {
-                    resource_property_path(resource_type, prop)
-                    for prop in [
-                        *(row[1] for row in child["rows"]),
-                        child["parentProperty"],
-                    ]
-                }
-                for required in schema_catalog.required_properties(resource_type):
-                    if resource_type in catalog_property_owners.get(required, set()):
-                        findings.check(
-                            required in present,
-                            f"required grouped property missing: {findings.relative(path)}: {child['logicalId']}: {required}",
-                        )
-            check_generated_identifier(
-                path,
-                resource_type,
-                child["logicalId"],
-                child["rows"],
-                identifier_outputs,
-                findings=findings,
-                values=values,
-            )
-        findings.check(
-            len([line for line in lines if re.fullmatch(r"# [^#].+", line)]) == 1,
-            f"design must contain exactly one H1 title: {findings.relative(path)}",
-        )
-        for line in lines:
-            findings.check(
-                FORBIDDEN_DESIGN_METADATA_PATTERN.match(line) is None,
-                f"forbidden design file metadata: {findings.relative(path)}: {line}",
-            )
-            findings.check(
-                FORBIDDEN_DESIGN_SECTION_PATTERN.fullmatch(line) is None,
-                f"forbidden design section: {findings.relative(path)}: {line}",
-            )
-        table_count = 0
-        index = 0
-        current_anchor = ""
-        current_resource_type = ""
-        current_logical_id = ""
-        while index < len(lines):
-            if marker := ANCHOR_PATTERN.fullmatch(lines[index]):
-                current_anchor = marker.group(1)
-            heading_match = RESOURCE_HEADING_PATTERN.fullmatch(lines[index])
-            if heading_match:
-                current_resource_type = heading_match.group(1)
-                current_logical_id = heading_match.group(2)
-                findings.check(
-                    current_resource_type in catalog_types,
-                    f"unknown catalog resource type in heading: {findings.relative(path)}: {current_resource_type}",
-                )
-                if current_resource_type in catalog_types and path in service_metadata:
-                    findings.check(
-                        current_resource_type in service_metadata[path][1],
-                        f"catalog resource type is outside declared service ownership: {findings.relative(path)}: {current_resource_type}",
-                    )
-                findings.check(
-                    current_resource_type not in GROUPED_CHILD_RESOURCE_TYPES,
-                    f"grouped resource type must not have an independent heading: {findings.relative(path)}: {current_resource_type}",
-                )
-            elif lines[index].startswith("#"):
-                current_resource_type = ""
-                current_logical_id = ""
-            if not lines[index].startswith("|"):
-                index += 1
-                continue
-            if not current_resource_type:
-                while index < len(lines) and lines[index].startswith("|"):
-                    index += 1
-                continue
-            table_count += 1
-            table = []
-            while index < len(lines) and lines[index].startswith("|"):
-                table.append(lines[index])
-                index += 1
-            findings.check(
-                len(table) >= (2 if values else 3),
-                f"incomplete table: {findings.relative(path)}",
-            )
-            if len(table) < (2 if values else 3):
-                continue
-            findings.check(
-                table[0] == TABLE_HEADER,
-                f"invalid table header: {findings.relative(path)}",
-            )
-            findings.check(
-                table[1] == TABLE_ALIGNMENT,
-                f"invalid table alignment: {findings.relative(path)}",
-            )
-            rows: list[list[str]] = []
-            shown = [
-                [cell.strip() for cell in row.strip("|").split("|")]
-                for row in table[2:]
-            ]
-            for number, cells in enumerate(shown, 1):
-                findings.check(
-                    len(cells) == 4 and cells[0] == str(number),
-                    f"table numbering error: {findings.relative(path)}",
-                )
-            semantic = shown
-            if all(len(row) == 4 for row in shown):
-                try:
-                    semantic = validation_rows(
-                        shown,
-                        values,
-                        current_resource_type,
-                        identities.get(current_anchor, current_logical_id),
-                        definitions_root,
-                        scope=(*path.parent.parts[-2:], path.stem),
-                    )
-                except ReferenceResolutionError as error:
-                    findings.warn(error)
-                except ValueError as error:
-                    findings.check(
-                        False,
-                        f"invalid Model display projection: {findings.relative(path)}: {error}",
-                    )
-            for number, cells in enumerate(semantic, 1):
-                findings.check(
-                    len(cells) == 4,
-                    f"table row must have four cells: {findings.relative(path)}",
-                )
-                if len(cells) == 4:
-                    display_property = cells[1]
-                    cells[1] = display_property
-                    rows.append(cells)
-                    check_cidr_value(path, cells[1], cells[2], findings=findings)
-                    findings.check(
-                        cells[0] == str(number),
-                        f"table numbering error: {findings.relative(path)}",
-                    )
-                    findings.check(
-                        JAPANESE_TEXT_PATTERN.search(cells[3]) is not None,
-                        f"Source / Comment must be Japanese: {findings.relative(path)}: {cells[3]}",
-                    )
-                    property_owners = catalog_property_owners.get(cells[1], set())
-                    allowed_types = {
-                        current_resource_type,
-                        *GROUPED_RESOURCE_TYPES.get(current_resource_type, set()),
-                    }
-                    row_types = property_owners & allowed_types
-                    if current_resource_type in catalog_types:
-                        findings.check(
-                            bool(row_types),
-                            f"resource table property is not selected by design catalog: {findings.relative(path)}: {current_resource_type}: {cells[1]}",
-                        )
-                    if property_owners and path in service_metadata:
-                        owned_types = set(service_metadata[path][1])
-                        findings.check(
-                            bool(property_owners & owned_types),
-                            f"catalog property is outside declared service ownership: {findings.relative(path)}: {cells[1]}",
-                        )
-                        if current_resource_type:
-                            findings.check(
-                                bool(row_types),
-                                f"catalog property does not belong to resource table: {findings.relative(path)}: {current_resource_type}: {cells[1]}",
-                            )
-                    schema_type = (
-                        current_resource_type
-                        if current_resource_type in row_types
-                        else min(row_types, default="")
-                    )
-                    if schema_type in GROUPED:
-                        findings.check(
-                            cells[1].startswith(schema_type + "."),
-                            f"grouped property must use its full catalog name: {findings.relative(path)}: {cells[1]}",
-                        )
-                    try:
-                        import_expression = is_import_expression(
-                            cells[1], cells[2], path
-                        )
-                    except ValueError as error:
-                        findings.check(
-                            False,
-                            f"invalid Model expression: {findings.relative(path)}: {error}",
-                        )
-                        import_expression = True
-                    if (
-                        schema_catalog is not None
-                        and not import_expression
-                        and schema_type
-                        and schema_type not in schema_catalog.api_schemas
-                        and cells[1] != REQUIRED_NAME_PROPERTIES.get(schema_type)
-                        and cells[1] not in DESIGN_ONLY_PROPERTIES
-                        and LINK_PATTERN.fullmatch(cells[2]) is None
-                    ):
-                        property_path = resource_property_path(schema_type, cells[1])
-                        raw_value = unquoted(cells[2])
-                        if cells[
-                            1
-                        ] in SUBNET_LIST_PROPERTIES and raw_value.lstrip().startswith(
-                            "["
-                        ):
-                            property_path = property_path.removesuffix("[]")
-                        if config_role_arn(cells[1], cells[2]):
-                            findings.check(
-                                heading_modes.get(
-                                    (current_resource_type, current_logical_id),
-                                    "CREATE",
-                                )
-                                == "IMPORT",
-                                f"Config RoleARN literal requires IMPORT: {findings.relative(path)}: {cells[1]}",
-                            )
-                        pending_reference = is_import_pending_reference(
-                            cells[1], cells[2]
-                        )
-                        if pending_reference:
-                            findings.check(
-                                heading_modes.get(
-                                    (current_resource_type, current_logical_id),
-                                    "CREATE",
-                                )
-                                == "IMPORT",
-                                f"Pending reference requires IMPORT: {findings.relative(path)}: {cells[1]}",
-                            )
-                        errors = (
-                            []
-                            if pending_reference
-                            or is_service_role_reference(cells[1], cells[2])
-                            or (
-                                cells[1] in identifier_outputs.get(schema_type, set())
-                                and raw_value == "PENDING_DEPLOY"
-                            )
-                            else schema_catalog.literal_errors(
-                                schema_type, property_path, raw_value
-                            )
-                        )
-                        for error in errors:
-                            findings.check(
-                                False,
-                                f"provider schema violation: {findings.relative(path)}: {identities.get(current_anchor, current_logical_id)}: {schema_type}.{property_path}: {raw_value!r} {error}",
-                            )
-                    link_match = VALUE_LINK_PATTERN.fullmatch(cells[2])
-                    artifact_link = link_match.group(1) if link_match else ""
-                    is_json_link = artifact_link.endswith(".json")
-                    if is_policy_document_property(cells[1]):
-                        findings.check(
-                            is_json_link,
-                            f"policy property must link to a JSON artifact: {findings.relative(path)}: {cells[1]}",
-                        )
-                    if cells[1] == S3_KMS_MASTER_KEY_ID:
-                        findings.warn(
-                            RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
-                            f"S3 KMSMasterKeyID must link to a KMS.Alias or an explicit Model KMS.Key/Arn: {findings.relative(path)}: {current_logical_id}",
-                        )
-                    if cells[1] == "EC2.SecurityGroup.VpcId":
-                        findings.warn(
-                            RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
-                            f"Security Group VpcId must link to its VPC: {findings.relative(path)}: {current_logical_id}",
-                        )
-                    if is_json_link:
-                        artifact = (path.parent / artifact_link).resolve()
-                        expected_directory = path.with_suffix("").resolve()
-                        findings.check(
-                            artifact.parent == expected_directory,
-                            f"design JSON artifact must be stored under owning service: {findings.relative(path)}: {artifact_link}",
-                        )
-                        findings.check(
-                            LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None,
-                            f"invalid design JSON artifact path: {findings.relative(path)}: {artifact_link}",
-                        )
-                        markdown_design_artifacts.add(artifact)
-            if current_resource_type in catalog_types:
-                if (
-                    schema_catalog is not None
-                    and current_resource_type in schema_catalog.api_schemas
-                ):
-                    check_api_design_rows(
-                        path,
-                        current_resource_type,
-                        current_logical_id,
-                        rows,
-                        findings=findings,
-                        schema_catalog=schema_catalog,
-                    )
-                if current_resource_type == "Events.Rule":
-                    for property_name in ("Events.Rule.Name", "Events.Rule.State"):
-                        selected = [row for row in rows if row[1] == property_name]
-                        findings.check(
-                            len(selected) == 1,
-                            f"{property_name} must appear exactly once: {findings.relative(path)}: {current_logical_id}",
-                        )
-                        if len(selected) == 1:
-                            value = unquoted(selected[0][2]).strip()
-                            findings.check(
-                                value not in {"", "UNSET", "PENDING_DEPLOY"},
-                                f"{property_name} must have a confirmed value: {findings.relative(path)}: {current_logical_id}",
-                            )
-                if current_resource_type == "S3.Bucket":
-                    bucket_name_rows = [
-                        row for row in rows if row[1] == "S3.Bucket.BucketName"
-                    ]
-                    findings.check(
-                        len(bucket_name_rows) == 1
-                        and rows[0][1] == "S3.Bucket.BucketName",
-                        f"S3.Bucket.BucketName must be the first row: {findings.relative(path)}: {current_logical_id}",
-                    )
-                    if len(bucket_name_rows) == 1:
-                        findings.check(
-                            current_logical_id == unquoted(bucket_name_rows[0][2]),
-                            f"S3.Bucket heading identifier must match BucketName: {findings.relative(path)}: {current_logical_id}",
-                        )
-                    region_rows = [row for row in rows if row[1] == "S3.Bucket.Region"]
-                    findings.check(
-                        len(region_rows) == 1
-                        and len(rows) > 1
-                        and rows[1][1] == "S3.Bucket.Region",
-                        f"S3.Bucket.Region must be the second row: {findings.relative(path)}: {current_logical_id}",
-                    )
-                    if len(region_rows) == 1:
-                        region = unquoted(region_rows[0][2])
-                        findings.check(
-                            LOWER_KEBAB_PATTERN.fullmatch(region) is not None
-                            and region != "UNSET",
-                            f"S3.Bucket.Region must be a confirmed AWS region ID: {findings.relative(path)}: {current_logical_id}",
-                        )
-                if schema_catalog is not None:
-                    schema_types = {current_resource_type} | {
-                        resource_type
-                        for resource_type in GROUPED_RESOURCE_TYPES.get(
-                            current_resource_type, set()
-                        )
-                        if any(
-                            resource_type in catalog_property_owners.get(row[1], set())
-                            for row in rows
-                        )
-                    }
-                    for resource_type in schema_types:
-                        present = property_paths_with_parents(
-                            {
-                                resource_property_path(resource_type, row[1])
-                                for row in rows
-                                if resource_type
-                                in catalog_property_owners.get(row[1], set())
-                            }
-                        )
-                        selected_required = schema_catalog.required_design_properties(
-                            resource_type
-                        )
-                        missing = (
-                            selected_required
-                            - present
-                            - IMPLICIT_GROUPED_PROPERTIES.get(resource_type, set())
-                        )
-                        for property_name in sorted(missing):
-                            findings.check(
-                                False,
-                                f"required provider schema property missing: {findings.relative(path)}: {resource_type}.{property_name}",
-                            )
-                check_generated_identifier(
-                    path,
-                    current_resource_type,
-                    identities.get(current_anchor, current_logical_id),
-                    rows,
-                    identifier_outputs,
-                    findings=findings,
-                    values=values,
-                )
-                check_required_name_tag(
-                    path,
-                    current_resource_type,
-                    current_logical_id,
-                    rows,
-                    heading_modes.get(
-                        (current_resource_type, current_logical_id), "CREATE"
-                    ),
-                    findings=findings,
-                    schema_catalog=schema_catalog,
-                )
-            if current_resource_type == "IAM.Role":
-                check_markdown_iam_policy_artifacts(
-                    path,
-                    identities.get(current_anchor, current_logical_id),
-                    rows,
-                    design_sources=design_sources,
-                    findings=findings,
-                    markdown_iam_policy_artifacts=markdown_iam_policy_artifacts,
-                    root=root,
-                )
-        findings.check(
-            table_count > 0, f"resource design has no table: {findings.relative(path)}"
-        )
-
         previous = ""
         for line in lines:
             heading_match = RESOURCE_HEADING_PATTERN.fullmatch(line)
             if heading_match:
                 anchor_match = ANCHOR_PATTERN.fullmatch(previous)
-                findings.check(
-                    anchor_match is not None,
-                    f"resource heading lacks explicit anchor: {findings.relative(path)}: {line}",
-                )
                 if path in service_metadata:
                     logical_id = heading_match.group(2)
                     if anchor_match is not None:
@@ -812,6 +578,413 @@ def check_design_tables(
                         )
             if line.strip():
                 previous = line.strip()
+
+        try:
+            reference_tables = _design_document.model_reference_tables(
+                path,
+                input_text(path, encoding="utf-8"),
+                tuple((values or {}).items()),
+                definitions_root,
+            )
+        except (OSError, ValueError) as error:
+            design_dependency_not_run(
+                path,
+                "document",
+                "invalid Model reference display",
+                error,
+                findings=findings,
+            )
+            continue
+        try:
+            lines = security_group_table_lines(lines, definitions_root)
+        except (ReferenceResolutionError, ValueError) as error:
+            design_dependency_not_run(
+                path, "document", "invalid grouped design", error, findings=findings
+            )
+            continue
+        units = expanded_table_units(
+            path,
+            lines,
+            identities=identities,
+            bound_anchors=bound_anchors,
+            modes=modes,
+            reference_tables=reference_tables,
+            root=definitions_root,
+            findings=findings,
+        )
+        for lines, children in units:
+            children_ready = True
+            for child in children.values():
+                resource_type = child["resourceType"]
+                try:
+                    child["rows"] = validation_rows(
+                        child["rows"],
+                        values,
+                        resource_type,
+                        child["logicalId"],
+                        definitions_root,
+                        scope=(*path.parent.parts[-2:], path.stem),
+                    )
+                except (ReferenceResolutionError, ValueError) as error:
+                    design_dependency_not_run(
+                        path,
+                        child["logicalId"],
+                        "invalid Model display projection",
+                        error,
+                        findings=findings,
+                    )
+                    children_ready = False
+            if not children_ready:
+                continue
+            for child in children.values():
+                resource_type = child["resourceType"]
+                if schema_catalog is not None:
+                    present = {
+                        resource_property_path(resource_type, prop)
+                        for prop in [
+                            *(row[1] for row in child["rows"]),
+                            child["parentProperty"],
+                        ]
+                    }
+                    for required in schema_catalog.required_properties(resource_type):
+                        if resource_type in catalog_property_owners.get(
+                            required, set()
+                        ):
+                            findings.check(
+                                required in present,
+                                f"required grouped property missing: {findings.relative(path)}: {child['logicalId']}: {required}",
+                            )
+                check_generated_identifier(
+                    path,
+                    resource_type,
+                    child["logicalId"],
+                    child["rows"],
+                    identifier_outputs,
+                    findings=findings,
+                    values=values,
+                )
+            index = 0
+            current_anchor = ""
+            current_resource_type = ""
+            current_logical_id = ""
+            while index < len(lines):
+                if marker := ANCHOR_PATTERN.fullmatch(lines[index]):
+                    current_anchor = marker.group(1)
+                heading_match = RESOURCE_HEADING_PATTERN.fullmatch(lines[index])
+                if heading_match:
+                    current_resource_type = heading_match.group(1)
+                    current_logical_id = heading_match.group(2)
+                    findings.check(
+                        current_resource_type in catalog_types,
+                        f"unknown catalog resource type in heading: {findings.relative(path)}: {current_resource_type}",
+                    )
+                    if (
+                        current_resource_type in catalog_types
+                        and path in service_metadata
+                    ):
+                        findings.check(
+                            current_resource_type in service_metadata[path][1],
+                            f"catalog resource type is outside declared service ownership: {findings.relative(path)}: {current_resource_type}",
+                        )
+                elif lines[index].startswith("#"):
+                    current_resource_type = ""
+                    current_logical_id = ""
+                if not lines[index].startswith("|"):
+                    index += 1
+                    continue
+                if not current_resource_type:
+                    while index < len(lines) and lines[index].startswith("|"):
+                        index += 1
+                    continue
+                table = []
+                while index < len(lines) and lines[index].startswith("|"):
+                    table.append(lines[index])
+                    index += 1
+                rows: list[list[str]] = []
+                shown = [
+                    [cell.strip() for cell in row.strip("|").split("|")]
+                    for row in table[2:]
+                ]
+                if not values:
+                    findings.check(
+                        bool(shown), f"incomplete table: {findings.relative(path)}"
+                    )
+                    if not shown:
+                        continue
+                semantic = None
+                if all(len(row) == 4 for row in shown):
+                    try:
+                        semantic = validation_rows(
+                            shown,
+                            values,
+                            current_resource_type,
+                            identities.get(current_anchor, current_logical_id),
+                            definitions_root,
+                            scope=(*path.parent.parts[-2:], path.stem),
+                        )
+                    except (ReferenceResolutionError, ValueError) as error:
+                        design_dependency_not_run(
+                            path,
+                            current_logical_id,
+                            "invalid Model display projection",
+                            error,
+                            findings=findings,
+                        )
+                if semantic is None:
+                    continue
+                for cells in semantic:
+                    if len(cells) == 4:
+                        rows.append(cells)
+                        property_owners = catalog_property_owners.get(cells[1], set())
+                        allowed_types = {
+                            current_resource_type,
+                            *GROUPED_RESOURCE_TYPES.get(current_resource_type, set()),
+                        }
+                        row_types = property_owners & allowed_types
+                        if current_resource_type in catalog_types:
+                            findings.check(
+                                bool(row_types),
+                                f"resource table property is not selected by design catalog: {findings.relative(path)}: {current_resource_type}: {cells[1]}",
+                            )
+                        if property_owners and path in service_metadata:
+                            owned_types = set(service_metadata[path][1])
+                            findings.check(
+                                bool(property_owners & owned_types),
+                                f"catalog property is outside declared service ownership: {findings.relative(path)}: {cells[1]}",
+                            )
+                            if current_resource_type:
+                                findings.check(
+                                    bool(row_types),
+                                    f"catalog property does not belong to resource table: {findings.relative(path)}: {current_resource_type}: {cells[1]}",
+                                )
+                        schema_type = (
+                            current_resource_type
+                            if current_resource_type in row_types
+                            else min(row_types, default="")
+                        )
+                        if schema_type in GROUPED:
+                            findings.check(
+                                cells[1].startswith(schema_type + "."),
+                                f"grouped property must use its full catalog name: {findings.relative(path)}: {cells[1]}",
+                            )
+                        try:
+                            import_expression = is_import_expression(
+                                cells[1], cells[2], path
+                            )
+                        except ValueError as error:
+                            findings.check(
+                                False,
+                                f"invalid Model expression: {findings.relative(path)}: {error}",
+                            )
+                            import_expression = True
+                        if (
+                            schema_catalog is not None
+                            and not import_expression
+                            and schema_type
+                            and schema_type not in schema_catalog.api_schemas
+                            and cells[1] != REQUIRED_NAME_PROPERTIES.get(schema_type)
+                            and cells[1] not in DESIGN_ONLY_PROPERTIES
+                            and LINK_PATTERN.fullmatch(cells[2]) is None
+                        ):
+                            property_path = resource_property_path(
+                                schema_type, cells[1]
+                            )
+                            raw_value = unquoted(cells[2])
+                            if (
+                                cells[1] in SUBNET_LIST_PROPERTIES
+                                and raw_value.lstrip().startswith("[")
+                            ):
+                                property_path = property_path.removesuffix("[]")
+                            if config_role_arn(cells[1], cells[2]):
+                                findings.check(
+                                    heading_modes.get(
+                                        (current_resource_type, current_logical_id),
+                                        "CREATE",
+                                    )
+                                    == "IMPORT",
+                                    f"Config RoleARN literal requires IMPORT: {findings.relative(path)}: {cells[1]}",
+                                )
+                            pending_reference = is_import_pending_reference(
+                                cells[1], cells[2]
+                            )
+                            if pending_reference:
+                                findings.check(
+                                    heading_modes.get(
+                                        (current_resource_type, current_logical_id),
+                                        "CREATE",
+                                    )
+                                    == "IMPORT",
+                                    f"Pending reference requires IMPORT: {findings.relative(path)}: {cells[1]}",
+                                )
+                            errors = (
+                                []
+                                if pending_reference
+                                or is_service_role_reference(cells[1], cells[2])
+                                or (
+                                    cells[1]
+                                    in identifier_outputs.get(schema_type, set())
+                                    and raw_value == "PENDING_DEPLOY"
+                                )
+                                else schema_catalog.literal_errors(
+                                    schema_type, property_path, raw_value
+                                )
+                            )
+                            for error in errors:
+                                findings.check(
+                                    False,
+                                    f"provider schema violation: {findings.relative(path)}: {identities.get(current_anchor, current_logical_id)}: {schema_type}.{property_path}: {raw_value!r} {error}",
+                                )
+                        link_match = VALUE_LINK_PATTERN.fullmatch(cells[2])
+                        artifact_link = link_match.group(1) if link_match else ""
+                        is_json_link = artifact_link.endswith(".json")
+                        if is_policy_document_property(cells[1]):
+                            findings.check(
+                                is_json_link,
+                                f"policy property must link to a JSON artifact: {findings.relative(path)}: {cells[1]}",
+                            )
+                        if cells[1] == S3_KMS_MASTER_KEY_ID:
+                            findings.warn(
+                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
+                                f"S3 KMSMasterKeyID must link to a KMS.Alias or an explicit Model KMS.Key/Arn: {findings.relative(path)}: {current_logical_id}",
+                            )
+                        if cells[1] == "EC2.SecurityGroup.VpcId":
+                            findings.warn(
+                                RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
+                                f"Security Group VpcId must link to its VPC: {findings.relative(path)}: {current_logical_id}",
+                            )
+                        if is_json_link:
+                            artifact = (path.parent / artifact_link).resolve()
+                            expected_directory = path.with_suffix("").resolve()
+                            findings.check(
+                                artifact.parent == expected_directory,
+                                f"design JSON artifact must be stored under owning service: {findings.relative(path)}: {artifact_link}",
+                            )
+                            findings.check(
+                                LOWER_KEBAB_PATTERN.fullmatch(artifact.stem)
+                                is not None,
+                                f"invalid design JSON artifact path: {findings.relative(path)}: {artifact_link}",
+                            )
+                            markdown_design_artifacts.add(artifact)
+                if current_resource_type in catalog_types:
+                    if (
+                        schema_catalog is not None
+                        and current_resource_type in schema_catalog.api_schemas
+                    ):
+                        check_api_design_rows(
+                            path,
+                            current_resource_type,
+                            current_logical_id,
+                            rows,
+                            findings=findings,
+                            schema_catalog=schema_catalog,
+                        )
+                    if current_resource_type == "Events.Rule":
+                        for property_name in ("Events.Rule.Name", "Events.Rule.State"):
+                            selected = [row for row in rows if row[1] == property_name]
+                            findings.check(
+                                len(selected) == 1,
+                                f"{property_name} must appear exactly once: {findings.relative(path)}: {current_logical_id}",
+                            )
+                            if len(selected) == 1:
+                                value = unquoted(selected[0][2]).strip()
+                                findings.check(
+                                    value not in {"", "UNSET", "PENDING_DEPLOY"},
+                                    f"{property_name} must have a confirmed value: {findings.relative(path)}: {current_logical_id}",
+                                )
+                    if current_resource_type == "S3.Bucket":
+                        bucket_name_rows = [
+                            row for row in rows if row[1] == "S3.Bucket.BucketName"
+                        ]
+                        findings.check(
+                            len(bucket_name_rows) == 1
+                            and rows[0][1] == "S3.Bucket.BucketName",
+                            f"S3.Bucket.BucketName must be the first row: {findings.relative(path)}: {current_logical_id}",
+                        )
+                        if len(bucket_name_rows) == 1:
+                            findings.check(
+                                current_logical_id == unquoted(bucket_name_rows[0][2]),
+                                f"S3.Bucket heading identifier must match BucketName: {findings.relative(path)}: {current_logical_id}",
+                            )
+                        region_rows = [
+                            row for row in rows if row[1] == "S3.Bucket.Region"
+                        ]
+                        findings.check(
+                            len(region_rows) == 1
+                            and len(rows) > 1
+                            and rows[1][1] == "S3.Bucket.Region",
+                            f"S3.Bucket.Region must be the second row: {findings.relative(path)}: {current_logical_id}",
+                        )
+                        if len(region_rows) == 1:
+                            region = unquoted(region_rows[0][2])
+                            findings.check(
+                                LOWER_KEBAB_PATTERN.fullmatch(region) is not None
+                                and region != "UNSET",
+                                f"S3.Bucket.Region must be a confirmed AWS region ID: {findings.relative(path)}: {current_logical_id}",
+                            )
+                    if schema_catalog is not None:
+                        schema_types = {current_resource_type} | {
+                            resource_type
+                            for resource_type in GROUPED_RESOURCE_TYPES.get(
+                                current_resource_type, set()
+                            )
+                            if any(
+                                resource_type
+                                in catalog_property_owners.get(row[1], set())
+                                for row in rows
+                            )
+                        }
+                        for resource_type in schema_types:
+                            present = property_paths_with_parents(
+                                {
+                                    resource_property_path(resource_type, row[1])
+                                    for row in rows
+                                    if resource_type
+                                    in catalog_property_owners.get(row[1], set())
+                                }
+                            )
+                            selected_required = (
+                                schema_catalog.required_design_properties(resource_type)
+                            )
+                            missing = (
+                                selected_required
+                                - present
+                                - IMPLICIT_GROUPED_PROPERTIES.get(resource_type, set())
+                            )
+                            for property_name in sorted(missing):
+                                findings.check(
+                                    False,
+                                    f"required provider schema property missing: {findings.relative(path)}: {resource_type}.{property_name}",
+                                )
+                    check_generated_identifier(
+                        path,
+                        current_resource_type,
+                        identities.get(current_anchor, current_logical_id),
+                        rows,
+                        identifier_outputs,
+                        findings=findings,
+                        values=values,
+                    )
+                    check_required_name_tag(
+                        path,
+                        current_resource_type,
+                        current_logical_id,
+                        rows,
+                        heading_modes.get(
+                            (current_resource_type, current_logical_id), "CREATE"
+                        ),
+                        findings=findings,
+                        schema_catalog=schema_catalog,
+                    )
+                if current_resource_type == "IAM.Role":
+                    check_markdown_iam_policy_artifacts(
+                        path,
+                        identities.get(current_anchor, current_logical_id),
+                        rows,
+                        design_sources=design_sources,
+                        findings=findings,
+                        markdown_iam_policy_artifacts=markdown_iam_policy_artifacts,
+                        root=root,
+                    )
 
 
 def check_api_design_rows(

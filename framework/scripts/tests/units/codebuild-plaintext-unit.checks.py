@@ -497,6 +497,49 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                     for item in artifact["ordinary"]
                 ), artifact["ordinary"]
             assert all(item["service"] == "codebuild" for item in errors)
+            assert not any(
+                "not selected by design catalog" in item["message"]
+                or "identifier output row" in item["message"]
+                for item in artifact["ordinary"]
+            ), artifact["ordinary"]
+            if not unreadable_view:
+                dependencies = [
+                    item
+                    for item in artifact["unverified"]
+                    if item.get("code") == "design.tables.dependency"
+                ]
+                if dependencies:
+                    assert all(
+                        item.get("resource") and item.get("checks")
+                        for item in dependencies
+                    )
+                    assert any(
+                        result["check_id"] == "design.tables.semantic"
+                        and result["status"] == "NOT_RUN"
+                        and not result["complete"]
+                        for result in artifact["check_results"]
+                    ), artifact["check_results"]
+                else:
+                    # Generation can stop View checks before table validation begins.
+                    assert any(
+                        item.get("code") == "mechanical.view_unverified"
+                        for item in artifact["unverified"]
+                    ), artifact["unverified"]
+                    assert any(
+                        result["check_id"] == "design.service"
+                        and result["scope"] == ["dev/123456789012/codebuild"]
+                        and result["status"] in {"FAIL", "NOT_RUN"}
+                        and not result["complete"]
+                        for result in artifact["check_results"]
+                    ), artifact["check_results"]
+            assert any(
+                result["check_id"] == "mechanical.designs"
+                and result["status"] == "FAIL"
+                for result in artifact["check_results"]
+            ), artifact["check_results"]
+            assert not any(
+                REASON in str(item) for item in artifact["processing_errors"]
+            ), artifact["processing_errors"]
             assert (
                 typed
                 or markdown_link
