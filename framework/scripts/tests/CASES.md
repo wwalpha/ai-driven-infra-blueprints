@@ -140,24 +140,26 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 
 | `model-cli::entrypoints` | `check_cli_entrypoints` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py#L53) | pytest / 1 | 直接起動と公開mainのhelp一致・既存Module起動結果保持 | Python品質 |
 
-## Issues package, artifact v2 and isolated cfn-lint
+## Issues package, artifact v3 and isolated cfn-lint
+
+「元ID」の `issues-v2::` / `issues-v4::` は履歴上の識別子であり、現行Scan Artifactのversionではない。ID・関数名・検証責務は維持する。
 
 既存deploy lint廃止は復元しない。旧workerの設定/schema/custom rule状態隔離とscope回収契約をutils入口で検証する。Framework定義は読取専用、一時HOME/config/rule/schemaは独立fixtureとする。
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `issues-v2::check_classification` | `check_classification` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L51) | pytest / 9 | severity・E0000 provenance・特殊Error分類 | Issues v2 |
-| `issues-v2::check_explicit_plan` | `check_explicit_plan` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L56) | pytest / 1 | Stack parametersと独立した対象・共有dedup・owner・対象外 | Issues v2 |
-| `issues-artifact::check_artifact_index_and_status` | `check_artifact_index_and_status` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L96) | pytest / 1 | 一次集計・page先行・未対応形式拒否・status・bounded notice・review照合 | Issues v2 |
-| `issues-v2::check_pending_notices_replace_warnings` | `check_pending_notices_replace_warnings` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L127) | pytest / 1 | 未検証時も今回診断へ置換・Human注記保持・再保存安定 | Issues v2 |
-| `issues-v2::check_deferred_cache_finalization` | `check_deferred_cache_finalization` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L137) | pytest / 1 | 最終入力確認まで候補保留・変更時不採用 | Issues v2 |
-| `issues-v2::check_scan_changes_without_cache` | `check_scan_changes_without_cache` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L237) | pytest / 1 | codepipeline.md変更中も集計完了・PASS cacheと監視artifactフィールドなし・例外/中断を保持 | Issues v2 |
-| `issues-v2::check_worker_protocol_and_fatal` | `check_worker_protocol_and_fatal` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L153) | pytest / 1 | protocol拒否・共通runtime失敗後not_run | Issues v2 |
-| `issues-v2::check_cli_equivalence` | `check_cli_equivalence` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py#L63) | pytest / 2 | 固定版CLIの正常/異常代表各1入力、Rule/Level/Location/MessageとRegion一致 | Issues v2 |
-| `issues-v2::check_plan_without_stack` | `check_plan_without_stack` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L279) | pytest / 4 | IMPORT/API-only先行分類・混在CREATE未検証・Stack loader回数 | Issues v2 |
-| `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L295) | pytest / 2 | schema障害時の診断0件/混在の未完了coverageと通常/未知type診断保持・exit 2 | Issues v2 |
-| `issues-v2::check_notice_resolution_and_update_series` | `check_notice_resolution_and_update_series` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L317) | pytest / 1 | T1〜T4今回診断置換・処理エラー/未検証/not_applicable時の過去False/Information除去・ordinary解消ID・別scope/Human保全・save-results非再実行 | Issues v2 |
-| `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L541) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・変更後再読取許容・通常Validator伝播 | Issues v2 |
+| `issues-v2::check_classification` | `check_classification` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L51) | pytest / 9 | severity・E0000 provenance・特殊Error分類 | Issues Artifact v3 |
+| `issues-v2::check_explicit_plan` | `check_explicit_plan` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L56) | pytest / 1 | Stack parametersと独立した対象・共有dedup・owner・対象外 | Issues Artifact v3 |
+| `issues-artifact::check_artifact_index_and_status` | `check_artifact_index_and_status` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L96) | pytest / 1 | 一次集計・page先行・未対応形式拒否・status・bounded notice・review照合 | Issues Artifact v3 |
+| `issues-v2::check_pending_notices_replace_warnings` | `check_pending_notices_replace_warnings` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L127) | pytest / 1 | 未検証時も今回診断へ置換・Human注記保持・再保存安定 | Issues Artifact v3 |
+| `issues-v2::check_deferred_cache_finalization` | `check_deferred_cache_finalization` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L137) | pytest / 1 | 最終入力確認まで候補保留・変更時不採用 | Issues Artifact v3 |
+| `issues-v2::check_scan_changes_without_cache` | `check_scan_changes_without_cache` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L237) | pytest / 1 | codepipeline.md変更中も集計完了・PASS cacheと監視artifactフィールドなし・例外/中断を保持 | Issues Artifact v3 |
+| `issues-v2::check_worker_protocol_and_fatal` | `check_worker_protocol_and_fatal` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L153) | pytest / 1 | protocol拒否・共通runtime失敗後not_run | Issues Artifact v3 |
+| `issues-v2::check_cli_equivalence` | `check_cli_equivalence` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py#L63) | pytest / 2 | 固定版CLIの正常/異常代表各1入力、Rule/Level/Location/MessageとRegion一致 | Issues Artifact v3 |
+| `issues-v2::check_plan_without_stack` | `check_plan_without_stack` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L279) | pytest / 4 | IMPORT/API-only先行分類・混在CREATE未検証・Stack loader回数 | Issues Artifact v3 |
+| `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L295) | pytest / 2 | schema障害時の診断0件/混在の未完了coverageと通常/未知type診断保持・exit 2 | Issues Artifact v3 |
+| `issues-v2::check_notice_resolution_and_update_series` | `check_notice_resolution_and_update_series` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L317) | pytest / 1 | T1〜T4今回診断置換・処理エラー/未検証/not_applicable時の過去False/Information除去・ordinary解消ID・別scope/Human保全・save-results非再実行 | Issues Artifact v3 |
+| `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L541) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・変更後再読取許容・通常Validator伝播 | Issues Artifact v3 |
 | `issues-v4::check_child_builtin_packets_preserve_progress` | `check_child_builtin_packets_preserve_progress` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L190) | pytest / 2 | JSON組込み型へのIPC正規化・途中例外でも取得済み全channel/dependencies保持 | Issues residual repair |
 | `issues-v4::check_notice_fenced_roundtrip` | `check_notice_fenced_roundtrip` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L362) | pytest / 2 | headerless owner/ID/Gate・backtick/tildeコード例・別scope・normal/notice/save-results解消往復 | Issues residual repair |
 | `issues-tail::check_notice_tail_order_and_materials` | `check_notice_tail_order_and_materials` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L404) | pytest / 4 | 通常のみ/警告/参照警告/両方・複数scope混在診断の末尾順序・再保存安定・ID/Human材料/ownership/Gate保全 | Issues末尾警告 |

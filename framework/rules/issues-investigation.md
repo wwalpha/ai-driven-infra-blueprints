@@ -92,7 +92,19 @@ SQS QueuePolicy Model GetAtt resolves only through its current stack's validated
 mapping and supported attributes; missing/inactive resources and cross-stack guesses
 remain uncompared. These local contracts do not enable AWS or deployment evaluation.
 
-Uncompared: Terraform (no existing reliable local mapping/evaluator), Transform, ImportValue whose approved handoff cannot be proved locally, unknown attributes/nonunique mappings, unsupported expressions, and unconfirmed values/types. Validated IMPORT references without approved handoff are deferred (unobserved, pending_deploy or awaiting_handoff), retained in comparison artifacts and excluded from Issues; invalid identifiers or reference contracts remain uncompared. Deferred results are partial, never matched or complete. This is not a configuration marking all resources unsupported. IMPORT itself is not generated; absent IaC is not missing. Explicit missing CREATE templates/resources/properties are non-blocking differences. Input syntax/read/save failures are errors, not success.
+Uncompared: Terraform (no existing reliable local mapping/evaluator), Transform, ImportValue whose approved handoff cannot be proved locally, unknown attributes/nonunique mappings, unsupported expressions, and unconfirmed values/types. This is not a configuration marking all resources unsupported. IMPORT itself is not generated; absent IaC is not missing. Explicit missing CREATE templates/resources/properties are non-blocking differences. Input syntax/read/save failures are errors, not success.
+
+Keep the comparison categories distinct: `deferred` means reference comparison is on hold; `excluded` means outside the current comparison; `uncompared` means reference resolution/comparison could not complete; `error` means a processing/evaluation failure. Retain existing supported local IMPORT resolution paths. Where validated producer/receiving contracts reach the IMPORT handoff check, select the phase from authoritative observations (not rendered labels):
+
+| Authoritative observation | phase | category |
+| --- | --- | --- |
+| Identifier observation absent | `unobserved` | `deferred` |
+| Identifier observation is `PENDING_DEPLOY` | `pending_deploy` | `excluded` |
+| Identifier observation exists and passes identifier validation, but approved handoff is still required | `awaiting_handoff` | `deferred` |
+
+Invalid identifiers/contracts retain their existing uncompared/error classification; they are not normal waits. All six record categories (`matched`, `difference`, `deferred`, `uncompared`, `error`, `excluded`) remain in the v3 artifact and record counts. Only difference/uncompared/error records enter `iac_issues` and Issue category counts; deferred/excluded records have no Issue ID. `iac_status` priority is error → partial (uncompared or deferred) → differences → complete match → no compared records. Deferred is partial, never matched or complete. `pending_deploy` requires no comparison at present: it contributes neither uncompared/deferred nor partial/repair-required status; excluded-only scope is no compared records, not equality.
+
+Normal Markdown shows `PENDING_DEPLOY（比較対象外）` as a dedicated count, separate from the Issue category `CFn非対応・比較対象外`; it omits these excluded records' causes and details. Deduplicate parent/child propagation by consumer service/resource and structured cause for this count; raw excluded record counts remain separate. Retrieve retained causes through `detail --section iac --record-category excluded`; use `--record-category deferred` for deferred records. These record filters cannot be combined with Issue category/ID filters. Deferred/excluded alone do not create ordinary issues or fail scan validation; retain independent ordinary diagnostics, unverified scope and processing errors.
 
 ## Input reuse and publication
 
@@ -140,7 +152,7 @@ When the existing comparison exception boundary catches an error, retain accumul
 
 `issues_scan.py` preserves the CLI and optional `--repository-root` (cwd defaults to the repository root); `issues.cli` lazily selects scan/detail/save runtime. `runner` owns scan order and partial results; `inputs` owns Model/template/parameter reads; `references` owns existing expression/reference evaluation through the shared evaluators; `comparison.Comparison` retains explicit stack/index/templates/compare_rows/desired_value APIs and the single mutable scan state. These modules do not replace the shared IaC/Model APIs. No Mixins or dynamic forwarding.
 
-`records` owns pure IDs/masking/field differences, `aggregate` produces canonical IaC records, stable Issue IDs/members, lightweight record metadata and the bounded overview once. `artifact` reads this v2 data for review/detail; filter the saved action index, slice indices, then format only page records. `reports` formats current-run IaC from this aggregation and conservatively merges ordinary issues. `publication` owns authority/review/atomic writes. No duplicate record body, persistent sidecar, second Model snapshot or lint cache. Only v2 scan artifacts are supported; reject unsupported artifact formats without deriving replacement indexes.
+`records` owns pure IDs/masking/field differences, `aggregate` produces canonical IaC records, stable Issue IDs/members, lightweight record metadata and the bounded overview once. `artifact` reads this v3 data for review/detail; filter the saved action index, slice indices, then format only page records. `reports` formats current-run IaC from this aggregation and conservatively merges ordinary issues. `publication` owns authority/review/atomic writes. No duplicate record body, persistent sidecar, second Model snapshot or lint cache. `summary`, `detail`, `validate_artifact` and `save_scan` support only v3 scan artifacts; explicitly reject v2 and other unsupported versions without compatibility conversion or deriving replacement indexes.
 
 ## Input reads and report publication
 

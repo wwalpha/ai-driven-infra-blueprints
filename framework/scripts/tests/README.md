@@ -128,14 +128,14 @@ Model/stack/template/Markdown生成、mock、assertion、状態変更の流れ�
 loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体比較は
 既存Framework ITの `baseline_ref` を使い、未実行のITをPASSとしない。
 
-## Issues v2 / cfn-lint
+## Issues Artifact v3 / cfn-lint
 
 issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。現行 `issues-lint-unit.checks.py` は18関数56条件、`issues-lint.checks.py` は4関数5条件（変更前9関数17条件）。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
 
 ITは固定版CLI一致（正常/異常の各代表1件）、Worker設定隔離、schema障害と新Worker復旧、実OS Timeout回収の4契約。
 設定隔離の4連続要求でHOME/cwd設定、custom ruleの状態、registry/overrideの再読込、NoEcho、output非書込をまとめる。
-Scan→Lint→Review→Saveとstale拒否の実接続は既存 `issues_scan::check_scan_publish_mismatch` に一本化し、重いケースを他suiteへ追加しない。
-View障害別分類・独立Service継続・非Cache・依存変更拒否は `issues_scan-unit`、設定/入力/schema分類・期限/protocol/fatal・終了エスカレーションは `issues-lint-unit` が受け持つ。
+Scan→Lint→Artifact→Review→Saveと入力変更後の保存許容の実接続は既存 `issues_scan::check_scan_publish_mismatch` に一本化し、重いケースを他suiteへ追加しない。
+View障害別分類・独立Service継続・非Cache・入力変更許容は `issues_scan-unit`、設定/入力/schema分類・期限/protocol/fatal・終了エスカレーションは `issues-lint-unit` が受け持つ。
 全旧assertionと削除/移管先は [Issue 21対応表](CASES.md#issue-21-issues-lintの検証責務) を参照。
 
 要求は `time.monotonic()` の一つの期限で管理し、固定5秒猶予と無期限readlineを使わない。
@@ -147,7 +147,7 @@ Windowsは既存 `--once` と実OS subprocessのtimeout/回収、UTのprogress/p
 Issue 21のローカル確認は関連UT・構文・collect-only・登録/参照の静的整合性だけ。IT/Full IT・AWS・Actions手動起動は禁止。
 51.079秒から10秒以内の目標はGitHub Actionsの実測待ちであり、未測定の時間やIT PASSを報告しない。
 
-一時HOME/cwd/config/custom rule/provider schemaを実環境から分離し、本物のHOMEとインストール済みpackageには書き込まない。Framework定義はコピーも読取専用。モデル・template・parametersは独立した可変fixtureを使う。summary/detail/saveはv2の保存済み集計だけを使う。
+一時HOME/cwd/config/custom rule/provider schemaを実環境から分離し、本物のHOMEとインストール済みpackageには書き込まない。Framework定義はコピーも読取専用。モデル・template・parametersは独立した可変fixtureを使う。summary/detail/validate_artifact/save_scanはv3専用で、未対応versionを拒否する。summary/detail/saveはv3の保存済み集計だけを使う。
 
 
 ## Deploy correctness / 1023v2
