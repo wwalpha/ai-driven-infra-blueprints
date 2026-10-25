@@ -11,6 +11,7 @@ import tempfile
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -31,6 +32,7 @@ from utils.input_cache import (
 from utils.json_format import exact as exact
 from utils.json_format import json_text, strict_json
 from utils.project_targets import DeployContextError, select_target
+from utils.script_loader import module
 from utils.sealed_evidence import evidence_store
 from utils.source_reads import CandidateReads as CandidateReads
 from utils.source_reads import FileReads as FileReads
@@ -50,6 +52,47 @@ else:
 _locks = {}
 _guard = threading.Lock()
 _local = threading.local()
+_session = ContextVar("model_session_reads", default=None)
+
+
+@contextmanager
+def model_session(reads):
+    token = _session.set(reads)
+    try:
+        yield reads
+    finally:
+        _session.reset(token)
+
+
+def session_reads(root):
+    reads = _session.get()
+    return (
+        reads
+        if reads is not None and (reads.root == root or root in reads.stages)
+        else None
+    )
+
+
+@contextmanager
+def model_stage(root, stage):
+    shared = session_reads(root)
+    if shared is not None:
+        shared.stages.add(stage)
+    try:
+        yield
+    finally:
+        if shared is not None:
+            shared.stages.remove(stage)
+            shared.kinds = {
+                p: kind
+                for p, kind in shared.kinds.items()
+                if not p.is_relative_to(stage)
+            }
+            shared.selections = {
+                key: paths
+                for key, paths in shared.selections.items()
+                if not key[0].is_relative_to(stage)
+            }
 
 
 ReadContext: TypeAlias = FileReads | CandidateReads | generation_inputs.GenerationInputs
@@ -183,6 +226,7 @@ def _publish_transaction(
     start=None,
     finish=None,
     receipt=None,
+    observed=False,
 ):
     """Journal and rollback shared by guarded publication and validated generation plans.
 
@@ -229,6 +273,13 @@ def _publish_transaction(
             path.unlink(missing_ok=True)
         if finish is not None:
             finish()
+        model_changes = {
+            p for p in set(output) | set(obsolete) if p.is_relative_to(root / "model")
+        }
+        if model_changes:
+            module("model/dependency_index.py", "model.dependency_index").update(
+                root, model_changes, observed=observed
+            )
     except Exception:
         sync_files.restore_files(originals)
         journal.unlink()
@@ -536,6 +587,13 @@ def _model_snapshots(reads):
 
 
 def _source_snapshot(scope, reads):
+    shared = session_reads(scope.root)
+    if shared is not None and not isinstance(reads, CandidateReads):
+        return shared.source(scope, reads)
+    return _read_source_snapshot(scope, reads)
+
+
+def _read_source_snapshot(scope, reads):
     read_context = _imports_model_importing_scope.read_context
     require_readable = _imports_model_importing_scope.require_readable
     require_readable(scope.root, scope.path)
@@ -546,10 +604,25 @@ def _source_snapshot(scope, reads):
     return models[key]
 
 
+def stack_snapshot(path, read_context=None):
+    """Read checked Stack metadata; delivery references belong to the scheduled unit."""
+    scope = scope_for(path)
+    if scope.service != "cloudformation-stacks":
+        raise ValueError("Stack metadata requires cloudformation-stacks.properties")
+    return _source_snapshot(scope, read_context or _invocation_reads(scope.root))
+
+
 def load_model(
     scope: Scope | str | Path, read_context: ReadContext | None = None
 ) -> ModelSnapshot:
     scope = scope if isinstance(scope, Scope) else scope_for(scope)
+    shared = session_reads(scope.root)
+    if shared is not None and not isinstance(read_context, CandidateReads):
+        return shared.load(scope, read_context or shared)
+    return _load_model(scope, read_context)
+
+
+def _load_model(scope, read_context=None):
     permission_context = _imports_model_importing_scope.read_context
     require_readable = _imports_model_importing_scope.require_readable
     require_readable(scope.root, scope.path)
@@ -569,6 +642,9 @@ def load_model(
 
 
 def _invocation_reads(root):
+    shared = session_reads(root)
+    if shared is not None:
+        return shared
     memo = memo_table()
     if memo is None:
         return FileReads()
@@ -768,4 +844,53 @@ def candidate_base(path: Path, reads: ReadContext) -> ModelSnapshot:
         MappingProxyType({}),
         MappingProxyType({scope.root / "project.json": project, path: None}),
         (),
+    )
+
+
+def observed_snapshot(snapshot, outputs):
+    """Patch checked snapshots without revalidating byte-identical desired authority."""
+    selected = {p: text for p, text in outputs.items() if p in snapshot.documents}
+    if not selected:
+        return snapshot
+    verify = module("model/observed.py", "model.observed").verify_observed_outputs
+    verify({p: t.encode("utf-8") for p, t in snapshot.files.items()}, selected)
+    documents, files = dict(snapshot.documents), dict(snapshot.files)
+    authority, values, locations = (
+        dict(snapshot.authoritative),
+        dict(snapshot.values),
+        dict(snapshot.locations),
+    )
+    for path, text in selected.items():
+        old, new = documents[path], parse(text)
+        for key in old.values.keys() | new.values.keys():
+            if key.startswith("observed."):
+                authority.pop(key, None)
+                for field in ("value", "property", "comment"):
+                    values.pop(key.removesuffix("value") + field, None)
+                locations.pop(key, None)
+        for record in new.records:
+            locations[record.key] = (path, record.line)
+            if record.key.startswith("observed."):
+                authority[record.key] = values[record.key] = record.value
+                locations[record.key] = (path, record.line)
+                prefix = "desired." + record.key.removeprefix("observed.").removesuffix(
+                    "value"
+                )
+                for field in ("property", "comment"):
+                    if prefix + field in authority:
+                        values[record.key.removesuffix("value") + field] = authority[
+                            prefix + field
+                        ]
+        files[path], documents[path] = text, new
+    dependencies = {
+        **snapshot.dependencies,
+        **{p: t.encode("utf-8") for p, t in selected.items()},
+    }
+    return snapshot._replace(
+        authoritative=MappingProxyType(authority),
+        values=MappingProxyType(values),
+        documents=MappingProxyType(documents),
+        files=MappingProxyType(files),
+        locations=MappingProxyType(locations),
+        dependencies=MappingProxyType(dependencies),
     )

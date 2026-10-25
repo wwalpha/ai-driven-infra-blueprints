@@ -193,9 +193,15 @@ def _write_context(root, task_file, *, requested=None, snapshot=None):
                         writable.add(file)
                     # Freeze real Models and producer dependencies; discovery grants no write rights.
                     targets = {identity[:2] for identity in required}
-                    for selected in _dependency_model_sources.list_models(
-                        root, snapshot
-                    ):
+                    selections = (
+                        [
+                            _dependency_model_sources.Scope(root, *identity)
+                            for identity in required
+                        ]
+                        if operation.action == "observed"
+                        else _dependency_model_sources.list_models(root, snapshot)
+                    )
+                    for selected in selections:
                         if (selected.environment, selected.target) in targets:
                             if operation.action == "observed":
                                 _dependency_model_sources.load_model(selected, snapshot)

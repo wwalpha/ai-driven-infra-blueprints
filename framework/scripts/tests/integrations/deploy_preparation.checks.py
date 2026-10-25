@@ -82,7 +82,6 @@ def check_preparation():
         text = (run / "contract.md").read_text(encoding="utf-8")
         declared = paths_in(text, "## Modified files")
         model_parts = _imports_model_sources.model_parts
-        source_inputs = _imports_model_sources.source_inputs
         outputs = {
             p.relative_to(root).as_posix()
             for p in model_parts(root / "model/dev/123456789012/ec2.properties")
@@ -112,7 +111,7 @@ def check_preparation():
             )
         }
         assert plan["generatedViews"] == sorted(generated)
-        assert generated <= plan["inputs"].keys() and generated <= declared
+        assert generated <= plan["inputIdentities"].keys() and generated <= declared
         assert not generated & documents.keys()
         for relative, digest in plan["inputs"].items():
             assert (
@@ -134,11 +133,11 @@ def check_preparation():
         assert len(documents) == len(plan["documents"])
         entrance = root / "model/dev/123456789012/ec2.properties"
         assert all(
-            p.relative_to(root).as_posix() in plan["inputs"]
-            for p in source_inputs(entrance)
+            p.relative_to(root).as_posix() in plan["inputIdentities"]
+            for p in model_parts(entrance)
         )
         assert any(name.startswith("model/") for name in documents)
-        assert any(name.startswith("infra/") for name in documents)
+        assert not any(name.startswith("infra/") for name in documents)
         assert "AGENTS.md" in documents and "target-summary" in documents
         assert all(name in plan["controllerArgv"] for name in STACKS)
         assert "readingCharacters" not in plan and "readingStages" not in plan
@@ -337,14 +336,11 @@ def check_generated_boundaries():
         serialize = _imports_model_format.serialize
         load_model = _imports_model_sources.load_model
         original = serialize(load_model(source).authoritative)
-        write_model(
-            source,
-            "\n".join(
-                line for line in original.splitlines() if ".document=" not in line
-            )
-            + "\n",
-        )
-        try:
+        # Service body/schema validation is deferred to its actual use.
+        source.write_text("invalid unrelated service body", encoding="utf-8")
+        with patch.object(
+            M, "stack_snapshot", side_effect=AssertionError("eager service load")
+        ):
             M.candidate(
                 root,
                 "tasks/deploy-offline.md",
@@ -354,40 +350,7 @@ def check_generated_boundaries():
                 STACKS,
                 ["iam"],
             )
-        except ValueError as error:
-            assert all(
-                value in str(error)
-                for value in (
-                    "authoritative JSON document missing",
-                    "resource 001",
-                    "row 001-002",
-                    "iam/worker-role-trust-policy.json",
-                )
-            )
-        else:
-            raise AssertionError("missing document accepted")
-        write_model(source, original)
-        write_model(
-            source,
-            original.replace(
-                "iam/worker-role-trust-policy.json", "ec2/worker-role-trust-policy.json"
-            ),
-        )
-        try:
-            M.candidate(
-                root,
-                "tasks/deploy-offline.md",
-                "dev",
-                "123456789012",
-                TARGET,
-                STACKS,
-                ["iam"],
-            )
-        except ValueError as error:
-            assert "belong to selected service" in str(error)
-        else:
-            raise AssertionError("foreign JSON accepted")
-        write_model(source, original)
+        source.write_text(original, encoding="utf-8")
         real_load = M.load_units
         artifacts = root / "infra/cloudformation/artifacts"
         artifacts.mkdir(parents=True)
@@ -404,10 +367,12 @@ def check_generated_boundaries():
         run = next((base / "logs").iterdir())
         plan = json.loads((run / "preparation.json").read_text(encoding="utf-8"))
         documents = {d["source"] for d in plan["documents"]}
-        assert "infra/cloudformation/artifacts/execution.json" in documents
-        assert "infra/cloudformation/artifacts/execution.json" in plan["inputs"]
+        assert "infra/cloudformation/artifacts/execution.json" not in documents
+        assert (
+            "infra/cloudformation/artifacts/execution.json" in plan["inputIdentities"]
+        )
         assert "infra/cloudformation/artifacts/build.zip" not in documents
-        assert "infra/cloudformation/artifacts/build.zip" in plan["inputs"]
+        assert "infra/cloudformation/artifacts/build.zip" in plan["inputIdentities"]
         assert "infra/cloudformation/artifacts/build.zip" not in plan["generatedViews"]
         for relative, digest in plan["inputs"].items():
             assert digest == M.sha(

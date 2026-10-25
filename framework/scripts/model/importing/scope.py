@@ -201,9 +201,9 @@ def allowed_source(root, file, identity):
 
 def placement_names(path, required=None):
     entries = _imports_model_core.entries
-    load_model = _imports_model_sources.load_model
+    stack_snapshot = _imports_model_sources.stack_snapshot
     with reference_reader(path):
-        model = load_model(path)
+        model = stack_snapshot(path)
     names = {
         stack["placementName"]: stack["name"]
         for _, stack in entries(model.authoritative, "desired.stack.")

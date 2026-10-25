@@ -2040,8 +2040,6 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_properties_normal_generation_uses_new_authority` | `check_properties_normal_generation_uses_new_authority` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L187) | pytest / 1 | 新正本からの通常生成・原文保持・stage 入力完全性 | Model v2 |
 | `model-v2::check_managed_properties_save` | `check_managed_properties_save` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L248) | pytest / 13 | 実 Task・HEAD・原文・集合競合・一回保存・rollback・中断 journal | Model v2 |
 | `model-v2::check_properties_context_requires_managed_running_task` | `check_properties_context_requires_managed_running_task` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L547) | pytest / 1 | 管理 worktree と running Task の保存権限 | Model v2 |
-| `model-v2::check_deploy_digest_covers_all_nonobserved_authority` | `check_deploy_digest_covers_all_nonobserved_authority` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L2140) | pytest / 3 | display/reference/placement を含む非観測設計 digest | Model v2 |
-| `model-v2::check_deploy_observed_baseline_advances_only_proven_outputs` | `check_deploy_observed_baseline_advances_only_proven_outputs` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L2164) | pytest / 5 | 観測差分だけの baseline 更新と同時設計変更拒否 | Model v2 |
 | `model-v2::check_deploy_preparation_separates_producer_reads_from_writes` | `check_deploy_preparation_separates_producer_reads_from_writes` | IT | [integrations/cloudformation-deploy.checks.py](integrations/cloudformation-deploy.checks.py#L850) | pytest / 1 | producer 読取依存と許可書込先の分離 | Model v2 |
 | `model-v2::check_properties_import_acquire_review_publish` | `check_properties_import_acquire_review_publish` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L733) | pytest / 2 | 実取得/ReviewからReview改ざんの保存前拒否とReceipt失敗時の実Rollback | Model v2 |
 | `model-v2::check_properties_standalone_audit_has_no_framework_runtime` | `check_properties_standalone_audit_has_no_framework_runtime` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L352) | pytest / 1 | 独立 audit の生成・Framework import 不要・未取得 ERROR | Model v2 |
@@ -3719,3 +3717,27 @@ verification_targets復元・resolved互換ProjectionのUTを削除した。部�
 
 | `report-task::git` | `check_report_commit_independence` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 3 | Report-only保存は他TaskのGit変更を保持し、通常Taskは変更範囲を検証 | Synthetic Git |
 | `generation-model::guards` | `check_generation_preserves_model_guards` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 3 | IssueがあってもAllowed paths・Validation scope・参照整合性エラーは拒否 | Synthetic Models |
+
+## Deploy lazy inputs and session Model reuse
+
+The former whole-target digest/observed-baseline UTs are replaced by scoped revision,
+publication and cache checks; no whole-target Model scan is an acceptance condition.
+Existing Deploy handoff tests retain shared-input/SUCCESS protection; observed-resume
+checks retain exact journals, CAS, partial publication and execution/approval evidence.
+
+| Case ID | Function | Kind | File | Runner / Cases | Responsibility | Change |
+| --- | --- | --- | --- | --- | --- | --- |
+| `deploy-lazy::bounded-100` | `check_100_stacks_bounded` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 2 | 100 Stacks, first-slot failure, concurrency 1/3, no pending decode/delivery | Added |
+| `deploy-lazy::model-once` | `check_model_load_once_parallel_and_observed` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | 100 concurrent requests, one source parse/check, incremental observations, no recheck | Added |
+| `deploy-lazy::unrelated-and-index` | `check_unrelated_invalid_model_and_missing_stale_index` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Unrelated authority excluded; missing/stale ownership metadata fails closed | Added |
+| `deploy-lazy::owners` | `check_index_owners_duplicate_and_unknown` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Unique, absent and duplicate owner discovery without inference | Added |
+| `deploy-lazy::input-revision` | `check_claim_immutable_inputs_and_no_eager_decode` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Pin only claimed input hashes; reject changed IaC before use | Added |
+| `deploy-lazy::observed-authority` | `check_observed_patch_rejects_authority_changes` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 3 | Reject desired, display and unrelated-byte changes | Replaces eager baseline tests |
+| `deploy-lazy::success-resume` | `check_resume_skips_success_and_dependency_unknown` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | SUCCESS never starts twice; pending dependencies stay explicitly unloaded | Added |
+| `deploy-lazy::desired-once` | `check_desired_validation_reused_after_observed` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Desired confirmation cached across observed deltas | Added |
+| `deploy-lazy::cas` | `check_observed_publication_rejects_conflict` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Real observed writer rejects concurrent bytes before publishing | Added |
+| `deploy-lazy::stack-delivery` | `check_stack_metadata_defers_delivery_model` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Stack/generated metadata equality needs no delivery Model; ordinary generation retains delivery validation | Added |
+| `deploy-lazy::index-publication` | `check_index_delta_retarget_delete_and_invalid_unrelated` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Observed index patch without reparse, retarget/delete maintenance, invalid unrelated authority excluded | Added |
+| `deploy-lazy::mapping-denial` | `check_owner_ambiguity_blocks_mapping` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Absent/duplicate owners cannot produce an observed mapping | Added |
+| `deploy-lazy::cache-authority` | `check_cache_permission_and_input_revision` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Distinct permission context, reused checked snapshot, changed revision rejection | Added |
+| `deploy-lazy::generation-stage` | `check_generation_stage_reuses_checked_model` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Reuse checked authority for byte-identical generation-stage copies; reject modified candidate bytes | Added |

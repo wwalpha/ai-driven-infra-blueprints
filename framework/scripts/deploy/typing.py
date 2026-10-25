@@ -47,12 +47,12 @@ class Session(TypedDict, total=False):
     taskFile: str
     taskDigest: str
     inputDigest: str
-    designDigest: str
     unitDigests: dict[str, str]
     states: States
     metrics: dict[str, float]
     modelInputManifest: Manifest
     infraManifest: Manifest
+    inputIdentities: dict[str, list[int]]
     pendingObserved: JsonObject
     workflow: JsonObject
     workflowBinding: str

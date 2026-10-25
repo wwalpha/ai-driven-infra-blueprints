@@ -105,8 +105,8 @@ def check_generated_journal_recovery_uses_observed_owner(tmp_path, monkeypatch):
             "afterManifest": M.manifest({relative: new}),
             "outputs": {relative: new.decode()},
             "originals": {relative: base64.b64encode(old).decode()},
-            "directories": ["model/dev/team"],
-            "inventory": [relative],
+            "directories": ["model/dev/team/service"],
+            "inventory": [],
             "stage": "MODEL_PUBLISHED",
             "services": ["service"],
             "generated": {
@@ -138,7 +138,7 @@ def check_generated_journal_recovery_uses_observed_owner(tmp_path, monkeypatch):
         restore = partial(restore_owned, sources.sync_files.restore_files, order)
         with (
             patch.object(
-                M, "authority_snapshot", side_effect=partial(read_authority, source)
+                M, "source_snapshot", side_effect=partial(read_authority, source)
             ),
             patch.object(M, "verify_generated_journal", side_effect=verify),
             patch.object(sources.sync_files, "restore_files", side_effect=restore),

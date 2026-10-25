@@ -90,23 +90,6 @@ def run_group(
         state["status"] == "FAILED" or state.get("schedulerError")
         for state in states.values()
     )
-    if not stopped and hasattr(backend, "prepare_delivery_group"):
-        try:
-            backend.prepare_delivery_group(group, states)
-        except Exception as error:
-            candidate = next(
-                (
-                    u
-                    for u in group
-                    if states[u["name"]]["status"] not in {"RUNNING", "SUCCESS"}
-                ),
-                None,
-            )
-            if candidate:
-                states[candidate["name"]].update(status="BLOCKED", reason=str(error))
-                failures.exception(states[candidate["name"]], error, "DELIVERY")
-            stopped = True
-            save()
     while True:
         # Poll every running stack before reusing any freed slot.
         active = [
@@ -169,10 +152,32 @@ def run_group(
             for unit in pending[: max(0, limit - running - preparing)]:
                 state = states[unit["name"]]
                 try:
+                    state.setdefault("preparationId", uuid.uuid4().hex)
+                    started = time.perf_counter()
+                    try:
+                        if hasattr(backend, "claim_inputs"):
+                            backend.claim_inputs(unit)
+                        if hasattr(backend, "load_inputs"):
+                            backend.load_inputs(unit)
+                    finally:
+                        metrics = getattr(backend, "session", {}).get("metrics", {})
+                        metrics["inputLoadSeconds"] = (
+                            metrics.get("inputLoadSeconds", 0)
+                            + time.perf_counter()
+                            - started
+                        )
+                    if hasattr(backend, "prepare_delivery_group"):
+                        backend.prepare_delivery_group([unit], states)
                     begin = getattr(backend, "begin_prepare", backend.prepare)
                     state["status"] = begin(unit, state)
                 except Exception as error:
-                    failures.exception(state, error, "PREPARATION")
+                    failures.exception(
+                        state,
+                        error,
+                        "INPUT_DECODE"
+                        if getattr(error, "deploy_input_kind", None) == "DECODE"
+                        else "PREPARATION",
+                    )
                     state["status"] = "BLOCKED"
                     state["reason"] = str(error)
                     stopped = True

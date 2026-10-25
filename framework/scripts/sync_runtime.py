@@ -907,6 +907,7 @@ def prepare_generation(
                 lifetime.enter_context(tempfile.TemporaryDirectory())
             ).resolve()
             lifetime.enter_context(mapping_alias(definitions_root, stage))
+        lifetime.enter_context(_imports_model_sources.model_stage(root, stage))
         plan = Generation(
             root,
             stage,

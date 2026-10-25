@@ -172,6 +172,10 @@ class StubAws(Runtime):
             ],
         }
 
+    def load_inputs(self, unit):
+        if unit["name"] not in self.templates:
+            return super().load_inputs(unit)
+
     def prepare_delivery_group(self, units, states):
         pass  # Scheduler/CFn adapter tests replace delivery; DeliveryAws exercises the real barrier.
 

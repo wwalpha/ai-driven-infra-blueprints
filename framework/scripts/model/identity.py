@@ -188,19 +188,28 @@ class Resolver:
     def resolve_logical(self, logical_id, scope):
         """Index exactly one environment/target snapshot once, retaining ambiguity."""
         sources = _imports_model_sources
-        key = scope.environment, scope.target
+        key = (
+            (scope.environment, scope.target, logical_id)
+            if sources.session_reads(self.root) is not None
+            else (scope.environment, scope.target)
+        )
         if key not in self.logical_indexes:
             index = {}
             scopes = {
                 producer.path: producer
-                for producer in sources.list_models(scope, self.reads)
+                for producer in (
+                    sources.session_reads(self.root).logical_models(scope, logical_id)
+                    if sources.session_reads(self.root) is not None
+                    else sources.list_models(scope, self.reads)
+                )
             }
             scopes.update(
                 {
                     path: snapshot.scope
                     for path, snapshot in self.models.items()
                     if snapshot is not None
-                    and (snapshot.scope.environment, snapshot.scope.target) == key
+                    and (snapshot.scope.environment, snapshot.scope.target)
+                    == (scope.environment, scope.target)
                 }
             )
             for producer in scopes.values():

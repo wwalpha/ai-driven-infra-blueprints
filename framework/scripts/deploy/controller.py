@@ -11,7 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import utils.aws.client as _imports_utils_aws_client
-from model.core import ARTIFACT_PROPERTIES
+from model.core import ARTIFACT_PROPERTIES, resource_link
+from model.projection import deployment_bucket
 from utils.aws.identity import execution_account, select_profile
 from utils.cloudformation.inputs import Blocked, load_template_inputs
 from utils.json_format import fingerprint
@@ -19,7 +20,7 @@ from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
 import deploy.failures as _imports_deploy_failures
-from deploy import change_sets, delivery, inputs, secret_bootstrap
+from deploy import change_sets, delivery, handoff, inputs, secret_bootstrap
 from deploy import recovery as repair_ops
 from deploy import session as session_ops
 from deploy.guards import call, secret_value_missing
@@ -57,6 +58,7 @@ def create_runtime(
         approvals=set(approvals),
         timing=Timing(root),
         templates={},
+        loaded_inputs={},
         expected_digests={},
         workdir=None,
         states={},
@@ -139,6 +141,8 @@ def deployment_input_paths(
 
 
 def input_digest(runtime: SimpleNamespace, unit: StackUnit, fresh: bool = False) -> str:
+    for artifact in unit.get("artifacts", []):
+        runtime.source_path(artifact)
     return fingerprint(
         [
             runtime.file_digest(path, fresh)
@@ -149,16 +153,44 @@ def input_digest(runtime: SimpleNamespace, unit: StackUnit, fresh: bool = False)
 
 def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
     """Decode current immutable files cheaply; never persist parameter/secret contents."""
+    name = unit["name"]
+    for artifact in unit.get("artifacts", []):
+        runtime.source_path(artifact)
     template, parameters = runtime.paths(unit)
+    digest = fingerprint(
+        [
+            runtime.file_digest(path)
+            for path in (
+                template,
+                parameters,
+                *[runtime.source_path(a) for a in unit.get("artifacts", [])],
+            )
+        ]
+    )
+    loaded = getattr(runtime, "loaded_inputs", {})
+    if name in runtime.templates and loaded.get(name) == digest:
+        return
     try:
         runtime.templates[unit["name"]] = load_template_inputs(template, parameters)
     except (Blocked, ValueError):
+        if runtime.session.get("version") == 5:
+            runtime.session["effectiveDigests"].update(
+                handoff.effective(
+                    runtime.root,
+                    [unit],
+                    runtime.paths,
+                    runtime.deployment_input_paths,
+                    templates=runtime.templates,
+                )
+            )
         error = Blocked(
             "invalid/transform template or parameter input; inspect exact authorized source offline"
         )
         error.deploy_input_kind = "DECODE"
         error.code = "InputDecodeError"
         raise error from None
+    runtime.loaded_inputs = loaded
+    loaded[name] = digest
     document, _ = runtime.templates[unit["name"]]
     for artifact in unit.get("artifacts", []):
         runtime.source_path(artifact)
@@ -169,6 +201,38 @@ def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
             )
     if not unit.get("artifacts") and template.stat().st_size > 1024 * 1024:
         raise Blocked("template exceeds the 1 MiB CloudFormation limit")
+    design = (
+        runtime.root
+        / "docs/designs"
+        / runtime.environment
+        / runtime.directory
+        / "cloudformation-stacks.md"
+    )
+    if (template.stat().st_size > 51200 or unit.get("artifacts")) and resource_link(
+        unit.get("templateBucket", "")
+    ):
+        unit["templateBucket"] = deployment_bucket(
+            unit["templateBucket"], design, runtime.root
+        )
+    for artifact in unit.get("artifacts", []):
+        if resource_link(artifact["bucket"]):
+            artifact["bucket"] = deployment_bucket(
+                artifact["bucket"], design, runtime.root
+            )
+    if runtime.session.get("version") == 5:
+        runtime.session["effectiveDigests"].update(
+            handoff.effective(
+                runtime.root,
+                [unit],
+                runtime.paths,
+                runtime.deployment_input_paths,
+                templates=runtime.templates,
+            )
+        )
+        runtime.session["declaredConsumers"] = handoff.dependencies(
+            runtime, runtime.units
+        )
+        runtime.save()
     if hasattr(runtime, "states") and unit["name"] in runtime.states:
         runtime.states[unit["name"]].setdefault("successfulPreparationOperations", {})[
             "decode_input"

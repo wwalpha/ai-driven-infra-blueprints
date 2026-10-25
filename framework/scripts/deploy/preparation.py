@@ -17,20 +17,17 @@ import tempfile
 import time
 from pathlib import Path
 
-import model.core as _imports_model_core
-import model.sources as _imports_model_sources
 import task_contract_core as _imports_task_contract
-from model.sources import load_model
+from model.dependency_index import revision as file_revision
+from model.sources import stack_snapshot
 from utils.aws.identity import execution_account, select_profile
 from utils.aws_mappings import definition_root
 from utils.file_operations import sha
 from utils.markdown_format import markdown_sections, rule_readings
 from utils.project_targets import load_target
-from utils.source_reads import FileReads
 
 from deploy.inputs import deployment_input_paths, load_units, paths
 from deploy.timing import Timing
-from model import projection as model_projection
 
 
 def environment(root):
@@ -64,33 +61,17 @@ def environment(root):
 
 
 def candidate(root, task, env, directory, target, stacks, services):
-    entries = _imports_model_core.entries
     safe_path = _imports_task_contract.safe_path
     files, sources, generated_views = {task}, set(), set()
-    reads = FileReads()
     for service in services:
         source = root / "model" / env / directory / (service + ".properties")
         design = root / "docs/designs" / env / directory / (service + ".md")
-        snapshot = load_model(source, reads)
-        values = snapshot.values
-        sources.update(set(snapshot.dependencies) | {design})
-        files.update(path.relative_to(root).as_posix() for path in snapshot.documents)
-        generated_views.add(design)
-        files.add(design.relative_to(root).as_posix())
-        for rid, row in entries(values, "desired.row."):
-            if match := model_projection.JSON_LINK.fullmatch(row["value"]):
-                artifact = (design.parent / match.group(1)).resolve()
-                if not artifact.is_relative_to(design.parent / service):
-                    raise ValueError(
-                        f"generated JSON must belong to selected service: {artifact}"
-                    )
-                if "document" not in row:
-                    raise ValueError(
-                        f"authoritative JSON document missing: resource {rid.rpartition('-')[0]}, row {rid}, path {artifact.relative_to(root)}"
-                    )
-                files.add(artifact.relative_to(root).as_posix())
-                sources.add(artifact)
-                generated_views.add(artifact)
+        files.update(model_input_paths(root, [f"{env}/{directory}/{service}"]))
+        views = {design, *design.with_suffix("").rglob("*.json")}
+        generated_views.update(views)
+        files.update(path.relative_to(root).as_posix() for path in views)
+        if service == "cloudformation-stacks":
+            sources.update(stack_snapshot(source).dependencies)
     for path in files:
         safe_path(root, path)
     scope = [f"{env}/{directory}/{service}" for service in services]
@@ -166,7 +147,7 @@ def prepare(root, args, run, timing):
             )
         profile = select_profile(target, args.profile)
         directory = args.alias or target["awsAccountId"]
-        _, units = load_units(root, args.environment, directory, args.stack)
+        limit, units = load_units(root, args.environment, directory, args.stack)
         services = sorted(set(args.service) | {"cloudformation-stacks"})
         text, sources, scope, generated_views = candidate(
             root,
@@ -180,7 +161,6 @@ def prepare(root, args, run, timing):
         execution_inputs = set(
             deployment_input_paths(root, args.environment, directory, target, units)
         )
-        sources.update(execution_inputs)
         if generated_views & execution_inputs:
             raise ValueError("generated view conflicts with execution/required input")
         if getattr(args, "repair_budget", 20) <= 0:
@@ -246,6 +226,16 @@ def prepare(root, args, run, timing):
                 )
             )
         sources.update(required_inputs)
+        deferred = (
+            execution_inputs
+            | generated_views
+            | {root / p for p in model_input_paths(root, scope)}
+        )
+        deferred -= sources
+        identities = {}
+        for path in deferred:
+            safe_path(root, path.relative_to(root).as_posix())
+            identities[path.relative_to(root).as_posix()] = file_revision(path)
         documents, hashes = [], {}
         docs = run / "documents"
         docs.mkdir()
@@ -281,9 +271,7 @@ def prepare(root, args, run, timing):
             "executionAccount": execution_account(target),
             "region": target["awsRegion"],
             "profile": profile,
-            "maxConcurrentStacks": 1
-            if args.sequential
-            else load_units(root, args.environment, directory, args.stack)[0],
+            "maxConcurrentStacks": 1 if args.sequential else limit,
             "stacks": units,
             "serviceIds": services,
             "inputPaths": sorted(
@@ -351,6 +339,7 @@ def prepare(root, args, run, timing):
         "contractDigest": sha(contract),
         "runtime": runtime,
         "inputs": hashes,
+        "inputIdentities": identities,
         "documents": documents,
         "generatedViews": sorted(
             path.relative_to(root).as_posix() for path in generated_views
@@ -367,12 +356,13 @@ def prepare(root, args, run, timing):
 
 
 def model_input_paths(root, scope):
-    source_inputs = _imports_model_sources.source_inputs
+    """Declared entrances and part file identities only; no authority expansion."""
     return sorted(
         {
             path.relative_to(root).as_posix()
             for entry in scope
-            for path in source_inputs(root / "model" / (entry + ".properties"))
+            for source in [root / "model" / (entry + ".properties")]
+            for path in [source, *source.with_suffix("").rglob("*.properties")]
         }
     )
 
@@ -408,6 +398,11 @@ def register(root, path, timing):
                 raise ValueError(
                     f"preparation input changed or deleted; review the change and necessary inputs, then prepare again: {relative}"
                 )
+        if any(
+            file_revision(root / p) != identity
+            for p, identity in plan["inputIdentities"].items()
+        ):
+            raise ValueError("deferred deployment input changed; prepare again")
         if model_input_paths(root, plan["scope"]) != plan["modelInputPaths"]:
             raise ValueError(
                 "preparation Model dependency file set changed; prepare again"

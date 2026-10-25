@@ -227,15 +227,10 @@ def mutation_guard(root, session_record):
         args,
         backend,
         context,
-        "design",
-        "cde",
-        lambda: {},
         root,
         {"awsAccountId": "123456789012"},
         session_record,
         {},
-        {},
-        [],
     )
 
 
@@ -259,8 +254,6 @@ def check_deploy_mutation_io_and_live_denial(tmp_path, monkeypatch):
         connection=object(),
     )
     with (
-        patch.object(session, "design_digest", return_value="design"),
-        patch.object(session, "model_input_manifest", return_value={}),
         patch.object(guards.SERVICES["s3"], "put_object", return_value={}) as mutation,
         TaskIO() as io,
     ):
@@ -546,8 +539,6 @@ def check_session_initialization_reuses_task_fields(tmp_path, monkeypatch):
         patch.object(
             session._imports_deploy_context, "check_deploy_context", return_value=target
         ),
-        patch.object(session, "design_digest", return_value="design"),
-        patch.object(session, "model_input_manifest", return_value={}),
         patch.object(session.handoff, "locked", return_value=nullcontext()),
         patch.object(session.handoff, "effective", return_value={}),
         patch.object(
@@ -565,7 +556,7 @@ def check_session_initialization_reuses_task_fields(tmp_path, monkeypatch):
         assert saved["taskFile"] == "tasks/one.md" and saved[
             "taskDigest"
         ] == tasks.task_digest(text)
-        assert saved["version"] == 4 and saved["repairBudget"] == 7
+        assert saved["version"] == 5 and saved["repairBudget"] == 7
         assert saved["validationScope"] == ["dev/cde/s3"]
         assert io == {"reads": 1}
 
