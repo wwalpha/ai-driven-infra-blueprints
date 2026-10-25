@@ -1753,7 +1753,9 @@ def check_deploy_preparation_separates_producer_reads_from_writes(
     with model_sources.model_session(cache):
         snapshot = load_model(scope.path)
     assert producer in snapshot.dependencies
-    assert producer.relative_to(tmp_path).as_posix() in cache.session["modelInputManifest"]
+    assert (
+        producer.relative_to(tmp_path).as_posix() in cache.session["modelInputManifest"]
+    )
     assert producer.relative_to(tmp_path).as_posix() not in allowed
     assert "project.json" not in allowed and tmp_path / "project.json" in sources
     assert scope.path.relative_to(tmp_path).as_posix() in allowed
