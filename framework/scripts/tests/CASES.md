@@ -2130,7 +2130,7 @@ Properties v2 の追加移行対応（model-properties-v2）:
   派生 hash と実管理 Task の保存／no-op／拒否を検査する。廃止した template 入力 enum/default/choice
   の旧検査を新 properties の型推測・暗黙値展開として残さない。
 - `model_design` の既存表示・命名・サービス単位の失敗保持／rollback と `issues_scan` の
-  gate／全件比較／保存失敗／マスク／参照・配列の意味の検査は canonical fixture へ移行する。
+  全件比較／保存失敗／マスク／参照・配列の意味の検査は canonical fixture へ移行する。
 - `sync-model` は saved reference の意味・stage の producer 観測値・cold worker・原文不変と
   source/Task/file-set 競合・複数対象の保存 barrier を維持する。
 - `check_shared_snapshot_parses_each_producer_once_and_rechecks_permission` は相互参照を持つ合成 Model を
@@ -3316,17 +3316,6 @@ No old service-specific tests or CodePipeline acceptance checks are duplicated o
 | `reference-audit::unsupported` | `test_unsupported_ssm_and_name_id_equivalence` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L293) | pytest / 1 | Unsupported SSM cannot be authorized by a receiving contract; Secret Name and Id are not automatically equivalent | Synthetic Models |
 | `reference-audit::split-context` | `test_cloudtrail_split_context` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L310) | pytest / 2 | S3/Lambda split Type/Values rows use the same context boundary | Synthetic Models |
 | `reference-audit::plaintext` | `test_codebuild_plaintext_and_missing_sibling_type` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L326) | pytest / 1 | PLAINTEXT Resource reference is rejected; missing sibling Type remains unproven | Synthetic JSON |
-
-## 共通Issue Markdown分類
-
-| Case ID | Function | Layer | Suite | Execution / Count | Coverage | Origin |
-| --- | --- | --- | --- | --- | --- | --- |
-| `issue-markdown::reference` | `check_reference_lists` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 6 | 番号付き参照警告・service見出し・0件宣言有無と空prefix、材料0・保存再読込 | A/B |
-| `issue-markdown::boundary` | `check_explicit_issue_boundary` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 5 | service/ID markerと明示セクション境界、警告内の番号保持、ID/件数・末尾配置の3回往復 | C |
-| `issue-markdown::fence` | `check_fenced_classification` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 2 | 両fence・短い閉じ候補・番号/見出し/markerの無効化・scope往復 | check_notice_marker_boundariesから移設 |
-| `issue-markdown::ambiguous` | `check_ambiguous_notice_input` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 8 | 未完/不一致/入れ子scope・scope内Issue・境界なしIDを明示エラー、publication未実行/入力不変 | 共通分類 |
-| `issue-markdown::sections` | `check_warning_sections` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 2 | 同位警告セクションの分離と本文保持 | 共通分類 |
-| `issue-markdown::fenced-owner` | `check_fenced_owner_does_not_override_issue` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 1 | 通常Issue内部の長いfence内ownership/番号を無視し、ID・件数を保存再読込で維持 | 共通分類 |
 
 ## SQS Queue named ARN comparison (1024v12)
 

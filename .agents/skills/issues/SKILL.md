@@ -65,7 +65,6 @@ For local investigation, read [aws-resource-naming](../../../framework/rules/aws
 
 - Do not record work/completion reports or execution history such as “調査しました”, “保存しました”, or “検証PASS” in issue-list Markdown; report them only in chat. Also remove existing work reports from the scope being updated. Retain update time, confirmed/unverified scope, and diagnostics necessary as problem evidence.
 - For ordinary `issues.md`, use `環境／alias` as H2 and service names as H3, followed by numbered lists. Without an alias, use `環境／AWS account ID` as H2.
-- If the service name differs from the model service ID, place `<!-- issue-service: <service-id> -->` to identify service ownership.
 - Start numbering at 1 for each service block and state one problem per item. Do not create empty blocks.
 - Briefly and specifically state the target resource/property and what is inconsistent/missing/unconfirmed for each problem. Attach its undecided point only when necessary judgments can be confirmed.
 - For ordinary `issues.md`, combine repeated diagnostics with the same cause within the same environment/target/service, stating counts and targets. Do not confuse diagnostic counts, resource counts, and derived errors.
@@ -89,8 +88,6 @@ Scan実行日時: 2026-09-30 12:00:00 Asia/Tokyo
 ## dev／cde
 
 ### Macie
-
-<!-- issue-service: macie -->
 
 1. 個人情報用の旧bucket参照が切れており、現在のどの個人情報用bucketを対象にするか未確定。
 2. 部門データ用の旧bucket参照が切れており、現在のどの部門別bucketを対象にするか未確定。

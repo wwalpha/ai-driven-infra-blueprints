@@ -73,9 +73,7 @@ def ordinary_report(root, artifact):
             if item["service"] == service
         }
         if records:
-            lines.extend(
-                [f"### {service}", "", f"<!-- issue-service: {service} -->", ""]
-            )
+            lines.extend([f"### {service}", ""])
             lines.extend(
                 f"{number}. {issue_content(root, path, item)}\n"
                 for number, (_, item) in enumerate(sorted(records.items()), 1)
@@ -84,8 +82,6 @@ def ordinary_report(root, artifact):
         lines.extend(
             ["未解決issueなし（検証未完了）" if incomplete else "未解決issueなし", ""]
         )
-    scope_id = identifier([environment, directory, services])
-    lines.append(f"<!-- issues-notices:{scope_id}:start -->")
     for channel, heading in (
         ("information", "情報"),
         ("unverified", "未検証範囲"),
@@ -99,7 +95,6 @@ def ordinary_report(root, artifact):
                 + escape(safe_text(json.dumps(value, ensure_ascii=False)), quote=False)
                 for value in artifact[channel]
             )
-    lines.append(f"<!-- issues-notices:{scope_id}:end -->")
     return "\n".join(lines) + "\n"
 
 
