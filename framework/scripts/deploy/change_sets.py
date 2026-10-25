@@ -248,6 +248,13 @@ def begin_prepare(
     return "CHANGESET_CREATING"
 
 
+def no_changes(change_set):
+    return change_set.get("Status") == "FAILED" and any(
+        text in change_set.get("StatusReason", "")
+        for text in ("didn't contain changes", "No updates are to be performed")
+    )
+
+
 def review_prepared(unit, state, approvals, aws, describe_change_set, change_set=None):
     change_set = describe_change_set(unit, state) if change_set is None else change_set
     if change_set["Status"] in {"CREATE_PENDING", "CREATE_IN_PROGRESS"}:
@@ -258,16 +265,21 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
         - state.get("changeSetStarted", time.time())
         - state.get("changeSetCreateSeconds", 0),
     )
-    if change_set["Status"] == "FAILED" and any(
-        text in change_set.get("StatusReason", "")
-        for text in ("didn't contain changes", "No updates are to be performed")
-    ):
+    if no_changes(change_set):
+        stacks = aws("describe_stacks", StackName=unit["name"]).get("Stacks", [])
+        if len(stacks) != 1 or stacks[0].get("StackStatus") not in SUCCESS:
+            raise Blocked("no-change stack has no terminal success evidence")
+        stack = stacks[0]
         if (
-            aws("describe_stacks", StackName=unit["name"])["Stacks"][0]["StackStatus"]
-            in SUCCESS
+            not isinstance(state.get("stackId"), str)
+            or not state["stackId"].strip()
+            or stack.get("StackId") != state["stackId"]
+            or change_set.get("StackId") != state["stackId"]
         ):
-            state["reason"] = "no changes; existing stack terminal success"
-            return "SUCCESS"
+            raise Blocked("no-change Stack ID differs from saved ChangeSet target")
+        state.update(stackId=stack["StackId"], stackStatus=stack["StackStatus"])
+        state["reason"] = "no changes; existing stack terminal success"
+        return "SUCCESS"
     if (
         change_set["Status"] != "CREATE_COMPLETE"
         or change_set["ExecutionStatus"] != "AVAILABLE"

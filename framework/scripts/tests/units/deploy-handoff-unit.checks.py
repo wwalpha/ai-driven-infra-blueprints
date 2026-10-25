@@ -1522,6 +1522,54 @@ def check_signed_protected_fields(tmp_path, field):
             handoff.restore(root, path, restored)
 
 
+@pytest.mark.parametrize("after_replace", [False, True])
+def check_no_change_recovery_save_is_one_signed_revision(tmp_path, after_replace):
+    root = tmp_path / "repo"
+    root.mkdir()
+    path = tmp_path / "session.json"
+    session = {
+        "repository": str(root),
+        "taskFile": "tasks/deploy.md",
+        "workflow": handoff.new_workflow(),
+        "states": {"A": {"status": "SUCCESS", "stackId": "stack", "stackStatus": None}},
+        "pendingObserved": {
+            "evidence": {"A": {"stackId": "stack", "stackStatus": None}},
+            "outputs": {"model/dev/team/example.properties": "saved candidate"},
+            "beforeManifest": {"source": "before"},
+            "afterManifest": {"source": "after"},
+        },
+    }
+    handoff.bind(root, path, session)
+    handoff.save(path, session)
+    original = copy.deepcopy(session)
+    session["states"]["A"]["stackStatus"] = "UPDATE_COMPLETE"
+    session["pendingObserved"]["evidence"]["A"]["stackStatus"] = "UPDATE_COMPLETE"
+    repaired = copy.deepcopy(session)
+    interrupted = _bind_framework_callback(
+        _callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted,
+        file_operations.os.replace,
+        path,
+        after_replace,
+    )
+    with (
+        patch.object(file_operations.os, "replace", side_effect=interrupted),
+        pytest.raises(OSError, match="injected session replacement"),
+    ):
+        handoff.save(path, session)
+    restored = json.loads(path.read_text())
+    assert restored == (repaired if after_replace else original)
+    handoff.restore(root, path, restored)
+    assert restored == repaired
+    proof = handoff.binding_path(root, session["taskFile"])
+    receipt = proof.read_bytes()
+    handoff.restore(root, path, restored)
+    assert proof.read_bytes() == receipt
+    assert restored["workflow"] == original["workflow"]
+    restored["states"]["A"]["stackStatus"] = None
+    restored["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
+    assert restored == original
+
+
 def failed_operation_call(
     actual, failed_operation, runtime, service, operation, arguments
 ):

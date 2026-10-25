@@ -380,6 +380,61 @@ class MarkedString(str):
     pass
 
 
+@pytest.mark.parametrize("status", sorted(scheduler.SUCCESS))
+def check_no_change_success_evidence(status):
+    change = {
+        "Status": "FAILED",
+        "StatusReason": "The submitted information didn't contain changes.",
+        "StackId": "stack",
+    }
+    state = {"stackId": "stack"}
+    backend = StubAws()
+    with patch.object(
+        backend,
+        "aws",
+        return_value={"Stacks": [{"StackId": "stack", "StackStatus": status}]},
+    ) as aws:
+        assert backend.review_prepared({"name": "A"}, state, change) == "SUCCESS"
+    assert state["stackId"] == "stack" and state["stackStatus"] == status
+    aws.assert_called_once_with("describe_stacks", StackName="A")
+
+
+@pytest.mark.parametrize(
+    "stack,saved_id,change_id",
+    [
+        (
+            {"StackId": "stack", "StackStatus": "UPDATE_ROLLBACK_COMPLETE"},
+            "stack",
+            "stack",
+        ),
+        ({"StackId": "other", "StackStatus": "UPDATE_COMPLETE"}, "stack", "stack"),
+        ({"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}, None, "stack"),
+        ({"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}, "stack", "other"),
+        ({"StackId": "stack"}, "stack", "stack"),
+        ({"StackStatus": "UPDATE_COMPLETE"}, "stack", "stack"),
+        (None, "stack", "stack"),
+    ],
+)
+def check_no_change_invalid_evidence_blocks(stack, saved_id, change_id):
+    backend = StubAws()
+    state = {"stackId": saved_id}
+    with patch.object(
+        backend, "aws", return_value={"Stacks": [] if stack is None else [stack]}
+    ) as aws:
+        with pytest.raises(M.Blocked):
+            backend.review_prepared(
+                {"name": "A"},
+                state,
+                {
+                    "Status": "FAILED",
+                    "StatusReason": "No updates are to be performed",
+                    "StackId": change_id,
+                },
+            )
+    assert "stackStatus" not in state
+    assert all(call.args[0] != "execute_change_set" for call in aws.call_args_list)
+
+
 def check_deployment_input_conditions():
     values = {"desired.deployment.maxConcurrentStacks": "2"}
     for i, unit in enumerate(units(20, 10, 10), 1):

@@ -3,6 +3,7 @@
 import copy
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -10,17 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import base64
+from argparse import Namespace
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
-from deploy import handoff, observed
+from deploy import handoff, no_change_recovery, observed
 from deploy import observed_resume as M
 from deploy import session as controller
-from support.cloudformation_deploy_fixtures import Fake, starts
+from deploy.timing import Timing
+from support.cloudformation_deploy_fixtures import TARGET, Fake, starts
 from support.pytest_cli import run
 from task_contract_core import selected_task
 from utils.cloudformation.inputs import Blocked
+from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -58,6 +62,7 @@ def check_execution_identity(field):
     state = {
         "status": "SUCCESS",
         "stackId": "stack",
+        "stackStatus": "UPDATE_COMPLETE",
         "changeSetId": "change",
         "changeDigest": "digest",
         "clientToken": "token",
@@ -76,6 +81,25 @@ def check_execution_identity(field):
     with pytest.raises(Blocked):
         M.evidence({"A": state}, ["A"])
     assert saved["A"]["executionEvidence"]["StackId"] == "stack"
+
+
+@pytest.mark.parametrize(
+    "patches",
+    [
+        {"stackStatus": None},
+        {"stackStatus": "UPDATE_IN_PROGRESS"},
+        {"stackStatus": "UPDATE_ROLLBACK_COMPLETE"},
+        {"stackId": None},
+        {"stackId": ""},
+        {"stackId": "  "},
+        {"stackId": 123},
+    ],
+)
+def check_incomplete_success_evidence_rejected(patches):
+    state = {"status": "SUCCESS", "stackId": "stack", "stackStatus": "UPDATE_COMPLETE"}
+    state.update(patches)
+    with pytest.raises(Blocked, match="complete Stack success evidence"):
+        M.evidence({"A": state}, ["A"])
 
 
 @pytest.mark.parametrize(
@@ -133,10 +157,25 @@ def proposal(tmp_path):
         "workflow": handoff.new_workflow(),
         "inputRevision": 0,
         "modelInputManifest": before,
-        "states": {"A": {"status": "SUCCESS"}},
+        "states": {
+            "A": {
+                "status": "SUCCESS",
+                "stackId": "stack",
+                "stackStatus": "UPDATE_COMPLETE",
+            }
+        },
         "pendingObserved": {
             "identity": {"target": "pinned"},
-            "evidence": M.evidence({"A": {"status": "SUCCESS"}}, ["A"]),
+            "evidence": M.evidence(
+                {
+                    "A": {
+                        "status": "SUCCESS",
+                        "stackId": "stack",
+                        "stackStatus": "UPDATE_COMPLETE",
+                    }
+                },
+                ["A"],
+            ),
             "beforeManifest": before,
             "afterManifest": after,
             "outputs": {relative: new},
@@ -224,6 +263,29 @@ def check_intent_save_failure(proposal):
         with pytest.raises(OSError, match="intent write failed"):
             M.prepare(backend, [{"name": "A"}], {source: new}, ["service"], set())
     assert source.read_text() == old
+
+
+def check_new_plan_rejects_missing_stack_status(proposal):
+    root, session, source, old, new = proposal
+    session.pop("pendingObserved")
+    session["states"]["A"].pop("stackStatus")
+    backend = SimpleNamespace(
+        root=root,
+        session=session,
+        environment="dev",
+        directory="team",
+        target={},
+        save=Mock(),
+    )
+    with (
+        patch.object(M, "_identity", return_value={}),
+        patch.object(M, "source_snapshot", return_value={source: old.encode()}),
+        patch.object(M, "generated_plan", return_value={}),
+        pytest.raises(Blocked, match="complete Stack success evidence"),
+    ):
+        M.prepare(backend, [{"name": "A"}], {source: new}, ["service"], set())
+    backend.save.assert_not_called()
+    assert "pendingObserved" not in session and source.read_text() == old
 
 
 def check_direct_writer_keeps_noop_source_snapshot(tmp_path):
@@ -656,6 +718,422 @@ def check_owned_interrupted_stages(owned_proposal, stage):
             "beforeManifest" if stage == "PREPARED" else "afterManifest"
         ]
     )
+
+
+def no_change_aws(replies, operation, **arguments):
+    assert operation in {
+        "describe_change_set",
+        "describe_stacks",
+        "describe_stack_events",
+    }
+    assert arguments["StackName"] == (
+        "A" if operation == "describe_change_set" else "stack"
+    )
+    return copy.deepcopy(replies[operation])
+
+
+@pytest.fixture
+def legacy_proposal(owned_proposal):
+    root, session, source, old, new = owned_proposal
+    state = session["states"]["A"]
+    for key in (
+        "clientToken",
+        "executionEvidence",
+        "changeDigest",
+        "approvedChangeDigest",
+    ):
+        state.pop(key)
+    state.update(
+        stackStatus=None,
+        reason="no changes; existing stack terminal success",
+        operationType="UPDATE",
+        absentBeforeCreate=False,
+    )
+    session["pendingObserved"]["evidence"] = {
+        "A": {key: state.get(key) for key in M.EVIDENCE_FIELDS}
+    }
+    start = datetime(2026, 10, 25, tzinfo=timezone.utc)
+    replies = {
+        "describe_change_set": {
+            "ChangeSetId": "change",
+            "StackId": "stack",
+            "StackName": "A",
+            "Status": "FAILED",
+            "StatusReason": "didn't contain changes",
+            "ExecutionStatus": "UNAVAILABLE",
+            "Changes": [],
+            "CreationTime": start + timedelta(minutes=2),
+        },
+        "describe_stacks": {
+            "Stacks": [
+                {
+                    "StackId": "stack",
+                    "StackStatus": "UPDATE_COMPLETE",
+                    "CreationTime": start - timedelta(days=1),
+                    "LastUpdatedTime": start,
+                }
+            ]
+        },
+        "describe_stack_events": {
+            "StackEvents": [
+                {
+                    "StackId": "stack",
+                    "PhysicalResourceId": "stack",
+                    "ResourceType": "AWS::CloudFormation::Stack",
+                    "ResourceStatus": "UPDATE_COMPLETE",
+                    "Timestamp": start + timedelta(minutes=1),
+                }
+            ]
+        },
+    }
+    aws = Mock(side_effect=_bind_framework_callback(no_change_aws, replies))
+    return root, session, source, old, new, replies, aws
+
+
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "none",
+        "state-mismatch",
+        "reason",
+        "executed",
+        "change-id",
+        "stack-id",
+        "changed",
+        "available",
+        "stack-status",
+        "later-update",
+        "later-event",
+        "foreign-event",
+        "missing-time",
+        "missing-events",
+        "missing-terminal",
+        "unavailable",
+    ],
+)
+def check_legacy_no_change_proof(legacy_proposal, problem):
+    root, session, source, old, new, replies, aws = legacy_proposal
+    state = session["states"]["A"]
+    change = replies["describe_change_set"]
+    stack = replies["describe_stacks"]["Stacks"][0]
+    event = replies["describe_stack_events"]["StackEvents"][0]
+    if problem == "state-mismatch":
+        state["stackStatus"] = "UPDATE_COMPLETE"
+    if problem == "reason":
+        state["reason"] = "other success"
+    if problem == "executed":
+        state["executionStarted"] = 123
+    if problem == "change-id":
+        change["ChangeSetId"] = "other"
+    if problem == "stack-id":
+        stack["StackId"] = "other"
+    if problem == "changed":
+        change["StatusReason"] = "creation failed"
+    if problem == "available":
+        change["ExecutionStatus"] = "AVAILABLE"
+    if problem == "stack-status":
+        stack["StackStatus"] = "UPDATE_ROLLBACK_COMPLETE"
+    if problem == "later-update":
+        stack["LastUpdatedTime"] = change["CreationTime"] + timedelta(seconds=1)
+    if problem == "later-event":
+        event["Timestamp"] = change["CreationTime"] + timedelta(seconds=1)
+    if problem == "foreign-event":
+        event["StackId"] = "other"
+    if problem == "missing-time":
+        change.pop("CreationTime")
+    if problem == "missing-events":
+        replies["describe_stack_events"]["StackEvents"] = []
+    if problem == "missing-terminal":
+        event["ResourceType"] = "AWS::S3::Bucket"
+    if problem == "unavailable":
+        aws.side_effect = Blocked("AWS evidence unavailable")
+    original = copy.deepcopy(session)
+    backend = SimpleNamespace(aws=aws)
+    if problem != "none":
+        with pytest.raises(Blocked):
+            no_change_recovery.candidate(backend, session)
+    else:
+        candidate = no_change_recovery.candidate(backend, session)
+        assert candidate["states"]["A"]["stackStatus"] == "UPDATE_COMPLETE"
+        assert (
+            candidate["pendingObserved"]["evidence"]["A"]["stackStatus"]
+            == "UPDATE_COMPLETE"
+        )
+        with patch.object(M, "source_snapshot", return_value={source: old.encode()}):
+            assert M.reconcile(root, candidate, {}, "dev", "team") == "PREPARED"
+        assert no_change_recovery.candidate(backend, candidate) is None
+        assert aws.call_count == 4
+        candidate["states"]["A"]["stackStatus"] = None
+        candidate["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
+        assert candidate == original
+    assert session == original and source.read_text() == old
+
+
+def check_legacy_stack_changes_during_verification(legacy_proposal):
+    _, session, _, _, _, replies, aws = legacy_proposal
+    updated = copy.deepcopy(replies["describe_stacks"])
+    updated["Stacks"][0]["LastUpdatedTime"] += timedelta(minutes=3)
+    aws.side_effect = [
+        replies["describe_change_set"],
+        replies["describe_stacks"],
+        replies["describe_stack_events"],
+        updated,
+    ]
+    original = copy.deepcopy(session)
+    with pytest.raises(Blocked, match="changed during verification"):
+        no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
+    assert session == original
+
+
+def publish_recovered_observations(events, root, outputs, previous):
+    assert all(path.read_bytes() == raw for path, raw in previous.items())
+    for path, text in outputs.items():
+        path.write_text(text)
+    events.append(("observed", "A"))
+
+
+def finish_recovered_generation(backend):
+    assert backend.session["pendingGeneration"]
+    backend.session.pop("pendingGeneration")
+    backend.events.append(("generated", "A"))
+
+
+def sync_recovered_group(backend, units, states):
+    if backend.session.get("pendingObserved"):
+        return M.finish(backend, units)
+    for unit in units:
+        states[unit["name"]]["observedSynced"] = True
+    return {}
+
+
+def check_recovered_observed_barrier_releases_next_order(legacy_proposal):
+    root, session, source, old, new, _, aws = legacy_proposal
+    session["states"]["B"] = {"status": "NOT_STARTED"}
+    session["metrics"] = {"observedSyncSeconds": 0}
+    session["pendingObserved"]["services"] = ["service"]
+    path = root.parent / (root.name + "-session.json")
+    handoff.bind(root, path, session)
+    handoff.save(path, session)
+    original = copy.deepcopy(session)
+    candidate = no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
+    with patch.object(
+        M,
+        "source_snapshot",
+        side_effect=_bind_framework_callback(read_proposal_source, source),
+    ):
+        M.reconcile(root, candidate, {}, "dev", "team")
+    session.clear()
+    session.update(candidate)
+    handoff.save(path, session)
+    backend = Fake()
+    backend.root, backend.session, backend.target = root, session, {}
+    backend.environment, backend.directory = "dev", "team"
+    backend.save = _bind_framework_callback(handoff.save, path, session)
+    backend.guard = lambda: None
+    units = [
+        {
+            "name": name,
+            "deployOrder": order,
+            "template": "app.yaml",
+            "parameters": "app.json",
+        }
+        for name, order in (("A", "10"), ("B", "20"))
+    ]
+    with (
+        patch.object(
+            M,
+            "source_snapshot",
+            side_effect=_bind_framework_callback(read_proposal_source, source),
+        ),
+        patch.object(
+            observed,
+            "collect_successful",
+            return_value=({source: new}, ["service"], None),
+        ),
+        patch(
+            "model.adapters.observed.publish_observed",
+            side_effect=_bind_framework_callback(
+                publish_recovered_observations, backend.events
+            ),
+        ),
+        patch.object(controller, "sync_successful", side_effect=sync_recovered_group),
+        patch.object(
+            controller.generation_resume, "run", side_effect=finish_recovered_generation
+        ),
+    ):
+        result = controller.run_session(
+            units, 1, session, backend, backend.save, sleep=lambda _: None
+        )
+        assert result == "COMPLETE", session
+    assert starts(backend) == ["B"]
+    assert (
+        backend.events.index(("observed", "A"))
+        < backend.events.index(("generated", "A"))
+        < next(
+            index
+            for index, event in enumerate(backend.events)
+            if event[:2] == ("start", "B")
+        )
+    )
+    assert source.read_text() == new
+    assert session["states"]["A"]["observedSynced"] and "pendingObserved" not in session
+    assert session["workflow"] == original["workflow"]
+    restored = json.loads(path.read_text())
+    handoff.restore(root, path, restored)
+    assert handoff.protected(restored) == handoff.protected(session)
+
+
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "none",
+        "model",
+        "iac",
+        "candidate",
+        "task",
+        "late-model",
+        "scope",
+        "unavailable",
+        "tampered",
+    ],
+)
+def check_formal_no_change_resume(legacy_proposal, problem):
+    root, session, source, old, new, replies, aws = legacy_proposal
+    task = root / "tasks/deploy.md"
+    task.write_text(
+        task.read_text().replace(
+            "## Task contract", "## Task contract\n- Target alias: `team`"
+        )
+    )
+    units = [{"name": "A", "deployOrder": "10"}]
+    session.update(
+        version=5,
+        modelFormat=2,
+        snapshotVersion=2,
+        referenceMeaningVersion=1,
+        profile=None,
+        inputIdentities={},
+        taskDigest=M.task_digest(task.read_text()),
+        inputDigest=fingerprint([str(root), TARGET, "dev", "deploy", 1, units]),
+    )
+    plan = session["pendingObserved"]
+    plan["identity"] = M._identity(root, session, TARGET, "dev", "team")
+    plan["services"] = ["service"]
+    if problem == "late-model":
+        session["modelInputManifest"]["model/dev/team/other.properties"] = "missing"
+    if problem == "scope":
+        session["inputDigest"] = "other"
+        plan["identity"]["inputDigest"] = "other"
+    if problem == "iac":
+        session["infraManifest"]["infra/changed.yaml"] = "missing"
+        plan["identity"]["infraManifest"] = copy.deepcopy(session["infraManifest"])
+    if problem == "candidate":
+        plan["outputs"][source.relative_to(root).as_posix()] = new + "# changed\n"
+    path = root.parent / (root.name + "-session.json")
+    handoff.bind(root, path, session)
+    handoff.save(path, session)
+    original = copy.deepcopy(session)
+    if problem == "model":
+        source.write_text(old + "# external\n")
+    if problem == "task":
+        task.write_text(
+            task.read_text() + "\n## Changed authority\nchanged authority\n"
+        )
+    if problem == "unavailable":
+        aws.side_effect = Blocked("AWS evidence unavailable")
+    if problem == "tampered":
+        tampered = json.loads(path.read_text())
+        tampered["states"]["A"]["reason"] = "changed"
+        path.write_text(json.dumps(tampered))
+    backend = SimpleNamespace(
+        root=root,
+        target=TARGET,
+        environment="dev",
+        directory="team",
+        profile=None,
+        aws=aws,
+        input_digest=lambda *args, **kwargs: "unit",
+        file_digest=lambda path: None,
+        deployment_input_paths=lambda units: [],
+    )
+    args = Namespace(
+        state=path,
+        environment="dev",
+        aws_account_id=TARGET["awsAccountId"],
+        alias="team",
+        profile=None,
+        stack=["A"],
+        approve_change_set=[],
+        resume=True,
+        pause_after_group=False,
+        sequential=False,
+    )
+    with (
+        patch.object(
+            controller._imports_deploy_context, "load_target", return_value=TARGET
+        ),
+        patch.object(
+            controller._imports_deploy_context,
+            "check_deploy_context",
+            return_value=TARGET,
+        ),
+        patch.object(
+            M,
+            "source_snapshot",
+            side_effect=_bind_framework_callback(read_proposal_source, source),
+        ),
+        patch.object(
+            controller, "run_session", return_value="STOPPED"
+        ) as scheduler_run,
+    ):
+        assert (
+            controller.run(
+                args,
+                root,
+                Timing(root),
+                root,
+                lambda *args: backend,
+                lambda *args: (1, units),
+            )
+            == 2
+        )
+        restored = json.loads(path.read_text())
+        if problem == "tampered":
+            scheduler_run.assert_not_called()
+            aws.assert_not_called()
+            return
+        handoff.restore(root, path, restored)
+        if problem == "none":
+            scheduler_run.assert_called_once()
+            assert restored["states"]["A"]["stackStatus"] == "UPDATE_COMPLETE"
+            assert (
+                restored["pendingObserved"]["evidence"]["A"]["stackStatus"]
+                == "UPDATE_COMPLETE"
+            )
+            assert aws.call_count == 4
+            # The same signed session resumes again without recovery calls or execution.
+            assert (
+                controller.run(
+                    args,
+                    root,
+                    Timing(root),
+                    root,
+                    lambda *args: backend,
+                    lambda *args: (1, units),
+                )
+                == 2
+            )
+            assert aws.call_count == 4
+            restored["states"]["A"]["stackStatus"] = None
+            restored["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
+            assert restored["states"] == original["states"]
+            assert restored["pendingObserved"] == original["pendingObserved"]
+            assert restored["workflow"] == original["workflow"]
+        else:
+            scheduler_run.assert_not_called()
+            assert restored["states"] == original["states"]
+            assert restored["pendingObserved"] == original["pendingObserved"]
+            assert restored.get("observedRecoveryError")
 
 
 @pytest.mark.parametrize("stage", ["PREPARED", "MODEL_PUBLISHED"])

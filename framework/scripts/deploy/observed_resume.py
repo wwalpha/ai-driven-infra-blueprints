@@ -22,6 +22,7 @@ from utils.cloudformation.inputs import Blocked
 
 import deploy.observed as _imports_deploy_observed
 from deploy import generation_resume
+from deploy.scheduler import SUCCESS
 from model import dependency_index
 
 
@@ -50,22 +51,33 @@ def manifest(snapshot):
     }
 
 
+EVIDENCE_FIELDS = (
+    "status",
+    "stackStatus",
+    "stackId",
+    "changeSetId",
+    "changeDigest",
+    "clientToken",
+    "approvedChangeDigest",
+    "executionEvidence",
+)
+
+
 def evidence(states, names):
-    fields = (
-        "status",
-        "stackStatus",
-        "stackId",
-        "changeSetId",
-        "changeDigest",
-        "clientToken",
-        "approvedChangeDigest",
-        "executionEvidence",
-    )
     result = {}
     for name in names:
         state = states[name]
         if state["status"] != "SUCCESS":
             raise Blocked("observed plan requires AWS SUCCESS: " + name)
+        if (
+            not isinstance(state.get("stackId"), str)
+            or not state["stackId"].strip()
+            or not isinstance(state.get("stackStatus"), str)
+            or state.get("stackStatus") not in SUCCESS
+        ):
+            raise Blocked(
+                "observed plan requires complete Stack success evidence: " + name
+            )
         execution = state.get("executionEvidence")
         if execution and any(
             execution.get(key) != state.get(field)
@@ -77,7 +89,7 @@ def evidence(states, names):
             )
         ):
             raise Blocked("observed execution evidence changed: " + name)
-        result[name] = {key: copy.deepcopy(state.get(key)) for key in fields}
+        result[name] = {key: copy.deepcopy(state.get(key)) for key in EVIDENCE_FIELDS}
     return result
 
 

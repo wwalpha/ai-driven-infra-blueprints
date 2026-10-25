@@ -31,7 +31,7 @@ from utils.type_contracts import JsonValue as JsonValue
 import deploy.context as _imports_deploy_context
 import deploy.contracts as _imports_deploy_contracts
 import deploy.observed as _dependency_deploy_observed
-from deploy import generation_resume, handoff, observed_resume
+from deploy import generation_resume, handoff, no_change_recovery, observed_resume
 from deploy import resume as repair_resume
 from deploy.model_cache import SessionModels
 from deploy.scheduler import run_group
@@ -374,6 +374,7 @@ def run(
     handoff_lock = None
     model_scope = None
     generation_recovery = {}
+    no_change_original = None
     invocation_started = time.perf_counter()
     try:
         if state_path.is_relative_to(root):
@@ -426,6 +427,17 @@ def run(
             candidate_lock.__enter__()
             handoff_lock = candidate_lock
             directory = args.alias or args.aws_account_id
+            # Runtime construction loads no Model; recovery uses only its read-only AWS calls.
+            backend = backend_type(
+                root,
+                args.environment,
+                directory,
+                target,
+                args.profile,
+                args.approve_change_set,
+            )
+            backend.timing = timing
+            backend.phase = phase
             if args.resume:
                 session = json.loads(state_path.read_text(encoding="utf-8"))
                 handoff.restore(root, state_path, session)
@@ -443,14 +455,24 @@ def run(
                             raise Blocked(
                                 "IaC changed during pending observed publication"
                             )
+                        candidate = no_change_recovery.candidate(backend, session)
                         observed_resume.reconcile(
-                            root, session, target, args.environment, directory
+                            root,
+                            candidate if candidate is not None else session,
+                            target,
+                            args.environment,
+                            directory,
                         )
+                        if candidate is not None:
+                            no_change_original = copy.deepcopy(session)
+                            session.clear()
+                            session.update(candidate)
                     except Exception as error:
                         session["observedRecoveryError"] = str(error)
                         save_session(state_path, session)
                         raise
-                    save_session(state_path, session)
+                    if no_change_original is None:
+                        save_session(state_path, session)
             if (
                 args.resume
                 and session.get("pendingGeneration")
@@ -470,7 +492,8 @@ def run(
                     )
                     for view, current in recovered.items()
                 }
-                save_session(state_path, session)
+                if no_change_original is None:
+                    save_session(state_path, session)
             if session is None:
                 session = {"modelInputManifest": {}}
             models = SessionModels(root, session)
@@ -479,16 +502,6 @@ def run(
             limit, units = load_units(root, args.environment, directory, args.stack)
             if args.sequential:
                 limit = 1
-            backend = backend_type(
-                root,
-                args.environment,
-                directory,
-                target,
-                args.profile,
-                args.approve_change_set,
-            )
-            backend.timing = timing
-            backend.phase = phase
             digest = fingerprint(
                 [str(root), target, args.environment, phase, limit, units]
             )
@@ -721,6 +734,12 @@ def run(
             )
             backend.refresh_validation = refresh_validation
             backend.units = units
+        if no_change_original is not None:
+            backend.guard()
+            observed_resume.validate_plan(
+                root, session, target, args.environment, directory
+            )
+        no_change_original = None
         save()
         for unit in units:
             state = session["states"][unit["name"]]
@@ -752,6 +771,13 @@ def run(
         RuntimeError,
         subprocess.SubprocessError,
     ) as error:
+        if no_change_original is not None:
+            session.clear()
+            session.update(no_change_original)
+            session["observedRecoveryError"] = str(error)
+            save_session(state_path, session)
+            # No later finally-save may publish the rejected private candidate.
+            persist = None
         print(f"CloudFormation controller: BLOCKED: {error}", file=sys.stderr)
         return 2
     finally:
