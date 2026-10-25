@@ -115,6 +115,7 @@ class Diagnostic:
     affected_services: tuple = ()
     location: str | None = None
     details: dict = field(default_factory=dict)
+    check_ids: tuple = ()
 
     @classmethod
     def create(cls, root, *, source_path=None, target_path=None, **details):
@@ -134,15 +135,22 @@ class Diagnostic:
             self.location,
             self.cause_key,
         )
-        return (
-            (self.check_id, *identity)
-            if self.code == "design.display.mismatch"
-            else identity
-        )
+        if self.code == "design.display.mismatch":
+            return (
+                *identity,
+                *(
+                    self.details.get(key)
+                    for key in ("resourceLogicalId", "anchor", "property", "occurrence")
+                ),
+            )
+        return identity
 
     def record(self):
         record = asdict(self)
         record.pop("details")
+        record.pop("check_ids")
+        if self.code == "design.display.mismatch":
+            record["check_ids"] = sorted({self.check_id, *self.check_ids})
         if self.details:
             record.update(self.details)
             record.update(

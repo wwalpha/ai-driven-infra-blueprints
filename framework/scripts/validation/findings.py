@@ -200,10 +200,26 @@ class Findings:
             if index not in self.diagnostic_errors
         ]
 
-    def add_diagnostic(self, diagnostic: Diagnostic, *, display_error=None):
-        if any(item.identity == diagnostic.identity for item in self.diagnostics):
-            return
+    def _retain_diagnostic(self, diagnostic):
+        for index, existing in enumerate(self.diagnostics):
+            if existing.identity != diagnostic.identity:
+                continue
+            if diagnostic.code != "design.display.mismatch":
+                return False
+            previous = {existing.check_id, *existing.check_ids}
+            checks = tuple(
+                sorted(previous | {diagnostic.check_id, *diagnostic.check_ids})
+            )
+            self.diagnostics[index] = replace(
+                existing, check_id=checks[0], check_ids=checks
+            )
+            return set(checks) != previous
         self.diagnostics.append(diagnostic)
+        return True
+
+    def add_diagnostic(self, diagnostic: Diagnostic, *, display_error=None):
+        if not self._retain_diagnostic(diagnostic):
+            return
         self.diagnostic_errors[len(self.errors)] = diagnostic.identity
         self.check(
             False, diagnostic.message if display_error is None else display_error
@@ -220,10 +236,7 @@ class Findings:
                     )
                 self.errors.append(error)
         for diagnostic in findings.diagnostics:
-            if not any(
-                item.identity == diagnostic.identity for item in self.diagnostics
-            ):
-                self.diagnostics.append(diagnostic)
+            self._retain_diagnostic(diagnostic)
 
     def processing_failure(self, check_id, scope, error):
         failure = dict(

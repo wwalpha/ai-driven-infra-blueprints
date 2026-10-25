@@ -1,10 +1,12 @@
-"""Display cause classification and lossless report-only aggregation; offline fixtures."""
+"""Display cause identity, validation evidence and lossless reports; offline fixtures."""
 
 import json
 import sys
 from contextlib import ExitStack
 from copy import deepcopy
+from dataclasses import replace
 from functools import partial
+from html import unescape
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -25,7 +27,7 @@ from design.document import (
 )
 from issues.aggregate import MAX_GROUPS
 from issues.artifact import detail_payload
-from issues.reports import display_groups, ordinary_report
+from issues.reports import ordinary_report
 from issues.review import review_snapshot
 from issues.runner import validation_issues
 from model.core import ReferenceDiagnosticError
@@ -42,7 +44,7 @@ from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context
 from validation import design, design_links, design_tables
-from validation.diagnostics import ArtifactReferences, display_diagnostics
+from validation.diagnostics import ArtifactReferences, Diagnostic, display_diagnostics
 from validation.findings import Findings, finish_result
 
 if not __debug__:
@@ -444,22 +446,24 @@ def collected(pipeline):
     return findings, scanned
 
 
-def test_report_groups_without_losing_review_snapshot_or_human(pipeline):
+def test_cause_identity_keeps_all_routes_review_snapshot_and_human(pipeline):
     root, _, path, _, _ = pipeline
     findings, artifact = collected(pipeline)
     before = deepcopy(artifact)
     report = ordinary_report(root, artifact)
     assert artifact == before
     assert "build-project" not in json.dumps(artifact) and "build-project" not in report
-    assert (
-        len(artifact["ordinary"]) == 16
-        and len(display_groups(artifact["ordinary"])) == 4
-    )
-    assert "原診断16件 → 原因4件" in report
+    assert len(artifact["ordinary"]) == 4
+    assert "表示差分: 原因4件（表示4件" in report
     assert report.count("対象件数: 1") == 4
     for item in artifact["ordinary"]:
         assert item["diagnostic"]["diagnosticId"] in report
-    assert len({item["id"] for item in artifact["ordinary"]}) == 16
+    assert len({item["id"] for item in artifact["ordinary"]}) == 4
+    routes = {"tables", "links", "identity", "design.tables.CodePipeline_Pipeline_001"}
+    for item in artifact["ordinary"]:
+        assert set(item["diagnostic"]["check_ids"]) == routes
+        assert item["diagnostic"]["checkId"] == min(routes)
+        assert all(route in report for route in routes)
     fields = {
         "cause_key",
         "service",
@@ -470,12 +474,17 @@ def test_report_groups_without_losing_review_snapshot_or_human(pipeline):
         "expectedDisplay",
         "sourcePath",
         "checkId",
+        "check_ids",
         "diagnosticId",
     }
     assert all(fields <= item["diagnostic"].keys() for item in artifact["ordinary"])
     page = detail_payload(artifact, "ordinary", limit=50)
-    assert page["total"] == len(page["items"]) == 16
+    assert page["total"] == len(page["items"]) == 4
     review = review_for(artifact)
+    assert len(review["diagnostic_decisions"]) == 4
+    assert {item["id"] for item in review["diagnostic_decisions"]} == {
+        item["id"] for item in artifact["ordinary"]
+    }
     partial = deepcopy(review)
     partial["diagnostic_decisions"].pop()
     with pytest.raises(ValueError, match="all current diagnostics require review"):
@@ -484,6 +493,22 @@ def test_report_groups_without_losing_review_snapshot_or_human(pipeline):
     assert snapshot["ordinary"] == json.loads(json.dumps(artifact["ordinary"]))
     assert snapshot["human_confirmations"] == artifact["human_confirmations"]
     assert snapshot["unverified"] == artifact["unverified"]
+    reordered = Findings(root)
+    for diagnostic in reversed(findings.diagnostics):
+        reordered.add_diagnostic(replace(diagnostic, message="表示文章を変更"))
+    assert {
+        item["id"]
+        for item in validation_issues(
+            reordered,
+            SimpleNamespace(
+                root=root,
+                environment="qa",
+                directory="team",
+                redacted=lambda value: value,
+            ),
+            ["codepipeline"],
+        )[0]
+    } == {item["id"] for item in artifact["ordinary"]}
     assert (
         finish_result(
             findings.result("design.tables.semantic", {("qa", "team", "codepipeline")})
@@ -504,13 +529,110 @@ def test_report_limit_keeps_all_artifact_members(pipeline):
             cause_key=f"cause-{number}", diagnosticId=f"diagnostic-{number}"
         )
         artifact["ordinary"].append(record)
+        artifact["unverified"].append(
+            dict(
+                code="design.tables.dependency",
+                cause_keys=[f"cause-{number}"],
+                resource=f"resource-{number}",
+                status="NOT_RUN",
+                complete=False,
+            )
+        )
     before = deepcopy(artifact)
     report = ordinary_report(root, artifact)
     assert report.count("対象件数: 1") == MAX_GROUPS
+    assert "表示差分: 原因19件（表示16件" in report
+    section = report.split("## 未検証範囲\n\n", 1)[1].split("\n## ", 1)[0]
+    assert [
+        json.loads(unescape(line[2:]))
+        for line in section.splitlines()
+        if line.startswith("- ")
+    ] == artifact["unverified"]
+    assert len(artifact["unverified"]) == MAX_GROUPS + 4
     assert (
         len(detail_payload(artifact, "ordinary", limit=50)["items"]) == MAX_GROUPS + 3
     )
     assert artifact == before
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_display_routes_merge_across_findings(pipeline, reverse):
+    root, _, path, _, _ = pipeline
+    error = mismatch(pipeline)
+    routes = ["tables", "links", "identity", "generation"]
+    parent = Findings(root)
+    ids = set()
+    for route in reversed(routes) if reverse else routes:
+        child = Findings(root)
+        for diagnostic in display_diagnostics(root, path, error, route):
+            child.add_diagnostic(diagnostic)
+            ids.add(diagnostic.identity)
+        result = parent.evaluate(
+            route,
+            {("qa", "team", "codepipeline")},
+            partial(parent.include_diagnostics, child),
+        )
+        assert result.status == "FAIL" and len(result.errors) == 4
+    assert len(parent.diagnostics) == len(ids) == 4
+    assert len(parent.errors) == 16 and not parent.unstructured_errors
+    for diagnostic in parent.diagnostics:
+        assert set(diagnostic.record()["check_ids"]) == set(routes)
+        assert diagnostic.check_id == min(routes)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "service",
+        "source_path",
+        "target_path",
+        "location",
+        "cause_key",
+        "resourceLogicalId",
+        "anchor",
+        "property",
+        "occurrence",
+    ],
+)
+def test_distinct_display_causes_stay_independent(tmp_path, field):
+    original = Diagnostic.create(
+        tmp_path,
+        code="design.display.mismatch",
+        check_id="tables",
+        service=("qa", "team", "s3"),
+        source_path="docs/designs/qa/team/s3.md",
+        target_path="docs/designs/qa/team/s3/policy.json",
+        location="saved/Name/1",
+        cause_key="confirmed-cause",
+        message="same display prose",
+        details=dict(
+            resourceLogicalId="S3_Bucket_001",
+            anchor="saved",
+            property="Name",
+            occurrence=1,
+        ),
+    )
+    if field in original.details:
+        other = replace(
+            original,
+            details={
+                **original.details,
+                field: 2 if field == "occurrence" else "other",
+            },
+        )
+    else:
+        other = replace(
+            original,
+            **{field: ("qa", "team", "sqs") if field == "service" else "other"},
+        )
+    findings = Findings(tmp_path)
+    findings.add_diagnostic(original)
+    findings.add_diagnostic(other)
+    comparison = SimpleNamespace(
+        root=tmp_path, environment="qa", directory="team", redacted=lambda value: value
+    )
+    records, unknown = validation_issues(findings, comparison, ["s3", "sqs"])
+    assert not unknown and len(records) == len({item["id"] for item in records}) == 2
 
 
 def test_generation_keeps_unrelated_markdown_and_json(pipeline):
