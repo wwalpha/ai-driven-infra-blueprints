@@ -10,7 +10,7 @@ from pathlib import Path
 
 from task_contract_core import relative_path
 
-from .aggregate import MAX_EXAMPLES, comparison_status, iac_summary
+from .aggregate import MAX_EXAMPLES, MAX_GROUPS, comparison_status, iac_summary
 from .records import brief, identifier, safe_text
 
 
@@ -41,6 +41,48 @@ def issue_content(root, path, record):
         + (f" 根拠: {link}。" if link else "")
         + f" <!-- issue-id: {issue_key(root, record)} -->"
     )
+
+
+def display_groups(records):
+    """Presentation only: Snapshot and Review keep every original record/ID."""
+    groups = {}
+    for record in records:
+        diagnostic = record.get("diagnostic", {})
+        if diagnostic.get("code") == "design.display.mismatch" and diagnostic.get(
+            "cause_key"
+        ):
+            groups.setdefault(diagnostic["cause_key"], []).append(record)
+    return groups
+
+
+def display_group_content(cause, records, artifact):
+    first = records[0]["diagnostic"]
+    dependencies = [
+        item for item in artifact["unverified"] if cause in item.get("cause_keys", [])
+    ]
+    checks = sorted({item["diagnostic"]["checkId"] for item in records})
+    ids = [item["diagnostic"]["diagnosticId"] for item in records]
+    scopes = [
+        {
+            key: item[key]
+            for key in ("scope", "resource", "checks", "phase")
+            if key in item
+        }
+        for item in dependencies
+    ]
+    text = (
+        f"design.display.mismatch / 原因ID: {cause}。"
+        f"保存先: {brief(first['sourcePath'])}。"
+        f"対象: {brief(first['resourceLogicalId'])} / {brief(first['anchor'])} / {brief(first['property'])}。"
+        f"表示差分: {brief(first['savedDisplay'])} → {brief(first['expectedDisplay'])}。"
+        f"対象件数: 1。原診断件数: {len(records)}。"
+        f"原診断ID（最大{MAX_EXAMPLES}件）: {', '.join(ids[:MAX_EXAMPLES])}。"
+        f"Review ID: {', '.join(item['id'] for item in records[:MAX_EXAMPLES])}。"
+        f"関連検証経路: {brief(', '.join(checks))}。"
+        f"派生NOT_RUN: {len(dependencies)}件 / {brief(scopes[:MAX_EXAMPLES])}。"
+        "全対象・全原診断・未検証範囲は同じScan artifactのordinary／unverifiedを参照。"
+    )
+    return escape(safe_text(text), quote=False)
 
 
 def ordinary_report(root, artifact):
@@ -74,14 +116,31 @@ def ordinary_report(root, artifact):
         }
         if records:
             lines.extend([f"### {service}", ""])
-            lines.extend(
-                f"{number}. {issue_content(root, path, item)}\n"
-                for number, (_, item) in enumerate(sorted(records.items()), 1)
-            )
+            groups = display_groups(records.values())
+            grouped = {item["id"] for members in groups.values() for item in members}
+            items = [
+                issue_content(root, path, item)
+                for _, item in sorted(records.items())
+                if item.get("id") not in grouped
+            ]
+            for cause, members in sorted(groups.items())[:MAX_GROUPS]:
+                markers = " ".join(
+                    f"<!-- issue-id: {issue_key(root, item)} -->"
+                    for item in members[:MAX_EXAMPLES]
+                )
+                items.append(
+                    display_group_content(cause, members, artifact) + " " + markers
+                )
+            lines.extend(f"{number}. {item}\n" for number, item in enumerate(items, 1))
+            if groups:
+                lines.append(
+                    f"表示差分: 原診断{len(grouped)}件 → 原因{len(groups)}件（表示{min(MAX_GROUPS, len(groups))}件、全件はartifact）。\n"
+                )
     if not artifact["ordinary"]:
         lines.extend(
             ["未解決issueなし（検証未完了）" if incomplete else "未解決issueなし", ""]
         )
+    grouped_causes = display_groups(artifact["ordinary"])
     for channel, heading in (
         ("information", "情報"),
         ("unverified", "未検証範囲"),
@@ -94,6 +153,11 @@ def ordinary_report(root, artifact):
                 "- "
                 + escape(safe_text(json.dumps(value, ensure_ascii=False)), quote=False)
                 for value in artifact[channel]
+                if not (
+                    channel == "unverified"
+                    and value.get("cause_keys")
+                    and all(cause in grouped_causes for cause in value["cause_keys"])
+                )
             )
     return "\n".join(lines) + "\n"
 

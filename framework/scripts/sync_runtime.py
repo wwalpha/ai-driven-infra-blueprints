@@ -21,7 +21,7 @@ import sync_views
 import task_contract_core as _imports_task_contract
 import validation_cache as _imports_validation_cache
 from aws_mapping_display import validate_mappings as validate_mappings
-from design.document import DesignIndex
+from design.document import DesignIndex, DisplayMismatchError, require_saved_identity
 from design.layout_schema import STACK_DESIGN
 from design.policy_tables import rendered_design
 from generation_inputs import GenerationInputs
@@ -81,7 +81,7 @@ from utils.input_cache import (
 )
 from utils.input_cache import memo_table as memo_table
 from utils.json_format import policy_json
-from validation.diagnostics import Diagnostic, service_scope
+from validation.diagnostics import Diagnostic, display_diagnostics, service_scope
 from validation.findings import FindingsError
 from validation_scope import scoped_files
 
@@ -1336,6 +1336,26 @@ def _compare_generation(plan):
             if not target.is_file() or target.read_bytes() != text.encode("utf-8"):
                 stale = True
                 kind = "Markdown" if target.suffix == ".md" else "JSON"
+                if target == path and target.is_file() and target.suffix == ".md":
+                    try:
+                        saved = target.read_text(encoding="utf-8")
+                        require_saved_identity(saved, text)
+                    except ValueError:
+                        pass  # Identity validation owns the structural failure.
+                    else:
+                        mismatch = DisplayMismatchError(target, saved, text)
+                        plan.failure_records.extend(
+                            diagnostic
+                            for diagnostic in display_diagnostics(
+                                root,
+                                target,
+                                mismatch,
+                                "framework.generated-service-model",
+                            )
+                            if diagnostic.details["property"] != "$document"
+                        )
+                        if mismatch.positions and not mismatch.other_changes:
+                            continue
                 generation_failure(
                     root,
                     plan.failure_records,

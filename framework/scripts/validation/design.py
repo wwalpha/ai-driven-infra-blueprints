@@ -42,7 +42,12 @@ from utils.cloudformation.schema import material_files, snapshot_errors
 from utils.input_cache import input_scope, input_text, memoized
 from utils.project_targets import LOWER_KEBAB_PATTERN
 
-from .diagnostics import plaintext_diagnostics
+from .diagnostics import (
+    Diagnostic,
+    display_diagnostics,
+    plaintext_diagnostics,
+    service_scope,
+)
 from .findings import FindingsError
 
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
@@ -374,9 +379,16 @@ def _callback_check_resource_names_check_name(
         key = (resource_type, identities.get(anchor))
         matched = resources.get(key)
         if not matched or model_anchors.get(anchor, key) != key:
-            findings.check(
-                False,
-                f"hidden logical ID missing or mismatched with authoritative resource at anchor: {findings.relative(path)}: {resource_type}: {anchor}",
+            findings.add_diagnostic(
+                Diagnostic.create(
+                    root,
+                    code="design.identity.invalid",
+                    check_id="design.identity",
+                    service=service_scope(root, path),
+                    source_path=path,
+                    location=anchor,
+                    message=f"hidden logical ID missing or mismatched with authoritative resource at anchor: {findings.relative(path)}: {resource_type}: {anchor}",
+                )
             )
             return
         label = values.get(f"display.resource.{matched[0]}.label")
@@ -450,10 +462,21 @@ def _callback_check_resource_names_check_name(
                 service_metadata[path][0], display, resource_type
             ),
         )
-        findings.warn(
-            anchor == expected,
-            f"resource anchor must match saved Model anchor: {findings.relative(path)}: expected {expected}",
-        )
+        message = f"resource anchor must match saved Model anchor: {findings.relative(path)}: expected {expected}"
+        if values and anchor != expected:
+            findings.add_diagnostic(
+                Diagnostic.create(
+                    root,
+                    code="design.identity.invalid",
+                    check_id="design.identity",
+                    service=service_scope(root, path),
+                    source_path=path,
+                    location=anchor,
+                    message=message,
+                )
+            )
+        else:
+            findings.warn(anchor == expected, message)
 
 
 @input_scope
@@ -517,8 +540,29 @@ def check_resource_names(
             model_anchors = {
                 resource["anchor"]: key for key, (_, resource) in resources.items()
             }
-        except ReferenceResolutionError as error:
+        except ReferenceDiagnosticError as error:
             findings.warn(error)
+            continue
+        except _design_document.DisplayMismatchError as error:
+            causes = list(
+                display_diagnostics(root, path, error, "design.identity.display")
+            )
+            for diagnostic in causes:
+                findings.add_diagnostic(diagnostic)
+            scope = {(*path.parent.parts[-2:], path.stem)}
+            entry = dict(
+                code="design.identity.dependency",
+                reason="display",
+                status="NOT_RUN",
+                scope=["/".join(item) for item in scope],
+                cause_keys=[item.cause_key for item in causes],
+                checks=["resource names and identity after display expansion"],
+                complete=False,
+            )
+            findings.unverified.append(entry)
+            findings.result("design.identity", scope).metadata.update(
+                complete=False, reason="display", unverified=[entry]
+            )
             continue
         except FindingsError as error:
             findings.include_diagnostics(error.findings)
@@ -530,8 +574,15 @@ def check_resource_names(
                 findings.add_diagnostic(diagnostic)
             continue
         except (OSError, ValueError) as error:
-            findings.check(
-                False, f"invalid resource identity: {findings.relative(path)}: {error}"
+            findings.add_diagnostic(
+                Diagnostic.create(
+                    root,
+                    code="design.identity.invalid",
+                    check_id="design.identity",
+                    service=service_scope(root, path),
+                    source_path=path,
+                    message=f"invalid resource identity: {findings.relative(path)}: {error}",
+                )
             )
             continue
         anchor = ""

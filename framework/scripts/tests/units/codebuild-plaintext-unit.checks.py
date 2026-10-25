@@ -422,7 +422,7 @@ def test_recovery_rejects_independent_markdown_tampering(models):
         "CodeBuild_Project_003"
     ]
     assert any(
-        "differs from Model expected display" in error for error in validator.errors
+        d.code == "design.display.mismatch" for d in validator.findings.diagnostics
     )
     assert not validator.findings.processing_errors
 

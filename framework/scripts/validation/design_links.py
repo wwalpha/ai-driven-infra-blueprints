@@ -13,7 +13,7 @@ import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from aws_mapping_display import validation_lines
-from design.document import DesignIndex, DesignView
+from design.document import DesignIndex, DesignView, DisplayMismatchError
 from design.layout import (
     LINKED_LIST_PROPERTIES,
     design_model_values,
@@ -32,7 +32,13 @@ from design.services.definitions.registry import (
     RESOURCE_REFERENCE_PROPERTIES,
 )
 from design.services.ec2.security_groups import security_group_table_lines
-from model.core import LINK, ReferenceResolutionError, entries, literal
+from model.core import (
+    LINK,
+    ReferenceDiagnosticError,
+    ReferenceResolutionError,
+    entries,
+    literal,
+)
 from model.files import resource_row_index
 from utils.input_cache import input_is_file, input_scope, input_select, input_text
 from validation_scope import reference_lines
@@ -54,6 +60,7 @@ from .design import (
 )
 from .diagnostics import (
     Diagnostic,
+    display_diagnostics,
     json_reference,
     plaintext_diagnostics,
     service_scope,
@@ -72,22 +79,36 @@ def unavailable_semantics(
     reason = "dependency"
     if isinstance(error, ReferenceResolutionError):
         reason = "reference"
-    findings.unverified.append(
-        dict(
-            code="design.links_unverified",
-            reason=reason,
-            path=relative,
-            service=path.stem,
-            phase=phase,
-            exception=type(error).__name__,
-            message=str(error),
-            complete=False,
-        )
+    entry = dict(
+        code="design.links_unverified",
+        reason=reason,
+        path=relative,
+        service=path.stem,
+        phase=phase,
+        exception=type(error).__name__,
+        message=str(error),
+        complete=False,
+        status="NOT_RUN",
     )
+    if isinstance(error, DisplayMismatchError):
+        diagnostics = list(
+            display_diagnostics(
+                findings.canonical_root, path, error, "design.links." + phase
+            )
+        )
+        entry["cause_keys"] = [item.cause_key for item in diagnostics]
+        entry["checks"] = ["expanded reference semantics"]
+        for diagnostic in diagnostics:
+            findings.add_diagnostic(diagnostic)
+    findings.unverified.append(entry)
     result = findings.result("design.links", {(*path.parent.parts[-2:], path.stem)})
-    result.metadata = dict(complete=False, reason="view", path=relative, phase=phase)
-    if isinstance(error, ReferenceResolutionError):
+    result.metadata = dict(
+        complete=False, reason="view", path=relative, phase=phase, unverified=[entry]
+    )
+    if isinstance(error, ReferenceDiagnosticError):
         findings.warn(error, source=str(path))
+    elif isinstance(error, DisplayMismatchError):
+        pass  # The typed diagnostics above retain FAIL and the dependent NOT_RUN scope.
     elif isinstance(error, FindingsError):
         findings.include_diagnostics(error.findings)
     elif isinstance(error, PlaintextReferenceError):

@@ -212,7 +212,12 @@ def check_actual_markdown_must_match(pipeline, change):
     }
     assert changes[change] != markdown
     document = DesignIndex(FRAMEWORK).get(path, text=changes[change], values=values)
-    with pytest.raises(ValueError, match="Model expected display"):
+    message = (
+        "logicalId/anchor/ownership"
+        if change in {"logical", "anchor"}
+        else "Model expected display"
+    )
+    with pytest.raises(ValueError, match=message):
         _ = document.raw.expanded
 
 

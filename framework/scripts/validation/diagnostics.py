@@ -1,5 +1,7 @@
 """Validation evidence with explicit ownership, independent of display prose."""
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -78,6 +80,29 @@ def plaintext_diagnostics(root, path, error):
     ]
 
 
+def display_diagnostics(root, path, error, check_id):
+    source = relative_path(root, path)
+    for position in error.positions:
+        cause = stable_id([source, position])
+        yield Diagnostic.create(
+            root,
+            code="design.display.mismatch",
+            check_id=check_id,
+            service=service_scope(root, path),
+            source_path=path,
+            cause_key=cause,
+            location=position["location"],
+            details=position,
+            message=f"design.display.mismatch: {source}: {position['resourceLogicalId']} / {position['property']}: {position['savedDisplay']} → {position['expectedDisplay']}",
+        )
+
+
+def stable_id(value):
+    return hashlib.sha256(
+        json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:20]
+
+
 @dataclass(frozen=True)
 class Diagnostic:
     code: str
@@ -89,6 +114,7 @@ class Diagnostic:
     cause_key: str | None = None
     affected_services: tuple = ()
     location: str | None = None
+    details: dict = field(default_factory=dict)
 
     @classmethod
     def create(cls, root, *, source_path=None, target_path=None, **details):
@@ -100,7 +126,7 @@ class Diagnostic:
 
     @property
     def identity(self):
-        return (
+        identity = (
             self.code,
             self.service,
             self.source_path,
@@ -108,9 +134,23 @@ class Diagnostic:
             self.location,
             self.cause_key,
         )
+        return (
+            (self.check_id, *identity)
+            if self.code == "design.display.mismatch"
+            else identity
+        )
 
     def record(self):
-        return asdict(self)
+        record = asdict(self)
+        record.pop("details")
+        if self.details:
+            record.update(self.details)
+            record.update(
+                sourcePath=self.source_path,
+                checkId=self.check_id,
+                diagnosticId=stable_id(self.identity),
+            )
+        return record
 
 
 @dataclass

@@ -205,6 +205,12 @@ def validation_issues(findings, comparison, services):
             message=safe_text(comparison.redacted(diagnostic.message)),
             diagnostic=comparison.redacted(diagnostic.record()),
         )
+        if diagnostic.code == "design.display.mismatch":
+            candidate.update(
+                resource=diagnostic.details["resourceLogicalId"],
+                property=diagnostic.details["property"],
+                rule=diagnostic.code,
+            )
         (ordinary if service else judgments).setdefault(key, candidate)
     return list(ordinary.values()), list(judgments.values())
 

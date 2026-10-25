@@ -5,9 +5,12 @@ parents. An index must be discarded or explicitly invalidated after writes;
 it never stores validation results or survives an invocation.
 """
 
+import json
 import re
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from difflib import SequenceMatcher
 from functools import cached_property
 from pathlib import Path
 from threading import RLock
@@ -25,11 +28,144 @@ import validation_scope as _dependency_validation_scope
 from model.core import ReferenceResolutionError
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
+from validation.diagnostics import stable_id
 from validation.findings import Findings, FindingsError
 
+import design.array_display as _array_display
 import design.layout as _dependency_design_layout
 import design.services.ec2.security_groups as _dependency_security_group_tables
-from design.layout_schema import ANCHOR, GROUPED, HEADER, RESOURCE
+from design.layout_schema import ANCHOR, CHILD, GROUPED, HEADER, RESOURCE
+
+
+class DisplayMismatchError(ValueError):
+    """Saved presentation differs; positions are independent of validation routes."""
+
+    def __init__(self, path, text, expected):
+        self.positions, self.other_changes = display_differences(text, expected)
+        super().__init__("Markdown differs from Model expected display: " + str(path))
+
+
+def display_differences(text, expected):
+    def rows(document):
+        anchor, logical = "", ""
+        identities = _dependency_design_layout.resource_logical_ids(
+            document.splitlines()
+        )
+        counts, result = Counter(), {}
+        for number, line in enumerate(document.splitlines()):
+            if match := ANCHOR.fullmatch(line):
+                anchor = match[1]
+                logical = identities.get(anchor, logical)
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if len(cells) != 4 or not cells[0].isdigit():
+                continue
+            counts[anchor, cells[1]] += 1
+            key = anchor, logical, cells[1], counts[anchor, cells[1]]
+            result[key] = number, cells
+        return result
+
+    saved_rows, expected_rows = rows(text), rows(expected)
+    normalized = text.splitlines()
+    positions = []
+    for key in sorted(saved_rows.keys() & expected_rows.keys()):
+        number, saved = saved_rows[key]
+        _, wanted = expected_rows[key]
+        if saved[2] == wanted[2]:
+            continue
+        anchor, logical, prop, occurrence = key
+        positions.append(
+            dict(
+                resourceLogicalId=logical,
+                anchor=anchor,
+                property=prop,
+                occurrence=occurrence,
+                location=f"{anchor}/{prop}/{occurrence}",
+                savedDisplay=saved[2],
+                expectedDisplay=wanted[2],
+            )
+        )
+        normalized[number] = normalized[number].replace(
+            "| " + saved[2] + " |", "| " + wanted[2] + " |", 1
+        )
+        markers = [_array_display.SOURCE.match(row[3]) for row in (saved, wanted)]
+        if all(markers):
+            try:
+                before, after = [json.loads(marker[1]) for marker in markers]
+            except ValueError:
+                continue
+            if (
+                isinstance(before, list)
+                and isinstance(after, list)
+                and len(before) == len(after) == 3
+                and before[0] == after[0]
+                and before[2] == after[2]
+                and before[1] == saved[2]
+                and after[1] == wanted[2]
+            ):
+                normalized[number] = normalized[number].replace(
+                    markers[0][0], markers[1][0], 1
+                )
+    other = normalized != expected.splitlines()
+    if other:
+        wanted = expected.splitlines()
+        identities = _dependency_design_layout.resource_logical_ids(wanted)
+        counts = Counter()
+        for tag, start, end, first, last in SequenceMatcher(
+            a=normalized, b=wanted, autojunk=False
+        ).get_opcodes():
+            if tag == "equal":
+                continue
+            # Adjacent changed lines are not evidence of a shared root cause.
+            for offset in range(max(end - start, last - first)):
+                anchor = next(
+                    (
+                        match[1]
+                        for line in reversed(wanted[: first + offset])
+                        if (match := ANCHOR.fullmatch(line)) and match[1] in identities
+                    ),
+                    "",
+                )
+                saved = (
+                    text.splitlines()[start + offset] if start + offset < end else ""
+                )
+                display = wanted[first + offset] if first + offset < last else ""
+                token = stable_id([anchor, saved, display])
+                counts[token] += 1
+                positions.append(
+                    dict(
+                        resourceLogicalId=identities.get(anchor, ""),
+                        anchor=anchor,
+                        property="$document",
+                        occurrence=counts[token],
+                        location=f"{anchor}/document/{token}/{counts[token]}",
+                        savedDisplay=saved,
+                        expectedDisplay=display,
+                    )
+                )
+    return sorted(positions, key=lambda item: item["location"]), other
+
+
+def require_saved_identity(text, expected):
+    def identity(document):
+        lines = document.splitlines()
+        children, headings, anchor = [], [], ""
+        for line in lines:
+            if match := ANCHOR.fullmatch(line):
+                anchor = match[1]
+            if match := CHILD.match(line):
+                children.append((anchor, *match.groups()))
+            if match := RESOURCE.fullmatch(line):
+                headings.append((anchor, match[1]))
+        return (
+            _dependency_design_layout.resource_logical_ids(lines),
+            sorted(children),
+            sorted(headings),
+        )
+
+    if identity(text) != identity(expected):
+        raise ValueError(
+            "Markdown Resource logicalId/anchor/ownership differs from Model"
+        )
 
 
 @memoized
@@ -67,7 +203,8 @@ def model_reference_tables(path, text, values, root):
         path, source, root, reference_tables=tables
     )
     if text.splitlines() != expected.splitlines():
-        raise ValueError("Markdown differs from Model expected display: " + str(path))
+        require_saved_identity(text, expected)
+        raise DisplayMismatchError(path, text, expected)
     tables = [
         _security_group_reference_table(table, expected, root)
         if table.resources[0].kind == "EC2.SecurityGroup"
@@ -205,11 +342,17 @@ def model_resource_reference_tables(path, text, values, root):
                 len(expected_blocks) != 1
                 or anchor not in saved
                 or saved[anchor][0] != resource["logicalId"]
-                or saved[anchor][1] != expected_blocks[0]
             ):
                 raise ValueError(
-                    "Markdown differs from Model expected display: " + anchor
+                    "Markdown Resource logicalId/anchor differs from Model: " + anchor
                 )
+            if saved[anchor][1] != expected_blocks[0]:
+                saved_text, expected_text = (
+                    "\n".join(saved[anchor][1]),
+                    "\n".join(expected_blocks[0]),
+                )
+                require_saved_identity(saved_text, expected_text)
+                raise DisplayMismatchError(path, saved_text, expected_text)
             normalized = []
             for table in tables:
                 if table.resources[0].kind == "EC2.SecurityGroup":

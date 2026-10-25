@@ -2665,6 +2665,9 @@ def check_issues_ignores_display_equality(tmp_path, reference_design, display):
     strict.check_scoped_designs()
     assert any(
         d.code == "generation.mismatch" for d in strict.findings.diagnostics
+    ) == (display == "extra-prose")
+    assert any(
+        d.code == "design.display.mismatch" for d in strict.findings.diagnostics
     ) == (display != "link")
     assert bool(strict.errors) == (display != "link")
 

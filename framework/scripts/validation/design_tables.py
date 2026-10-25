@@ -37,7 +37,7 @@ from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
 from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
 from design.services.ec2.security_groups import security_group_table_lines, table_at
 from design.services.macie import job_bucket_tables
-from model.core import ReferenceResolutionError, literal
+from model.core import ReferenceDiagnosticError, ReferenceResolutionError, literal
 from model.core import entries as entries
 from model.projection import bound_resource_anchors, is_import_expression
 from utils.input_cache import input_scope as input_scope
@@ -64,7 +64,12 @@ from .design import (
     resource_property_path,
     unquoted,
 )
-from .diagnostics import json_reference, plaintext_diagnostics, service_scope
+from .diagnostics import (
+    display_diagnostics,
+    json_reference,
+    plaintext_diagnostics,
+    service_scope,
+)
 from .findings import FindingsError
 
 # Preserve shared fixtures and compatibility exports under their historical names.
@@ -310,9 +315,17 @@ def design_dependency_not_run(
     reason = findings.result("design.tables.semantic", scope).metadata.get(
         "reason", "expansion"
     )
-    if isinstance(error, ReferenceResolutionError):
+    if isinstance(error, ReferenceDiagnosticError):
         findings.warn(error)
-        reason = "reference"
+        reason = (
+            "reference" if isinstance(error, ReferenceResolutionError) else "dependency"
+        )
+    elif isinstance(error, _design_document.DisplayMismatchError):
+        reason = "display"
+        for diagnostic in display_diagnostics(
+            findings.canonical_root, path, error, "design.tables." + target
+        ):
+            findings.add_diagnostic(diagnostic)
     elif isinstance(error, Exception):
         reason = "expansion"
         if isinstance(error, FindingsError):
@@ -334,7 +347,15 @@ def design_dependency_not_run(
         message=str(error),
         checks=list(checks),
         complete=False,
+        status="NOT_RUN",
     )
+    if isinstance(error, _design_document.DisplayMismatchError):
+        entry["cause_keys"] = [
+            item.cause_key
+            for item in display_diagnostics(
+                findings.canonical_root, path, error, "design.tables." + target
+            )
+        ]
     findings.unverified.append(entry)
     result = findings.result("design.tables.semantic", scope)
     if result.metadata.get("reason") == "expansion":
@@ -636,7 +657,10 @@ def check_design_tables(
             failures = "\n".join(
                 str(failure) for _, _, failure in recovered if failure is not None
             )
-            if str(error) not in failures:
+            if (
+                isinstance(error, _design_document.DisplayMismatchError)
+                or str(error) not in failures
+            ):
                 design_dependency_not_run(
                     path,
                     "document",
