@@ -223,17 +223,6 @@ def reference_issues(findings, comparison, services):
                 comparison.redacted(json.dumps(diagnostic, ensure_ascii=False))
             ),
             diagnostic=comparison.redacted(diagnostic),
-            verification_targets=[
-                dict(
-                    service=owner,
-                    rule=diagnostic["code"],
-                    check_id="model.references",
-                    resource=diagnostic.get("resourceLogicalId") or "*",
-                    property=diagnostic.get("property")
-                    or diagnostic.get("modelKey")
-                    or "*",
-                )
-            ],
         )
     return list(records.values())
 

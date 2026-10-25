@@ -61,6 +61,15 @@ def models(tmp_path):
         (tmp_path / "project.json").write_text(
             json.dumps(config) + "\n", encoding="utf-8"
         )
+        human = tmp_path / "issues/qa/team/human-confirmations.yaml"
+        human.parent.mkdir(parents=True)
+        human.write_text(
+            json.dumps(
+                dict(version=1, environment="qa", target="team", confirmations=[])
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         producer, key = resource(
             tmp_path,
             "kms",
@@ -457,7 +466,7 @@ def test_reference_wait_findings_are_not_pass(models):
 
 
 @pytest.mark.parametrize("invalid", [False, True])
-def test_real_generation_and_issues_v3_keep_reference_categories(models, invalid):
+def test_real_generation_and_issues_scan_keep_reference_categories(models, invalid):
     _, _, consumer, role, document = models
     if invalid:
         document["Statement"][0]["Resource"] = reference("KMS_Key_999")
@@ -493,11 +502,11 @@ def test_real_generation_and_issues_v3_keep_reference_categories(models, invalid
     )
     with (
         patch("issues.runner.naming_materials", return_value=({"names": []}, [])),
-        patch("issues.runner.existing_materials", return_value=([], [])),
         patch("issues.inputs.Comparison.run", return_value=[]),
         patch("issues.cfn_lint.run_lint", return_value=lint),
     ):
         artifact = scan(consumer.root, "qa", "team", ["iam"], jobs=1)
+    assert artifact["version"] == 4
     classified = [
         record
         for record in artifact["ordinary"]
