@@ -14,6 +14,7 @@ import pytest
 from design.catalog import DesignSchemaCatalog
 from design.document import (
     DesignIndex,
+    DisplayMismatchError,
     model_reference_tables,
     model_resource_reference_tables,
 )
@@ -465,7 +466,12 @@ def check_resource_differences_survive_service_notes(
         changed = changed.replace("もう一つの注記", "変更した注記")
     assert changed != markdown
     recovered = model_resource_reference_tables(path, changed, values, FRAMEWORK)
-    assert [error is not None for _, _, error in recovered] == [not last, last]
+    assert [error is not None for _, _, error in recovered] == [
+        not last,
+        last or note_changed,
+    ]
+    if note_changed and not last:
+        assert "boundary unavailable" in str(recovered[-1][2])
     with pytest.raises(ValueError, match="Model expected display") as caught:
         model_reference_tables(path, changed, tuple(values.items()), FRAMEWORK)
     if note_changed:
@@ -509,7 +515,9 @@ def check_service_note_differences_remain_document_failures(
             changed += "未知の末尾テキスト\n"
     recovered = model_resource_reference_tables(path, changed, values, FRAMEWORK)
     assert len(recovered) == 2
-    assert all(error is None for _, _, error in recovered)
+    assert recovered[0][2] is None
+    assert "boundary unavailable" in str(recovered[1][2])
+    assert not isinstance(recovered[1][2], DisplayMismatchError)
     with pytest.raises(ValueError, match="Model expected display"):
         model_reference_tables(path, changed, tuple(values.items()), FRAMEWORK)
     path.parent.mkdir(parents=True)
@@ -534,7 +542,10 @@ def check_service_note_differences_remain_document_failures(
             *validator.check_design_service_ownership([path]), paths=[path]
         )
     assert validator.findings.status == "FAIL"
-    assert {item["resource"] for item in validator.findings.unverified} == {"document"}
+    assert {item["resource"] for item in validator.findings.unverified} == {
+        "document",
+        "IAM_ManagedPolicy_002",
+    }
 
 
 def check_ambiguous_service_note_resource_identity_is_not_accepted(noted_policies):
@@ -548,6 +559,123 @@ def check_ambiguous_service_note_resource_identity_is_not_accepted(noted_policie
         model_resource_reference_tables(path, ambiguous, values, FRAMEWORK)
     with pytest.raises(ValueError):
         model_reference_tables(path, ambiguous, tuple(values.items()), FRAMEWORK)
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "### IAM.ManagedPolicy: note-example",
+        "# 説明\n## 注意\n### IAM.ManagedPolicy: note-example\n#### 詳細",
+        '<!-- resource-logical-id: Note_001 -->\n<a id="note"></a>\n\n'
+        "### IAM.ManagedPolicy: note-example\n\n"
+        "| No. | Property | Value | Source / Comment |\n"
+        "| ---: | --- | --- | --- |\n| 1 | Name | `note` | 注記 |",
+    ],
+)
+def check_resource_like_service_notes_are_not_resources(noted_policies, note):
+    path, scope, values = noted_policies
+    values["desired.note.002.text"] = note
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    recovered = model_resource_reference_tables(path, markdown, values, FRAMEWORK)
+    assert len(recovered) == 2
+    assert all(error is None for _, _, error in recovered)
+    assert model_reference_tables(path, markdown, tuple(values.items()), FRAMEWORK)
+    document = DesignIndex(FRAMEWORK).get(path, text=markdown, values=values)
+    assert document.lines == tuple(markdown.splitlines())
+    assert "note-example" not in "\n".join(document.headings.lines)
+    assert "note-example" not in "\n".join(document.raw.expanded[0])
+    path.parent.mkdir(parents=True)
+    path.write_text(markdown, encoding="utf-8")
+    validator = Validator(
+        scope.root, {("qa", "team", "iam")}, definitions_root=FRAMEWORK
+    )
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    with patch("validation.design_tables.design_model_values", return_value=values):
+        metadata = validator.check_design_service_ownership([path])
+        validator.check_design_tables(*metadata, paths=[path])
+    with patch("validation.design.design_model_values", return_value=values):
+        validator.check_resource_names(metadata[0], paths=[path])
+    assert validator.findings.status == "PASS", validator.findings.errors
+
+
+@pytest.mark.parametrize("notes", [False, True])
+@pytest.mark.parametrize(
+    "addition",
+    [
+        "| No. | Property | Value | Source / Comment |\n"
+        "| ---: | --- | --- | --- |\n| 1 | Unknown | `bad` | 不正な属性 |",
+        "| 99 | Unknown | `bad` | 不正なRow |",
+        "任意の不正な追記",
+        "## 不正な追記\n不正な本文",
+    ],
+)
+def check_last_resource_additions_are_not_ignored(noted_policies, notes, addition):
+    path, _, values = noted_policies
+    without_notes = {
+        key: value
+        for key, value in values.items()
+        if not key.startswith("desired.note.")
+    }
+    markdown = generate_markdown(path, values if notes else without_notes, FRAMEWORK)
+    if notes:
+        markdown = markdown.replace(
+            "\n\nサービス全体の注記", "\n\n" + addition + "\n\nサービス全体の注記", 1
+        )
+    else:
+        markdown += "\n" + addition + "\n"
+    recovered = model_resource_reference_tables(
+        path, markdown, values if notes else without_notes, FRAMEWORK
+    )
+    assert recovered[0][2] is None
+    assert isinstance(recovered[1][2], ValueError)
+    with pytest.raises(ValueError):
+        model_reference_tables(
+            path,
+            markdown,
+            tuple((values if notes else without_notes).items()),
+            FRAMEWORK,
+        )
+
+
+def check_deleted_service_suffix_keeps_resources_available(noted_policies):
+    path, _, values = noted_policies
+    without_notes = {
+        key: value
+        for key, value in values.items()
+        if not key.startswith("desired.note.")
+    }
+    markdown = generate_markdown(path, without_notes, FRAMEWORK)
+    recovered = model_resource_reference_tables(path, markdown, values, FRAMEWORK)
+    assert len(recovered) == 2
+    assert all(error is None for _, _, error in recovered)
+    with pytest.raises(ValueError, match="Model expected display"):
+        model_reference_tables(path, markdown, tuple(values.items()), FRAMEWORK)
+
+
+def check_changed_note_heading_keeps_independent_recovery(noted_policies):
+    path, _, values = noted_policies
+    markdown = generate_markdown(path, values, FRAMEWORK).replace(
+        "もう一つの注記", "### IAM.ManagedPolicy: changed-note"
+    )
+    recovered = model_resource_reference_tables(path, markdown, values, FRAMEWORK)
+    assert recovered[0][2] is None
+    assert "boundary unavailable" in str(recovered[1][2])
+    with pytest.raises(ValueError):
+        model_reference_tables(path, markdown, tuple(values.items()), FRAMEWORK)
+
+
+def check_unknown_resource_identity_is_rejected(noted_policies):
+    path, _, values = noted_policies
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    foreign = (
+        '<!-- resource-logical-id: IAM_ManagedPolicy_999 -->\n<a id="foreign"></a>\n\n'
+        "### IAM.ManagedPolicy: foreign\n"
+    )
+    markdown = markdown.replace(
+        "\n\nサービス全体の注記", "\n\n" + foreign + "\nサービス全体の注記"
+    )
+    with pytest.raises(ValueError, match="Resource groups differ from Model"):
+        model_resource_reference_tables(path, markdown, values, FRAMEWORK)
 
 
 def check_grouped_rows_keep_identity_and_references(tmp_path):
@@ -659,6 +787,8 @@ def check_grouped_resource_recovery_keeps_parent_and_children_together(
         assert "parentProperty" in str(recovered[0][2])
         if tamper != "none":
             assert "differs from Model" in str(recovered[1][2])
+        elif note_changed:
+            assert "boundary unavailable" in str(recovered[1][2])
         else:
             assert recovered[1][2] is None
             assert {

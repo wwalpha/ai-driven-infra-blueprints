@@ -495,14 +495,16 @@ def check_resource_names(
 ) -> None:
     definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
-        lines = _dependency_design_layout.resource_heading_lines(
-            _dependency_policy_tables.without_policy_tables(
-                input_text(path, encoding="utf-8").splitlines()
-            )
-        )
         try:
-            identities = _dependency_design_layout.resource_logical_ids(lines)
             values = design_model_values(path, design_sources=design_sources, root=root)
+            lines = _dependency_design_layout.resource_heading_lines(
+                _dependency_policy_tables.without_policy_tables(
+                    _design_document.resource_lines(
+                        input_text(path, encoding="utf-8"), values
+                    )
+                )
+            )
+            identities = _dependency_design_layout.resource_logical_ids(lines)
             bound_anchors = (
                 _dependency_model_projection.bound_resource_anchors(path)
                 if values is None

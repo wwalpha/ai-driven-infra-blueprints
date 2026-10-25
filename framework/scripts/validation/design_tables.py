@@ -571,11 +571,15 @@ def check_design_tables(
     for path in design_files(root=root, scope=scope) if paths is None else paths:
         markdown_design_artifacts.start(path)
         incomplete_start = len(findings.unverified)
-        lines = resource_heading_lines(input_text(path, encoding="utf-8").splitlines())
-        check_raw_design_tables(path, lines, findings=findings)
         try:
-            identities = resource_logical_ids(lines)
             values = design_model_values(path, design_sources=design_sources, root=root)
+            lines = resource_heading_lines(
+                _design_document.resource_lines(
+                    input_text(path, encoding="utf-8"), values
+                )
+            )
+            check_raw_design_tables(path, lines, findings=findings)
+            identities = resource_logical_ids(lines)
             bound_anchors = bound_resource_anchors(path) if values is None else {}
             bound_anchors.update(
                 {

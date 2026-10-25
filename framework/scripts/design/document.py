@@ -223,6 +223,16 @@ def model_reference_tables(path, text, values, root):
     return tuple(tables)
 
 
+def resource_lines(text, values):
+    """Exclude only the complete service suffix proven by the existing renderer."""
+    lines = text.splitlines()
+    notes = _model_render.service_note_markdown(values or {})
+    suffix = (notes + "\n").splitlines()[1:]
+    if notes and lines[-len(suffix) :] == suffix:
+        return lines[: -len(suffix)]
+    return lines
+
+
 def resource_blocks(lines):
     """Keep saved Resource sections intact, including their identity metadata."""
     starts = []
@@ -239,10 +249,6 @@ def resource_blocks(lines):
     blocks = []
     for start, end in zip(starts, [*starts[1:], len(lines)], strict=False):
         block = lines[start:end]
-        for index, line in enumerate(block):
-            if line.startswith(("# ", "## ")):
-                block = block[:index]
-                break
         while block and not block[0]:
             block = block[1:]
         while block and not block[-1]:
@@ -297,15 +303,21 @@ def model_resource_groups(path, source):
 
 
 def model_resource_reference_tables(path, text, values, root):
-    """Recover renderer-proven Resource bodies; suffix integrity is document-wide."""
+    """Recover complete Resource displays after separating a proven service suffix."""
     source = dict(values)
     resources, groups = model_resource_groups(path, source)
-    lines = text.splitlines()
+    lines = resource_lines(text, source)
+    notes = _model_render.service_note_markdown(source)
+    notes_separated = lines != text.splitlines()
     blocks = resource_blocks(_dependency_design_layout.resource_heading_lines(lines))
     saved = {}
     for block in blocks:
         identities = _dependency_design_layout.resource_logical_ids(block)
         if len(identities) != 1:
+            if not identities and saved:
+                # Keep an unowned heading in the preceding body instead of losing all recovery.
+                next(reversed(saved.values()))[1].extend(["", *block])
+                continue
             raise ValueError("Resource/Row display ownership unavailable: " + str(path))
         anchor, logical_id = next(iter(identities.items()))
         if anchor in saved:
@@ -350,13 +362,16 @@ def model_resource_reference_tables(path, text, values, root):
                     "Markdown Resource logicalId/anchor differs from Model: " + anchor
                 )
             actual, wanted = saved[anchor][1], expected_blocks[0]
-            matches_body = actual == wanted
-            if anchor == next(reversed(saved)) and actual[
-                len(wanted) : len(wanted) + 1
-            ] == [""]:
-                # Prove the entire rendered body; leave suffix ownership to document validation.
-                matches_body = actual[: len(wanted)] == wanted
-            if not matches_body:
+            if actual != wanted:
+                if anchor == next(reversed(saved)) and not notes_separated:
+                    if actual[: len(wanted)] == wanted:
+                        raise ValueError(
+                            "Service note/Resource display boundary unavailable: "
+                            + anchor
+                        )
+                    if notes:
+                        # Report proven body differences without attributing an unknown suffix.
+                        actual = actual[: len(wanted)]
                 saved_text, expected_text = (
                     "\n".join(actual),
                     "\n".join(wanted),
@@ -486,6 +501,10 @@ class DesignDocument:
         return tuple(self.text.splitlines())
 
     @cached_property
+    def resource_lines(self) -> tuple[str, ...]:
+        return tuple(resource_lines(self.text, self.model_values))
+
+    @cached_property
     def anchors(self) -> frozenset[str]:
         return frozenset(ANCHOR.findall(self.text))
 
@@ -544,7 +563,9 @@ class DesignDocument:
 
     @cached_property
     def modes(self):
-        return _dependency_design_layout.resource_modes(self.lines, self.model_values)
+        return _dependency_design_layout.resource_modes(
+            self.resource_lines, self.model_values
+        )
 
     @cached_property
     def reference_tables(self):
@@ -559,7 +580,7 @@ class DesignDocument:
 
     @property
     def raw(self) -> DesignView:
-        return self._view(self.lines)
+        return self._view(self.resource_lines)
 
     def view(self, fragments: frozenset[str] | None = None) -> DesignView:
         # Serialize lazy construction only; existing validation workers remain unchanged.
@@ -572,7 +593,7 @@ class DesignDocument:
                     )
                 else:
                     lines = _dependency_design_layout.resource_heading_lines(
-                        list(self.lines)
+                        list(self.resource_lines)
                     )
                 self._views[key] = self._view(lines)
             return self._views[key]

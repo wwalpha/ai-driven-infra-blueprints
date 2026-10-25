@@ -568,7 +568,7 @@ def check_design_links(
                 lines = reference_lines(
                     path,
                     fragments.get(path, set()),
-                    lines=resource_heading_lines(list(document.lines)),
+                    lines=resource_heading_lines(list(document.resource_lines)),
                 )
                 view = DesignView(tuple(lines), definitions_root)
             else:
@@ -786,7 +786,7 @@ def check_design_links(
                             literal(observed),
                         )
                     )
-        source_lines = document.lines
+        source_lines = document.resource_lines
         pipeline_rows = []
         pipeline_id = ""
         pipeline_import = False
@@ -862,7 +862,7 @@ def check_design_links(
                     f"CodePipeline Configuration.{key} must display the referenced {expected[0]} name: {findings.relative(source)}: {value}",
                 )
         list_resource_type = ""
-        for line in resource_heading_lines(list(document.lines)):
+        for line in resource_heading_lines(list(document.resource_lines)):
             if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                 list_resource_type = heading.group(1)
             elif line.startswith("#"):
