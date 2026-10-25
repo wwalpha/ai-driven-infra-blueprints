@@ -25,7 +25,6 @@ from design.document import DesignIndex
 from design.layout_schema import STACK_DESIGN
 from design.policy_tables import rendered_design
 from generation_inputs import GenerationInputs
-from issue_gate import require_no_issues
 from model.core import ReferenceResolutionError, entries
 from model.format import JSON_LINK
 from model.importing.scope import scoped as import_scoped
@@ -619,10 +618,6 @@ def _sync(
     )
     if services is not None and (not environment or not target_directory):
         raise ValueError("service selection requires environment and target directory")
-    if write:
-        require_no_issues(
-            root, scope, target=(environment, target_directory) if environment else None
-        )
     return run_generation(
         root,
         scope,
@@ -1055,16 +1050,34 @@ def report_generation(plan):
             f"Design Markdown sync: PASS ({path.relative_to(plan.root)})",
             file=output_file(),
         )
-    if plan.failures:
-        selected = set(plan.markdown_paths) | {
-            (
-                plan.root / "docs/designs" / p.relative_to(plan.root / "model")
-            ).with_suffix(".md")
-            for p in plan.model_paths
-        }
+    selected = set(plan.markdown_paths) | {
+        (plan.root / "docs/designs" / p.relative_to(plan.root / "model")).with_suffix(
+            ".md"
+        )
+        for p in plan.model_paths
+    }
+    # An independent validation error takes precedence over a reference NOT_RUN.
+    not_run = {
+        path
+        for path in plan.unavailable
+        if not any(
+            error.startswith(f"{path.relative_to(plan.root)}:")
+            for error in plan.failures
+        )
+    }
+    failed = selected - plan.saved.keys() - not_run
+    summary = f"{len(plan.saved)} services succeeded; {len(failed)} services failed; {len(not_run)} services NOT_RUN"
+    print("Design Markdown generation: " + summary, file=output_file())
+    if plan.failures or not_run:
+        diagnostics = [
+            *plan.failures,
+            *(
+                f"NOT_RUN: {path.relative_to(plan.root)}: {plan.unavailable[path]['reason']}"
+                for path in sorted(not_run)
+            ),
+        ]
         raise ValueError(
-            f"{len(plan.saved)} services succeeded; {len(selected - plan.saved.keys())} services failed; {len(plan.failures)} diagnostics\n- "
-            + "\n- ".join(plan.failures)
+            f"{summary}; {len(diagnostics)} diagnostics\n- " + "\n- ".join(diagnostics)
         )
     print(
         f"Design Markdown sync: PASS ({len(plan.saved)} services)", file=output_file()

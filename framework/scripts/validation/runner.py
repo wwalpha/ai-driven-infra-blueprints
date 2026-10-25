@@ -295,7 +295,7 @@ class Validator:
         self.check_validation_scope()
         if not self.write:
             self.check_model_files()
-        self.input_check(snapshot, self.check_issue_gate)
+            self.input_check(snapshot, self.check_issue_gate)
         if self.changed_paths and not self.write:
             self.check_task_type_requirements()
         self.input_check(snapshot, self.check_initialized_paths)
@@ -317,6 +317,9 @@ class Validator:
                     )
             if not self.errors:
                 self.generate_and_validate(snapshot, registered)
+            # Task eligibility is independent of the published generation snapshot.
+            with recording_inputs(None):
+                self.check_issue_gate()
             return self.report()
         if self.scope is None:
             self.check_designs()

@@ -34,9 +34,27 @@ are separate, and issues runs only when explicitly requested. Other workflows re
   Model-to-IaC comparisons, does not count as unresolved issues and needs no Issue
   remediation declaration. Do not save or delete IaC state. Other migration, Model,
   IaC, save and AWS mutation work retains the ordinary gate.
-- Standalone `import-retarget` retains the ordinary pre-task, resume, save, generation
+- Standalone `import-retarget` retains the ordinary pre-task, resume, Model save
   and final gates for all producer and consumer services. It does not inherit the
   deletion exception and must not change issues or mark them resolved.
+
+## Model view generation
+
+Model → Markdown/JSON generation does not use unresolved Issues as a start or save
+condition, regardless of Issue count, classification or service ownership. This applies
+to `sync-model.py --write`, `sync_runtime._sync()` and integrated validator generation.
+Attempt all selected services through the existing candidate validation/publication APIs;
+save valid services, restore failed services' saved artifacts, and report generation
+failures separately from reference NOT_RUN. Either failure or NOT_RUN prevents a complete
+generation PASS. Keep Import Guard, Task/Allowed paths/Validation scope, dependency and
+Model checks, input snapshot comparison, publication lock, atomicity and rollback.
+Common integrity violations still stop the whole publication. Never edit or resolve
+`issues.md` as part of generation.
+
+The integrated validator evaluates the Task Issue Gate after generation/publication,
+independently of the generation result. Successful publications remain saved even when
+Issues fail the Task. This exception grants no Model/IaC change authority and does not
+waive pre-task/resume, Task completion/integration, remediation or deploy/AWS mutation gates.
 
 ## Issue and notice classification
 
@@ -74,7 +92,8 @@ with exact normalized deletion sources, forbidden AWS API execution and deploy/a
 and explicit service Validation scope containing every source and repair consumer. Keep the same Task selector and managed
 worktree ownership. Then use the common task-aware issue decision (`require_no_issues`,
 or `issue_gate.py --task`) on its declared scope, including resume, source saves,
-generation and final/integration validation. Missing/invalid contracts, unknown operations,
+and final/integration validation. View generation follows Model view generation above.
+Missing/invalid contracts, unknown operations,
 scope mismatches and mismatched managed Tasks fail closed. The ordinary CLI without
 `--task` retains its pre-contract gate.
 
@@ -103,7 +122,9 @@ contracts do not grant the exception.
 
 Except for the explicit save-only and Model deletion exceptions, check the latest
 inventory when the target is determined, before starting, on resume, before saving
-designs and immediately before AWS mutation. Before starting, run the following
+Model/IaC changes and immediately before AWS mutation. Model view generation alone is
+independent of this gate; integrated validation applies it to the Task after generation.
+Before starting other work, run the following
 command; repeat `--service` within the same process for multiple services. A previous
 Task's remediation exception does not authorize ordinary consultation or execution.
 For a repair request, confirm the reason work stopped, register a contract limited to
@@ -113,7 +134,7 @@ the Human-specified scope and proceed through the existing remediation workflow.
 python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>
 ```
 
-The Task validator, `sync-model.py --write` and deploy context use the common decision.
+The Task validator and deploy context use the common decision.
 AWS read-only context only verifies authentication for investigation; it does not
 authorize continuation of another task. Immediately before mutation, run the same
 gate with `--task` in addition to ordinary preflight, applying only that Task's Issue

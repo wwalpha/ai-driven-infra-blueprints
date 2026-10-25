@@ -155,6 +155,14 @@ The DLL path is an example; use the directory containing your installed DLLs. A 
 
 Treat [issue gate](framework/rules/issue-gate.md) as authoritative for stop conditions and repair/save-only task exceptions.
 
+Model → Markdown/JSON generation is independent of unresolved Issues. Standalone
+`sync-model.py --write` and integrated validator generation attempt every selected
+service and retain successful publications; failed services keep their saved artifacts.
+Reports distinguish generation failures and reference NOT_RUN from successful services.
+The integrated validator saves valid outputs before evaluating the Task Issue Gate;
+unresolved Issues still fail Task validation/completion. Model/IaC changes and deploy/AWS
+mutation retain their existing Issue Gates. Generation never edits or resolves `issues.md`.
+
 ## Local issues scan
 
 issues uses [Scoped scan/Python saving](framework/rules/issues-investigation.md). Check existing validator diagnostics and minimal naming materials for all resources; separately save ordinary issues to `issues.md` and non-blocking model→IaC differences to `iac-issues.md`. `diff.md` remains for environment comparison. The issue gate reads only `issues.md`. IaC reports contain only the latest selected scope; existing state and old IaC notes are not carried forward.

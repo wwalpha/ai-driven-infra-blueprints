@@ -2301,7 +2301,7 @@ Properties v2 の追加移行対応（model-properties-v2）:
 | `existing-ut-inventory` | `check_remediation_still_requires_explicit_scope` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L206) | pytest / 1 | remediation still requires explicit scope | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_deletion_cli_requires_task_opt_in` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L219) | pytest / 2 | deletion cli requires task opt in | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_resume_issue_gate` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L228) | pytest / 2 | resume issue gate | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_generation_uses_deletion_gate` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L247) | pytest / 2 | generation uses deletion gate | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_generation_ignores_issues` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 8 | CLI/runtime生成は未解決・他サービス・所有不明Issueで停止せず、生成エラーは伝播しIssue本文を保持 | 既存UT更新 |
 | `existing-ut-inventory` | `check_parse` | UT | [units/json-format.checks.py](units/json-format.checks.py#L32) | pytest / 4 | parse | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_errors` | UT | [units/json-format.checks.py](units/json-format.checks.py#L45) | pytest / 12 | errors | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_model_overflow_only` | UT | [units/json-format.checks.py](units/json-format.checks.py#L52) | pytest / 3 | model overflow only | 既存テストの登録漏れ補完・本体変更なし |
@@ -3307,7 +3307,9 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 |---|---|---|---|---|---|---|
 | `sync-15::check_snapshot_symlink_safety` | `check_snapshot_symlink_safety` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L798) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_internal_sync_selection` | `check_internal_sync_selection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L832) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
-| `sync-15::check_failure_counts` | `check_failure_counts` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L849) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_failure_counts` | `check_failure_counts` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | 成功/失敗/NOT_RUN件数、独立エラー優先、診断と保存済み参照WARNの分離 | 既存UT更新 |
+| `generation-issue-gate::integrated` | `check_integrated_generation_before_issue_gate` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | Issue有無×正常/部分失敗/NOT_RUN/共通整合性失敗。候補生成検証はMock、実publication・Task Gate・成功保存・失敗View保持・seal後のIssue判定を検証 | 追加 |
+| `generation-issue-gate::not-run` | `check_reference_not_run_is_not_generation_pass` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | 参照NOT_RUNのみの生成結果を完全成功にしない | 追加 |
 | `sync-15::check_guard_snapshot_candidates` | `check_guard_snapshot_candidates` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L882) | pytest / 1 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_definition_read_errors` | `check_definition_read_errors` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L907) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_sidecar_output_difference` | `check_sidecar_output_difference` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L930) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |

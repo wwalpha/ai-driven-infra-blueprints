@@ -327,9 +327,26 @@ def check_resume_issue_gate(deletion_gate, deletion):
 
 
 @pytest.mark.parametrize("entrypoint", ["cli", "runtime"])
-def check_generation_uses_deletion_gate(deletion_gate, entrypoint):
+@pytest.mark.parametrize(
+    "inventory",
+    [
+        "### vpc\n1. 既存のIssue\n",
+        "### s3\n1. 他サービスのIssue\n",
+        "所有不明のIssue",
+        "未解決issueなし",
+    ],
+)
+def check_generation_ignores_issues(deletion_gate, entrypoint, inventory):
     path, text, issues, scope = deletion_gate
     root = path.parent.parent
+    path.write_text(
+        text.replace("- Model operation: `import-delete`\n", "").replace(
+            "## Model delete sources\n- `stg/cde/vpc/009`\n", ""
+        ),
+        encoding="utf-8",
+    )
+    issues.write_text(inventory, encoding="utf-8")
+    original = issues.read_bytes()
     runner = module("sync-model.py", "issue_gate_sync_cli")
     with (
         mock.patch.object(import_guard, "require_import_changes"),
@@ -356,6 +373,7 @@ def check_generation_uses_deletion_gate(deletion_gate, entrypoint):
         else:
             with pytest.raises(ValueError, match="new candidate validation error"):
                 sync_runtime._sync(root, True, "stg", "cde", ["vpc"])
+    assert issues.read_bytes() == original
 
 
 def check_inventory_parser(tmp_path):

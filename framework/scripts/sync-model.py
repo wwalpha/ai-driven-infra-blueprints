@@ -13,7 +13,6 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import import_guard as _imports_import_guard
-import issue_gate as _imports_issue_gate
 import model.impact as _imports_model_impact
 import model.importing.scope as _imports_model_importing_scope
 from sync_progress import consumers, diagnostics, output_file, phase, reported_main
@@ -184,9 +183,7 @@ def main(argv=None, *, definitions_root=None) -> int:
                 )
             if args.write and import_selection(root) is None:
                 require_import_changes = _imports_import_guard.require_import_changes
-                require_no_issues = _imports_issue_gate.require_no_issues
                 require_import_changes(root, changed, generation=True)
-                require_no_issues(root, scope)
                 return run_generation(
                     root,
                     scope,

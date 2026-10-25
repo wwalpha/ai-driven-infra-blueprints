@@ -16,6 +16,9 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 ## Unresolved issue gate
 
 Follow [issue-gate](issue-gate.md) for stop decisions, investigation/repair/save-only task exceptions, and rechecks.
+Model → Markdown/JSON generation is independent of Issues. Integrated write validation
+publishes valid services before the Task Issue Gate; Issues still fail the Task's final
+result and completion. Model/IaC changes and deploy/AWS mutation retain their gates.
 
 ## Local loop
 
@@ -107,6 +110,12 @@ Explicit `--write` is passed to the leading validator. It evaluates common preco
 once, prepares all selected targets in one stage, validates each candidate responsibility
 once using retained expanded Models/results, compares consumed input bytes/file sets/the
 selected contract once under the publication lock, and saves only changed validated bytes.
+Unresolved Issues do not block this generation/publication. Preserve each successful
+service's outputs alongside failed services' saved artifacts; report actual generation
+failures and reference NOT_RUN separately, with neither treated as complete generation
+success. The subsequent Task Issue Gate can fail validation without discarding successful
+publications or counting Issues as generation failures. Common integrity failures still
+stop all saves; Model/IaC modification and deploy gates remain unchanged.
 It then refreshes Git changed paths once for output-dependent Task conditions and
 `changed`/`exists`/`absent` Acceptance. Registered content checks reuse their exact
 scope/candidate PASS or FAIL; NOT_RUN checks run before publication. Unknown check IDs

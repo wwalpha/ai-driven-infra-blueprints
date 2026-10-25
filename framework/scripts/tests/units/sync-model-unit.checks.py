@@ -4,7 +4,7 @@
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing, nullcontext
+from contextlib import ExitStack, closing, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -802,6 +802,163 @@ def check_framework_write_does_not_discover(tmp_path, scope, contract_scope):
         assert "framework scope" in validator.errors[0]
 
 
+@pytest.mark.parametrize("inventory", ["### iam\n1. 未解決Issue\n", "未解決issueなし"])
+@pytest.mark.parametrize("outcome", ["success", "partial", "not_run", "common"])
+def check_integrated_generation_before_issue_gate(tmp_path, inventory, outcome, capsys):
+    good = tmp_path / "docs/designs/dev/123456789012/iam.md"
+    rejected = good.with_name("kms.md")
+    good.parent.mkdir(parents=True)
+    good.write_bytes(b"old IAM\n")
+    rejected.write_bytes(b"old KMS\n")
+    issue = tmp_path / "issues/dev/123456789012/issues.md"
+    issue.parent.mkdir(parents=True)
+    issue.write_text(inventory, encoding="utf-8")
+    scope = {("dev", "123456789012", service) for service in ("iam", "kms")}
+    outputs = [path.relative_to(tmp_path).as_posix() for path in (good, rejected)]
+    with (
+        issue_task(tmp_path, ["iam", "kms"], allowed=outputs),
+        closing(sync_runtime.GenerationInputs(tmp_path)) as snapshot,
+    ):
+        stage = snapshot.open_stage()
+        staged = stage / good.relative_to(tmp_path)
+        staged.parent.mkdir(parents=True)
+        staged.write_bytes(b"new IAM\n")
+        plan = sync_runtime.Generation(
+            tmp_path, stage, scope, [], [good, rejected], snapshot, ExitStack()
+        )
+        plan.baseline_links, plan.saved_paths = {}, [good, rejected]
+        plan.generated = {good: [staged]}
+        plan.expected_outputs = {good: {good: "new IAM\n"}}
+        snapshot.read(good)
+        snapshot.read(rejected)
+        if outcome == "success":
+            second = stage / rejected.relative_to(tmp_path)
+            second.write_bytes(b"new KMS\n")
+            plan.generated[rejected] = [second]
+            plan.expected_outputs[rejected] = {rejected: "new KMS\n"}
+        elif outcome == "partial":
+            plan.failures.append(
+                f"{rejected.relative_to(tmp_path)}: missing required property"
+            )
+        elif outcome == "not_run":
+            plan.unavailable[rejected] = {
+                "reason": "reference",
+                "status": "NOT_RUN",
+                "retainedView": str(rejected),
+            }
+        common = Findings(stage)
+        common.result("framework.policy-tables", plan.generated_scope).status = "PASS"
+        plan.validation[None] = common
+        validator = load("validate-blueprint").Validator(tmp_path, scope, write=True)
+        validator.task_type = "migration"
+        validator.task.contract_text = snapshot.expected_task[1]
+        validator.changed_paths = set(outputs)
+        methods = (
+            "check_structure",
+            "check_task_scope",
+            "check_project_topology",
+            "check_validation_scope",
+            "check_initialized_paths",
+            "check_catalog",
+            "check_resource_layout",
+            "check_iac_selection",
+            "check_task_boundary",
+            "check_task_type_requirements",
+            "check_acceptance_checks",
+        )
+        with ExitStack() as patches, recording_inputs(snapshot):
+            patches.enter_context(patch.object(validator.task, "check_task_scope"))
+            patches.enter_context(
+                patch.object(validator.task, "final_paths", return_value=set(outputs))
+            )
+            for method in methods:
+                patches.enter_context(patch.object(validator, method))
+            if outcome == "common":
+                patches.enter_context(
+                    patch.object(
+                        validator,
+                        "check_structure",
+                        side_effect=_bind_framework_callback(
+                            validator.check, False, "common integrity error"
+                        ),
+                    )
+                )
+            prepare = patches.enter_context(
+                patch.object(sync_runtime, "prepare_generation", return_value=plan)
+            )
+            patches.enter_context(patch.object(sync_runtime, "validate_generation"))
+            result = validator._run(snapshot)
+        assert result == int(outcome != "success" or "未解決Issue" in inventory), (
+            validator.errors
+        )
+        assert any("unresolved issue" in error for error in validator.errors) == (
+            "未解決Issue" in inventory
+        )
+        assert good.read_bytes() == (
+            b"old IAM\n" if outcome == "common" else b"new IAM\n"
+        )
+        assert rejected.read_bytes() == (
+            b"new KMS\n" if outcome == "success" else b"old KMS\n"
+        )
+        assert prepare.call_count == (0 if outcome == "common" else 1)
+        assert issue.read_text(encoding="utf-8") == inventory
+        assert (
+            issue not in snapshot.contents
+        )  # Task eligibility is outside the sealed generation inputs.
+        output = capsys.readouterr().out
+        if outcome == "success":
+            assert (
+                "2 services succeeded; 0 services failed; 0 services NOT_RUN" in output
+            )
+        elif outcome == "partial":
+            assert (
+                "1 services succeeded; 1 services failed; 0 services NOT_RUN" in output
+            )
+            assert any(
+                "kms.md: missing required property" in error
+                for error in validator.errors
+            )
+        elif outcome == "not_run":
+            assert (
+                "1 services succeeded; 0 services failed; 1 services NOT_RUN" in output
+            )
+            assert any(
+                "NOT_RUN: docs/designs/dev/123456789012/kms.md: reference" in error
+                for error in validator.errors
+            )
+
+
+def check_reference_not_run_is_not_generation_pass(tmp_path, capsys):
+    view = tmp_path / "docs/designs/dev/team/iam.md"
+    plan = sync_runtime.Generation(
+        tmp_path,
+        tmp_path / "stage",
+        {("dev", "team", "iam")},
+        [],
+        [view],
+        None,
+        ExitStack(),
+    )
+    plan.baseline_links = {}
+    plan.unavailable[view] = {
+        "reason": "reference",
+        "status": "NOT_RUN",
+        "retainedView": None,
+    }
+    with (
+        patch.object(sync_runtime, "prepare_generation", return_value=plan),
+        patch.object(sync_runtime, "validate_generation"),
+        patch.object(sync_runtime, "publish_generation"),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="0 services succeeded; 0 services failed; 1 services NOT_RUN",
+        ):
+            sync_runtime.run_generation(tmp_path, plan.scope)
+    output = capsys.readouterr().out
+    assert "Design Markdown sync: PASS" not in output
+
+
 def _callback_check_result_reuse_is_scoped_fail(calls, findings, /):
     calls.append("fail")
     findings.check(False, "content failed")
@@ -1131,6 +1288,8 @@ def check_saved_link_snapshot_and_new_warnings(tmp_path, capsys):
         unavailable={},
         warnings=final,
         baseline_links=baseline,
+        model_paths=[],
+        markdown_paths=[target],
     )
     sync_runtime.report_generation(plan)
     warnings = capsys.readouterr().err
@@ -1140,6 +1299,7 @@ def check_saved_link_snapshot_and_new_warnings(tmp_path, capsys):
     assert "#missing" not in warnings
     # A changed target that was rolled back is not a successfully saved service.
     plan.saved = {}
+    plan.markdown_paths = []
     sync_runtime.report_generation(plan)
     assert not capsys.readouterr().err
 
@@ -1310,7 +1470,8 @@ def check_internal_sync_selection(tmp_path, arguments, jobs, all_scope):
 @pytest.mark.parametrize(
     "extra_inputs,write", [(False, False), (False, True), (True, False), (True, True)]
 )
-def check_failure_counts(tmp_path, capsys, extra_inputs, write):
+@pytest.mark.parametrize("unavailable", [False, True])
+def check_failure_counts(tmp_path, capsys, extra_inputs, write, unavailable):
     docs = tmp_path / "docs/designs/dev/team"
     models = tmp_path / "model/dev/team"
     paths = [docs / f"service-{n:02d}.md" for n in range(17)]
@@ -1335,19 +1496,34 @@ def check_failure_counts(tmp_path, capsys, extra_inputs, write):
         unavailable={},
         warnings=warnings,
         baseline_links={},
+        generated_scope={("dev", "team", path.stem) for path in saved},
     )
+    if unavailable:
+        reference = docs / "unresolved.md"
+        plan.markdown_paths.append(reference)
+        # A separate literal error remains FAILED even with unresolved references.
+        plan.failures[0] = f"{paths[0].relative_to(tmp_path)}: fixture render failure"
+        plan.unavailable = {
+            path: {"reason": "reference", "status": "NOT_RUN", "retainedView": None}
+            for path in (reference, paths[0])
+        }
     with pytest.raises(ValueError) as error:
         sync_runtime.report_generation(plan)
     failed = 11 if extra_inputs else 9
+    not_run = int(unavailable)
     assert (
         str(error.value).splitlines()[0]
-        == f"8 services succeeded; {failed} services failed; {failed} diagnostics"
+        == f"8 services succeeded; {failed} services failed; {not_run} services NOT_RUN; {failed + not_run} diagnostics"
     )
-    assert len(str(error.value).splitlines()) == failed + 1
+    assert len(str(error.value).splitlines()) == failed + not_run + 1
     assert "saved reference" not in str(error.value)
     output = capsys.readouterr()
     assert output.err.count("saved reference needs repair") == (5 if write else 0)
     assert output.out.count("Design Markdown sync: PASS") == 8
+    assert "generation: 8 services succeeded" in output.out
+    assert (
+        "NOT_RUN: docs/designs/dev/team/unresolved.md: reference" in str(error.value)
+    ) is unavailable
     if extra_inputs:
         assert all(message in str(error.value) for message in failures[-2:])
 
