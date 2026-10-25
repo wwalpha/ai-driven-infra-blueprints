@@ -7,11 +7,14 @@ from utils.iac_values import Expression, ResourceReference, same
 from utils.reference_contracts import ATTRIBUTE_SUFFIXES
 
 
-def parts(value, resource_type=None):
+def parts(value, resource_type=None, expand=None):
     """Retain symbolic producers and literal affixes in existing Sub/Join values."""
     if isinstance(value, ResourceReference):
         suffix = ATTRIBUTE_SUFFIXES.get((resource_type(value), value['$attribute'])) if resource_type else None
-        return [ResourceReference(dict(value, **{'$attribute': suffix[0]})), suffix[1]] if suffix else [value]
+        if suffix:
+            return parts(ResourceReference(dict(value, **{'$attribute': suffix[0]})), resource_type, expand) + [suffix[1]]
+        expanded = expand(value) if expand is not None else value
+        return [value] if expanded is value else parts(expanded, resource_type, expand)
     if isinstance(value, str):
         return [value] if value else []
     if not isinstance(value, Expression):
@@ -21,7 +24,7 @@ def parts(value, resource_type=None):
     if value.operation == 'Select':
         index, source = value.operands
         if isinstance(source, list) and re.fullmatch(r'\d+', str(index)) and int(index) < len(source):
-            return parts(source[int(index)], resource_type)
+            return parts(source[int(index)], resource_type, expand)
         return [value]
     if value.operation == 'Join':
         delimiter, values = value.operands
@@ -37,7 +40,7 @@ def parts(value, resource_type=None):
         raise Blocked('string expression operation unproven')
     result = []
     for child in children:
-        for part in parts(child, resource_type):
+        for part in parts(child, resource_type, expand):
             if result and isinstance(result[-1], str) and isinstance(part, str):
                 result[-1] += part
             else:

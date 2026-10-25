@@ -14,7 +14,7 @@ from utils.reference_contracts import (
     REFERENCE_PROPERTIES,
 )
 
-from . import registry
+from . import expressions, registry
 from .references import ReferenceDecision, literal_expression, reference_same
 
 
@@ -24,6 +24,12 @@ class Evidence:
         self.observed = False
         self.producers = []
         self.properties = {}
+
+    def expand(self, value):
+        kind = self.inputs.resource_type(value)
+        if kind in ARN_SHAPES and value['$attribute'] == reference_attribute(kind, 'Arn'):
+            return self.inputs.reference_literal(value, recorded=self.recorded, symbolic_arn=True)
+        return value
 
     def resolve(self, value):
         inputs = self.inputs
@@ -102,7 +108,78 @@ def validate_declaration(inputs, reference):
         raise Blocked('recorded_identifier_mismatch: declaration and Producer Property differ')
 
 
+def validate_source(inputs, proof, reference):
+    validate_declaration(inputs, reference)
+    if (proof.resolve(reference) != reference.saved_literal or
+            reference.declared_format == 'identifier' and reference.saved_literal.startswith('arn:')):
+        raise Blocked('recorded_identifier_mismatch: declaration and saved value differ')
+
+
+def compare_expression(inputs, left, right, kind, path):
+    sources = expressions.references([left, right])
+    declared = [source for source in sources if hasattr(source, 'saved_literal')]
+    if not declared or not any(isinstance(value, Expression) for value in (left, right)):
+        return ReferenceDecision(NotImplemented)
+    proof = Evidence(inputs)
+    failures = []
+    for source in declared:
+        try:
+            validate_source(inputs, proof, source)
+        except Blocked as error:
+            failures.append(str(error))
+    equal, reason = None, '; '.join(dict.fromkeys(failures))
+    if not failures:
+        try:
+            left_concrete = expressions.string(left, proof.resolve)
+            right_concrete = expressions.string(right, proof.resolve)
+            allowed = registry.kms_forms(kind, path) if inputs.local_comparison else None
+            if allowed:
+                _, format_reason = registry.compare_kms_forms(left_concrete, right_concrete, allowed,
+                    resolve_literal=inputs.reference_literal, format_of=inputs.kms_format)
+                if format_reason:
+                    raise Blocked(format_reason)
+            left_parts = expressions.parts(left, inputs.resource_type, proof.expand)
+            right_parts = expressions.parts(right, inputs.resource_type, proof.expand)
+            equal = expressions.symbolic_same(left_parts, right_parts)
+            if equal is None:
+                equal = aligned_difference(left_parts, right_parts)
+            reason = 'logical_reference' if equal is True else (
+                'different Producer or fixed expression parts' if equal is False else
+                'expression Producer or attribute equivalence is unproven; recorded_observed cannot prove physical identity')
+        except Blocked as error:
+            reason = str(error)
+            if reason.startswith('KMS format'):
+                equal = False
+    detail = inputs.reference_diagnostic(left, right, kind, path, reason)
+    detail.update(local_comparison='matched' if equal is True else 'difference' if equal is False else 'uncompared',
+                  evidence_type='logical_reference' if equal is not None else 'recorded_observed' if proof.observed else 'local_evaluation',
+                  current_aws_verified=False, producers=proof.producers,
+                  declarations=[{'producer': '/'.join(source['$resource']), 'property': source.saved_property}
+                                for source in declared])
+    return ReferenceDecision(equal, (inputs.redacted(detail),), equal is True)
+
+
+def aligned_difference(left, right):
+    """Only aligned symbols and equal-length literal slots prove a fixed contradiction."""
+    if len(left) != len(right):
+        return None
+    different = False
+    for a, b in zip(left, right):
+        if isinstance(a, ResourceReference) and isinstance(b, ResourceReference):
+            if a['$attribute'] != b['$attribute']:
+                return None
+            different |= a['$resource'] != b['$resource']
+        elif isinstance(a, str) and isinstance(b, str) and len(a) == len(b):
+            different |= a != b
+        else:
+            return None
+    return False if different else None
+
+
 def compare(inputs, left, right, kind, path):
+    expression = compare_expression(inputs, left, right, kind, path)
+    if expression.equal is not NotImplemented:
+        return expression
     original_left, original_right = left, right
     if hasattr(right, 'saved_literal') and not hasattr(left, 'saved_literal'):
         left, right = right, left
@@ -140,12 +217,9 @@ def compare(inputs, left, right, kind, path):
     reason, equal = '', None
     try:
         if declared is not None:
-            validate_declaration(inputs, left)
+            validate_source(inputs, proof, left)
             if hasattr(right, 'saved_literal'):
-                validate_declaration(inputs, right)
-            saved = proof.resolve(left)
-            if saved != raw or (left.declared_format == 'identifier' and raw.startswith('arn:')):
-                raise Blocked('recorded_identifier_mismatch: declaration and saved value differ')
+                validate_source(inputs, proof, right)
             if isinstance(right, ResourceReference) and left['$resource'] != right['$resource']:
                 return ReferenceDecision(False, (inputs.reference_diagnostic(original_left, original_right, kind, path, 'different producer Resources'),))
         if isinstance(right, ResourceReference):

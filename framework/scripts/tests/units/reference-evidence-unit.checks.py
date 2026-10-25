@@ -277,11 +277,15 @@ def test_declared_reference_negative_cases(change):
     if change == 'duplicate':
         declaration(comparison, 'desired.row.010-001.value', VPC, name='duplicate')
     selected = prepared(comparison, row)
-    if change not in {'resource', 'attribute'}:
+    if change not in {'resource', 'attribute', 'partial'}:
         assert isinstance(selected.error, Blocked)
         return
     desired = selected.require_value()
-    if change == 'resource':
+    if change == 'partial':
+        actual = exported(comparison, {'Ref': 'Vpc'})
+        decision = comparison.reference_decision(desired, actual, 'EC2.Subnet', 'VpcId')
+        assert decision.equal is None and 'recorded_identifier_mismatch' in decision.diagnostics[0]['reason']
+    elif change == 'resource':
         vpc(comparison, '002', 'OtherVpc')
         actual = exported(comparison, {'Ref': 'OtherVpc'})
         assert comparison.reference_decision(desired, actual, 'EC2.Subnet', 'VpcId').equal is False
@@ -2109,3 +2113,245 @@ def test_route53_composite_export_uses_shared_nested_setting_comparison(transfor
     details = results[0].get('reference_diagnostics', [])
     if transform != 'select':
         assert details and details[0]['exports'][0]['unproven'].startswith('Select bounds are unproven')
+
+
+@pytest.mark.parametrize('producer,kind,prop,text,full,expression,properties', [
+    ('s3', 'S3.Bucket', 'BucketName', 'fixture-bucket', 'arn:aws:s3:::fixture-bucket/*',
+     {'Fn::Sub': ['${BucketArn}/*', {'BucketArn': {'Fn::GetAtt': ['Producer', 'Arn']}}]},
+     {'BucketName': 'fixture-bucket'}),
+    ('kms', 'KMS.Key', 'KeyId', KEY_ID, KEY_ARN, {'Fn::GetAtt': ['Producer', 'Arn']}, {}),
+])
+def test_declared_arn_fragment_reproduction(producer, kind, prop, text, full, expression, properties):
+    comparison = fixture()
+    resource(comparison, producer, '001', kind, 'Producer',
+             [(prop, text if producer == 's3' else 'PENDING_DEPLOY', text if producer == 'kms' else None)],
+             properties=properties)
+    row = consumer(comparison, full)
+    declaration(comparison, 'desired.row.010-001.value', text, producer=producer, logical='Producer',
+                kind=kind, prop=kind + '.' + prop, mode='name' if producer == 's3' else 'identifier')
+    desired = prepared(comparison, row).require_value()
+    assert isinstance(desired, Expression) and desired.operation == 'Join'
+    actual = exported(comparison, expression)
+    decision = comparison.reference_decision(desired, actual, 'IAM.Role', 'Policies')
+    assert decision.equal is True and decision.equivalent
+    detail = decision.diagnostics[-1]
+    assert detail['evidence_type'] == 'logical_reference' and detail['current_aws_verified'] is False
+    assert detail['producers'] and all(item['producer'] == producer + '/001' for item in detail['producers'])
+    assert detail['exports'] == [{'export_name': 'shared', 'export_stack': 'producer'}]
+
+
+def fragment_fixture(kind='KMS.Key', value=None):
+    comparison = fixture()
+    service, prop, text = ('kms', 'KeyId', KEY_ID) if kind == 'KMS.Key' else ('s3', 'BucketName', 'fixture-bucket')
+    full = KEY_ARN if kind == 'KMS.Key' else 'arn:aws:s3:::fixture-bucket/*'
+    resource(comparison, service, '001', kind, 'Producer',
+             [(prop, 'PENDING_DEPLOY' if service == 'kms' else text, text if service == 'kms' else None)],
+             properties={} if service == 'kms' else {prop: text})
+    row = consumer(comparison, full if value is None else value)
+    declaration(comparison, 'desired.row.010-001.value', text, producer=service, logical='Producer',
+                kind=kind, prop=kind + '.' + prop, mode='identifier' if service == 'kms' else 'name')
+    return comparison, row
+
+
+def fragment_actual(comparison, kind='KMS.Key', logical='Producer'):
+    arn = {'Fn::GetAtt': [logical, 'Arn']}
+    return exported(comparison, arn if kind == 'KMS.Key' else {'Fn::Join': ['', [arn, '/*']]})
+
+
+def test_fragment_nested_sub_import_export_contract_and_unchanged_model():
+    comparison, row = fragment_fixture('S3.Bucket')
+    comparison.stack_inputs['consumer'][0]['Parameters'] = {'Suffix': {'Type': 'String'}}
+    comparison.stack_inputs['consumer'][1]['Suffix'] = 'One'
+    exported(comparison, {'Fn::GetAtt': ['Producer', 'Arn']}, name='QuarantineBucketArnOne')
+    actual = comparison.evaluate('consumer', {'Fn::Sub': ['${BucketArn}/*', {'BucketArn': {
+        'Fn::ImportValue': {'Fn::Sub': 'QuarantineBucketArn${Suffix}'}}}]})
+    before = {service: copy.deepcopy(snapshot.authoritative) for service, snapshot in comparison.models.items()}
+    desired = prepared(comparison, row).require_value()
+    reference = desired.operands[1][1]
+    assert reference.saved_literal == 'fixture-bucket'
+    assert reference.saved_property == 'S3.Bucket.BucketName'
+    for left, right in [(desired, actual), (actual, desired)]:
+        decision = comparison.reference_decision(left, right, 'IAM.Role', 'Policies')
+        assert decision.equal is True and decision.equivalent
+        detail = decision.diagnostics[0]
+        assert detail['evidence_type'] == 'logical_reference'
+        assert detail['declarations'] == [{'producer': 's3/001', 'property': 'S3.Bucket.BucketName'}]
+        assert detail['exports'] == [{'export_name': 'QuarantineBucketArnOne', 'export_stack': 'producer'}]
+        assert detail['current_aws_verified'] is False
+    assert before == {service: snapshot.authoritative for service, snapshot in comparison.models.items()}
+
+
+@pytest.mark.parametrize('kind,fault', [(kind, fault) for kind in ['S3.Bucket', 'KMS.Key']
+    for fault in ['partition', 'prefix', 'suffix', 'same-length-suffix', 'region', 'account']
+    if kind != 'S3.Bucket' or fault not in {'region', 'account'}])
+def test_fragment_arn_fixed_parts_are_differences(kind, fault):
+    full = KEY_ARN if kind == 'KMS.Key' else 'arn:aws:s3:::fixture-bucket/*'
+    replacements = {'partition': ('arn:aws:', 'arn:aws-cn:'), 'prefix': ('arn:', 'xrn:'),
+                    'suffix': ('', '/extra'), 'same-length-suffix': ('key/', 'kez/') if kind == 'KMS.Key' else ('/*', '/?'),
+                    'region': ('ap-northeast-1', 'us-east-1'), 'account': ('123456789012:key', '999999999999:key')}
+    source, target = replacements[fault]
+    full = full + target if fault == 'suffix' else full.replace(source, target, 1)
+    comparison, row = fragment_fixture(kind, full)
+    desired = prepared(comparison, row).require_value()
+    actual = fragment_actual(comparison, kind)
+    for left, right in [(desired, actual), (actual, desired)]:
+        decision = comparison.reference_decision(left, right, 'IAM.Role', 'Policies')
+        assert decision.equal is False and not decision.equivalent, decision
+        assert decision.diagnostics[0]['current_aws_verified'] is False
+
+
+@pytest.mark.parametrize('text,occurrence,value,expected', [
+    ('fixture-bucket', '1', 'pre/fixture-bucket/post', ['pre/', 'fixture-bucket', '/post']),
+    ('fixture-bucket', '2', 'fixture-bucket/fixture-bucket', ['fixture-bucket/', 'fixture-bucket']),
+    ('`fixture-bucket`', '1', 'fixture-bucket', ['fixture-bucket']),
+    ('fixture-bucket', '1', '`fixture-bucket`', ['`', 'fixture-bucket', '`']),
+])
+def test_fragment_scalar_backtick_coordinates(text, occurrence, value, expected):
+    comparison, row = fragment_fixture('S3.Bucket', value)
+    authority = comparison.models['consumer'].authoritative
+    authority['desired.reference.ref.text'] = text
+    authority['desired.reference.ref.occurrence'] = occurrence
+    desired = prepared(comparison, row).require_value()
+    parts = desired.operands[1] if isinstance(desired, Expression) else [desired]
+    assert [part.saved_literal if isinstance(part, ResourceReference) else part for part in parts] == expected
+    actual_parts = [comparison.evaluate('producer', {'Ref': 'Producer'}) if isinstance(part, ResourceReference) else part for part in parts]
+    decision = comparison.reference_decision(desired, Expression('Join', ['', actual_parts]), 'IAM.Role', 'Policies')
+    assert decision.equal is True
+
+
+def test_fragment_json_pointer_and_multiple_nonoverlapping_declarations():
+    comparison, row = fragment_fixture('S3.Bucket')
+    resource(comparison, 'kms', '002', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    body = {'a/b~c': [{'Resource': 'arn:aws:s3:::fixture-bucket/*|' + KEY_ARN}], 'sibling': KEY_ID}
+    row[1]['document'] = json.dumps(body)
+    authority = comparison.models['consumer'].authoritative
+    authority['desired.row.010-001.document'] = row[1]['document']
+    authority['desired.reference.ref.consumerKey'] = 'desired.row.010-001.document'
+    authority['desired.reference.ref.pointer'] = '/a~1b~0c/0/Resource'
+    declaration(comparison, 'desired.row.010-001.document', KEY_ID, pointer='/a~1b~0c/0/Resource',
+                producer='kms', logical='Key', kind='KMS.Key', prop='KMS.Key.KeyId', name='key')
+    desired = prepared(comparison, row).require_value()
+    leaf = desired['a/b~c'][0]['Resource']
+    assert [part.saved_literal for part in leaf.operands[1] if isinstance(part, ResourceReference)] == ['fixture-bucket', KEY_ID]
+    assert desired['sibling'] == KEY_ID
+    actual = comparison.evaluate('producer', {'Fn::Join': ['', [
+        {'Fn::GetAtt': ['Producer', 'Arn']}, '/*|', {'Fn::GetAtt': ['Key', 'Arn']}]]})
+    decision = comparison.reference_decision(leaf, actual, 'IAM.Role', 'Policies')
+    assert decision.equal is True and decision.equivalent
+    assert {item['producer'] for item in decision.diagnostics[0]['declarations']} == {'s3/001', 'kms/002'}
+    comparison.models['kms'].authoritative['observed.row.002-001.value'] = '`PENDING_DEPLOY`'
+    decision = comparison.reference_decision(leaf, actual, 'IAM.Role', 'Policies')
+    assert decision.equal is None and not decision.equivalent
+    assert 'identifier_unobserved' in decision.diagnostics[0]['reason']
+
+
+@pytest.mark.parametrize('fault', ['overlap', 'duplicate', 'occurrence', 'cross-target', 'unknown', 'ambiguous', 'type', 'property'])
+def test_fragment_invalid_declarations_fail_closed(fault):
+    comparison, row = fragment_fixture('S3.Bucket')
+    authority = comparison.models['consumer'].authoritative
+    if fault in {'overlap', 'duplicate'}:
+        declaration(comparison, 'desired.row.010-001.value', 'bucket' if fault == 'overlap' else 'fixture-bucket',
+                    producer='s3', logical='Producer', kind='S3.Bucket', prop='S3.Bucket.BucketName', mode='name', name='other')
+    elif fault == 'ambiguous':
+        resource(comparison, 's3', '002', 'S3.Bucket', 'Other', [('BucketName', 'fixture-bucket', None)],
+                 properties={'BucketName': 'fixture-bucket'})
+        authority2 = comparison.models['s3'].authoritative
+        authority2['desired.resource.002.logicalId'] = authority2['desired.resource.001.logicalId']
+    else:
+        field, value = {'occurrence': ('occurrence', '2'), 'cross-target': ('producerScope', 'fixture/other/s3'),
+                        'unknown': ('producerLogicalId', 'S3_Bucket_999'), 'type': ('resourceType', 'KMS.Key'),
+                        'property': ('property', 'KMS.Key.KeyId')}[fault]
+        authority['desired.reference.ref.' + field] = value
+    assert isinstance(prepared(comparison, row).error, Blocked)
+
+
+@pytest.mark.parametrize('kind', ['S3.Bucket', 'KMS.Key'])
+@pytest.mark.parametrize('fault', ['different-producer', 'missing-correspondence', 'wrong-type', 'import-mode', 'literal', 'unknown-attribute', 'no-arn-contract'])
+def test_fragment_producer_and_attribute_evidence_cannot_be_replaced_by_values(kind, fault):
+    comparison, row = fragment_fixture(kind)
+    desired = prepared(comparison, row).require_value()
+    service = 'kms' if kind == 'KMS.Key' else 's3'
+    if fault == 'different-producer':
+        prop, text = ('KeyId', KEY_ID) if service == 'kms' else ('BucketName', 'fixture-bucket')
+        resource(comparison, service, '002', kind, 'Other', [(prop, 'PENDING_DEPLOY' if service == 'kms' else text,
+                 text if service == 'kms' else None)], properties={} if service == 'kms' else {prop: text})
+        actual = fragment_actual(comparison, kind, 'Other')
+    elif fault == 'literal':
+        actual = KEY_ARN if service == 'kms' else 'arn:aws:s3:::fixture-bucket/*'
+    elif fault == 'unknown-attribute':
+        actual = Expression('Join', ['', ['pre/', ResourceReference({'$resource': [service, '001'], '$attribute': 'Unknown'})]])
+    else:
+        actual = fragment_actual(comparison, kind)
+        if fault == 'missing-correspondence':
+            comparison.stack_inputs['producer'][0]['Resources'].pop('Producer')
+            comparison.symbols.clear()
+        elif fault == 'wrong-type':
+            comparison.stack_inputs['producer'][0]['Resources']['Producer']['Type'] = 'AWS::EC2::VPC'
+            comparison.symbols.clear()
+        elif fault == 'import-mode':
+            comparison.resources[service]['001']['resourceMode'] = 'IMPORT'
+    if fault == 'no-arn-contract':
+        with patch.dict('comparison.reference_evidence.ARN_SHAPES', clear=True):
+            decision = comparison.reference_decision(desired, actual, 'IAM.Role', 'Policies')
+    else:
+        decision = comparison.reference_decision(desired, actual, 'IAM.Role', 'Policies')
+    assert decision.equal is (False if fault == 'different-producer' else None), decision
+    assert not decision.equivalent
+
+
+@pytest.mark.parametrize('observed', [None, '', 'PENDING_DEPLOY', 'UNSET', 'TODO', 'TBD', '未確定', 'other-key'])
+def test_fragment_all_observed_uncertainties_remain_uncompared(observed):
+    comparison, row = fragment_fixture()
+    authority = comparison.models['kms'].authoritative
+    if observed is None:
+        authority.pop('observed.row.001-001.value')
+    else:
+        authority['observed.row.001-001.value'] = '`' + observed + '`'
+    desired = prepared(comparison, row).require_value()
+    decision = comparison.reference_decision(desired, fragment_actual(comparison), 'IAM.Role', 'Policies')
+    assert decision.equal is None and not decision.equivalent
+    assert decision.diagnostics[0]['current_aws_verified'] is False
+
+
+@pytest.mark.parametrize('fault', ['missing', 'duplicate', 'scope', 'literal-export'])
+def test_fragment_import_export_requires_proven_origin(fault):
+    comparison, row = fragment_fixture()
+    desired = prepared(comparison, row).require_value()
+    if fault == 'literal-export':
+        actual = exported(comparison, KEY_ARN)
+        assert comparison.reference_decision(desired, actual, 'IAM.Role', 'Policies').equal is None
+        return
+    exported(comparison, {'Fn::GetAtt': ['Producer', 'Arn']})
+    comparison.exports = None
+    if fault == 'missing':
+        comparison.stack_inputs['producer'][0]['Outputs'].clear()
+    elif fault == 'duplicate':
+        comparison.stack_inputs['consumer'][0]['Outputs']['other'] = {
+            'Value': {'Ref': 'Consumer'}, 'Export': {'Name': 'shared'}}
+    else:
+        document, parameters, pseudo = comparison.stack_inputs['producer']
+        comparison.stack_inputs['producer'] = document, parameters, dict(pseudo, **{'AWS::AccountId': '999999999999'})
+    with pytest.raises(Blocked):
+        comparison.evaluate('consumer', {'Fn::ImportValue': 'shared'})
+
+
+def test_fragment_wrong_declared_name_and_missing_second_proof_do_not_match():
+    comparison, row = fragment_fixture('S3.Bucket')
+    desired = prepared(comparison, row).require_value()
+    comparison.rows['s3']['001'][0][1]['value'] = '`other-name`'
+    actual = fragment_actual(comparison, 'S3.Bucket')
+    decision = comparison.reference_decision(desired, actual, 'IAM.Role', 'Policies')
+    assert decision.equal is None and 'recorded_identifier_mismatch' in decision.diagnostics[0]['reason']
+
+
+def test_fragment_undeclared_identifier_and_replacement_stay_uncompared():
+    comparison, row = fragment_fixture()
+    comparison.stack_inputs['producer'][0]['Resources']['Producer']['Properties']['Description'] = 'changed-next-deploy'
+    desired = prepared(comparison, row).require_value()
+    actual = fragment_actual(comparison)
+    # Logical expression identity is proven; physical/current identity is never asserted.
+    decision = comparison.reference_decision(desired, actual, 'IAM.Role', 'Policies')
+    assert decision.equal is True and decision.diagnostics[0]['current_aws_verified'] is False
+    assert comparison.reference_decision(KEY_ARN, actual, 'IAM.Role', 'Policies').equal is None
+    undeclared = Expression('Join', ['', ['arn:aws:kms:ap-northeast-1:123456789012:key/', KEY_ID]])
+    assert comparison.reference_decision(undeclared, actual, 'IAM.Role', 'Policies').equal is None

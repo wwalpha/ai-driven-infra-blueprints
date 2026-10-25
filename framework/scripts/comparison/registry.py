@@ -1,8 +1,10 @@
 """Explicit comparison rule ownership; no dynamic discovery or service cross-imports."""
 
 import re
+from string import Formatter
 
 import utils.cloudformation.inputs as _imports_cfn_inputs
+from utils.iac_values import Expression
 from utils.reference_contracts import ARN_DEFAULTS, ARN_SHAPES, REF_ATTRIBUTES
 
 from .services import (
@@ -99,7 +101,7 @@ def context_value(pseudo, group):
     return value
 
 
-def named_arn(kind, properties, pseudo, *, evaluate, schema, recorded=None):
+def named_arn(kind, properties, pseudo, *, evaluate, schema, recorded=None, reference=None):
     """Concretize a proven Producer using the shared ARN identity contract."""
     Blocked = _imports_cfn_inputs.Blocked
     identifier, template, patterns = ARN_SHAPES[kind]
@@ -135,7 +137,17 @@ def named_arn(kind, properties, pseudo, *, evaluate, schema, recorded=None):
         if group in components and components[group] != value:
             raise Blocked('ARN identifier and confirmed ' + group + ' differ')
         components[group] = value
-    return template.format(**components)
+    if reference is None:
+        return template.format(**components)
+    for field, group in fields.items():
+        if group not in {'partition', 'region', 'account'}:
+            components[group] = reference(field)
+    parts = []
+    for text, field, _, _ in Formatter().parse(template):
+        parts.append(text)
+        if field is not None:
+            parts.append(components[field])
+    return Expression('Join', ['', parts])
 
 
 def compare_kms_forms(left, right, allowed, *, resolve_literal, format_of, project_arn=None):

@@ -89,11 +89,35 @@ class ModelReferences:
         records = self.positions.get(key, {}).get(pointer, ())
         if not records:
             return value
-        if len(records) != 1:
-            raise Blocked('producer_ambiguous: overlapping reference declarations')
-        usage, spec = records[0]
-        if not isinstance(value, str) or literal(usage.text) != value:
-            raise Blocked('attribute_format_unproven: declaration must cover the complete scalar')
+        if not isinstance(value, str):
+            raise Blocked('attribute_format_unproven: declaration requires a string leaf')
+        ranges = []
+        for usage, spec in records:
+            # Scalar Usage offsets include saved backticks; JSON leaf offsets do not.
+            start, stop, text = usage.start, usage.end, usage.text
+            if pointer is None:
+                raw = inputs.model(self.scope.service).authoritative[key]
+                if raw != value and literal(raw) == value:
+                    if (start, stop) == (0, len(raw)):
+                        start, stop, text = 0, len(value), value
+                    else:
+                        start, stop = start - 1, stop - 1
+            if start < 0 or stop > len(value) or value[start:stop] != text:
+                raise Blocked('attribute_format_unproven: normalized reference occurrence differs')
+            ranges.append((start, stop, text, usage, spec))
+        parts, end = [], 0
+        for start, stop, text, usage, spec in sorted(ranges, key=lambda item: item[:2]):
+            if start < end:
+                raise Blocked('producer_ambiguous: overlapping reference declarations')
+            if start > end:
+                parts.append(value[end:start])
+            parts.append(self.fragment(inputs, key, value, usage, spec, text))
+            end = stop
+        if end < len(value):
+            parts.append(value[end:])
+        return parts[0] if len(parts) == 1 else Expression('Join', ['', parts])
+
+    def fragment(self, inputs, key, value, usage, spec, text):
         if spec['producerScope'].split('/')[:2] != [inputs.environment, inputs.directory]:
             raise Blocked('producer_not_found: cross-target reference')
         service = spec['producerScope'].split('/')[2]
@@ -116,6 +140,6 @@ class ModelReferences:
         symbol = ResourceReference({'$resource': [service, usage.producer_id],
                                     '$attribute': reference_attribute(resource['resourceType'], attribute)})
         symbol.saved_property = spec['property']
-        symbol.saved_literal = value
+        symbol.saved_literal = text
         symbol.declared_format = spec['format']
         return symbol

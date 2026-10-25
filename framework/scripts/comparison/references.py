@@ -78,11 +78,8 @@ def _callback_reference_same_decision(nested, /, equal, diagnostics=(), equivale
 
 def reference_same(left, right, kind, path, *, local_comparison, forms_for, resolve_literal, resource_type, kms_format, diagnostic, evidence=None, project_arn=None):
     if evidence is not None and any(isinstance(value, Expression) for value in (left, right)):
-        for source in expressions.references([left, right]):
-            if hasattr(source, 'saved_literal'):
-                verified = evidence(source, ResourceReference(source), kind, path)
-                if verified.equal is not True:
-                    return verified
+        if any(hasattr(source, 'saved_literal') for source in expressions.references([left, right])):
+            return evidence(left, right, kind, path)
     if evidence is not None and any(hasattr(value, 'saved_literal') for value in (left, right)):
         return evidence(left, right, kind, path)
     if any(isinstance(value, Expression) and value.operation == 'Unverified' for value in (left, right)):

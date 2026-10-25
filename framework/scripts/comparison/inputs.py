@@ -422,7 +422,7 @@ class Inputs:
                 error.iac_cause = {'kind': 'import-unresolved', 'export': name, 'relationship': 'import', 'consumer_stack': stack}
             raise
 
-    def reference_literal(self, value, *, recorded=None, seen=frozenset()):
+    def reference_literal(self, value, *, recorded=None, seen=frozenset(), symbolic_arn=False):
         """Resolve local values; an optional comparison proof may use recorded outputs."""
         if isinstance(value, Expression):
             return references.literal_expression(value, resolve_literal=partial(self.reference_literal, recorded=recorded, seen=seen))
@@ -453,7 +453,9 @@ class Inputs:
             return registry.named_arn(resource['resourceType'], properties, pseudo,
                                       evaluate=partial(self.reference_component, name, recorded=recorded, seen=seen),
                                       schema=self.catalog.schema(resource['resourceType']),
-                                      recorded=(lambda field: recorded(ResourceReference(dict(value, **{'$attribute': field})))) if recorded is not None else None)
+                                      recorded=(lambda field: recorded(ResourceReference(dict(value, **{'$attribute': field})))) if recorded is not None else None,
+                                      reference=(lambda field: ResourceReference(dict(value, **{
+                                          '$attribute': reference_attribute(resource['resourceType'], field)}))) if symbolic_arn else None)
         setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute))
         explicit_path = setting or attribute
         readonly = '/properties/' + explicit_path.replace('.', '/') in self.catalog.schema(resource['resourceType']).get('readOnlyProperties', ())
