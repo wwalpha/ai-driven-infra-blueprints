@@ -194,7 +194,7 @@ Existing external timing.jsonl records environment, contractPreparation, documen
 
 承認済Modelから正確なStackName/入力path/DeployOrder/並行数を選ぶ。Read契約に従って必須本文を読み、Model/IaC/parameters/artifactの全byteと依存file集合を監視する。preparationはoffline、runtimeは各起動で指定profile/Region/期待execution accountを一度認証する。値・target・対応付けを推測しない。
 
-running infrastructure Taskのscope/AWS許可内だけ変更し、全mutation直前にTask/target/入力不変guardと共通PolicyのIssue診断を通す。既存Stackの実owner確認は維持する。startup/resume/Create/Executeは全体mapping/lint/Issue PASS証明/過去検証cacheを実行許可にしない。implementの独立mapping検証は維持する。
+running infrastructure Taskのscope/AWS許可内だけ変更し、全mutation直前にTask/target/入力不変guardを通す。既存Stackの実owner確認は維持する。startup/resume/Create/Executeは全体mapping/lint/過去検証cacheを実行許可にしない。implementの独立mapping検証は維持する。
 
 同DeployOrderの全配送成功後に新規Createへ進む。実byte数inline<=51,200、S3<=1 MiBで同じ内容/URLをValidateTemplate/Createに渡す。有効Condition/Fn::IfのImportValueだけ名前を解決し、必要な時だけExports全pageを取得。必要name/value/producerだけ再確認し、scope内producerはSUCCESS必須。
 

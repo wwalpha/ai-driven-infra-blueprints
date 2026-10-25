@@ -333,8 +333,6 @@ def _callback_check_guarded_save_git(before, /, *args):
         "normal-save",
         "mixed-save",
         "missing-scope",
-        "issue",
-        "other-issue",
     ],
 )
 def check_guarded_save(tmp_path, monkeypatch, mode):
@@ -355,8 +353,6 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
         if mode == "missing-scope"
         else ["stg/cde/service-a", "stg/cde/service-b"]
     )
-    if mode == "other-issue":
-        scopes.append("dev/cde/service-b")
     text = (
         contract()
         + "## Validation scope\n"
@@ -367,18 +363,6 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
         + listing
     )
     start(before, name, text)
-    if mode in {"issue", "other-issue"}:
-        p = before / (
-            "issues/dev/cde/issues.md"
-            if mode == "other-issue"
-            else "issues/stg/cde/issues.md"
-        )
-        p.parent.mkdir(parents=True)
-        p.write_text(
-            ("### service-b\n" if mode == "other-issue" else "### service-a\n")
-            + "1. existing issue\n"
-        )
-        issue_before = p.read_bytes()
     with (
         patch("model.importing.repository.task_start_commit", return_value=base),
         mapping_alias(Path(__file__).resolve().parents[4], before),
@@ -464,8 +448,6 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
                     )
                     == ()
                 )
-        if mode in {"issue", "other-issue"}:
-            assert p.read_bytes() == issue_before
 
 
 def _callback_check_final_candidate_uses_latest_base_git(before, /, *args):

@@ -20,4 +20,4 @@ shared Model snapshots/desired checks, and apply verified observed deltas. Never
 service Models or pending IaC bodies to start or guard Deploy. Missing/stale dependency
 metadata stops only when ownership/reference synchronization needs it; never rebuild the
 index inside Deploy. Keep Task/target/IaC/ChangeSet guards, atomic publication and SUCCESS
-recovery. Session v5 has no automatic older-format migration. Issue diagnostics are warnings.
+recovery. Session v5 has no automatic older-format migration.

@@ -128,7 +128,7 @@ Model/stack/template/Markdown生成、mock、assertion、状態変更の流れ�
 loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体比較は
 既存Framework ITの `baseline_ref` を使い、未実行のITをPASSとしない。
 
-## Issues Artifact v4 / Immutable Snapshot / cfn-lint
+## Issues Artifact v5 / Immutable Snapshot / cfn-lint
 
 issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。現行 `issues-lint-unit.checks.py` はlint/Artifact境界を、`issues-lint.checks.py` は4関数5条件の接続を検証する。旧report notice保持UTはSnapshot UTへ置換した。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
 
@@ -147,7 +147,7 @@ Windowsは既存 `--once` と実OS subprocessのtimeout/回収、UTのprogress/p
 Issue 21のローカル確認は関連UT・構文・collect-only・登録/参照の静的整合性だけ。IT/Full IT・AWS・Actions手動起動は禁止。
 51.079秒から10秒以内の目標はGitHub Actionsの実測待ちであり、未測定の時間やIT PASSを報告しない。
 
-一時HOME/cwd/config/custom rule/provider schemaを実環境から分離し、本物のHOMEとインストール済みpackageには書き込まない。Framework定義はコピーも読取専用。モデル・template・parametersは独立した可変fixtureを使う。summary/detail/validate_artifact/save_scanはv3専用で、未対応versionを拒否する。summary/detail/saveはv3の保存済み集計だけを使う。
+一時HOME/cwd/config/custom rule/provider schemaを実環境から分離し、本物のHOMEとインストール済みpackageには書き込まない。Framework定義はコピーも読取専用。モデル・template・parametersは独立した可変fixtureを使う。summary/detail/validate_artifact/save_scanはv5専用で、未対応versionを拒否する。summary/detail/saveはv5の保存済み集計だけを使う。
 
 
 ## Deploy correctness / 1023v2

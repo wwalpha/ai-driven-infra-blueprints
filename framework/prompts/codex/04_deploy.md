@@ -13,14 +13,14 @@ Read before changing filesの必須本文と対象入力、Task候補を漏れ�
 <fixed-python> framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --service <service-id> [--service <service-id> ...] --task-file tasks/<task-name>.md [--profile <profile>] [--sequential] [--allow-external-repair] [--repair-budget 20]
 ```
 
-aliasなしは--aws-account-id。preparation.jsonのdocuments（<=6,000文字/chunk）、対象要約、契約候補を漏れなく確認する。確認済みの同一範囲だけ再読込を省略できる。inputsのhashとinputIdentities/generatedViewsの識別情報は読了やPASS証明ではない。欠損・不一致では停止する。Do not newly reregister already registered tasks. 新Taskは次の登録を最初の変更とし、runtime/hash/Task競合/最新Issuesを再確認する。
+aliasなしは--aws-account-id。preparation.jsonのdocuments（<=6,000文字/chunk）、対象要約、契約候補を漏れなく確認する。確認済みの同一範囲だけ再読込を省略できる。inputsのhashとinputIdentities/generatedViewsの識別情報は読了やPASS証明ではない。欠損・不一致では停止する。Do not newly reregister already registered tasks. 新Taskは次の登録を最初の変更とし、runtime/hash/Task競合を再確認する。
 
 ```console
 <fixed-python> framework/scripts/deploy_preparation.py --register <external-preparation.json>
 <fixed-python> framework/scripts/deploy_preparation.py --run-controller <external-preparation.json>
 ```
 
-全Stackに一つのcontroller/sessionを使う。preparationはAWSなし。controllerが認証、Task/入力guard、Issue診断・警告、既存Stack所有権、配送barrier、ValidateTemplate、ChangeSet、承認・実行・poll・drain・成功後同期を担当する。同じpreflight/APIをAgent側で重複実行しない。通常起動/Create/ExecuteはRemoveを含め全体mapping/lintなし。失敗修復/bootstrap/未同期SUCCESSだけ必要ownerと参照を解決する。DeployOrder/並行数を保ち、失敗時は新規開始を止めpeerをdrainする。SUCCESSは再実行しない。
+全Stackに一つのcontroller/sessionを使う。preparationはAWSなし。controllerが認証、Task/入力guard、既存Stack所有権、配送barrier、ValidateTemplate、ChangeSet、承認・実行・poll・drain・成功後同期を担当する。同じpreflight/APIをAgent側で重複実行しない。通常起動/Create/ExecuteはRemoveを含め全体mapping/lintなし。失敗修復/bootstrap/未同期SUCCESSだけ必要ownerと参照を解決する。DeployOrder/並行数を保ち、失敗時は新規開始を止めpeerをdrainする。SUCCESSは再実行しない。
 
 ## Lazy inputs and Model reuse
 
@@ -35,7 +35,7 @@ Each claimed Stack pins its template/parameters/artifacts, decodes inputs and pr
 ValidateTemplate and ChangeSet. AWS success and observedSynced remain separate. Import/Export
 checks stay fresh at each Stack boundary; pending Stack templates are explicitly unloaded.
 External repair resolves affected/previously started inputs and blocks any effect on SUCCESS;
-unknown dependencies never authorize execution. Issue diagnostics remain non-blocking warnings.
+unknown dependencies never authorize execution.
 
 Observed ownership and incoming references use the sealed, derived Model dependency index.
 It is maintained inside Model publication, including deletion/retarget; observed-only changes
