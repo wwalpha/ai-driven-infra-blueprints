@@ -347,7 +347,7 @@ def check_generation_workers_reuse_task_snapshot(tmp_path, monkeypatch):
     make_tasks(tmp_path)
     monkeypatch.setenv(tasks.SELECTOR, 'tasks/one.md')
     paths = [tmp_path / 'docs/designs/dev/cde/s3.md', tmp_path / 'docs/designs/dev/cde/iam.md']
-    state = SimpleNamespace(design_index=None)
+    state = SimpleNamespace(design_index=None, candidate_paths=None)
     with tasks.task_reads(tmp_path):
         captured = tasks.task_snapshot(tmp_path)
         with patch.object(sync_runtime.sync_views, 'validate_views', worker_views), TaskIO() as io:

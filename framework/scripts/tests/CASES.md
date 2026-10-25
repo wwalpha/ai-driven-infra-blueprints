@@ -1,5 +1,18 @@
 # UT / IT 全ケース台帳
 
+## Markdown生成と保存済み参照の検証責務
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `saved-markdown-links::boundary` | `check_candidate_saved_reference_boundary` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 3 | 現行/旧reference-rows/旧reference-value参照先の局所解析、意味検証不能の警告、候補の旧形式拒否、対象外Markdown不変 | 追加 |
+| `saved-markdown-links::typed-display` | `check_saved_typed_reference_display_difference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 1 | typed Model参照を含む保存済みCodePipelineの表示差分をwrite候補の参照先として許容し、read-onlyでは厳密拒否 | 追加 |
+| `saved-markdown-links::new-warning` | `check_saved_link_snapshot_and_new_warnings` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | 旧形式参照元の軽量Snapshot、既存破損の除外、新規anchor破損と保存先限定警告、コメント内リンク除外、対象外不変 | 追加 |
+| `saved-markdown-links::fallback` | `check_publication_legacy_fallback` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 2 | JSON書込み失敗注入による既存Markdown/JSON復元、部分成功維持、依存候補Rollback分岐と最終参照状態。候補ValidatorはMock | 追加 |
+
+既存 `check_stage_dependency_selection` のwrite/read-only 2条件を拡張し、旧形式の保存済み参照元が生成準備を阻害しないことを実軽量検査で確認する。`check_readonly_stale_views` に旧形式差分を追加する。候補のProperty/値/anchor等の改変拒否は既存model-reference-display UT::`check_actual_markdown_must_match`、旧形式拒否は同`check_obsolete_metadata_requires_regeneration`で維持し重複追加しない。
+
+生成・保存・参照・Rollbackのコンポーネント接続は既存sync-model IT::`check_incoming_reference_models` / `check_changed_sidecar_publication_rollback` / `check_multiple_targets_barrier` / `check_publication_boundary`、bound-anchor-name-change ITの確認対象。ローカルIT・全IT・性能測定は実施しない。
+
 ## Issue 17 Model Designの検証責務
 
 分類は 1=既存UT/別ITで保証済み、2=未検証の単体判定、3=接続/保存/部分失敗。

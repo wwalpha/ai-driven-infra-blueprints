@@ -263,7 +263,7 @@ def _callback_validate_candidates_validate(_state_validate_candidates_260, defin
             if import_selection(root) is not None:
                 identities.add(import_selection(root))
             with view_scope(identities):
-                return_value = sync_views.validate_views(stage, root, [stage / path.relative_to(root)], destinations, design_index=_state_validate_candidates_260.design_index, definitions_root=definitions_root, **({"context": _state_validate_candidates_260.context} if validation is not None else {}))
+                return_value = sync_views.validate_views(stage, root, [stage / path.relative_to(root)], destinations, design_index=_state_validate_candidates_260.design_index, definitions_root=definitions_root, candidate_paths=_state_validate_candidates_260.candidate_paths, **({"context": _state_validate_candidates_260.context} if validation is not None else {}))
                 if validation is not None:
                     validation[path] = return_value
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -283,6 +283,7 @@ def validate_candidates(stage, root, generated, destinations, failures, jobs, wr
         validate = (selected_task(root, name if text is not None else None))(_bind_framework_callback(_callback_validate_candidates_validate, _state_validate_candidates_260, definitions_root, destinations, root, stage, validation, captured))
 
         while generated:
+            _state_validate_candidates_260.candidate_paths = {stage / p.relative_to(root) for p in generated} if write else None
             total(len(generated))
             _state_validate_candidates_260.design_index = DesignIndex(definitions_root or root)  # A new snapshot after each restore_view phase.
             rejected = []
@@ -609,8 +610,10 @@ def publish_generation(plan):
                     if context.errors:
                         raise ValueError('\n- '.join(context.errors))
                     findings = sync_views.validate_views(stage, root, [stage / path.relative_to(root)],
-                                                        plan.destinations, context=context, definitions_root=plan.definitions_root)
+                                                        plan.destinations, context=context, definitions_root=plan.definitions_root,
+                                                        candidate_paths={stage / p.relative_to(root) for p in plan.saved})
                     plan.validation[path] = findings
+                    plan.reference_warnings.extend(w for w in findings.warnings if w not in plan.reference_warnings)
                 except (OSError, ValueError, KeyError, TypeError) as error:
                     plan.failures.append(f'{path.relative_to(root)}: {error}')
                     rejected.append(path)

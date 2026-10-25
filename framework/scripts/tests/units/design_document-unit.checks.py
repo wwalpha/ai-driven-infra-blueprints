@@ -16,6 +16,7 @@ import design.layout as _imports_design_layout
 import model.projection as _imports_model_projection
 import pytest
 import support.model_sources as _imports_support_model_sources
+import support.model_reference_fixtures as reference_models
 import sync_runtime as _imports_sync_runtime
 import validation.design_links as _imports_validation_design_links
 from support.design_document_fixtures import (
@@ -33,6 +34,7 @@ from support.design_document_fixtures import (
     tempfile,
 )
 from support.validator import diagnostics, load
+from validation.findings import Findings
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -238,6 +240,65 @@ def check_links():
         with patch.object(Path, "read_text", autospec=True, side_effect=read_text) as reads:
             validator.check_design_links({"KMS.Key": {"KMS.Key.KeyId"}}, [source])
             assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 2
+
+
+@pytest.mark.parametrize('metadata', ['', '<!-- reference-rows: obsolete -->\n', '<!-- reference-value: obsolete -->\n'])
+def check_candidate_saved_reference_boundary(tmp_path, metadata):
+    source, target, _, target_text = reference_fixture(tmp_path, count=1)
+    # Limit the candidate to a real link with no pre-existing missing references.
+    source.write_text('<a id="bucket"></a>\n### S3.Bucket: bucket\n'
+                      '| No. | Property | Value | Comment |\n| ---: | --- | --- | --- |\n'
+                      '| 1 | BucketName | `bucket` | 合成バケット |\n'
+                      '| 2 | BucketEncryption[].KMSMasterKeyID | [wrong](kms.md#resource-AliasTwo) | 合成参照 |\n', encoding='utf-8')
+    target.write_text(target_text.replace('### KMS.Key: KeyOne\n', '### KMS.Key: KeyOne\n' + metadata), encoding='utf-8')
+    before = target.read_bytes()
+    findings = Findings(tmp_path)
+    with patch.object(documents, 'model_reference_tables', wraps=documents.model_reference_tables) as strict:
+        _imports_validation_design_links.check_design_links({}, [source], design_sources={source: {}},
+            findings=findings, root=tmp_path, scope=None, candidate_paths={source})
+        assert all(call.args[0] == source for call in strict.call_args_list)
+    assert not findings.errors, findings.errors
+    if metadata:
+        assert any(warning['code'] == 'design.links_unverified' for warning in findings.warnings), findings.warnings
+    else:
+        assert not any(warning['code'] == 'design.links_unverified' for warning in findings.warnings)
+        assert any('must display the referenced KMS alias name' in warning['message'] for warning in findings.warnings)
+    assert target.read_bytes() == before
+    if metadata:
+        with pytest.raises(ValueError, match='obsolete Model reference metadata'):
+            _ = DesignIndex().get(target).view(frozenset({'resource-AliasTwo'})).expanded
+        strict = Findings(tmp_path)
+        _imports_validation_design_links.check_design_links({}, [source, target], design_sources={source: {}, target: {}},
+            findings=strict, root=tmp_path, scope=None, candidate_paths={source, target})
+        assert any('obsolete Model reference metadata' in error for error in strict.errors), strict.errors
+
+
+def check_saved_typed_reference_display_difference(project_workspace):
+    root = project_workspace
+    reference_models.project(root)
+    reference_models.resource(root, 'iam', 'IAM.Role', observed='arn:aws:iam::123456789012:role/fixture-role')
+    scope, values = reference_models.resource(root, 'codepipeline', 'CodePipeline.Pipeline', attribute='Name')
+    values.update({'desired.row.001-001.value': '`synthetic-pipeline`',
+                   'desired.row.001-002.property': 'CodePipeline.Pipeline.RoleArn',
+                   'desired.row.001-002.value': '`' + json.dumps(reference_models.reference('IAM_Role_001', 'Arn')) + '`',
+                   'desired.row.001-002.comment': '合成参照'})
+    reference_models.save(scope, values)
+    target = root / 'docs/designs/qa/team/codepipeline.md'
+    target.parent.mkdir(parents=True)
+    markdown = model_design.generate_markdown(target, values, reference_models.FRAMEWORK)
+    target.write_text(markdown + '\n<!-- stale display -->\n', encoding='utf-8')
+    source = target.with_name('consumer.md')
+    source.write_text('[pipeline](codepipeline.md#saved-001)\n', encoding='utf-8')
+    before = target.read_bytes()
+    findings = Findings(root)
+    _imports_validation_design_links.check_design_links({}, [source], design_sources={source: {}},
+        findings=findings, root=root, scope=None, definitions_root=reference_models.FRAMEWORK, candidate_paths={source})
+    assert not findings.errors, findings.errors
+    assert target.read_bytes() == before
+    # The same saved typed reference still requires exact display in read-only validation.
+    with pytest.raises(ValueError, match='Markdown differs from Model expected display'):
+        _imports_validation_design_links.check_design_links({}, [source], design_sources={source: {}},
+            findings=Findings(root), root=root, scope=None, definitions_root=reference_models.FRAMEWORK)
 
 
 if __name__ == '__main__':

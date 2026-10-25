@@ -4,7 +4,7 @@
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -330,7 +330,7 @@ def check_stage_dependency_selection(tmp_path, write):
              'docs/designs/dev/team/iam/policy.json': '{}\n',
              'docs/designs/dev/team/other.md': '# unrelated\n',
              'docs/designs/dev/team/out.md': '# reference\n',
-             'docs/designs/dev/team/in.md': '[incoming](iam.md#id)\n',
+             'docs/designs/dev/team/in.md': '<!-- reference-rows: obsolete -->\n[incoming](iam.md#id)\n',
              'model/dev/team/iam.properties': '# model-format: 2\n# required\n',
              'model/dev/team/unrelated.properties': '# model-format: 2\n# unused\n',
              'project.json': '{}\n', 'tests/results/unrelated.log': 'unrelated\n'}
@@ -351,9 +351,9 @@ def check_stage_dependency_selection(tmp_path, write):
          patch.object(sync_runtime, 'registered_models', return_value=[model]), \
          patch.object(sync_runtime, 'model_exists', side_effect=lambda path, read_context: path == authority and read_context is inputs), \
          patch.object(sync_runtime, 'load_model', side_effect=loaded), \
-         patch.object(sync_runtime, 'generate_views', return_value={}), \
-         patch.object(sync_views, 'broken_design_links', return_value={}):
+         patch.object(sync_runtime, 'generate_views', return_value={}):
         plan = sync_runtime.prepare_generation(root, {('dev', 'team', 'iam')}, snapshot=inputs, write=write)
+        assert bool(plan.baseline_links) == write
         plan.close()
         assert not close.called
     assert inputs.contents[authority] == b'# model-format: 2\n# required\n'
@@ -775,7 +775,8 @@ def check_readonly_stale_views(tmp_path):
     source.parent.mkdir(parents=True)
     source.write_bytes(b'authoritative source')
     expected = '| RetentionInDays | `14` | 保持日数 |\n'
-    for content in (expected, expected.replace('`14`', '`31`'), '', expected.replace('RetentionInDays', 'UnknownField')):
+    for content in (expected, expected.replace('`14`', '`31`'), '', expected.replace('RetentionInDays', 'UnknownField'),
+                    '<!-- reference-rows: obsolete -->\n' + expected):
         path.write_text(content, encoding='utf-8')
         before = {file: file.read_bytes() for file in (path, source)}
         plan = SimpleNamespace(root=tmp_path, read_inputs={source: before[source]}, expected_outputs={path: {path: expected}}, failures=[], saved={})
@@ -790,6 +791,86 @@ def check_readonly_stale_views(tmp_path):
     plan = SimpleNamespace(root=tmp_path, read_inputs={}, expected_outputs={path: {path: expected}}, failures=[], saved={})
     sync_runtime._compare_generation(plan)
     assert plan.failures and not path.exists()
+
+
+def check_saved_link_snapshot_and_new_warnings(tmp_path, capsys):
+    root = tmp_path / 'root'
+    source = root / 'docs/designs/dev/team/codepipeline.md'
+    target = source.with_name('kms.md')
+    source.parent.mkdir(parents=True)
+    source.write_text('<!-- reference-rows: obsolete -->\n[old](kms.md#missing)\n'
+                      '[new](kms.md#key)\n<!-- [hidden](absent.md#hidden) -->\n', encoding='utf-8')
+    target.write_text('<a id="key"></a>\n', encoding='utf-8')
+    before = source.read_bytes()
+    with patch.object(sync_views, 'view_validator', side_effect=AssertionError('strict validator used')):
+        baseline = sync_views.broken_design_links(root, root, [source])
+        assert baseline == {'docs/designs/dev/team/codepipeline.md: kms.md#missing': target}
+        target.write_text('<a id="renamed"></a>\n', encoding='utf-8')
+        final = sync_views.broken_design_links(root, root, [source])
+    assert source.read_bytes() == before
+    plan = SimpleNamespace(root=root, saved={target: {}}, failures=[], reference_warnings=[], unavailable={},
+                           warnings=final, baseline_links=baseline)
+    sync_runtime.report_generation(plan)
+    warnings = capsys.readouterr().err
+    assert warnings.count('saved reference needs repair') == 1 and 'kms.md#key' in warnings
+    assert '#missing' not in warnings
+    # A changed target that was rolled back is not a successfully saved service.
+    plan.saved = {}
+    sync_runtime.report_generation(plan)
+    assert not capsys.readouterr().err
+
+
+def _fail_publication_artifact(original, failed, /, path, text, *args, **kwargs):
+    if path == failed and text == '{"new":true}\n':
+        raise OSError('fixture artifact write failure')
+    return original(path, text, *args, **kwargs)
+
+
+@pytest.mark.parametrize('reject_saved', [False, True])
+def check_publication_legacy_fallback(tmp_path, reject_saved):
+    root, stage = tmp_path / 'root', tmp_path / 'stage'
+    good = root / 'docs/designs/dev/team/kms.md'
+    failed = good.with_name('iam.md')
+    artifact = failed.with_suffix('') / 'policy.json'
+    original = {good: '<a id="old-key"></a>\n',
+                failed: '<!-- reference-rows: obsolete -->\n[old](kms.md#old-key)\n',
+                artifact: '{"old":true}\n'}
+    expected = {good: {good: '<a id="new-key"></a>\n'},
+                failed: {failed: '# candidate\n', artifact: '{"new":true}\n'}}
+    for path, text in original.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding='utf-8')
+        staged = stage / path.relative_to(root)
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text(expected[failed].get(path, expected[good].get(path)), encoding='utf-8')
+    with closing(sync_runtime.GenerationInputs(root)) as snapshot:
+        for path in original:
+            snapshot.read(path)
+        plan = SimpleNamespace(root=root, stage=stage, snapshot=snapshot, expected_outputs=expected,
+            saved={}, generated={good: [], failed: []}, failures=[], validation={}, candidate=object(),
+            destinations={good: {}, failed: {}}, accounts={}, definitions_root=root,
+            saved_paths=[good, failed], warnings={}, baseline_links={}, reference_warnings=[])
+        fail_write = _bind_framework_callback(_fail_publication_artifact, Path.write_text, artifact)
+        context = SimpleNamespace(errors=[], findings=Findings(stage))
+        checked = Findings(stage)
+        checked.warn(False, 'fixture saved reference semantics unavailable', code='design.links_unverified')
+        validation = ValueError('fixture dependent candidate invalid') if reject_saved else None
+        with patch.object(Path, 'write_text', autospec=True, side_effect=fail_write), \
+             patch.object(sync_views, 'validation_context', return_value=context), \
+             patch.object(sync_views, 'validate_views', side_effect=validation, return_value=checked) as validate:
+            sync_runtime.publish_generation(plan)
+        assert validate.call_args.kwargs['candidate_paths'] == {stage / good.relative_to(root)}
+        assert failed.read_bytes() == original[failed].encode() and artifact.read_bytes() == original[artifact].encode()
+        assert (stage / failed.relative_to(root)).read_bytes() == failed.read_bytes()
+        assert (stage / artifact.relative_to(root)).read_bytes() == artifact.read_bytes()
+        if reject_saved:
+            assert not plan.saved and not plan.warnings
+            assert good.read_bytes() == original[good].encode()
+        else:
+            assert set(plan.saved) == {good} and good.read_text(encoding='utf-8') == expected[good][good]
+            assert plan.warnings == {'docs/designs/dev/team/iam.md: kms.md#old-key': good}
+            assert plan.reference_warnings == checked.warnings
+        assert len(plan.failures) == (2 if reject_saved else 1)
 
 
 

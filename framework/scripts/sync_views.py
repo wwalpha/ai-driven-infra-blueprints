@@ -12,6 +12,8 @@ from design.document import DesignIndex
 from design.layout_schema import STACK_DESIGN
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_scope
+from validation.design_links import check_local_links
+from validation.findings import Findings
 
 _saved_design_validation = ContextVar("saved_design_validation", default=None)
 
@@ -37,13 +39,16 @@ def view_validator(stage: Path, root: Path, definitions_root=None):
 
 
 def broken_design_links(stage: Path, root: Path, paths: list[Path], *, definitions_root=None) -> dict[str, Path]:
-    """Use existing link diagnostics, keyed by source/link independently of failure kind."""
+    """Read saved link/anchor diagnostics without Model display validation."""
     if not paths:
         return {}
-    validator = view_validator(stage, root, definitions_root)
-    validator.check_design_links(validator.catalog_design_properties()[2], paths, design_index=DesignIndex(definitions_root or definition_root(root)))
+    findings = Findings(stage)
+    design_index = DesignIndex(definitions_root or definition_root(root))
+    for path in paths:
+        document = design_index.get(path)
+        check_local_links(path, document.visible_text, anchors=None, unavailable=(), findings=findings, root=stage, design_index=design_index)
     broken = {}
-    for error in [*validator.errors, *(warning['message'] for warning in validator.findings.warnings)]:
+    for error in [*findings.errors, *(warning['message'] for warning in findings.warnings)]:
         kind, _, reference = error.partition(": ")
         if kind not in {"broken design link", "missing design anchor"}:
             continue
@@ -92,7 +97,7 @@ def _lambda_validate_views_evaluate_102(validator, /, name, handler):
 @input_scope
 @_validation_projection_scope()
 def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]], *,
-                   design_index: DesignIndex | None = None, context=None, definitions_root=None):
+                   design_index: DesignIndex | None = None, context=None, definitions_root=None, candidate_paths=None):
     """Return this candidate's domain results; never rerun Task/Git/common checks."""
     deferred = _saved_design_validation.get()
     if deferred is not None:
@@ -126,7 +131,7 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
         evaluate('design.names', lambda: validator.check_resource_names(metadata, services))
         evaluate('design.tables', lambda: validator.check_design_tables(metadata, types, owners, outputs, services))
         evaluate('design.overviews', lambda: validator.check_design_overviews(services))
-        evaluate('design.links', lambda: validator.check_design_links(outputs, services, design_index=design_index))
+        evaluate('design.links', lambda: validator.check_design_links(outputs, services, design_index=design_index, candidate_paths=candidate_paths))
         evaluate('design.artifacts', lambda: validator.check_design_artifacts(services))
         evaluate('design.observed', lambda: validator.check_observed_values([
             (stage / "model" / path.relative_to(stage / "docs/designs")).with_suffix(".properties") for path in paths]))

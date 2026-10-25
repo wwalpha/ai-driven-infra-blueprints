@@ -14,7 +14,7 @@ import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from aws_mapping_display import validation_lines
-from design.document import DesignIndex
+from design.document import DesignIndex, DesignView
 from design.layout import (
     LINKED_LIST_PROPERTIES,
     design_model_values,
@@ -35,6 +35,7 @@ from design.services.ec2.security_groups import security_group_table_lines
 from model.core import LINK, ReferenceResolutionError, entries, literal
 from model.files import resource_row_index
 from utils.input_cache import input_is_file, input_scope, input_select, input_text
+from validation_scope import reference_lines
 
 from .design import (
     ANCHOR_PATTERN,
@@ -51,6 +52,24 @@ from .design import (
     normalized,
     unquoted,
 )
+
+
+def check_local_links(source, text, *, anchors, unavailable, findings, root, design_index) -> None:
+    """Check saved link destinations without expanding or comparing Model displays."""
+    outside_design = _imports_model_importing_scope.outside_design
+    for raw in LINK_PATTERN.findall(text):
+        if raw.startswith(("http://", "https://", "mailto:")):
+            continue
+        target_text, separator, fragment = raw.partition("#")
+        findings.check(not Path(target_text).is_absolute(), f"design link must be relative: {findings.relative(source)}: {raw}")
+        target = (source if not target_text else source.parent / target_text).resolve()
+        if target in unavailable or outside_design(root, target):
+            continue
+        exists = input_is_file(target)
+        (findings.warn if target.suffix == ".md" else findings.check)(exists, f"broken design link: {findings.relative(source)}: {raw}")
+        if separator and exists:
+            known = design_index.get(target).anchors if anchors is None and target.suffix == '.md' else (anchors or {}).get(target, set())
+            findings.warn(fragment in known, f"missing design anchor: {findings.relative(source)}: {raw}")
 
 
 def endpoint_dns_reference(source, property_name, label, target, resource, configuration, record_type):
@@ -206,7 +225,7 @@ def check_design_overviews(paths: list[Path] | None = None, *, findings, root, s
 @input_scope
 def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
                        design_index: DesignIndex | None = None, design_sources=None, findings, root, scope, definitions_root=None,
-                       view_reader=None, unavailable_views=None) -> None:
+                       view_reader=None, unavailable_views=None, candidate_paths=None) -> None:
     outside_design = _imports_model_importing_scope.outside_design
     definitions_root = definitions_root or root
     design_index = design_index or DesignIndex(definitions_root)
@@ -317,7 +336,12 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
     source_paths = {path.resolve() for path in sources}
     for path in sorted(references):
         document = design_index.get(path)
-        view = document.headings if path in source_paths else document.view(frozenset(fragments.get(path, set())))
+        saved_reference = candidate_paths is not None and path not in source_paths and path not in candidate_paths
+        if saved_reference:
+            lines = reference_lines(path, fragments.get(path, set()), lines=resource_heading_lines(list(document.lines)))
+            view = DesignView(tuple(lines), definitions_root)
+        else:
+            view = document.headings if path in source_paths else document.view(frozenset(fragments.get(path, set())))
         source_lines = view.lines
         try:
             identities = view.logical_ids
@@ -346,10 +370,14 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                     value = unquoted(child["rows"][0][2])
                     if value != child["logicalId"]:
                         hidden_ids[path.resolve(), anchor] = child["logicalId"]
-        except ReferenceResolutionError as error:
-            findings.warn(error, source=str(path))
-            continue
-        except ValueError as error:
+        except (ReferenceResolutionError, ValueError) as error:
+            if saved_reference:
+                findings.warn(False, f"saved design reference semantics unavailable: {findings.relative(path)}: {error}",
+                              code='design.links_unverified', path=findings.relative(path))
+                continue
+            if isinstance(error, ReferenceResolutionError):
+                findings.warn(error, source=str(path))
+                continue
             if path in source_paths:
                 findings.check(False, f"invalid grouped design: {findings.relative(path)}: {error}")
         for line in lines:
@@ -399,17 +427,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                     observed = resources.get((target, fragment), ("", {}))[1].values()
                     identifier_reference = len(cells) == 4 and RESOURCE_LINK_PATTERN.fullmatch(cells[2]) and label in observed
                     findings.warn(label == name or identifier_reference, f"nameless resource link must display resource type or observed identifier: {findings.relative(source)}: {label}")
-        for raw in LINK_PATTERN.findall(visible_text[source]):
-            if raw.startswith(("http://", "https://", "mailto:")):
-                continue
-            target_text, separator, fragment = raw.partition("#")
-            findings.check(not Path(target_text).is_absolute(), f"design link must be relative: {findings.relative(source)}: {raw}")
-            target = (source if not target_text else source.parent / target_text).resolve()
-            if target in unavailable or outside_design(root, target):
-                continue
-            (findings.warn if target.suffix == ".md" else findings.check)(input_is_file(target), f"broken design link: {findings.relative(source)}: {raw}")
-            if separator and input_is_file(target):
-                findings.warn(fragment in anchors.get(target, set()), f"missing design anchor: {findings.relative(source)}: {raw}")
+        check_local_links(source, visible_text[source], anchors=anchors, unavailable=unavailable, findings=findings, root=root, design_index=design_index)
         document = design_index.get(source)
         observed_references = set()
         automatic_references = set()

@@ -739,9 +739,9 @@ class Validator:
         return design_links.check_design_overviews(self.design_files() if paths is None else paths, findings=self.findings, root=self.root, scope=self.scope, definitions_root=self.definitions_root)
 
     def check_design_links(self, identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
-                           design_index: DesignIndex | None = None) -> None:
+                           design_index: DesignIndex | None = None, candidate_paths=None) -> None:
         return design_links.check_design_links(identifier_outputs, self.design_files() if paths is None else paths, design_index=design_index, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope, definitions_root=self.definitions_root, view_reader=self.view_reader,
-                                               unavailable_views=self.unavailable_views)
+                                               unavailable_views=self.unavailable_views, candidate_paths=candidate_paths)
 
     def check_design_artifacts(self, paths: list[Path] | None = None) -> None:
         return design_links.check_design_artifacts(paths, accounts=self.accounts, findings=self.findings, markdown_design_artifacts=self.markdown_design_artifacts, root=self.root)
