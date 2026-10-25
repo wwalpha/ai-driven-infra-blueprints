@@ -7,7 +7,7 @@ from utils.iac_values import safe_value
 from .records import brief, condition_disabled, iac_key, identifier, safe_text
 
 IAC_CATEGORIES = {'difference', 'uncompared', 'error'}
-IAC_CLASSES = ('要対応', '要判断', '比較未完了', 'CFn非対応・比較対象外', '処理エラー', '原因未確定')
+IAC_CLASSES = ('要修正', '要対応', '要判断', '比較未完了', 'CFn非対応・比較対象外', '処理エラー', '原因未確定')
 MAX_GROUPS = 16
 MAX_EXAMPLES = 10
 MAX_FIELDS = 10
@@ -21,9 +21,13 @@ def iac_actions(entries, environment, directory):
             continue
         cause = item.get('cause', {})
         path = cause.get('path')
+        repair_direction = '未確定'
+        # Keep the unknown-cause identity even when its response becomes actionable.
+        key = [environment, directory, 'unresolved', entry['id'], item['category'], item['reason'], item.get('iac'), None]
         known_missing = (cause.get('kind') in {'template-missing', 'parameters-missing'} and path
                          and cause.get('relationship') in {'direct', 'stack-input', 'export-search-incomplete'})
         if known_missing:
+            repair_direction = '入力修正'
             action = 'confirm-create-template' if cause['kind'] == 'template-missing' else 'confirm-stack-parameters'
             key = [environment, directory, cause['kind'], path, action]
             title = Path(path).name + (' のテンプレート未作成' if cause['kind'] == 'template-missing' else ' の入力ファイル欠落')
@@ -60,26 +64,36 @@ def iac_actions(entries, environment, directory):
         elif item['category'] == 'difference' and item['reason'].startswith('KMS format'):
             target = None
             key = [environment, directory, 'kms-format', entry['id']]
-            title = f'{item["service"]} / {item["resource"]} / {item["property"]} のKMS指定形式が不適合'
-            classification, status = 'KMS指定形式違反', '要対応'
+            proven = item['reason'].startswith(('KMS format outside allowed forms:', 'KMS format mismatch:'))
+            title = f'{item["service"]} / {item["resource"]} / {item["property"]} のKMS指定形式が' + ('不適合' if proven else '未確定')
+            classification, status = ('KMS指定形式違反', '要修正') if proven else ('原因未確定', '要調査')
+            repair_direction = '修正先要確認' if proven else '未確定'
+            formats = [field.get('format', {}) for field in item.get('reference_diagnostics', [])] if proven else []
+            for side, other, direction in (('iac', 'model', 'IaC修正'), ('model', 'iac', 'Model修正')):
+                if (formats and all(field.get(other) == 'allowed' for field in formats)
+                        and any(field.get(side) == 'outside allowed forms' for field in formats)):
+                    repair_direction = direction
+                    target = (item.get(side) or {}).get('path')
             diagnostic = next(iter(item.get('reference_diagnostics', [])), {})
             description = f"{diagnostic.get('path', item['property']).rsplit('.', 1)[-1]}: {item['reason']}"
-            remedy = '許可形式と両側の形式を確認し、形式不適合のModel/IaCを修正する。参照先が同じでも形式差は一致扱いしない。'
-        elif item['category'] == 'difference' and item.get('iac') and item.get('stack') and item['reason'] in {
+            remedy = ('許可形式と両側の形式を確認し、形式不適合のModel/IaCを修正する。参照先が同じでも形式差は一致扱いしない。'
+                      if proven else '許可形式と両側の形式を確認し、形式違反の有無と修正先を特定する。')
+        elif item['category'] == 'difference' and item['reason'] in {
                 'value mismatch', 'property missing', 'resource missing', 'inline CREATE child missing', 'property omitted by AWS::NoValue'}:
-            target = item['iac']['path']
-            key = [environment, directory, target, item['stack'], item['service'], item['resource'], item['property'], item['reason'], 'sync-model-iac']
+            target = (item.get('iac') or {}).get('path')
+            if target and item.get('stack'):
+                key = [environment, directory, target, item['stack'], item['service'], item['resource'], item['property'], item['reason'], 'sync-model-iac']
+            repair_direction = 'IaC修正' if target and item.get('stack') else '修正先要確認'
             title = f'{item["service"]} / {item["resource"]} / {item["property"]} の' + ('値の不一致' if item['reason'] == 'value mismatch' else '未実装・設定欠落')
-            classification, status = 'Model/IaC差分', '要判断'
+            classification, status = 'Model/IaC差分', '要修正'
             description = {'value mismatch': 'ModelとIaCの設定値が一致しない。', 'property missing': 'Modelにある設定がIaCに存在しない。',
                            'resource missing': 'Modelに対応するCREATEリソースがIaCに存在しない。',
                            'inline CREATE child missing': 'Modelに対応する子リソースがIaCに存在しない。',
                            'property omitted by AWS::NoValue': '設定がAWS::NoValueにより省略される。'}[item['reason']]
-            remedy = '該当ModelとIaC・適用条件の正しい設定を確認して同期する。修正先の選択には人間の判断が必要。'
+            remedy = ('Modelの要求設定をIaCに反映する。' if repair_direction == 'IaC修正' else
+                      '確定した設定差分を解消する。修正先要確認: Modelの設計意図とIaCの対応箇所を確認する。')
         else:
             target = None
-            # Retain the grouping slot so existing current Issue IDs remain stable.
-            key = [environment, directory, 'unresolved', entry['id'], item['category'], item['reason'], item.get('iac'), None]
             title = f'{item["service"]} / {item["resource"]} / {item["property"]} の確認が必要'
             classification, status = ('処理エラー' if item['category'] == 'error' else '比較未完了' if item['category'] == 'uncompared' else '原因未確定'), '要調査'
             children = item.get('deferred_children', [])
@@ -98,13 +112,13 @@ def iac_actions(entries, environment, directory):
         group_id = 'ISSUE-' + identifier(key)
         group = groups.setdefault(group_id, {'id': group_id, 'title': title, 'classification': classification,
                                              'description': description, 'remedy': remedy, 'target': target,
-                                             'status': status, 'members': []})
+                                             'status': status, 'repair_direction': repair_direction, 'members': []})
         group['members'].append(index)
         # A direct confirmed omission remains actionable when its dependent
         # unresolved references share the cause, regardless of input ordering.
         if known_missing and item['category'] == 'difference':
             group.update(classification=classification, description=description, remedy=remedy, status=status)
-    return sorted(groups.values(), key=lambda group: (group['status'] != '要対応', group['classification'], group['id']))
+    return sorted(groups.values(), key=lambda group: (group['status'] != '要修正', group['status'] != '要対応', group['classification'], group['id']))
 
 
 def iac_dataset(records, environment, directory, services, display=None, *, redact=safe_value):
@@ -139,7 +153,7 @@ def iac_dataset(records, environment, directory, services, display=None, *, reda
             shown[key].append(safe)
     actions = iac_actions(entries, environment, directory)
     for group in actions:
-        group['category'] = (group['status'] if group['status'] in {'要対応', '要判断'} else group['classification'])
+        group['category'] = (group['status'] if group['status'] in IAC_CLASSES else group['classification'])
     return entries, actions, shown
 
 
@@ -153,7 +167,7 @@ def iac_summary(records, environment, directory, services, display=None, *, incl
         members = [entries[i]['record'] for i in action['members']]
         # One display unit per proven action; prose similarity never merges unknown causes.
         group = groups.setdefault(action['id'], dict(id=action['id'], category=category, problem=brief(action['title']),
-            cause=brief(action['description']), remedy=action['remedy'], target=action['target'],
+            cause=brief(action['description']), remedy=action['remedy'], target=action['target'], repair_direction=action['repair_direction'],
             services=sorted({item['service'] for item in members}), stacks=set(), issues=0, records=0, direct=set(), uncompared=0, errors=0,
             cascading=0, examples=[]))
         group['issues'] += 1
@@ -214,7 +228,7 @@ def iac_summary(records, environment, directory, services, display=None, *, incl
     raw = {kind: sum(item['category'] == kind for item in records) for kind in ('difference', 'uncompared', 'error', 'matched', 'excluded')}
     return dict(issue_count=len(actions), categories=counts, record_count=len(records), records=raw,
                 comparison_incomplete=any(item.get('comparison_incomplete') for item in records),
-                **({'index': [{key: group[key] for key in ('id', 'category', 'problem', 'cause', 'remedy', 'target', 'records', 'services')}
+                **({'index': [{key: group[key] for key in ('id', 'category', 'problem', 'cause', 'remedy', 'target', 'repair_direction', 'records', 'services')}
                               for group in ordered]} if include_index else {}),
                 proven_causes=sum(any((entries[i]['record'].get('cause', {}).get('kind') in {'template-missing', 'parameters-missing'}
                                         and entries[i]['record'].get('cause', {}).get('path')

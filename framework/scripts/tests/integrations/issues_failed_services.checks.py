@@ -164,7 +164,7 @@ def main_checks():
             mismatch = next(r for r in records if r['property'] == 'Logs.LogGroup.KmsKeyId')
             assert mismatch['category'] == 'difference' and mismatch['reference_diagnostics']
             action = iac_actions([{'id': identifier(mismatch), 'record': mismatch, 'retained': False}], 'dev', '123456789012')[0]
-            assert action['classification'] == 'KMS指定形式違反' and action['status'] == '要対応', action
+            assert action['classification'] == 'KMS指定形式違反' and action['status'] == '要修正', action
 
             for invalid in [('Missing', 'Arn'), ('Queue', 'MissingAttribute')]:
                 policy['Statement'][0]['Resource'] = {'Fn::GetAtt': list(invalid)}

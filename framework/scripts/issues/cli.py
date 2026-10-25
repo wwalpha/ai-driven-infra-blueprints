@@ -11,6 +11,7 @@ import issues.integrity as _imports_issues_integrity
 import issues.publication as _imports_issues_publication
 import issues.runner as _imports_issues_runner
 
+from .aggregate import IAC_CLASSES
 from .records import safe_text
 
 SELECTOR = "BLUEPRINT_TASK_FILE"
@@ -39,7 +40,7 @@ def main():
     detail.add_argument('--section', choices=('ordinary', 'naming', 'judgments', 'human_confirmations', 'iac', 'iac_issues', 'machine_diagnostics', 'warnings', 'information', 'unverified', 'processing_errors', 'naming_context', 'cfn_lint', 'lint_coverage'), required=True)
     detail.add_argument('--offset', type=int, default=0)
     detail.add_argument('--limit', type=int, default=50)
-    detail.add_argument('--category', choices=('要対応', '要判断', '比較未完了', '処理エラー', '原因未確定'), help='IaC classification filter; applied before pagination')
+    detail.add_argument('--category', choices=IAC_CLASSES, help='IaC classification filter; applied before pagination')
     detail.add_argument('--issue-id', help='stable ISSUE-<id>; retrieve members from this artifact without comparison')
     saveparser = commands.add_parser('save')
     saveparser.add_argument('--artifact', type=Path, required=True)

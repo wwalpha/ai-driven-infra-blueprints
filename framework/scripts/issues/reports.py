@@ -156,6 +156,13 @@ def normal_merge(root, path, environment, directory, services, candidates, addit
     return attach_notices(text, notices)
 
 
+def repair_target(group):
+    direction = group.get('repair_direction', '未確定')
+    label = {'IaC修正': 'IaC', 'Model修正': 'Model', '入力修正': '不足入力',
+             '修正先要確認': 'Model／IaC（修正先要確認）', '未確定': '未特定（修正方向は未確定）'}[direction]
+    return label + (': ' + brief(group['target']) if group['target'] else '')
+
+
 def iac_report(environment, directory, services, records, display=None, *, stamp=None, artifact=None):
     summary = dict(artifact['overview'], index=sorted((group['compact'] for group in artifact['iac_issues']), key=lambda item:item['report_order'])) if artifact is not None else iac_summary(records, environment, directory, services, display, include_index=True)
     counts = summary['records']
@@ -181,16 +188,14 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
                   '| --- | --- | --- | --- | --- | ---: | --- |'])
     for item in summary['index']:
         lines.append('| ' + ' | '.join(brief(value).replace('\n', ' ').replace('\r', ' ') for value in (item['id'], item['category'], item['problem'] + '：' + item['cause'],
-                     item['target'] or '未特定・要判断', item['remedy'], item['records'], ', '.join(item['services']))) + ' |')
+                     repair_target(item), item['remedy'], item['records'], ', '.join(item['services']))) + ' |')
     lines.extend(['', '## 詳細（最大16グループ）', ''])
     for group in summary['groups']:
-        target = ('API専用リソース（実装scopeとAPI実装状態を確認）' if group['category'] == 'CFn非対応・比較対象外' else
-                  '不足入力: ' + brief(Path(group['target']).name) if group['target'] and group['category'] != '要判断' else
-                  'Model／IaC（修正先は要判断）' if group['category'] == '要判断' else
-                  '未特定（Model／IaC／比較器／不足入力を確認）')
         lines.extend([f'### {group["id"]} / {group["category"]}: {group["problem"]}',
-            f'- 原因: {group["cause"]}', f'- 必要な対応: {group["remedy"]}', f'- 修正対象: {target}',
+            f'- 原因: {group["cause"]}', f'- 必要な対応: {group["remedy"]}', f'- 修正対象: {repair_target(group)}',
             f'- 影響範囲: {", ".join(group["services"])}。{group["records"]}レコード / 直接差分 {group["direct_resources"]}リソース / 未比較 {group["uncompared"]}項目 / 処理エラー {group["errors"]}項目'])
+        if group.get('repair_direction') == 'IaC修正':
+            lines.append('- 確認事項: Modelの要求設定が設計意図と一致すること。')
         if group['cascading']:
             lines.append(f'- 探索中断: {group["cascading"]}項目。直接Import依存は未確定。')
         for example in group['examples']:

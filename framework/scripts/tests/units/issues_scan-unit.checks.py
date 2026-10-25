@@ -23,6 +23,8 @@ import sync_runtime
 from comparison.inputs import Inputs
 from issue_gate import issue_errors, unresolved_services
 from issues.aggregate import MAX_GROUPS, iac_actions
+from issues.artifact import scan_exit_code, validate_artifact
+from issues.cli import main as issues_main
 from issues.inputs import view_text
 from issues.materials import existing_materials
 from issues.records import iac_key
@@ -140,7 +142,8 @@ def check_mismatch_rendering():
         with patch('issues.reports.evidence', side_effect=AssertionError('mismatch evidence read forbidden')):
             report, report_state = render_iac(root, path, 'dev', 'cde', ['glue'], records, display)
         assert '相違項目: $attribute\n- Model: RoleName\n- IaC: Arn' in report
-        assert '$resource' not in report and '修正対象: Model／IaC（修正先は要判断）' in report and '根拠（代表例）:' not in report
+        assert '$resource' not in report and '修正対象: IaC: infra/cloudformation/templates/shared.yaml' in report and '根拠（代表例）:' not in report
+        assert '修正対象: 不足入力' not in report and '/ 要修正:' in report
         assert 'glue.properties' not in report and 'shared.yaml' in report and ':999' not in report
         assert long_value + 'A' not in report and '全文はartifact' in report
         assert '不一致の検出結果を保持' in report and 'first' not in report and 'second' not in report
@@ -179,13 +182,13 @@ def summary_scale_cases():
 
     records = artifact['iac']
     original = json.dumps(artifact, sort_keys=True)
-    assert hashlib.sha256(original.encode()).hexdigest() == 'edd38257633c96366b7e60fdc793ec191419da4ad93e3cfd370bf4edb523c627'
+    assert hashlib.sha256(original.encode()).hexdigest() == 'ad2b273c904d963dbd08a1f864a0b3b013870144c13994711633dd0bf6d5f2c6'
     entries, actions, fields = iac_dataset(records, 'dev', 'cde', artifact['services'], artifact['iac_display'])
     stats = iac_summary(records, 'dev', 'cde', artifact['services'], artifact['iac_display'])
     signature = sorted((group['id'], sorted(identifier(entries[i]['record']) for i in group['members'])) for group in actions)
     assert hashlib.sha256(json.dumps(signature, ensure_ascii=False).encode()).hexdigest() == '2c4ff24d8644f2244287b0b238c6f0c73a8445fd59d8e717a647ef5e97b70a0e'
     assert len(entries) == 2193 and len(actions) == 1194
-    assert stats['categories'] == {'要対応': 0, '要判断': 100, '比較未完了': 1, 'CFn非対応・比較対象外': 0, '処理エラー': 93, '原因未確定': 1000}
+    assert stats['categories'] == {'要修正': 100, '要対応': 0, '要判断': 0, '比較未完了': 1, 'CFn非対応・比較対象外': 0, '処理エラー': 93, '原因未確定': 1000}
     assert stats['record_count'] == 2193 and stats['direct_resources'] == 1100 and stats['proven_causes'] == 1
     assert stats['records'] == dict(difference=1100, uncompared=1000, error=93, matched=0, excluded=0)
     assert len(stats['groups']) == MAX_GROUPS and stats['omitted_groups'] > 0
@@ -210,7 +213,7 @@ def summary_scale_cases():
     stdout = json.dumps(review_payload(artifact, '/tmp/fixture-scan.json'), ensure_ascii=False)
     assert stats['group_count'] == 1194  # Unknown causes remain separate despite identical prose.
     assert stats['omitted_issues'] == 1178 and stats['omitted_records'] == 1178
-    assert stats['omitted_categories'] == {'要対応': 0, '要判断': 87, '比較未完了': 0, 'CFn非対応・比較対象外': 0, '処理エラー': 92, '原因未確定': 999}
+    assert stats['omitted_categories'] == {'要修正': 87, '要対応': 0, '要判断': 0, '比較未完了': 0, 'CFn非対応・比較対象外': 0, '処理エラー': 92, '原因未確定': 999}
     assert stats['omitted_record_categories'] == dict(difference=1086, uncompared=0, error=92)
     assert '表示16／全1194対応単位、未表示1178' in report and '処理エラー 93項目' in report
     assert len(re.findall(r'^\| ISSUE-', report, re.M)) == 1194
@@ -829,6 +832,10 @@ def check_causal_report_grouping():
     records = [direct, cascade]
     entries, actions, _ = iac_dataset(records, 'dev', 'team', ['datazone', 's3'])
     assert len(actions) == 1 and len(actions[0]['members']) == 2
+    assert actions[0]['category'] == '要対応' and actions[0]['repair_direction'] == '入力修正'
+    reversed_actions = iac_dataset(records[::-1], 'dev', 'team', ['datazone', 's3'])[1]
+    assert reversed_actions == actions
+    assert iac_dataset([cascade], 'dev', 'team', ['s3'])[1][0]['category'] == '比較未完了'
     assert actions[0]['id'] != iac_actions(entries, 'stg', 'team')[0]['id']
     other = dict(cascade, resource='other', cause=dict(cascade['cause'], path='other.yaml'))
     unknown = dict(cascade, resource='unknown')
@@ -927,8 +934,117 @@ def check_missing_template_report():
         cause=dict(kind='template-missing', path='infra/cloudformation/templates/shared.yaml', stack='stack', relationship='direct'))
     report = iac_report('dev', 'team', ['s3'], [record])
     assert '差分 1件 / 未比較 0項目 / 処理エラー 0項目' in report
-    assert '修正対象: 不足入力: shared.yaml' in report
+    assert '修正対象: 不足入力: infra/cloudformation/templates/shared.yaml' in report
     assert '[infra/cloudformation/templates/shared.yaml]' not in report
+
+
+@pytest.mark.parametrize('reason', ['value mismatch', 'property missing', 'resource missing',
+    'inline CREATE child missing', 'property omitted by AWS::NoValue'])
+@pytest.mark.parametrize('mapped', [True, False])
+def check_confirmed_difference_direction(reason, mapped):
+    record = dict(category='difference', service='iam', resource='001', property='IAM.Role.AssumeRolePolicyDocument',
+        reason=reason, desired={'Statement': [{'Condition': {'StringEquals': {'aws:SourceAccount': '123456789012'}}}]},
+        actual={'Statement': [{}]}, stack='stack' if mapped else None,
+        iac={'path': 'infra/role.yaml'} if mapped else None)
+    display = {identifier(record): value_differences(record['desired'], record['actual'], record['property'])}
+    data = aggregate([record, record], 'dev', 'team', ['iam'], display)
+    action, = data['iac_issues']
+    direction = 'IaC修正' if mapped else '修正先要確認'
+    old_key = (['dev', 'team', 'infra/role.yaml', 'stack', 'iam', '001', record['property'], reason, 'sync-model-iac']
+               if mapped else ['dev', 'team', 'unresolved', iac_key(record), 'difference', reason, None, None])
+    assert action['id'] == 'ISSUE-' + identifier(old_key)
+    assert action['members'] == [0, 1] and data['iac'] == [record, record]
+    assert action['category'] == action['status'] == action['compact']['category'] == '要修正'
+    assert action['repair_direction'] == action['compact']['repair_direction'] == direction
+    group, = data['overview']['groups']
+    assert group['category'] == '要修正' and group['repair_direction'] == direction
+    assert data['overview']['issue_count'] == 1 and data['overview']['record_count'] == 2
+    artifact = dict(version=2, ordinary=[], judgments=[], naming={'names': []}, **data)
+    assert scan_exit_code(artifact) == 0
+    assert detail_payload(artifact, 'iac_issues', category='要修正')['items'] == [action]
+    assert detail_payload(artifact, 'iac', category='要修正')['total'] == 2
+    report = iac_report('dev', 'team', ['iam'], data['iac'], artifact=artifact, stamp='fixed')
+    assert report == iac_report('dev', 'team', ['iam'], [record, record], display, stamp='fixed')
+    assert '| 要修正 |' in report and '/ 要修正:' in report
+    assert '修正対象: 不足入力' not in report and '修正先は要判断' not in report
+    if reason == 'value mismatch':
+        assert '相違項目: Statement[0].Condition' in report and '- IaC: 欠落' in report
+    if mapped:
+        assert '修正対象: IaC: infra/role.yaml' in report
+        assert '必要な対応: Modelの要求設定をIaCに反映する。' in report
+        assert '確認事項: Modelの要求設定が設計意図と一致すること。' in report
+    else:
+        assert '修正対象: Model／IaC（修正先要確認）' in report
+
+
+@pytest.mark.parametrize('model_format,iac_format,direction', [
+    ('allowed', 'outside allowed forms', 'IaC修正'),
+    ('outside allowed forms', 'allowed', 'Model修正'),
+    ('outside allowed forms', 'outside allowed forms', '修正先要確認'),
+    ('unproven', 'outside allowed forms', '修正先要確認'),
+    ('allowed', 'allowed', '修正先要確認')])
+def check_format_violation_direction(model_format, iac_format, direction):
+    diagnostic = dict(path='Logs.LogGroup.KmsKeyId', model='key', iac='alias', identity='unproven',
+        allowed_forms=['AliasArn'], format=dict(model=model_format, iac=iac_format), reason='format violation')
+    record = dict(category='difference', service='cloudwatch-logs', resource='001', property=diagnostic['path'],
+        reason='KMS format mismatch: model=KeyArn, iac=AliasArn', stack='stack',
+        model={'path': 'model/dev/team/cloudwatch-logs.properties'}, iac={'path': 'infra/log.yaml'},
+        reference_diagnostics=[diagnostic])
+    data = aggregate([record], 'dev', 'team', ['cloudwatch-logs'])
+    action, = data['iac_issues']
+    assert action['id'] == 'ISSUE-' + identifier(['dev', 'team', 'kms-format', iac_key(record)])
+    assert action['category'] == '要修正' and action['repair_direction'] == direction
+    report = iac_report('dev', 'team', ['cloudwatch-logs'], [record], artifact=data)
+    assert '/ 要修正:' in report and '修正対象: 不足入力' not in report
+    if direction == 'Model修正':
+        assert '修正対象: Model: model/dev/team/cloudwatch-logs.properties' in report
+    elif direction == 'IaC修正':
+        assert '修正対象: IaC: infra/log.yaml' in report
+
+
+@pytest.mark.parametrize('category,reason,cause,expected', [
+    ('difference', 'resource missing', dict(kind='condition-disabled', result=False, path='role.yaml',
+        stack='stack', logical='Role', condition='Enabled', inputs=[]), '要判断'),
+    ('uncompared', 'Fn::ImportValue unresolved', dict(kind='import-unresolved', export='RoleArn'), '比較未完了'),
+    ('error', 'comparison failed', {}, '処理エラー'),
+    ('difference', 'cause unknown', {}, '原因未確定'),
+    ('uncompared', 'value mismatch', {}, '比較未完了'),
+    ('difference', 'KMS format is unproven', {}, '原因未確定'),
+    ('uncompared', 'API only', dict(kind='cloudformation-unsupported', resource_type='Macie.Job'), 'CFn非対応・比較対象外'),
+    ('difference', 'parameters missing', dict(kind='parameters-missing', path='parameters.json', relationship='stack-input'), '要対応'),
+    ('uncompared', 'parameters missing', dict(kind='parameters-missing', path='parameters.json', relationship='export-search-incomplete'), '比較未完了')])
+def check_unconfirmed_classifications(category, reason, cause, expected):
+    record = dict(category=category, service='iam', resource='001', property='Setting', reason=reason,
+        cause=cause, stack='stack', iac={'path': 'role.yaml'})
+    data = aggregate([record], 'dev', 'team', ['iam'])
+    action, = data['iac_issues']
+    assert action['category'] == action['compact']['category'] == expected
+    assert data['overview']['categories'][expected] == 1 and data['overview']['categories']['要修正'] == 0
+    assert action['repair_direction'] == ('入力修正' if cause.get('kind') == 'parameters-missing' else '未確定')
+
+
+@pytest.mark.parametrize('section', ['iac', 'iac_issues'])
+def check_cli_repair_category(tmp_path, capsys, section):
+    records = [dict(category=category, service='iam', resource=f'{i:03}', property='Setting',
+        reason=reason, stack='stack', iac={'path': 'role.yaml'}, desired=1, actual=2)
+        for i, (category, reason) in enumerate([('difference', 'value mismatch'), ('difference', 'property missing'),
+            ('uncompared', 'Fn::ImportValue unresolved')])]
+    artifact = dict(version=2, scan_id='a'*32, naming_context={}, naming_context_id=identifier({}),
+        **aggregate(records, 'dev', 'team', ['iam']))
+    validate_artifact(artifact)
+    path = tmp_path / 'scan.json'
+    path.write_text(json.dumps(artifact), encoding='utf-8')
+    with patch.object(sys, 'argv', ['issues_scan.py', '--repository-root', str(tmp_path / 'project'),
+        'detail', '--artifact', str(path), '--section', section, '--category', '要修正', '--offset', '1', '--limit', '1']):
+        assert issues_main() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['total'] == 2 and result['offset'] == 1 and len(result['items']) == 1
+    if section == 'iac_issues':
+        assert result['items'][0]['category'] == '要修正'
+        assert result['items'][0]['repair_direction'] == 'IaC修正'
+    else:
+        assert result['items'][0]['record_index'] == 1
+        assert result['items'][0]['issue_id'] == artifact['record_meta'][1]['issue_id']
 
 
 if __name__ == '__main__':
