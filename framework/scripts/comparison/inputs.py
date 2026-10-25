@@ -39,6 +39,7 @@ from utils.reference_contracts import (
 )
 
 from . import (
+    arn_projection,
     design_link,
     evaluation,
     model_reference,
@@ -441,23 +442,9 @@ class Inputs:
                 and value['$attribute'] == 'Arn' and self.target['iacEngine'] == 'cloudformation'):
             return imported_arn(self.rows[service][identity], self.catalog, getattr(self, 'partition', None),
                                 self.target, self.stack_inputs)
-        name, logical = cfn_resource_identity(resource['cfn-logicalId'])
-        units = [unit for _, unit in self.templates() if unit['name'] == name]
-        if len(units) != 1:
-            raise Blocked('reference stack correspondence is unproven')
-        self.stack(units[0])
+        name, logical, document, pseudo = self.reference_context(value)
         attribute = value['$attribute']
-        if attribute == 'Ref':
-            raise Blocked('opaque Ref requires the same proven Producer; no local literal contract')
         secret_name = (resource['resourceType'], attribute) == registry.hook(resource['resourceType'], 'EXPLICIT_NAME')
-        bound = self.symbol(name, logical, None if secret_name else attribute, derived=not secret_name)
-        if secret_name:
-            bound = ResourceReference(dict(bound, **{'$attribute': 'Name'}))
-        if not same(bound, value):
-            raise Blocked('reference resource correspondence is unproven')
-        document, _, pseudo = self.stack_inputs[name]
-        if document.get('Transform'):
-            raise Blocked('Transform requires external evaluation')
         evaluator = self.evaluator()
         properties = document['Resources'][logical].get('Properties', {})
         if resource['resourceType'] in ARN_SHAPES and attribute == reference_attribute(resource['resourceType'], 'Arn'):
@@ -481,6 +468,38 @@ class Inputs:
         if not result or result in {'UNSET', 'PENDING_DEPLOY', 'TBD', 'TODO', '未確定'}:
             raise Blocked('reference name is unresolved')
         return result
+
+    def reference_context(self, value):
+        service, identity = value['$resource']
+        resource = self.resources[service][identity]
+        name, logical = cfn_resource_identity(resource['cfn-logicalId'])
+        units = [unit for _, unit in self.templates() if unit['name'] == name]
+        if len(units) != 1:
+            raise Blocked('reference stack correspondence is unproven')
+        self.stack(units[0])
+        attribute = value['$attribute']
+        if attribute == 'Ref':
+            raise Blocked('opaque Ref requires the same proven Producer; no local literal contract')
+        secret_name = (resource['resourceType'], attribute) == registry.hook(resource['resourceType'], 'EXPLICIT_NAME')
+        bound = self.symbol(name, logical, None if secret_name else attribute, derived=not secret_name)
+        if secret_name:
+            bound = ResourceReference(dict(bound, **{'$attribute': 'Name'}))
+        if not same(bound, value):
+            raise Blocked('reference resource correspondence is unproven')
+        document, _, pseudo = self.stack_inputs[name]
+        if document.get('Transform'):
+            raise Blocked('Transform requires external evaluation')
+        return name, logical, document, pseudo
+
+    def producer_scope(self, value):
+        service, identity = value['$resource']
+        if resource_mode(self.resources[service][identity]) != 'CREATE':
+            raise Blocked('ARN projection requires CREATE correspondence; IMPORT requires approved handoff')
+        _, _, _, pseudo = self.reference_context(value)
+        return {group: registry.context_value(pseudo, group) for group in ('partition', 'region', 'account')}
+
+    def project_arn(self, value):
+        return arn_projection.project(value, resource_type=self.resource_type, producer_scope=self.producer_scope)
 
     def reference_component(self, stack, value, *, recorded=None, seen=frozenset()):
         value = self.evaluate(stack, value)
@@ -523,7 +542,7 @@ class Inputs:
         return self.reference_formats[key]
 
     def kms_format(self, value):
-        return registry.kms_format(value, self.resources)
+        return registry.kms_format(value, self.resources, project_arn=self.project_arn)
 
     def reference_diagnostic(self, left, right, kind, path, reason):
         detail = references.reference_diagnostic(left, right, kind, path, reason,
@@ -561,7 +580,7 @@ class Inputs:
         result = references.reference_same(left, right, kind, path, local_comparison=self.local_comparison,
             forms_for=self.reference_forms, resolve_literal=self.reference_literal,
             resource_type=self.resource_type, kms_format=self.kms_format, diagnostic=self.reference_diagnostic,
-            evidence=self.reference_evidence if self.local_comparison else None)
+            evidence=self.reference_evidence if self.local_comparison else None, project_arn=self.project_arn)
         if deferred:
             detail = self.reference_diagnostic(left, right, kind, path,
                 'same Export expression' if result.equal is True else 'Export transformation equivalence is unproven')

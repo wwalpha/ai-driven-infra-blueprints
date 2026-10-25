@@ -5,13 +5,15 @@ import re
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
 
-from ..expressions import parts
+from ..expressions import parts, references
 
 
-def kms_format(value, resources):
+def kms_format(value, resources, *, project_arn=None):
     if isinstance(value, ResourceReference):
         service, identity = value['$resource']
-        kind = resources[service][identity]['resourceType']
+        kind = resources.get(service, {}).get(identity, {}).get('resourceType')
+        if kind is None:
+            return None
         return {('KMS.Key', 'KeyId'): 'KeyId', ('KMS.Key', 'Arn'): 'KeyArn',
                 ('KMS.Alias', 'AliasName'): 'AliasName', ('KMS.Alias', 'AliasArn'): 'AliasArn'}.get((kind, value['$attribute']), 'invalid')
     if isinstance(value, Expression):
@@ -21,7 +23,10 @@ def kms_format(value, resources):
             return None
         if len(tokens) == 1 and isinstance(tokens[0], ResourceReference):
             return kms_format(tokens[0], resources)
-        return kms_format(''.join(tokens), resources) if all(isinstance(token, str) for token in tokens) else None
+        if all(isinstance(token, str) for token in tokens):
+            return kms_format(''.join(tokens), resources)
+        projected = project_arn(value) if project_arn is not None else None
+        return kms_format(projected, resources) if projected is not None else None
     if not isinstance(value, str):
         return 'invalid'
     if '{{resolve:' in value or '${' in value:
@@ -56,7 +61,7 @@ def identity_same(left, right, forms):
     return None, 'same reference identity; no property contract proves equivalence of these attributes', False
 
 
-def compare_forms(left, right, allowed, *, resolve_literal, format_of):
+def compare_forms(left, right, allowed, *, resolve_literal, format_of, project_arn=None):
     forms = format_of(left), format_of(right)
     reason = None
     if any(form is not None and form not in allowed for form in forms):
@@ -67,6 +72,21 @@ def compare_forms(left, right, allowed, *, resolve_literal, format_of):
         result, reason = False, f'KMS format mismatch: model={forms[0]}, iac={forms[1]}'
     elif isinstance(left, ResourceReference) and isinstance(right, ResourceReference):
         result = same(left, right)
+    elif references(left) or references(right):
+        if references(left) and references(right):
+            projected = [project_arn(value) if project_arn is not None else None for value in (left, right)]
+            if any(value is None for value in projected):
+                result, reason = None, 'KMS ARN Producer, attribute or owning scope is unproven'
+            else:
+                result = same(*projected)
+                reason = 'same KMS ARN Producer and owning scope' if result else 'different KMS ARN Producer Resources'
+        else:
+            symbol = left if references(left) else right
+            if isinstance(symbol, Expression) and (project_arn is None or project_arn(symbol) is None):
+                result, reason = None, 'KMS ARN Producer, attribute or owning scope is unproven'
+            else:
+                # Physical literals must retain the caller's Reference Evidence checks.
+                result, reason = NotImplemented, 'same KMS format; physical value is unproven'
     else:
         try:
             values = [resolve_literal(value) if isinstance(value, (ResourceReference, Expression)) else value for value in (left, right)]

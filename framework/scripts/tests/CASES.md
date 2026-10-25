@@ -3647,3 +3647,23 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | `reference-residual::route53` | `test_route53_composite_export_uses_shared_nested_setting_comparison` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | ネストしたRoute53 settingの同一Export比較と異なる変換のuncompared | Synthetic Models |
 | `reference-residual::export-expression` | `test_export_retains_symbolic_dns_expression_and_transform` | UT | [units/aws-reference-expressions-unit.checks.py](units/aws-reference-expressions-unit.checks.py) | pytest / 8 | 同一scope/Export/変換のみmatched、Select boundsとProducer/属性/由来を保持 | Synthetic Models |
 | `reference-residual::export-invalid` | `test_symbolic_export_keeps_scope_uniqueness_and_invalid_input_guards` | UT | [units/aws-reference-expressions-unit.checks.py](units/aws-reference-expressions-unit.checks.py) | pytest / 8 | Export不在・重複・探索不完全・scope不一致・範囲外・不正式の拒否 | Synthetic Models |
+
+## ARN構築式の正規化とKMS参照同一性
+
+共通の構造・Producer・スコープ組合せはarn-projection UTに集約し、既存Evidence UTにはImportValue/Export/Refの接続回帰のみ追加する。
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `arn-projection::symbolic` | `test_projection_and_symbolic_comparison` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 6 | AliasName/KeyIdのSub/Join/入れ子射影、未確定KeyIdの論理比較と文字列の証拠不足、非破壊 | Synthetic Models |
+| `arn-projection::receivers` | `test_projection_only_uses_registered_receiving_forms` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 5 | KMS_FORMSの全受取プロパティと対象外経路の既存動作 | Synthetic Models |
+| `arn-projection::shape` | `test_unproven_shape_or_scope_never_falls_back` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 6 | 余計な接頭辞/接尾辞とpartition/region/account不一致は一致へ昇格しない | Synthetic Models |
+| `arn-projection::producer` | `test_different_producers_with_equal_names_cannot_match` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 1 | 同名Aliasでも別Producerの直接/構築式はdifference | Synthetic Models |
+| `arn-projection::owning-context` | `test_projection_uses_producer_context_without_borrowing_consumer_context` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 3 | Consumerと異なるProducer所属スコープのみを使用 | Synthetic Models |
+| `arn-projection::saved-evidence` | `test_saved_reference_evidence_is_checked_before_projection` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 1 | 保存参照宣言を既存Evidenceへ渡し、未証明参照を昇格しない | Synthetic Models |
+| `arn-projection::attribute` | `test_key_and_alias_arn_are_different` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 1 | KeyArnとAliasArnの混同をdifference | Synthetic Models |
+| `arn-projection::scope` | `test_producer_scope_requires_the_owning_stack` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 10 | Producer/Stack/型/一意性/Condition/Transform/CREATE/確定pseudoの証明必須 | Synthetic Models |
+| `arn-projection::unresolved` | `test_incomplete_or_unregistered_expressions_are_uncompared` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 7 | 未解決/未知/Select/Split/複数Producer/未登録属性は推測で一致しない | Synthetic Models |
+| `arn-projection::existing` | `test_existing_reference_and_literal_results` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 4 | 直接参照・Sub/JoinのARN参照・正常文字列ARNを維持 | Synthetic Models |
+| `arn-projection::getatt` | `test_alias_arn_projection_does_not_authorize_getatt` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 1 | AliasArn導出とCFn未対応GetAttを分離 | Synthetic Models |
+| `arn-projection::shared` | `test_normalizer_reuses_a_non_kms_shape_without_enabling_a_service` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 1 | サービス非依存の正規化は既存ARN_SHAPESを再利用 | Fixed contracts |
+| `arn-projection::pipeline` | `test_alias_arn_sub_import_ref_pipeline_preserves_export_evidence` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | Model AliasArn→Sub→ImportValue→Export→Ref AliasName→matchedとExport証跡維持 | Synthetic Models |

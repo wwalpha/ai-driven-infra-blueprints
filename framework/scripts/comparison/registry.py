@@ -85,8 +85,8 @@ def import_consumer(prop, kind, attribute):
     return (prop, kind, attribute) == hook(kind, 'IMPORT_CONSUMER')
 
 
-def kms_format(value, resources):
-    return kms.kms_format(value, resources)
+def kms_format(value, resources, *, project_arn=None):
+    return kms.kms_format(value, resources, project_arn=project_arn)
 
 
 def context_value(pseudo, group):
@@ -138,5 +138,5 @@ def named_arn(kind, properties, pseudo, *, evaluate, schema, recorded=None):
     return template.format(**components)
 
 
-def compare_kms_forms(left, right, allowed, *, resolve_literal, format_of):
-    return kms.compare_forms(left, right, allowed, resolve_literal=resolve_literal, format_of=format_of)
+def compare_kms_forms(left, right, allowed, *, resolve_literal, format_of, project_arn=None):
+    return kms.compare_forms(left, right, allowed, resolve_literal=resolve_literal, format_of=format_of, project_arn=project_arn)

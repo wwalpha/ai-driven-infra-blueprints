@@ -59,10 +59,10 @@ def reference_diagnostic(left, right, kind, path, reason, *, local_comparison, f
                               allowed_forms=sorted(forms) if forms is not None else None,
                               format=dict(model=format_status(left), iac=format_status(right)), reason=reason))
 
-def _callback_reference_same_reference(diagnostic, evidence, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type, /, a, b, p):
+def _callback_reference_same_reference(diagnostic, evidence, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type, project_arn, /, a, b, p):
     outcome = reference_same(a, b, kind, p, local_comparison=local_comparison,
         forms_for=forms_for, resolve_literal=resolve_literal, resource_type=resource_type,
-        kms_format=kms_format, diagnostic=diagnostic, evidence=evidence)
+        kms_format=kms_format, diagnostic=diagnostic, evidence=evidence, project_arn=project_arn)
     nested.append(outcome)
     return outcome.equal
 
@@ -76,7 +76,7 @@ def _callback_reference_same_decision(nested, /, equal, diagnostics=(), equivale
                              equivalent or any(result.equivalent for result in nested))
 
 
-def reference_same(left, right, kind, path, *, local_comparison, forms_for, resolve_literal, resource_type, kms_format, diagnostic, evidence=None):
+def reference_same(left, right, kind, path, *, local_comparison, forms_for, resolve_literal, resource_type, kms_format, diagnostic, evidence=None, project_arn=None):
     if evidence is not None and any(isinstance(value, Expression) for value in (left, right)):
         for source in expressions.references([left, right]):
             if hasattr(source, 'saved_literal'):
@@ -88,7 +88,7 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
     if any(isinstance(value, Expression) and value.operation == 'Unverified' for value in (left, right)):
         return ReferenceDecision(None)
     nested = []
-    reference = _bind_framework_callback(_callback_reference_same_reference, diagnostic, evidence, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type)
+    reference = _bind_framework_callback(_callback_reference_same_reference, diagnostic, evidence, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type, project_arn)
     decision = _bind_framework_callback(_callback_reference_same_decision, nested)
     hook = registry.hook(kind, 'reference_compare')
     if hook is not None:
@@ -103,12 +103,15 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
     allowed = registry.kms_forms(kind, path) if local_comparison else None
     if allowed:
         result, reason = registry.compare_kms_forms(left, right, allowed, resolve_literal=resolve_literal,
-                                                    format_of=kms_format)
-        symbolic = any(isinstance(value, Expression) for value in (left, right)) and all(kms_format(value) in allowed for value in (left, right))
-        if (result is not None or not symbolic and (evidence is None or
-                not (isinstance(left, str) and isinstance(right, (ResourceReference, Expression)) or
-                     isinstance(right, str) and isinstance(left, (ResourceReference, Expression))))):
-            return decision(result, [diagnostic(left, right, kind, path, reason)] if reason else ())
+                                                    format_of=kms_format, project_arn=project_arn)
+        if result is NotImplemented:
+            if evidence is not None:
+                return evidence(left, right, kind, path)
+            result = None
+        details = [diagnostic(left, right, kind, path, reason)] if reason else []
+        for detail in details:
+            detail.update(evidence_type='logical_reference', current_aws_verified=False)
+        return decision(result, details)
     if evidence is not None:
         if isinstance(left, str) and isinstance(right, (ResourceReference, Expression)):
             return evidence(left, right, kind, path)

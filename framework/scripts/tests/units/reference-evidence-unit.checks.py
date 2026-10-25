@@ -585,6 +585,32 @@ def test_kms_runner_reports_uncompared_with_recorded_proof(kind, path):
     assert results[0]['reference_diagnostics'][0]['evidence_type'] == 'recorded_observed'
 
 
+def test_alias_arn_sub_import_ref_pipeline_preserves_export_evidence():
+    comparison = fixture()
+    resource(comparison, 'kms', '002', 'KMS.Alias', 'Alias', [('AliasName', 'alias/fixture', None)],
+             properties={'AliasName': 'alias/fixture'})
+    comparison.stack_inputs['producer'][0]['Outputs']['AliasName'] = {
+        'Value': {'Ref': 'Alias'}, 'Export': {'Name': {'Fn::Sub': 'KmsLogKeyAliasName${Suffix}'}}}
+    comparison.stack_inputs['producer'][1]['Suffix'] = 'Fixture'
+    comparison.stack_inputs['consumer'][1]['Suffix'] = 'Fixture'
+    expression = {'Fn::Sub': [
+        'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${KmsAliasName}',
+        {'KmsAliasName': {'Fn::ImportValue': {'Fn::Sub': 'KmsLogKeyAliasName${Suffix}'}}}]}
+    resource(comparison, 'logs', '010', 'Logs.LogGroup', 'Log',
+             [('KmsKeyId', '[Alias](kms.md#alias)', None)],
+             properties={'KmsKeyId': expression}, stack='consumer')
+    before = copy.deepcopy(comparison.models['kms'].authoritative)
+    document = comparison.stack_inputs['consumer'][0]
+    batch = comparison.compare_rows('logs', '010', comparison.resources['logs']['010'],
+        'consumer', 'Log', ROOT / 'synthetic.yaml', document['Resources']['Log'], document)
+    assert batch.failure is None
+    assert [item['category'] for item in batch.records] == ['matched'], batch.records
+    detail = batch.records[0]['reference_diagnostics'][0]
+    assert detail['exports'] == [{'export_name': 'KmsLogKeyAliasNameFixture', 'export_stack': 'producer'}]
+    assert detail['evidence_type'] == 'logical_reference' and detail['current_aws_verified'] is False
+    assert comparison.models['kms'].authoritative == before
+
+
 def test_export_chain_retains_each_handoff():
     comparison = fixture()
     vpc(comparison)
