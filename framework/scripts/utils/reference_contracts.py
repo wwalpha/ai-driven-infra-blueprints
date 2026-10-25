@@ -245,6 +245,7 @@ REFERENCE_PROPERTIES = {
     'EC2.VPCEndpoint.SubnetIds[]': ('EC2.Subnet', 'SubnetId'),
     'Glue.Connection.ConnectionInput.PhysicalConnectionRequirements.SecurityGroupIdList[]': ('EC2.SecurityGroup', 'GroupId'),
     'Glue.Connection.ConnectionInput.PhysicalConnectionRequirements.SubnetId': ('EC2.Subnet', 'SubnetId'),
+    'Glue.Catalog.FederatedCatalog.ConnectionName': ('Glue.Connection', 'Name'),
     'Glue.Job.Connections.Connections[]': ('Glue.Connection', 'Name'),
     'Glue.Job.Role': ('IAM.Role', 'RoleName'),
     'Glue.Job.SecurityConfiguration': ('Glue.SecurityConfiguration', 'Name'),

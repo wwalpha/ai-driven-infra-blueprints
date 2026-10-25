@@ -139,6 +139,36 @@ def test_registered_contract_route(models, prop, producer, attribute):
         inputs.desired_reference('receiver', symbol, consumer_kind, path, symbol['$attribute'])
 
 
+@pytest.mark.parametrize('logical,expected', [('Resource001', True), ('Resource002', False)])
+def test_glue_catalog_connection_ref(models, logical, expected):
+    scope, values = resource(models, 'producer', 'Glue.Connection', attribute='ConnectionInput.Name')
+    _, second = resource(models, 'producer', 'Glue.Connection', attribute='ConnectionInput.Name', number='002')
+    values.update(second)
+    values['desired.row.001-001.value'] = '`first`'
+    values['desired.row.002-001.value'] = '`second`'
+    save(scope, values)
+    scope, receiver = resource(models, 'receiver', 'Glue.Catalog', attribute='Name')
+    receiver['desired.resource.001.cfn-logicalId'] = 'consumer-Policy'
+    receiver['desired.row.001-001.value'] = '`catalog`'
+    receiver.update({'desired.row.001-002.property': 'Glue.Catalog.FederatedCatalog.ConnectionName',
+                     'desired.row.001-002.value': '[first](producer.md#saved-001)',
+                     'desired.row.001-002.comment': '合成'})
+    save(scope, receiver)
+    inputs = comparison(models, ('producer', 'receiver'))
+    inputs.stack = partial(cached_stack, inputs)
+    inputs.stack_inputs['producer'][0]['Resources'] = {
+        'Resource' + number: {'Type': 'AWS::Glue::Connection', 'Properties': {'ConnectionInput': {'Name': name}}}
+        for number, name in [('001', 'first'), ('002', 'second')]}
+    desired = inputs.prepare_value('receiver', dict(entries(receiver, 'desired.row.'))['001-002'],
+        'Glue.Catalog', row_id='001-002').require_value()
+    actual = inputs.evaluate('producer', {'Ref': logical})
+    assert actual['$attribute'] == 'Name'
+    assert inputs.reference_same(desired, actual, 'Glue.Catalog', 'FederatedCatalog.ConnectionName') is expected
+    assert inputs.reference_same(desired, 'unproven-name', 'Glue.Catalog', 'FederatedCatalog.ConnectionName') is False
+    inputs._templates = []
+    assert inputs.reference_same(desired, 'first', 'Glue.Catalog', 'FederatedCatalog.ConnectionName') is None
+
+
 def test_catalog_and_context_boundaries(models):
     catalog = DesignSchemaCatalog(models)
     for kind in catalog.resource_types:

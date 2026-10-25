@@ -13,6 +13,8 @@ from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 from utils.reference_contracts import reference_attribute, reference_context
 
+from . import registry
+
 
 class ModelReferences:
     def __init__(self, inputs, service):
@@ -44,7 +46,8 @@ class ModelReferences:
         try:
             for usage in usages(snapshot, inputs.model_reads, _cache=cache, _typed=False):
                 spec = specs.get(usage.metadata_id)
-                if not spec or spec['producerKind'] != 'resource' or spec['format'] == 'link':
+                if (not spec or spec['producerKind'] != 'resource'
+                        or spec['format'] == 'link' and 'valueSelector' not in spec):
                     continue
                 self.positions.setdefault(usage.consumer_key, {}).setdefault(usage.pointer, []).append((usage, spec))
         finally:
@@ -100,6 +103,12 @@ class ModelReferences:
         resource = inputs.resources[service].get(usage.producer_id)
         if not resource or resource['resourceType'] != spec['resourceType']:
             raise Blocked('attribute_format_unproven: producer Resource Type differs')
+        if 'valueSelector' in spec:
+            prop = inputs.model(self.scope.service).authoritative[key.rsplit('.', 1)[0] + '.property']
+            project = registry.hook('.'.join(prop.split('.')[:2]), 'selected_reference')
+            if project is None:
+                raise Blocked('reference valueSelector has no receiving property contract')
+            return project(inputs, self.scope.service, key, value, spec, usage.producer_id)
         prefix = resource['resourceType'] + '.'
         if not spec['property'].startswith(prefix):
             raise Blocked('attribute_format_unproven: producer Property differs')

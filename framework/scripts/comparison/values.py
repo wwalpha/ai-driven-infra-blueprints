@@ -109,6 +109,12 @@ def _desired_value(service, row, kind, *, local_comparison, desired_reference, p
         # A schema-typed ARN property selects the referenced Arn, never a current ARN.
         attribute = getattr(registry.rules(kind), 'DIRECT_ATTRIBUTES', {}).get(row['property'])
         node = property_schema(kind, prop)
+        if normalize is not None:
+            selected = normalize(literal(raw))
+            if isinstance(selected, Expression):
+                if node.get('type') == 'array':
+                    return [selected]
+                return selected
         symbol = desired_reference(service, raw, kind, prop + ('[]' if node.get('type') == 'array' else ''), attribute, context)
         return [symbol] if node.get('type') == 'array' else symbol
     else:

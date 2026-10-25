@@ -302,6 +302,18 @@ new reference syntax, or save generated ARNs.
 Ordinary URLs and legitimate non-Resource JSON strings remain valid. Resource links and
 JSON artifact links outside JSON bodies remain supported.
 
+For a CNAME `Route53.RecordSet.ResourceRecords` Resource link to an Interface
+`EC2.VPCEndpoint`, optional `desired.reference.<id>.valueSelector=dns-entry[n].dns-name`
+declares the zero-based `DnsEntries` entry and its DNS-name component. Use existing
+resource/link metadata (including the exact saved text, occurrence, producer scope and
+logicalId); do not change the saved row value or infer `n=0`. This selector is restricted
+to these links, including an explicitly numbered ResourceRecords row. It does not extend
+`$modelRef` or authorize links inside AWS JSON. Comparison requires Model/IaC CNAME and
+Interface types, the same proven Producer and `Select(1, Split(":", Select(n, DnsEntries)))`,
+with a unique same-scope Export. Missing selection, provenance or extraction proof remains
+uncompared. Structural equality retains runtime Select-bounds uncertainty and
+`current_aws_verified=false`; it never supplies an observed DNS value.
+
 Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Artifact hashes are derived values that can be checked during generation; do not make them authoritative design values.
 
 Independent AWS configuration/policy JSON is an AWS API document, not a CloudFormation

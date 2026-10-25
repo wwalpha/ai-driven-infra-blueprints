@@ -18,6 +18,7 @@ from .services import (
     kms,
     network_firewall,
     quicksight,
+    route53,
     s3,
     secrets_manager,
     security_group,
@@ -56,6 +57,7 @@ SERVICES = {
     'CodePipeline.Pipeline': codepipeline,
     'QuickSight.Group': quicksight,
     'QuickSight.DataSource': quicksight,
+    'Route53.RecordSet': route53,
     'Events.Rule': events,
     'NetworkFirewall.RuleGroup': network_firewall,
 }

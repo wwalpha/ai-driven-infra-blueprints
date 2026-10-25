@@ -97,7 +97,7 @@ def validate_model_keys(values: dict[str, str]) -> None:
         ('display', 'resource'): {'comment', 'label'},
         ('desired', 'stack'): {'name', 'template', 'parameters', 'deployOrder', 'placementName'},
         ('display', 'stack'): {'comment'},
-        ('desired', 'reference'): {'consumerKey', 'pointer', 'text', 'occurrence', 'producerKind', 'producerScope', 'producerId', 'producerLogicalId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty'},
+        ('desired', 'reference'): {'consumerKey', 'pointer', 'text', 'occurrence', 'producerKind', 'producerScope', 'producerId', 'producerLogicalId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty', 'valueSelector'},
         ('desired', 'artifact'): set(ARTIFACT_FIELDS),
     }
     singles = {'display.service.title', 'desired.deployment.maxConcurrentStacks',

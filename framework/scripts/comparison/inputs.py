@@ -538,6 +538,17 @@ class Inputs:
         return detail
 
     def reference_decision(self, left, right, kind, path):
+        selected = None
+        if self.local_comparison:
+            selected = registry.hook(kind, 'selected_decision')
+        if selected is not None:
+            outcome = selected(self, left, right, path)
+            if outcome is not NotImplemented:
+                equal, reason = outcome
+                detail = self.reference_diagnostic(left, right, kind, path, reason)
+                detail.update(evidence_type='export_expression', current_aws_verified=False,
+                              runtime_bounds_verified=False)
+                return references.ReferenceDecision(equal, (detail,), equal is True)
         left_origins = reference_evidence.export_origins(left, getattr(self, 'export_provenance', {}))
         right_origins = reference_evidence.export_origins(right, getattr(self, 'export_provenance', {}))
         deferred = (any(isinstance(value, (ResourceReference, Expression)) for value in (left, right))

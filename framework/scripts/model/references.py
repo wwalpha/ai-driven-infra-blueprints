@@ -21,7 +21,7 @@ from model.format import link_scope as link_scope
 from model.reference_nodes import is_reference, nodes, parse, resolve
 
 FIELDS = {'consumerKey', 'pointer', 'text', 'occurrence', 'producerKind', 'producerScope',
-          'producerId', 'producerLogicalId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty'}
+          'producerId', 'producerLogicalId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty', 'valueSelector'}
 BASE = {'consumerKey', 'text', 'occurrence', 'producerKind', 'producerScope', 'format', 'labelPolicy'}
 
 
@@ -124,6 +124,13 @@ def declarations(values):
             raise ValueError('invalid reference labelPolicy: ' + identity)
         if mode != 'link' and spec['labelPolicy'] != 'none':
             raise ValueError('non-link reference requires labelPolicy none: ' + identity)
+        if 'valueSelector' in spec:
+            prop = values.get(key.rsplit('.', 1)[0] + '.property', '')
+            if (kind != 'resource' or mode != 'link' or spec.get('resourceType') != 'EC2.VPCEndpoint'
+                    or not re.fullmatch(r'desired\.row\.[^.]+\.value', key)
+                    or not re.fullmatch(r'Route53\.RecordSet\.ResourceRecords(?:\[(?:[1-9][0-9]*)?\])?', prop)
+                    or re.fullmatch(r'dns-entry\[(0|[1-9][0-9]*)\]\.dns-name', spec['valueSelector']) is None):
+                raise ValueError('valueSelector requires a Route53 Endpoint DNS link and explicit entry index: ' + identity)
         value, structured = _json(key, values[key])
         if structured != ('pointer' in spec):
             raise ValueError('JSON references require a pointer; scalar references forbid one: ' + identity)
@@ -413,6 +420,7 @@ class Reference:
     label: str | None = None
     label_policy: str | None = None
     selector: str | None = None
+    value_selector: str | None = None
 
 
 
@@ -468,7 +476,8 @@ def symbolic(snapshot, read_context=None):
         link = LINKS.fullmatch(usage.text)
         record = Reference(address, usage.producer_kind, spec.get('resourceType'), 'model' if usage.attribute else spec.get('format', 'link'),
             usage.attribute or spec.get('property'), link[1] if link else None, spec.get('labelPolicy'),
-            spec.get('contextProperty') if usage.producer_kind == 'context' else usage.logical_id if producer_id is None else None)
+            spec.get('contextProperty') if usage.producer_kind == 'context' else usage.logical_id if producer_id is None else None,
+            spec.get('valueSelector'))
         grouped.setdefault((usage.consumer_key, usage.pointer), []).append((usage.start, usage.end, record))
 
     leaf = _bind_framework_callback(_callback_symbolic_leaf, grouped)
