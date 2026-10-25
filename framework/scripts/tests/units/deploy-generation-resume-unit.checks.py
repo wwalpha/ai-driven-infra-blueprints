@@ -269,22 +269,22 @@ def check_failed_service_does_not_reject_successes(owned, revision):
     assert "generationError" not in backend.session
 
 
+def publish_with_rollback(views, rollback, plan):
+    for view, files in plan.expected_outputs.items():
+        if view == views["kms"] or rollback and view == views["iam"]:
+            fail_service(plan, view, message="publication rolled back")
+        else:
+            for path, text in files.items():
+                path.write_text(text, encoding="utf-8")
+            plan.saved[view] = {}
+
+
 @pytest.mark.parametrize("rollback", [False, True])
 def check_publication_results_and_rollback_are_service_scoped(owned, rollback):
     backend, views, _ = owned
     generation = generation_for(backend, views)
     original = {p: p.read_bytes() for p in generation.expected_outputs[views["kms"]]}
-
-    def publish(plan):
-        for view, files in plan.expected_outputs.items():
-            if view == views["kms"] or rollback and view == views["iam"]:
-                fail_service(plan, view, message="publication rolled back")
-            else:
-                for path, text in files.items():
-                    path.write_text(text, encoding="utf-8")
-                plan.saved[view] = {}
-
-    invoke(backend, generation, publish)
+    invoke(backend, generation, partial(publish_with_rollback, views, rollback))
     expected = {views["kms"], *([views["iam"]] if rollback else [])}
     assert set(backend.session["pendingGeneration"]) == {
         p.relative_to(backend.root).as_posix() for p in expected
@@ -296,42 +296,42 @@ def check_publication_results_and_rollback_are_service_scoped(owned, rollback):
     )
 
 
+def publish_then_fail(views, plan):
+    for view in (views["iam"], views["athena"]):
+        for path, text in plan.expected_outputs[view].items():
+            path.write_text(text, encoding="utf-8")
+        plan.saved[view] = {}
+    raise OSError("journal retained for kms")
+
+
 def check_fatal_publication_preserves_already_saved_successes(owned):
     backend, views, saved = owned
     generation = generation_for(backend, views)
-
-    def publish(plan):
-        for view in (views["iam"], views["athena"]):
-            for path, text in plan.expected_outputs[view].items():
-                path.write_text(text, encoding="utf-8")
-            plan.saved[view] = {}
-        raise OSError("journal retained for kms")
-
     with pytest.raises(OSError, match="journal retained"):
-        invoke(backend, generation, publish)
+        invoke(backend, generation, partial(publish_then_fail, views))
     assert set(saved[-1]["pendingGeneration"]) == {
         views["kms"].relative_to(backend.root).as_posix()
     }
     assert backend.session["states"]["early"]["observedSynced"]
 
 
+def publish_with_evidence(views, evidence, plan):
+    if evidence != "saved-only":
+        publish_candidate(plan)
+    if evidence == "bytes-only":
+        plan.saved.clear()
+    elif evidence == "saved-only":
+        plan.saved.update({v: {} for v in views.values()})
+    else:
+        views["iam"].write_bytes(b"foreign edit")
+
+
 @pytest.mark.parametrize("evidence", ["saved-only", "bytes-only", "corrupt"])
 def check_publication_requires_saved_result_and_exact_bytes(owned, evidence):
     backend, views, _ = owned
     generation = generation_for(backend, views)
-
-    def publish(plan):
-        if evidence != "saved-only":
-            publish_candidate(plan)
-        if evidence == "bytes-only":
-            plan.saved.clear()
-        elif evidence == "saved-only":
-            plan.saved.update({v: {} for v in views.values()})
-        else:
-            views["iam"].write_bytes(b"foreign edit")
-
     with pytest.raises(Blocked):
-        invoke(backend, generation, publish)
+        invoke(backend, generation, partial(publish_with_evidence, views, evidence))
     assert backend.session["pendingGeneration"]
 
 

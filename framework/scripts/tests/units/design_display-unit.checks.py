@@ -691,31 +691,31 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
     )
 
 
+def report_ids(root, current):
+    return {
+        re.search(r"原因ID: ([^。]+)", line)[1]: re.search(
+            r"<!-- issue-id: ([^ ]+) -->", line
+        )[1]
+        for line in ordinary_report(root, current).splitlines()
+        if "原因ID:" in line
+    }
+
+
 def test_aggregate_issue_id_uses_scoped_cause_not_routes(pipeline):
     root, _, _, _, _ = pipeline
     findings, artifact = collected(pipeline)
     original = deepcopy(artifact)
-
-    def report_ids(current):
-        return {
-            re.search(r"原因ID: ([^。]+)", line)[1]: re.search(
-                r"<!-- issue-id: ([^ ]+) -->", line
-            )[1]
-            for line in ordinary_report(root, current).splitlines()
-            if "原因ID:" in line
-        }
-
-    expected = report_ids(artifact)
+    expected = report_ids(root, artifact)
     assert len(expected) == len(set(expected.values())) == 4
     artifact["ordinary"].reverse()
-    assert report_ids(artifact) == expected
+    assert report_ids(root, artifact) == expected
     artifact["ordinary"] = [
         item
         for item in artifact["ordinary"]
         if item["diagnostic"]["check_id"] == "links"
     ]
     assert len(artifact["ordinary"]) == 4
-    assert report_ids(artifact) == expected
+    assert report_ids(root, artifact) == expected
     comparison = SimpleNamespace(
         root=root, environment="qa", directory="team", redacted=lambda value: value
     )
@@ -725,7 +725,7 @@ def test_aggregate_issue_id_uses_scoped_cause_not_routes(pipeline):
             extra.add_diagnostic(replace(diagnostic, check_id="route-6"))
     records = validation_issues(extra, comparison, ["codepipeline"])[0]
     artifact["ordinary"].extend(records)
-    assert report_ids(artifact) == expected
+    assert report_ids(root, artifact) == expected
     assert all(item["id"] == item["diagnostic"]["diagnosticId"] for item in records)
     selected = next(
         item
@@ -759,12 +759,12 @@ def test_aggregate_issue_id_uses_scoped_cause_not_routes(pipeline):
     for field in ("environment", "target"):
         scoped = deepcopy(artifact)
         scoped[field] = "another"
-        assert set(report_ids(scoped).values()).isdisjoint(expected.values())
+        assert set(report_ids(root, scoped).values()).isdisjoint(expected.values())
     scoped = deepcopy(artifact)
     scoped["services"] = ["another"]
     for item in scoped["ordinary"]:
         item["service"] = "another"
-    assert set(report_ids(scoped).values()).isdisjoint(expected.values())
+    assert set(report_ids(root, scoped).values()).isdisjoint(expected.values())
     assert all(item in original["ordinary"] for item in artifact["ordinary"][:4])
     plain = dict(service="codepipeline", key="existing-key", message="ordinary")
     assert issue_key(root, plain) == identifier(["codepipeline", "existing-key"])
