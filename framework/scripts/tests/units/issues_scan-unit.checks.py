@@ -19,6 +19,7 @@ import model.sources as sources
 import support.issues_scan_fixtures as _exports_support_issues_scan_fixtures
 import support.issues_scan_fixtures as _retained_fixture_protected_sources
 import support.issues_scan_fixtures as _retained_fixture_scan_project
+import support.model_reference_fixtures as reference_fixtures
 import sync_runtime
 import validation.runner as validation_runner
 from comparison.deferral import (
@@ -2731,6 +2732,99 @@ def check_issues_keeps_independent_validation(tmp_path, reference_design, fault)
         assert "provider schema violation" in messages
     else:
         assert "required" in messages
+
+
+@pytest.mark.parametrize("processing", [False, True])
+def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
+    tmp_path, capsys, processing
+):
+    root = tmp_path / "repository"
+    root.mkdir()
+    artifact, review = tmp_path / "scan.json", tmp_path / "review.json"
+    artifact.write_text("{}", encoding="utf-8")
+    review.write_text("{}", encoding="utf-8")
+    with (
+        patch(
+            "issues.publication.save_scan",
+            return_value=(
+                [
+                    root / "issues/dev/cde/issues.md",
+                    root / "issues/dev/cde/iac-issues.md",
+                ],
+                SimpleNamespace(data="{}"),
+            ),
+        ),
+        patch(
+            "issues.artifact.summary",
+            return_value={"validation_status": "ERROR" if processing else "FAIL"},
+        ),
+        patch("issues.artifact.has_processing_errors", return_value=processing),
+        patch.object(
+            sys,
+            "argv",
+            [
+                "issues",
+                "--repository-root",
+                str(root),
+                "save",
+                "--artifact",
+                str(artifact),
+                "--review",
+                str(review),
+            ],
+        ),
+    ):
+        assert issues_main() == (2 if processing else 0)
+    result = json.loads(capsys.readouterr().out)
+    assert result["publication_status"] == "SAVED"
+    assert result["validation_status"] == ("ERROR" if processing else "FAIL")
+    assert result["post_save_validation"] == "NOT_RUN"
+    assert result["post_save_validation_command"] == "blueprint-loop.py --mode local"
+
+
+@pytest.mark.parametrize("location", ["row", "heading"])
+def check_issues_quicksight_name_difference(tmp_path, location):
+    with validation_runner._imports_utils_aws_mappings.mapping_alias(
+        reference_fixtures.FRAMEWORK, tmp_path
+    ):
+        reference_fixtures.project(tmp_path)
+        scope, values = reference_fixtures.resource(
+            tmp_path,
+            "quicksight",
+            "QuickSight.DataSource",
+            attribute="Name",
+        )
+        values["desired.resource.001.resourceMode"] = "IMPORT"
+        values.pop("desired.resource.001.cfn-logicalId")
+        values["desired.row.001-001.value"] = "`QuickSight`"
+        values["desired.row.001-002.property"] = "QuickSight.DataSource.Type"
+        values["desired.row.001-002.value"] = "`S3`"
+        values["desired.row.001-002.comment"] = "合成データソース種別"
+        reference_fixtures.save(scope, values)
+        view = tmp_path / "docs/designs/qa/team/quicksight.md"
+        text = _exports_support_issues_scan_fixtures.markdown_for(
+            view, values, tmp_path
+        )
+        write(view, text)
+        selected = {("qa", "team", "quicksight")}
+        before, _, _ = scan_runner.mechanical(tmp_path, selected, jobs=1)
+        write(
+            view,
+            text.replace(
+                "`QuickSight`"
+                if location == "row"
+                else "### QuickSight.DataSource: QuickSight",
+                "`Quicksight`"
+                if location == "row"
+                else "### QuickSight.DataSource: Quicksight",
+            ),
+        )
+        after, _, _ = scan_runner.mechanical(tmp_path, selected, jobs=1)
+    assert after == before
+    assert not any(
+        "display name does not match" in error or "heading must display" in error
+        for error in after
+    )
 
 
 if __name__ == "__main__":

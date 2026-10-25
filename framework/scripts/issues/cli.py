@@ -144,7 +144,8 @@ def main():
                     "validation_status": saved_summary["validation_status"],
                     "saved": [path.relative_to(root).as_posix() for path in paths],
                     "summary": saved_summary,
-                    "post_save_validation": "required: blueprint-loop.py --mode local",
+                    "post_save_validation": "NOT_RUN",
+                    "post_save_validation_command": "blueprint-loop.py --mode local",
                 },
                 ensure_ascii=False,
             )

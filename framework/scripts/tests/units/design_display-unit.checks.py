@@ -572,9 +572,12 @@ def test_display_routes_merge_across_findings(pipeline, reverse):
             {("qa", "team", "codepipeline")},
             partial(parent.include_diagnostics, child),
         )
-        assert result.status == "FAIL" and len(result.errors) == 4
+        assert result.status == "FAIL"
+        assert len(result.errors) == (
+            4 if route == (routes[-1] if reverse else routes[0]) else 0
+        )
     assert len(parent.diagnostics) == len(ids) == 4
-    assert len(parent.errors) == 16 and not parent.unstructured_errors
+    assert len(parent.errors) == 4 and not parent.unstructured_errors
     for diagnostic in parent.diagnostics:
         assert set(diagnostic.record()["check_ids"]) == set(routes)
         assert diagnostic.check_id == min(routes)
@@ -704,6 +707,53 @@ def test_adjacent_independent_comment_differences_are_separate(pipeline):
         len({d.cause_key for d in display_diagnostics(root, path, error, "tables")})
         == 2
     )
+
+
+@pytest.mark.parametrize("check_display", [True, False])
+@pytest.mark.parametrize("difference", ["row", "heading"])
+def test_name_display_comparison_can_be_disabled(tmp_path, check_display, difference):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        scope, values = resource(
+            tmp_path,
+            "quicksight",
+            "QuickSight.DataSource",
+            attribute="Name",
+        )
+        values["desired.resource.001.resourceMode"] = "IMPORT"
+        values["desired.row.001-001.value"] = "`QuickSight`"
+        save(scope, values)
+        path = tmp_path / "docs/designs/qa/team/quicksight.md"
+        path.parent.mkdir(parents=True)
+        expected = generate_markdown(path, values, FRAMEWORK)
+        text = expected.replace(
+            "`QuickSight`"
+            if difference == "row"
+            else "### QuickSight.DataSource: QuickSight",
+            "`Quicksight`"
+            if difference == "row"
+            else "### QuickSight.DataSource: Quicksight",
+        )
+        assert text != expected
+        path.write_text(text, encoding="utf-8")
+        findings = Findings(tmp_path)
+        with patch.object(
+            design._imports_model_render,
+            "resource_presentation",
+            wraps=design._imports_model_render.resource_presentation,
+        ) as presentation:
+            design.check_resource_names(
+                {path: ("quicksight", ("QuickSight.DataSource",))},
+                [path],
+                design_sources={path: values},
+                findings=findings,
+                root=tmp_path,
+                scope={("qa", "team", "quicksight")},
+                definitions_root=FRAMEWORK,
+                check_display=check_display,
+            )
+        assert findings.status == ("FAIL" if check_display else "PASS"), findings.errors
+        if not check_display:
+            presentation.assert_not_called()
 
 
 if __name__ == "__main__":

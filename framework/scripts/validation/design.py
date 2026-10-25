@@ -355,6 +355,7 @@ def check_resource_layout(findings, root) -> None:
 def _callback_check_resource_names_check_name(
     anchor,
     bound_anchors,
+    check_display,
     counts,
     current,
     definitions_root,
@@ -411,17 +412,18 @@ def _callback_check_resource_names_check_name(
             name, configured = display_name(
                 values, matched[0], matched[1], semantic, definitions_root
             )
-            expected, _, _ = resource_presentation(
-                values,
-                matched[0],
-                matched[1],
-                definitions_root,
-                scope=Scope(root, *path.parent.parts[-2:], path.stem),
-            )
-            if name != expected:
-                raise ValueError(
-                    f"resource display name does not match authoritative Model: {resource_type}: {name} != {expected}"
+            if check_display:
+                expected, _, _ = resource_presentation(
+                    values,
+                    matched[0],
+                    matched[1],
+                    definitions_root,
+                    scope=Scope(root, *path.parent.parts[-2:], path.stem),
                 )
+                if name != expected:
+                    raise ValueError(
+                        f"resource display name does not match authoritative Model: {resource_type}: {name} != {expected}"
+                    )
         else:
             name, configured = _dependency_design_layout.resource_display_selection(
                 definitions_root,
@@ -442,7 +444,7 @@ def _callback_check_resource_names_check_name(
         f"resource display name must be confirmed: {findings.relative(path)}: {resource_type}",
     )
     findings.check(
-        name is None or display == name,
+        (not check_display and bool(values)) or name is None or display == name,
         f"resource heading must display {'resource name' if configured is not None else 'authoritative display label'}: {findings.relative(path)}: {resource_type}: {display} != {name}",
     )
     if name is None:
@@ -604,6 +606,7 @@ def check_resource_names(
                 _callback_check_resource_names_check_name(
                     anchor,
                     bound_anchors,
+                    check_display,
                     counts,
                     current,
                     definitions_root,
@@ -623,6 +626,7 @@ def check_resource_names(
                 _callback_check_resource_names_check_name(
                     anchor,
                     bound_anchors,
+                    check_display,
                     counts,
                     current,
                     definitions_root,
@@ -642,6 +646,7 @@ def check_resource_names(
                 _callback_check_resource_names_check_name(
                     anchor,
                     bound_anchors,
+                    check_display,
                     counts,
                     current,
                     definitions_root,

@@ -26,7 +26,15 @@ entire publication without reading the old reports or expanding investigation.
 
 The report-only `migration` runs in the selected checkout without a worktree.
 `issues_save_only()` retains explicit service scope, Allowed paths, Modified files,
-Acceptance and Task status checks. It does not inspect Git changes or watch inputs.
+Acceptance and Task status checks. After saving, run `blueprint-loop.py --mode local`
+with the selected Task and without `--write`, `--all` or `--staged`. This uses the
+existing Task and save-authority checks only: require both report files, exact
+`exists:` Acceptance checks for both, explicit services, running status, allowed
+report destinations and readable files. Do not run generic scope/input-presence,
+Model/design/display/IaC checks, AWS, Scan, cfn-lint or Git diff collection/comparison.
+Recorded violations and missing Model/design inputs do not fail a valid save contract.
+Snapshot/Review and atomic publication guards remain mandatory at save time.
+It does not inspect Git changes or watch inputs.
 Framework maintenance uses its independent governance/worktree workflow.
 
 ## Independent Human confirmations
@@ -260,6 +268,10 @@ Use diagnostic Resources/logical-ID paths plus explicit origins to prove one sel
 
 validation_status priority is ERROR (processing, including IaC category=error), FAIL (selected ordinary or unassigned Error), INCOMPLETE (required mechanical/lint checks unexecuted), CHECKED. Keep review_required, iac_status and lint coverage separate. Differences/uncompared only affect iac_status; not_applicable is never lint PASS. Error plus downstream-unexecuted coverage remains FAIL plus incomplete coverage; independent processing errors take ERROR precedence. Separate stage-error counts from affected IaC record counts.
 
-scan exit: processing/input failure 2; ordinary/unassigned Error 1; otherwise 0. Coverage-only/Warning/Info/IaC differences alone do not raise the code. Save errors in authority/review/I/O return 2; successful publication returns 2 when the artifact has processing errors, otherwise 0 even with ordinary issues. stdout includes publication_status=SAVED and validation_status. Save/CHECKED/exit 0 never means AWS equality or all-range PASS.
+scan exit: processing/input failure 2; ordinary/unassigned Error 1; otherwise 0. Coverage-only/Warning/Info/IaC differences alone do not raise the code. Save errors in authority/review/I/O return 2; successful publication returns 2 when the artifact has processing errors, otherwise 0 even with ordinary issues. stdout includes publication_status=SAVED and validation_status. The save API reports
+post_save_validation=NOT_RUN and post_save_validation_command; it never claims Local
+Loop PASS before execution. Record the actual subsequent Local Loop PASS/FAIL separately.
+SAVED with Scan FAIL and post-save contract PASS is valid; SAVED with processing errors
+still exits 2. Save/CHECKED/exit 0 never means AWS equality or all-range PASS.
 
 warnings/information/unverified/processing_errors summaries expose total, at most five masked/brief previews, omitted counts and paged detail; code lists are bounded. Retain IaC 16 groups/10 examples/10 fields/160-character limits, the Markdown complete compact Issue list and external all-member retrieval. Metrics separate mechanical, IaC comparison, aggregation and lint. runner wall_seconds ends after aggregation and excludes CLI JSON/output and LLM time; outer process wall time is a separate measurement. No unmeasured project speedup or worker/default changes.

@@ -123,4 +123,14 @@ Raw cfn-lint is planned from explicit selected CREATE Stack/template mappings in
 
 Use validation_status ERROR/FAIL/INCOMPLETE/CHECKED separately from iac_status, review_required, lint coverage and publication_status. scan returns 2 for processing/input failures, 1 for ordinary/unassigned Error, otherwise 0. A saved artifact with processing errors reports SAVED and exit 2; preservation of acquired results does not make processing successful. Warning/Info or coverage-only do not promote to ordinary issues.
 
-Retrieve bounded summary channels through detail for full coverage; do not ask for all raw diagnostics on stdout. Save the reviewed artifact without comparing current inputs or lint dependencies. Machine notices are scope-marked, non-numbered and generated only from the current Scan. Human confirmations come exclusively from the separate file. Continue the existing post-save local validation and retain saved reports on failure. See [issues investigation](../../../framework/rules/issues-investigation.md#offline-cfn-lint-and-coverage) for the complete contract.
+Retrieve bounded summary channels through detail for full coverage; do not ask for all raw diagnostics on stdout. Save the reviewed artifact without comparing current inputs or lint dependencies. Machine notices are scope-marked, non-numbered and generated only from the current Scan. Human confirmations come exclusively from the separate file. After saving, run `blueprint-loop.py --mode local --task-file tasks/<task-name>.md`
+without `--write`, `--all` or `--staged`. For an `issues_save_only()` Task this checks
+only the report save contract using existing Task/save authority checks: explicit
+services, running status, Required changes/Allowed paths/Modified files, both readable
+report files and exact `exists:` Acceptance checks for both. Do not rerun generic
+scope/input presence, Model/design/display/IaC validation, Scan, cfn-lint, AWS or Git
+diff checks. Snapshot/Review/publication guards remain at save time. Treat
+publication_status, Scan validation_status and actual post_save_validation as separate
+results; save returns NOT_RUN plus the command until Local Loop executes. A valid save
+may be SAVED / Scan FAIL / post-save PASS; processing errors still return 2.
+Retain saved reports if post-save validation fails. See [issues investigation](../../../framework/rules/issues-investigation.md#offline-cfn-lint-and-coverage) for the complete contract.

@@ -30,6 +30,7 @@ from design.document import DesignIndex
 from design.layout_schema import STACK_DESIGN
 from design.policy_tables import artifact_id as artifact_id
 from design.policy_tables import rendered_design
+from issues.publication import save_authority
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import contract_reads as contract_reads
 from task_contract_core import contract_snapshot, task_reads
@@ -311,6 +312,7 @@ class Validator:
         definitions_root: Path | None = None,
         final_candidate=None,
         check_display=True,
+        issues_save=False,
     ) -> None:
         definition_root = _imports_utils_aws_mappings.definition_root
         self.findings = Findings(root)
@@ -324,6 +326,7 @@ class Validator:
         self.workers = workers
         self.write = write
         self.check_display = check_display
+        self.issues_save = issues_save
         self.service_cache_pending = []
         self.catalog_pending = None
         self.catalog_key = None
@@ -367,6 +370,8 @@ class Validator:
         publication_lock = _imports_model_sources.publication_lock
         definition_root = _imports_utils_aws_mappings.definition_root
         mapping_alias = _imports_utils_aws_mappings.mapping_alias
+        if self.issues_save:
+            return self.check_issues_save()
         if not self.write:
             with ExitStack() as lifetime:
                 if (
@@ -407,6 +412,47 @@ class Validator:
             else:
                 common.common_inputs(snapshot)
             return self._run(snapshot)
+
+    def check_issues_save(self):
+        self.check_task_scope()
+        self.check(
+            not self.write and _imports_task_contract.issues_save_only(self.root),
+            "issues save validation requires a report-only migration with service scope",
+        )
+        if self.errors:
+            return self.report()
+        for environment, target in sorted({entry[:2] for entry in self.scope}):
+            services = [
+                service
+                for env, directory, service in self.scope
+                if (env, directory) == (environment, target)
+            ]
+            try:
+                paths = save_authority(
+                    self.root,
+                    environment,
+                    target,
+                    services,
+                    ["issues.md", "iac-issues.md"],
+                )
+                for path in paths:
+                    relative = path.relative_to(self.root).as_posix()
+                    self.check_file(
+                        path.is_file(), path, f"required report missing: {relative}"
+                    )
+                    if path.is_file():
+                        input_text(path, encoding="utf-8")
+                    self.check(
+                        any(
+                            kind == "exists" and value == relative
+                            for _, kind, value in self.acceptance_checks
+                        ),
+                        f"report requires an exists Acceptance check: {relative}",
+                    )
+            except (OSError, ValueError) as error:
+                self.check(False, str(error))
+        self.task.check_acceptance_checks({}, self.scope)
+        return self.report()
 
     def input_check(self, snapshot, handler):
         # Read boundaries use the invocation recorder; Task/Git/IaC stay on real root.
@@ -1510,7 +1556,9 @@ class Validator:
         )
 
 
-def run_validation(root: Path, options, *, final_candidate=None) -> Validator:
+def run_validation(
+    root: Path, options, *, final_candidate=None, issues_save=False
+) -> Validator:
     """Run existing validation with explicit options; return findings, without final display.
 
     Final candidates fix the actual worktree and latest-base difference and are always
@@ -1539,12 +1587,19 @@ def run_validation(root: Path, options, *, final_candidate=None) -> Validator:
             raise ValueError(
                 "--write requires service scope; framework scope cannot generate Models"
             )
-        deployment_paths = task_deployment_input_paths(root)
+        if issues_save and (
+            final_candidate is not None
+            or options.write
+            or options.all
+            or not _imports_task_contract.issues_save_only(root)
+        ):
+            raise ValueError("invalid issues save validation options or contract")
+        deployment_paths = [] if issues_save else task_deployment_input_paths(root)
         validator = Validator(
             root,
             scope,
             contract_scope,
-            cache=True,
+            cache=not issues_save,
             fresh=options.fresh or options.all,
             workers=options.jobs,
             iac_paths=None
@@ -1556,6 +1611,7 @@ def run_validation(root: Path, options, *, final_candidate=None) -> Validator:
             if final_candidate is not None
             else None,
             final_candidate=final_candidate,
+            issues_save=issues_save,
         )
         validator.run()
         return validator

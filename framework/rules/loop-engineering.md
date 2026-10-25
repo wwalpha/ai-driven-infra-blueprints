@@ -127,6 +127,18 @@ Ordinary local loops use `blueprint-loop.py --mode task` to run common checks ov
 
 Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under [Task transition](task-contract.md#task-transition).
 
+For a selected report-only issues Task, `--mode local` without `--write`, `--all`
+or `--staged` uses the existing `issues_save_only()` predicate and explicitly selects
+contract-only validation through `run_validation()` and `Validator`. Validate the
+Task requirements/Allowed paths/Modified files, running status, explicit service scope,
+actual report destinations and file access with the existing Task and save authority
+checks. Both `issues.md` and `iac-issues.md` must exist and have exact `exists:`
+Acceptance checks. This post-save path does not run generic `check_validation_scope`,
+Model/design/display/IaC/AWS checks, Scan, cfn-lint or Git change/diff checks. Missing
+Model/design inputs may themselves be the recorded issues. It does not replace or
+rerun Snapshot, Review, publication authority or atomic save/rollback checks.
+Other Tasks and modes retain ordinary validation; the default Validator is unchanged.
+
 When running a local loop, retain the following checks in its applicable scope. During development and at completion, choose the checks under [Validation policy](#validation-policy).
 
 - When changes exist, an active task prompt and valid Task type exist. An unchanged idle state may lack this task's `tasks/<task-name>.md`
@@ -283,7 +295,7 @@ alone do not enable that setting.
 - When [Validation policy](#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
 - Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/units/**/*.checks.py` and `units/**/test_*.py` through their existing Python script entrypoints with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter and typed service integration contracts run in CI; their split unit cases remain local. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
 - Task/local loops retain Git change discovery for Task boundaries and diff checks, but never use those paths to select Framework UT/IT. Framework changes remain subject to Task Contract and Allowed paths restrictions.
-- `--mode local` is also valid as the same scoped validation as `task`. Do not add a redundant task run. Explicit `--all` means overall validation plus all regression; scope `all` alone means overall Project validation without automatic Framework regression. `full` alone does not expand actual design scope. Repository-wide IaC checks remain enabled for explicit `full` / `--all`, not because Framework files changed.
+- `--mode local` is also valid as the same scoped validation as `task`, except for the report-only issues post-save contract validation described above. Do not add a redundant task run. Explicit `--all` means overall validation plus all regression; scope `all` alone means overall Project validation without automatic Framework regression. `full` alone does not expand actual design scope. Repository-wide IaC checks remain enabled for explicit `full` / `--all`, not because Framework files changed.
 - Continue regression and diff checks even if the validator fails. Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
 - Retain existing mandatory CloudFormation deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
 

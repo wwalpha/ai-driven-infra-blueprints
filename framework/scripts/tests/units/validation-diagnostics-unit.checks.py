@@ -517,6 +517,9 @@ def check_compare_forwards_and_skips_reference_duplicates(tmp_path):
     parent.include_diagnostics(findings)
     parent.include_diagnostics(findings)
     assert parent.diagnostics == findings.diagnostics
+    assert parent.errors == findings.errors
+    assert parent.diagnostic_errors == findings.diagnostic_errors
+    assert not parent.unstructured_errors
 
 
 def check_missing_link_and_artifact_are_one_diagnostic(tmp_path):
@@ -721,6 +724,58 @@ def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(
     assert result["status"] == "NOT_RUN" and result["complete"] is False
     assert result["unavailable_services"] and result["unverified"]
     assert first["unverified"]
+
+
+def check_diagnostic_merge_positions_and_equal_messages(tmp_path):
+    parent, child = Findings(tmp_path), Findings(tmp_path)
+    parent.check(False, "unstructured parent")
+    child.check(False, "unstructured child")
+    for resource in ("one", "two"):
+        child.add_diagnostic(
+            Diagnostic.create(
+                tmp_path,
+                code="resource.invalid",
+                check_id="identity",
+                service=("dev", "team", "s3"),
+                location=resource,
+                message="same error",
+            )
+        )
+    child.warn(
+        dict(
+            category="MODEL_NEEDS_FIX",
+            code="MODEL_REF_INVALID_SYNTAX",
+            model=str(tmp_path / "model/dev/team/s3.properties"),
+            modelKey="desired.row.001-001.value",
+            message="bad reference",
+        )
+    )
+    for _ in range(2):
+        result = parent.evaluate(
+            f"merge-{_}",
+            None,
+            partial(parent.include_diagnostics, child),
+        )
+        assert result.status == "FAIL" and parent.status == "FAIL"
+    assert len(parent.diagnostics) == 2
+    assert parent.errors.count("same error") == 2
+    assert parent.diagnostic_errors == {
+        2: child.diagnostics[0].identity,
+        3: child.diagnostics[1].identity,
+        4: child.diagnostic_errors[3],
+    }
+    assert parent.reference_error_positions == {4: child.reference_errors[0]}
+    assert parent.unstructured_errors == [
+        "unstructured parent",
+        "unstructured child",
+        "unstructured child",
+    ]
+    result = parent.evaluate(
+        "duplicate-add",
+        None,
+        partial(parent.add_diagnostic, child.diagnostics[0]),
+    )
+    assert result.status == "FAIL" and parent.errors.count("same error") == 2
 
 
 if __name__ == "__main__":

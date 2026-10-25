@@ -663,6 +663,12 @@ def _callback__run_loop_validation_call(
     selected_name,
     /,
 ):
+    issues_save = (
+        args.mode == "local"
+        and not (args.write or args.all or args.staged)
+        and final_candidate is None
+        and issues_save_only(root)
+    )
     validation_options = SimpleNamespace(
         task_file=selected_name,
         write=args.write,
@@ -682,13 +688,17 @@ def _callback__run_loop_validation_call(
                 root,
                 validation_options,
                 final_candidate=final_candidate,
+                issues_save=issues_save,
             )
         finally:
             profile.dump_stats(str(directory / "validate-blueprint.prof"))
             pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
     else:
         result = run_validation(
-            root, validation_options, final_candidate=final_candidate
+            root,
+            validation_options,
+            final_candidate=final_candidate,
+            issues_save=issues_save,
         )
     return result.display_report()
 

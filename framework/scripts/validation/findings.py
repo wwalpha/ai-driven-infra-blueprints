@@ -92,6 +92,8 @@ class Findings:
         self.reference_error_positions = {}
         self.diagnostics = []
         self.diagnostic_errors = {}
+        self.diagnostic_positions = {}
+        self.diagnostic_failures = 0
         self.checks = 0
         self.results = {}
         self.candidate = object()
@@ -142,6 +144,7 @@ class Findings:
             return result
         result = CheckResult(check_id, scope, self.candidate, status="PASS")
         self.results[key] = result
+        diagnostic_failures = self.diagnostic_failures
         incomplete_start = len(self.unverified)
         before, checks, warning_start = (
             len(self.errors),
@@ -166,6 +169,9 @@ class Findings:
                 raise
             self.processing_failure(check_id, scope, error)
             result.metadata.update(complete=False, reason="processing")
+        # Repeated diagnostics still fail their check without adding duplicate ERRORs.
+        if self.diagnostic_failures > diagnostic_failures:
+            result.status = "FAIL"
         result.errors = tuple(self.errors[before:])
         result.warnings = tuple(self.warnings[warning_start:])
         result.checks = self.checks - checks
@@ -201,23 +207,30 @@ class Findings:
         ]
 
     def _retain_diagnostic(self, diagnostic):
-        for index, existing in enumerate(self.diagnostics):
-            if existing.identity != diagnostic.identity:
-                continue
-            if diagnostic.code != "design.display.mismatch":
-                return False
-            previous = {existing.check_id, *existing.check_ids}
-            checks = tuple(
-                sorted(previous | {diagnostic.check_id, *diagnostic.check_ids})
-            )
-            self.diagnostics[index] = replace(
-                existing, check_id=checks[0], check_ids=checks
-            )
-            return set(checks) != previous
+        position = self.diagnostic_positions.get(diagnostic.identity)
+        if position is not None:
+            existing = self.diagnostics[position]
+            if diagnostic.code == "design.display.mismatch":
+                checks = tuple(
+                    sorted(
+                        {
+                            existing.check_id,
+                            *existing.check_ids,
+                            diagnostic.check_id,
+                            *diagnostic.check_ids,
+                        }
+                    )
+                )
+                self.diagnostics[position] = replace(
+                    existing, check_id=checks[0], check_ids=checks
+                )
+            return False
+        self.diagnostic_positions[diagnostic.identity] = len(self.diagnostics)
         self.diagnostics.append(diagnostic)
         return True
 
     def add_diagnostic(self, diagnostic: Diagnostic, *, display_error=None):
+        self.diagnostic_failures += 1
         if not self._retain_diagnostic(diagnostic):
             return
         self.diagnostic_errors[len(self.errors)] = diagnostic.identity
@@ -226,15 +239,20 @@ class Findings:
         )
 
     def include_diagnostics(self, findings):
+        if findings.errors:
+            self.diagnostic_failures += 1
+        known = set(self.diagnostic_errors.values())
         for index, error in enumerate(findings.errors):
             if index in findings.reference_error_positions:
                 self.warn(findings.reference_error_positions[index])
-            else:
-                if index in findings.diagnostic_errors:
-                    self.diagnostic_errors[len(self.errors)] = (
-                        findings.diagnostic_errors[index]
-                    )
-                self.errors.append(error)
+                continue
+            identity = findings.diagnostic_errors.get(index)
+            if identity is not None:
+                if identity in known:
+                    continue
+                known.add(identity)
+                self.diagnostic_errors[len(self.errors)] = identity
+            self.errors.append(error)
         for diagnostic in findings.diagnostics:
             self._retain_diagnostic(diagnostic)
 

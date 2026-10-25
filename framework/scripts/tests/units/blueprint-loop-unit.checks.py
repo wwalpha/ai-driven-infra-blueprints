@@ -3,6 +3,7 @@
 
 import shutil
 import sys
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
@@ -44,6 +45,7 @@ from support.validator import project, schema_validator, write
 from utils import sealed_evidence
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.git_changes import GitWorkingPaths
+from validation import runner as validation_runner
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -1438,6 +1440,212 @@ def check_log_directory_rejected(tmp_path):
         with pytest.raises(ValueError, match="outside the repository"):
             CLI.main()
     dispatch.assert_not_called()
+
+
+def issues_save_contract(root):
+    name = "tasks/issues-save.md"
+    reports = ["issues/dev/cde/" + file for file in ("issues.md", "iac-issues.md")]
+    paths = "".join(f"- `{path}`\n" for path in [name, *reports])
+    text = (
+        "## Task contract\n- Task type: `migration`\n- Task status: `running`\n"
+        "## Goal\nSave reviewed issues.\n"
+        "## Validation scope\n- `dev/cde/s3`\n"
+        "## Required changes\n- [R1] Save both reports.\n"
+        "## Acceptance checks\n"
+        + "".join(f"- [R1] `exists:{path}`\n" for path in reports)
+        + "## Allowed paths\n"
+        + paths
+        + "## Modified files\n"
+        + paths
+    )
+    tasks.start(root, name, text)
+    for path in reports:
+        write(root / path, "# Issues\nModel violation remains recorded.\n")
+    return name
+
+
+def issue_validation_options(name):
+    return SimpleNamespace(
+        task_file=name,
+        write=False,
+        all=False,
+        fresh=False,
+        jobs=1,
+        repository_wide_iac=False,
+        contract_scope=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        None,
+        "missing-report",
+        "acceptance",
+        "required",
+        "modified",
+        "allowed",
+        "status",
+        "symlink",
+        "access",
+    ],
+)
+def check_issue_save_validator_contract_only(tmp_path, invalid):
+    name = issues_save_contract(tmp_path)
+    contract = tmp_path / name
+    if invalid == "missing-report":
+        (tmp_path / "issues/dev/cde/iac-issues.md").unlink()
+    elif invalid == "acceptance":
+        contract.write_text(
+            contract.read_text().replace(
+                "- [R1] `exists:issues/dev/cde/iac-issues.md`\n", ""
+            ),
+            encoding="utf-8",
+        )
+    elif invalid == "required":
+        contract.write_text(
+            contract.read_text().replace("[R1] Save both reports.", "invalid"),
+            encoding="utf-8",
+        )
+    elif invalid in {"modified", "allowed"}:
+        heading = "## Modified files" if invalid == "modified" else "## Allowed paths"
+        text = contract.read_text()
+        before, after = text.split(heading)
+        after = after.replace("- `issues/dev/cde/iac-issues.md`\n", "")
+        contract.write_text(before + heading + after, encoding="utf-8")
+    elif invalid == "symlink":
+        report = tmp_path / "issues/dev/cde/iac-issues.md"
+        report.unlink()
+        report.symlink_to(tmp_path / "issues/dev/cde/issues.md")
+    elif invalid == "access":
+        (tmp_path / "issues/dev/cde/iac-issues.md").write_bytes(b"invalid UTF-8: \xff")
+    elif invalid == "status":
+        contract.write_text(
+            contract.read_text().replace("`running`", "`completed`"), encoding="utf-8"
+        )
+    with ExitStack() as stack:
+        for method in (
+            "check_structure",
+            "check_validation_scope",
+            "check_model_files",
+            "check_scoped_designs",
+            "check_iac_selection",
+            "check_catalog",
+        ):
+            stack.enter_context(
+                patch.object(
+                    validation_runner.Validator,
+                    method,
+                    side_effect=AssertionError("ordinary validation must not run"),
+                )
+            )
+        stack.enter_context(
+            patch.object(
+                validation_runner._imports_deploy_inputs,
+                "task_deployment_input_paths",
+                side_effect=AssertionError("IaC discovery must not run"),
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                validation_runner._dependency_validation_task,
+                "collect_working_paths",
+                side_effect=AssertionError("Git discovery must not run"),
+            )
+        )
+        try:
+            result = validation_runner.run_validation(
+                tmp_path,
+                issue_validation_options(name),
+                issues_save=True,
+            )
+        except ValueError:
+            assert invalid in {"allowed", "modified", "symlink"}
+        else:
+            assert result.findings.status == ("PASS" if invalid is None else "FAIL"), (
+                result.errors
+            )
+
+
+@pytest.mark.parametrize(
+    "mode,write,all_,staged,expected",
+    [
+        ("local", False, False, False, True),
+        ("task", False, False, False, False),
+        ("full", False, False, False, False),
+        ("local", True, False, False, False),
+        ("local", False, True, False, False),
+        ("local", False, False, True, False),
+    ],
+)
+def check_issue_save_loop_option(tmp_path, mode, write, all_, staged, expected):
+    name = issues_save_contract(tmp_path)
+    args = SimpleNamespace(
+        mode=mode,
+        write=write,
+        all=all_,
+        staged=staged,
+        fresh=False,
+        validation_jobs=1,
+        profile=False,
+    )
+    validation = Mock()
+    with tasks.selected_task(tmp_path, name):
+        MODULE._callback__run_loop_validation_call(
+            args,
+            tmp_path,
+            None,
+            all_,
+            tmp_path,
+            validation,
+            {("dev", "cde", "s3")},
+            name,
+        )
+    assert validation.call_args.kwargs["issues_save"] is expected
+
+
+def check_issue_save_loop_runs_contract_validator(tmp_path):
+    root = tmp_path / "repository"
+    root.mkdir()
+    name = issues_save_contract(root)
+    # Deliberately invalid authority: saving its diagnosis must still pass.
+    write(root / "model/dev/cde/s3.properties", "invalid Model")
+    with (
+        patch.object(Path, "cwd", return_value=root),
+        patch.object(
+            MODULE, "changed_paths", side_effect=AssertionError("Git changes forbidden")
+        ),
+        patch.object(MODULE, "utf8_preflight"),
+        patch.object(
+            MODULE.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, "", ""),
+        ),
+        patch.object(
+            sys,
+            "argv",
+            [
+                "blueprint-loop.py",
+                "--mode",
+                "local",
+                "--task-file",
+                name,
+                "--log-dir",
+                str(tmp_path / "logs"),
+            ],
+        ),
+    ):
+        assert CLI.main() == 0
+
+
+def check_ordinary_validator_keeps_full_path(tmp_path):
+    name = issues_save_contract(tmp_path)
+    with patch.object(validation_runner.Validator, "_run", return_value=0) as ordinary:
+        result = validation_runner.run_validation(
+            tmp_path, issue_validation_options(name)
+        )
+    ordinary.assert_called_once()
+    assert not result.issues_save
 
 
 if __name__ == "__main__":
