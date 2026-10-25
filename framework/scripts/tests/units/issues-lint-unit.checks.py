@@ -124,13 +124,13 @@ def check_v2_index_and_status():
         save_scan(Path('/fixture'),artifact,dict(scan_id='other',reviewed_naming_context_id=artifact['naming_context_id'],reviewed_names=[],reviewed_judgments=[],diagnostic_assignments={},issues=[],resolved=[]))
 
 
-def check_pending_notices_preserve_warnings():
+def check_pending_notices_replace_warnings():
     text='# 問題一覧\nhuman confirmation\n'
     current=notice_report(text,'dev','team',['s3'],{'warnings':[dict(code='W',message='new warning')]})
-    pending=notice_report(current,'dev','team',['s3'],{'unverified':[dict(code='not_run')]},preserve_prior=True)
-    assert 'new warning' in pending and '解消未確認' in pending
-    again=notice_report(pending,'dev','team',['s3'],{'unverified':[dict(code='not_run')]},preserve_prior=True)
-    assert again.count('new warning')==1
+    pending=notice_report(current,'dev','team',['s3'],{'unverified':[dict(code='not_run')]})
+    assert 'new warning' not in pending and '解消未確認' not in pending
+    again=notice_report(pending,'dev','team',['s3'],{'unverified':[dict(code='not_run')]})
+    assert again == pending and again.count('not_run') == 1
     assert 'warning' not in without_notices(again) and 'human confirmation' in without_notices(again)
 
 

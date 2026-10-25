@@ -323,23 +323,33 @@ def check_notice_resolution_and_update_series(tmp_path):
     text = notice_report(ordinary, 'dev', 'team', ['sqs'], {'warnings': [{'message': 'outside warning'}]})
     path.write_text(text)
     ids = []
-    for index, channels in enumerate(({'warnings': [{'message': 'current warning'}]},
-                                      {'unverified': [{'message': 'not run'}]},
-                                      {'unverified': [{'message': 'not run'}]}, {}), 1):
+    scans = (
+        dict(warnings=[{'message': 'old False diagnostic'}], information=[{'message': 'old information'}]),
+        dict(warnings=[{'message': 'current warning'}], information=[{'message': 'current information'}],
+             unverified=[{'message': 'not run'}], processing_errors=[{'message': 'unrelated processing error'}]),
+        dict(cfn_lint={'coverage': [{'status': 'not_applicable'}]}),
+        {},
+    )
+    for index, artifact in enumerate(scans, 1):
         clock = Mock()
         clock.now.return_value = real_datetime(2026, 10, 23, 0, 0, index)
-        with patch('issues.reports.datetime', clock):
-            merged = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [])
-        assert f'更新日時: 2026-10-23 00:00:0{index} Asia/Tokyo' in split_notices(merged)[0]
-        assert '今回確認した範囲: dev／team／s3' in split_notices(merged)[0]
-        text = notice_report(merged, 'dev', 'team', ['s3'], channels, preserve_prior=index in {2, 3})
-        path.write_text(text)
+        with patch('issues.reports.datetime', clock), patch('issues.publication.save_authority', return_value=[path]):
+            save(root, 'dev', 'team', ['s3'], artifact=artifact)
+        text = path.read_text(encoding='utf-8')
+        assert f'更新日時: 2026-10-23 00:00:0{index} Asia/Tokyo' in split_notices(text)[0]
+        assert '今回確認した範囲: dev／team／s3' in split_notices(text)[0]
         issues, human = existing_materials(root, 'dev', 'team', ['s3'])
         assert len(issues) == 1 and human == ['Human確認済み', '<!-- human-comment -->']
         ids.append(issues[0]['id'])
         assert 'outside warning' in text
-        assert text.count('current warning') == int(index < 4) and text.count('not run') <= 1
-        assert 'outside issue' in text and len(split_notices(text)[1]) == 2
+        assert text.count('old False diagnostic') == int(index == 1)
+        assert text.count('old information') == int(index == 1)
+        for message in ('current warning', 'current information', 'not run', 'unrelated processing error'):
+            assert text.count(message) == int(index == 2)
+        assert '前回診断（今回未検証・解消未確認）' not in text
+        assert 'outside issue' in text
+        assert {scope for scope, _ in split_notices(text)[1]} == {
+            identifier(['dev', 'team', ['s3']]), identifier(['dev', 'team', ['sqs']])}
     assert len(set(ids)) == 1
     resolution = dict(id=ids[0], reason='explicit revalidation', evidence='confirmed fixture')
     merged = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [resolution])

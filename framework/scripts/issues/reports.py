@@ -259,24 +259,17 @@ def attach_notices(text, notices):
                            for priority, parts in groups.items())
     return text.rstrip() + '\n\n' + '\n\n'.join(block for _, block in sorted(ordered, key=lambda item: item[0])) + '\n'
 
-def notice_report(text, environment, directory, services, channels, *, preserve_prior=False):
+def notice_report(text, environment, directory, services, channels):
     scope_id = identifier([environment, directory, sorted(services)])
     text, notices = split_notices(text)
     # Separate mixed scope blocks before replacing diagnostics; reference warnings survive.
     _, notices = split_notices(attach_notices('', notices))
-    previous = [block for scope, block in notices if scope == scope_id
-                and not markdown_matches(block, r'^## (参照警告（非ブロッキング）)$')]
-    retained = list(dict.fromkeys(line for block in previous for line in block.splitlines() if line.startswith('- '))) if preserve_prior else []
-    notices = [(scope, block) for scope, block in notices if scope != scope_id or block not in previous]
+    notices = [(scope, block) for scope, block in notices if scope != scope_id
+               or markdown_matches(block, r'^## (参照警告（非ブロッキング）)$')]
     lines = [f'<!-- issues-notices:{scope_id}:start -->', f'今回の機械診断scope: {environment}／{directory}／{", ".join(sorted(services))}']
     for channel, heading in [('information', '情報'), ('unverified', '未検証範囲'), ('processing_errors', '処理エラー（未検証範囲あり）'), ('warnings', '警告（非ブロッキング）')]:
         values = channels.get(channel, [])
         if values:
             lines += ['## ' + heading, ''] + ['- ' + safe_text(json.dumps(value, ensure_ascii=False)) for value in values]
-    if retained:
-        current = set(line for line in lines if line.startswith('- '))
-        retained = [line for line in retained if line not in current]
-        if retained:
-            lines += ['### 前回診断（今回未検証・解消未確認）', *retained]
     lines.append(f'<!-- issues-notices:{scope_id}:end -->')
     return attach_notices(text, [(scope_id, '\n'.join(lines)), *notices])

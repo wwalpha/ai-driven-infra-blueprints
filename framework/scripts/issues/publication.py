@@ -47,7 +47,7 @@ def save(root, environment, directory, services, candidates=(), additions=(), re
         notice_report = _imports_issues_reports.notice_report
         channels = {name: artifact.get(name, []) for name in ('warnings','information','unverified','processing_errors')} if artifact else {'warnings': list(warnings)}
         if artifact is not None or warnings:
-            contents[paths[0]] = notice_report(contents[paths[0]], environment, directory, services, channels, preserve_prior=bool(artifact and (artifact.get('unverified') or artifact.get('processing_errors') or any(c['status']!='completed' for c in artifact.get('cfn_lint',{}).get('coverage',[])))))
+            contents[paths[0]] = notice_report(contents[paths[0]], environment, directory, services, channels)
         if iac is not None:
             contents[paths[1]] = iac_report(environment, directory, services, iac, display, stamp=stamp, artifact=artifact)
         atomic_files(contents)
