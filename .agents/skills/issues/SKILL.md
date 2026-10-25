@@ -38,11 +38,20 @@ External already acquired evidence may be included in the whole Scan Review, wit
 ## Scope confirmation
 
 - Confirm environment/target using `project.json` and target file paths. Use aliases for targets with aliases, or AWS account IDs without aliases.
-- Python confirms services using authoritative service metadata and mechanical generated-design diagnostics; do not mix problems from different environments/aliases in one block.
+- Python confirms services using authoritative service metadata and mechanical design-integrity diagnostics; do not mix problems from different environments/aliases in one block.
 - For reference inconsistencies, the existing target-service-scoped validator compares resources, names, and anchors in current `docs/designs/**` and corresponding `model/**` within the same environment/target. The LLM additionally retrieves only corresponding resources necessary for non-mechanized/diagnostic judgments. Do not conclude resources are absent by looking only at files before relocation or another environment.
 - Ask if the target is unclear; do not automatically expand to another environment/target/service.
 - Record inability to execute or compare as unverified scope with the check/target/specific error; do not infer an AWS resource problem instead. Record specific validation errors detected by executed checks as issues; do not treat unexecuted checks as successful.
 - Even if an undeployed generated ID is `PENDING_DEPLOY`, do not treat it as a missing reference if the design reference target resolves. For a validated IMPORT reference, `pending_deploy` is `excluded`, not missing, uncompared or repair-required. Record other items unconfirmed in this investigation in unverified scope.
+
+Issues does not guarantee generated Markdown display equality. Its shared Validator
+skips generated/saved Markdown synchronization and document/Resource reference-display
+comparison. Plain text, valid links and extra explanatory prose alone are not Issues,
+warnings or unverified scope. Retain independent Model schema/required values, typed
+`$modelRef` syntax/logicalId/attribute/target checks, invalid Resource references,
+existing Markdown link destinations/anchors, resource identity/ownership/naming,
+CodeBuild PLAINTEXT reference prohibition and substantive Model/IaC comparison.
+Generation/synchronization validation and the common Validator remain strict by default.
 
 ## Issue registration decisions
 

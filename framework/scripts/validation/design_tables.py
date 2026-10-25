@@ -545,6 +545,7 @@ def check_design_tables(
     schema_catalog,
     scope,
     definitions_root=None,
+    check_display=True,
 ) -> None:
     definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
@@ -606,11 +607,15 @@ def check_design_tables(
 
         available_anchors = None
         try:
-            reference_tables = _design_document.model_reference_tables(
-                path,
-                input_text(path, encoding="utf-8"),
-                tuple((values or {}).items()),
-                definitions_root,
+            reference_tables = (
+                _design_document.model_reference_tables(
+                    path,
+                    input_text(path, encoding="utf-8"),
+                    tuple((values or {}).items()),
+                    definitions_root,
+                )
+                if check_display
+                else ()
             )
         except (OSError, ValueError) as error:
             try:
@@ -903,12 +908,12 @@ def check_design_tables(
                                 is_json_link,
                                 f"policy property must link to a JSON artifact: {findings.relative(path)}: {cells[1]}",
                             )
-                        if cells[1] == S3_KMS_MASTER_KEY_ID:
+                        if check_display and cells[1] == S3_KMS_MASTER_KEY_ID:
                             findings.warn(
                                 RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
                                 f"S3 KMSMasterKeyID must link to a KMS.Alias or an explicit Model KMS.Key/Arn: {findings.relative(path)}: {current_logical_id}",
                             )
-                        if cells[1] == "EC2.SecurityGroup.VpcId":
+                        if check_display and cells[1] == "EC2.SecurityGroup.VpcId":
                             findings.warn(
                                 RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
                                 f"Security Group VpcId must link to its VPC: {findings.relative(path)}: {current_logical_id}",

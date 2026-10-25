@@ -462,6 +462,7 @@ def check_resource_names(
     root,
     scope,
     definitions_root=None,
+    check_display=True,
 ) -> None:
     definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
@@ -488,11 +489,15 @@ def check_resource_names(
                 }
             )
             modes = _dependency_design_layout.resource_modes(lines, values)
-            reference_tables = _design_document.model_reference_tables(
-                path,
-                input_text(path, encoding="utf-8"),
-                tuple((values or {}).items()),
-                definitions_root,
+            reference_tables = (
+                _design_document.model_reference_tables(
+                    path,
+                    input_text(path, encoding="utf-8"),
+                    tuple((values or {}).items()),
+                    definitions_root,
+                )
+                if check_display
+                else ()
             )
             lines = _dependency_security_group_tables.security_group_table_lines(
                 lines, definitions_root

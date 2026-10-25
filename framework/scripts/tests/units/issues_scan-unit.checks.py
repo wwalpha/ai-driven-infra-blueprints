@@ -12,6 +12,7 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import design.document as document
 import issues.publication as publication
 import issues.runner as scan_runner
 import model.sources as sources
@@ -2575,6 +2576,141 @@ def check_six_categories_and_comparison_priority():
     ]:
         counts[category] = 1
         assert comparison_status(counts) == expected
+
+
+@pytest.fixture
+def reference_design(tmp_path):
+    fixture = _exports_support_issues_scan_fixtures
+    fixture.fixture(tmp_path, stacks=2, services=("s3",))
+    model = tmp_path / "model/dev/123456789012/s3.properties"
+    values = dict(real_load(model).authoritative)
+    key = "desired.row.001-900.value"
+    values.update(
+        {
+            "desired.row.001-900.property": "S3.Bucket.LoggingConfiguration.DestinationBucketName",
+            key: '`{"$modelRef":{"logicalId":"S3_Bucket_002","attribute":"BucketName"}}`',
+            "desired.row.001-900.comment": "合成参照",
+        }
+    )
+    fixture.write_model(model, values)
+    view = tmp_path / "docs/designs/dev/123456789012/s3.md"
+    text = fixture.markdown_for(view, values, tmp_path)
+    view.write_text(text, encoding="utf-8")
+    return model, view, values, key
+
+
+@pytest.mark.parametrize("display", ["link", "plain", "extra-prose"])
+def check_issues_ignores_display_equality(tmp_path, reference_design, display):
+    _, view, _, _ = reference_design
+    text = view.read_text(encoding="utf-8")
+    if display == "plain":
+        text = text.replace(
+            "| LoggingConfiguration.DestinationBucketName | [bucket-app-dev-data2](#s3-bucket-app-dev-data2) |",
+            "| LoggingConfiguration.DestinationBucketName | `bucket-app-dev-data2` |",
+        )
+    elif display == "extra-prose":
+        text += "\n追加の説明文。\n"
+    view.write_text(text, encoding="utf-8")
+    validators, warnings = [], []
+    with (
+        patch.object(
+            sync_runtime,
+            "compare_generation",
+            side_effect=AssertionError("generation equality must not run"),
+        ),
+        patch.object(
+            document,
+            "model_reference_tables",
+            side_effect=AssertionError("reference display equality must not run"),
+        ),
+        patch.object(
+            document,
+            "model_resource_reference_tables",
+            side_effect=AssertionError("Resource display equality must not run"),
+        ),
+    ):
+        errors, checks, _ = scan_runner.mechanical(
+            tmp_path,
+            {("dev", "123456789012", "s3")},
+            jobs=1,
+            validator_out=validators,
+            warnings=warnings,
+        )
+    assert checks > 0 and not errors and not warnings
+    assert not validators[0].findings.unverified
+    assert not validators[0].findings.processing_errors
+    assert not any(
+        check_id == "framework.generated-service-model"
+        for check_id, _, _ in validators[0].findings.results
+    )
+    strict = Validator(tmp_path, {("dev", "123456789012", "s3")}, workers=1)
+    strict.check_project_topology()
+    strict.check_scoped_designs()
+    assert any(
+        d.code == "generation.mismatch" for d in strict.findings.diagnostics
+    ) == (display != "link")
+    assert bool(strict.errors) == (display != "link")
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "logicalId",
+        "attribute",
+        "syntax",
+        "link-target",
+        "link-anchor",
+        "schema",
+        "required",
+    ],
+)
+def check_issues_keeps_independent_validation(tmp_path, reference_design, fault):
+    model, view, values, key = reference_design
+    if fault in {"logicalId", "attribute", "syntax"}:
+        reference = {"logicalId": "S3_Bucket_002", "attribute": "BucketName"}
+        if fault == "syntax":
+            reference["unexpected"] = "invalid"
+        else:
+            reference[fault] = "Missing"
+        values[key] = "`" + json.dumps({"$modelRef": reference}) + "`"
+    elif fault == "schema":
+        values["desired.row.001-003.value"] = "`invalid-status`"
+    elif fault == "required":
+        for suffix in ("property", "value", "comment"):
+            values.pop("desired.row.001-001." + suffix)
+    else:
+        target = "missing.md#absent" if fault == "link-target" else "#absent"
+        text = view.read_text(encoding="utf-8") + f"\n[参照先]({target})\n"
+        view.write_text(text, encoding="utf-8")
+    _exports_support_issues_scan_fixtures.write_model(model, values)
+    validators = []
+    errors, _, _ = scan_runner.mechanical(
+        tmp_path,
+        {("dev", "123456789012", "s3")},
+        jobs=1,
+        validator_out=validators,
+    )
+    warnings = validators[0].warnings
+    assert errors or warnings, validators[0].findings.reference_errors
+    messages = "\n".join([*errors, *(str(warning) for warning in warnings)])
+    assert (
+        "generation.mismatch" not in messages
+        and "invalid Model reference display" not in messages
+    )
+    if fault == "logicalId":
+        assert "TARGET_MISSING" in messages
+    elif fault == "attribute":
+        assert "ATTRIBUTE" in messages
+    elif fault == "syntax":
+        assert "SYNTAX" in messages
+    elif fault.startswith("link-"):
+        assert (
+            "broken design link" if fault == "link-target" else "missing design anchor"
+        ) in messages
+    elif fault == "schema":
+        assert "provider schema violation" in messages
+    else:
+        assert "required" in messages
 
 
 if __name__ == "__main__":

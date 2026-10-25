@@ -42,7 +42,9 @@ def mechanical(
     """Run service diagnostics without PASS caches, contract/deploy or full-loop checks."""
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     validator_module = module("validate-blueprint.py", "issues_validator")
-    validator = validator_module.Validator(root, scope, fresh=fresh, workers=jobs)
+    validator = validator_module.Validator(
+        root, scope, fresh=fresh, workers=jobs, check_display=False
+    )
     validator.schema_catalog = catalog
     if validator_out is not None:
         validator_out.append(validator)
@@ -180,7 +182,14 @@ def codebuild_plaintext_diagnostics(message, comparison):
 def validation_issues(findings, comparison, services):
     ordinary, judgments = {}, {}
     for diagnostic in findings.diagnostics:
-        key = identifier(diagnostic.identity)
+        identity = diagnostic.identity
+        if diagnostic.code == "codebuild.plaintext-reference":
+            identity = (
+                diagnostic.code,
+                diagnostic.service,
+                *codebuild_plaintext_diagnostics(diagnostic.message, comparison),
+            )
+        key = identifier(identity)
         owner = diagnostic.service
         service = (
             owner[2]

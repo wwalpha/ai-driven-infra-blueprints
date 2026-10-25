@@ -315,6 +315,7 @@ class DesignDocument:
     _lock: object = field(default_factory=RLock, repr=False, compare=False)
 
     source: Mapping[str, str] | None = field(default=None, repr=False, compare=False)
+    check_display: bool = True
 
     @cached_property
     def lines(self) -> tuple[str, ...]:
@@ -383,6 +384,8 @@ class DesignDocument:
 
     @cached_property
     def reference_tables(self):
+        if not self.check_display:
+            return ()
         return model_reference_tables(
             self.path,
             self.text,
@@ -418,8 +421,9 @@ class DesignDocument:
 class DesignIndex:
     """Path -> immutable text snapshot; explicitly scoped to a read-only phase."""
 
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(self, root: Path | None = None, *, check_display=True) -> None:
         self.root = root
+        self.check_display = check_display
         self._documents: dict[Path, DesignDocument] = {}
         self._lock = RLock()
 
@@ -433,6 +437,7 @@ class DesignIndex:
                     path,
                     input_text(path, encoding="utf-8") if text is None else text,
                     self.root or definition_root(path.parent),
+                    check_display=self.check_display,
                     source=MappingProxyType(dict(values))
                     if values is not None
                     else None,

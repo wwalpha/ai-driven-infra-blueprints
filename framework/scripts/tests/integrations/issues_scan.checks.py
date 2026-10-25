@@ -119,25 +119,14 @@ def check_scan_publish_mismatch(tmp_path):
     )
     assert summary(artifact)["iac_differences"] == 1
 
-    # A real failed View check is removed only after that same check succeeds.
+    # Extra saved prose has no design meaning and needs no regeneration.
     view = root / "docs/designs/dev/123456789012/s3.md"
-    original = view.read_bytes()
-    view.write_bytes(original + b"\nStale saved View prose.\n")
-    broken = scan(
+    view.write_bytes(view.read_bytes() + b"\nExtra saved View prose.\n")
+    unchanged = scan(
         root, "dev", "123456789012", ["cloudformation-stacks", "s3"], fresh=True, jobs=1
     )
-    assert broken["ordinary"]
-    with task(root, ["cloudformation-stacks", "s3"]):
-        save_scan(root, broken, review_for(broken))
-    view.write_bytes(original)
-    repaired = scan(
-        root, "dev", "123456789012", ["cloudformation-stacks", "s3"], fresh=True, jobs=1
-    )
-    assert not repaired["ordinary"]
-    with task(root, ["cloudformation-stacks", "s3"]):
-        save_scan(root, repaired, review_for(repaired))
-    ordinary = (root / "issues/dev/123456789012/issues.md").read_text()
-    assert "未解決issueなし" in ordinary
+    assert not unchanged["ordinary"] and not unchanged["processing_errors"]
+    assert unchanged["unverified"] == artifact["unverified"]
 
 
 def fail_second_report(state, original, source, destination):
