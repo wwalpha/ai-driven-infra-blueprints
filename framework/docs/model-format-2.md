@@ -105,6 +105,7 @@ refid はサービス内で固定し、並べ替えで採番し直しません�
 | property | name／identifier の正式 Property。stack は name。resource.link／context では禁止 |
 | labelPolicy | fixed／resource-id／display-name／none。link 以外は none |
 | contextProperty | context の executionAccountId のみ。resource／stack では禁止 |
+| valueSelector | 任意。Route53 CNAME の Endpoint DNS 参照で選ぶ `DnsEntries` の位置と DNS 名成分（下記） |
 
 name は producer の desired の正式な名前 Property、identifier は対応 Row の observed を参照します。
 入れ子の Name や Description を raw name へ代用しません。未観測・空・PENDING・不正な識別子は保存値を保持して診断します。
@@ -115,6 +116,30 @@ Pointer は object key 名、配列の追加位置、非文字列値を指せま
 一つの使用箇所です。意味が違う場合は両方を保持し、WARNING とします。
 producer 不在・曖昧・未観測、型・名前・識別子・ラベルの不一致は参照 WARNING です。
 consumer の所有者・使用位置が不明な宣言、構文不正、I/O、scope 違反は通常のエラーです。
+
+### Endpoint DNS の valueSelector
+
+`desired.reference.<id>.valueSelector` は、CNAME の
+`Route53.RecordSet.ResourceRecords` に保存した Resource リンクについて、参照先の
+Interface `EC2.VPCEndpoint` の `DnsEntries` から選ぶ DNS 名を比較用に明示します。
+対応する参照先 ResourceType は `EC2.VPCEndpoint` のみです。
+`ResourceRecords[]` や明示的な番号付き Row（例: `ResourceRecords[1]`）も対象です。
+
+```properties
+desired.reference.dns.valueSelector=dns-entry[0].dns-name
+```
+
+書式は `dns-entry[n].dns-name` です。`n` は0始まりの非負整数で、`0` 以外の先頭ゼロは認めません。
+`[0]` は `DnsEntries` の先頭要素を意味し、その要素を `:` で分割した第2成分の DNS 名を選びます。
+比較する抽出構造は `Select(1, Split(":", Select(n, DnsEntries)))` です。
+省略しても既存の Resource リンク宣言は有効ですが、`n=0` を補完せず、DNS 選択の比較は未比較になります。
+
+既存の `producerKind=resource`、`format=link` の宣言に追加し、`consumerKey`、保存断片の
+`text`／`occurrence`、`producerScope`、`producerLogicalId`、`resourceType`、`labelPolicy` を引き続き使います。
+`$modelRef` を拡張せず、AWS JSON 内の Resource リンクも許可しません。
+Row の保存値・Markdown リンク・値の保存形式は変更せず、DNS 名や生成 ARN を正本へ保存しません。
+比較には Model／IaC の CNAME・Interface 型、同じ Producer、同一 scope の一意な Export と抽出構造の証明が必要です。
+証明が不足すれば未比較とし、構造が一致しても実行時の選択範囲や現在の AWS 値の検証済みを意味しません。
 
 ## API と CLI
 
