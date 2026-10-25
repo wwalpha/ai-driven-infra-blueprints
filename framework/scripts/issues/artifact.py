@@ -9,6 +9,7 @@ import issues.aggregate as _imports_issues_aggregate
 
 from .aggregate import IAC_CATEGORIES, pending_deploy_count
 from .records import brief, identifier
+from .review import existing_issues
 
 CHANNELS = ("warnings", "information", "unverified", "processing_errors")
 
@@ -100,7 +101,8 @@ def review_payload(artifact, artifact_path):
         review_required=dict(
             names=len(artifact["naming"]["names"]),
             judgments=len(artifact["judgments"]),
-            policy="naming_contextとnaming/judgmentsの全ページ・全IDを確認する。代表例だけではsave不可。",
+            existing_issues=len(existing_issues(artifact)),
+            policy="naming_contextとnaming/judgmentsの全IDを確認し、既存Issueごとにexisting_issue_judgmentsで継続・解消・未検証と今回の証拠を確定する。",
         ),
         human_confirmations=dict(
             total=len(artifact["human_confirmations"]),
@@ -114,7 +116,7 @@ def review_payload(artifact, artifact_path):
                 artifact.get("cfn_lint", {}).get("coverage", []), "lint_coverage"
             ),
         ),
-        detail="issues_scan.py detail --artifact <path> --section naming_context|naming|judgments|ordinary|human_confirmations|iac_issues|iac|warnings|information|unverified|processing_errors; --offset 0 --limit 50; IaC: --category <分類> / --issue-id ISSUE-<id>",
+        detail="issues_scan.py detail --artifact <path> --section naming_context|naming|judgments|ordinary|check_results|human_confirmations|iac_issues|iac|warnings|information|unverified|processing_errors; --offset 0 --limit 50; IaC: --category <分類> / --issue-id ISSUE-<id>",
     )
 
 
@@ -202,6 +204,8 @@ def detail_payload(
         }
     elif section == "lint_coverage":
         content = artifact["cfn_lint"]["coverage"]
+    elif section == "check_results":
+        content = artifact.get(section, [])
     else:
         content = artifact[section]
     page = content[offset : offset + limit]
@@ -222,6 +226,7 @@ def validate_artifact(artifact):
         raise ValueError("invalid scan_id")
     if identifier(artifact["naming_context"]) != artifact["naming_context_id"]:
         raise ValueError("invalid naming_context_id")
+    existing_issues(artifact)
     records, meta = artifact["iac"], artifact["record_meta"]
     if len(records) != len(meta) or artifact["overview"]["record_count"] != len(
         records

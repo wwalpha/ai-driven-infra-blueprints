@@ -103,6 +103,58 @@ def check_scan_publish_mismatch(tmp_path):
     assert summary(artifact)["iac_differences"] == 1
     assert not issue_errors(root, {("dev", "123456789012", "s3")})
 
+    # A real failed View check is removed only after that same check succeeds.
+    view = root / "docs/designs/dev/123456789012/s3.md"
+    original = view.read_bytes()
+    view.write_bytes(original + b"\nStale saved View prose.\n")
+    broken = scan(root, "dev", "123456789012", ["s3"], fresh=True, jobs=1)
+    assert broken["ordinary"]
+    with task(root, ["s3"]):
+        save_scan(root, broken, review_for(broken))
+    assert issue_errors(root, {("dev", "123456789012", "s3")})
+    view.write_bytes(original)
+    repaired = scan(root, "dev", "123456789012", ["s3"], fresh=True, jobs=1)
+    materials = [
+        item
+        for item in repaired["judgments"]
+        if item.get("kind") == "existing-issue-correspondence"
+    ]
+    assert materials and not repaired["ordinary"]
+    check = next(
+        item
+        for item in repaired["check_results"]
+        if item["check_id"] == "framework.generated-service-model"
+    )
+    assert check["status"] == "PASS" and check["complete"]
+    review = dict(
+        review_for(repaired),
+        existing_issue_judgments=[
+            dict(
+                id=item["id"],
+                service="s3",
+                status="resolved",
+                verification="local",
+                reason="The saved View now matches generation from the Model",
+                evidence=[
+                    dict(
+                        kind="scan",
+                        section="check_results",
+                        id=check["id"],
+                        subject="s3 saved View equality",
+                        details="The same failed generation check now passed",
+                    )
+                ],
+            )
+            for item in materials
+        ],
+    )
+    assert review["resolved"] == []
+    with task(root, ["s3"]):
+        save_scan(root, repaired, review)
+    ordinary = (root / "issues/dev/123456789012/issues.md").read_text()
+    assert "未解決issueなし" in ordinary
+    assert not issue_errors(root, {("dev", "123456789012", "s3")})
+
 
 def fail_second_report(state, original, source, destination):
     if Path(destination).name == "iac-issues.md" and not state.failed:

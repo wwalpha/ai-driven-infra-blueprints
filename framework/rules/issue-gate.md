@@ -11,9 +11,10 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 - Every numbered issue (such as `1.`) in `issues/<environment>/<alias-or-account>/issues.md`
   is unresolved. A missing or empty file means there are no unresolved issues. Remove an
-  item only when the Human explicitly requests its repair and revalidation provides
-  evidence of resolution. Keep history in Git; deleting or rewriting the inventory does
-  not resolve issues. When the count is zero, the report may state `未解決issueなし`.
+  item when revalidation provides evidence of resolution within a Human-requested
+  issues Scan, or after explicitly requested repair. Scan saving requires a current
+  state decision for every existing scoped Issue; it grants no repair authority.
+  Keep history in Git; deleting or rewriting the inventory does not resolve issues. When the count is zero, the report may state `未解決issueなし`.
 - Identify the owning service from `### service-id`, an `issue-service` comment, or a
   link to Model properties or a detailed design for the same target. Do not infer it
   from an AWS display name. Unknown ownership or a malformed inventory with neither

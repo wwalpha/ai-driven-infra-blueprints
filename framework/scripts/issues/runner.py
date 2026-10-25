@@ -18,6 +18,7 @@ from .inputs import Comparison, view_text
 from .integrity import selected_scope
 from .materials import existing_materials, naming_materials
 from .records import identifier, safe_text
+from .reports import issue_key
 
 
 @task_read_scope
@@ -180,6 +181,14 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     ordinary.extend(lint.pop("ordinary"))
     judgments.extend(lint.pop("judgments"))
     warnings.extend(lint.pop("warnings"))
+    current = {}
+    for record in ordinary:
+        current.setdefault(issue_key(root, record), []).append(record["id"])
+    for item in judgments:
+        if item.get("kind") == "existing-issue-correspondence":
+            item["materials"]["current_diagnostic_ids"] = current.get(
+                item["materials"].get("marker"), []
+            )
     naming_context = comparison.redacted(
         {key: value for key, value in naming.items() if key != "names"}
     )
@@ -277,6 +286,19 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     ):
         artifact[key] = comparison.redacted(artifact[key])
     artifact["checks"] = validator.checks
+    artifact["check_results"] = [
+        dict(
+            id=identifier([result.check_id, sorted(result.scope or [])]),
+            check_id=result.check_id,
+            scope=["/".join(entry) for entry in sorted(result.scope or [])],
+            status=result.status,
+            complete=result.status == "PASS"
+            and result.metadata.get("complete") is not False
+            and not result.metadata.get("unverified"),
+            checks=result.checks,
+        )
+        for result in validator.findings.results.values()
+    ]
     artifact["metrics"] = comparison.metrics | dict(
         mechanical_seconds=mechanical_seconds,
         iac_seconds=iac_seconds,

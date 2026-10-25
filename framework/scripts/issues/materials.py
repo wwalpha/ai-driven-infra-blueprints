@@ -19,7 +19,7 @@ from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
 
 from .records import identifier, safe_text
-from .reports import inventories, numbered, owned_blocks
+from .reports import inventories, issue_marker, numbered, owned_blocks
 
 
 def rule_section(text, heading):
@@ -305,7 +305,8 @@ def existing_materials(root, environment, directory, services):
                     "id": identifier([service, text]),
                     "service": service,
                     "message": safe_text(text),
-                    "kind": "existing-unresolved; preserve unless explicitly revalidated",
+                    "kind": "existing-unresolved; current state decision required",
+                    "marker": issue_marker(text),
                 }
             )
     human = [

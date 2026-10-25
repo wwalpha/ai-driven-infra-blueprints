@@ -59,6 +59,7 @@ def main():
             "naming_context",
             "cfn_lint",
             "lint_coverage",
+            "check_results",
         ),
         required=True,
     )

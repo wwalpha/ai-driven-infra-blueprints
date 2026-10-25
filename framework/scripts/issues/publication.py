@@ -19,6 +19,7 @@ import issues.artifact as _imports_issues_artifact
 import issues.reports as _imports_issues_reports
 
 from .reports import iac_report, normal_merge
+from .review import existing_decisions
 
 
 @task_read_scope
@@ -59,6 +60,7 @@ def save(
     stamp=None,
     warnings=(),
     artifact=None,
+    decisions=(),
 ):
     publication_lock = _imports_model_sources.publication_lock
     with publication_lock(root, read_only=True):
@@ -74,6 +76,7 @@ def save(
                 candidates,
                 additions,
                 resolutions,
+                decisions=decisions,
             )
         }
         notice_report = _imports_issues_reports.notice_report
@@ -140,30 +143,37 @@ def save_scan(root, artifact, review):
     if (
         set(review.get("reviewed_names", [])) != names
         or set(review.get("reviewed_judgments", [])) != judgments
+        or len(review["reviewed_names"]) != len(names)
+        or len(review["reviewed_judgments"]) != len(judgments)
     ):
         raise ValueError(
             "all naming and remaining judgment materials need explicit review; no representative sampling"
         )
     assignments = review.get("diagnostic_assignments", {})
     additions = list(review.get("issues", []))
+    ordinary = list(artifact["ordinary"])
     for item in artifact["judgments"]:
         if "message" in item:
             owner = assignments.get(item["id"])
             if owner not in artifact["services"]:
                 raise ValueError("diagnostic requires scoped service assignment")
-            additions.append(dict(item, service=owner))
+            ordinary.append(dict(item, service=owner))
+    decisions, resolutions, consumed = existing_decisions(
+        dict(artifact, ordinary=ordinary), review
+    )
     paths = save(
         root,
         artifact["environment"],
         artifact["target"],
         artifact["services"],
-        artifact["ordinary"],
+        [item for item in ordinary if item.get("id") not in consumed],
         additions,
-        review.get("resolved", []),
+        resolutions,
         artifact["iac"],
         display=artifact.get("iac_display"),
         stamp=artifact.get("executed_at"),
         warnings=artifact.get("warnings", []),
         artifact=artifact,
+        decisions=decisions,
     )
     return paths

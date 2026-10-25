@@ -459,7 +459,9 @@ def check_scan_changes_without_cache():
             )
             validator = SimpleNamespace(
                 findings=SimpleNamespace(
-                    unverified=[], result=lambda *_: SimpleNamespace(metadata={})
+                    unverified=[],
+                    results={},
+                    result=lambda *_: SimpleNamespace(metadata={}),
                 ),
                 cache=cache,
                 checks=20,

@@ -22,7 +22,7 @@ Apply AGENTS.md section-reading rules. Apply common rules, target namespace rule
 | Existing service validators, generated Markdown/JSON equality, catalog/schema, references, policies, observed persistence prohibitions | Existing issues whose concrete diagnostic meaning/mapping is unclear. Retrieve diagnostic details/resources only when needed |
 | Naming coverage, mandatory Name, existing name value checks | Name patterns for all resources, human-confirmed components, human exceptions and their scope. Do not check only error names/representative examples |
 | Formal IaC type/ID/stack mappings and comparison of confirmed values and supported expressions | Do not regenerate machine differences as prose. Do not send uncompared items to full-text comparison or AWS |
-| Scoped report formatting, exclusion, saving, report destination authority | Evidence-backed additional ordinary issues and resolution specifications for explicitly revalidated existing issues |
+| Scoped report formatting, exclusion, saving, report destination authority | Evidence-backed additional ordinary issues and complete continuing/resolved/unverified decisions for every scoped existing Issue |
 
 `scan` stdout contains execution/Scope, per-category counts, bounded cause/action summaries and representatives, artifact path and detail/review instructions. Never expand all uncompared/errors/names/judgments in initial output. Retrieve all naming/judgment pages through `detail`; the complete-review requirement and exit/save decisions remain unchanged. Diagnostics, full records, rules and masked field differences stay in the same run's external artifact.
 
@@ -56,11 +56,17 @@ Review JSON contains only minimal decision results (do not copy large scan JSON/
   "reviewed_judgments": ["全残判断材料のid"],
   "diagnostic_assignments": {"所属未確定診断id": "service-id"},
   "issues": [{"service": "s3", "message": "resource/property、具体的問題と根拠", "source": {"path": "model/dev/cde/s3/part-001.properties", "line": 12}}],
-  "resolved": [{"id": "既存issue材料のid", "reason": "明示された修復scopeでの解消理由", "evidence": "実施済み再検証の根拠"}]
+  "resolved": [],
+  "existing_issue_judgments": [{
+    "id": "既存issue材料のid", "service": "s3", "status": "resolved",
+    "verification": "local", "reason": "同じResourceの該当チェックが成功し不一致が解消",
+    "evidence": [{"kind": "scan", "section": "check_results", "id": "今回の完了チェックid",
+      "subject": "S3.Bucket 001の該当Property", "details": "該当ルールによる検証成功と元Issueとの対応"}]
+  }]
 }
 ```
 
-All seven review keys are required, including empty additions/resolutions/assignments. Save requires exact scan/context IDs and complete naming/judgment ID sets. Read common naming rules/target/review policy once through `detail --section naming_context`, then every naming/judgment page. Name pages refer to the shared context ID; their values, sources, exception scope and Human context remain available. A new scan always requires a new complete review even when name IDs are unchanged. Record concrete unconfirmed matters such as missing ordinary component evidence in `issues`; do not substitute human confirmation for success of unexecuted AWS checks. Resolving old issues merely because they were absent from a new scan is prohibited.
+All seven existing review keys are required, including empty additions/resolutions/assignments. `existing_issue_judgments` is additionally mandatory when this Scan contains existing Issues; it may be omitted or empty only when none exist. Save requires exact scan/context IDs and complete naming/judgment ID sets. Read common naming rules/target/review policy once through `detail --section naming_context`, then every naming/judgment page. Name pages refer to the shared context ID; their values, sources, exception scope and Human context remain available. A new scan always requires a new complete review even when name IDs are unchanged. Record concrete unconfirmed matters such as missing ordinary component evidence in `issues`; do not substitute human confirmation for success of unexecuted AWS checks. Resolving old issues merely because they were absent from a new scan is prohibited.
 
 Use the following only to save already obtained results. Input JSON accepts only `issues`/`resolved`; do not automatically start scan, naming reinvestigation, IaC comparison, or AWS checks. Do not omit existing validation at save time.
 
@@ -70,6 +76,72 @@ python3 framework/scripts/blueprint-loop.py --mode local --task-file tasks/save-
 ```
 
 Exit 0 means command completion (IaC differences are non-blocking), 1 means ordinary validation diagnostics from existing validators, and 2 means input/processing/save errors. State partial in summaries/reports; do not call it complete equality/PASS. Even if scan detects ordinary validation errors, save artifacts and proceed to saving results. If the post-save loop is FAIL, report that result and do not mark the task completed.
+
+## Existing Issue state decisions
+
+`existing-issue-correspondence` materials remain in v3 `judgments`. The material ID
+identifies that Scan's existing item; the saved `issue-id` marker identifies its
+continuing Issue across evidence updates. Legacy items without a marker receive one
+when updated. `current_diagnostic_ids` supplies exact machine-marker correspondence;
+other mappings require the corresponding resource/rule judgment. Do not infer resolution
+from an empty diagnostic list, a successful unrelated check or IaC-only comparison.
+
+Every decision has `id`, `service`, `status`, `verification` (`local` or `aws`),
+nonempty `reason` and nonempty structured `evidence`. IDs must cover exactly all existing
+scoped Issues, once each. Duplicate/unknown/out-of-scope IDs, wrong Services, missing
+decisions and contradictory evidence fail before publication. `reviewed_judgments`
+still covers every judgment material and does not replace these decisions.
+
+- `continuing`: current evidence proves the problem remains. Supply `diagnostic_id`
+  for a current `ordinary` candidate and reference it in evidence; Python reuses its
+  message/source and consumes the candidate to avoid duplication. Alternatively supply
+  `issue: {"message": "current problem", "source": {"path": "relative/path", "line": 12}}`
+  with concrete nonmechanical revalidation. The item is replaced with current grounds,
+  retaining its marker and Service. Keep Human confirmation prose outside Issue bodies.
+- `resolved`: the relevant check completed and positively established that the original
+  mismatch/violation is absent. Every evidence entry must establish successful completed
+  revalidation. A current corresponding ordinary diagnostic prevents resolution.
+- `unverified`: the relevant check was unexecuted, failed, incomplete or unable to decide.
+  Require `not_checked_reason`; keep the previous problem text and visibly replace its
+  current state/reason/evidence annotation. Do not register unchecked scope as a new Issue.
+
+Evidence forms:
+
+- `{"kind":"scan","section":"ordinary","id":"current-diagnostic-id"}` proves a
+  current problem. `section: "check_results"` reuses a current scoped machine check,
+  with additional nonempty `subject` and `details` explaining the original Issue/check
+  correspondence. Only `status: PASS` with `complete: true` proves absence. Other states
+  are unverified. `unverified`/`processing_errors` evidence may reference a record's `id`
+  or, for older records without IDs, its existing `identifier(record)` value.
+- Individual/nonmechanical revalidation uses `kind: "revalidation"`, `verification`,
+  `check`, `subject`, `rule`, `source: {"path":"relative/path","line":12}`, `details`,
+  boolean `completed` and `outcome: "present" | "absent" | "unverified"`. Cite the
+  actual checked resource, applicable rule and observed result. Only `completed: true`
+  permits present/absent. The reviewer must acquire that evidence; a structured claim
+  alone does not execute or independently verify a check.
+- If no relevant check ran, use `{"kind":"not_run","check":"specific check", "details":"why unexecuted"}`
+  with `unverified` and `not_checked_reason`. This never proves resolution.
+
+All current Scan evidence is local. `verification: aws` requires already acquired AWS
+revalidation evidence for resolution; the issues skill never executes AWS APIs and local
+PASS cannot prove current AWS equality. Unverified evidence may accompany positive
+continuing evidence, but never a resolution. Lack of information remains unverified.
+
+`existing_issue_judgments` is the single authority. Keep `resolved: []`; `save_scan()`
+derives the reason/evidence deletion records and uses the existing merge removal path.
+A nonempty legacy `resolved` is accepted only if it exactly equals that derived projection;
+independent or contradictory legacy resolutions are rejected. `save-results` retains its
+existing acquired `issues`/`resolved` contract and conservative preservation behavior:
+it requires neither Scan-wide decisions nor automatic checks and never interprets
+missing acquired results as resolution.
+
+The artifact remains v3 and all existing commands/sections remain supported, with additive
+`check_results` and `detail --section check_results`. Older v3 artifacts can use explicit
+individual revalidation, or mark Issues unverified; missing new machine evidence never
+becomes PASS. Unsupported artifact versions are still rejected. Saving rereads only the
+ordinary report under the existing lock; a decision that no longer identifies its item
+fails atomically. Keep later/unreviewed report items and all out-of-scope content. Do not
+compare/fingerprint Model/IaC/Scan inputs or rerun checks during saving.
 
 ## Comparison coverage
 
@@ -117,7 +189,7 @@ confirmed/unverified scope. No input-change warnings, automatic rescan or renewe
 are required. Keep complete Scan/Review ID/content validation. A new explicitly requested
 scan still requires its own complete review. Never promote unverified or failed results to PASS.
 
-Save reports with indivisible atomic publication/rollback. Reread/merge ordinary `issues.md` service blocks conservatively, preserving out-of-scope services, human confirmations and unresolved issues. IaC Markdown is instead this run's Scope only: no old result merge, no automatic resolution claim and no out-of-scope results in current counts. Do not parse old IaC Markdown or preserve its notes; retain previous bytes only for publication rollback. Mask secrets/current ARNs/NoEcho values in artifacts, detail and reports. No additional comparison or Model/IaC parsing during saving.
+Save reports with indivisible atomic publication/rollback. Reread/merge ordinary `issues.md` service blocks using the complete current state decisions, preserving out-of-scope services, human confirmations and unverified Issues. IaC Markdown is instead this run's Scope only: no old result merge, no automatic resolution claim and no out-of-scope results in current counts. Do not parse old IaC Markdown or preserve its notes; retain previous bytes only for publication rollback. Mask secrets/current ARNs/NoEcho values in artifacts, detail and reports. No additional comparison or Model/IaC parsing during saving.
 
 The IaC summary starts with environment/target, selected Services, execution time and a judgment limited to this run. State that out-of-scope Services are unverified without inventing their counts. Distinguish no compared records (empty or excluded-only), match within scope, differences, partial/uncompared and errors. State action-unit problem counts separately from affected record counts; matched/excluded never become problems. Categories are 要修正 / 要対応 / 要判断 / 比較未完了 / CFn非対応・比較対象外 / 処理エラー / 原因未確定. Show 要修正 first.
 
@@ -169,8 +241,9 @@ continue independent Model/service/comparison/lint checks. Normal Validator fail
 propagation is unchanged.
 
 Under the publication lock, reread ordinary issues, format both reports and use the existing
-indivisible atomic batch/rollback. Preserve old ordinary issues unless explicit resolution
-evidence identifies them; preserve out-of-scope services/Human prose. Replace only this
+indivisible atomic batch/rollback. Refresh continuing ordinary Issues with current evidence, remove only explicitly
+revalidated resolved Issues and retain unverified Issues with their reason; preserve
+out-of-scope services/Human prose. Replace only this
 scope's machine notice marker. Exclude machine notices from Human review materials.
 `save-results` accepts acquired ordinary results only and never scans/compares/lints.
 

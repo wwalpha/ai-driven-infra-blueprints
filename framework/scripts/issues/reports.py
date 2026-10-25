@@ -121,8 +121,61 @@ def evidence(root, report, source):
     return f"[{label}]({target})"
 
 
+def issue_marker(text):
+    markers = markdown_matches(text, r"^.*<!-- issue-id: ([^\s<>]+) -->.*$")
+    if len(markers) > 1:
+        raise ValueError("multiple Issue IDs in one ordinary Issue")
+    return markers[0][2] if markers else None
+
+
+def issue_key(root, record):
+    message = safe_text(record["message"]).replace(str(root) + "/", "")
+    return identifier([record["service"], record.get("key", message)])
+
+
+def issue_content(root, path, record, marker=None):
+    message = safe_text(record["message"]).replace(str(root) + "/", "")
+    link = evidence(root, path, record.get("source"))
+    content = message + (f" 根拠: {link}。" if link else "")
+    marker = marker or issue_key(root, record)
+    return content + f" <!-- issue-id: {marker} -->"
+
+
+def reviewed_issue(root, path, service, item, decision):
+    marker = issue_marker(item) or decision["id"]
+    if decision["status"] == "continuing":
+        content = issue_content(
+            root, path, dict(decision["issue"], service=service), marker
+        )
+        state = "継続"
+    else:
+        content = re.sub(
+            r" <!-- issue-review:start --> [^\n]* <!-- issue-review:end -->$",
+            "",
+            item,
+        ).rstrip()
+        if not issue_marker(content):
+            content += f" <!-- issue-id: {marker} -->"
+        state = "未検証: " + decision["not_checked_reason"]
+    return (
+        content
+        + " <!-- issue-review:start -->"
+        + f" 今回の状態: {state}。判定理由: {decision['reason']}。根拠: {decision['evidence']}。"
+        + " <!-- issue-review:end -->"
+    )
+
+
 def normal_merge(
-    root, path, environment, directory, services, candidates, additions, resolutions
+    root,
+    path,
+    environment,
+    directory,
+    services,
+    candidates,
+    additions,
+    resolutions,
+    *,
+    decisions=(),
 ):
     old = path.read_text(encoding="utf-8") if path.exists() else ""
     inventories(root, path)
@@ -146,20 +199,17 @@ def normal_merge(
     pending = {service: [] for service in services}
     for record in [*candidates, *additions]:
         service = record.get("service")
-        if service not in pending:
+        if service not in services:
             raise ValueError(
                 "ordinary issue ownership requires explicit scoped service"
             )
-        message = safe_text(record["message"]).replace(str(root) + "/", "")
-        link = evidence(root, path, record.get("source"))
-        content = message + (f" 根拠: {link}。" if link else "")
-        marker = identifier([service, record.get("key", message)])
-        pending[service].append(content + f" <!-- issue-id: {marker} -->")
+        pending[service].append(issue_content(root, path, record))
     resolutions = {item["id"]: item for item in resolutions}
-    used = set()
+    decisions = {item["id"]: item for item in decisions}
+    used, updated = set(), set()
     output = []
     for service, body in existing:
-        if service not in pending:
+        if service not in services:
             output.append(body)
             continue
         prefix, items = numbered(body)
@@ -177,10 +227,16 @@ def normal_merge(
                         "resolution needs explicit revalidation evidence and reason"
                     )
                 used.add(item_id)
+            elif item_id in decisions:
+                current = decisions[item_id]
+                if current["service"] != service:
+                    raise ValueError("existing Issue update ownership mismatch")
+                kept.append(reviewed_issue(root, path, service, item, current))
+                updated.add(item_id)
             else:
                 kept.append(item)  # Absence in a new scan never resolves an issue.
-        for item in pending.pop(service):
-            marker = re.search(r"<!-- issue-id: (.+?) -->", item).group(1)
+        for item in pending.pop(service, []):
+            marker = issue_marker(item)
             if not any(f"<!-- issue-id: {marker} -->" in current for current in kept):
                 kept.append(item)
         if kept:
@@ -201,6 +257,8 @@ def normal_merge(
         raise ValueError(
             "resolution is stale, outside scope or does not identify an existing issue"
         )
+    if updated != decisions.keys():
+        raise ValueError("existing Issue update is stale or outside scope")
     for service, items in pending.items():
         if items:
             output.append(

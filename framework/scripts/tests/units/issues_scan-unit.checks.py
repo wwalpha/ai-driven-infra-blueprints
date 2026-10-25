@@ -732,7 +732,9 @@ def check_scan_accepts_input_changes(tmp_path, input_name):
     validator = SimpleNamespace(
         checks=1,
         findings=SimpleNamespace(
-            unverified=[], result=Mock(return_value=SimpleNamespace(metadata={}))
+            unverified=[],
+            results={},
+            result=Mock(return_value=SimpleNamespace(metadata={})),
         ),
     )
     lint = dict(
@@ -1319,7 +1321,9 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
         cache=cache,
         service_cache_pending=[("pending", 3)] if dependent else [],
         findings=SimpleNamespace(
-            unverified=[], result=Mock(return_value=SimpleNamespace(metadata={}))
+            unverified=[],
+            results={},
+            result=Mock(return_value=SimpleNamespace(metadata={})),
         ),
     )
     validator.finalize_service_cache = partial(
@@ -1424,7 +1428,9 @@ def check_scan_exception_classification(tmp_path, exception):
     validator = SimpleNamespace(
         checks=1,
         findings=SimpleNamespace(
-            unverified=[], result=Mock(return_value=SimpleNamespace(metadata={}))
+            unverified=[],
+            results={},
+            result=Mock(return_value=SimpleNamespace(metadata={})),
         ),
         finalize_service_cache=Mock(),
     )
