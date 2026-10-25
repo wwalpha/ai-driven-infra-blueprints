@@ -607,6 +607,7 @@ def snapshot_artifact(
                 status="PASS",
                 complete=True,
                 scope=[f"dev/{target}/{service}" for service in services],
+                targets=[],
             )
         ],
         **aggregate(list(records), "dev", target, services),

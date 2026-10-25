@@ -208,6 +208,11 @@ def test_invalid_reference_has_origin_code_and_position(models, fault, code):
     findings.warn(caught.value)
     comparison = SimpleNamespace(root=consumer.root, redacted=lambda value: value)
     issues = reference_issues(findings, comparison, ["iam", "kms", "duplicate"])
+    assert all(
+        item["resource"] is None and item["property"] is None
+        for item in issues
+        if item["service"] != "iam"
+    )
     owners = {issue["service"] for issue in issues}
     if fault == "ambiguous":
         assert owners == {"kms", "duplicate"}
@@ -410,6 +415,11 @@ def test_issues_use_structured_codes_and_stable_identity(models):
     first = reference_issues(findings, comparison, ["iam"])
     assert len(first) == 1 and first[0]["severity"] == "ERROR"
     assert first[0]["diagnostic"]["code"] == "MODEL_REF_TARGET_MISSING"
+    assert (first[0]["resource"], first[0]["property"], first[0]["rule"]) == (
+        "070",
+        "IAM.Role.Policies[].PolicyDocument",
+        "MODEL_REF_TARGET_MISSING",
+    )
     findings.reference_errors[0]["message"] = "reworded explanation"
     assert reference_issues(findings, comparison, ["iam"])[0]["id"] == first[0]["id"]
     assert (

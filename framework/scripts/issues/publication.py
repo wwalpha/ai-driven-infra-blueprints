@@ -19,7 +19,7 @@ from validation_scope import active_scope
 from .artifact import validate_artifact
 from .integrity import whole_target
 from .reports import iac_report, ordinary_report
-from .review import human_confirmations, review_snapshot
+from .review import human_confirmations, review_snapshot, target_identity
 
 
 @task_read_scope
@@ -67,7 +67,7 @@ def require_cleanup_authority(root, data, cleanup):
         ):
             raise ValueError("invalid Human-requested confirmation cleanup entry")
         requested.append(entry)
-    for confirmation, record in cleanup:
+    for confirmation, record, *_ in cleanup:
         if (
             dict(
                 environment=data["environment"],
@@ -123,13 +123,18 @@ def save_scan(root, artifact, review):
             )
             # Apply only reviewed record removals to the current file, retaining raw Human facts.
             human = human_confirmations(root, data["environment"], data["target"])
-            pending = set(snapshot.cleanup)
+            pending = {item[:2]: item[2:] for item in snapshot.cleanup}
             for confirmation in human["confirmations"]:
                 records = []
                 for record in confirmation["related_issues"]:
                     key = (confirmation["id"], record["id"])
                     if key in pending:
-                        pending.remove(key)
+                        if target_identity(
+                            dict(record, service=confirmation["service"])
+                        ) != pending.pop(key):
+                            raise ValueError(
+                                "current Human related record does not match the reviewed target/rule"
+                            )
                     else:
                         records.append(record)
                 confirmation["related_issues"] = records

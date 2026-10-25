@@ -42,22 +42,40 @@ confirmations:
       resource: '001'
       property: S3.Bucket.BucketName
     exceptions:
-      - Existing name is allowed for this Resource and Property
+      - rule: design.service
+        diagnostic_id: current-diagnostic-id
+        condition: Existing name is allowed for this Resource and Property
     evidence: Explicit Human instruction and its context
     related_issues:
       - id: obsolete-note
         message: Related issue information, separate from the confirmed fact
+        resource: '001'
+        property: S3.Bucket.BucketName
+        rule: design.service
 ```
 
 Every listed field is mandatory; empty exceptions/related_issues lists are permitted.
 IDs are unique, service/environment/target are explicit, scope contains resource and
-property (an explicitly confirmed `*` covers all), evidence is nonempty. Unknown
+property as concrete exact identities; `*`, missing and blank identities are rejected.
+Each exception has exactly `rule`, `diagnostic_id` and nonempty `condition`: the
+Human explicitly permits that condition for that existing diagnostic ID and Rule/Check.
+Each related record has exactly `id`, `message`, `resource`, `property`, `rule`;
+service/environment/target are inherited from its confirmation/file. Evidence is nonempty. Unknown
 fields, duplicate YAML keys and wrong target/version fail closed. The file contains
 facts and their exception scope, never generated runtime values or a report cache.
+This is the single supported contract. Old string exceptions and id/message-only
+related records report the required fields and refuse Scan/publication. Never convert,
+discard or automatically migrate Human facts to satisfy the contract.
 
 Read all confirmations at Scan and review them against current diagnostics. An
-exception excludes only a diagnostic in its service/resource/property scope with
-explicit current evidence. A fact without an exception cannot suppress a diagnostic.
+exception excludes only a diagnostic whose structured service/resource/property and
+Rule/Check match, whose existing ID matches that exception's `diagnostic_id`, and
+whose condition was explicitly allowed by the Human. Current reason/evidence must
+be nonempty but cannot override identity mismatch or supply missing diagnostic fields.
+Identity comparison uses exact existing values, with no guessed aliases or wildcard
+expansion. Environment/target come from the validated Scan/Human file. A fact without
+an applicable exception cannot suppress a diagnostic. Keep diagnostics with unknown
+identities as Issues (or explicitly report a conflict/unverified scope).
 Contradiction keeps the diagnostic and records a Human conflict as unverified;
 never silently call it resolved. Do not modify or delete a confirmed fact without
 Human authorization. New facts require actual Human confirmation and an explicitly
@@ -79,14 +97,31 @@ and the selected Task. Adding the Human file to either declaration forfeits the
 report-only exception; it never grants cleanup or direct-edit authority.
 
 The requested records must also appear in the validated Review with a current complete
-PASS check covering that service and concrete reason/evidence, with no remaining
-Issue, conflict, processing failure or unverified coverage affecting that confirmation
-scope. Independent services may still fail; their incomplete status remains visible. This cleanup does not
+PASS check covering that related record's service/resource/property/Rule and concrete
+reason/evidence, with no remaining Issue, conflict, processing failure or unverified
+coverage potentially affecting that problem. The selected current check result must
+be unique, PASS and complete, its `check_id` must equal the related record's `rule`,
+and its structured `targets` must contain the exact service/resource/property/rule.
+A service Scope alone proves no per-setting coverage. Scan projects selected setting
+targets only for an executed `design.service` check, which validates the service's
+setting tables. Other mechanical/lint checks have empty targets because their
+per-setting Rule coverage is not proven; no LLM can fill it in. A narrower Rule cannot
+borrow a broad Check's PASS. Current structured reference diagnostics retain their
+existing code as Rule, fixed Resource number from `modelKey` and formal Property only
+when the Model position belongs to the diagnosed owner. Cross-Model positions and
+missing fields stay unknown.
+
+Exclusion and cleanup share exact identity matching. Removal blockers use the same
+fields conservatively: missing/`*` identity or unscoped processing failure can still
+affect the target; a proven different service/resource/property/rule cannot. All
+unverified and processing channels are considered, including Human conflicts.
+Independent services may still fail; their incomplete status remains visible. This cleanup does not
 change confirmation ID, service, fact, scope, exceptions, evidence, other confirmations
 or unrelated records. Only `save_scan()` obtains this bounded cleanup authority;
 `save_authority()` permits reports only. Publication requires the records to exist
 in the current strict-YAML-validated Human file and applies only those reviewed
-removals under the publication lock, preserving raw facts even when the Scan displays
+removals under the publication lock, checking each selected record's current structured
+identity against the immutable reviewed removal and preserving raw facts even when the Scan displays
 masked values. Both reports and the necessary Human file share `atomic_files()` and
 full rollback on failure. Without cleanup the Human file is never rewritten.
 Ordinary Human fact creation/edit/deletion requires a separately Human-authorized
@@ -145,7 +180,9 @@ one decision for each current ordinary or service-ambiguous Error diagnostic.
 Assignments cover exactly those ambiguous Error IDs, with a selected service.
 `issue` decisions require ID/outcome/reason. `excluded` and `conflict` additionally
 require `confirmation_id`, `target: {resource, property}` and current `evidence`.
-An exclusion requires the confirmed exception and exact applicable scope. `issues`
+An exclusion requires the confirmed exception's Rule/diagnostic ID/condition and exact
+applicable structured diagnostic scope; Review `target` never supplies missing
+diagnostic identity. `issues`
 contains additional current LLM findings with service/message and optional relative
 source path/positive line, resource/property/rule. `unverified` contains current
 LLM limitations with exactly service/check/reason. Report missing knowledge as

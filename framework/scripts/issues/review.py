@@ -16,7 +16,7 @@ class Snapshot:
     """Serialized values cannot be changed by callers after review validation."""
 
     data: str
-    cleanup: tuple[tuple[str, str], ...]
+    cleanup: tuple[tuple[str, ...], ...]
 
 
 def required_text(item, key):
@@ -24,6 +24,40 @@ def required_text(item, key):
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"review/confirmation needs {key}")
     return value
+
+
+TARGET_FIELDS = ("service", "resource", "property", "rule")
+
+
+def target_identity(record):
+    if not isinstance(record, dict):
+        return (None,) * len(TARGET_FIELDS)
+    return tuple(
+        value
+        if isinstance(value := record.get(field), str)
+        and value.strip() == value
+        and value
+        and "*" not in value
+        else None
+        for field in TARGET_FIELDS
+    )
+
+
+def matches_target(record, target, *, uncertain=False):
+    """Unknown identity can block removal, but can never authorize it."""
+    return all(
+        uncertain if actual is None or expected is None else actual == expected
+        for actual, expected in zip(
+            target_identity(record), target_identity(target), strict=True
+        )
+    )
+
+
+def required_identity(record, fields, label):
+    identity = dict(zip(TARGET_FIELDS, target_identity(record), strict=True))
+    for field in fields:
+        if identity[field] is None:
+            raise ValueError(f"{label} needs concrete {field}")
 
 
 def validate_confirmations(data, environment, directory):
@@ -63,24 +97,42 @@ def validate_confirmations(data, environment, directory):
             "property",
         }:
             raise ValueError("confirmation needs explicit resource/property scope")
-        for field in ("resource", "property"):
-            required_text(item["scope"], field)
-        if not isinstance(item["exceptions"], list) or any(
-            not isinstance(value, str) or not value.strip()
-            for value in item["exceptions"]
-        ):
-            raise ValueError("invalid confirmation exceptions")
+        required_identity(
+            item["scope"], ("resource", "property"), f"confirmation {key} scope"
+        )
+        if not isinstance(item["exceptions"], list):
+            raise ValueError(f"confirmation {key} exceptions must be a list")
+        for exception in item["exceptions"]:
+            if not isinstance(exception, dict) or set(exception) != {
+                "rule",
+                "diagnostic_id",
+                "condition",
+            }:
+                raise ValueError(
+                    f"confirmation {key} exception needs rule/diagnostic_id/condition"
+                )
+            required_identity(exception, ("rule",), f"confirmation {key} exception")
+            required_text(exception, "diagnostic_id")
+            required_text(exception, "condition")
         related = item["related_issues"]
         if not isinstance(related, list) or any(
-            not isinstance(record, dict) or set(record) != {"id", "message"}
+            not isinstance(record, dict)
+            or set(record) != {"id", "message", "resource", "property", "rule"}
             for record in related
         ):
-            raise ValueError("invalid related Issue records")
+            raise ValueError(
+                f"confirmation {key} related Issue needs id/message/resource/property/rule"
+            )
         ids = [required_text(record, "id") for record in related]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate related Issue record")
         for record in related:
             required_text(record, "message")
+            required_identity(
+                record,
+                ("resource", "property", "rule"),
+                f"related Issue {record['id']}",
+            )
     return data
 
 
@@ -106,20 +158,22 @@ def reviewed_ids(values, expected, channel):
         raise ValueError(f"all {channel} IDs require explicit review")
 
 
-def affects_confirmation(record, confirmation, environment, target):
-    if record.get("service") is not None:
-        if record["service"] != confirmation["service"]:
-            return False
-    elif record.get("scope"):
+def affects_target(record, target, environment, directory):
+    if record.get("service") is None and record.get("scope"):
         scope = record["scope"]
         scopes = [scope] if isinstance(scope, str) else scope
-        if f"{environment}/{target}/{confirmation['service']}" not in scopes:
+        # Labels such as lint's "selected" do not prove a different target.
+        if (
+            all(
+                isinstance(entry, str)
+                and len(entry.split("/")) == 3
+                and "*" not in entry
+                for entry in scopes
+            )
+            and f"{environment}/{directory}/{target['service']}" not in scopes
+        ):
             return False
-    return all(
-        confirmation["scope"][field] == "*"
-        or record.get(field) in (None, "*", confirmation["scope"][field])
-        for field in ("resource", "property")
-    )
+    return matches_target(record, target, uncertain=True)
 
 
 def review_snapshot(artifact, review):
@@ -218,14 +272,25 @@ def review_snapshot(artifact, review):
             raise ValueError("decision requires resource/property target")
         for field in ("resource", "property"):
             required_text(target, field)
-            if confirmation["scope"][field] not in {"*", target[field]} or (
-                diagnostic.get(field) not in (None, "*", target[field])
-            ):
-                raise ValueError("Human confirmation does not cover diagnostic target")
         required_text(decision, "evidence")
+        expected = dict(
+            service=confirmation["service"],
+            **confirmation["scope"],
+            rule=diagnostic.get("rule"),
+        )
+        if target != confirmation["scope"] or not matches_target(
+            diagnostic, expected, uncertain=outcome == "conflict"
+        ):
+            raise ValueError("Human confirmation does not cover diagnostic target/rule")
         if outcome == "excluded":
-            if not confirmation["exceptions"]:
-                raise ValueError("exclusion requires an explicit Human exception")
+            if not any(
+                exception["rule"] == diagnostic["rule"]
+                and exception["diagnostic_id"] == key
+                for exception in confirmation["exceptions"]
+            ):
+                raise ValueError(
+                    "exclusion requires a Human exception for this rule/diagnostic_id/condition"
+                )
             excluded.add(key)
         else:
             conflicts.append(
@@ -236,6 +301,10 @@ def review_snapshot(artifact, review):
                     confirmation_id=confirmation["id"],
                     message=decision["reason"],
                     evidence=decision["evidence"],
+                    **{
+                        field: diagnostic.get(field)
+                        for field in ("resource", "property", "rule")
+                    },
                 )
             )
     if seen != by_id.keys():
@@ -281,6 +350,7 @@ def review_snapshot(artifact, review):
     if not isinstance(cleanups, list):
         raise ValueError("confirmation_cleanup must be a list")
     removed = set()
+    cleanup_targets = []
     for cleanup in cleanups:
         if not isinstance(cleanup, dict) or set(cleanup) != {
             "confirmation_id",
@@ -292,33 +362,42 @@ def review_snapshot(artifact, review):
             raise ValueError("invalid confirmation cleanup")
         key = (cleanup["confirmation_id"], cleanup["record_id"])
         confirmation = confirmations.get(key[0])
-        if (
-            key in removed
-            or confirmation is None
-            or not any(
-                record["id"] == key[1] for record in confirmation["related_issues"]
+        related = (
+            next(
+                (
+                    record
+                    for record in confirmation["related_issues"]
+                    if record["id"] == key[1]
+                ),
+                None,
             )
-        ):
+            if confirmation
+            else None
+        )
+        if key in removed or related is None:
             raise ValueError("unknown or duplicate related Issue cleanup")
         required_text(cleanup, "reason")
         required_text(cleanup, "evidence")
+        target = dict(related, service=confirmation["service"])
         checks = [
             item
             for item in artifact["check_results"]
             if item["id"] == cleanup["check_id"]
-            and item["status"] == "PASS"
-            and item["complete"] is True
-            and f"{artifact['environment']}/{artifact['target']}/{confirmation['service']}"
-            in item["scope"]
         ]
-        if len(checks) != 1:
+        if len(checks) != 1 or not (
+            checks[0]["status"] == "PASS"
+            and checks[0]["check_id"] == target["rule"]
+            and checks[0]["complete"] is True
+            and f"{artifact['environment']}/{artifact['target']}/{confirmation['service']}"
+            in checks[0]["scope"]
+            and isinstance(checks[0].get("targets"), list)
+            and any(matches_target(covered, target) for covered in checks[0]["targets"])
+        ):
             raise ValueError(
-                "cleanup needs a completed current check covering the confirmation service"
+                "cleanup needs a completed current check covering the related Issue resource/property/rule"
             )
         if any(
-            affects_confirmation(
-                item, confirmation, artifact["environment"], artifact["target"]
-            )
+            affects_target(item, target, artifact["environment"], artifact["target"])
             for item in [
                 *data["ordinary"],
                 *data["unverified"],
@@ -327,6 +406,7 @@ def review_snapshot(artifact, review):
         ):
             raise ValueError("cleanup contradicts current Issues or Human conflicts")
         removed.add(key)
+        cleanup_targets.append((*key, *target_identity(target)))
     for item in data["human_confirmations"]["confirmations"]:
         item["related_issues"] = [
             record
@@ -340,5 +420,5 @@ def review_snapshot(artifact, review):
         raise ValueError("Scan execution time requires an explicit timezone")
     return Snapshot(
         json.dumps(data, ensure_ascii=False, sort_keys=True, allow_nan=False),
-        tuple(sorted(removed)),
+        tuple(sorted(cleanup_targets)),
     )

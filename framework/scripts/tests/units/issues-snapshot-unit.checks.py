@@ -39,10 +39,24 @@ def confirmation():
         id="human-1",
         service="s3",
         fact="Human approved an existing name",
-        scope=dict(resource="001", property="BucketName"),
-        exceptions=["Existing name is permitted"],
+        scope=dict(resource="001", property="S3.Bucket.BucketName"),
+        exceptions=[
+            dict(
+                rule="design.service",
+                diagnostic_id="current",
+                condition="Existing name is permitted",
+            )
+        ],
         evidence="Explicit Human decision",
-        related_issues=[dict(id="obsolete", message="old related record")],
+        related_issues=[
+            dict(
+                id="obsolete",
+                message="old related record",
+                resource="001",
+                property="S3.Bucket.BucketName",
+                rule="design.service",
+            )
+        ],
     )
 
 
@@ -54,12 +68,24 @@ def reviewed_artifact(root):
                 id="current",
                 service="s3",
                 resource="001",
-                property="BucketName",
+                property="S3.Bucket.BucketName",
+                rule="design.service",
                 message="latest naming diagnostic",
             )
         ],
     )
     data["human_confirmations"]["confirmations"] = [confirmation()]
+    data["check_results"][0].update(
+        check_id="design.service",
+        targets=[
+            dict(
+                service="s3",
+                resource="001",
+                property="S3.Bucket.BucketName",
+                rule="design.service",
+            )
+        ],
+    )
     return data
 
 
@@ -71,7 +97,7 @@ def human_decision(data, outcome="excluded"):
             outcome=outcome,
             reason="Reviewed the explicit exception",
             confirmation_id="human-1",
-            target=dict(resource="001", property="BucketName"),
+            target=dict(resource="001", property="S3.Bucket.BucketName"),
             evidence="Current Resource 001 BucketName matches the confirmed exception",
         )
     ]
@@ -138,7 +164,24 @@ def check_human_exception_and_conflict(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "fault", ["id", "service", "resource", "property", "evidence", "exceptions"]
+    "fault",
+    [
+        "id",
+        "service",
+        "resource",
+        "property",
+        "evidence",
+        "exceptions",
+        "missing_resource",
+        "missing_property",
+        "missing_rule",
+        "wildcard_resource",
+        "wildcard_property",
+        "wrong_property",
+        "wrong_rule",
+        "wrong_diagnostic",
+        "public_access",
+    ],
 )
 def check_exclusion_scope(tmp_path, fault):
     data = reviewed_artifact(tmp_path)
@@ -151,6 +194,22 @@ def check_exclusion_scope(tmp_path, fault):
         )
     elif fault == "evidence":
         review["diagnostic_decisions"][0][fault] = ""
+    elif fault.startswith("missing_"):
+        data["ordinary"][0].pop(fault.removeprefix("missing_"))
+    elif fault.startswith("wildcard_"):
+        data["ordinary"][0][fault.removeprefix("wildcard_")] = "*"
+    elif fault == "wrong_property":
+        data["ordinary"][0]["property"] = "S3.Bucket.PublicAccessBlockConfiguration"
+    elif fault == "wrong_rule":
+        data["ordinary"][0]["rule"] = "other.rule"
+    elif fault == "wrong_diagnostic":
+        data["human_confirmations"]["confirmations"][0]["exceptions"][0][
+            "diagnostic_id"
+        ] = "other"
+    elif fault == "public_access":
+        data["ordinary"][0] = dict(
+            id="current", service="s3", message="Public access restriction violation"
+        )
     else:
         review["diagnostic_decisions"][0]["target"][fault] = "other"
     with pytest.raises(ValueError):
@@ -170,7 +229,7 @@ def check_human_cleanup_preserves_facts(tmp_path):
             id="unrelated",
             service="s3",
             resource="002",
-            property="BucketName",
+            property="S3.Bucket.BucketName",
             message="independent current problem",
         )
     )
@@ -192,7 +251,13 @@ def check_human_cleanup_preserves_facts(tmp_path):
     # Raw facts are retained even if the Scan has masked the displayed fact.
     human["confirmations"][0]["fact"] += " raw value"
     human["confirmations"][0]["related_issues"].append(
-        dict(id="keep", message="unrelated record")
+        dict(
+            id="keep",
+            message="unrelated record",
+            resource="002",
+            property="S3.Bucket.BucketName",
+            rule="design.service",
+        )
     )
     other = confirmation()
     other["id"] = "other-human"
@@ -210,7 +275,9 @@ def check_human_cleanup_preserves_facts(tmp_path):
         outputs, snapshot = save_scan(tmp_path, data, review)
     assert len(outputs) == 3
     expected = deepcopy(human)
-    expected["confirmations"][0]["related_issues"].pop(0)
+    expected["confirmations"][0]["related_issues"] = [
+        human["confirmations"][0]["related_issues"][1]
+    ]
     assert human_confirmations(tmp_path, "dev", "123456789012") == expected
     assert data["human_confirmations"]["confirmations"][0]["related_issues"]
     assert issue_errors(tmp_path, {("dev", "123456789012", "s3")})
@@ -277,6 +344,17 @@ def check_cleanup_authority(tmp_path, fault):
         "scope",
         "exceptions",
         "service",
+        "unrelated_pass",
+        "wrong_resource",
+        "wrong_property",
+        "wrong_rule",
+        "missing_target",
+        "not_executed",
+        "processing",
+        "human_conflict",
+        "duplicate_check",
+        "wildcard_target",
+        "incomplete",
     ],
 )
 def check_cleanup_requires_evidence(tmp_path, fault):
@@ -291,11 +369,36 @@ def check_cleanup_requires_evidence(tmp_path, fault):
     )
     review["confirmation_cleanup"] = [cleanup]
     if fault == "not_run":
+        data["check_results"][0]["status"] = "NOT_RUN"
+    elif fault == "incomplete":
         data["check_results"][0]["complete"] = False
     elif fault == "failed":
         data["check_results"][0]["status"] = "FAIL"
     elif fault == "wrong_service":
         data["check_results"][0]["scope"] = ["dev/123456789012/sqs"]
+    elif fault == "unrelated_pass":
+        data["check_results"][0]["check_id"] = "mechanical.topology"
+    elif fault == "missing_target":
+        data["check_results"][0].pop("targets")
+    elif fault in {"wrong_resource", "wrong_property", "wrong_rule"}:
+        data["check_results"][0]["targets"][0][fault.removeprefix("wrong_")] = "other"
+    elif fault == "not_executed":
+        data["check_results"] = []
+    elif fault == "processing":
+        data["processing_errors"] = [
+            dict(
+                service="s3",
+                resource="001",
+                property="S3.Bucket.BucketName",
+                rule="design.service",
+            )
+        ]
+    elif fault == "human_conflict":
+        review["diagnostic_decisions"][0]["outcome"] = "conflict"
+    elif fault == "duplicate_check":
+        data["check_results"].append(deepcopy(data["check_results"][0]))
+    elif fault == "wildcard_target":
+        data["check_results"][0]["targets"][0]["resource"] = "*"
     elif fault == "unverified":
         data["unverified"] = [dict(code="not_run")]
     elif fault == "current_issue":
@@ -310,6 +413,111 @@ def check_cleanup_requires_evidence(tmp_path, fault):
         cleanup[fault] = "unauthorized edit"
     with pytest.raises(ValueError):
         review_snapshot(data, review)
+
+
+@pytest.mark.parametrize("channel", ["ordinary", "unverified", "processing_errors"])
+@pytest.mark.parametrize(
+    "identity,allowed",
+    [
+        (dict(), False),
+        (dict(resource="*"), False),
+        (dict(resource="002"), True),
+        (dict(property="S3.Bucket.VersioningConfiguration"), True),
+        (dict(rule="other.rule"), True),
+        (dict(scope=["dev/123456789012/sqs"]), True),
+        (dict(scope=["dev/*/s3"]), False),
+    ],
+)
+def check_cleanup_blocker_scope(tmp_path, channel, identity, allowed):
+    data = reviewed_artifact(tmp_path)
+    data["ordinary"] = []
+    # Partial/unknown diagnostics remain blockers unless a field proves separation.
+    data[channel] = [dict(id="blocker", message="current problem", **identity)]
+    if channel == "ordinary":
+        data[channel][0].setdefault("service", "s3")
+        allowed = allowed and "scope" not in identity
+    review = review_for(data)
+    review["confirmation_cleanup"] = [
+        dict(
+            confirmation_id="human-1",
+            record_id="obsolete",
+            reason="resolved",
+            check_id="check",
+            evidence="complete exact check",
+        )
+    ]
+    if allowed:
+        assert review_snapshot(data, review).cleanup
+    else:
+        with pytest.raises(ValueError, match="contradicts"):
+            review_snapshot(data, review)
+
+
+@pytest.mark.parametrize(
+    "fault,field",
+    [
+        ("exception_text", "rule/diagnostic_id/condition"),
+        ("old_related", "resource/property/rule"),
+        ("wildcard", "resource"),
+        ("missing_rule", "rule"),
+        ("empty_condition", "condition"),
+    ],
+)
+def check_human_contract_refuses_unsupported_records(tmp_path, fault, field):
+    data = reviewed_artifact(tmp_path)
+    human = data["human_confirmations"]
+    confirmed = human["confirmations"][0]
+    if fault == "exception_text":
+        confirmed["exceptions"] = ["old unrestricted exception"]
+    elif fault == "old_related":
+        confirmed["related_issues"] = [dict(id="obsolete", message="old record")]
+    elif fault == "wildcard":
+        confirmed["scope"]["resource"] = "*"
+    elif fault == "missing_rule":
+        confirmed["related_issues"][0]["rule"] = ""
+    else:
+        confirmed["exceptions"][0]["condition"] = ""
+    path = tmp_path / "issues/dev/123456789012/human-confirmations.yaml"
+    write(path, json.dumps(human))
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match=field):
+        human_confirmations(tmp_path, "dev", "123456789012")
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("field", ["service", "resource", "property", "rule"])
+def check_cleanup_current_record_authority(tmp_path, field):
+    data = reviewed_artifact(tmp_path)
+    review = human_decision(data)
+    review["confirmation_cleanup"] = [
+        dict(
+            confirmation_id="human-1",
+            record_id="obsolete",
+            reason="resolved",
+            check_id="check",
+            evidence="exact complete PASS",
+        )
+    ]
+    current = deepcopy(data["human_confirmations"])
+    confirmed = current["confirmations"][0]
+    (confirmed if field == "service" else confirmed["related_issues"][0])[field] = (
+        "sqs" if field == "service" else "different"
+    )
+    path = tmp_path / "issues/dev/123456789012/human-confirmations.yaml"
+    write(path, json.dumps(current))
+    before = path.read_bytes()
+    with (
+        task(
+            tmp_path,
+            ["s3"],
+            cleanup=[("human-1", "obsolete")],
+        ),
+        patch("issues.publication.atomic_files") as publish,
+    ):
+        with pytest.raises(ValueError, match="reviewed target/rule"):
+            save_scan(tmp_path, data, review)
+        publish.assert_not_called()
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize(

@@ -1312,6 +1312,28 @@ def check_material_service_isolation(tmp_path, stage):
             dict(item, naming_context_id=artifact["naming_context_id"])
             for item in material["names"]
         ]
+        covered = [result for result in artifact["check_results"] if result["targets"]]
+        assert {result["scope"][0] for result in covered} == {
+            "dev/123456789012/s3",
+            "dev/123456789012/sqs",
+        }
+        for result in covered:
+            assert (
+                result["check_id"] == "design.service"
+                and result["status"] == "PASS"
+                and result["complete"]
+            )
+            service = result["scope"][0].rsplit("/", 1)[1]
+            assert result["targets"] == [
+                dict(
+                    service=service,
+                    resource=identity,
+                    property=row["property"],
+                    rule="design.service",
+                )
+                for identity, rows in comparison.rows[service].items()
+                for _, row in rows
+            ]
 
 
 def interrupted_service(instance):
