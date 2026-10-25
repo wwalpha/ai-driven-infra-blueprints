@@ -74,7 +74,7 @@ def check_scan_publish_mismatch(tmp_path):
     report = paths[1].read_text(encoding='utf-8')
     assert 'changed-bucket' in report and 'bucket-app-dev-data1' in report
     assert '<!-- iac-report-data:' not in report
-    group = next(group for group in artifact['iac_issues'] if group['category'] == '要判断')
+    group = next(group for group in artifact['iac_issues'] if group['category'] == '要修正')
     assert detail_payload(artifact, 'iac', issue_id=group['id'])['items'][0]['value_differences'] == artifact['iac_display'][identifier(mismatch)]
     assert summary(artifact)['iac_differences'] == 1
     assert not issue_errors(root, {('dev', '123456789012', 's3')})

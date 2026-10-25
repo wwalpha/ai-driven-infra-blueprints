@@ -164,7 +164,7 @@ def aligned_difference(left, right):
     if len(left) != len(right):
         return None
     different = False
-    for a, b in zip(left, right):
+    for a, b in zip(left, right, strict=True):
         if isinstance(a, ResourceReference) and isinstance(b, ResourceReference):
             if a['$attribute'] != b['$attribute']:
                 return None

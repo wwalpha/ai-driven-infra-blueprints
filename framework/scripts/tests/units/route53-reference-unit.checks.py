@@ -15,10 +15,19 @@ from comparison.values import compare_values
 from model.core import entries
 from model.references import declarations, symbolic
 from model.sources import load_model
-from support.model_reference_fixtures import FRAMEWORK, comparison, project, resource, save
+from support.model_reference_fixtures import (
+    FRAMEWORK,
+    comparison,
+    project,
+    resource,
+    save,
+)
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def cached_stack(inputs, unit):
