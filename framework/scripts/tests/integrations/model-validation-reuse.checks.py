@@ -208,9 +208,31 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
         write_model(model, values)
     design.write_text(text, encoding="utf-8")
     after, new = trace_validation(root)
+    expected = (COMMON[1], COMMON[5]) if fault == "observed" else COMMON
     for name in COMMON:
-        assert new["saved", name], name
+        assert bool(new["saved", name]) == (name in expected), name
         assert not new["candidate", name], name
+    if fault == "observed":
+        # Invalid source values block generation before dependent saved-view checks.
+        for check_id in (
+            "design.model-inputs",
+            "design.observed-values",
+            "framework.generated-service-model",
+        ):
+            result = after.findings.result(check_id, {ENTRY})
+            assert result.status == "FAIL", (check_id, result)
+            assert any(
+                "generated ARN persisted in observed model value" in error
+                for error in result.errors
+            ), (check_id, result.errors)
+        for check_id in (
+            "design.tables.semantic",
+            "framework.policy-tables",
+            "design.links",
+        ):
+            result = after.findings.result(check_id, {ENTRY})
+            assert result.status == "NOT_RUN", (check_id, result)
+            assert not result.model_completion_allowed, (check_id, result)
     if fault == "none":
         assert not after.errors, after.errors
     if fault != "none":
