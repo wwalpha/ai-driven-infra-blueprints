@@ -456,6 +456,43 @@ def diagnosis_fixture(tmp_path, peer=False):
 
 
 @pytest.mark.parametrize(
+    "pending",
+    [
+        "generation-only",
+        "pendingObserved",
+        "success",
+        "observedError",
+        "running",
+        "pollError",
+    ],
+)
+def check_diagnosis_observed_barrier(tmp_path, pending):
+    session, problem = diagnosis_fixture(tmp_path)
+    session.update(generationError="publication failed", pendingGeneration={"view": {}})
+    session["states"]["Peer"] = {"status": "SUCCESS", "observedSynced": True}
+    if pending == "pendingObserved":
+        session[pending] = {"stage": "MODEL_PUBLISHED"}
+    elif pending == "observedError":
+        session[pending] = "Observed failure"
+    elif pending == "success":
+        session["states"]["Peer"]["observedSynced"] = False
+    elif pending == "running":
+        session["states"]["Peer"]["status"] = "RUNNING"
+    elif pending == "pollError":
+        session["states"]["Peer"][pending] = "poll failed"
+    before = copy.deepcopy(session)
+    diagnosis = {"revision": 0, "problems": [problem]}
+    if pending == "generation-only":
+        assert handoff.diagnose(tmp_path, session, diagnosis) == "REPAIR_ALLOWED"
+        assert session["pendingGeneration"] == before["pendingGeneration"]
+        assert session["generationError"] == before["generationError"]
+    else:
+        with pytest.raises(Blocked, match="drain/observe"):
+            handoff.diagnose(tmp_path, session, diagnosis)
+        assert session == before
+
+
+@pytest.mark.parametrize(
     "defect",
     [
         "unknown",

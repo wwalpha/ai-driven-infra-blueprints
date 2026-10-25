@@ -275,13 +275,7 @@ def deploy_checkpoint(where, task_id, session_path):
             or task_digest(text) != session["taskDigest"]
         ):
             raise wt.Blocked("checkpoint requires unchanged running parent Task")
-        if session.get("observedError") or any(
-            s["status"] == "RUNNING"
-            or s.get("pollError")
-            or s["status"] == "SUCCESS"
-            and not s.get("observedSynced")
-            for s in session["states"].values()
-        ):
+        if handoff.observed_unresolved(session):
             raise wt.Blocked("drain and synchronize peers before checkpoint")
         handoff.verify_inputs(target, session)
         Findings = _imports_validation_findings.Findings

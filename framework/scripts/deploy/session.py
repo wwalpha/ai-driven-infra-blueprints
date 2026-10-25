@@ -123,16 +123,17 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
     if not unsynced and not session.get("pendingGeneration"):
         return True
     started = time.perf_counter()
-    stage = "OBSERVED"
+    stage = "OBSERVED" if unsynced else "GENERATION"
     try:
-        if hasattr(backend, "guard"):
-            backend.guard()
         if unsynced and any(
             record["generated"]["outputs"] is not None
             for record in session.get("pendingGeneration", {}).values()
         ):
-            # Finish an interrupted candidate before another Model transaction changes inputs.
             stage = "GENERATION"
+        if hasattr(backend, "guard"):
+            backend.guard()
+        if unsynced and stage == "GENERATION":
+            # Finish an interrupted candidate before another Model transaction changes inputs.
             generation_resume.run(backend)
         if unsynced:
             stage = "OBSERVED"
@@ -140,13 +141,13 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
             if hasattr(backend, "after_observed"):
                 backend.after_observed(outputs or {})
             session.pop("pendingObserved", None)
+            session.pop("observedError", None)
+            session.pop("observedRecoveryError", None)
         if session.get("pendingGeneration"):
             stage = "GENERATION"
             generation_resume.run(backend)
         if not session.get("pendingGeneration"):
             session.pop("generationError", None)
-        session.pop("observedError", None)
-        session.pop("observedRecoveryError", None)
         return True
     except Exception as error:
         backend.sync_failed = True
@@ -156,10 +157,7 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
         session.setdefault("observedError", str(error))
         session["observedRecoveryError"] = str(error)
         failure = {
-            "stage": session.get("pendingObserved", {}).get(
-                "stage",
-                "GENERATION" if session.get("pendingGeneration") else "PLANNING",
-            ),
+            "stage": session.get("pendingObserved", {}).get("stage", "PLANNING"),
             "cause": str(error),
         }
         failures = session.setdefault("observedFailures", [])

@@ -2394,7 +2394,7 @@ Task fixtureは独立した通常Gitとtask_contract.startで開始・選択し�
 | `observed-resume::plan` | `check_plan_validation` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L110) | pytest / 13 | Task/extra identity field/evidence/manifest/candidate/desired/unrelated bytes/file set/Allowed paths/stage/original-set/manifest-set checks | isolated bytes |
 | `observed-resume::intent-io` | `check_intent_save_failure` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L146) | pytest / 1 | failed intent persistence leaves Model untouched | session I/O |
 | `observed-resume::peer-barrier` | `check_pending_plan_drained_peer_barrier` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L198) | pytest / 1 | saved plan finishes before drained peers synchronize | scheduler state |
-| `observed-resume::first-error` | `check_original_failure_retained` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L210) | pytest / 1 | first stage/cause retained separately from later guard refusal | failure records |
+| `observed-resume::first-error` | `check_original_failure_retained` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 4 | Generation待ちと共存するObserved保存/Guard失敗で最初の原因と最新復旧原因/履歴を保持 | 拡張 |
 
 | `observed-resume::task-bytes` | `check_exact_task_bytes_bound` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L173) | pytest / 1 | pending plan binds full contract bytes in addition to the existing normalized session identity | Task text |
 
@@ -3759,3 +3759,13 @@ checks retain exact journals, CAS, partial publication and execution/approval ev
 | `sqs-partial::attribute` | `check_candidate_producer_attribute` | UT | [units/sqs-partial-reference-unit.checks.py](units/sqs-partial-reference-unit.checks.py) | pytest / 1 | 候補QueueNameからARNと表示リンクを解決、旧値を使用しない | 追加 |
 | `sqs-partial::independent` | `check_unrelated_group_generation_failure` | UT | [units/sqs-partial-reference-unit.checks.py](units/sqs-partial-reference-unit.checks.py) | pytest / 1 | 無関係グループの全体表示失敗時も正常QueuePolicyを検証 | 追加 |
 | `reference-values::partial-context` | `test_partial_json_reference_context` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 2 | JSON検証と投影の参照文脈分離、空候補からの旧Model補完禁止、未選択JSON非検証 | 追加 |
+
+## v1026v1 Observed / Generation error classification
+
+| Case ID | Function | Layer | File | Mode / count | Coverage | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `deploy-generation::phase-error` | `check_generation_error_retains_confirmed_observed` | UT | [units/deploy-generation-resume-unit.checks.py](units/deploy-generation-resume-unit.checks.py) | pytest / 6 | Generation実行/候補復旧/Guard例外の分類、Observed確定と両pending保持 | 拡張 |
+| `deploy-generation::resume-only` | `check_generation_retry_does_not_repeat_observed` | UT | [units/deploy-generation-resume-unit.checks.py](units/deploy-generation-resume-unit.checks.py) | pytest / 1 | Generation再開成功時にObserved再保存なし、generationError解消 | 追加 |
+| `deploy-generation::observed-history` | `check_generation_only_preserves_observed_history` | UT | [units/deploy-generation-resume-unit.checks.py](units/deploy-generation-resume-unit.checks.py) | pytest / 2 | Generation単独成功/失敗で既存Observedエラー履歴を保持 | 追加 |
+| `deploy-handoff::observed-barrier` | `check_diagnosis_observed_barrier` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 6 | GenerationのみならAWS失敗診断可、Observed pending/未同期SUCCESS/error/RUNNING/poll失敗なら拒否 | 追加 |
+| `worktree-runtime::observed-barrier` | `check_checkpoint_observed_barrier` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 6 | Checkpointで同一Observed保護、Generationのみでも既存入力検証へ進む | 追加 |

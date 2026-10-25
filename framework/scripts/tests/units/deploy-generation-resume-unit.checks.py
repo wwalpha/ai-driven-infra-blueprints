@@ -338,6 +338,19 @@ def check_publication_requires_saved_result_and_exact_bytes(owned, evidence):
 def check_waiting_services_do_no_repeated_file_work(owned):
     backend, views, _ = owned
     invoke(backend, generation_for(backend, views, deferred=views))
+    assert all(
+        record["reason"] == "REFERENCE_PENDING_DEPLOY"
+        for record in backend.session["pendingGeneration"].values()
+    )
+    assert not any(
+        key in backend.session
+        for key in (
+            "generationError",
+            "observedError",
+            "observedRecoveryError",
+            "observedFailures",
+        )
+    )
     with (
         patch.object(M.observed, "check_generated") as check,
         patch.object(M.observed, "generated_manifests") as manifests,
@@ -659,9 +672,18 @@ def check_durable_resume(owned, interruption):
     backend.save = partial(save_copy, saved, backend.session)
     if interruption == "foreign-journal":
         before = journal.read_bytes()
-        with pytest.raises(Blocked):
-            M.run(backend)
+        with patch.object(controller, "sync_successful") as sync:
+            assert not controller._callback_run_session_sync_once(
+                backend, backend.save, backend.session, backend.units
+            )
+        sync.assert_not_called()
         assert journal.read_bytes() == before
+        assert backend.sync_failed and backend.session["pendingGeneration"]
+        assert "journal" in backend.session["generationError"]
+        assert not any(
+            key in backend.session
+            for key in ("observedError", "observedRecoveryError", "observedFailures")
+        )
         return
     prepared = invoke(backend, generation)
     assert prepared.call_count == int(interruption != "published")
@@ -888,21 +910,103 @@ def check_real_indexed_producer_and_observed_cache(
             )
 
 
-def check_generation_error_retains_confirmed_observed(owned):
+@pytest.mark.parametrize("phase", ["after-observed", "only", "candidate"])
+@pytest.mark.parametrize("guard", [False, True])
+def check_generation_error_retains_confirmed_observed(owned, phase, guard):
     backend, _, _ = owned
+    session = backend.session
+    if phase != "only":
+        session["states"]["early"].pop("observedSynced")
+    if phase == "candidate":
+        next(iter(session["pendingGeneration"].values()))["generated"]["outputs"] = {}
+        session["pendingObserved"] = {"stage": "PREPARED"}
+    pending = copy.deepcopy(session["pendingGeneration"])
+    if guard:
+        # After-observed Guard failure occurs inside generation.run, after Model commit.
+        backend.guard.side_effect = (
+            [None, Blocked("publication failed")]
+            if phase == "after-observed"
+            else Blocked("publication failed")
+        )
+    with (
+        patch.object(controller, "sync_successful", side_effect=mark_observed) as sync,
+        patch.object(
+            M,
+            "run",
+            wraps=M.run,
+            side_effect=None if guard else OSError("publication failed"),
+        ),
+    ):
+        assert not controller._callback_run_session_sync_once(
+            backend, backend.save, session, backend.units
+        )
+    assert sync.call_count == int(phase == "after-observed")
+    assert bool(session["states"]["early"].get("observedSynced")) == (
+        phase != "candidate"
+    )
+    assert backend.sync_failed and session["generationError"] == "publication failed"
+    assert session["pendingGeneration"] == pending
+    assert not any(
+        key in session
+        for key in ("observedError", "observedRecoveryError", "observedFailures")
+    )
+    if phase == "candidate":
+        assert session["pendingObserved"] == {"stage": "PREPARED"}
+
+
+def check_generation_retry_does_not_repeat_observed(owned):
+    backend, views, _ = owned
     backend.session["states"]["early"].pop("observedSynced")
     with (
-        patch.object(controller, "sync_successful", side_effect=mark_observed),
+        patch.object(controller, "sync_successful", side_effect=mark_observed) as sync,
         patch.object(M, "run", side_effect=OSError("publication failed")),
     ):
         assert not controller._callback_run_session_sync_once(
             backend, backend.save, backend.session, backend.units
         )
+    sync.assert_called_once()
+    backend.sync_failed = False
+    generation = generation_for(backend, views)
+    with (
+        patch.object(controller, "sync_successful") as sync,
+        patch.object(
+            M.sync_runtime,
+            "generation_context",
+            return_value=nullcontext(SimpleNamespace(contents={}, selections={})),
+        ),
+        patch.object(M.sync_runtime, "prepare_generation", return_value=generation),
+        patch.object(M.sync_runtime, "validate_generation"),
+        patch.object(
+            M.sync_runtime, "publish_generation", side_effect=publish_candidate
+        ),
+    ):
+        assert controller._callback_run_session_sync_once(
+            backend, backend.save, backend.session, backend.units
+        )
+    sync.assert_not_called()
     assert backend.session["states"]["early"]["observedSynced"]
-    assert (
-        backend.session["pendingGeneration"]
-        and backend.session["generationError"] == "publication failed"
-    )
+    assert not backend.session["pendingGeneration"]
+    assert "generationError" not in backend.session
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def check_generation_only_preserves_observed_history(owned, failed):
+    backend, _, _ = owned
+    history = {
+        "observedError": "first Observed failure",
+        "observedRecoveryError": "latest Observed failure",
+        "observedFailures": [
+            {"stage": "MODEL_PUBLISHED", "cause": "first Observed failure"}
+        ],
+    }
+    backend.session.update(copy.deepcopy(history))
+    with patch.object(
+        M, "run", side_effect=OSError("generation failed") if failed else None
+    ):
+        assert controller._callback_run_session_sync_once(
+            backend, backend.save, backend.session, backend.units
+        ) == (not failed)
+    assert {k: backend.session[k] for k in history} == history
 
 
 def check_waiting_identity_survives_later_stack_input_claim(owned):

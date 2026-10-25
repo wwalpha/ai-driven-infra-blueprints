@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import base64
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from deploy import handoff, observed
@@ -322,7 +322,9 @@ def check_pending_plan_drained_peer_barrier():
     assert calls == [["A"], ["B"]] and saves == [["A"], ["A", "B"]]
 
 
-def check_original_failure_retained():
+@pytest.mark.parametrize("guard", [False, True])
+@pytest.mark.parametrize("pending_stage", [None, "MODEL_PUBLISHED"])
+def check_original_failure_retained(guard, pending_stage):
     units = [{"name": "A", "deployOrder": 10}]
     session = {
         "states": {"A": {"status": "SUCCESS"}},
@@ -331,17 +333,30 @@ def check_original_failure_retained():
         "observedFailures": [
             {"stage": "MODEL_PUBLISHED", "cause": "original design I/O failure"}
         ],
+        "pendingGeneration": {"view": {"generated": {"outputs": None}}},
     }
+    if pending_stage:
+        session["pendingObserved"] = {"stage": pending_stage}
+    backend = SimpleNamespace()
+    if guard:
+        backend.guard = Mock(side_effect=Blocked("later guard refusal"))
     with patch.object(
         controller, "sync_successful", side_effect=Blocked("later guard refusal")
     ):
         assert (
-            controller.run_session(units, 1, session, SimpleNamespace(), lambda: None)
+            controller.run_session(units, 1, session, backend, lambda: None)
             == "STOPPED"
         )
     assert session["observedError"] == "original design I/O failure"
     assert session["observedRecoveryError"] == "later guard refusal"
     assert session["observedFailures"][0]["stage"] == "MODEL_PUBLISHED"
+    assert session["observedFailures"][1] == {
+        "stage": pending_stage or "PLANNING",
+        "cause": "later guard refusal",
+    }
+    assert "generationError" not in session
+    assert not session["states"]["A"].get("observedSynced")
+    assert backend.sync_failed
 
 
 @pytest.mark.parametrize(

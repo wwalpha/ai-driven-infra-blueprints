@@ -401,13 +401,25 @@ def _lambda__diagnose_target_389(value):
     )
 
 
+def observed_unresolved(session):
+    """Drain peers and commit their Observed transaction before repair handoff."""
+    return bool(
+        session.get("observedError")
+        or session.get("pendingObserved")
+        or any(
+            s["status"] == "RUNNING"
+            or s.get("pollError")
+            or s["status"] == "SUCCESS"
+            and not s.get("observedSynced")
+            for s in session["states"].values()
+        )
+    )
+
+
 def _diagnose(root, session, diagnosis):
     """Check evidence membership/revisions. The LLM retains semantic responsibility."""
     current = session["workflow"]
-    if session.get("observedError") or any(
-        s["status"] == "RUNNING" or s.get("pollError")
-        for s in session["states"].values()
-    ):
+    if observed_unresolved(session):
         raise Blocked("drain/observe and publish successful peers before diagnosis")
     if diagnosis.get("revision") != session["inputRevision"] or not diagnosis.get(
         "problems"
