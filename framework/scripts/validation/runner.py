@@ -118,7 +118,7 @@ def _callback_Validator_check_scoped_designs_validate(self, snapshot, /, scope):
             self.root,
             scope,
             definitions_root=self.definitions_root,
-            check_display=self.check_display,
+            check_display=self.check_display or self.check_saved_display,
         )
         validator.accounts = self.accounts
         validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(
@@ -312,6 +312,7 @@ class Validator:
         definitions_root: Path | None = None,
         final_candidate=None,
         check_display=True,
+        check_saved_display=False,
         issues_save=False,
     ) -> None:
         definition_root = _imports_utils_aws_mappings.definition_root
@@ -326,6 +327,7 @@ class Validator:
         self.workers = workers
         self.write = write
         self.check_display = check_display
+        self.check_saved_display = check_saved_display
         self.issues_save = issues_save
         self.service_cache_pending = []
         self.catalog_pending = None
@@ -1071,7 +1073,7 @@ class Validator:
             self.catalog_pending = (key, self.checks - before)
 
     def check_designs(self) -> None:
-        if self.check_display:
+        if self.check_display and not self.generated_models_checked:
             self.check_generated_service_models()
         self.findings.evaluate(
             "design.stacks",

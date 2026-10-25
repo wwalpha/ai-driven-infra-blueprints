@@ -5,11 +5,12 @@
 Use `framework/scripts/issues_scan.py` for local diagnostics. Models, designs, IaC,
 comparison semantics and AWS resources are read-only. Retain mechanical diagnosis,
 all-name review, Model/View validation, current IaC comparison, offline cfn-lint,
-masking. Issues validates design integrity, not generated display synchronization.
-Its shared Validator uses `check_display=False`: do not compare generated/saved
-Markdown or require document/Resource reference-table display equality, and do not
-turn display differences into warnings or unverified coverage. Validate Model inputs
-and typed references independently; retain existing Markdown link destination/anchor,
+masking. Issues uses `check_display=False, check_saved_display=True` to run existing
+saved document/Resource display checks without generation equality or PASS-cache reuse.
+Display differences are FAIL diagnostics; retain every original diagnostic and its ID,
+and aggregate reports by scoped cause identity. Dependent checks that cannot execute
+retain their reason and scope as NOT_RUN. Validate Model inputs and typed references
+independently; retain existing Markdown link destination/anchor,
 resource identity/ownership/naming, schema, CodeBuild PLAINTEXT policy and Model/IaC
 checks. Markdown generation/synchronization and the shared Validator's default
 `check_display=True` retain strict equality. Never repair Model/IaC, call AWS, deploy or

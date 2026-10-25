@@ -198,8 +198,9 @@ Assemble full properties authority before Model/catalog/schema/view checks. Inpu
 retain original bytes, comment-only changes, observation absence, parts sets, project and
 actual producer dependencies. Broken authorities stop; stale generated views fail
 in generation/synchronization validation and the default shared Validator.
-[Issues diagnostics](issues-investigation.md#scope-and-responsibilities) omit display
-equality while retaining independent Model, reference and design-integrity checks.
+[Issues diagnostics](issues-investigation.md#scope-and-responsibilities) run saved
+display checks without generation equality, retaining independent Model, reference
+and design-integrity checks.
 Observation writers patch only authorized observed.value in the same properties and
 preserve desired/display/reference/placementName. This grants no multi-environment deploy.
 

@@ -12,7 +12,6 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import design.document as document
 import issues.publication as publication
 import issues.runner as scan_runner
 import model.sources as sources
@@ -2613,7 +2612,9 @@ def reference_design(tmp_path):
 
 
 @pytest.mark.parametrize("display", ["link", "plain", "extra-prose"])
-def check_issues_ignores_display_equality(tmp_path, reference_design, display):
+def check_issues_checks_saved_display_without_generation(
+    tmp_path, reference_design, display
+):
     _, view, _, _ = reference_design
     text = view.read_text(encoding="utf-8")
     if display == "plain":
@@ -2627,24 +2628,9 @@ def check_issues_ignores_display_equality(tmp_path, reference_design, display):
     validators, warnings = [], []
     with (
         patch.object(
-            validation_runner.design,
-            "check_policy_tables",
-            side_effect=AssertionError("policy display equality must not run"),
-        ),
-        patch.object(
             sync_runtime,
             "compare_generation",
             side_effect=AssertionError("generation equality must not run"),
-        ),
-        patch.object(
-            document,
-            "model_reference_tables",
-            side_effect=AssertionError("reference display equality must not run"),
-        ),
-        patch.object(
-            document,
-            "model_resource_reference_tables",
-            side_effect=AssertionError("Resource display equality must not run"),
         ),
     ):
         errors, checks, _ = scan_runner.mechanical(
@@ -2654,8 +2640,12 @@ def check_issues_ignores_display_equality(tmp_path, reference_design, display):
             validator_out=validators,
             warnings=warnings,
         )
-    assert checks > 0 and not errors and not warnings
-    assert not validators[0].findings.unverified
+    assert checks > 0 and bool(errors) == (display != "link") and not warnings
+    assert bool(validators[0].findings.unverified) == (display != "link")
+    assert any(
+        item.code == "design.display.mismatch"
+        for item in validators[0].findings.diagnostics
+    ) == (display != "link")
     assert not validators[0].findings.processing_errors
     assert not any(
         check_id == "framework.generated-service-model"
@@ -2714,10 +2704,7 @@ def check_issues_keeps_independent_validation(tmp_path, reference_design, fault)
     warnings = validators[0].warnings
     assert errors or warnings, validators[0].findings.reference_errors
     messages = "\n".join([*errors, *(str(warning) for warning in warnings)])
-    assert (
-        "generation.mismatch" not in messages
-        and "invalid Model reference display" not in messages
-    )
+    assert "generation.mismatch" not in messages
     if fault == "logicalId":
         assert "TARGET_MISSING" in messages
     elif fault == "attribute":
@@ -2820,8 +2807,8 @@ def check_issues_quicksight_name_difference(tmp_path, location):
             ),
         )
         after, _, _ = scan_runner.mechanical(tmp_path, selected, jobs=1)
-    assert after == before
-    assert not any(
+    assert after != before
+    assert any(
         "display name does not match" in error or "heading must display" in error
         for error in after
     )

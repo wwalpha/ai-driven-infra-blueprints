@@ -388,8 +388,10 @@ def test_issues_retains_mixed_causes_and_resource_dependencies(tmp_path):
         assert len(artifact["processing_errors"]) == 1
         assert artifact["processing_errors"][0]["code"] == "mechanical.view_read"
         assert artifact["processing_errors"][0]["service"] == "iam"
-        assert not any(
-            "invalid Model reference display" in str(item)
+        assert any(
+            item.get("code") == "design.tables.dependency"
+            and item.get("resource")
+            and item.get("checks")
             for item in artifact["unverified"]
         )
         assert any(
@@ -808,7 +810,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                     if result["check_id"] == "design.links"
                     and result["scope"] == ["dev/123456789012/codebuild"]
                 ]
-                if unreadable_view or markdown_link:
+                if unreadable_view or markdown_link or model_link:
                     assert len(links) == 1
                     assert links[0]["status"] == "NOT_RUN" and not links[0]["complete"]
                 else:
@@ -831,6 +833,8 @@ def test_scan_save_owns_codebuild_and_deduplicates(
             else:
                 assert all(
                     REASON in item["message"]
+                    or item.get("diagnostic", {}).get("code")
+                    == "design.display.mismatch"
                     for item in artifact["ordinary"]
                     if item["service"] == "codebuild"
                 ), artifact["ordinary"]

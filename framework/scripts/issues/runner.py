@@ -43,7 +43,12 @@ def mechanical(
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     validator_module = module("validate-blueprint.py", "issues_validator")
     validator = validator_module.Validator(
-        root, scope, fresh=fresh, workers=jobs, check_display=False
+        root,
+        scope,
+        fresh=fresh,
+        workers=jobs,
+        check_display=False,
+        check_saved_display=True,
     )
     validator.schema_catalog = catalog
     if validator_out is not None:

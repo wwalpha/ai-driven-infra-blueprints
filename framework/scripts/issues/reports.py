@@ -124,10 +124,18 @@ def ordinary_report(root, artifact):
                     display.setdefault(cause, []).append(item)
                 else:
                     items.append(issue_content(root, path, item))
-            for group in list(display.values())[:MAX_GROUPS]:
+            for cause, group in list(display.items())[:MAX_GROUPS]:
+                key = identifier(
+                    [
+                        environment,
+                        directory,
+                        service,
+                        "design.display.mismatch",
+                        cause[0],
+                    ]
+                )
                 items.append(
-                    display_content(group, artifact)
-                    + f" <!-- issue-id: {issue_key(root, group[0])} -->"
+                    display_content(group, artifact) + f" <!-- issue-id: {key} -->"
                 )
             lines.extend(f"{number}. {item}\n" for number, item in enumerate(items, 1))
             if display:

@@ -1,6 +1,7 @@
 """Display cause identity, validation evidence and lossless reports; offline fixtures."""
 
 import json
+import re
 import sys
 from contextlib import ExitStack
 from copy import deepcopy
@@ -28,7 +29,8 @@ from design.document import (
 from issues.aggregate import MAX_EXAMPLES, MAX_GROUPS
 from issues.artifact import detail_payload, validate_artifact
 from issues.publication import render_snapshot
-from issues.reports import ordinary_report
+from issues.records import identifier
+from issues.reports import issue_key, ordinary_report
 from issues.review import review_snapshot
 from issues.runner import validation_issues
 from model.core import ReferenceDiagnosticError
@@ -125,6 +127,91 @@ def mismatch(pipeline):
     with pytest.raises(DisplayMismatchError) as caught:
         model_reference_tables(path, saved, tuple(values.items()), FRAMEWORK)
     return caught.value
+
+
+@pytest.mark.parametrize("equal", [False, True])
+def test_normal_scan_checks_saved_display_once(pipeline, equal):
+    root, _, path, _, expected = pipeline
+    if equal:
+        path.write_text(expected, encoding="utf-8")
+    human = root / "issues/qa/team/human-confirmations.yaml"
+    human.parent.mkdir(parents=True)
+    human.write_text(
+        json.dumps(dict(version=2, environment="qa", target="team", confirmations=[])),
+        encoding="utf-8",
+    )
+    with (
+        patch.object(
+            sync_runtime,
+            "compare_generation",
+            side_effect=AssertionError("Scan must not repeat generation validation"),
+        ),
+        patch.object(
+            design, "check_resource_names", wraps=design.check_resource_names
+        ) as names,
+        patch.object(
+            design_tables,
+            "check_design_tables",
+            wraps=design_tables.check_design_tables,
+        ) as tables,
+        patch.object(
+            design_links, "check_design_links", wraps=design_links.check_design_links
+        ) as links,
+    ):
+        artifact = scan_runner.scan(root, "qa", "team", ["codepipeline"], jobs=1)
+    assert names.call_count == tables.call_count == links.call_count == 1
+    assert not artifact["processing_errors"], artifact["processing_errors"]
+    display = [
+        item
+        for item in artifact["ordinary"]
+        if item.get("diagnostic", {}).get("code") == "design.display.mismatch"
+    ]
+    assert bool(display) is not equal
+    if equal:
+        return
+    assert artifact["validation_status"] == "FAIL"
+    assert any(
+        item["property"] == "Stages[2].Actions[1].Configuration.ProjectName"
+        and item["service"] == "codepipeline"
+        for item in display
+    )
+    assert all(item["id"] == item["diagnostic"]["diagnosticId"] for item in display)
+    assert len({item["id"] for item in display}) == len(display)
+    assert len({item["diagnostic"]["cause_key"] for item in display}) == 4
+    assert not any(
+        item.get("diagnostic", {}).get("code")
+        in {"design.identity.invalid", "MODEL_REF_TARGET_MISSING"}
+        for item in artifact["ordinary"]
+    )
+    assert any(
+        item["status"] == "FAIL" and item["check_id"] == "design.service"
+        for item in artifact["check_results"]
+    )
+    assert any(
+        item["status"] == "NOT_RUN"
+        and item["unverified"]
+        and any(entry.get("cause_keys") for entry in item["unverified"])
+        for item in artifact["check_results"]
+    )
+    validate_artifact(artifact)
+    review = review_for(artifact)
+    review["diagnostic_assignments"] = {
+        item["id"]: "codepipeline"
+        for item in artifact["judgments"]
+        if "message" in item
+    }
+    assert {item["id"] for item in display} <= {
+        item["id"] for item in review["diagnostic_decisions"]
+    }
+    snapshot = review_snapshot(artifact, review)
+    saved = json.loads(snapshot.data)
+    assert all(
+        item in saved["ordinary"]
+        for item in json.loads(json.dumps(artifact["ordinary"]))
+    )
+    report = render_snapshot(root, snapshot)[0]
+    assert "表示差分: 原因4件（表示4件" in report
+    assert all(item["diagnostic"]["diagnosticId"] in report for item in display)
 
 
 def test_pipeline_display_is_not_identity_or_missing_producer(pipeline):
@@ -601,6 +688,89 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
             findings.result("design.tables.semantic", {("qa", "team", "codepipeline")})
         ).status
         == "NOT_RUN"
+    )
+
+
+def test_aggregate_issue_id_uses_scoped_cause_not_routes(pipeline):
+    root, _, _, _, _ = pipeline
+    findings, artifact = collected(pipeline)
+    original = deepcopy(artifact)
+
+    def report_ids(current):
+        return {
+            re.search(r"原因ID: ([^。]+)", line)[1]: re.search(
+                r"<!-- issue-id: ([^ ]+) -->", line
+            )[1]
+            for line in ordinary_report(root, current).splitlines()
+            if "原因ID:" in line
+        }
+
+    expected = report_ids(artifact)
+    assert len(expected) == len(set(expected.values())) == 4
+    artifact["ordinary"].reverse()
+    assert report_ids(artifact) == expected
+    artifact["ordinary"] = [
+        item
+        for item in artifact["ordinary"]
+        if item["diagnostic"]["check_id"] == "links"
+    ]
+    assert len(artifact["ordinary"]) == 4
+    assert report_ids(artifact) == expected
+    comparison = SimpleNamespace(
+        root=root, environment="qa", directory="team", redacted=lambda value: value
+    )
+    extra = Findings(root)
+    for diagnostic in findings.diagnostics:
+        if diagnostic.check_id == "links":
+            extra.add_diagnostic(replace(diagnostic, check_id="route-6"))
+    records = validation_issues(extra, comparison, ["codepipeline"])[0]
+    artifact["ordinary"].extend(records)
+    assert report_ids(artifact) == expected
+    assert all(item["id"] == item["diagnostic"]["diagnosticId"] for item in records)
+    selected = next(
+        item
+        for item in artifact["ordinary"][:4]
+        if item["property"] == "Stages[2].Actions[1].Configuration.ProjectName"
+    )
+    for current in (deepcopy(original), deepcopy(artifact)):
+        current["human_confirmations"]["confirmations"][0]["exceptions"] = [
+            dict(
+                rule=selected["rule"],
+                diagnostic_id=selected["id"],
+                condition="Human exception",
+            )
+        ]
+        review = review_for(current)
+        decision = next(
+            item
+            for item in review["diagnostic_decisions"]
+            if item["id"] == selected["id"]
+        )
+        decision.update(
+            outcome="excluded",
+            confirmation_id="human",
+            target=dict(resource=selected["resource"], property=selected["property"]),
+            evidence="Human confirmed this original diagnostic",
+        )
+        snapshot = json.loads(review_snapshot(current, review).data)
+        assert {item["id"] for item in snapshot["ordinary"]} == {
+            item["id"] for item in current["ordinary"] if item["id"] != selected["id"]
+        }
+    for field in ("environment", "target"):
+        scoped = deepcopy(artifact)
+        scoped[field] = "another"
+        assert set(report_ids(scoped).values()).isdisjoint(expected.values())
+    scoped = deepcopy(artifact)
+    scoped["services"] = ["another"]
+    for item in scoped["ordinary"]:
+        item["service"] = "another"
+    assert set(report_ids(scoped).values()).isdisjoint(expected.values())
+    assert all(item in original["ordinary"] for item in artifact["ordinary"][:4])
+    plain = dict(service="codepipeline", key="existing-key", message="ordinary")
+    assert issue_key(root, plain) == identifier(["codepipeline", "existing-key"])
+    artifact["ordinary"] = [plain]
+    assert f"<!-- issue-id: {issue_key(root, plain)} -->" in ordinary_report(
+        root, artifact
     )
 
 
