@@ -1,9 +1,11 @@
 """PLAINTEXT reference policy and ordinary Issue publication; synthetic inputs only."""
 
 import json
+import re
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -14,7 +16,8 @@ from issue_gate import issue_errors, unresolved_services
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.publication import save_scan
-from issues.runner import scan
+from issues.reports import generated_content, issue_key
+from issues.runner import codebuild_plaintext_diagnostics, scan
 from model.core import entries
 from model.display import display_rows
 from model.render import markdown_for
@@ -165,14 +168,49 @@ def test_exact_sibling_type_and_continuation(models, indexed):
         }
     )
     write_model(path, values)
-    with patch(
-        "model.render.resource_details", side_effect=ValueError("render unavailable")
-    ):
-        findings = _check_model_inputs(path, values, models, definitions_root=FRAMEWORK)
+    findings = _check_model_inputs(path, values, models, definitions_root=FRAMEWORK)
     errors = [error for error in findings.errors if REASON in error]
     assert len(errors) == 2, findings.errors
     assert "Name=BAD," in errors[0] and "Name=OTHER_BAD," in errors[1]
     assert any("provider schema violation" in e for e in findings.errors)
+
+
+def test_prohibited_link_preserves_resource_ownership_error(models):
+    path = models / "model/dev/team/codebuild.properties"
+    values = values_for([("VALUE", "PLAINTEXT", "[missing](missing.md#missing)")])
+    values["desired.service.codebuild.ownedCatalogResourceTypes"] = "S3.Bucket"
+    write_model(path, values)
+    findings = _check_model_inputs(path, values, models, definitions_root=FRAMEWORK)
+    assert len(findings.errors) == 2, findings.errors
+    assert sum(REASON in error for error in findings.errors) == 1
+    assert any("outside service ownership" in error for error in findings.errors)
+
+
+@pytest.mark.parametrize("indexed", [False, True])
+def test_policy_diagnostic_identity_preserves_model_ids(models, indexed):
+    values = values_for(
+        [("VALUE", "PLAINTEXT", "[missing](missing.md#missing)")], indexed=indexed
+    )
+    path = models / "model/dev/team/codebuild.properties"
+    original = next(iter(codebuild_reference_errors(path, values).values()))
+    comparison = SimpleNamespace(
+        root=models,
+        environment="dev",
+        directory="team",
+        model=Mock(return_value=SimpleNamespace(values=values)),
+    )
+    detail = original.split("Name=", 1)[1]
+    detail = re.sub(r"\[\d+\]", "[]", "Name=" + detail)
+    markdown = (
+        "invalid grouped design: docs/designs/dev/team/codebuild.md: "
+        "Resource=CodeBuild.Project#project: " + detail
+    )
+    assert codebuild_plaintext_diagnostics(markdown, comparison) == [original]
+    assert codebuild_plaintext_diagnostics(original, comparison) == [original]
+    unrelated = "invalid resource identity: independent error\ninvalid grouped design: another error"
+    assert codebuild_plaintext_diagnostics(unrelated, comparison) == [unrelated]
+    other = markdown.replace("#project:", "#another:")
+    assert codebuild_plaintext_diagnostics(other, comparison) != [original]
 
 
 @pytest.mark.parametrize("document", [False, True])
@@ -264,13 +302,34 @@ def test_non_plaintext_round_trip(kind):
 @pytest.mark.parametrize(
     "unreadable_view,typed", [(False, False), (True, False), (False, True)]
 )
-def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view, typed):
+@pytest.mark.usefixtures("catalog_display_fixture")
+@pytest.mark.parametrize(
+    "model_link,markdown_link,count,ownership_error",
+    [
+        (True, False, 1, False),
+        (False, True, 1, False),
+        (False, True, 2, False),
+        (True, True, 1, False),
+        (True, True, 2, False),
+        (True, True, 1, True),
+    ],
+)
+def test_scan_save_owns_codebuild_and_deduplicates(
+    tmp_path, unreadable_view, typed, model_link, markdown_link, count, ownership_error
+):
     with mapping_alias(FRAMEWORK, tmp_path):
         _, template = fixture(tmp_path, services=("s3",))
         path = tmp_path / "model/dev/123456789012/codebuild.properties"
         view = tmp_path / "docs/designs/dev/123456789012/codebuild.md"
         values = values_for(
-            [("BUILD_BUCKET_NAME", "PLAINTEXT", "`bucket-app-dev-data1`")]
+            [
+                (
+                    "BUILD_BUCKET_NAME" + str(number),
+                    "PLAINTEXT",
+                    "`bucket-app-dev-data1`",
+                )
+                for number in range(count)
+            ]
         )
         if typed:
             role = {
@@ -295,20 +354,40 @@ def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view, ty
                 '`{"$modelRef":{"logicalId":"IAM_Role_001","attribute":"Arn"}}`'
             )
         values["desired.resource.001.cfn-logicalId"] = "cfn-stack-app-dev-data1-Build"
+        values.update(
+            {
+                "desired.row.001-900.property": "CodeBuild.Project.Id",
+                "desired.row.001-900.value": "`PENDING_DEPLOY`",
+                "desired.row.001-900.comment": "合成識別子",
+            }
+        )
         write_model(path, values)
         write(view, markdown_for(view, values, tmp_path))
         variables = {rid: row for rid, row in entries(values, "desired.row.")}
-        rid = next(
+        variable_ids = [
             rid
             for rid, row in variables.items()
             if row["property"].endswith("EnvironmentVariables[].Value")
-        )
-        values[f"desired.row.{rid}.value"] = (
-            "[bucket-app-dev-data1](s3.md#s3-bucket-app-dev-data1)"
-        )
+        ]
+        if markdown_link and not unreadable_view:
+            write(
+                view,
+                view.read_text(encoding="utf-8").replace(
+                    "`bucket-app-dev-data1`",
+                    "[bucket-app-dev-data1](s3.md#s3-bucket-app-dev-data1)",
+                ),
+            )
+        if model_link:
+            for rid in variable_ids:
+                values[f"desired.row.{rid}.value"] = (
+                    "[bucket-app-dev-data1](s3.md#s3-bucket-app-dev-data1)"
+                )
+        if ownership_error:
+            values["desired.service.codebuild.ownedCatalogResourceTypes"] = "S3.Bucket"
         write_model(path, values)
-        with pytest.raises(ValueError, match=REASON):
-            markdown_for(view, values, tmp_path)
+        if model_link:
+            with pytest.raises(ValueError, match=REASON + "|outside service ownership"):
+                markdown_for(view, values, tmp_path)
         # The same symbolic bucket is also the IaC value; equality cannot waive policy.
         template["Resources"]["Build"] = {
             "Type": "AWS::CodeBuild::Project",
@@ -338,6 +417,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view, ty
         if unreadable_view:
             view.write_bytes(b"\xff")
         services = ["s3", "codebuild"]
+        previous_markers = set()
         for _iteration in range(2):
             if typed:
                 artifact_path = tmp_path.parent / "scan.json"
@@ -398,24 +478,50 @@ def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view, ty
             errors = [
                 item for item in artifact["ordinary"] if REASON in item["message"]
             ]
-            assert len(errors) == 1, artifact["ordinary"]
-            assert errors[0]["service"] == "codebuild"
-            assert typed or not any(
-                REASON in str(item)
-                for channel in ("warnings", "unverified")
-                for item in artifact[channel]
+            expected = count if model_link or not unreadable_view else 0
+            assert len(errors) == expected, artifact["ordinary"]
+            if not expected:
+                continue
+            if ownership_error:
+                assert any(
+                    "outside service ownership" in item.get("message", "")
+                    for item in [*artifact["ordinary"], *artifact["judgments"]]
+                ), {
+                    channel: artifact[channel]
+                    for channel in ("ordinary", "judgments", "processing_errors")
+                }
+            else:
+                assert all(
+                    REASON in item["message"]
+                    or "generated Markdown is stale or missing" in item["message"]
+                    for item in artifact["ordinary"]
+                ), artifact["ordinary"]
+            assert all(item["service"] == "codebuild" for item in errors)
+            assert (
+                typed
+                or markdown_link
+                or not any(
+                    REASON in str(item)
+                    for channel in ("warnings", "unverified")
+                    for item in artifact[channel]
+                )
             )
             assert not any(
                 REASON in str(item)
                 for item in artifact["judgments"]
                 if item.get("kind") != "existing-issue-correspondence"
             )
+            unowned = [item for item in artifact["judgments"] if "message" in item]
+            diagnostics = [
+                *artifact["ordinary"],
+                *(dict(item, service="codebuild") for item in unowned),
+            ]
             review = dict(
                 scan_id=artifact["scan_id"],
                 reviewed_naming_context_id=artifact["naming_context_id"],
                 reviewed_names=[item["id"] for item in artifact["naming"]["names"]],
                 reviewed_judgments=[item["id"] for item in artifact["judgments"]],
-                diagnostic_assignments={},
+                diagnostic_assignments={item["id"]: "codebuild" for item in unowned},
                 issues=[],
                 resolved=[],
             )
@@ -426,25 +532,44 @@ def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view, ty
                     status="continuing",
                     reason="同じ禁止違反を今回のModel検証でも検出",
                     verification="local",
-                    diagnostic_id=errors[0]["id"],
+                    diagnostic_id=diagnostic["id"],
                     evidence=[
-                        dict(kind="scan", section="ordinary", id=errors[0]["id"])
+                        dict(kind="scan", section="ordinary", id=diagnostic["id"])
                     ],
                 )
                 for item in artifact["judgments"]
                 if item.get("kind") == "existing-issue-correspondence"
+                for diagnostic in diagnostics
+                if (
+                    "<!-- issue-generated:start --> "
+                    + generated_content(
+                        tmp_path,
+                        tmp_path / "issues/dev/123456789012/issues.md",
+                        diagnostic,
+                    )
+                    + " <!-- issue-generated:end -->"
+                )
+                in item["materials"]["message"]
             ]
             with task(tmp_path, services):
                 paths = save_scan(tmp_path, artifact, review)
             report = paths[0].read_text(encoding="utf-8")
-            assert REASON in report
-            assert (
-                sum(
-                    "codebuild" in owners
-                    for _, owners in unresolved_services(tmp_path, paths[0])
+            if not _iteration:
+                report = report.replace(
+                    "<!-- issue-id: " + issue_key(tmp_path, errors[0]) + " -->",
+                    "<!-- issue-id: retained-policy-id -->",
                 )
-                == 1
-            ), report
+                write(paths[0], report)
+            assert "<!-- issue-id: retained-policy-id -->" in report
+            markers = set(re.findall(r"<!-- issue-id: (\S+) -->", report))
+            if _iteration:
+                assert markers == previous_markers
+            previous_markers = markers
+            assert REASON in report
+            assert sum(
+                "codebuild" in owners
+                for _, owners in unresolved_services(tmp_path, paths[0])
+            ) == len(diagnostics), report
             assert "### codebuild" in report
             assert issue_errors(tmp_path, {("dev", "123456789012", "codebuild")})
 

@@ -16,6 +16,14 @@ from design.services.definitions.codebuild import (
 )
 
 
+class PlaintextReferenceError(ValueError):
+    """A prohibited reference, retained separately from other display errors."""
+
+    def __init__(self, message, *, lines=None):
+        super().__init__(message)
+        self.lines = lines
+
+
 def adjust_display_order(kind, order):
     """Adjust only the caller's catalog-order copy."""
     if kind == "CodeBuild.Project":
@@ -95,7 +103,7 @@ def codebuild_formal_rows(cells, names, *, mode="CREATE", typed=False):
             CODEBUILD_FORMAL_VARIABLE + "Value", {"Type": variable_type}
         )
     ):
-        raise ValueError(
+        raise PlaintextReferenceError(
             f"Name={name}, Type={variable_type}, Property={CODEBUILD_FORMAL_VARIABLE}Value: {error}"
         )
     if marker and not linked and mode != "IMPORT" and not typed:

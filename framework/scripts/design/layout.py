@@ -601,6 +601,7 @@ def expanded_display_rows(
     result = []
     index = 0
     resource_type = ""
+    reference_errors = []
     while index < len(lines):
         if (
             lines[index] != HEADER
@@ -834,6 +835,10 @@ def expanded_display_rows(
                     )
                 except ReferenceResolutionError:
                     raise
+                except design.services.codebuild.PlaintextReferenceError as error:
+                    reference_errors.append(
+                        f"Resource={resource_type}#{anchor}: {error}"
+                    )
                 except ValueError as error:
                     raise ValueError(
                         f"Resource={resource_type}#{anchor}: {error}"
@@ -978,6 +983,10 @@ def expanded_display_rows(
             result.extend("| " + " | ".join(cells) + " |" for cells in rows)
         else:
             result.extend(lines[start:index])
+    if reference_errors:
+        raise design.services.codebuild.PlaintextReferenceError(
+            "\n".join(reference_errors), lines=result
+        )
     return result
 
 

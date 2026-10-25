@@ -3736,11 +3736,13 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | Case | UT | Count | Responsibility |
 | --- | --- | --- | --- |
 | Model policy | `units/codebuild-plaintext-unit.checks.py::test_model_policy` | 18 | CREATE/IMPORT; literal ARN/URL strings pass; every producer kind, missing target and structured reference are blocking errors |
-| Exact variable context | `test_exact_sibling_type_and_continuation` | 2 | Repeated/indexed rows use their own Name/Type; rendering unavailable and unrelated invalid literals do not hide policy errors |
+| Exact variable context | `test_exact_sibling_type_and_continuation` | 2 | Repeated/indexed rows use their own Name/Type; real presentation validation and unrelated invalid literals do not hide policy errors |
+| Independent ownership | `test_prohibited_link_preserves_resource_ownership_error` | 1 | A prohibited link does not exclude its Resource from ownership validation |
+| Policy identity | `test_policy_diagnostic_identity_preserves_model_ids` | 2 | Markdown and repeated/indexed Model policy errors retain the existing Model diagnostic ID; other Resources and unrelated errors remain separate |
 | JSON context | `test_container_references_use_exact_context` | 2 | Value/document structured and Markdown references use their own array object's Type |
 | Display restoration | `test_markdown_rejects_plaintext_link` | 4 | Explicit/missing PLAINTEXT marker rejects links in CREATE/IMPORT |
 | Non-PLAINTEXT | `test_non_plaintext_round_trip` | 2 | PARAMETER_STORE/SECRETS_MANAGER display round trip is preserved |
-| Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 3 | Multi-service scan → ordinary CodeBuild Issue → numbered issues.md → Issue gate; readable/unreadable Markdown and valid typed IAM.Role + BUILD_BUCKET_NAME PLAINTEXT Resource link; no duplicate; independent S3 comparison/lint, CLI artifact v3 persistence and strict generation rejection |
+| Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 18 | Model-only, Markdown-only and combined policy errors; one/two variables and independent ownership errors; readable/unreadable Markdown and typed IAM.Role; scan/save twice retains Issue IDs and counts, independent S3 comparison/lint, CLI artifact v3 and strict generation rejection |
 | Structured display | `test_structured_reference_display_is_rejected` | 2 | Projected typed Resource values remain forbidden for PLAINTEXT in CREATE/IMPORT |
 | Valid producers | `test_non_plaintext_model_links_pass` | 2 | Authoritative Model passes correct SSM.Parameter/SecretsManager.Secret links |
 

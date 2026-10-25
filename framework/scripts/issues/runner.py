@@ -6,9 +6,11 @@ import uuid
 from contextlib import redirect_stdout
 from functools import partial
 
-from model.core import ReferenceResolutionError
+from model.core import ReferenceResolutionError, entries
+from model.validation import codebuild_reference_errors
 from task_contract_core import task_read_scope
 from utils.input_cache import input_scope
+from utils.reference_contracts import reference_error
 from utils.script_loader import module
 
 import issues.artifact as _imports_issues_artifact
@@ -78,6 +80,75 @@ def check_targets(result):
     ]
 
 
+def codebuild_plaintext_diagnostics(message, comparison):
+    """Identify only this policy across its Model and saved-View error wrappers."""
+    reason = reference_error(
+        "CodeBuild.Project.Environment.EnvironmentVariables[].Value",
+        {"Type": "PLAINTEXT"},
+    )
+    pattern = re.compile(
+        r"(?:Model=.+?, Resource=.+? \([^)]+\), |"
+        r"Resource=CodeBuild\.Project#[^:]+: )"
+        r"Name=.+?, Type=PLAINTEXT, "
+        r"Property=CodeBuild\.Project\.Environment\.EnvironmentVariables\[\d*\]\.Value: "
+        + re.escape(reason)
+        + r"$"
+    )
+    if not any(pattern.search(line) for line in message.splitlines()):
+        return [message]
+    result = []
+    for line in message.splitlines():
+        match = pattern.search(line)
+        if match is None:
+            result.append(line)
+            continue
+        diagnostic = match[0]
+        if diagnostic.startswith("Resource="):
+            view = f"docs/designs/{comparison.environment}/{comparison.directory}/codebuild.md"
+            if view not in message:
+                result.append(line)
+                continue
+            fallback = f"{view}: {diagnostic}"
+            try:
+                model = comparison.model("codebuild")
+            except (OSError, ValueError, KeyError, TypeError):
+                result.append(fallback)
+                continue
+            anchor, detail = diagnostic.removeprefix(
+                "Resource=CodeBuild.Project#"
+            ).split(": ", 1)
+            resources = [
+                (identity, resource)
+                for identity, resource in entries(model.values, "desired.resource.")
+                if resource["resourceType"] == "CodeBuild.Project"
+                and resource.get("anchor") == anchor
+            ]
+            if len(resources) != 1:
+                result.append(fallback)
+                continue
+            identity, resource = resources[0]
+            path = (
+                comparison.root
+                / "model"
+                / comparison.environment
+                / comparison.directory
+                / "codebuild.properties"
+            )
+            diagnostic = (
+                f"Model={path}, Resource={resource['logicalId']} ({identity}), {detail}"
+            )
+            diagnostic = next(
+                (
+                    error
+                    for error in codebuild_reference_errors(path, model.values).values()
+                    if re.sub(r"\[\d+\]", "[]", error) == diagnostic
+                ),
+                diagnostic,
+            )
+        result.append(diagnostic)
+    return result
+
+
 @input_scope
 def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     started = time.perf_counter()
@@ -117,7 +188,12 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     ordinary, judgments = [], []
     validator = validators[0]
     seen = set()
-    for message in dict.fromkeys(errors):
+    diagnostic_messages = [
+        (message, diagnostic)
+        for message in dict.fromkeys(errors)
+        for diagnostic in codebuild_plaintext_diagnostics(message, comparison)
+    ]
+    for message, diagnostic in diagnostic_messages:
         if any(
             message == item["message"] for item in validator.findings.processing_errors
         ):
@@ -133,7 +209,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             found[0] if len(found) == 1 else services[0] if len(services) == 1 else None
         )
         # Model diagnostics retain their identity across View error context wrappers.
-        diagnostic = re.sub(r"^[^\n]*?: (?=Model=)", "", message)
+        diagnostic = re.sub(r"^[^\n]*?: (?=Model=)", "", diagnostic)
         key = identifier(diagnostic)
         if key in seen:
             continue

@@ -32,6 +32,7 @@ from design.layout_schema import (
 )
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
 from design.policy_tables import iam_role_policy_artifact_filename
+from design.services.codebuild import PlaintextReferenceError
 from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
 from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
 from design.services.ec2.security_groups import security_group_table_lines
@@ -378,6 +379,11 @@ def check_design_tables(
         except ReferenceResolutionError as error:
             findings.warn(error)
             continue
+        except PlaintextReferenceError as error:
+            findings.check(
+                False, f"invalid grouped design: {findings.relative(path)}: {error}"
+            )
+            lines, children = error.lines, {}
         except ValueError as error:
             findings.check(
                 False, f"invalid grouped design: {findings.relative(path)}: {error}"

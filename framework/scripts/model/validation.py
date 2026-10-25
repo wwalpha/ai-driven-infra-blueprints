@@ -932,11 +932,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
         owned,
         path,
         resource_details,
-        [
-            (identity, resource)
-            for identity, resource in resources
-            if not any(rid.rpartition("-")[0] == identity for rid, _, _ in prohibited)
-        ],
+        resources,
         root,
         service,
         values,

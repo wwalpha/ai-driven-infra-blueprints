@@ -42,6 +42,13 @@ def model_reference_tables(path, text, values, root):
     prohibited = _model_validation.codebuild_reference_errors(model_path, source)
     if prohibited:
         raise ValueError("\n".join(prohibited.values()))
+    if path.stem == "codebuild":
+        lines = text.splitlines()
+        _dependency_design_layout.expanded_display_rows(
+            lines,
+            root,
+            modes=_dependency_design_layout.resource_modes(lines, source),
+        )
     tables = []
     expected = _model_render.generate_markdown(
         path, source, root, reference_tables=tables
