@@ -282,7 +282,7 @@ def check_observed_failure_drains_peers_and_resumes(tmp_path, monkeypatch):
     failure = saved["observedFailures"][0]
     assert failure == {
         "stage": "MODEL_PUBLISHED",
-        "cause": "0 services succeeded; 1 services failed; 1 diagnostics\n"
+        "cause": "0 services succeeded; 1 services failed; 0 services NOT_RUN; 1 diagnostics\n"
         f"- docs/designs/dev/{ACCOUNT}/ec2.md: injected design I/O failure",
     }
     resumed = child_run(root, session, aws, ["--resume"])

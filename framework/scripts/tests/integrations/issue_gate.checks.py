@@ -19,6 +19,7 @@ from support.issue_gate_fixtures import (
     tempfile,
 )
 from support.it_case_receipt import it_case
+from support.model_sources import allocate_fixture, write_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -68,14 +69,6 @@ def main():
         assert not instance.errors
         active.write_text(contract)
 
-        active.write_text(contract)
-        try:
-            sync.sync(root, True, "dev", "cde", services=["ec2"])
-        except ValueError as error:
-            assert "unresolved issue blocks task" in str(error)
-        else:
-            raise AssertionError("model save bypassed issues")
-
         target = {
             "environment": "dev",
             "alias": "cde",
@@ -83,7 +76,46 @@ def main():
             "awsRegion": "ap-northeast-1",
             "iacEngine": "cloudformation",
         }
-        (root / "project.json").write_text(json.dumps({"targets": [target]}))
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "app",
+                    "targets": [
+                        target,
+                        dict(target, alias="other", awsAccountId="210987654321"),
+                    ],
+                }
+            )
+            + "\n"
+        )
+        design = "docs/designs/dev/cde/ec2.md"
+        contract = contract.replace(
+            "- `tasks/example.md`", f"- `tasks/example.md`\n- `{design}`"
+        )
+        active.write_text(contract)
+        values = {
+            "desired.service.ec2.serviceId": "ec2",
+            "desired.service.ec2.ownedCatalogResourceTypes": "EC2.VPC",
+            "desired.resource.001.resourceType": "EC2.VPC",
+            "desired.resource.001.resourceMode": "IMPORT",
+            "display.service.title": "# EC2 詳細設計",
+            "display.resource.001.comment": "検証用のネットワーク",
+            "desired.row.001-001.property": "EC2.VPC.CidrBlock",
+            "desired.row.001-001.value": "`10.0.0.0/16`",
+            "desired.row.001-001.comment": "ネットワーク範囲",
+            "desired.row.001-002.property": "EC2.VPC.VpcId",
+            "desired.row.001-002.value": "[VPC](#resource-EC2_VPC_001)",
+            "desired.row.001-002.comment": "既存ネットワークの識別子",
+            "observed.row.001-002.value": "`vpc-0123456789abcdef0`",
+        }
+        values.update(allocate_fixture(values, ["001"]))
+        write_model(root / "model/dev/cde/ec2.properties", values)
+        sync.sync(root, True, "dev", "cde", services=["ec2"])
+        assert (root / design).is_file() and path.read_text() == original
+        instance = validator.Validator(root)
+        instance.task_type = "design"
+        instance.check_issue_gate()
+        assert instance.errors
         backend = deploy.create_runtime(root, "dev", "cde", target)
         with (
             mock.patch.object(context.shutil, "which", return_value="/mock/aws"),

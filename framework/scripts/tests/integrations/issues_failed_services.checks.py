@@ -498,7 +498,7 @@ def check_incomplete_setting_artifact():
                 difference["iac"]["path"]
                 == "infra/cloudformation/templates/shared.yaml"
             )
-            assert "explicit attribute" in unresolved["reason"]
+            assert "PLAINTEXTではResource linkは禁止" in unresolved["reason"]
             assert unresolved["model"]["line"] > 0 and unresolved["iac"][
                 "path"
             ].endswith("shared.yaml")
@@ -624,7 +624,7 @@ def check_iac_partial_error_artifact():
             "Image",
             "EnvironmentVariables[0].Type",
         }
-        assert "explicit attribute" in unresolved["reason"]
+        assert "PLAINTEXTではResource linkは禁止" in unresolved["reason"]
         assert error["property"].endswith("#/EnvironmentVariables/0/Value")
         assert error["iac"]["pointer"] == "/EnvironmentVariables/0/Value"
         for item in (difference, error):

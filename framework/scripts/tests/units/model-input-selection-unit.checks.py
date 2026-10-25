@@ -115,7 +115,7 @@ def check_selection_order_findings_and_fresh_calls(selection):
         * 2
     )
     ids = [r.check_id for r in findings.results.values()]
-    assert ids == ["model.structure", "model.references"] + [
+    assert ids == ["model.structure", "model.json-settings", "model.references"] + [
         check
         for n in numbers
         for check in (
