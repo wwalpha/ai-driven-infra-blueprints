@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import model.sources as sources
 import pytest
+from comparison.deferral import ImportReferenceDeferred
 from comparison.services.codepipeline import contexts as action_contexts
 from comparison.values import compare_values
 from design.catalog import DesignSchemaCatalog
@@ -567,7 +568,6 @@ def check_pipeline_rejects_unproven(tmp_path, models, fault):
 
 
 def check_pipeline_import_preserves_position_and_siblings(tmp_path, models):
-    from comparison.deferral import ImportReferenceDeferred
     inputs, scope, values, stages = pipeline(tmp_path)
     model = inputs.models['codebuild']
     producer = dict(model.authoritative)

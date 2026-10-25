@@ -6,8 +6,8 @@ from json_intrinsics import intrinsic, project_document
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 
-from .values import PreparedValue
 from .deferral import ImportReferenceDeferred
+from .values import PreparedValue
 
 
 def evaluator(stack_inputs, resources, property_schema, symbol, import_value, local_comparison, resource_schema, defer_select=None):

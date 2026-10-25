@@ -6,13 +6,14 @@ import os
 import sys
 from pathlib import Path
 
+from comparison.deferral import CATEGORIES
+
 import issues.artifact as _imports_issues_artifact
 import issues.integrity as _imports_issues_integrity
 import issues.publication as _imports_issues_publication
 import issues.runner as _imports_issues_runner
 
 from .aggregate import IAC_CLASSES
-from comparison.deferral import CATEGORIES
 from .records import safe_text
 
 SELECTOR = "BLUEPRINT_TASK_FILE"

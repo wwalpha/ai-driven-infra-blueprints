@@ -48,8 +48,8 @@ from . import (
     registry,
     values,
 )
-from .result import redacted
 from .deferral import defer_import_reference
+from .result import redacted
 
 
 class Inputs:

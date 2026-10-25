@@ -2446,6 +2446,12 @@ def test_import_wait_preserves_known_json_difference(shape, observed):
     assert 'subnet-first' in json.dumps(batch.display_differences)
 
 
+def evaluate_actual_wait(original, error, stack, value, *args):
+    if value == {'Ref': 'External'}:
+        raise error
+    return original(stack, value, *args)
+
+
 @pytest.mark.parametrize('phase', ['unobserved', 'pending_deploy', 'awaiting_handoff'])
 @pytest.mark.parametrize('mismatch', [False, True])
 def test_actual_wait_retains_pointer_and_known_siblings(mismatch, phase):
@@ -2454,11 +2460,7 @@ def test_actual_wait_retains_pointer_and_known_siblings(mismatch, phase):
     resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
         [('VpcConfig', json.dumps({'VpcId': VPC, 'Subnets': ['subnet-fixed']}), None)],
         properties={'VpcConfig': {'VpcId': 'vpc-different' if mismatch else VPC, 'Subnets': [{'Ref': 'External'}]}})
-    original = comparison.evaluate
-    def evaluate(stack, value, *args):
-        if value == {'Ref': 'External'}:
-            raise error
-        return original(stack, value, *args)
+    evaluate = partial(evaluate_actual_wait, comparison.evaluate, error)
     comparison.evaluate = evaluate
     projected = project_actual({'VpcId': VPC, 'Subnets': [{'Ref': 'External'}]},
         evaluate=lambda value: evaluate('producer', value), property_name='CodeBuild.Project.VpcConfig', model_path=ROOT / 'synthetic.yaml')

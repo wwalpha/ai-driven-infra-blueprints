@@ -49,7 +49,7 @@ def main_checks():
             assert api['cause'] == {'kind': 'cloudformation-unsupported', 'resource_type': kind,
                                     'implementation_status': 'unverified'}, api
             stats = iac_summary(records, 'dev', '123456789012', ['s3'])
-            assert stats['records'] == dict(difference=0, uncompared=1, error=0,
+            assert stats['records'] == dict(difference=0, deferred=0, uncompared=1, error=0,
                                            matched=baseline_counts['matched'], excluded=baseline_counts['excluded']), stats
             assert stats['categories']['CFn非対応・比較対象外'] == 1, stats
             assert stats['categories']['処理エラー'] == stats['categories']['原因未確定'] == 0
