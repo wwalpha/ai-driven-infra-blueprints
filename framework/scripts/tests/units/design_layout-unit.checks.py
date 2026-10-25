@@ -2156,7 +2156,7 @@ def check_unexpected_expansion_exception_is_processing(tmp_path, catalog):
         design_tables, "expanded_design", side_effect=RuntimeError("framework failure")
     ):
         validator, result = table_validation(tmp_path, catalog, CODEBUILD)
-    assert result.status == "NOT_RUN" and result.metadata["reason"] == "processing"
+    assert result.status == "FAIL" and result.metadata["reason"] == "processing"
     assert len(validator.findings.processing_errors) == 1
     assert validator.findings.processing_errors[0]["exception"] == "RuntimeError"
 
