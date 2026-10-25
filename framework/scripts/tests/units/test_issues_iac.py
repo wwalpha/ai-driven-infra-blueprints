@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -20,10 +21,78 @@ import utils.json_format as _imports_utils_json_format
 from comparison import registry
 from comparison.values import PreparedValue, desired_value
 from design.catalog import DesignSchemaCatalog
+from issues.inputs import Comparison as IssueComparison
 from model.format import serialize
+from model.identity import COUNTERS
 from model.sources import Scope
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same, selected_same
+
+
+class ModelDependencyTests(unittest.TestCase):
+  def dependency_models(self):
+    directory = tempfile.TemporaryDirectory()
+    self.addCleanup(directory.cleanup)
+    root = Path(directory.name)
+    (root / 'project.json').write_text(json.dumps({'targets': [dict(environment='fixture', alias='team',
+        awsAccountId='123456789012', awsRegion='ap-northeast-1', iacEngine='cloudformation')]}), encoding='utf-8')
+    consumer = root / 'model/fixture/team/s3.properties'
+    consumer.parent.mkdir(parents=True)
+    consumer.write_text(serialize({COUNTERS: json.dumps({'S3.Bucket': 1}), 'desired.service.s3.serviceId': 's3',
+        'desired.resource.001.resourceType': 'S3.Bucket', 'desired.resource.001.logicalId': 'S3_Bucket_001',
+        'desired.row.001-001.property': 'S3.Bucket.KmsMasterKeyId',
+        'desired.row.001-001.value': '[key](kms.md#key)',
+        'desired.row.001-001.comment': '合成参照'}), encoding='utf-8')
+    producer = consumer.with_name('kms.properties')
+    raw = serialize({COUNTERS: json.dumps({'KMS.Key': 1}), 'desired.service.kms.serviceId': 'kms',
+        'desired.resource.001.resourceType': 'KMS.Key', 'desired.resource.001.logicalId': 'KMS_Key_001',
+        'desired.resource.001.anchor': 'key'}).encode('utf-8')
+    return root, producer, raw
+
+  def test_missing_producer_dependency(self):
+    for comparison_type in (issues_iac.Comparison, IssueComparison):
+      with self.subTest(comparison=comparison_type):
+        root, producer, raw = self.dependency_models()
+        with patch('comparison.inputs.hashlib', wraps=hashlib) as hashing:
+          comparison = comparison_type(root, 'fixture', 'team', ['s3'])
+          assert not comparison.load_errors
+          assert comparison.models['s3'].dependencies[producer] is None
+          assert producer not in comparison.model_reads.contents
+          assert producer in comparison.inputs
+          producer.write_bytes(raw)
+          if comparison_type is IssueComparison:
+            assert comparison.model('kms').dependencies[producer] == raw
+            assert comparison.read_hashes == {} and hashing.sha256.call_count == 0
+            assert not getattr(comparison, 'stale_inputs', False)
+          else:
+            assert comparison.read_hashes[producer] is None
+            with pytest.raises(ValueError, match='stale scan: contradictory input observations: model/fixture/team/kms.properties'):
+              comparison.model('kms')
+            assert comparison.stale_inputs
+
+  def test_existing_producer_dependency(self):
+    for comparison_type in (issues_iac.Comparison, IssueComparison):
+      with self.subTest(comparison=comparison_type):
+        root, producer, raw = self.dependency_models()
+        producer.write_bytes(raw)
+        comparison = comparison_type(root, 'fixture', 'team', ['s3'])
+        assert not comparison.load_errors
+        assert comparison.models['s3'].dependencies[producer] == raw
+        assert producer in comparison.inputs
+        with patch.object(Path, 'read_bytes', side_effect=AssertionError('dependency retention must not reread')), \
+             patch('comparison.inputs.hashlib', sha256=Mock(side_effect=AssertionError('same bytes must not be hashed twice'))), \
+             patch('comparison.inputs.load_model', side_effect=AssertionError('cached Model must not reload')):
+          assert comparison.model('s3') is comparison.models['s3']
+          comparison.retain_model_dependencies(comparison.models['s3'].dependencies)
+        if comparison_type is IssueComparison:
+          with patch('comparison.inputs.hashlib', sha256=Mock(side_effect=AssertionError('Issue must not hash'))):
+            comparison.retain_model_dependencies({producer: raw + b'# changed\n'})
+          assert comparison.read_hashes == {}
+        else:
+          assert comparison.read_hashes[producer] == hashlib.sha256(raw).hexdigest()
+          with pytest.raises(ValueError, match='contradictory input observations'):
+            comparison.retain_model_dependencies({producer: raw + b'# changed\n'})
+          assert comparison.stale_inputs
 
 
 def legacy_comparison(root, count=3, services=1, stacks=2):

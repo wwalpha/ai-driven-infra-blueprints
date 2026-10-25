@@ -3,6 +3,7 @@
 
 import sys
 from contextlib import nullcontext
+from copy import deepcopy
 from datetime import datetime as real_datetime
 from functools import partial
 from pathlib import Path
@@ -310,6 +311,43 @@ def check_comparison_input_tracking_is_report_only(tmp_path):
     Inputs.retain_hash(ordinary, tmp_path / 'input', 'first')
     with pytest.raises(ValueError, match='contradictory input observations'):
         Inputs.retain_hash(ordinary, tmp_path / 'input', 'changed')
+
+
+def change_scan_input(comparison, path, validator, *args, **kwargs):
+    comparison.track(path)
+    path.write_bytes(b'changed')
+    comparison.track(path)
+    comparison.model_reads.contents[path] = b'changed'
+    comparison.retain_reads()
+    return mechanical_result(validator, *args, **kwargs)
+
+
+@pytest.mark.parametrize('input_name', ['docs/designs/dev/team/s3.md', 'model/dev/team/s3.properties',
+                                        'infra/cloudformation/templates/s3.yaml'])
+def check_scan_accepts_input_changes(tmp_path, input_name):
+    path = tmp_path / input_name
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'original')
+    comparison = scan_runner.Comparison.__new__(scan_runner.Comparison)
+    comparison.root, comparison.inputs, comparison.read_hashes = tmp_path, set(), {}
+    comparison.model_reads = SimpleNamespace(contents={path: b'original'})
+    comparison.view_errors, comparison.warnings, comparison.results = {}, [], []
+    comparison.catalog, comparison.metrics, comparison.display_differences = None, {}, {}
+    comparison.models = {'s3': SimpleNamespace(values={})}
+    comparison.redacted, comparison.run = Mock(side_effect=deepcopy), Mock(return_value=[])
+    validator = SimpleNamespace(checks=1, findings=SimpleNamespace(unverified=[],
+        result=Mock(return_value=SimpleNamespace(metadata={}))))
+    lint = dict(jobs=[], coverage=[], status='checked',
+        **{name: [] for name in ('ordinary', 'judgments', 'warnings', 'information', 'unverified', 'processing_errors')})
+    with patch.object(scan_runner, 'Comparison', return_value=comparison), \
+         patch.object(scan_runner, 'mechanical', side_effect=partial(change_scan_input, comparison, path, validator)), \
+         patch.object(scan_runner, 'naming_materials', return_value=({'names': []}, [])), \
+         patch.object(scan_runner, 'existing_materials', return_value=([], [])), \
+         patch('issues.cfn_lint.run_lint', return_value=lint) as lint_call:
+        artifact = scan_runner.scan(tmp_path, 'dev', 'team', ['s3'])
+    assert not artifact['processing_errors'] and comparison.read_hashes == {}
+    assert comparison.run.call_count == lint_call.call_count == 1
+    assert path.read_bytes() == b'changed'
 
 
 def check_notice_resolution_and_update_series(tmp_path):
@@ -746,7 +784,7 @@ def check_save_review_rejections(tmp_path, failure):
             publication.save_scan(tmp_path, artifact, review)
 
 
-@pytest.mark.parametrize('input_name', ['parameters.json', 's3.properties', 'template.yaml', 'project.json'])
+@pytest.mark.parametrize('input_name', ['parameters.json', 's3.properties', 's3.md', 'template.yaml', 'project.json'])
 def check_saved_input_bytes_and_revision_independence(tmp_path, input_name):
     path = tmp_path / input_name
     path.write_bytes(b'original\r\n' * 20)

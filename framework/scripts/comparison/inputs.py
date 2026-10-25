@@ -93,13 +93,20 @@ class Inputs:
                 self.resources[service], self.rows[service] = {}, {}
 
     def retain_reads(self):
-        observed = getattr(self, 'model_observations', set())
+        observed = getattr(self, 'model_observations', {})
         self.model_observations = observed
         for file in self.model_reads.contents.keys() - observed:
             raw = self.model_reads.contents[file]
             if file.is_relative_to(self.root):
                 self.retain_hash(file, None if raw is None else hashlib.sha256(raw).hexdigest())
-            observed.add(file)
+            observed[file] = raw
+
+    def retain_model_dependencies(self, dependencies):
+        observed = self.model_observations
+        for file, raw in dependencies.items():
+            value = (self.read_hashes[file] if file in observed and observed[file] == raw
+                     else None if raw is None else hashlib.sha256(raw).hexdigest())
+            self.retain_hash(file, value)
 
     def retain_hash(self, path, value):
         self.inputs.add(path)
@@ -122,6 +129,7 @@ class Inputs:
                 raise
             finally:
                 self.retain_reads()
+            self.retain_model_dependencies(loaded.dependencies)
             self.warnings.extend(getattr(loaded, "warnings", ()))
             if service != 'cloudformation-stacks' and loaded.values.get(f'desired.service.{service}.serviceId') != service:
                 raise ValueError(f'mismatched service ID: {path}')

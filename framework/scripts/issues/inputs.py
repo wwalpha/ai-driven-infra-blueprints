@@ -4,6 +4,9 @@ from comparison import Comparison as LocalComparison
 
 
 class Comparison(LocalComparison):
+    def retain_model_dependencies(self, dependencies):
+        self.inputs.update(dependencies)
+
     def retain_reads(self):
         self.inputs.update(self.model_reads.contents)
 
