@@ -84,7 +84,7 @@ def _recursive_inactive_evidence_visit(conditions, directory, document, environm
                     input_source = {'kind': 'project-target', 'path': 'project.json', 'key': field,
                               'environment': environment, 'target': directory}
                 else:
-                    input_source = {'kind': 'botocore-endpoints' if key == 'AWS::Partition' else 'cloudformation-pseudo',
+                    input_source = {'kind': 'botocore-endpoints' if key in {'AWS::Partition', 'AWS::URLSuffix'} else 'cloudformation-pseudo',
                               'region': pseudo['AWS::Region'], 'key': key}
                 shown = pseudo[key]
             inputs[key] = {'name': key, 'value': shown, 'source': input_source}

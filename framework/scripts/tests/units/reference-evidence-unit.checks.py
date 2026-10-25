@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 from comparison import Comparison
 from comparison.reference_evidence import Evidence
-from comparison.resource import inline_owner
+from comparison.resource import inactive_evidence, inline_owner
 from comparison.services.iam import managed_policy_roles
 from comparison.values import PreparedValue, compare_values
 from design.catalog import DesignSchemaCatalog
@@ -1407,9 +1407,11 @@ def test_naming_materials_mode_and_root_targets():
         ('codebuild', 'Name'), ('codepipeline', 'Name'), ('glue', 'Name')}
 
 
-@pytest.mark.parametrize('region,partition', [('ap-northeast-1', 'aws'), ('cn-north-1', 'aws-cn'),
-    ('us-gov-west-1', 'aws-us-gov'), ('us-iso-east-1', 'aws-iso'), ('eusc-de-east-1', 'aws-eusc'), ('ap-fake-1', None)])
-def test_stack_partition_and_noecho(tmp_path, region, partition):
+@pytest.mark.parametrize('region,partition,suffix', [('ap-northeast-1', 'aws', 'amazonaws.com'),
+    ('cn-north-1', 'aws-cn', 'amazonaws.com.cn'), ('us-gov-west-1', 'aws-us-gov', 'amazonaws.com'),
+    ('us-iso-east-1', 'aws-iso', 'c2s.ic.gov'), ('eusc-de-east-1', 'aws-eusc', 'amazonaws.eu'),
+    ('ap-fake-1', None, None)])
+def test_stack_partition_and_noecho(tmp_path, region, partition, suffix):
     comparison = fixture()
     comparison.root = tmp_path
     comparison.target['awsRegion'] = region
@@ -1421,14 +1423,47 @@ def test_stack_partition_and_noecho(tmp_path, region, partition):
     parameters = tmp_path / 'infra/cloudformation/parameters/fixture/team/one.json'
     template.parent.mkdir(parents=True)
     parameters.parent.mkdir(parents=True)
-    template.write_text(json.dumps({'Parameters': {'Sensitive': {'Type': 'String', 'NoEcho': True, 'Default': 'private'}}}), encoding='utf-8')
+    template.write_text(json.dumps({'Resources': {}, 'Parameters': {'Sensitive': {'Type': 'String', 'NoEcho': True, 'Default': 'private'}}}), encoding='utf-8')
     parameters.write_text('[]', encoding='utf-8')
-    Comparison.stack_input(comparison, dict(name='stack', template='one.yaml', parameters='one.json'))
-    assert comparison.stack_inputs['stack'][2].get('AWS::Partition') == partition
+    with patch('socket.socket', side_effect=AssertionError('network forbidden')):
+        Comparison.stack_input(comparison, dict(name='producer', template='one.yaml', parameters='one.json'))
+    document, _, pseudo = comparison.stack_inputs['producer']
+    assert pseudo.get('AWS::Partition') == partition
+    assert pseudo.get('AWS::URLSuffix') == suffix
+    for name, expected in [('AWS::Region', region), ('AWS::AccountId', '123456789012'),
+                           ('AWS::StackName', 'producer'), ('AWS::NoValue', {'$noValue': True})]:
+        assert comparison.evaluate('producer', {'Ref': name}) == expected
     assert comparison.redacted('prefix-private') == '<masked sensitive parameter>'
-    if partition is None:
-        with pytest.raises(Blocked):
-            comparison.evaluate('stack', {'Ref': 'AWS::Partition'})
+    expression = {'Fn::Sub': 'secretsmanager.${AWS::Region}.${AWS::URLSuffix}'}
+    for name, expected in [('AWS::Partition', partition), ('AWS::URLSuffix', suffix)]:
+        if expected is None:
+            assert name not in pseudo
+            for value in ({'Ref': name}, {'Fn::Sub': '${' + name + '}'}):
+                with pytest.raises(Blocked, match='unresolved pseudo parameter'):
+                    comparison.evaluate('producer', value)
+        else:
+            assert comparison.evaluate('producer', {'Ref': name}) == expected
+    if suffix is not None:
+        assert comparison.evaluate('producer', expression) == f'secretsmanager.{region}.{suffix}'
+        document['Conditions'] = {'Off': {'Fn::Equals': [expression, 'other']}}
+        _, evidence = inactive_evidence('producer', 'Role', {'Condition': 'Off'}, document, {}, pseudo,
+            path='one.yaml', parameter_path='one.json', supplied=set(), stack_id='001', target=comparison.target,
+            environment='fixture', directory='team', marks={}, source_lookup=Mock(), redact=comparison.redacted)
+        assert next(item for item in evidence['inputs'] if item['name'] == 'AWS::URLSuffix') == {
+            'name': 'AWS::URLSuffix', 'value': suffix,
+            'source': {'kind': 'botocore-endpoints', 'region': region, 'key': 'AWS::URLSuffix'}}
+    comparison.root = ROOT
+    for different in (False, True):
+        policy = [{'PolicyName': 'KmsPolicy', 'PolicyDocument': {'Version': '2012-10-17', 'Statement': [{
+            'Effect': 'Allow', 'Action': 'kms:Decrypt', 'Resource': '*',
+            'Condition': {'StringEquals': {'kms:ViaService': f'secretsmanager.{region}.{suffix}'}}}]}}]
+        actual = copy.deepcopy(policy)
+        actual[0]['PolicyDocument']['Statement'][0]['Condition']['StringEquals']['kms:ViaService'] = expression
+        if different:
+            policy[0]['PolicyDocument']['Statement'][0]['Condition']['StringEquals']['kms:ViaService'] = 'different'
+        records = setting(comparison, 'IAM.Role', 'Policies', policy, actual)
+        expected = 'uncompared' if suffix is None else 'difference' if different else 'matched'
+        assert [item['category'] for item in records] == [expected], records
 
 
 def test_inactive_inline_policy_provenance():

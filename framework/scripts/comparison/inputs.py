@@ -220,10 +220,14 @@ class Inputs:
                   'AWS::Region': self.target['awsRegion'], 'AWS::NoValue': {'$noValue': True}}
         if not hasattr(self, 'partition'):
             Loader = aws_runtime().sdk_loader
-            self.partition = next((part['partition'] for part in Loader().load_data('endpoints')['partitions']
-                                   if self.target['awsRegion'] in part['regions']), None)
+            part = next((part for part in Loader().load_data('endpoints')['partitions']
+                         if self.target['awsRegion'] in part['regions']), None)
+            self.partition = part['partition'] if part is not None else None
+            self.url_suffix = part.get('dnsSuffix') if part is not None else None
         if self.partition is not None:
             pseudo['AWS::Partition'] = self.partition
+        if self.url_suffix:
+            pseudo['AWS::URLSuffix'] = self.url_suffix
         self.stack_inputs[name] = document, values, pseudo
         self.metrics['stack_evaluations'] += 1
         return template, self.stack_inputs[name]
