@@ -20,8 +20,11 @@ class CheckResult:
 
     @property
     def model_completion_allowed(self):
-        return self.status == 'PASS' or (self.status == 'NOT_RUN' and not self.errors
-                                        and self.metadata.get('reason') == 'reference')
+        return self.status == "PASS" or (
+            self.status == "NOT_RUN"
+            and not self.errors
+            and self.metadata.get("reason") == "reference"
+        )
 
 
 class Findings:
@@ -35,7 +38,6 @@ class Findings:
         self.results = {}
         self.candidate = object()
 
-
     def bind_candidate(self, candidate, common_checks):
         previous = self.candidate
         self.candidate = candidate
@@ -47,27 +49,37 @@ class Findings:
     def result(self, check_id, scope):
         scope = None if scope is None else frozenset(scope)
         key = (check_id, scope, self.candidate)
-        return self.results.setdefault(key, CheckResult(check_id, scope, self.candidate))
+        return self.results.setdefault(
+            key, CheckResult(check_id, scope, self.candidate)
+        )
 
     def evaluate(self, check_id, scope, handler):
         scope = None if scope is None else frozenset(scope)
         key = (check_id, scope, self.candidate)
         result = self.result(check_id, scope)
-        if result.status != 'NOT_RUN':
+        if result.status != "NOT_RUN":
             return result
         result = CheckResult(check_id, scope, self.candidate)
         self.results[key] = result
         incomplete_start = len(self.unverified)
-        before, checks, warning_start = len(self.errors), self.checks, len(self.warnings)
+        before, checks, warning_start = (
+            len(self.errors),
+            self.checks,
+            len(self.warnings),
+        )
         try:
             metadata = handler()
         except ReferenceResolutionError as error:
             self.warn(error)
-            result.metadata = {'complete': False, 'reason': 'reference', 'unverified': [check_id]}
+            result.metadata = {
+                "complete": False,
+                "reason": "reference",
+                "unverified": [check_id],
+            }
             result.warnings = tuple(self.warnings[warning_start:])
             result.errors = tuple(self.errors[before:])
             result.checks = self.checks - checks
-            result.status = 'FAIL' if result.errors else 'NOT_RUN'
+            result.status = "FAIL" if result.errors else "NOT_RUN"
             return result
         except (OSError, ValueError, KeyError, TypeError) as error:
             self.check(False, str(error))
@@ -75,26 +87,36 @@ class Findings:
         result.errors = tuple(self.errors[before:])
         result.warnings = tuple(self.warnings[warning_start:])
         result.checks = self.checks - checks
-        result.status = 'FAIL' if result.errors else 'NOT_RUN' if len(self.unverified) > incomplete_start else 'PASS'
+        result.status = (
+            "FAIL"
+            if result.errors
+            else "NOT_RUN"
+            if len(self.unverified) > incomplete_start
+            else "PASS"
+        )
         if isinstance(metadata, dict):
             result.metadata = metadata
-        if result.status == 'NOT_RUN':
-            result.metadata.update(complete=False, reason='reference', unverified=self.unverified[incomplete_start:])
+        if result.status == "NOT_RUN":
+            result.metadata.update(
+                complete=False,
+                reason="reference",
+                unverified=self.unverified[incomplete_start:],
+            )
         return result
 
-    def warn(self, condition, message=None, *, code='reference.validation', **details):
+    def warn(self, condition, message=None, *, code="reference.validation", **details):
         if message is not None:
             self.checks += 1
             if condition:
                 return
-            warning = {'code': code, 'message': message, **details}
+            warning = {"code": code, "message": message, **details}
         elif isinstance(condition, ReferenceResolutionError):
             self.unverified.append({**condition.diagnostic, **details})
             warning = {**condition.diagnostic, **details}
         elif isinstance(condition, dict):
             warning = {**condition, **details}
         else:
-            warning = {'code': code, 'message': str(condition), **details}
+            warning = {"code": code, "message": str(condition), **details}
         if warning not in self.warnings:
             self.warnings.append(warning)
 
@@ -103,22 +125,26 @@ class Findings:
         if not condition:
             self.errors.append(message)
 
-
     def check_file(self, condition: bool, path: Path, message: str) -> None:
         self.checks += 1
         if not condition:
             self.errors.append(message)
 
-
     def relative(self, path: Path) -> str:
         if path not in self.relative_paths:
-            self.relative_paths[path] = path.resolve().relative_to(self.canonical_root).as_posix()
+            self.relative_paths[path] = (
+                path.resolve().relative_to(self.canonical_root).as_posix()
+            )
         return self.relative_paths[path]
-
 
     def report_findings(self) -> None:
         print(f"Checks: {self.checks}")
         print(f"Blocking errors: {len(self.errors)}")
         print(f"Warnings: {len(self.warnings)}")
         for warning in self.warnings:
-            print('WARNING [' + warning['code'] + '] ' + json.dumps(warning, ensure_ascii=False))
+            print(
+                "WARNING ["
+                + warning["code"]
+                + "] "
+                + json.dumps(warning, ensure_ascii=False)
+            )

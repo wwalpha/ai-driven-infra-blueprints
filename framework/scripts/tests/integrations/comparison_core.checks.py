@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
 from pathlib import Path
 
@@ -12,9 +13,9 @@ import subprocess
 from support.it_case_receipt import module_complete
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
-code = r'''
+code = r"""
 import argparse, importlib.abc, importlib.util, socket, subprocess, sys
 from pathlib import Path
 from unittest.mock import patch
@@ -68,9 +69,24 @@ import model.render as model_design, model.core as model_core
 from model.adapters import observed
 assert not hasattr(model_design, 'cfn_resource_identity')
 assert inputs.cfn_resource_identity is observed.cfn_resource_identity is model_core.cfn_resource_identity is values.cfn_resource_identity
-'''
-for order in [('utils.comparison_rows', 'utils.iac_values', 'iac_evaluation'), ('iac_evaluation', 'utils.iac_values', 'utils.comparison_rows')]:
-    subprocess.run([sys.executable, '-B', '-c', code, str(Path(__file__).resolve().parents[2]), *order], check=True)
-print('Comparison core checks: PASS (rows/typed values/uncertainty/masking/fresh import identity)')
+"""
+for order in [
+    ("utils.comparison_rows", "utils.iac_values", "iac_evaluation"),
+    ("iac_evaluation", "utils.iac_values", "utils.comparison_rows"),
+]:
+    subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            code,
+            str(Path(__file__).resolve().parents[2]),
+            *order,
+        ],
+        check=True,
+    )
+print(
+    "Comparison core checks: PASS (rows/typed values/uncertainty/masking/fresh import identity)"
+)
 
 module_complete(__file__)

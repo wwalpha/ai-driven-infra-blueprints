@@ -4,4 +4,4 @@ import re
 
 LAMBDA_PERMISSION = "Lambda.Permission"
 
-PERMISSION_METADATA = re.compile(r'^<!-- lambda-permission: (.+?) -->\s*')
+PERMISSION_METADATA = re.compile(r"^<!-- lambda-permission: (.+?) -->\s*")

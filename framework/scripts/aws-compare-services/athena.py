@@ -1,7 +1,6 @@
 """athena: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-
-APIS = {('athena', 'get_work_group')}
+APIS = {("athena", "get_work_group")}
 
 
 def sensitive(prop):
@@ -9,4 +8,4 @@ def sensitive(prop):
 
 
 def fetch(ctx, r, getter):
-    return ctx.call('athena', 'get_work_group', WorkGroup=r.value('Name'))['WorkGroup']
+    return ctx.call("athena", "get_work_group", WorkGroup=r.value("Name"))["WorkGroup"]

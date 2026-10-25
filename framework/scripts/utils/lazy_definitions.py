@@ -1,8 +1,11 @@
 """Single-flight loading with caller-owned lifetime, cache and lock."""
+
 from concurrent.futures import Future
 
 
-def load_once(lock, cache, key, load, *, evict_on_failure: bool = False, lookup_locked=None):
+def load_once(
+    lock, cache, key, load, *, evict_on_failure: bool = False, lookup_locked=None
+):
     """lookup_locked returns (found, value) under the caller's lock, before cache access."""
     with lock:
         if lookup_locked is not None:

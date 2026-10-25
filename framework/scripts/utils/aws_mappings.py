@@ -23,15 +23,25 @@ _documents = {}
 def _callback_Mappings__document_load(self, service, /):
     aws_mapping = _imports_aws_mapping
     path = aws_mapping.mapping_path(self._root, service)
-    content = input_text(path, encoding='utf-8')
+    content = input_text(path, encoding="utf-8")
     # Only successful parsing is shared; each provider owns its mutable document.
-    document = deepcopy(load_once(_lock, _documents, (path, content, aws_mapping.yaml_read),
-                                  lambda: aws_mapping.yaml_read(content), evict_on_failure=True))
+    document = deepcopy(
+        load_once(
+            _lock,
+            _documents,
+            (path, content, aws_mapping.yaml_read),
+            lambda: aws_mapping.yaml_read(content),
+            evict_on_failure=True,
+        )
+    )
     expected = {kind for kind, owner in self._owners.items() if owner == service}
-    if (not isinstance(document, dict) or document.get('service') != service
-            or not isinstance(document.get('resourceTypes'), dict)
-            or document['resourceTypes'].keys() != expected):
-        raise ValueError('Mapping ownership index mismatch: ' + service)
+    if (
+        not isinstance(document, dict)
+        or document.get("service") != service
+        or not isinstance(document.get("resourceTypes"), dict)
+        or document["resourceTypes"].keys() != expected
+    ):
+        raise ValueError("Mapping ownership index mismatch: " + service)
     return document
 
 
@@ -39,25 +49,41 @@ def _callback_Mappings_get_build(self, service, /):
     Registry = _imports_aws_mapping.Registry
     runtime_properties = _imports_aws_mapping_catalog.runtime_properties
     document = self._document(service)
-    return Registry(self._root, service, document, runtime_properties(self._root, service, document))
+    return Registry(
+        self._root, service, document, runtime_properties(self._root, service, document)
+    )
 
 
-def _callback_Mappings_validated_build(catalogs, schemas, sdk, self, service, validator, /):
+def _callback_Mappings_validated_build(
+    catalogs, schemas, sdk, self, service, validator, /
+):
     Registry = _imports_aws_mapping.Registry
     document = self._document(service)
-    properties = validator(self._root, service, document, sdk=sdk, schemas=schemas, catalogs=catalogs)
+    properties = validator(
+        self._root, service, document, sdk=sdk, schemas=schemas, catalogs=catalogs
+    )
     return Registry(self._root, service, document, properties)
 
 
 class Mappings:
     def __init__(self, root):
         self._root = definition_root(root)
-        index = policy_json(input_text(self._root / 'framework/mappings/aws/owners.json', encoding='utf-8'))
-        if not isinstance(index, dict) or not index or any(
-                not re.fullmatch(r'[A-Za-z0-9]+\.[A-Za-z0-9]+', kind)
-                or not isinstance(service, str) or not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', service)
-                for kind, service in index.items()):
-            raise ValueError('invalid Mapping ownership index')
+        index = policy_json(
+            input_text(
+                self._root / "framework/mappings/aws/owners.json", encoding="utf-8"
+            )
+        )
+        if (
+            not isinstance(index, dict)
+            or not index
+            or any(
+                not re.fullmatch(r"[A-Za-z0-9]+\.[A-Za-z0-9]+", kind)
+                or not isinstance(service, str)
+                or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", service)
+                for kind, service in index.items()
+            )
+        ):
+            raise ValueError("invalid Mapping ownership index")
         self._owners = MappingProxyType(index)
         self._services = frozenset(index.values())
         self._documents = {}
@@ -66,11 +92,13 @@ class Mappings:
 
     def _require_service(self, service):
         if not isinstance(service, str) or service not in self._services:
-            raise ValueError('unknown Mapping service: ' + str(service))
+            raise ValueError("unknown Mapping service: " + str(service))
 
     def _document(self, service):
         self._require_service(service)
-        load = _bind_framework_callback(_callback_Mappings__document_load, self, service)
+        load = _bind_framework_callback(
+            _callback_Mappings__document_load, self, service
+        )
         return load_once(_lock, self._documents, service, load)
 
     def get(self, service):
@@ -85,8 +113,18 @@ class Mappings:
         (or a new process), never extending input/diagnostic cache lifetimes.
         """
         self._require_service(service)
-        build = _bind_framework_callback(_callback_Mappings_validated_build, catalogs, schemas, sdk, self, service, validator)
-        return load_once(_lock, self._validated, (service, sdk, schemas, catalogs, validator), build)
+        build = _bind_framework_callback(
+            _callback_Mappings_validated_build,
+            catalogs,
+            schemas,
+            sdk,
+            self,
+            service,
+            validator,
+        )
+        return load_once(
+            _lock, self._validated, (service, sdk, schemas, catalogs, validator), build
+        )
 
 
 def definition_root(root):
@@ -96,7 +134,11 @@ def definition_root(root):
         provider = _aliases.get(root)
         if provider is not None:
             return provider._root
-        return root if (root / "framework").is_dir() else Path(__file__).resolve().parents[3]
+        return (
+            root
+            if (root / "framework").is_dir()
+            else Path(__file__).resolve().parents[3]
+        )
 
 
 def _lookup_alias_locked(root):
@@ -105,8 +147,13 @@ def _lookup_alias_locked(root):
 
 def mappings_for(root):
     root = Path(root).absolute()
-    return load_once(_lock, _instances, root, lambda: Mappings(root),
-                     lookup_locked=_bind_framework_callback(_lookup_alias_locked, root))
+    return load_once(
+        _lock,
+        _instances,
+        root,
+        lambda: Mappings(root),
+        lookup_locked=_bind_framework_callback(_lookup_alias_locked, root),
+    )
 
 
 def owners(root):
@@ -120,7 +167,7 @@ def mapping_alias(source, stage):
     stage = Path(stage).absolute()
     with _lock:
         if stage in _aliases or stage in _instances:
-            raise ValueError('Mapping stage already has a provider: ' + str(stage))
+            raise ValueError("Mapping stage already has a provider: " + str(stage))
         _aliases[stage] = provider
     try:
         yield

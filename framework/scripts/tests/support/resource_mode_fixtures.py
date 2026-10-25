@@ -26,13 +26,20 @@ if not __debug__:
 ROOT = Path(__file__).resolve().parents[4]
 
 
-
 def model(kind="EC2.VPC", name="vpc-app-dev", mode="CREATE", label=None):
     service = "ec2"
     display = name or label or kind
     anchor = resource_anchor(service, display, kind)
-    identifier = {"EC2.VPC": "VpcId", "EC2.VPCEndpoint": "Id", "EC2.Instance": "InstanceId"}[kind]
-    physical = {"EC2.VPC": "vpc-0123456789abcdef0", "EC2.VPCEndpoint": "vpce-0123456789abcdef0", "EC2.Instance": "i-0123456789abcdef0"}[kind]
+    identifier = {
+        "EC2.VPC": "VpcId",
+        "EC2.VPCEndpoint": "Id",
+        "EC2.Instance": "InstanceId",
+    }[kind]
+    physical = {
+        "EC2.VPC": "vpc-0123456789abcdef0",
+        "EC2.VPCEndpoint": "vpce-0123456789abcdef0",
+        "EC2.Instance": "i-0123456789abcdef0",
+    }[kind]
     rows = []
     if name and kind == "EC2.VPC":
         rows.append(("Name", name))
@@ -53,24 +60,51 @@ def model(kind="EC2.VPC", name="vpc-app-dev", mode="CREATE", label=None):
         "desired.service.ec2.ownedCatalogResourceTypes": kind,
         "display.service.title": "# EC2 詳細設計",
         "desired.resource.001.resourceType": kind,
-        "desired.resource.001.logicalId": logical, 'desired.resource.001.anchor': anchor,
+        "desired.resource.001.logicalId": logical,
+        "desired.resource.001.anchor": anchor,
         "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
         "desired.resource.001.cfn-logicalId": "fixture-InternalId",
         "display.resource.001.comment": "業務用ネットワークを構成するresource",
     }
-    if mode == 'IMPORT':
-        result.pop('desired.resource.001.cfn-logicalId')
+    if mode == "IMPORT":
+        result.pop("desired.resource.001.cfn-logicalId")
     if mode is not None:
         result["desired.resource.001.resourceMode"] = mode
     if label:
         result["display.resource.001.label"] = label
     for number, (field, value) in enumerate(rows, 1):
         key = f"001-{number:03d}"
-        for suffix, item in (("property", kind + "." + field), ("value", value), ("comment", "設定値を指定する属性")):
+        for suffix, item in (
+            ("property", kind + "." + field),
+            ("value", value),
+            ("comment", "設定値を指定する属性"),
+        ):
             result[f"desired.row.{key}.{suffix}"] = item
             if field == identifier:
-                result[f"observed.row.{key}.{suffix}"] = physical if suffix == "value" else item
+                result[f"observed.row.{key}.{suffix}"] = (
+                    physical if suffix == "value" else item
+                )
     return result
 
 
-__all__ = ['Path', 'ROOT', 'SYNC', 'json', 'markdown_for', 'model', 'model_projection', 'naming_errors', 'properties', 'read_model', 'resource_anchor', 'resource_mode', 'resource_modes', 'shutil', 'snapshot_model', 'sync_views', 'sys', 'tempfile', 'write_model']
+__all__ = [
+    "Path",
+    "ROOT",
+    "SYNC",
+    "json",
+    "markdown_for",
+    "model",
+    "model_projection",
+    "naming_errors",
+    "properties",
+    "read_model",
+    "resource_anchor",
+    "resource_mode",
+    "resource_modes",
+    "shutil",
+    "snapshot_model",
+    "sync_views",
+    "sys",
+    "tempfile",
+    "write_model",
+]

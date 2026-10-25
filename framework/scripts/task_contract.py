@@ -83,34 +83,54 @@ from utils.script_loader import module
 
 
 def refresh(root, name, resuming=False):
-    return module("task_contract_runtime.py", "task_contract_runtime").refresh(root, name, resuming=resuming)
+    return module("task_contract_runtime.py", "task_contract_runtime").refresh(
+        root, name, resuming=resuming
+    )
 
 
 def complete(root, name):
-    return module("task_contract_runtime.py", "task_contract_runtime").complete(root, name)
+    return module("task_contract_runtime.py", "task_contract_runtime").complete(
+        root, name
+    )
 
 
 def resume(root, name):
-    return module("task_contract_runtime.py", "task_contract_runtime").resume(root, name)
+    return module("task_contract_runtime.py", "task_contract_runtime").resume(
+        root, name
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
     parser.add_argument("--task-file", required=True)
-    parser.add_argument("--source", type=Path, help="Register a new contract from a file outside the repository")
+    parser.add_argument(
+        "--source",
+        type=Path,
+        help="Register a new contract from a file outside the repository",
+    )
     transition = parser.add_mutually_exclusive_group()
-    transition.add_argument("--suspend-reason", help="Suspend only this task and record the problem")
+    transition.add_argument(
+        "--suspend-reason", help="Suspend only this task and record the problem"
+    )
     transition.add_argument("--resume", action="store_true", help="Resume this task")
-    transition.add_argument("--complete", action="store_true", help="Complete after successful required validation")
+    transition.add_argument(
+        "--complete",
+        action="store_true",
+        help="Complete after successful required validation",
+    )
     args = parser.parse_args()
     root = args.repository_root.resolve()
     try:
-        if args.source and (args.suspend_reason is not None or args.resume or args.complete):
+        if args.source and (
+            args.suspend_reason is not None or args.resume or args.complete
+        ):
             raise ValueError("--source cannot be combined with a status transition")
         if args.suspend_reason is not None:
             changed = suspend(root, args.task_file, args.suspend_reason)
-            print(f"Task contract: {args.task_file} ({'suspend' if changed else 'status unchanged'})")
+            print(
+                f"Task contract: {args.task_file} ({'suspend' if changed else 'status unchanged'})"
+            )
             return 0
         if args.resume:
             resume(root, args.task_file)

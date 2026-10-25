@@ -27,40 +27,55 @@ def read_proof(root, *, contract_file=None):
 
     selected = _imports_model_importing_scope.selected
 
-    reference = {} if contract_file is None else {'contract_file': contract_file}
+    reference = {} if contract_file is None else {"contract_file": contract_file}
     file = proof_path(root, **reference)
     try:
         if file.is_symlink():
-            raise ValueError('symlink import evidence')
+            raise ValueError("symlink import evidence")
         proof = read_sealed(root, file)
-        require_format(proof, 6, 'receipt')
+        require_format(proof, 6, "receipt")
         require_fresh_acquisition(proof)
-        if (proof['version'] != 6
-                or proof['task'] != workflow(root, **reference) or proof['base'] != base_revision(root, **reference)
-                or proof['scope'] != list(selected(root, **reference)) or not proof['acquisition']
-                or not isinstance(proof['sources'], dict) or not proof['plan']
-                or type(proof['complete']) is not bool
-                or proof['model'] not in {'pending', 'reflected', 'unchanged'}
-                or proof['markdown'] not in {'not-run', 'failed', 'generated', 'unchanged'}
-                or not isinstance(proof['ownedArtifacts'], list)):
-            raise ValueError('stale import evidence')
-        for relative, checksum in proof['sources'].items():
+        if (
+            proof["version"] != 6
+            or proof["task"] != workflow(root, **reference)
+            or proof["base"] != base_revision(root, **reference)
+            or proof["scope"] != list(selected(root, **reference))
+            or not proof["acquisition"]
+            or not isinstance(proof["sources"], dict)
+            or not proof["plan"]
+            or type(proof["complete"]) is not bool
+            or proof["model"] not in {"pending", "reflected", "unchanged"}
+            or proof["markdown"] not in {"not-run", "failed", "generated", "unchanged"}
+            or not isinstance(proof["ownedArtifacts"], list)
+        ):
+            raise ValueError("stale import evidence")
+        for relative, checksum in proof["sources"].items():
             safe_path(root, relative)
-            if checksum is not None and (not isinstance(checksum, str) or len(checksum) != 64):
-                raise ValueError('invalid source checksum')
-        for relative in proof['ownedArtifacts']:
+            if checksum is not None and (
+                not isinstance(checksum, str) or len(checksum) != 64
+            ):
+                raise ValueError("invalid source checksum")
+        for relative in proof["ownedArtifacts"]:
             safe_path(root, relative)
         verify_review_binding = _imports_model_importing_approval.verify_review_binding
-        binding = verify_review_binding(proof['reviewBinding'])
-        if proof['reviewBindingDigest'] != document_sha256(binding):
-            raise ValueError('IMPORT Review binding checksum differs')
-        if (binding['task'] != proof['task'] or binding['worktree'] != str(root.resolve())
-                or binding['scope'] != proof['scope'] or binding['acquisitionDigest'] != proof['acquisition']
-                or binding['acquiredAt'] != proof['acquiredAt']):
-            raise ValueError('IMPORT Review binding belongs to another Task/Worktree/scope/acquisition')
+        binding = verify_review_binding(proof["reviewBinding"])
+        if proof["reviewBindingDigest"] != document_sha256(binding):
+            raise ValueError("IMPORT Review binding checksum differs")
+        if (
+            binding["task"] != proof["task"]
+            or binding["worktree"] != str(root.resolve())
+            or binding["scope"] != proof["scope"]
+            or binding["acquisitionDigest"] != proof["acquisition"]
+            or binding["acquiredAt"] != proof["acquiredAt"]
+        ):
+            raise ValueError(
+                "IMPORT Review binding belongs to another Task/Worktree/scope/acquisition"
+            )
         return proof
     except (OSError, ValueError, KeyError, TypeError) as error:
-        raise ValueError('IMPORT change has no verified /import evidence: ' + str(error)) from error
+        raise ValueError(
+            "IMPORT change has no verified /import evidence: " + str(error)
+        ) from error
 
 
 def record_import(root, output, evidence, plan, complete=True, *, review_binding=None):
@@ -73,32 +88,61 @@ def record_import(root, output, evidence, plan, complete=True, *, review_binding
 
     verify_review_binding = _imports_model_importing_approval.verify_review_binding
     selected = _imports_model_importing_scope.selected
-    source_hashes = {p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()}
+    source_hashes = {
+        p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()
+    }
     verify_review_binding(review_binding)
     identity = selected(root)
     acquisition = read_acquisition(root, evidence, identity, False)
-    if (acquisition['root'] != str(root.resolve()) or acquisition['task'] != workflow(root)
-            or acquisition['scope'] != list(identity) or acquisition['dryRun']):
-        raise ValueError('IMPORT evidence does not authorize this source publication')
+    if (
+        acquisition["root"] != str(root.resolve())
+        or acquisition["task"] != workflow(root)
+        or acquisition["scope"] != list(identity)
+        or acquisition["dryRun"]
+    ):
+        raise ValueError("IMPORT evidence does not authorize this source publication")
     planned = {p.relative_to(root).as_posix(): text for p, text in output.items()}
-    if (not isinstance(review_binding, dict) or review_binding.get('task') != acquisition['task']
-            or review_binding.get('worktree') != acquisition['root'] or review_binding.get('scope') != acquisition['scope']
-            or review_binding.get('acquisitionDigest') != document_sha256(acquisition)
-            or review_binding.get('sourceBaselineDigest') != document_sha256(acquisition['sources'])
-            or review_binding.get('selectionDigest') != document_sha256(plan.get('selection'))):
-        raise ValueError('IMPORT Review binding differs from acquisition/selection/baseline')
-    if plan.get('sources') != planned:
-        raise ValueError('IMPORT evidence requires the checked candidate sources')
+    if (
+        not isinstance(review_binding, dict)
+        or review_binding.get("task") != acquisition["task"]
+        or review_binding.get("worktree") != acquisition["root"]
+        or review_binding.get("scope") != acquisition["scope"]
+        or review_binding.get("acquisitionDigest") != document_sha256(acquisition)
+        or review_binding.get("sourceBaselineDigest")
+        != document_sha256(acquisition["sources"])
+        or review_binding.get("selectionDigest")
+        != document_sha256(plan.get("selection"))
+    ):
+        raise ValueError(
+            "IMPORT Review binding differs from acquisition/selection/baseline"
+        )
+    if plan.get("sources") != planned:
+        raise ValueError("IMPORT evidence requires the checked candidate sources")
     if proof_path(root).exists():
-        raise ValueError('IMPORT Task already published; use display recovery or a new Task')
+        raise ValueError(
+            "IMPORT Task already published; use display recovery or a new Task"
+        )
     sources = source_hashes
-    proof = {'version': 6, **FORMAT_FIELDS, 'reviewBinding': review_binding, 'reviewBindingDigest': document_sha256(review_binding), 'task': workflow(root), 'base': base_revision(root),
-             'scope': list(identity), 'sources': sources,
-             'before': {p.relative_to(root).as_posix(): file_hash(p) for p in output},
-             'plan': document_sha256(plan), 'acquisition': document_sha256(acquisition),
-             'acquiredAt': acquisition['acquiredAt'], 'ownedArtifacts': plan['ownedArtifacts'],
-             'connection': acquisition['connection'], 'complete': complete and acquisition_complete(acquisition),
-             'model': 'pending', 'markdown': 'not-run', 'designValidation': 'not-run'}
+    proof = {
+        "version": 6,
+        **FORMAT_FIELDS,
+        "reviewBinding": review_binding,
+        "reviewBindingDigest": document_sha256(review_binding),
+        "task": workflow(root),
+        "base": base_revision(root),
+        "scope": list(identity),
+        "sources": sources,
+        "before": {p.relative_to(root).as_posix(): file_hash(p) for p in output},
+        "plan": document_sha256(plan),
+        "acquisition": document_sha256(acquisition),
+        "acquiredAt": acquisition["acquiredAt"],
+        "ownedArtifacts": plan["ownedArtifacts"],
+        "connection": acquisition["connection"],
+        "complete": complete and acquisition_complete(acquisition),
+        "model": "pending",
+        "markdown": "not-run",
+        "designValidation": "not-run",
+    }
     file = proof_path(root)
     file.parent.mkdir(parents=True, exist_ok=True)
     write_sealed(root, file, proof)
@@ -110,9 +154,9 @@ def finish_import(root, model=None, markdown=None):
     require_import_changes(root, generation=True)
     proof = read_proof(root)
     if model is not None:
-        proof['model'] = model
+        proof["model"] = model
     if markdown is not None:
-        proof['markdown'] = markdown
+        proof["markdown"] = markdown
     file = proof_path(root)
     write_sealed(root, file, proof)
 
@@ -140,28 +184,60 @@ def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, sourc
 
     inventory_for = _imports_model_importing_inventory.inventory_for
     if not ctx.verified or ctx.services != (identity[2],) or not ctx.trace:
-        raise ValueError('IMPORT acquisition requires a verified single-service AWS context')
+        raise ValueError(
+            "IMPORT acquisition requires a verified single-service AWS context"
+        )
     if not dry_run:
         task_start_commit = _imports_model_importing_repository.task_start_commit
         name = workflow(root)
         if task_start_commit(root, name) is not None:
             publication_revision(root, name)
-    directory = Path(tempfile.mkdtemp(prefix='session-', dir=evidence_store(root)))
+    directory = Path(tempfile.mkdtemp(prefix="session-", dir=evidence_store(root)))
     try:
-        value = {'version': 3, **FORMAT_FIELDS, 'root': str(root.resolve()), 'task': None if dry_run else workflow(root),
-                 'base': base_revision(root), 'head': working_revision(root), 'scope': list(identity), 'dryRun': dry_run,
-                 'acquiredAt': datetime.now(timezone.utc).isoformat(), 'status': 'acquired',
-                 'connection': {key: ctx.target.get(key) for key in ('environment', 'directory', 'awsExecutionAccountId', 'awsAccountId', 'awsRegion', 'awsProfile')},
-                 'sts': {'account': ctx.target.get('awsExecutionAccountId', ctx.target['awsAccountId']), 'verified': True},
-                 'trace': ctx.trace, 'records': records, 'sources': sources, 'sourceSets': source_sets,
-                 'inventory': inventory_for(ctx).statuses,
-                 'metrics': dict(ctx.metrics),
-                 'consumers': [list(item) for item in sorted(consumers)]}
-        write_sealed(root, directory / 'acquisition.json', value)
-        (directory / 'candidates').mkdir()
+        value = {
+            "version": 3,
+            **FORMAT_FIELDS,
+            "root": str(root.resolve()),
+            "task": None if dry_run else workflow(root),
+            "base": base_revision(root),
+            "head": working_revision(root),
+            "scope": list(identity),
+            "dryRun": dry_run,
+            "acquiredAt": datetime.now(timezone.utc).isoformat(),
+            "status": "acquired",
+            "connection": {
+                key: ctx.target.get(key)
+                for key in (
+                    "environment",
+                    "directory",
+                    "awsExecutionAccountId",
+                    "awsAccountId",
+                    "awsRegion",
+                    "awsProfile",
+                )
+            },
+            "sts": {
+                "account": ctx.target.get(
+                    "awsExecutionAccountId", ctx.target["awsAccountId"]
+                ),
+                "verified": True,
+            },
+            "trace": ctx.trace,
+            "records": records,
+            "sources": sources,
+            "sourceSets": source_sets,
+            "inventory": inventory_for(ctx).statuses,
+            "metrics": dict(ctx.metrics),
+            "consumers": [list(item) for item in sorted(consumers)],
+        }
+        write_sealed(root, directory / "acquisition.json", value)
+        (directory / "candidates").mkdir()
         # This is a disposition/evidence document, never a Model mutation language.
-        (directory / 'selection.json').write_text(json_text({'resources': [], 'excluded': [], 'unreflected': []}) + '\n', encoding='utf-8')
-        return directory / 'acquisition.json', value
+        (directory / "selection.json").write_text(
+            json_text({"resources": [], "excluded": [], "unreflected": []}) + "\n",
+            encoding="utf-8",
+        )
+        return directory / "acquisition.json", value
     except Exception:
         shutil.rmtree(directory)
         raise
@@ -174,56 +250,96 @@ def read_acquisition(root, file, identity, dry_run):
     working_revision = _imports_import_guard.working_revision
     file = Path(file).absolute()
     store = evidence_store(root)
-    if file.name != 'acquisition.json' or file.parent.parent != store or not file.parent.name.startswith('session-') or file.parent.is_symlink():
-        raise ValueError('IMPORT acquisition must use its original external evidence identifier')
+    if (
+        file.name != "acquisition.json"
+        or file.parent.parent != store
+        or not file.parent.name.startswith("session-")
+        or file.parent.is_symlink()
+    ):
+        raise ValueError(
+            "IMPORT acquisition must use its original external evidence identifier"
+        )
     value = read_sealed(root, file)
-    require_format(value, 3, 'acquisition')
+    require_format(value, 3, "acquisition")
     require_fresh_acquisition(value)
-    if (value.get('version') != 3 or value.get('root') != str(root.resolve())
-            or value.get('scope') != list(identity) or value.get('dryRun') is not dry_run
-            or value.get('base') != base_revision(root) or 'head' not in value or value['head'] != working_revision(root)
-            or value.get('status') != 'acquired'
-            or value.get('task') != (None if dry_run else workflow(root))
-            or value.get('sts', {}).get('verified') is not True):
-        raise ValueError('IMPORT acquisition is stale or belongs to another Task/Worktree/scope')
+    if (
+        value.get("version") != 3
+        or value.get("root") != str(root.resolve())
+        or value.get("scope") != list(identity)
+        or value.get("dryRun") is not dry_run
+        or value.get("base") != base_revision(root)
+        or "head" not in value
+        or value["head"] != working_revision(root)
+        or value.get("status") != "acquired"
+        or value.get("task") != (None if dry_run else workflow(root))
+        or value.get("sts", {}).get("verified") is not True
+    ):
+        raise ValueError(
+            "IMPORT acquisition is stale or belongs to another Task/Worktree/scope"
+        )
     if not dry_run:
         task_start_commit = _imports_model_importing_repository.task_start_commit
         name = workflow(root)
         if task_start_commit(root, name) is not None:
             publication_revision(root, name)
     validate_inventory(value)
-    if not isinstance(value.get('sourceSets'), list):
-        raise ValueError('IMPORT acquisition has no properties v2 input file-set snapshot')
+    if not isinstance(value.get("sourceSets"), list):
+        raise ValueError(
+            "IMPORT acquisition has no properties v2 input file-set snapshot"
+        )
     return value
 
 
 def validate_inventory(value):
-    inventory = value.get('inventory')
-    allowed = {'complete', 'empty', 'unsupported', 'permission_denied', 'requires_filter', 'failed', 'not_modelled'}
-    if not isinstance(inventory, dict) or not inventory or any(
-            not isinstance(kind, str) or not isinstance(item, dict) or item.get('status') not in allowed
-            for kind, item in inventory.items()):
-        raise ValueError('IMPORT acquisition inventory status is invalid')
+    inventory = value.get("inventory")
+    allowed = {
+        "complete",
+        "empty",
+        "unsupported",
+        "permission_denied",
+        "requires_filter",
+        "failed",
+        "not_modelled",
+    }
+    if (
+        not isinstance(inventory, dict)
+        or not inventory
+        or any(
+            not isinstance(kind, str)
+            or not isinstance(item, dict)
+            or item.get("status") not in allowed
+            for kind, item in inventory.items()
+        )
+    ):
+        raise ValueError("IMPORT acquisition inventory status is invalid")
     return inventory
 
 
 def acquisition_complete(value):
-    require_format(value, 3, 'acquisition')
-    return all(item['status'] in {'complete', 'empty'} for item in validate_inventory(value).values())
+    require_format(value, 3, "acquisition")
+    return all(
+        item["status"] in {"complete", "empty"}
+        for item in validate_inventory(value).values()
+    )
 
 
 def require_fresh_acquisition(value):
     """A receipt cannot indefinitely authorize replay against an unchanged Git baseline."""
-    acquired_at = datetime.fromisoformat(value['acquiredAt'])
+    acquired_at = datetime.fromisoformat(value["acquiredAt"])
     if acquired_at.tzinfo is None:
-        raise ValueError('IMPORT evidence time must include its timezone')
+        raise ValueError("IMPORT evidence time must include its timezone")
     age = datetime.now(timezone.utc) - acquired_at
     if age < -timedelta(minutes=5) or age > timedelta(days=7):
-        raise ValueError('IMPORT acquisition evidence expired')
+        raise ValueError("IMPORT acquisition evidence expired")
 
 
 def discard_acquisition(root, file):
     file = Path(file).absolute()
-    if file.name != 'acquisition.json' or file.parent.parent != evidence_store(root) or not file.parent.name.startswith('session-') or file.parent.is_symlink():
-        raise ValueError('IMPORT refusing to remove an unknown temporary directory')
+    if (
+        file.name != "acquisition.json"
+        or file.parent.parent != evidence_store(root)
+        or not file.parent.name.startswith("session-")
+        or file.parent.is_symlink()
+    ):
+        raise ValueError("IMPORT refusing to remove an unknown temporary directory")
     shutil.rmtree(file.parent)

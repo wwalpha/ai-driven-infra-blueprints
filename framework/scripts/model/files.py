@@ -24,18 +24,26 @@ def trace_model(path, key):
     snapshot = load_model(path)
     origin = key
     if key not in snapshot.authoritative:
-        if key.startswith('observed.row.') and key.endswith(('.property', '.comment')):
-            origin = key.replace('observed.', 'desired.', 1)
-        elif key.endswith('.artifactSha256'):
-            origin = key.removesuffix('artifactSha256') + 'document'
+        if key.startswith("observed.row.") and key.endswith((".property", ".comment")):
+            origin = key.replace("observed.", "desired.", 1)
+        elif key.endswith(".artifactSha256"):
+            origin = key.removesuffix("artifactSha256") + "document"
     file, line = snapshot.locations[origin]
-    result = {'key': key, 'value': snapshot.values[key] if origin != key else snapshot.authoritative[key], 'file': str(file), 'line': line}
+    result = {
+        "key": key,
+        "value": snapshot.values[key] if origin != key else snapshot.authoritative[key],
+        "file": str(file),
+        "line": line,
+    }
     if origin != key:
-        result['derivedFrom'] = origin
-    references = {identity: spec for identity, spec in declarations(snapshot.authoritative).items()
-                  if spec['consumerKey'] == origin}
+        result["derivedFrom"] = origin
+    references = {
+        identity: spec
+        for identity, spec in declarations(snapshot.authoritative).items()
+        if spec["consumerKey"] == origin
+    }
     if references:
-        result['references'] = references
+        result["references"] = references
     return result
 
 
@@ -58,21 +66,34 @@ def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
     """Select one resource's display group and service-wide context without rewriting values."""
     values = properties(text)
     resources = dict(entries(values, "desired.resource."))
-    matches = [identity for identity, resource in resources.items()
-               if selector and selector in (identity, resource.get("logicalId"))]
+    matches = [
+        identity
+        for identity, resource in resources.items()
+        if selector and selector in (identity, resource.get("logicalId"))
+    ]
     if len(matches) != 1:
-        raise ValueError(f"resource selector must match exactly one fixed entry number or logicalId: {selector!r} ({len(matches)} matches)")
+        raise ValueError(
+            f"resource selector must match exactly one fixed entry number or logicalId: {selector!r} ({len(matches)} matches)"
+        )
     anchors = resource_identity.anchor_index(values)
     neighbors = {identity: set() for identity in resources}
     for identity, resource in resources.items():
-        if 'parentReference' not in resource:
+        if "parentReference" not in resource:
             continue
-        environment, target, service, logical = resource_identity.parse_reference(resource['parentReference'], scope)
-        if scope is None or (environment, target, service) != (scope.environment, scope.target, scope.service):
-            raise ValueError('grouped parent requires the same explicit service scope')
-        match = resource_identity.select_anchor(anchors, logical, resource['parentReference'])
+        environment, target, service, logical = resource_identity.parse_reference(
+            resource["parentReference"], scope
+        )
+        if scope is None or (environment, target, service) != (
+            scope.environment,
+            scope.target,
+            scope.service,
+        ):
+            raise ValueError("grouped parent requires the same explicit service scope")
+        match = resource_identity.select_anchor(
+            anchors, logical, resource["parentReference"]
+        )
         if match is None:
-            raise ValueError('grouped parent is absent: ' + identity)
+            raise ValueError("grouped parent is absent: " + identity)
         parent = match[0]
         neighbors[identity].add(parent)
         neighbors[parent].add(identity)
@@ -84,9 +105,13 @@ def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
             selected.add(identity)
             pending.extend(neighbors[identity] - selected)
     prefixes = ("desired.service.", "display.service.", "desired.note.") + tuple(
-        prefix for identity in selected for prefix in (
-            f"desired.resource.{identity}.", f"display.resource.{identity}.",
-            f"desired.row.{identity}-", f"observed.row.{identity}-",
+        prefix
+        for identity in selected
+        for prefix in (
+            f"desired.resource.{identity}.",
+            f"display.resource.{identity}.",
+            f"desired.row.{identity}-",
+            f"observed.row.{identity}-",
         )
     )
     return {key for key in values if key.startswith(prefixes)}
@@ -98,17 +123,25 @@ def read_resource(model_path: Path, selector: str) -> dict[str, tuple[Path, int,
     owner = _imports_model_format.owner
     loaded = load_model(model_path.absolute())
     keys = resource_keys(loaded.text, selector, scope=loaded.scope)
-    selected = {owner(key, loaded.authoritative) for key in keys if key in loaded.authoritative}
-    return {key: (*loaded.locations[key], value) for key, value in loaded.authoritative.items()
-            if owner(key, loaded.authoritative) in selected}
+    selected = {
+        owner(key, loaded.authoritative) for key in keys if key in loaded.authoritative
+    }
+    return {
+        key: (*loaded.locations[key], value)
+        for key, value in loaded.authoritative.items()
+        if owner(key, loaded.authoritative) in selected
+    }
 
 
 @input_scope
 def find_model(model_path: Path, query: str) -> dict[str, tuple[Path, int]]:
     """Return matching key locations using existing expanded values; no writes."""
     loaded = load_model(model_path.absolute())
-    return {key: loaded.locations[key] for key, value in loaded.authoritative.items() if query in key + '=' + value}
-
+    return {
+        key: loaded.locations[key]
+        for key, value in loaded.authoritative.items()
+        if query in key + "=" + value
+    }
 
 
 def load_model(scope, read_context=None):

@@ -58,88 +58,133 @@ from validation_scope import active_scope
 from model import prepare_edit, publish_edit
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 @it_case
 def check_sync_base_preserves_candidate():
     with fixture() as root:
-        target, state = start(root, files=('file.txt',))
-        old = state['start']
-        (root / 'file.txt').write_text('upstream\n')
-        (root / 'upstream.txt').write_text('inherited\n')
-        git(root, 'add', '.')
-        git(root, 'commit', '-qm', 'reviewed upstream')
-        latest = git(root, 'rev-parse', 'HEAD')
-        (target / 'file.txt').write_text('upstream\nreviewed candidate\n')
-        saved = wt.sync_base(target, 'example', latest)
-        assert saved['start'] == old and saved['tip'] == saved['validation_base'] == latest
-        assert saved['commit'] is None and git(target, 'rev-parse', 'HEAD') == latest
-        assert (target / 'file.txt').read_text() == 'upstream\nreviewed candidate\n'
-        assert (target / 'upstream.txt').read_text() == 'inherited\n'
-        assert tasks.status((target / state['task_file']).read_text()) == 'running'
+        target, state = start(root, files=("file.txt",))
+        old = state["start"]
+        (root / "file.txt").write_text("upstream\n")
+        (root / "upstream.txt").write_text("inherited\n")
+        git(root, "add", ".")
+        git(root, "commit", "-qm", "reviewed upstream")
+        latest = git(root, "rev-parse", "HEAD")
+        (target / "file.txt").write_text("upstream\nreviewed candidate\n")
+        saved = wt.sync_base(target, "example", latest)
+        assert (
+            saved["start"] == old and saved["tip"] == saved["validation_base"] == latest
+        )
+        assert saved["commit"] is None and git(target, "rev-parse", "HEAD") == latest
+        assert (target / "file.txt").read_text() == "upstream\nreviewed candidate\n"
+        assert (target / "upstream.txt").read_text() == "inherited\n"
+        assert tasks.status((target / state["task_file"]).read_text()) == "running"
         finish_contract(target, state)
-        assert cli(root, 'finalize')['cleaned']
+        assert cli(root, "finalize")["cleaned"]
 
 
-def _callback_check_deploy_workflow_cross_task_reset_rejected_initial(target, /, root, state):
-    return {'repository':str(root), 'taskFile':state['task_file'], 'target':target,
-            'taskDigest':task_digest((root / state['task_file']).read_text()),
-            'workflow': handoff.new_workflow(),
-            'states':{'Stack':{'status':'NOT_STARTED'}}}
+def _callback_check_deploy_workflow_cross_task_reset_rejected_initial(
+    target, /, root, state
+):
+    return {
+        "repository": str(root),
+        "taskFile": state["task_file"],
+        "target": target,
+        "taskDigest": task_digest((root / state["task_file"]).read_text()),
+        "workflow": handoff.new_workflow(),
+        "states": {"Stack": {"status": "NOT_STARTED"}},
+    }
 
 
 @it_case
 def check_deploy_workflow_cross_task_reset_rejected():
     with fixture() as primary:
-        parent, parent_state = start(primary, task_id='deploy-one', files=('file.txt',))
-        other, other_state = start(primary, task_id='deploy-two', files=('file.txt',))
-        target = {'awsAccountId':'123456789012','awsRegion':'ap-northeast-1'}
-        initial = _bind_framework_callback(_callback_check_deploy_workflow_cross_task_reset_rejected_initial, target)
-        path = primary.parent / 'original-session.json'
-        original = initial(parent,parent_state)
-        handoff.bind(parent,path,original)
-        original['workflow']['reserved'] = 2
-        handoff.save(path,original)
-        wt.bind_deploy_workflow(parent,path,original,Path(original['workflowBinding']),activate=True)
-        replacement = initial(other,other_state)
-        next_path = primary.parent / 'replacement-session.json'
+        parent, parent_state = start(primary, task_id="deploy-one", files=("file.txt",))
+        other, other_state = start(primary, task_id="deploy-two", files=("file.txt",))
+        target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
+        initial = _bind_framework_callback(
+            _callback_check_deploy_workflow_cross_task_reset_rejected_initial, target
+        )
+        path = primary.parent / "original-session.json"
+        original = initial(parent, parent_state)
+        handoff.bind(parent, path, original)
+        original["workflow"]["reserved"] = 2
+        handoff.save(path, original)
+        wt.bind_deploy_workflow(
+            parent, path, original, Path(original["workflowBinding"]), activate=True
+        )
+        replacement = initial(other, other_state)
+        next_path = primary.parent / "replacement-session.json"
         try:
-            handoff.bind(other,next_path,replacement)
+            handoff.bind(other, next_path, replacement)
         except ValueError as error:
-            assert 'unfinished deploy workflow' in str(error)
+            assert "unfinished deploy workflow" in str(error)
         else:
-            raise AssertionError('another Task reset the original workflow')
-        proof = Path(original['workflowBinding'])
-        retained = proof.with_name(proof.name + '.retained')
+            raise AssertionError("another Task reset the original workflow")
+        proof = Path(original["workflowBinding"])
+        retained = proof.with_name(proof.name + ".retained")
         proof.rename(retained)
         try:
             try:
-                handoff.bind(other,next_path,replacement)
-            except (OSError,ValueError):
+                handoff.bind(other, next_path, replacement)
+            except (OSError, ValueError):
                 pass
             else:
-                raise AssertionError('missing prior ledger became a zero-cycle workflow')
+                raise AssertionError(
+                    "missing prior ledger became a zero-cycle workflow"
+                )
         finally:
             retained.rename(proof)
-        original['workflow']['attempts']['static-failed'] = {'attemptId':'static-failed','stage':'STATIC_FAILED','staticRuns':3}
-        original['pendingRequest'] = {'attemptId':'static-failed','requestId':'retained-pending-proof'}
-        handoff.save(path,original)
-        with tasks.selected_task(parent,parent_state['task_file']):
-            assert handoff_cli(['close','--repository-root',str(parent),'--state',str(path),
-                '--authorization','fixture explicit Human termination']) == 0
+        original["workflow"]["attempts"]["static-failed"] = {
+            "attemptId": "static-failed",
+            "stage": "STATIC_FAILED",
+            "staticRuns": 3,
+        }
+        original["pendingRequest"] = {
+            "attemptId": "static-failed",
+            "requestId": "retained-pending-proof",
+        }
+        handoff.save(path, original)
+        with tasks.selected_task(parent, parent_state["task_file"]):
+            assert (
+                handoff_cli(
+                    [
+                        "close",
+                        "--repository-root",
+                        str(parent),
+                        "--state",
+                        str(path),
+                        "--authorization",
+                        "fixture explicit Human termination",
+                    ]
+                )
+                == 0
+            )
         try:
-            handoff.bind(other,next_path,replacement)
-            wt.bind_deploy_workflow(other,next_path,replacement,Path(replacement['workflowBinding']),activate=True)
+            handoff.bind(other, next_path, replacement)
+            wt.bind_deploy_workflow(
+                other,
+                next_path,
+                replacement,
+                Path(replacement["workflowBinding"]),
+                activate=True,
+            )
         except ValueError as error:
-            assert 'unfinished deploy workflow' in str(error)
+            assert "unfinished deploy workflow" in str(error)
         else:
-            raise AssertionError('close must not reset unresolved history or budget')
+            raise AssertionError("close must not reset unresolved history or budget")
         saved = json.loads(path.read_text())
-        assert saved['workflow']['reserved'] == 2 and saved['workflow']['status'] == 'CLOSED'
-        assert 'pendingRequest' not in saved
-        assert saved['workflow']['attempts']['static-failed']['closedRequest']['requestId'] == 'retained-pending-proof'
-        assert saved['workflow']['attempts']['static-failed']['stage'] == 'ABANDONED'
+        assert (
+            saved["workflow"]["reserved"] == 2
+            and saved["workflow"]["status"] == "CLOSED"
+        )
+        assert "pendingRequest" not in saved
+        assert (
+            saved["workflow"]["attempts"]["static-failed"]["closedRequest"]["requestId"]
+            == "retained-pending-proof"
+        )
+        assert saved["workflow"]["attempts"]["static-failed"]["stage"] == "ABANDONED"
 
 
 @it_case
@@ -157,7 +202,9 @@ def check_success_and_empty():
                 (target / "file.txt").write_text("original\n")
             finish_contract(target, state)
             wt.integration_task(target, state)
-            result = cli(target, "finalize")  # CLI uses the task cwd, not the helper's location.
+            result = cli(
+                target, "finalize"
+            )  # CLI uses the task cwd, not the helper's location.
             assert result["cleaned"]
             assert not wt.branch_exists(root, state["branch"])
             assert git(root, "status", "--porcelain") == ""
@@ -168,16 +215,27 @@ def check_success_and_empty():
             else:
                 assert (root / "file.txt").read_text() == "task\n"
                 assert (root / "追加 file.txt").read_text() == "new\n"
-                assert git(root, "log", "-1", "--format=%s") == "task(example): completed task"
+                assert (
+                    git(root, "log", "-1", "--format=%s")
+                    == "task(example): completed task"
+                )
                 assert not wt.paths(root, "ls-files", "-z", "tasks")
     print("Normal/zero-change lifecycle: PASS")
 
 
 @it_case
 def check_finalize_line_endings():
-    for content, staged, accepted in ((b"task\r\n", False, True), (b"task  \n", True, False)):
+    for content, staged, accepted in (
+        (b"task\r\n", False, True),
+        (b"task  \n", True, False),
+    ):
         with fixture() as root:
-            git(root, "config", "core.whitespace", "blank-at-eol,blank-at-eof,space-before-tab")
+            git(
+                root,
+                "config",
+                "core.whitespace",
+                "blank-at-eol,blank-at-eof,space-before-tab",
+            )
             target, state = start(root)
             (target / "file.txt").write_bytes(content)
             if staged:
@@ -191,7 +249,10 @@ def check_finalize_line_endings():
                 assert "trailing whitespace" in result["error"]
                 retained(root, target, state, before)
                 assert git(target, "rev-parse", "HEAD") == state["start"]
-            assert git(root, "config", "core.whitespace") == "blank-at-eol,blank-at-eof,space-before-tab"
+            assert (
+                git(root, "config", "core.whitespace")
+                == "blank-at-eol,blank-at-eof,space-before-tab"
+            )
 
 
 @it_case
@@ -201,8 +262,12 @@ def check_incomplete_and_git_safety():
         (target / "file.txt").write_text("task\n")
         finish_contract(target, state)
         before = git(root, "rev-parse", "HEAD")
-        (Path(git(target, "rev-parse", "--absolute-git-dir")) / "MERGE_HEAD").write_text(before + "\n")
-        assert "unfinished Git operation" in cli(root, "finalize", success=False)["error"]
+        (
+            Path(git(target, "rev-parse", "--absolute-git-dir")) / "MERGE_HEAD"
+        ).write_text(before + "\n")
+        assert (
+            "unfinished Git operation" in cli(root, "finalize", success=False)["error"]
+        )
         retained(root, target, state, before)
         assert git(target, "rev-parse", "HEAD") == state["start"]
         assert (target / "file.txt").read_text() == "task\n"
@@ -222,7 +287,9 @@ def check_dirty_base_and_retry():
         result = cli(root, "finalize", success=False)
         assert "dirty" in result["error"] and result["commit"] is None
         retained(root, target, state, before)
-        assert (root / "file.txt").read_text() == "human dirty\n" and git(root, "write-tree") == index
+        assert (root / "file.txt").read_text() == "human dirty\n" and git(
+            root, "write-tree"
+        ) == index
         assert git(target, "rev-parse", "HEAD") == state["start"]
         assert (target / "file.txt").read_text() == "task\n"
         # Human resolves their own dirty base; helper never stashes or resets it.
@@ -251,51 +318,55 @@ def check_ahead_and_rebase_conflict():
         wt.idle_git(target)
         assert git(target, "status", "--porcelain") == ""
         pytest = _imports_pytest
-        old = result['commit']
-        with pytest.raises(wt.Blocked, match='commit changed'):
-            wt.recover(root, 'example', '0' * 40, latest)
-        with pytest.raises(wt.Blocked, match='base changed'):
-            wt.recover(root, 'example', old, '0' * 40)
-        with pytest.raises(wt.Blocked, match='aborted'):
-            wt.recover(root, 'example', old, latest)
-        assert tasks.status((target / state['task_file']).read_text()) == 'running'
-        assert 'finish reviewed recovery' in cli(root, 'finalize', success=False)['error']
-        assert wt.git(target, 'rebase', latest, check=False).returncode
-        (target / 'file.txt').write_text('base update\ntask\n')
-        git(target, 'add', 'file.txt')
-        git(target, 'rebase', '--continue')
-        (target / 'file.txt').write_text('dirty\n')
-        with pytest.raises(wt.Blocked, match='dirty'):
-            wt.recover(root, 'example', old, latest, finish=True)
-        (target / 'file.txt').write_text('base update\ntask\n')
-        candidate = git(target, 'rev-parse', 'HEAD')
-        previous_receipt = wt.load(root, 'example')[3]['recovery']
-        (root / 'base.txt').write_text('concurrent base advancement\n')
-        git(root, 'add', 'base.txt')
-        git(root, 'commit', '-qm', 'base advanced during reviewed recovery')
-        advanced = git(root, 'rev-parse', 'HEAD')
-        with pytest.raises(wt.Blocked, match='base changed'):
-            wt.recover(root, 'example', old, latest, finish=True)
-        with pytest.raises(wt.Blocked, match='differs from expected commit'):
-            wt.recover(root, 'example', old, advanced, repin=True)
-        repinned = wt.recover(root, 'example', candidate, advanced, repin=True)
-        assert repinned['recovery']['previous'] == previous_receipt
-        assert repinned['recovery']['commit'] == candidate
-        assert repinned['recovery']['base'] == advanced
-        assert git(target, 'rev-parse', 'HEAD') == candidate
-        assert 'finish reviewed recovery' in cli(root, 'finalize', success=False)['error']
-        with pytest.raises(wt.Blocked, match='unexpected history'):
-            wt.recover(root, 'example', candidate, advanced, finish=True)
-        git(target, 'rebase', advanced)
-        recovered = wt.recover(root, 'example', candidate, advanced, finish=True)
+        old = result["commit"]
+        with pytest.raises(wt.Blocked, match="commit changed"):
+            wt.recover(root, "example", "0" * 40, latest)
+        with pytest.raises(wt.Blocked, match="base changed"):
+            wt.recover(root, "example", old, "0" * 40)
+        with pytest.raises(wt.Blocked, match="aborted"):
+            wt.recover(root, "example", old, latest)
+        assert tasks.status((target / state["task_file"]).read_text()) == "running"
+        assert (
+            "finish reviewed recovery" in cli(root, "finalize", success=False)["error"]
+        )
+        assert wt.git(target, "rebase", latest, check=False).returncode
+        (target / "file.txt").write_text("base update\ntask\n")
+        git(target, "add", "file.txt")
+        git(target, "rebase", "--continue")
+        (target / "file.txt").write_text("dirty\n")
+        with pytest.raises(wt.Blocked, match="dirty"):
+            wt.recover(root, "example", old, latest, finish=True)
+        (target / "file.txt").write_text("base update\ntask\n")
+        candidate = git(target, "rev-parse", "HEAD")
+        previous_receipt = wt.load(root, "example")[3]["recovery"]
+        (root / "base.txt").write_text("concurrent base advancement\n")
+        git(root, "add", "base.txt")
+        git(root, "commit", "-qm", "base advanced during reviewed recovery")
+        advanced = git(root, "rev-parse", "HEAD")
+        with pytest.raises(wt.Blocked, match="base changed"):
+            wt.recover(root, "example", old, latest, finish=True)
+        with pytest.raises(wt.Blocked, match="differs from expected commit"):
+            wt.recover(root, "example", old, advanced, repin=True)
+        repinned = wt.recover(root, "example", candidate, advanced, repin=True)
+        assert repinned["recovery"]["previous"] == previous_receipt
+        assert repinned["recovery"]["commit"] == candidate
+        assert repinned["recovery"]["base"] == advanced
+        assert git(target, "rev-parse", "HEAD") == candidate
+        assert (
+            "finish reviewed recovery" in cli(root, "finalize", success=False)["error"]
+        )
+        with pytest.raises(wt.Blocked, match="unexpected history"):
+            wt.recover(root, "example", candidate, advanced, finish=True)
+        git(target, "rebase", advanced)
+        recovered = wt.recover(root, "example", candidate, advanced, finish=True)
         latest = advanced
-        assert recovered['tip'] == git(target, 'rev-parse', 'HEAD')
-        assert 'recovery' not in recovered
-        assert recovered['start'] == state['start']
-        assert wt.task_start_commit(target, state['task_file']) == latest
+        assert recovered["tip"] == git(target, "rev-parse", "HEAD")
+        assert "recovery" not in recovered
+        assert recovered["start"] == state["start"]
+        assert wt.task_start_commit(target, state["task_file"]) == latest
         finish_contract(target, state)
-        assert cli(root, 'finalize')['cleaned']
-        assert (root / 'file.txt').read_text() == 'base update\ntask\n'
+        assert cli(root, "finalize")["cleaned"]
+        assert (root / "file.txt").read_text() == "base update\ntask\n"
 
 
 @it_case
@@ -308,7 +379,9 @@ def check_collisions_and_base_selection():
         path = root / ".worktrees/path-collision"
         path.mkdir(parents=True)
         (path / "keep").write_text("human\n")
-        assert "collision" in cli(root, "create", "path-collision", success=False)["error"]
+        assert (
+            "collision" in cli(root, "create", "path-collision", success=False)["error"]
+        )
         assert (path / "keep").read_text() == "human\n"
         stale = root / ".worktrees/stale"
         git(root, "worktree", "add", "--detach", stale, "HEAD")
@@ -323,10 +396,15 @@ def check_collisions_and_base_selection():
 def check_directory_layout():
     with fixture() as root:
         ignore = root / ".gitignore"
-        ignore.write_text(ignore.read_text().replace("/.worktrees/\n", ""), encoding="utf-8")
+        ignore.write_text(
+            ignore.read_text().replace("/.worktrees/\n", ""), encoding="utf-8"
+        )
         git(root, "add", ".gitignore")
         git(root, "commit", "-qm", "missing worktree ignore")
-        assert "/.worktrees/ must be ignored" in cli(root, "create", success=False)["error"]
+        assert (
+            "/.worktrees/ must be ignored"
+            in cli(root, "create", success=False)["error"]
+        )
         assert not wt.branch_exists(root, "codex/worktree/example")
 
 
@@ -345,7 +423,9 @@ def check_metadata_storage():
         with wt.lifecycle_lock(root):
             lock = directory / "lifecycle.lock"
             assert lock.is_dir()
-            assert "lifecycle busy" in cli(other, "setup", "two", success=False)["error"]
+            assert (
+                "lifecycle busy" in cli(other, "setup", "two", success=False)["error"]
+            )
             assert lock.is_dir()
         # Old metadata and locks neither authorize a task nor block the new lifecycle.
         old = root / ".git/blueprint-worktree-tasks/one.json"
@@ -368,7 +448,9 @@ def check_metadata_storage():
         assert directory.is_dir()
 
 
-def _callback_check_cleanup_failure_and_retry_deny_remove(real_git, /, where, *args, partial_remove=False, **kwargs):
+def _callback_check_cleanup_failure_and_retry_deny_remove(
+    real_git, /, where, *args, partial_remove=False, **kwargs
+):
     if args[:2] == ("worktree", "remove"):
         if partial_remove:
             shutil.rmtree(Path(args[2]))
@@ -383,7 +465,9 @@ def check_cleanup_failure_and_retry():
         (target / "file.txt").write_text("task\n")
         finish_contract(target, state)
         real_git = wt.git
-        deny_remove = _bind_framework_callback(_callback_check_cleanup_failure_and_retry_deny_remove, real_git)
+        deny_remove = _bind_framework_callback(
+            _callback_check_cleanup_failure_and_retry_deny_remove, real_git
+        )
         with patch.object(wt, "git", side_effect=deny_remove):
             try:
                 wt.finalize(root, "example")
@@ -396,26 +480,29 @@ def check_cleanup_failure_and_retry():
         assert target.exists() and wt.branch_exists(root, state["branch"])
         (target / "secret.bin").write_bytes(b"ignored human data")
         blocked = cli(root, "cleanup", success=False)
-        assert "ignored files" in blocked['error']
-        assert blocked['cleanup']['phase'] == 'verify_worktree'
-        assert blocked['cleanup']['stop_reason'] == blocked['error']
+        assert "ignored files" in blocked["error"]
+        assert blocked["cleanup"]["phase"] == "verify_worktree"
+        assert blocked["cleanup"]["stop_reason"] == blocked["error"]
         assert (target / "secret.bin").read_bytes() == b"ignored human data"
         (target / "secret.bin").rename(root.parent / "saved-secret.bin")
         evidence_store = sealed_evidence.evidence_store
         write_sealed = sealed_evidence.write_sealed
         evidence = evidence_store(target)
-        own, other = evidence / 'example.json', evidence / 'other.json'
-        write_sealed(target, own, {'task': state['task_file']})
-        write_sealed(target, other, {'task': 'tasks/other.md'})
+        own, other = evidence / "example.json", evidence / "other.json"
+        write_sealed(target, own, {"task": state["task_file"]})
+        write_sealed(target, other, {"task": "tasks/other.md"})
         other_before = other.read_bytes()
-        assert not (target / '.blueprint').exists()
+        assert not (target / ".blueprint").exists()
 
         git(root, "branch", "feature", "HEAD^")
         git(root, "checkout", "-q", "feature")
         # Removal may succeed while branch deletion is blocked; retry from base safely.
         result = cli(target, "cleanup", success=False)
         assert "base must be checked out" in result["error"]
-        assert result["remaining_worktree"] is None and result["remaining_branch"] == state["branch"]
+        assert (
+            result["remaining_worktree"] is None
+            and result["remaining_branch"] == state["branch"]
+        )
         assert wt.branch_exists(root, state["branch"])
         git(root, "checkout", "-q", "main")
         result = cli(root, "cleanup")
@@ -425,38 +512,65 @@ def check_cleanup_failure_and_retry():
         other.unlink()
     with fixture() as root:
         target, state = start(root)
-        other, other_state = start(root, 'other')
-        other_path = wt.load(root, 'other')[2]
+        other, other_state = start(root, "other")
+        other_path = wt.load(root, "other")[2]
         other_before = other_path.read_bytes()
-        (target / 'file.txt').write_text('task\n')
+        (target / "file.txt").write_text("task\n")
         finish_contract(target, state)
         real_git = wt.git
-        deny_remove = _bind_framework_callback(_callback_check_cleanup_failure_and_retry_deny_remove,
-                                               real_git, partial_remove=True)
-        with patch.object(wt, 'git', side_effect=deny_remove), pytest.raises(wt.Blocked) as caught:
-            wt.finalize(root, 'example')
-        assert caught.value.cleanup['phase'] == 'remove_worktree'
-        assert caught.value.cleanup['remaining'] == dict(worktree=False, git_registration=True, branch=True, task_state=True)
-        assert not target.exists() and any(e.get('prunable') for e in wt.worktrees(root) if Path(e['worktree']) == target)
-        result = cli(root, 'cleanup')
-        assert result['cleaned'] and result['cleanup']['phase'] == 'complete'
-        assert result['cleanup']['remaining'] == dict(worktree=False, git_registration=False, branch=False, task_state=False)
-        assert not wt.branch_exists(root, state['branch']) and not wt.state_path(root, 'example').exists()
-        assert other.is_dir() and other_path.read_bytes() == other_before and wt.branch_exists(root, other_state['branch'])
+        deny_remove = _bind_framework_callback(
+            _callback_check_cleanup_failure_and_retry_deny_remove,
+            real_git,
+            partial_remove=True,
+        )
+        with (
+            patch.object(wt, "git", side_effect=deny_remove),
+            pytest.raises(wt.Blocked) as caught,
+        ):
+            wt.finalize(root, "example")
+        assert caught.value.cleanup["phase"] == "remove_worktree"
+        assert caught.value.cleanup["remaining"] == dict(
+            worktree=False, git_registration=True, branch=True, task_state=True
+        )
+        assert not target.exists() and any(
+            e.get("prunable")
+            for e in wt.worktrees(root)
+            if Path(e["worktree"]) == target
+        )
+        result = cli(root, "cleanup")
+        assert result["cleaned"] and result["cleanup"]["phase"] == "complete"
+        assert result["cleanup"]["remaining"] == dict(
+            worktree=False, git_registration=False, branch=False, task_state=False
+        )
+        assert (
+            not wt.branch_exists(root, state["branch"])
+            and not wt.state_path(root, "example").exists()
+        )
+        assert (
+            other.is_dir()
+            and other_path.read_bytes() == other_before
+            and wt.branch_exists(root, other_state["branch"])
+        )
     print("Cleanup failure/retry/ignored data/merged history preserved: PASS")
 
 
-def _callback_check_merge_retry_and_commit_failure_commit_hook_changes(real_git, target, /, where, *args, **kwargs):
+def _callback_check_merge_retry_and_commit_failure_commit_hook_changes(
+    real_git, target, /, where, *args, **kwargs
+):
     if args[:1] == ("commit",):
         (target / "outside.txt").write_text("hook staged unrelated work\n")
         real_git(target, "add", "outside.txt")
     return real_git(where, *args, **kwargs)
 
 
-def _callback_check_merge_retry_and_commit_failure_deny_merge(_state_check_merge_retry_and_commit_failure_505, /, where, *args, **kwargs):
+def _callback_check_merge_retry_and_commit_failure_deny_merge(
+    _state_check_merge_retry_and_commit_failure_505, /, where, *args, **kwargs
+):
     if args[:1] == ("merge",):
         raise wt.Blocked("injected ff-only merge failure")
-    return _state_check_merge_retry_and_commit_failure_505.real_git(where, *args, **kwargs)
+    return _state_check_merge_retry_and_commit_failure_505.real_git(
+        where, *args, **kwargs
+    )
 
 
 @it_case
@@ -471,7 +585,10 @@ def check_merge_retry_and_commit_failure():
         git(root, "commit", "-qm", "ahead")
         latest = git(root, "rev-parse", "HEAD")
         _state_check_merge_retry_and_commit_failure_505.real_git = wt.git
-        deny_merge = _bind_framework_callback(_callback_check_merge_retry_and_commit_failure_deny_merge, _state_check_merge_retry_and_commit_failure_505)
+        deny_merge = _bind_framework_callback(
+            _callback_check_merge_retry_and_commit_failure_deny_merge,
+            _state_check_merge_retry_and_commit_failure_505,
+        )
         with patch.object(wt, "git", side_effect=deny_merge):
             try:
                 wt.finalize(root, "example")
@@ -489,7 +606,11 @@ def check_merge_retry_and_commit_failure():
         finish_contract(target, state)
         latest = git(root, "rev-parse", "HEAD")
         _state_check_merge_retry_and_commit_failure_505.real_git = wt.git
-        commit_hook_changes = _bind_framework_callback(_callback_check_merge_retry_and_commit_failure_commit_hook_changes, _state_check_merge_retry_and_commit_failure_505.real_git, target)
+        commit_hook_changes = _bind_framework_callback(
+            _callback_check_merge_retry_and_commit_failure_commit_hook_changes,
+            _state_check_merge_retry_and_commit_failure_505.real_git,
+            target,
+        )
         with patch.object(wt, "git", side_effect=commit_hook_changes):
             try:
                 wt.finalize(root, "example")
@@ -509,7 +630,11 @@ def check_human_approved_validation_failure():
     with fixture() as root:
         target, state = start(root)
         (target / "file.txt").write_text("task  \n")
-        tasks.suspend(target, state["task_file"], "Local loop failed: file.txt trailing whitespace")
+        tasks.suspend(
+            target,
+            state["task_file"],
+            "Local loop failed: file.txt trailing whitespace",
+        )
         cli(root, "finalize", success=False)  # No approval still blocks before commit.
         assert git(target, "rev-parse", "HEAD") == state["start"]
         (target / "secret.bin").write_bytes(b"keep suspended contract for inspection")
@@ -518,11 +643,16 @@ def check_human_approved_validation_failure():
         assert result["validation_failure_approval"] == approval
         text = (target / state["task_file"]).read_text()
         assert tasks.status(text) == "suspend" and "Local loop failed" in text
-        assert git(root, "log", "-1", "--format=%s") == "task(example): human-approved validation failure"
+        assert (
+            git(root, "log", "-1", "--format=%s")
+            == "task(example): human-approved validation failure"
+        )
         assert approval in git(root, "log", "-1", "--format=%b")
         assert (root / "file.txt").read_text() == "task  \n"
         (target / "secret.bin").unlink()
-        assert cli(root, "cleanup")["cleaned"]  # Stored approval survives cleanup retry.
+        assert cli(root, "cleanup")[
+            "cleaned"
+        ]  # Stored approval survives cleanup retry.
         assert not wt.branch_exists(root, state["branch"])
 
 
@@ -531,8 +661,14 @@ def check_real_loop_integration():
     # Use shared Framework code with the existing synthetic Project fixture.
     with fixture() as root:
         loop_checks.make_project_fixture(SCRIPT.parents[2], root)
-        for name in ("docs/designs", "model", "infra", "tests/scenarios", "tests/results"):
-            (root/name).mkdir(parents=True,exist_ok=True)
+        for name in (
+            "docs/designs",
+            "model",
+            "infra",
+            "tests/scenarios",
+            "tests/results",
+        ):
+            (root / name).mkdir(parents=True, exist_ok=True)
             (root / name / ".gitkeep").touch()
         git(root, "add", ".")
         git(root, "commit", "-qm", "Project fixture")
@@ -540,11 +676,29 @@ def check_real_loop_integration():
         overview = target / "docs/system-overview.md"
         overview.write_text("# Trailing whitespace  \n")
         loop = SCRIPT.with_name("blueprint-loop.py")
-        environment = {**os.environ, tasks.SELECTOR: state["task_file"], "PYTHONDONTWRITEBYTECODE": "1"}
-        result = subprocess.run([sys.executable, "-B", str(loop),
-                                 "--mode", "task", "--task-file", state["task_file"]],
-                                cwd=target, env=environment, capture_output=True, encoding="utf-8")
-        assert result.returncode != 0 and "FAIL" in result.stdout, result.stdout + result.stderr
+        environment = {
+            **os.environ,
+            tasks.SELECTOR: state["task_file"],
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(loop),
+                "--mode",
+                "task",
+                "--task-file",
+                state["task_file"],
+            ],
+            cwd=target,
+            env=environment,
+            capture_output=True,
+            encoding="utf-8",
+        )
+        assert result.returncode != 0 and "FAIL" in result.stdout, (
+            result.stdout + result.stderr
+        )
         assert tasks.status((target / state["task_file"]).read_text()) == "suspend"
         before = git(root, "rev-parse", "HEAD")
         cli(root, "finalize", "example", success=False)
@@ -552,128 +706,188 @@ def check_real_loop_integration():
         assert git(target, "rev-parse", "HEAD") == state["start"]
 
 
-def _callback_check_final_candidate_staleness_validate(state, /, root, options, *, final_candidate):
-    assert not wt.metadata_directory(Path(state['primary'])).joinpath('lifecycle.lock').exists()
+def _callback_check_final_candidate_staleness_validate(
+    state, /, root, options, *, final_candidate
+):
+    assert (
+        not wt.metadata_directory(Path(state["primary"]))
+        .joinpath("lifecycle.lock")
+        .exists()
+    )
     return 0
 
 
 @it_case
 def check_final_candidate_staleness():
-
     operation_candidate = _imports_support_import_model_fixtures.operation_candidate
     operation_contract = _imports_support_import_model_fixtures.operation_contract
     operation_fixture = _imports_support_import_model_fixtures.operation_fixture
     with fixture() as root:
         operation_fixture(root)
-        git(root, 'add', 'model', 'project.json')
-        git(root, 'commit', '-qm', 'model fixture')
+        git(root, "add", "model", "project.json")
+        git(root, "commit", "-qm", "model fixture")
         with tempfile.TemporaryDirectory() as temporary:
-            candidate = Path(temporary) / 'candidate'
+            candidate = Path(temporary) / "candidate"
             sources = operation_candidate(root, candidate)
             target, state = start(root, files=tuple(sorted(sources)))
             text = operation_contract()
-            for heading in ('Modified files', 'Allowed paths'):
-                text += '\n## ' + heading + '\n' + ''.join('- `' + value + '`\n' for value in sorted(sources | {state['task_file']}))
-            text += '\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n'
-            (target / state['task_file']).write_text(text)
+            for heading in ("Modified files", "Allowed paths"):
+                text += (
+                    "\n## "
+                    + heading
+                    + "\n"
+                    + "".join(
+                        "- `" + value + "`\n"
+                        for value in sorted(sources | {state["task_file"]})
+                    )
+                )
+            text += "\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n"
+            (target / state["task_file"]).write_text(text)
             for name in sources:
                 shutil.copyfile(candidate / name, target / name)
-            (root / 'unrelated.txt').write_text('new base\n')
-            git(root, 'add', 'unrelated.txt')
-            git(root, 'commit', '-qm', 'unrelated base')
-            latest = git(root, 'rev-parse', 'HEAD')
-            final = wt.prepare_integration(root, 'example')
-            assert final.base_commit == latest and 'unrelated.txt' not in final.changed_paths
+            (root / "unrelated.txt").write_text("new base\n")
+            git(root, "add", "unrelated.txt")
+            git(root, "commit", "-qm", "unrelated base")
+            latest = git(root, "rev-parse", "HEAD")
+            final = wt.prepare_integration(root, "example")
+            assert (
+                final.base_commit == latest
+                and "unrelated.txt" not in final.changed_paths
+            )
             assert not wt.changed_paths(target) and final.changed_paths == sources
-            validate = _bind_framework_callback(_callback_check_final_candidate_staleness_validate, state)
-            with patch.object(loop, 'run_loop', side_effect=validate) as checked:
+            validate = _bind_framework_callback(
+                _callback_check_final_candidate_staleness_validate, state
+            )
+            with patch.object(loop, "run_loop", side_effect=validate) as checked:
                 result = wt.validate_final_candidate(final)
                 checked.assert_called_once()
-            git(target, 'commit', '--allow-empty', '-qm', 'unexpected')
-            base_head = git(root, 'rev-parse', 'HEAD')
-            with pytest.raises(ValueError, match='candidate/base changed'):
+            git(target, "commit", "--allow-empty", "-qm", "unexpected")
+            base_head = git(root, "rev-parse", "HEAD")
+            with pytest.raises(ValueError, match="candidate/base changed"):
                 wt.merge_validated_candidate(result)
             retained(root, target, state, base_head)
 
 
 @it_case
 def check_approved_model_reads():
-
-    approval = 'Human accepts fixture validation failure for Git integration'
-    relative = 'model/stg/cde/vpc.properties'
-    for mode in ('changed-import', 'missing'):
+    approval = "Human accepts fixture validation failure for Git integration"
+    relative = "model/stg/cde/vpc.properties"
+    for mode in ("changed-import", "missing"):
         with fixture() as root:
             operation_fixture(root)
-            git(root, 'add', 'model', 'project.json')
-            git(root, 'commit', '-qm', 'synthetic Model baseline')
+            git(root, "add", "model", "project.json")
+            git(root, "commit", "-qm", "synthetic Model baseline")
             target, state = start(root, files=(relative,))
             source = target / relative
-            source.write_text(source.read_text() + '\n# integration fixture\n')
-            if mode == 'changed-import':
-                source.write_text(source.read_text().replace('10.9.0.0/16', '10.8.0.0/16'))
-            importing = mode not in ('preserved', 'changed-import')
-            contract = target / state['task_file']
-            contract.write_text(contract.read_text().replace('`governance`', '`design`').replace('- `framework`', '- `stg/cde/vpc`'))
+            source.write_text(source.read_text() + "\n# integration fixture\n")
+            if mode == "changed-import":
+                source.write_text(
+                    source.read_text().replace("10.9.0.0/16", "10.8.0.0/16")
+                )
+            importing = mode not in ("preserved", "changed-import")
+            contract = target / state["task_file"]
+            contract.write_text(
+                contract.read_text()
+                .replace("`governance`", "`design`")
+                .replace("- `framework`", "- `stg/cde/vpc`")
+            )
             if importing:
-                contract = target / state['task_file']
-                text = contract.read_text().replace('- Task type: `design`', '- Task type: `design`\n- Workflow: `import`')
-                contract.write_text(text.replace('- `framework`', '- `stg/cde/vpc`\n- `dev/cde/vpc`'))
-            tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL: properties')
-            saved = (target / state['task_file']).read_bytes()
-            before = git(root, 'rev-parse', 'HEAD')
-            with tasks.selected_task(target, state['task_file']):
-                for call in (lambda *, target=target: tasks.task_path(target), lambda *, target=target: active_scope(target),
-                             lambda *, target=target: guard.require_import_changes(target)):
-                    with pytest.raises(ValueError, match='suspend task cannot execute'):
+                contract = target / state["task_file"]
+                text = contract.read_text().replace(
+                    "- Task type: `design`",
+                    "- Task type: `design`\n- Workflow: `import`",
+                )
+                contract.write_text(
+                    text.replace("- `framework`", "- `stg/cde/vpc`\n- `dev/cde/vpc`")
+                )
+            tasks.suspend(
+                target, state["task_file"], "Synthetic validation FAIL: properties"
+            )
+            saved = (target / state["task_file"]).read_bytes()
+            before = git(root, "rev-parse", "HEAD")
+            with tasks.selected_task(target, state["task_file"]):
+                for call in (
+                    lambda *, target=target: tasks.task_path(target),
+                    lambda *, target=target: active_scope(target),
+                    lambda *, target=target: guard.require_import_changes(target),
+                ):
+                    with pytest.raises(ValueError, match="suspend task cannot execute"):
                         call()
-            cli(root, 'finalize', success=False)
-            with mapping_alias(SCRIPT.parents[2], target), patch.object(wt.python_env, 'runtime', return_value=(Path(sys.executable), wt.python_env.environment(Path(sys.prefix)))):
-                if mode in {'preserved', 'changed-import'}:
+            cli(root, "finalize", success=False)
+            with (
+                mapping_alias(SCRIPT.parents[2], target),
+                patch.object(
+                    wt.python_env,
+                    "runtime",
+                    return_value=(
+                        Path(sys.executable),
+                        wt.python_env.environment(Path(sys.prefix)),
+                    ),
+                ),
+            ):
+                if mode in {"preserved", "changed-import"}:
                     # Keep the checkout for byte-for-byte status inspection, then exercise cleanup retry.
-                    (target / 'secret.bin').write_text('preserve')
-                    with pytest.raises(wt.Blocked, match='ignored files'):
-                        wt.finalize(root, 'example', approval)
-                    assert (target / state['task_file']).read_bytes() == saved
-                    assert approval in git(root, 'log', '-1', '--format=%b')
+                    (target / "secret.bin").write_text("preserve")
+                    with pytest.raises(wt.Blocked, match="ignored files"):
+                        wt.finalize(root, "example", approval)
+                    assert (target / state["task_file"]).read_bytes() == saved
+                    assert approval in git(root, "log", "-1", "--format=%b")
                     assert (root / relative).read_bytes() == source.read_bytes()
-                    (target / 'secret.bin').unlink()
-                    assert wt.cleanup(root, 'example')['cleaned']
-                    assert not target.exists() and not wt.branch_exists(root, state['branch'])
+                    (target / "secret.bin").unlink()
+                    assert wt.cleanup(root, "example")["cleaned"]
+                    assert not target.exists() and not wt.branch_exists(
+                        root, state["branch"]
+                    )
                 else:
-                    with pytest.raises(ValueError, match='no verified') as error:
-                        wt.finalize(root, 'example', approval)
-                    assert 'suspend task cannot execute' not in str(error.value)
+                    with pytest.raises(ValueError, match="no verified") as error:
+                        wt.finalize(root, "example", approval)
+                    assert "suspend task cannot execute" not in str(error.value)
                     retained(root, target, state, before)
-                    assert git(target, 'rev-parse', 'HEAD') == state['start']
-                    assert (target / state['task_file']).read_bytes() == saved
-    print('Approved suspended Model Git integration and missing IMPORT evidence rejection: PASS')
-
+                    assert git(target, "rev-parse", "HEAD") == state["start"]
+                    assert (target / state["task_file"]).read_bytes() == saved
+    print(
+        "Approved suspended Model Git integration and missing IMPORT evidence rejection: PASS"
+    )
 
 
 @it_case
 def check_registered_normal_model_guard():
-
-    relative = 'model/stg/cde/service-a.properties'
+    relative = "model/stg/cde/service-a.properties"
     with fixture() as root:
         dependency_fixture(root)
-        (root / '.gitignore').write_text((root / '.gitignore').read_text() + '.venv/\n')
-        git(root, 'add', '.')
-        git(root, 'commit', '-qm', 'synthetic runtime fixture')
+        (root / ".gitignore").write_text((root / ".gitignore").read_text() + ".venv/\n")
+        git(root, "add", ".")
+        git(root, "commit", "-qm", "synthetic runtime fixture")
         target, state = start(root, files=(relative,))
-        contract_path = target / state['task_file']
-        text = contract_path.read_text().replace('`governance`', '`design`').replace('- `framework`', '- `stg/cde/service-a`\n- `stg/cde/service-b`')
+        contract_path = target / state["task_file"]
+        text = (
+            contract_path.read_text()
+            .replace("`governance`", "`design`")
+            .replace("- `framework`", "- `stg/cde/service-a`\n- `stg/cde/service-b`")
+        )
         contract_path.write_text(text)
         directory = wt.python_env.shared_directory(root)
         directory.mkdir()
-        (directory / '.blueprint-owner').write_text(str(directory))
+        (directory / ".blueprint-owner").write_text(str(directory))
         venv.EnvBuilder(with_pip=False).create(directory)
         interpreter = wt.python_env.python_path(directory)
-        site = subprocess.run([str(interpreter), '-c', 'import sysconfig; print(sysconfig.get_path("purelib"))'],
-                              capture_output=True, text=True, check=True).stdout.strip()
+        site = subprocess.run(
+            [
+                str(interpreter),
+                "-c",
+                'import sysconfig; print(sysconfig.get_path("purelib"))',
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
         # Reuse installed test dependencies offline; the fixture never invokes pip/setup.
-        Path(site, 'fixture-dependencies.pth').write_text('\n'.join(p for p in sys.path if p.endswith('site-packages')) + '\n')
-        probe = root.parent / 'guard-probe.json'
-        Path(site, 'guard_probe.py').write_text("""import sys, json, atexit, os
+        Path(site, "fixture-dependencies.pth").write_text(
+            "\n".join(p for p in sys.path if p.endswith("site-packages")) + "\n"
+        )
+        probe = root.parent / "guard-probe.json"
+        Path(site, "guard_probe.py").write_text(
+            """import sys, json, atexit, os
 from pathlib import Path
 counts = {}
 def profile(frame, event, arg):
@@ -686,32 +900,66 @@ def profile(frame, event, arg):
         counts[name] = counts.get(name, 0) + 1
 sys.setprofile(profile)
 atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(counts)))
-""", encoding='utf-8')
-        Path(site, 'guard-probe.pth').write_text('import guard_probe\n', encoding='utf-8')
-        (directory / '.blueprint-ready').write_text(str(directory))
-        state['python_setup'] = dict(status='ready', kind='shared', installed=False,
-                                    interpreter=str(interpreter), bin=str(interpreter.parent))
-        _, _, state_path, _ = wt.load(root, 'example')
+""",
+            encoding="utf-8",
+        )
+        Path(site, "guard-probe.pth").write_text(
+            "import guard_probe\n", encoding="utf-8"
+        )
+        (directory / ".blueprint-ready").write_text(str(directory))
+        state["python_setup"] = dict(
+            status="ready",
+            kind="shared",
+            installed=False,
+            interpreter=str(interpreter),
+            bin=str(interpreter.parent),
+        )
+        _, _, state_path, _ = wt.load(root, "example")
         wt.save(state_path, state)
-        (target / relative).write_text((target / relative).read_text() + '\n# ordinary save\n')
+        (target / relative).write_text(
+            (target / relative).read_text() + "\n# ordinary save\n"
+        )
         finish_contract(target, state)
-        environment = {**os.environ, 'BLUEPRINT_TASK_FILE': 'tasks/foreign.md', 'GUARD_PROBE': str(probe)}
-        parent = [sys.executable, '-S', '-B', '-c',
-                  'import sys, importlib.util; '
-                  'assert importlib.util.find_spec("pystache") is None; '
-                  'sys.path.insert(0, sys.argv.pop(1)); '
-                  'import worktree_task; raise SystemExit(worktree_task.main())',
-                  str(SCRIPT.parent), 'finalize', '--repository-root', str(root), '--task-id', 'example']
-        result = subprocess.run(parent, cwd=root, env=environment, capture_output=True, text=True, timeout=60)
+        environment = {
+            **os.environ,
+            "BLUEPRINT_TASK_FILE": "tasks/foreign.md",
+            "GUARD_PROBE": str(probe),
+        }
+        parent = [
+            sys.executable,
+            "-S",
+            "-B",
+            "-c",
+            "import sys, importlib.util; "
+            'assert importlib.util.find_spec("pystache") is None; '
+            "sys.path.insert(0, sys.argv.pop(1)); "
+            "import worktree_task; raise SystemExit(worktree_task.main())",
+            str(SCRIPT.parent),
+            "finalize",
+            "--repository-root",
+            str(root),
+            "--task-id",
+            "example",
+        ]
+        result = subprocess.run(
+            parent,
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         response = json.loads(result.stdout)
         assert result.returncode == 0, response
-        assert response['cleaned'] and response['merged']
+        assert response["cleaned"] and response["merged"]
         counts = json.loads(probe.read_text())
-        assert counts['usages'] >= 1 and counts['_read_model'] >= 1, counts
+        assert counts["usages"] >= 1 and counts["_read_model"] >= 1, counts
         assert not target.exists()
         assert wt.python_env.shared_ready(directory)
-        assert (root / relative).read_text().endswith('# ordinary save\n')
-    print('Ordinary Model guard in registered shared venv with dependency-free parent: PASS')
+        assert (root / relative).read_text().endswith("# ordinary save\n")
+    print(
+        "Ordinary Model guard in registered shared venv with dependency-free parent: PASS"
+    )
 
 
 def main():
@@ -740,20 +988,23 @@ def main():
     print("worktree-task: PASS (Git integration and failure recovery)")
 
 
-def _callback_check_model_operation_integration_validate(require_import_changes, /, root, options, *, final_candidate):
-    assert not (root.parent / '.blueprint/lifecycle.lock').exists()
+def _callback_check_model_operation_integration_validate(
+    require_import_changes, /, root, options, *, final_candidate
+):
+    assert not (root.parent / ".blueprint/lifecycle.lock").exists()
     with tasks.selected_task(root, final_candidate.task_file):
-        require_import_changes(root, final_candidate.changed_paths, final_candidate=final_candidate)
+        require_import_changes(
+            root, final_candidate.changed_paths, final_candidate=final_candidate
+        )
     return 0
 
 
 @it_case
 def check_model_operation_integration():
-
     operation_candidate = _imports_support_import_model_fixtures.operation_candidate
     operation_contract = _imports_support_import_model_fixtures.operation_contract
     operation_fixture = _imports_support_import_model_fixtures.operation_fixture
-    action = 'import-merge'
+    action = "import-merge"
     with fixture() as root:
         operation_fixture(root)
         git(root, "add", "model", "project.json")
@@ -764,31 +1015,59 @@ def check_model_operation_integration():
             target, state = start(root, files=tuple(sorted(sources)))
             text = operation_contract(action)
             for heading in ("Modified files", "Allowed paths"):
-                text += "\n## " + heading + "\n" + "".join("- `" + name + "`\n" for name in sorted(sources | {state['task_file']}))
+                text += (
+                    "\n## "
+                    + heading
+                    + "\n"
+                    + "".join(
+                        "- `" + name + "`\n"
+                        for name in sorted(sources | {state["task_file"]})
+                    )
+                )
             text += "\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n"
-            (target / state['task_file']).write_text(text)
-            tasks.refresh(target, state['task_file'])
+            (target / state["task_file"]).write_text(text)
+            tasks.refresh(target, state["task_file"])
             for name in sources:
                 shutil.copyfile(candidate / name, target / name)
-            with mapping_alias(SCRIPT.parents[2], target), patch.object(wt.python_env, 'runtime', return_value=(Path(sys.executable), wt.python_env.environment(Path(sys.prefix)))):
+            with (
+                mapping_alias(SCRIPT.parents[2], target),
+                patch.object(
+                    wt.python_env,
+                    "runtime",
+                    return_value=(
+                        Path(sys.executable),
+                        wt.python_env.environment(Path(sys.prefix)),
+                    ),
+                ),
+            ):
                 finish_contract(target, state)
-                final = wt.prepare_integration(root, 'example')
+                final = wt.prepare_integration(root, "example")
                 require_import_changes = _imports_import_guard.require_import_changes
                 loop = _imports_validation_loop
-                validate = _bind_framework_callback(_callback_check_model_operation_integration_validate, require_import_changes)
-                with patch.object(loop, 'run_loop', side_effect=validate):
+                validate = _bind_framework_callback(
+                    _callback_check_model_operation_integration_validate,
+                    require_import_changes,
+                )
+                with patch.object(loop, "run_loop", side_effect=validate):
                     result = wt.validate_final_candidate(final)
-                    assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
-                    assert wt.cleanup(root, 'example')['cleaned']
+                    assert (
+                        wt.merge_validated_candidate(result)["merged"]
+                        == final.candidate_head
+                    )
+                    assert wt.cleanup(root, "example")["cleaned"]
                     assert not target.exists()
-    print('Model-only merge final-candidate integration: PASS')
+    print("Model-only merge final-candidate integration: PASS")
 
 
-def _callback_check_model_refactor_integration_validate(calls, /, root, options, *, final_candidate):
+def _callback_check_model_refactor_integration_validate(
+    calls, /, root, options, *, final_candidate
+):
     calls.append(final_candidate.candidate_head)
-    assert not (root.parent / '.blueprint/lifecycle.lock').exists()
+    assert not (root.parent / ".blueprint/lifecycle.lock").exists()
     with tasks.selected_task(root, final_candidate.task_file):
-        require_import_changes(root, final_candidate.changed_paths, final_candidate=final_candidate)
+        require_import_changes(
+            root, final_candidate.changed_paths, final_candidate=final_candidate
+        )
     return 0
 
 
@@ -800,41 +1079,69 @@ def check_model_refactor_integration():
 
     with fixture() as root, tempfile.TemporaryDirectory() as directory:
         dependency_fixture(root)
-        git(root, 'add', 'model', 'project.json')
-        git(root, 'commit', '-qm', 'generic Model fixture')
-        candidate = Path(directory) / 'candidate'
+        git(root, "add", "model", "project.json")
+        git(root, "commit", "-qm", "generic Model fixture")
+        candidate = Path(directory) / "candidate"
         sources = dependency_refactor(root, candidate)
         target, state = start(root, files=tuple(sorted(sources)))
         text = dependency_contract()
-        for heading in ('Modified files', 'Allowed paths'):
-            text += '\n## ' + heading + '\n' + ''.join('- `' + name + '`\n' for name in sorted(sources | {state['task_file']}))
-        text += '\n## Validation scope\n- `dev/cde/service-a`\n- `dev/cde/service-b`\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n'
-        (target / state['task_file']).write_text(text)
-        tasks.refresh(target, state['task_file'])
-        with mapping_alias(SCRIPT.parents[2], target), tasks.selected_task(target, state['task_file']):
+        for heading in ("Modified files", "Allowed paths"):
+            text += (
+                "\n## "
+                + heading
+                + "\n"
+                + "".join(
+                    "- `" + name + "`\n"
+                    for name in sorted(sources | {state["task_file"]})
+                )
+            )
+        text += "\n## Validation scope\n- `dev/cde/service-a`\n- `dev/cde/service-b`\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n"
+        (target / state["task_file"]).write_text(text)
+        tasks.refresh(target, state["task_file"])
+        with (
+            mapping_alias(SCRIPT.parents[2], target),
+            tasks.selected_task(target, state["task_file"]),
+        ):
             output = {target / name: (candidate / name).read_text() for name in sources}
-            scope = {('stg', 'cde', 'service-b')}
-            with edit_write_context(target, scope, state['task_file']) as context:
+            scope = {("stg", "cde", "service-b")}
+            with edit_write_context(target, scope, state["task_file"]) as context:
                 path = next(iter(output))
-                publish_edit(prepare_edit(load_model(path, context.snapshot), output, context), context)
+                publish_edit(
+                    prepare_edit(load_model(path, context.snapshot), output, context),
+                    context,
+                )
             require_import_changes(target)
-            assert load_model(target / 'model/stg/cde/service-b.properties').values['desired.row.002-001.value'] == 'same-name-stg'
-            file = root / 'model/stg/cde/service-a.properties'
-            file.write_text(file.read_text().replace('same-name-stg', 'advanced-name'))
-            git(root, 'add', file)
-            git(root, 'commit', '-qm', 'advance producer on base')
-            latest = git(root, 'rev-parse', 'HEAD')
-            final = wt.prepare_integration(root, 'example')
+            assert (
+                load_model(target / "model/stg/cde/service-b.properties").values[
+                    "desired.row.002-001.value"
+                ]
+                == "same-name-stg"
+            )
+            file = root / "model/stg/cde/service-a.properties"
+            file.write_text(file.read_text().replace("same-name-stg", "advanced-name"))
+            git(root, "add", file)
+            git(root, "commit", "-qm", "advance producer on base")
+            latest = git(root, "rev-parse", "HEAD")
+            final = wt.prepare_integration(root, "example")
             assert final.base_commit == latest
             calls = []
-            validate = _bind_framework_callback(_callback_check_model_refactor_integration_validate, calls)
-            with patch.object(loop, 'run_loop', side_effect=validate):
+            validate = _bind_framework_callback(
+                _callback_check_model_refactor_integration_validate, calls
+            )
+            with patch.object(loop, "run_loop", side_effect=validate):
                 with redirect_stderr(io.StringIO()) as warnings:
                     result = wt.validate_final_candidate(final)
-                assert 'producer name/identifier differs from saved text' not in warnings.getvalue()
-                assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
-                assert wt.cleanup(root, 'example')['cleaned']
+                assert (
+                    "producer name/identifier differs from saved text"
+                    not in warnings.getvalue()
+                )
+                assert (
+                    wt.merge_validated_candidate(result)["merged"]
+                    == final.candidate_head
+                )
+                assert wt.cleanup(root, "example")["cleaned"]
             assert calls == [final.candidate_head]
+
 
 if __name__ == "__main__":
     main()

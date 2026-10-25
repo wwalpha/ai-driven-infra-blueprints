@@ -1,4 +1,5 @@
 """Existing invocation-owned deployment timing."""
+
 import json
 import os
 import sys
@@ -11,6 +12,7 @@ from threading import Lock
 
 class Timing:
     """Invocation-owned, thread-safe diagnostics outside the repository."""
+
     def __init__(self, root, path=None):
         self.path = Path(path).resolve() if path else None
         self.lock = Lock()
@@ -29,8 +31,14 @@ class Timing:
             raise
         finally:
             if self.path:
-                event = {"phase": name, "seconds": time.perf_counter() - started,
-                         "result": result, "utc": datetime.now(timezone.utc).isoformat(),
-                         "pid": os.getpid(), "python": sys.executable, **fields}
+                event = {
+                    "phase": name,
+                    "seconds": time.perf_counter() - started,
+                    "result": result,
+                    "utc": datetime.now(timezone.utc).isoformat(),
+                    "pid": os.getpid(),
+                    "python": sys.executable,
+                    **fields,
+                }
                 with self.lock, self.path.open("a", encoding="utf-8") as stream:
                     stream.write(json.dumps(event, ensure_ascii=False) + "\n")

@@ -41,7 +41,6 @@ if not __debug__:
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 
-
 REPOSITORY = Path(__file__).resolve().parents[4]
 
 VALIDATOR = load("validate-blueprint")
@@ -154,13 +153,69 @@ GUARDDUTY = """# GuardDuty 詳細設計
 | 4 | Features.EKS_AUDIT_LOGS | `DISABLED` | EKSの監視 |
 """
 
+
 @pytest.fixture(scope="module")
 def catalog():
     return VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
 
 
-__all__ = ['CODEBUILD', 'GUARDDUTY', 'HIDDEN_PROPERTIES', 'KMS', 'LAYOUTS', 'Path', 'REPOSITORY', 'RESOURCE_REFERENCE_PROPERTIES', 'S3', 'SUBNET_LIST_PROPERTIES', 'VALIDATOR', 'catalog', 'display_rows', 'expanded_design', 'expanded_display_rows', 'formal_property', 'json', 'layout_errors', 'load', 'model_core', 'model_design', 'model_projection', 'pipeline_rows', 'pytest', 'pytestmark', 're', 'resource_anchor', 'resource_display_name', 'resource_logical_ids', 'resources_in', 'row_table', 'run', 'shutil', 'sync_runtime', 'sys', 'write_model']
+__all__ = [
+    "CODEBUILD",
+    "GUARDDUTY",
+    "HIDDEN_PROPERTIES",
+    "KMS",
+    "LAYOUTS",
+    "Path",
+    "REPOSITORY",
+    "RESOURCE_REFERENCE_PROPERTIES",
+    "S3",
+    "SUBNET_LIST_PROPERTIES",
+    "VALIDATOR",
+    "catalog",
+    "display_rows",
+    "expanded_design",
+    "expanded_display_rows",
+    "formal_property",
+    "json",
+    "layout_errors",
+    "load",
+    "model_core",
+    "model_design",
+    "model_projection",
+    "pipeline_rows",
+    "pytest",
+    "pytestmark",
+    "re",
+    "resource_anchor",
+    "resource_display_name",
+    "resource_logical_ids",
+    "resources_in",
+    "row_table",
+    "run",
+    "shutil",
+    "sync_runtime",
+    "sys",
+    "write_model",
+]
 
 
 def reference_design(service, kind, rows):
-    return '\n'.join([f'# {service} 詳細設計', f'- Design service ID: `{service}`', f'- Owned catalog resource types: `{kind}`', '## リソース詳細', f'<a id="{service}-resource"></a>', f'### {kind}: Resource', '| No. | Property | Value | Source / Comment |', '| ---: | --- | --- | --- |', *(f'| {n} | {prop} | {value} | 設定する属性 |' for n, (prop, value) in enumerate(rows, 1))]) + '\n'
+    return (
+        "\n".join(
+            [
+                f"# {service} 詳細設計",
+                f"- Design service ID: `{service}`",
+                f"- Owned catalog resource types: `{kind}`",
+                "## リソース詳細",
+                f'<a id="{service}-resource"></a>',
+                f"### {kind}: Resource",
+                "| No. | Property | Value | Source / Comment |",
+                "| ---: | --- | --- | --- |",
+                *(
+                    f"| {n} | {prop} | {value} | 設定する属性 |"
+                    for n, (prop, value) in enumerate(rows, 1)
+                ),
+            ]
+        )
+        + "\n"
+    )

@@ -16,9 +16,9 @@ from pathlib import Path
 import pypdf as _imports_pypdf
 
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
-LINK = re.compile(r'(?<!!)\[([^\]]+)\]\(([^)]+)\)')
-HEADING = re.compile(r'^(#{1,5}) (.+)$')
-FENCE = re.compile(r'^\s*(`{3,}|~{3,})')
+LINK = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
+HEADING = re.compile(r"^(#{1,5}) (.+)$")
+FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 
 def design_files(root: Path) -> list[Path]:
@@ -28,7 +28,9 @@ def design_files(root: Path) -> list[Path]:
         raise ValueError(f"no detailed-design Markdown in {base}")
     for path in files:
         if len(path.relative_to(base).parts) != 3:
-            raise ValueError(f"design Markdown must be <environment>/<target>/<service>.md: {path}")
+            raise ValueError(
+                f"design Markdown must be <environment>/<target>/<service>.md: {path}"
+            )
     return files
 
 
@@ -65,7 +67,13 @@ def number_overviews(lines: list[str]) -> list[str]:
             if table_row == 0:
                 add_number = line.split("|", 2)[1].strip() != "No."
             if add_number:
-                number = "No." if table_row == 0 else "---:" if table_row == 1 else str(table_row - 1)
+                number = (
+                    "No."
+                    if table_row == 0
+                    else "---:"
+                    if table_row == 1
+                    else str(table_row - 1)
+                )
                 line = f"| {number} |{line[1:]}"
             table_row += 1
         else:
@@ -74,7 +82,18 @@ def number_overviews(lines: list[str]) -> list[str]:
     return numbered_lines
 
 
-def _callback_bundle_rewrite_link(anchors, artifacts, base, expected_links, file_set, service_ids, used_ids, /, source: Path, match: re.Match[str]):
+def _callback_bundle_rewrite_link(
+    anchors,
+    artifacts,
+    base,
+    expected_links,
+    file_set,
+    service_ids,
+    used_ids,
+    /,
+    source: Path,
+    match: re.Match[str],
+):
     label, raw = match.groups()
     if raw.startswith(("http://", "https://", "mailto:")):
         return match.group(0)
@@ -90,10 +109,16 @@ def _callback_bundle_rewrite_link(anchors, artifacts, base, expected_links, file
             pdf_id = service_ids[destination]
     elif destination.suffix == ".json" and destination.is_file():
         if separator:
-            raise ValueError(f"JSON fragment cannot be included in PDF: {source}: {raw}")
-        relative = destination.relative_to(base) if destination.is_relative_to(base) else None
+            raise ValueError(
+                f"JSON fragment cannot be included in PDF: {source}: {raw}"
+            )
+        relative = (
+            destination.relative_to(base) if destination.is_relative_to(base) else None
+        )
         if relative is None or len(relative.parts) != 4:
-            raise ValueError(f"JSON artifact is outside service designs: {source}: {raw}")
+            raise ValueError(
+                f"JSON artifact is outside service designs: {source}: {raw}"
+            )
         if destination not in artifacts:
             appendix_id = "appendix-" + "-".join(relative.with_suffix("").parts)
             if appendix_id in used_ids:
@@ -136,7 +161,16 @@ def bundle(root: Path) -> tuple[str, dict[str, int]]:
     artifacts: dict[Path, str] = {}
     expected_links: dict[str, int] = {}
 
-    rewrite_link = _bind_framework_callback(_callback_bundle_rewrite_link, anchors, artifacts, base, expected_links, file_set, service_ids, used_ids)
+    rewrite_link = _bind_framework_callback(
+        _callback_bundle_rewrite_link,
+        anchors,
+        artifacts,
+        base,
+        expected_links,
+        file_set,
+        service_ids,
+        used_ids,
+    )
 
     parts = []
     previous_target = None
@@ -145,13 +179,25 @@ def bundle(root: Path) -> tuple[str, dict[str, int]]:
         target_key = (environment, target)
         if target_key != previous_target:
             first_target = " .first-target" if previous_target is None else ""
-            parts.extend([f"# {environment} / {target} {{#target-{environment}-{target} .target-title{first_target}}}", ""])
+            parts.extend(
+                [
+                    f"# {environment} / {target} {{#target-{environment}-{target} .target-title{first_target}}}",
+                    "",
+                ]
+            )
             previous_target = target_key
             first_service = True
         for line, prose in prose_lines(number_overviews(source_lines(path))):
             if prose:
-                line = ANCHOR.sub(lambda match, *, path=path: f'<a id="{anchors[path, match.group(1)]}"></a>', line)
-                line = LINK.sub(lambda match, *, path=path: rewrite_link(path, match), line)
+                line = ANCHOR.sub(
+                    lambda match,
+                    *,
+                    path=path: f'<a id="{anchors[path, match.group(1)]}"></a>',
+                    line,
+                )
+                line = LINK.sub(
+                    lambda match, *, path=path: rewrite_link(path, match), line
+                )
                 heading = HEADING.fullmatch(line)
                 if heading:
                     level, text = heading.groups()
@@ -162,21 +208,25 @@ def bundle(root: Path) -> tuple[str, dict[str, int]]:
                         first_service = False
             parts.append(line)
             if prose and ANCHOR.fullmatch(line):
-                parts.append("")  # Pandoc needs a blank line before the following Markdown heading.
+                parts.append(
+                    ""
+                )  # Pandoc needs a blank line before the following Markdown heading.
         parts.append("")
 
     if artifacts:
         parts.extend(["# JSON付録 {#json-appendix}", ""])
         for path, appendix_id in sorted(artifacts.items()):
             value = json.loads(path.read_text(encoding="utf-8"))
-            parts.extend([
-                f"## {path.name} {{#{appendix_id}}}",
-                "",
-                "~~~json",
-                json.dumps(value, ensure_ascii=False, indent=2),
-                "~~~",
-                "",
-            ])
+            parts.extend(
+                [
+                    f"## {path.name} {{#{appendix_id}}}",
+                    "",
+                    "~~~json",
+                    json.dumps(value, ensure_ascii=False, indent=2),
+                    "~~~",
+                    "",
+                ]
+            )
     return "\n".join(parts) + "\n", expected_links
 
 
@@ -218,7 +268,9 @@ def verify_pdf(path: Path, expected_links: dict[str, int]) -> None:
                     found[name] = found.get(name, 0) + 1
     for name, count in expected_links.items():
         if found.get(name, 0) < count:
-            raise ValueError(f"PDF internal link is missing: {name} ({found.get(name, 0)}/{count})")
+            raise ValueError(
+                f"PDF internal link is missing: {name} ({found.get(name, 0)}/{count})"
+            )
 
 
 def export(root: Path, output: Path) -> None:
@@ -226,13 +278,27 @@ def export(root: Path, output: Path) -> None:
     for program in ("pandoc", "weasyprint"):
         if shutil.which(program) is None:
             raise RuntimeError(f"{program} is required for HTML-to-PDF conversion")
-    result = subprocess.run(["weasyprint", "--info"], cwd=root, capture_output=True,
-                            encoding="utf-8", errors="replace", check=False)
+    result = subprocess.run(
+        ["weasyprint", "--info"],
+        cwd=root,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
     if result.returncode:
-        raise RuntimeError("WeasyPrint PDF dependencies are unavailable; see README.md#pdf-dependencies.\n"
-                           + (result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"))
+        raise RuntimeError(
+            "WeasyPrint PDF dependencies are unavailable; see README.md#pdf-dependencies.\n"
+            + (
+                result.stderr.strip()
+                or result.stdout.strip()
+                or f"exit {result.returncode}"
+            )
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="design-pdf-", dir=output.parent) as temporary:
+    with tempfile.TemporaryDirectory(
+        prefix="design-pdf-", dir=output.parent
+    ) as temporary:
         temp = Path(temporary)
         merged = temp / "detailed-design.md"
         style = temp / "print.css"
@@ -249,9 +315,17 @@ def export(root: Path, output: Path) -> None:
         )
         result = subprocess.run(
             [
-                "pandoc", str(merged), "--from=markdown", "--to=html5", "--standalone",
-                "--toc", "--toc-depth=4", "--metadata=title:詳細設計書", "--metadata=toc-title:目次",
-                "--pdf-engine=weasyprint", f"--css={style}",
+                "pandoc",
+                str(merged),
+                "--from=markdown",
+                "--to=html5",
+                "--standalone",
+                "--toc",
+                "--toc-depth=4",
+                "--metadata=title:詳細設計書",
+                "--metadata=toc-title:目次",
+                "--pdf-engine=weasyprint",
+                f"--css={style}",
                 f"--output={pdf}",
             ],
             cwd=root,
@@ -260,7 +334,9 @@ def export(root: Path, output: Path) -> None:
             check=False,
         )
         if result.returncode:
-            raise RuntimeError(result.stderr.strip() or f"pandoc failed ({result.returncode})")
+            raise RuntimeError(
+                result.stderr.strip() or f"pandoc failed ({result.returncode})"
+            )
         verify_pdf(pdf, expected_links)
         os.replace(pdf, output)
 

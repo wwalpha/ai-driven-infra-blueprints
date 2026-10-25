@@ -44,12 +44,28 @@ class StartupDiagnostics:
     def __init__(self, root, directory):
         self.root = root
         self.directory = directory
-        self.current = {"step": "diagnostics.start", "api": "pathlib.Path.open", "cwd": str(root)}
+        self.current = {
+            "step": "diagnostics.start",
+            "api": "pathlib.Path.open",
+            "cwd": str(root),
+        }
 
     def record(self, event, **fields):
-        with (self.directory / "startup.jsonl").open("a", encoding="utf-8", errors="backslashreplace") as stream:
-            stream.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(),
-                                     "event": event, **self.current, **fields}, ensure_ascii=True) + "\n")
+        with (self.directory / "startup.jsonl").open(
+            "a", encoding="utf-8", errors="backslashreplace"
+        ) as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "event": event,
+                        **self.current,
+                        **fields,
+                    },
+                    ensure_ascii=True,
+                )
+                + "\n"
+            )
             stream.flush()
 
     @contextmanager
@@ -70,18 +86,34 @@ class StartupDiagnostics:
     def failure(self, error):
         frames = traceback.extract_tb(error.__traceback__)
         last = frames[-1] if frames else None
-        details = {**self.current, "exception_type": type(error).__name__, "message": str(error),
-                   "errno": getattr(error, "errno", None), "winerror": getattr(error, "winerror", None),
-                   "filename": getattr(error, "filename", None), "filename2": getattr(error, "filename2", None),
-                   "command": getattr(error, "cmd", None) or self.current.get("command"),
-                   "returncode": getattr(error, "returncode", None),
-                   "location": {"filename": last.filename, "line": last.lineno, "function": last.name,
-                                "source": last.line} if last else None,
-                   "traceback": "".join(traceback.format_exception(error))}
+        details = {
+            **self.current,
+            "exception_type": type(error).__name__,
+            "message": str(error),
+            "errno": getattr(error, "errno", None),
+            "winerror": getattr(error, "winerror", None),
+            "filename": getattr(error, "filename", None),
+            "filename2": getattr(error, "filename2", None),
+            "command": getattr(error, "cmd", None) or self.current.get("command"),
+            "returncode": getattr(error, "returncode", None),
+            "location": {
+                "filename": last.filename,
+                "line": last.lineno,
+                "function": last.name,
+                "source": last.line,
+            }
+            if last
+            else None,
+            "traceback": "".join(traceback.format_exception(error)),
+        }
         # A separate file still works when opening/writing startup.jsonl itself failed.
-        for save in (lambda: (self.directory / "startup-error.json").write_text(
-                json.dumps(details, ensure_ascii=True, indent=2) + "\n", encoding="utf-8"),
-                     lambda: self.record("error", **details)):
+        for save in (
+            lambda: (self.directory / "startup-error.json").write_text(
+                json.dumps(details, ensure_ascii=True, indent=2) + "\n",
+                encoding="utf-8",
+            ),
+            lambda: self.record("error", **details),
+        ):
             try:
                 save()
             except OSError:
@@ -95,36 +127,79 @@ def changed_paths(root: Path) -> set[str]:
 
 def framework_changed(paths: set[str]) -> bool:
     # Shared distribution inputs; cover all framework dependencies without a resolver.
-    return any(path.startswith(("framework/", ".agents/")) or path in {"AGENTS.md", "README.md", ".github/workflows/framework-it.yml", ".github/workflows/python-quality.yml", "pyproject.toml"}
-               for path in paths)
-
-
+    return any(
+        path.startswith(("framework/", ".agents/"))
+        or path
+        in {
+            "AGENTS.md",
+            "README.md",
+            ".github/workflows/framework-it.yml",
+            ".github/workflows/python-quality.yml",
+            "pyproject.toml",
+        }
+        for path in paths
+    )
 
 
 def _run_commands_regression(command):
-    return command[0] != 'git' and (command[1].endswith('.checks.py') or Path(command[1]).name.startswith('test_'))
+    return command[0] != "git" and (
+        command[1].endswith(".checks.py") or Path(command[1]).name.startswith("test_")
+    )
 
 
 def _callback_run_commands_record(started, timing, /, event, **fields):
-    timing.write(json.dumps({"event": event,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "elapsed_seconds": round(time.perf_counter() - started, 6), **fields},
-        ensure_ascii=False) + "\n")
+    timing.write(
+        json.dumps(
+            {
+                "event": event,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "elapsed_seconds": round(time.perf_counter() - started, 6),
+                **fields,
+            },
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
 
 
-def _callback_run_commands_finish(completed, record, /, index, item, returncode, error='', interrupted=False):
+def _callback_run_commands_finish(
+    completed, record, /, index, item, returncode, error="", interrupted=False
+):
     process, stream, step, output, began, _ = item
     stream.close()
     duration = time.perf_counter() - began
-    result = "interrupted" if interrupted else "error" if error else "pass" if returncode == 0 else "fail"
-    record("step_end", step=step, status=result, returncode=returncode,
-           duration_seconds=round(duration, 6), error=error, output=str(output))
+    result = (
+        "interrupted"
+        if interrupted
+        else "error"
+        if error
+        else "pass"
+        if returncode == 0
+        else "fail"
+    )
+    record(
+        "step_end",
+        step=step,
+        status=result,
+        returncode=returncode,
+        duration_seconds=round(duration, 6),
+        error=error,
+        output=str(output),
+    )
     completed[index] = (step, output, duration, result, error)
 
 
-def run_commands(root: Path, commands: list[list[str]], environment: dict[str, str],
-                 directory: Path, heartbeat_seconds: float = 30, jobs: int = 1,
-                 diagnostics=None, stop_after_validator_failure=False, validation_call=None) -> int:
+def run_commands(
+    root: Path,
+    commands: list[list[str]],
+    environment: dict[str, str],
+    directory: Path,
+    heartbeat_seconds: float = 30,
+    jobs: int = 1,
+    diagnostics=None,
+    stop_after_validator_failure=False,
+    validation_call=None,
+) -> int:
     """Only adjacent regression scripts overlap; diagnostics retain command order."""
     started = time.perf_counter()
     failed = []
@@ -135,27 +210,46 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
     displayed = 0
     diagnostics = diagnostics or StartupDiagnostics(root, directory)
     diagnostics.print(f"Local loop logs: {directory}")
-    with diagnostics.step("timing.open", "pathlib.Path.open", target_path=str(directory / "timing.jsonl")):
+    with diagnostics.step(
+        "timing.open", "pathlib.Path.open", target_path=str(directory / "timing.jsonl")
+    ):
         timing = (directory / "timing.jsonl").open("w", encoding="utf-8", buffering=1)
     with timing:
-        record = _bind_framework_callback(_callback_run_commands_record, started, timing)
+        record = _bind_framework_callback(
+            _callback_run_commands_record, started, timing
+        )
 
         regression = _run_commands_regression
 
-        finish = _bind_framework_callback(_callback_run_commands_finish, completed, record)
+        finish = _bind_framework_callback(
+            _callback_run_commands_finish, completed, record
+        )
 
-        record("loop_start", repository=str(root), pid=os.getpid(), python=sys.executable,
-               step_count=len(commands), jobs=jobs, python_version=sys.version,
-               hash_seed=environment.get("PYTHONHASHSEED"))
+        record(
+            "loop_start",
+            repository=str(root),
+            pid=os.getpid(),
+            python=sys.executable,
+            step_count=len(commands),
+            jobs=jobs,
+            python_version=sys.version,
+            hash_seed=environment.get("PYTHONHASHSEED"),
+        )
         try:
             while next_index < len(commands) or running:
                 while next_index < len(commands) and len(running) < jobs:
                     command = commands[next_index]
-                    if running and (not regression(command) or
-                                    any(not regression(commands[i]) for i in running)):
+                    if running and (
+                        not regression(command)
+                        or any(not regression(commands[i]) for i in running)
+                    ):
                         break
                     index = next_index
-                    step = "git-diff-check" if command[0] == "git" else Path(command[1]).name
+                    step = (
+                        "git-diff-check"
+                        if command[0] == "git"
+                        else Path(command[1]).name
+                    )
                     output = directory / f"{index + 1:02d}-{step}.log"
                     began = time.perf_counter()
                     record("step_start", step=step, output=str(output), command=command)
@@ -167,7 +261,7 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                     next_index += 1
                     if index == 0 and validation_call is not None:
                         try:
-                            record('step_running', step=step, pid=os.getpid())
+                            record("step_running", step=step, pid=os.getpid())
                             with redirect_stdout(stream), redirect_stderr(stream):
                                 returncode = validation_call()
                             finish(index, running.pop(index), returncode)
@@ -175,10 +269,18 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                             finish(index, running.pop(index), 1, str(error))
                         break
                     try:
-                        child_environment = {key: value for key, value in environment.items()
-                                             if not regression(command) or key != SELECTOR}
-                        item[0] = subprocess.Popen(command, cwd=root, env=child_environment,
-                                                   stdout=stream, stderr=subprocess.STDOUT)
+                        child_environment = {
+                            key: value
+                            for key, value in environment.items()
+                            if not regression(command) or key != SELECTOR
+                        }
+                        item[0] = subprocess.Popen(
+                            command,
+                            cwd=root,
+                            env=child_environment,
+                            stdout=stream,
+                            stderr=subprocess.STDOUT,
+                        )
                         record("step_running", step=step, pid=item[0].pid)
                     except OSError as error:
                         finish(index, running.pop(index), None, str(error))
@@ -192,32 +294,56 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                         now = time.perf_counter()
                         if now - last_heartbeat >= heartbeat_seconds:
                             item[5] = now
-                            record("heartbeat", step=step, pid=process.pid,
-                                   duration_seconds=round(now - began, 6))
-                            print(f"[{index + 1}/{len(commands)}] RUNNING {step} ({now - began:.1f}s, PID {process.pid})", flush=True)
+                            record(
+                                "heartbeat",
+                                step=step,
+                                pid=process.pid,
+                                duration_seconds=round(now - began, 6),
+                            )
+                            print(
+                                f"[{index + 1}/{len(commands)}] RUNNING {step} ({now - began:.1f}s, PID {process.pid})",
+                                flush=True,
+                            )
                     else:
                         finish(index, running.pop(index), returncode)
                 while displayed in completed:
                     step, output, duration, result, error = completed.pop(displayed)
                     with output.open(encoding="utf-8", errors="replace") as stream:
                         shutil.copyfileobj(stream, sys.stdout)
-                    print(f"[{displayed + 1}/{len(commands)}] {result.upper()} {step} ({duration:.1f}s){': ' + error if error else ''}", flush=True)
+                    print(
+                        f"[{displayed + 1}/{len(commands)}] {result.upper()} {step} ({duration:.1f}s){': ' + error if error else ''}",
+                        flush=True,
+                    )
                     if result != "pass":
                         failed.append(step)
                     displayed += 1
-                    if stop_after_validator_failure and displayed == 1 and result != 'pass':
-                        record('steps_skipped', reason='integrated validator failed', count=len(commands) - next_index)
+                    if (
+                        stop_after_validator_failure
+                        and displayed == 1
+                        and result != "pass"
+                    ):
+                        record(
+                            "steps_skipped",
+                            reason="integrated validator failed",
+                            count=len(commands) - next_index,
+                        )
                         next_index = len(commands)
             status = "fail" if failed else "pass"
             if failed:
                 print(f"Blueprint local loop: FAIL ({', '.join(failed)})", flush=True)
                 return 1
             count = sum(regression(command) for command in commands)
-            print(f"Blueprint local loop: PASS ({count} framework regression scripts)", flush=True)
+            print(
+                f"Blueprint local loop: PASS ({count} framework regression scripts)",
+                flush=True,
+            )
             return 0
         except KeyboardInterrupt:
             status = "interrupted"
-            print("Blueprint local loop: INTERRUPTED (remaining checks not executed)", flush=True)
+            print(
+                "Blueprint local loop: INTERRUPTED (remaining checks not executed)",
+                flush=True,
+            )
             return 130
         finally:
             # Signal every child before waiting for any of them.
@@ -232,45 +358,85 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
-                finish(index, item, process.returncode if process is not None else None, interrupted=True)
-            record("loop_end", status=status, failed_steps=failed,
-                   duration_seconds=round(time.perf_counter() - started, 6))
-            print(f"Local loop elapsed: {time.perf_counter() - started:.1f}s; timing: {directory / 'timing.jsonl'}", flush=True)
+                finish(
+                    index,
+                    item,
+                    process.returncode if process is not None else None,
+                    interrupted=True,
+                )
+            record(
+                "loop_end",
+                status=status,
+                failed_steps=failed,
+                duration_seconds=round(time.perf_counter() - started, 6),
+            )
+            print(
+                f"Local loop elapsed: {time.perf_counter() - started:.1f}s; timing: {directory / 'timing.jsonl'}",
+                flush=True,
+            )
 
 
 def utf8_environment():
-    return {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0",
-            "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    return {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONOPTIMIZE": "0",
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+    }
 
 
 def utf8_preflight(directory, environment, diagnostics=None):
     diagnostics = diagnostics or StartupDiagnostics(Path.cwd(), directory)
-    command = [sys.executable, "-X", "utf8", "-c",
-               "from pathlib import Path; import sys; "
-               "p=Path(sys.argv[1]); p.write_text('日本語', encoding='utf-8'); "
-               "assert p.read_text(encoding='utf-8') == '日本語'; print('日本語')",
-               str(directory / "utf8.txt")]
+    command = [
+        sys.executable,
+        "-X",
+        "utf8",
+        "-c",
+        "from pathlib import Path; import sys; "
+        "p=Path(sys.argv[1]); p.write_text('日本語', encoding='utf-8'); "
+        "assert p.read_text(encoding='utf-8') == '日本語'; print('日本語')",
+        str(directory / "utf8.txt"),
+    ]
     with diagnostics.step("utf8.subprocess", "subprocess.run", command=command):
-        result = subprocess.run(command, cwd=diagnostics.root, env=environment,
-                                capture_output=True, encoding="utf-8", check=True)
+        result = subprocess.run(
+            command,
+            cwd=diagnostics.root,
+            env=environment,
+            capture_output=True,
+            encoding="utf-8",
+            check=True,
+        )
     with diagnostics.step("utf8.output", "str.strip"):
         if result.stdout.strip() != "日本語":
             raise ValueError("UTF-8 preflight failed")
-    with diagnostics.step("utf8.cleanup", "pathlib.Path.unlink", target_path=str(directory / "utf8.txt")):
+    with diagnostics.step(
+        "utf8.cleanup", "pathlib.Path.unlink", target_path=str(directory / "utf8.txt")
+    ):
         (directory / "utf8.txt").unlink()
 
 
 def select_checks(root):
     unit_root = definition_root(root) / "framework/scripts/tests/units"
-    units = sorted({*unit_root.rglob("*.checks.py"), *unit_root.rglob("test_*.py")}, key=lambda path: path.name)
+    units = sorted(
+        {*unit_root.rglob("*.checks.py"), *unit_root.rglob("test_*.py")},
+        key=lambda path: path.name,
+    )
     if not units:
         raise ValueError("no framework regression checks discovered")
     return units, "all requested"
 
 
 def git(root, *arguments, environment=None):
-    return subprocess.run(["git", *arguments], cwd=root, env=environment,
-                          capture_output=True, encoding="utf-8", check=True).stdout.strip()
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
+    ).stdout.strip()
 
 
 def index_tree(root, directory):
@@ -280,49 +446,88 @@ def index_tree(root, directory):
         source = root / source
     private = directory / "index"
     shutil.copyfile(source, private)
-    return git(root, "write-tree", environment={**os.environ, "GIT_INDEX_FILE": str(private)})
+    return git(
+        root, "write-tree", environment={**os.environ, "GIT_INDEX_FILE": str(private)}
+    )
 
 
 def staged_snapshot(root, args, directory, environment):
-    base = git(root, "rev-parse", "--verify", "--end-of-options", f"{args.base}^{{commit}}")
+    base = git(
+        root, "rev-parse", "--verify", "--end-of-options", f"{args.base}^{{commit}}"
+    )
     head = git(root, "rev-parse", "HEAD")
     tree = index_tree(root, directory)
     snapshot = directory / "repository"
     snapshot.mkdir()
     git(snapshot, "init", "--quiet")
     # Copy two trees and the comparison commit, without unrelated branch/history objects.
-    objects = git(root, "rev-list", "--objects", "--no-object-names", f"{base}^{{tree}}", tree)
+    objects = git(
+        root, "rev-list", "--objects", "--no-object-names", f"{base}^{{tree}}", tree
+    )
     with tempfile.TemporaryFile() as pack:
-        subprocess.run(["git", "pack-objects", "--stdout"], cwd=root,
-                       input=(base + "\n" + objects + "\n").encode(), stdout=pack,
-                       stderr=subprocess.PIPE, check=True)
+        subprocess.run(
+            ["git", "pack-objects", "--stdout"],
+            cwd=root,
+            input=(base + "\n" + objects + "\n").encode(),
+            stdout=pack,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
         pack.seek(0)
-        subprocess.run(["git", "index-pack", "--stdin"], cwd=snapshot,
-                       stdin=pack, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "index-pack", "--stdin"],
+            cwd=snapshot,
+            stdin=pack,
+            capture_output=True,
+            check=True,
+        )
     (snapshot / ".git/shallow").write_text(base + "\n", encoding="ascii")
     git(snapshot, "checkout", "--quiet", "--detach", base)
     git(snapshot, "read-tree", "--reset", "-u", tree)
     captured = task_snapshot(snapshot)
-    import_task = '- Workflow: `import`' in captured.text
+    import_task = "- Workflow: `import`" in captured.text
     try:
         if import_task:
             copy_import_proof = _imports_import_guard.copy_import_proof
             copy_import_proof(root, snapshot)
         metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
-        (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-        print(f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}", flush=True)
-        command = [sys.executable, "-X", "utf8", str(definition_root(snapshot) / "framework/scripts/blueprint-loop.py"),
-                   "--mode", args.mode, "--jobs", str(args.jobs), "--log-dir", str(directory),
-                   "--validation-jobs", str(args.validation_jobs), *(["--fresh"] if args.fresh else []),
-                   *(["--all"] if args.all else []),
-                   *(["--profile"] if args.profile else [])]
+        (directory / "snapshot.json").write_text(
+            json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+        )
+        print(
+            f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}",
+            flush=True,
+        )
+        command = [
+            sys.executable,
+            "-X",
+            "utf8",
+            str(definition_root(snapshot) / "framework/scripts/blueprint-loop.py"),
+            "--mode",
+            args.mode,
+            "--jobs",
+            str(args.jobs),
+            "--log-dir",
+            str(directory),
+            "--validation-jobs",
+            str(args.validation_jobs),
+            *(["--fresh"] if args.fresh else []),
+            *(["--all"] if args.all else []),
+            *(["--profile"] if args.profile else []),
+        ]
         if os.name == "nt":
             # Never dispatch an older staged entrypoint that predates the password gate.
-            for name in ("blueprint-loop.py", "validation/loop.py", "regression_guard.py"):
+            for name in (
+                "blueprint-loop.py",
+                "validation/loop.py",
+                "regression_guard.py",
+            ):
                 source = root / "framework/scripts" / name
                 saved = snapshot / "framework/scripts" / name
                 if not saved.is_file() or saved.read_bytes() != source.read_bytes():
-                    raise ValueError("Windows staged validation requires the current runner and regression guard to be staged")
+                    raise ValueError(
+                        "Windows staged validation requires the current runner and regression guard to be staged"
+                    )
         # .lock is local configuration, outside the staged task tree.
         source_lock = root / ".lock"
         if source_lock.is_symlink():
@@ -330,12 +535,22 @@ def staged_snapshot(root, args, directory, environment):
         saved_lock = source_lock.read_bytes() if source_lock.is_file() else None
         if saved_lock is not None:
             (snapshot / ".lock").write_bytes(saved_lock)
-        process = subprocess.Popen(command, cwd=snapshot, env=environment,
-                                   **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}))
+        process = subprocess.Popen(
+            command,
+            cwd=snapshot,
+            env=environment,
+            **(
+                {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                if os.name == "nt"
+                else {}
+            ),
+        )
         try:
             result = process.wait()
         except KeyboardInterrupt:
-            process.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM)
+            process.send_signal(
+                signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM
+            )
             try:
                 process.wait(timeout=15)
             except subprocess.TimeoutExpired:
@@ -346,12 +561,21 @@ def staged_snapshot(root, args, directory, environment):
         if not issues_save_only(snapshot, text=captured.text):
             current_tree = index_tree(root, directory)
             current_lock = source_lock.read_bytes() if source_lock.is_file() else None
-            unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head and current_lock == saved_lock
+            unchanged = (
+                current_tree == tree
+                and git(root, "rev-parse", "HEAD") == head
+                and current_lock == saved_lock
+            )
             metadata.update(source_unchanged=unchanged)
             if not unchanged:
                 result = 1
-                print("Staged snapshot is stale: source HEAD/index/.lock changed; result applies only to the saved tree.", flush=True)
-        (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+                print(
+                    "Staged snapshot is stale: source HEAD/index/.lock changed; result applies only to the saved tree.",
+                    flush=True,
+                )
+        (directory / "snapshot.json").write_text(
+            json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+        )
         return result
     finally:
         if import_task:
@@ -359,7 +583,7 @@ def staged_snapshot(root, args, directory, environment):
             discard_import_proof(snapshot, captured.name)
             store = evidence_store(snapshot)
             # This freshly created snapshot owns its seal; source evidence is retained.
-            (store / 'seal.key').unlink(missing_ok=True)
+            (store / "seal.key").unlink(missing_ok=True)
             store.rmdir()
 
 
@@ -368,10 +592,17 @@ def suspend_selected(root, selected, reason):
         return  # Never guess which task to release when selection failed.
     try:
         if suspend(root, selected, reason):
-            print(f"Task suspended: {selected}; reason recorded in the contract.", flush=True)
+            print(
+                f"Task suspended: {selected}; reason recorded in the contract.",
+                flush=True,
+            )
     except (OSError, ValueError) as error:
         try:
-            print(f"Task suspension/notification failed: {selected}: {error}", file=sys.stderr, flush=True)
+            print(
+                f"Task suspension/notification failed: {selected}: {error}",
+                file=sys.stderr,
+                flush=True,
+            )
         except OSError:
             pass  # Suspension and the caller's failure exit must not depend on the console.
 
@@ -380,14 +611,22 @@ def failure_reason(directory, returncode):
     details = [f"Local loop failed (exit {returncode}); logs: {directory}"]
     timing = directory / "timing.jsonl"
     if timing.is_file():
-        events = [json.loads(line) for line in timing.read_text(encoding="utf-8").splitlines()]
+        events = [
+            json.loads(line) for line in timing.read_text(encoding="utf-8").splitlines()
+        ]
         for event in events:
             if event["event"] == "step_end" and event["status"] != "pass":
-                details.append(f"{event['step']}: {event['status']}, exit {event['returncode']}; {event['error']}")
+                details.append(
+                    f"{event['step']}: {event['status']}, exit {event['returncode']}; {event['error']}"
+                )
                 output = Path(event["output"])
                 details.append(f"Diagnostic log: {output}")
                 if output.is_file():
-                    details.extend(output.read_text(encoding="utf-8", errors="replace").splitlines()[-20:])
+                    details.extend(
+                        output.read_text(
+                            encoding="utf-8", errors="replace"
+                        ).splitlines()[-20:]
+                    )
     return "\n".join(details)
 
 
@@ -398,41 +637,66 @@ def run_loop(root: Path, options, *, final_candidate=None) -> int:
     candidates use committed latest-base differences and read-only validation.
     """
     selected_task = _imports_task_contract.selected_task
-    if final_candidate is not None and (root.resolve() != final_candidate.root or options.write or options.staged):
-        raise ValueError('final loop requires the actual read-only candidate')
-    with selected_task(root, final_candidate.task_file if final_candidate is not None else options.task_file):
+    if final_candidate is not None and (
+        root.resolve() != final_candidate.root or options.write or options.staged
+    ):
+        raise ValueError("final loop requires the actual read-only candidate")
+    with selected_task(
+        root,
+        final_candidate.task_file if final_candidate is not None else options.task_file,
+    ):
         return _run_loop(root, options, final_candidate)
-
-
 
 
 def __run_loop_fail(message):
     raise ValueError(message)
 
 
-def _callback__run_loop_validation_call(args, directory, final_candidate, full_validation, root, run_validation, scope, selected_name, /):
-    validation_options = SimpleNamespace(task_file=selected_name, write=args.write,
-        all=full_validation, fresh=args.fresh or args.mode == 'full' or args.all,
-        jobs=args.validation_jobs, repository_wide_iac=args.mode == 'full' or args.all,
-        contract_scope=args.mode in {'task', 'full'} and scope is not None)
+def _callback__run_loop_validation_call(
+    args,
+    directory,
+    final_candidate,
+    full_validation,
+    root,
+    run_validation,
+    scope,
+    selected_name,
+    /,
+):
+    validation_options = SimpleNamespace(
+        task_file=selected_name,
+        write=args.write,
+        all=full_validation,
+        fresh=args.fresh or args.mode == "full" or args.all,
+        jobs=args.validation_jobs,
+        repository_wide_iac=args.mode == "full" or args.all,
+        contract_scope=args.mode in {"task", "full"} and scope is not None,
+    )
     if args.profile:
         cProfile = _imports_cProfile
         pstats = _imports_pstats
         profile = cProfile.Profile()
         try:
-            result = profile.runcall(run_validation, root, validation_options, final_candidate=final_candidate)
+            result = profile.runcall(
+                run_validation,
+                root,
+                validation_options,
+                final_candidate=final_candidate,
+            )
         finally:
-            profile.dump_stats(str(directory / 'validate-blueprint.prof'))
-            pstats.Stats(profile).strip_dirs().sort_stats('cumulative').print_stats(25)
+            profile.dump_stats(str(directory / "validate-blueprint.prof"))
+            pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
     else:
-        result = run_validation(root, validation_options, final_candidate=final_candidate)
+        result = run_validation(
+            root, validation_options, final_candidate=final_candidate
+        )
     return result.display_report()
 
 
 def _run_loop(root, args, final_candidate):
     fail = __run_loop_fail
     if args.staged and args.write or args.staged != bool(args.base):
-        fail('invalid staged/write/base options')
+        fail("invalid staged/write/base options")
     if cache_directory := os.environ.get("BLUEPRINT_VALIDATION_CACHE_DIR"):
         cache_path = Path(cache_directory).resolve()
         if cache_path == root or root in cache_path.parents:
@@ -445,12 +709,19 @@ def _run_loop(root, args, final_candidate):
                 selected_name = selected.relative_to(root).as_posix()
         scope = active_scope(root, args.all) if not args.staged else set()
         if args.write and (scope == set() or args.all and active_scope(root) == set()):
-            raise ValueError("--write requires service scope; framework scope cannot generate Models")
+            raise ValueError(
+                "--write requires service scope; framework scope cannot generate Models"
+            )
         issues_only = not args.staged and issues_save_only(root)
         repository_changed = set()
         if not issues_only:
-            repository_changed = (set(final_candidate.changed_paths) if final_candidate is not None
-                                  else changed_paths(root) if not args.staged else set())
+            repository_changed = (
+                set(final_candidate.changed_paths)
+                if final_candidate is not None
+                else changed_paths(root)
+                if not args.staged
+                else set()
+            )
         changed = repository_changed - {".lock"}
     except (OSError, ValueError) as error:
         suspend_selected(root, selected_name, f"Local loop preflight failed: {error}")
@@ -458,7 +729,9 @@ def _run_loop(root, args, final_candidate):
     full_validation = scope is None
     regression = args.mode == "full" or args.all
     try:
-        checks, reason = select_checks(root) if regression else ([], "explicit full/--all only")
+        checks, reason = (
+            select_checks(root) if regression else ([], "explicit full/--all only")
+        )
     except ValueError as error:
         print(f"Blueprint local loop: ERROR ({error})", file=sys.stderr)
         suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
@@ -467,12 +740,26 @@ def _run_loop(root, args, final_candidate):
         try:
             authorize_full_regression(root)
         except KeyboardInterrupt:
-            print("Full regression authorization cancelled; no checks started.", file=sys.stderr)
-            suspend_selected(root, selected_name, "Full regression authorization cancelled; no checks started.")
+            print(
+                "Full regression authorization cancelled; no checks started.",
+                file=sys.stderr,
+            )
+            suspend_selected(
+                root,
+                selected_name,
+                "Full regression authorization cancelled; no checks started.",
+            )
             return 130
         except (OSError, ValueError) as error:
-            print(f"Blueprint local loop: LOCKED ({error}); no checks started.", file=sys.stderr)
-            suspend_selected(root, selected_name, f"Full regression authorization failed: {error}; no checks started.")
+            print(
+                f"Blueprint local loop: LOCKED ({error}); no checks started.",
+                file=sys.stderr,
+            )
+            suspend_selected(
+                root,
+                selected_name,
+                f"Full regression authorization failed: {error}; no checks started.",
+            )
             return 2
     log_parent = (args.log_dir or Path(tempfile.gettempdir())).expanduser().resolve()
     if log_parent == root or root in log_parent.parents:
@@ -481,83 +768,168 @@ def _run_loop(root, args, final_candidate):
     directory = Path(tempfile.mkdtemp(prefix="blueprint-loop-", dir=log_parent))
     diagnostics = StartupDiagnostics(root, directory)
     try:
-        diagnostics.record("directory_created", directory=str(directory), pid=os.getpid(), python=sys.executable)
+        diagnostics.record(
+            "directory_created",
+            directory=str(directory),
+            pid=os.getpid(),
+            python=sys.executable,
+        )
         diff_scope = []
-        with diagnostics.step("task.contract.read", "pathlib.Path.read_bytes", task=selected_name):
+        with diagnostics.step(
+            "task.contract.read", "pathlib.Path.read_bytes", task=selected_name
+        ):
             if not regression and not full_validation and selected_name:
                 contract = task_snapshot(root, selected_name).text.splitlines()
                 if "- Task type: `infrastructure`" in contract and any(
-                        f"- Infrastructure phase: `{phase}`" in contract for phase in ("deploy", "update")):
-                    diff_scope = ["--", *[f":(top,literal){path}" for path in sorted(changed)]] if changed else ["--", ":(exclude)**"]
+                    f"- Infrastructure phase: `{phase}`" in contract
+                    for phase in ("deploy", "update")
+                ):
+                    diff_scope = (
+                        ["--", *[f":(top,literal){path}" for path in sorted(changed)]]
+                        if changed
+                        else ["--", ":(exclude)**"]
+                    )
         command = ["git", "config", "--get", "core.whitespace"]
         with diagnostics.step("git.config", "subprocess.run", command=command):
-            whitespace = subprocess.run(command, cwd=root, capture_output=True, encoding="utf-8")
+            whitespace = subprocess.run(
+                command, cwd=root, capture_output=True, encoding="utf-8"
+            )
             diagnostics.record("result", returncode=whitespace.returncode)
             if whitespace.returncode not in (0, 1):
-                raise subprocess.CalledProcessError(whitespace.returncode, command,
-                                                    whitespace.stdout, whitespace.stderr)
+                raise subprocess.CalledProcessError(
+                    whitespace.returncode, command, whitespace.stdout, whitespace.stderr
+                )
         with diagnostics.step("commands.prepare", "utf8_environment"):
-            whitespace_rules = whitespace.stdout.strip() or "blank-at-eol,blank-at-eof,space-before-tab"
-            diff_check = ["git", "-c", "core.whitespace=" + whitespace_rules + ",cr-at-eol", "diff"]
+            whitespace_rules = (
+                whitespace.stdout.strip()
+                or "blank-at-eol,blank-at-eof,space-before-tab"
+            )
+            diff_check = [
+                "git",
+                "-c",
+                "core.whitespace=" + whitespace_rules + ",cr-at-eol",
+                "diff",
+            ]
             commands = [
                 [
                     sys.executable,
-                    str(definition_root(root) / "framework/scripts/validate-blueprint.py"),
+                    str(
+                        definition_root(root)
+                        / "framework/scripts/validate-blueprint.py"
+                    ),
                     "--repository-root",
                     str(root),
-                    "--jobs", str(args.validation_jobs),
+                    "--jobs",
+                    str(args.validation_jobs),
                     *(["--write"] if args.write else []),
-                    *(["--fresh"] if args.fresh or args.mode == "full" or args.all else []),
+                    *(
+                        ["--fresh"]
+                        if args.fresh or args.mode == "full" or args.all
+                        else []
+                    ),
                     *(["--all"] if full_validation else []),
-                    *(["--repository-wide-iac"] if args.mode == "full" or args.all else []),
-                    *(["--contract-scope"] if args.mode in {"task", "full"} and scope is not None else []),
+                    *(
+                        ["--repository-wide-iac"]
+                        if args.mode == "full" or args.all
+                        else []
+                    ),
+                    *(
+                        ["--contract-scope"]
+                        if args.mode in {"task", "full"} and scope is not None
+                        else []
+                    ),
                 ],
+                *([sys.executable, str(path)] for path in checks),
                 *(
-                    [sys.executable, str(path)]
-                    for path in checks
+                    []
+                    if issues_only
+                    else [
+                        [*diff_check, "--check", *diff_scope],
+                        [*diff_check, "--cached", "--check", *diff_scope],
+                    ]
                 ),
-                *([] if issues_only else [
-                    [*diff_check, "--check", *diff_scope],
-                    [*diff_check, "--cached", "--check", *diff_scope],
-                ]),
             ]
             environment = utf8_environment()
             if args.profile:
                 environment["BLUEPRINT_PROFILE_DIR"] = str(directory)
         if not args.staged:
-            diagnostics.print(f"Validation: {'all' if full_validation else 'active scope'}; "
-                              f"framework regression: {'all UT' if regression else 'skipped (explicit full/--all only)'}")
+            diagnostics.print(
+                f"Validation: {'all' if full_validation else 'active scope'}; "
+                f"framework regression: {'all UT' if regression else 'skipped (explicit full/--all only)'}"
+            )
         if regression and not args.staged:
-            diagnostics.print(f"Regression selection: {reason}; {len(checks)} UT suites selected: {', '.join(path.name for path in checks) or 'none'}")
-            omitted = sorted(path.name for path in select_checks(root)[0] if path not in checks)
-            diagnostics.print("IT execution: separate run_it.py entrypoint (0 IT suites in this loop)")
+            diagnostics.print(
+                f"Regression selection: {reason}; {len(checks)} UT suites selected: {', '.join(path.name for path in checks) or 'none'}"
+            )
+            omitted = sorted(
+                path.name for path in select_checks(root)[0] if path not in checks
+            )
+            diagnostics.print(
+                "IT execution: separate run_it.py entrypoint (0 IT suites in this loop)"
+            )
             diagnostics.print(f"UT not executed: {', '.join(omitted) or 'none'}")
         utf8_preflight(directory, environment, diagnostics)
         if args.staged:
             return staged_snapshot(root, args, directory, environment)
         validation_call = None
         if not args.staged:
-
             run_validation = _imports_validation_runner.run_validation
-            validation_call = _bind_framework_callback(_callback__run_loop_validation_call, args, directory, final_candidate, full_validation, root, run_validation, scope, selected_name)
+            validation_call = _bind_framework_callback(
+                _callback__run_loop_validation_call,
+                args,
+                directory,
+                final_candidate,
+                full_validation,
+                root,
+                run_validation,
+                scope,
+                selected_name,
+            )
         if final_candidate is not None and not issues_only:
-            commands[-2:] = [[*diff_check, '--check', final_candidate.base_commit, final_candidate.candidate_head, '--']]
-        result = run_commands(root, commands, environment, directory, jobs=args.jobs, diagnostics=diagnostics, stop_after_validator_failure=args.write, validation_call=validation_call)
+            commands[-2:] = [
+                [
+                    *diff_check,
+                    "--check",
+                    final_candidate.base_commit,
+                    final_candidate.candidate_head,
+                    "--",
+                ]
+            ]
+        result = run_commands(
+            root,
+            commands,
+            environment,
+            directory,
+            jobs=args.jobs,
+            diagnostics=diagnostics,
+            stop_after_validator_failure=args.write,
+            validation_call=validation_call,
+        )
         if result:
             suspend_selected(root, selected_name, failure_reason(directory, result))
         return result
     except KeyboardInterrupt as error:
         diagnostics.failure(error)
-        suspend_selected(root, selected_name, f"Local loop interrupted; checks incomplete; logs: {directory}")
+        suspend_selected(
+            root,
+            selected_name,
+            f"Local loop interrupted; checks incomplete; logs: {directory}",
+        )
         return 130
     except Exception as error:
         details = diagnostics.failure(error)
-        suspend_selected(root, selected_name,
-                         f"Local loop error at {details['step']} ({details['api']}): {error}; "
-                         f"logs: {directory}; traceback: {directory / 'startup-error.json'}")
+        suspend_selected(
+            root,
+            selected_name,
+            f"Local loop error at {details['step']} ({details['api']}): {error}; "
+            f"logs: {directory}; traceback: {directory / 'startup-error.json'}",
+        )
         try:
-            print(f"Blueprint local loop: ERROR ({error}); logs: {directory}\n{details['traceback']}",
-                  file=sys.stderr, flush=True)
+            print(
+                f"Blueprint local loop: ERROR ({error}); logs: {directory}\n{details['traceback']}",
+                file=sys.stderr,
+                flush=True,
+            )
         except OSError:
             pass  # The saved exception must survive a broken console.
         return 2

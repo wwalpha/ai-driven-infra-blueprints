@@ -2,10 +2,16 @@
 
 from model.adapters.aws import AcquisitionError, Unresolved, one
 
-APIS = {('ec2', 'describe_instances'), ('ec2', 'describe_volumes')}
-CLOUDCONTROL_RESOURCE_TYPES = frozenset({
-    'EC2.TransitGateway', 'EC2.TransitGatewayRouteTable', 'EC2.TransitGatewayRoute',
-    'EC2.TransitGatewayRouteTableAssociation', 'EC2.TransitGatewayRouteTablePropagation'})
+APIS = {("ec2", "describe_instances"), ("ec2", "describe_volumes")}
+CLOUDCONTROL_RESOURCE_TYPES = frozenset(
+    {
+        "EC2.TransitGateway",
+        "EC2.TransitGatewayRouteTable",
+        "EC2.TransitGatewayRoute",
+        "EC2.TransitGatewayRouteTableAssociation",
+        "EC2.TransitGatewayRouteTablePropagation",
+    }
+)
 
 
 def sensitive(prop):
@@ -13,29 +19,64 @@ def sensitive(prop):
 
 
 def fetch(ctx, r, getter):
-    current = r.current('InstanceId')
+    current = r.current("InstanceId")
     if current:
-        inputs = {'InstanceIds':[current]}
+        inputs = {"InstanceIds": [current]}
     else:
         tag_rows = r.rows
-        names = [r.parse(tag_rows[i+1][1]) for i,(_,row) in enumerate(tag_rows[:-1]) if row['property'].endswith('Tags[].Key') and row['value'].strip('`') == 'Name']
-        if len(names)!=1:
-            raise Unresolved('instance requires confirmed InstanceId or one Name tag')
-        inputs = {'Filters':[{'Name':'tag:Name','Values':names},{'Name':'subnet-id','Values':[r.value('SubnetId','id')]},{'Name':'instance-state-name','Values':['pending','running','stopping','stopped']} ]}
-    record = one([v for reservation in ctx.pages('ec2','describe_instances',**inputs).get('Reservations',[]) for v in reservation.get('Instances',[])], 'ec2.describe_instances')
-    if getter == 'base':
+        names = [
+            r.parse(tag_rows[i + 1][1])
+            for i, (_, row) in enumerate(tag_rows[:-1])
+            if row["property"].endswith("Tags[].Key")
+            and row["value"].strip("`") == "Name"
+        ]
+        if len(names) != 1:
+            raise Unresolved("instance requires confirmed InstanceId or one Name tag")
+        inputs = {
+            "Filters": [
+                {"Name": "tag:Name", "Values": names},
+                {"Name": "subnet-id", "Values": [r.value("SubnetId", "id")]},
+                {
+                    "Name": "instance-state-name",
+                    "Values": ["pending", "running", "stopping", "stopped"],
+                },
+            ]
+        }
+    record = one(
+        [
+            v
+            for reservation in ctx.pages("ec2", "describe_instances", **inputs).get(
+                "Reservations", []
+            )
+            for v in reservation.get("Instances", [])
+        ],
+        "ec2.describe_instances",
+    )
+    if getter == "base":
         return record
-    mappings = record.get('BlockDeviceMappings',[])
-    ids = [v['Ebs']['VolumeId'] for v in mappings if 'Ebs' in v]
-    volumes = ctx.pages('ec2','describe_volumes',VolumeIds=ids).get('Volumes',[]) if ids else []
-    index = {v['VolumeId']:v for v in volumes}
-    result=[]
+    mappings = record.get("BlockDeviceMappings", [])
+    ids = [v["Ebs"]["VolumeId"] for v in mappings if "Ebs" in v]
+    volumes = (
+        ctx.pages("ec2", "describe_volumes", VolumeIds=ids).get("Volumes", [])
+        if ids
+        else []
+    )
+    index = {v["VolumeId"]: v for v in volumes}
+    result = []
     for item in mappings:
         entry = dict(item)
-        if 'Ebs' in entry:
-            volume = index.get(entry['Ebs']['VolumeId'])
+        if "Ebs" in entry:
+            volume = index.get(entry["Ebs"]["VolumeId"])
             if not volume:
-                raise AcquisitionError('ec2.describe_volumes','AttachedVolumeMissing')
-            entry['Ebs'] = dict(entry['Ebs'], **{k:volume[k] for k in ('Encrypted','KmsKeyId','VolumeType') if k in volume}, VolumeSize=volume['Size'])
+                raise AcquisitionError("ec2.describe_volumes", "AttachedVolumeMissing")
+            entry["Ebs"] = dict(
+                entry["Ebs"],
+                **{
+                    k: volume[k]
+                    for k in ("Encrypted", "KmsKeyId", "VolumeType")
+                    if k in volume
+                },
+                VolumeSize=volume["Size"],
+            )
         result.append(entry)
-    return {'BlockDeviceMappings':result}
+    return {"BlockDeviceMappings": result}

@@ -38,21 +38,44 @@ if not __debug__:
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 
-
 SCRIPTS = Path(__file__).resolve().parents[2]
 
 VALIDATOR = load("validate-blueprint")
 
 
-__all__ = ['ALIGNMENT', 'END', 'HEADER', 'Path', 'SCRIPTS', 'START', 'VALIDATOR', 'iam_role_policy_artifact_filename', 'indexed_rows', 'json', 'load', 'model_projection', 'policy_lines', 'pytest', 'pytestmark', 'rendered_design', 'resources_in', 'run', 'subprocess', 'sys', 'tempfile', 'without_policy_tables']
+__all__ = [
+    "ALIGNMENT",
+    "END",
+    "HEADER",
+    "Path",
+    "SCRIPTS",
+    "START",
+    "VALIDATOR",
+    "iam_role_policy_artifact_filename",
+    "indexed_rows",
+    "json",
+    "load",
+    "model_projection",
+    "policy_lines",
+    "pytest",
+    "pytestmark",
+    "rendered_design",
+    "resources_in",
+    "run",
+    "subprocess",
+    "sys",
+    "tempfile",
+    "without_policy_tables",
+]
 
 
 def policy_cli(argv):
-
     stdout, stderr = StringIO(), StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
         code = main(argv)
-    return subprocess.CompletedProcess(argv, code, stdout.getvalue().encode(), stderr.getvalue().encode())
+    return subprocess.CompletedProcess(
+        argv, code, stdout.getvalue().encode(), stderr.getvalue().encode()
+    )
 
 
 @pytest.fixture
@@ -61,28 +84,32 @@ def policy_mapping_cache(catalog_display_fixture):
     yield
 
 
-__all__ += ['policy_cli', 'policy_mapping_cache']
+__all__ += ["policy_cli", "policy_mapping_cache"]
 
 
 def _callback_mapping_cache_checks_read(root):
-    return (aws_mapping_display.owners(root), aws_mapping_display.rules(root, 'IAM.Role'),
-            aws_mapping.runtime_registry(root, 'iam'))
+    return (
+        aws_mapping_display.owners(root),
+        aws_mapping_display.rules(root, "IAM.Role"),
+        aws_mapping.runtime_registry(root, "iam"),
+    )
 
 
 def mapping_cache_checks():
-
     read = (input_scope)(_callback_mapping_cache_checks_read)
 
     with tempfile.TemporaryDirectory() as directory:
-        roots = [Path(directory) / name for name in ('first', 'second')]
+        roots = [Path(directory) / name for name in ("first", "second")]
         first, second = (read(root) for root in roots[:2])
         definition_root = _imports_utils_aws_mappings.definition_root
-        assert first[2].root == definition_root(roots[0]) and second[2].root == definition_root(roots[1])
+        assert first[2].root == definition_root(roots[0]) and second[
+            2
+        ].root == definition_root(roots[1])
         assert read(roots[0])[2] is first[2]
         assert read(roots[1])[2] is second[2]
 
 
-__all__ += ['mapping_cache_checks']
+__all__ += ["mapping_cache_checks"]
 
 
 def iam_fixture(root):
@@ -90,17 +117,39 @@ def iam_fixture(root):
     path.parent.mkdir(parents=True)
     artifacts = path.parent / "iam"
     artifacts.mkdir()
-    trust = {"Version": "2012-10-17", "Statement": [{
-        "Effect": "Allow", "Principal": {"Service": "vpc-flow-logs.amazonaws.com"},
-        "Action": "sts:AssumeRole", "Condition": {
-            "StringEquals": {"aws:SourceAccount": "123456789012"},
-            "ArnLike": {"aws:SourceArn": "arn:aws:ec2:ap-northeast-1:123456789012:vpc-flow-log/*"},
-        },
-    }]}
-    inline = {"Version": "2012-10-17", "Id": "Logging", "Statement": [
-        {"Sid": "Write", "Effect": "Allow", "Action": ["logs:CreateLogStream", "logs:PutLogEvents"], "Resource": ["arn:aws:logs:*:123456789012:log-group:example:*"]},
-        {"Effect": "Deny", "NotAction": ["logs:DescribeLogGroups"], "NotResource": "arn:aws:logs:*:123456789012:log-group:other:*"},
-    ]}
+    trust = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "vpc-flow-logs.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+                "Condition": {
+                    "StringEquals": {"aws:SourceAccount": "123456789012"},
+                    "ArnLike": {
+                        "aws:SourceArn": "arn:aws:ec2:ap-northeast-1:123456789012:vpc-flow-log/*"
+                    },
+                },
+            }
+        ],
+    }
+    inline = {
+        "Version": "2012-10-17",
+        "Id": "Logging",
+        "Statement": [
+            {
+                "Sid": "Write",
+                "Effect": "Allow",
+                "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                "Resource": ["arn:aws:logs:*:123456789012:log-group:example:*"],
+            },
+            {
+                "Effect": "Deny",
+                "NotAction": ["logs:DescribeLogGroups"],
+                "NotResource": "arn:aws:logs:*:123456789012:log-group:other:*",
+            },
+        ],
+    }
     text = """# IAM設計書
 
 - Design service ID: `iam`
@@ -126,9 +175,15 @@ def iam_fixture(root):
 """
     for logical_id in ("RoleA", "RoleB"):
         file_id = VALIDATOR.artifact_id(logical_id)
-        for suffix, document in (("trust-policy", trust), ("logging", inline), ("extra", inline)):
-            (artifacts / f"{file_id}-{suffix}.json").write_text(json.dumps(document), encoding="utf-8")
-        text += f'''<a id="iam-{logical_id.lower()}"></a>
+        for suffix, document in (
+            ("trust-policy", trust),
+            ("logging", inline),
+            ("extra", inline),
+        ):
+            (artifacts / f"{file_id}-{suffix}.json").write_text(
+                json.dumps(document), encoding="utf-8"
+            )
+        text += f"""<a id="iam-{logical_id.lower()}"></a>
 
 ### IAM.Role: {logical_id}
 
@@ -141,14 +196,14 @@ def iam_fixture(root):
 | 5 | Policies[].PolicyName | `Extra` | ポリシーの名前 |
 | 6 | Policies[].PolicyDocument | [Extra](iam/{file_id}-extra.json) | 追加の権限ポリシー |
 
-'''
-    text += '''<a id="iam-profile"></a>
+"""
+    text += """<a id="iam-profile"></a>
 
 ### IAM.InstanceProfile: Profile
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | InstanceProfileName | `example` | インスタンスプロファイルの名前 |
-'''
+"""
     path.write_text(text, encoding="utf-8")
     return path, artifacts, trust, inline, text

@@ -1,4 +1,5 @@
 """Load named sibling scripts once, preserving existing patch/module identity."""
+
 import importlib
 import importlib.util
 import sys
@@ -12,11 +13,11 @@ _lock = RLock()
 
 def module(filename, name):
     with _lock:
-        if name.startswith('model.'):
+        if name.startswith("model."):
             expected = SCRIPTS_ROOT / filename
-            canonical = SCRIPTS_ROOT.joinpath(*name.split('.')).with_suffix('.py')
+            canonical = SCRIPTS_ROOT.joinpath(*name.split(".")).with_suffix(".py")
             if expected != canonical:
-                raise ValueError('package module requires its canonical path: ' + name)
+                raise ValueError("package module requires its canonical path: " + name)
             return importlib.import_module(name)
         if name not in sys.modules:
             spec = importlib.util.spec_from_file_location(name, SCRIPTS_ROOT / filename)

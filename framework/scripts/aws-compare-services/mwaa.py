@@ -1,7 +1,6 @@
 """mwaa: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-
-APIS = {('mwaa', 'get_environment')}
+APIS = {("mwaa", "get_environment")}
 
 
 def sensitive(prop):
@@ -9,4 +8,4 @@ def sensitive(prop):
 
 
 def fetch(ctx, r, getter):
-    return ctx.call('mwaa', 'get_environment', Name=r.value('Name'))['Environment']
+    return ctx.call("mwaa", "get_environment", Name=r.value("Name"))["Environment"]

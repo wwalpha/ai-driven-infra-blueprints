@@ -21,20 +21,22 @@ import model.sources as _imports_model_sources
 class ObservedOperation:
     scopes: frozenset
     keys: frozenset
-    action: str = 'observed'
+    action: str = "observed"
 
 
 @dataclass(frozen=True)
 class EditOperation:
     scopes: frozenset
-    action: str = 'edit'
+    action: str = "edit"
 
 
 @contextmanager
 def edit_write_context(root, scopes, task_file, *, snapshot=None):
     if not scopes:
-        raise ValueError('ordinary Model editing requires an explicit service set')
-    with _write_context(root, task_file, requested=EditOperation(frozenset(scopes)), snapshot=snapshot) as context:
+        raise ValueError("ordinary Model editing requires an explicit service set")
+    with _write_context(
+        root, task_file, requested=EditOperation(frozenset(scopes)), snapshot=snapshot
+    ) as context:
         yield context
 
 
@@ -53,23 +55,46 @@ def observed_write_context(root, changes, task_file=None):
     for path, updates in changes.items():
         scope = scope_for(path)
         if scope.root != root:
-            raise ValueError('observed scope belongs to another repository')
+            raise ValueError("observed scope belongs to another repository")
         scopes.add((scope.environment, scope.target, scope.service))
         keys.update((path, key) for key in updates)
     if not keys:
-        raise ValueError('observed publication requires explicit selected Rows')
-    with _write_context(root, task.name, requested=ObservedOperation(frozenset(scopes), frozenset(keys)), snapshot=task) as context:
+        raise ValueError("observed publication requires explicit selected Rows")
+    with _write_context(
+        root,
+        task.name,
+        requested=ObservedOperation(frozenset(scopes), frozenset(keys)),
+        snapshot=task,
+    ) as context:
         yield context
 
 
-def _callback__write_context_require_current(allowed, declared, revision, publication_revision, matches, name, root, safe_path, writable, /, changes):
+def _callback__write_context_require_current(
+    allowed,
+    declared,
+    revision,
+    publication_revision,
+    matches,
+    name,
+    root,
+    safe_path,
+    writable,
+    /,
+    changes,
+):
     if publication_revision(root, name) != revision:
-        raise ValueError('managed worktree revision changed before source publication')
+        raise ValueError("managed worktree revision changed before source publication")
     for file in changes:
         relative = file.relative_to(root).as_posix()
         safe_path(root, relative)
-        if file not in writable or relative not in declared or not any(matches(relative, p) for p in allowed):
-            raise ValueError('source write is outside Modified files/Allowed paths: ' + relative)
+        if (
+            file not in writable
+            or relative not in declared
+            or not any(matches(relative, p) for p in allowed)
+        ):
+            raise ValueError(
+                "source write is outside Modified files/Allowed paths: " + relative
+            )
 
 
 @contextmanager
@@ -90,30 +115,47 @@ def _write_context(root, task_file, *, requested=None, snapshot=None):
     recording_inputs = _imports_validation_cache.recording_inputs
     active_scope = _imports_validation_scope.active_scope
     root = Path(root).resolve()
-    with selected_task(root, task_file), _imports_task_contract.task_reads(root, live=snapshot is None, snapshot=snapshot):
+    with (
+        selected_task(root, task_file),
+        _imports_task_contract.task_reads(
+            root, live=snapshot is None, snapshot=snapshot
+        ),
+    ):
         name, text = task_revision(root, selected=task_file)
-        if name != task_file or text is None or status(text) != 'running':
-            raise ValueError('source write requires an explicit running parent task')
+        if name != task_file or text is None or status(text) != "running":
+            raise ValueError("source write requires an explicit running parent task")
         validate_contract(root, name, text)
         operation = requested or model_operation(text)
         if operation is None:
-            raise ValueError('source write requires a Model-only update operation')
-        if operation.action == 'observed':
+            raise ValueError("source write requires a Model-only update operation")
+        if operation.action == "observed":
             model_refactor = _imports_task_contract.model_refactor
             section = _imports_task_contract.section
-            lines = set(section(text, '## Task contract'))
-            design = {'- Task type: `design`', '- Workflow: `update`'} <= lines
-            infrastructure = '- Task type: `infrastructure`' in lines and any(
-                '- Infrastructure phase: `' + phase + '`' in lines for phase in ('deploy', 'update', 'destroy'))
-            if not (design or infrastructure) or model_operation(text) is not None or model_refactor(text) is not None:
-                raise ValueError('observation publication requires its ordinary design/update or infrastructure observation Task')
-        if operation.action == 'edit':
+            lines = set(section(text, "## Task contract"))
+            design = {"- Task type: `design`", "- Workflow: `update`"} <= lines
+            infrastructure = "- Task type: `infrastructure`" in lines and any(
+                "- Infrastructure phase: `" + phase + "`" in lines
+                for phase in ("deploy", "update", "destroy")
+            )
+            if (
+                not (design or infrastructure)
+                or model_operation(text) is not None
+                or model_refactor(text) is not None
+            ):
+                raise ValueError(
+                    "observation publication requires its ordinary design/update or infrastructure observation Task"
+                )
+        if operation.action == "edit":
             section = _imports_task_contract.section
-            lines = section(text, '## Task contract')
-            if '- Task type: `design`' not in lines or '- Workflow: `import`' in lines:
-                raise ValueError('ordinary Model editing requires a design Task; infrastructure design inputs remain immutable')
+            lines = section(text, "## Task contract")
+            if "- Task type: `design`" not in lines or "- Workflow: `import`" in lines:
+                raise ValueError(
+                    "ordinary Model editing requires a design Task; infrastructure design inputs remain immutable"
+                )
             if model_operation(text) is not None:
-                raise ValueError('Model-only operations require their limited source write context')
+                raise ValueError(
+                    "Model-only operations require their limited source write context"
+                )
         revision = publication_revision(root, name)
         with input_context(), _dependency_model_sources.publication_lock(root):
             snapshot = GenerationInputs(root, task_file=name)
@@ -122,42 +164,82 @@ def _write_context(root, task_file, *, requested=None, snapshot=None):
                 with recording_inputs(snapshot):
                     scope = active_scope(root, task_file=name)
                     required = set(operation.scopes)
-                    if operation.action == 'import-retarget':
-                        required |= {tuple(address.split('/')[:3]) for ref in operation.references
-                                     for address in (ref.source, ref.destination)}
+                    if operation.action == "import-retarget":
+                        required |= {
+                            tuple(address.split("/")[:3])
+                            for ref in operation.references
+                            for address in (ref.source, ref.destination)
+                        }
                     if scope is None or not required <= scope:
-                        raise ValueError('source write requires exact service Validation scope')
-                    require_no_issues(root, scope if operation.action == 'import-retarget' else required,
-                                      task_file=name)
-                    declared, allowed = paths_in(text, '## Modified files'), paths_in(text, '## Allowed paths')
+                        raise ValueError(
+                            "source write requires exact service Validation scope"
+                        )
+                    require_no_issues(
+                        root,
+                        scope if operation.action == "import-retarget" else required,
+                        task_file=name,
+                    )
+                    declared, allowed = (
+                        paths_in(text, "## Modified files"),
+                        paths_in(text, "## Allowed paths"),
+                    )
                     writable = set()
                     for relative in declared:
                         file = root / relative
-                        if not relative.startswith('model/'):
+                        if not relative.startswith("model/"):
                             continue
                         selected = _dependency_model_sources.source_scope(root, file)
-                        if (selected.environment, selected.target, selected.service) not in operation.scopes:
+                        if (
+                            selected.environment,
+                            selected.target,
+                            selected.service,
+                        ) not in operation.scopes:
                             continue
                         _dependency_model_sources._safe(root, file, snapshot)
                         snapshot.read(file)
                         writable.add(file)
                     # Freeze real Models and producer dependencies; discovery grants no write rights.
                     targets = {identity[:2] for identity in required}
-                    for selected in _dependency_model_sources.list_models(root, snapshot):
+                    for selected in _dependency_model_sources.list_models(
+                        root, snapshot
+                    ):
                         if (selected.environment, selected.target) in targets:
-                            if operation.action == 'observed':
+                            if operation.action == "observed":
                                 _dependency_model_sources.load_model(selected, snapshot)
                             else:
                                 edit_base = _imports_model_sources.edit_base
                                 edit_base(selected.path, snapshot)
                     for identity in operation.scopes:
-                        file = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
+                        file = (
+                            root
+                            / "model"
+                            / identity[0]
+                            / identity[1]
+                            / (identity[2] + ".properties")
+                        )
                         snapshot.read(file)
 
-                require_current = _bind_framework_callback(_callback__write_context_require_current, allowed, declared, revision, publication_revision, matches, name, root, safe_path, writable)
+                require_current = _bind_framework_callback(
+                    _callback__write_context_require_current,
+                    allowed,
+                    declared,
+                    revision,
+                    publication_revision,
+                    matches,
+                    name,
+                    root,
+                    safe_path,
+                    writable,
+                )
 
-                context = _dependency_model_sources.SourceWriteContext._authorized(root, snapshot, operation, require_current, frozenset(writable),
-                                                         finish=lambda: require_current({}))
+                context = _dependency_model_sources.SourceWriteContext._authorized(
+                    root,
+                    snapshot,
+                    operation,
+                    require_current,
+                    frozenset(writable),
+                    finish=lambda: require_current({}),
+                )
             except BaseException:
                 snapshot.close()
                 raise

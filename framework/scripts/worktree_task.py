@@ -59,21 +59,26 @@ def output(root, *args):
     return worktree_state.output(root, *args, runner=git)
 
 
-
-
-
-
-
-
 def branch_exists(root, branch):
-    return git(root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode == 0
+    return (
+        git(
+            root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False
+        ).returncode
+        == 0
+    )
 
 
 def base_branch(root):
     # Only repository-local configuration counts; init.defaultBranch is not a base.
-    explicit = git(root, "config", "--local", "--get", "blueprint.baseBranch", check=False).stdout.strip()
-    remote = git(root, "symbolic-ref", "-q", "refs/remotes/origin/HEAD", check=False).stdout.strip()
-    preferred = explicit or (remote.removeprefix("refs/remotes/origin/") if remote else "")
+    explicit = git(
+        root, "config", "--local", "--get", "blueprint.baseBranch", check=False
+    ).stdout.strip()
+    remote = git(
+        root, "symbolic-ref", "-q", "refs/remotes/origin/HEAD", check=False
+    ).stdout.strip()
+    preferred = explicit or (
+        remote.removeprefix("refs/remotes/origin/") if remote else ""
+    )
     if preferred:
         if not branch_exists(root, preferred):
             raise Blocked(f"configured base branch does not exist locally: {preferred}")
@@ -82,10 +87,6 @@ def base_branch(root):
         if branch_exists(root, name):
             return name
     raise Blocked("no configured base, main or master branch exists")
-
-
-
-
 
 
 def save(path, state):
@@ -103,7 +104,9 @@ def lifecycle_lock(primary):
     try:
         lock.mkdir()
     except FileExistsError:
-        raise Blocked(f"worktree lifecycle busy; retain work and retry: {lock}") from None
+        raise Blocked(
+            f"worktree lifecycle busy; retain work and retry: {lock}"
+        ) from None
     try:
         yield
     finally:
@@ -120,37 +123,60 @@ def create(where, task_id, repair_request=None):
     transfer = deploy_request(where, repair_request) if repair_request else None
     request = transfer[-1] if transfer else None
     if request:
-        parent = Path(request['repository'])
-        if tasks.status(tasks.read_task_snapshot(parent, request['taskFile'], live=True).text) != 'suspend':
-            raise Blocked('suspend the original deploy Task before child creation')
+        parent = Path(request["repository"])
+        if (
+            tasks.status(
+                tasks.read_task_snapshot(parent, request["taskFile"], live=True).text
+            )
+            != "suspend"
+        ):
+            raise Blocked("suspend the original deploy Task before child creation")
         session = transfer[-2]
-        attempt = session['workflow']['attempts'][request['attemptId']]
-        if attempt.get('childTask') not in (None, task_id):
-            raise Blocked('attempt already owns another child; no static retry Task reset')
+        attempt = session["workflow"]["attempts"][request["attemptId"]]
+        if attempt.get("childTask") not in (None, task_id):
+            raise Blocked(
+                "attempt already owns another child; no static retry Task reset"
+            )
     repair_lock = nullcontext()
     if request:
         locked = _worktree_runtime().deploy_handoff.locked
-        repair_lock = locked(Path(request['session']))
+        repair_lock = locked(Path(request["session"]))
     with lifecycle_lock(primary), repair_lock:
-        base = request['parentBranch'] if request else base_branch(root)
+        base = request["parentBranch"] if request else base_branch(root)
         if state_file.exists() or branch_exists(root, branch):
-            raise Blocked(f"task state/branch collision: {task_id}; nothing overwritten")
+            raise Blocked(
+                f"task state/branch collision: {task_id}; nothing overwritten"
+            )
         if target.exists() or target.is_symlink() or target.parent.is_symlink():
             raise Blocked(f"worktree path collision: {target}; nothing overwritten")
-        if any(Path(entry["worktree"]).resolve() == target for entry in worktrees(root)):
-            raise Blocked(f"registered/stale worktree path collision: {target}; do not prune automatically")
+        if any(
+            Path(entry["worktree"]).resolve() == target for entry in worktrees(root)
+        ):
+            raise Blocked(
+                f"registered/stale worktree path collision: {target}; do not prune automatically"
+            )
         start = output(root, "rev-parse", f"refs/heads/{base}")
-        if request and start != request['parentTip']:
-            raise Blocked('repair parent tip changed')
+        if request and start != request["parentTip"]:
+            raise Blocked("repair parent tip changed")
         git(root, "worktree", "add", "-b", branch, str(target), start)
-        state = dict(task_id=task_id, branch=branch, worktree=str(target), primary=str(primary),
-                     base=base, start=start, task_file=f"tasks/{task_id}.md",
-                     tip=start, commit=None, verified=False, merged=None)
+        state = dict(
+            task_id=task_id,
+            branch=branch,
+            worktree=str(target),
+            primary=str(primary),
+            base=base,
+            start=start,
+            task_file=f"tasks/{task_id}.md",
+            tip=start,
+            commit=None,
+            verified=False,
+            merged=None,
+        )
         if request:
-            state['deployRepair'] = request['requestPath']
-            attempt['childTask'] = task_id
+            state["deployRepair"] = request["requestPath"]
+            attempt["childTask"] = task_id
             save_session = _worktree_runtime().deploy_handoff.save
-            save_session(Path(request['session']), session)
+            save_session(Path(request["session"]), session)
         state_file.parent.mkdir(exist_ok=True)
         save(state_file, state)
     return setup(where, task_id)
@@ -175,26 +201,18 @@ def setup(where, task_id):
         try:
             state["python_setup"] = python_env.setup(target, previous)
         except (Exception, KeyboardInterrupt) as error:
-            message = f"{type(error).__name__}: {str(error) or 'Python setup interrupted'}"
+            message = (
+                f"{type(error).__name__}: {str(error) or 'Python setup interrupted'}"
+            )
             state["python_setup"] = {"status": "failed", "error": message}
             save(path, state)
-            raise Blocked(f"Python setup failed; worktree retained. Retry setup --task-id {task_id}: {message}") from error
+            raise Blocked(
+                f"Python setup failed; worktree retained. Retry setup --task-id {task_id}: {message}"
+            ) from error
         save(path, state)
         return state
     finally:
         lock.rmdir()
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def integration_task(target, state, approval=None):
@@ -208,79 +226,159 @@ def integration_task(target, state, approval=None):
         raise Blocked("human approval must identify the accepted validation failures")
     expected = "suspend" if approval else "completed"
     if current != expected:
-        raise Blocked(f"task must be {expected} for integration; current status: {current}")
+        raise Blocked(
+            f"task must be {expected} for integration; current status: {current}"
+        )
 
 
 def base_worktree(root, state):
-    entries = [entry for entry in worktrees(root) if entry.get("branch") == f"refs/heads/{state['base']}"]
+    entries = [
+        entry
+        for entry in worktrees(root)
+        if entry.get("branch") == f"refs/heads/{state['base']}"
+    ]
     if len(entries) != 1 or "locked" in entries[0] or "prunable" in entries[0]:
-        raise Blocked("local base must be checked out in one available worktree; no automatic checkout")
+        raise Blocked(
+            "local base must be checked out in one available worktree; no automatic checkout"
+        )
     target = Path(entries[0]["worktree"])
     idle_git(target)
     if git(target, "status", "--porcelain", "--untracked-files=all").stdout:
-        raise Blocked(f"base worktree is dirty: {target}; task commit/worktree retained")
+        raise Blocked(
+            f"base worktree is dirty: {target}; task commit/worktree retained"
+        )
     return target
 
 
 def ancestor(root, commit, branch):
-    return git(root, "merge-base", "--is-ancestor", commit, f"refs/heads/{branch}", check=False).returncode == 0
+    return (
+        git(
+            root,
+            "merge-base",
+            "--is-ancestor",
+            commit,
+            f"refs/heads/{branch}",
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def _cleanup_git(root: Path, *args: str, directory: Path):
-    return git(root, '--git-dir', str(directory), *args)
+    return git(root, "--git-dir", str(directory), *args)
 
 
 def cleanup_missing_worktree(root: Path, state: dict, entry: dict) -> None:
     """Prove retained Git data is unchanged before removing a missing checkout's registration."""
-    if ('locked' in entry or entry.get('branch') != f"refs/heads/{state['branch']}"
-            or entry.get('HEAD') != state['tip'] or state['merged'] != state['tip']
-            or state['commit'] is not None and not state.get('verified')):
-        raise Blocked('missing worktree registration is locked or differs from the verified merge; cleanup refused')
-    target = Path(state['worktree'])
-    common = Path(output(root, 'rev-parse', '--path-format=absolute', '--git-common-dir'))
-    directories = [directory for directory in (common / 'worktrees').iterdir()
-                   if directory.is_dir() and not directory.is_symlink()
-                   and (directory / 'gitdir').is_file() and not (directory / 'gitdir').is_symlink()
-                   and Path((directory / 'gitdir').read_text(encoding='utf-8').rstrip('\n')) == target / '.git']
+    if (
+        "locked" in entry
+        or entry.get("branch") != f"refs/heads/{state['branch']}"
+        or entry.get("HEAD") != state["tip"]
+        or state["merged"] != state["tip"]
+        or state["commit"] is not None
+        and not state.get("verified")
+    ):
+        raise Blocked(
+            "missing worktree registration is locked or differs from the verified merge; cleanup refused"
+        )
+    target = Path(state["worktree"])
+    common = Path(
+        output(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    )
+    directories = [
+        directory
+        for directory in (common / "worktrees").iterdir()
+        if directory.is_dir()
+        and not directory.is_symlink()
+        and (directory / "gitdir").is_file()
+        and not (directory / "gitdir").is_symlink()
+        and Path((directory / "gitdir").read_text(encoding="utf-8").rstrip("\n"))
+        == target / ".git"
+    ]
     if len(directories) != 1:
-        raise Blocked('missing worktree Git administration cannot be identified uniquely; cleanup refused')
+        raise Blocked(
+            "missing worktree Git administration cannot be identified uniquely; cleanup refused"
+        )
     directory = directories[0]
-    if (any(not (directory / name).is_file() or (directory / name).is_symlink() for name in ('HEAD', 'index'))
-            or any(directory.rglob('*.lock'))):
-        raise Blocked('missing worktree Git HEAD/index is unavailable, redirected or locked; cleanup refused')
-    if (Path(output(root, '--git-dir', str(directory), 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve() != common.resolve()
-            or output(root, '--git-dir', str(directory), 'rev-parse', 'HEAD') != state['tip']):
-        raise Blocked('missing worktree Git identity changed; cleanup refused')
-    worktree_state.idle_operations(root, runner=partial(_cleanup_git, directory=directory))
+    if any(
+        not (directory / name).is_file() or (directory / name).is_symlink()
+        for name in ("HEAD", "index")
+    ) or any(directory.rglob("*.lock")):
+        raise Blocked(
+            "missing worktree Git HEAD/index is unavailable, redirected or locked; cleanup refused"
+        )
+    if (
+        Path(
+            output(
+                root,
+                "--git-dir",
+                str(directory),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            )
+        ).resolve()
+        != common.resolve()
+        or output(root, "--git-dir", str(directory), "rev-parse", "HEAD")
+        != state["tip"]
+    ):
+        raise Blocked("missing worktree Git identity changed; cleanup refused")
+    worktree_state.idle_operations(
+        root, runner=partial(_cleanup_git, directory=directory)
+    )
     # diff-index reads the retained index without requiring the removed working directory.
-    if output(root, '--git-dir', str(directory), 'diff-index', '--cached', '--name-only', '-z', state['tip'], '--'):
-        raise Blocked('missing worktree index differs from the verified merge; cleanup refused')
+    if output(
+        root,
+        "--git-dir",
+        str(directory),
+        "diff-index",
+        "--cached",
+        "--name-only",
+        "-z",
+        state["tip"],
+        "--",
+    ):
+        raise Blocked(
+            "missing worktree index differs from the verified merge; cleanup refused"
+        )
 
 
-def cleanup_progress(root: Path, path: Path, state: dict, phase: str, reason: str | None = None) -> dict:
-    target = Path(state['worktree'])
-    return {'phase': phase, 'stop_reason': reason,
-            'remaining': {'worktree': target.exists() or target.is_symlink(),
-                          'git_registration': any(Path(e['worktree']).resolve() == target for e in worktrees(root)),
-                          'branch': branch_exists(root, state['branch']), 'task_state': path.exists()},
-            'retry_command': f"python3 -B framework/scripts/worktree_task.py cleanup --task-id {state['task_id']}",
-            'next_action': 'resolve_stop_reason_then_retry' if reason else 'none'}
+def cleanup_progress(
+    root: Path, path: Path, state: dict, phase: str, reason: str | None = None
+) -> dict:
+    target = Path(state["worktree"])
+    return {
+        "phase": phase,
+        "stop_reason": reason,
+        "remaining": {
+            "worktree": target.exists() or target.is_symlink(),
+            "git_registration": any(
+                Path(e["worktree"]).resolve() == target for e in worktrees(root)
+            ),
+            "branch": branch_exists(root, state["branch"]),
+            "task_state": path.exists(),
+        },
+        "retry_command": f"python3 -B framework/scripts/worktree_task.py cleanup --task-id {state['task_id']}",
+        "next_action": "resolve_stop_reason_then_retry" if reason else "none",
+    }
 
 
 def cleanup_state(root, path, state):
-    phase = 'verify_merge'
+    phase = "verify_merge"
     try:
         if not state["merged"] or not ancestor(root, state["merged"], state["base"]):
             raise Blocked("cleanup requires a verified successful merge")
         if state["commit"] and not ancestor(root, state["commit"], state["base"]):
             raise Blocked("base no longer contains the task commit; cleanup refused")
-        phase = 'verify_worktree'
+        phase = "verify_worktree"
         target = Path(state["worktree"])
         if target.is_symlink():
-            raise Blocked('task worktree path is a symlink; cleanup refused')
+            raise Blocked("task worktree path is a symlink; cleanup refused")
         if path.with_suffix(".setup-lock").exists():
             raise Blocked("Python setup busy; cleanup refused")
-        entries = [e for e in worktrees(root) if Path(e['worktree']).resolve() == target]
+        entries = [
+            e for e in worktrees(root) if Path(e["worktree"]).resolve() == target
+        ]
         if target.exists():
             target = task_worktree(root, state)
             integration_task(target, state)
@@ -289,39 +387,56 @@ def cleanup_state(root, path, state):
             if changed_paths(target):
                 raise Blocked("task worktree is dirty; cleanup refused")
             # Preserve user artifacts before removing the owned environment or checkout.
-            ignored = paths(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
-            extras = {p for p in ignored if p != state["task_file"]
-                      and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))}
+            ignored = paths(
+                target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"
+            )
+            extras = {
+                p
+                for p in ignored
+                if p != state["task_file"]
+                and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))
+            }
             if extras:
-                raise Blocked("ignored files need preservation before cleanup: " + ", ".join(sorted(extras)))
+                raise Blocked(
+                    "ignored files need preservation before cleanup: "
+                    + ", ".join(sorted(extras))
+                )
         elif entries:
             if len(entries) != 1:
-                raise Blocked('multiple Git registrations for the missing worktree; cleanup refused')
+                raise Blocked(
+                    "multiple Git registrations for the missing worktree; cleanup refused"
+                )
             cleanup_missing_worktree(root, state, entries[0])
-        if branch_exists(root, state['branch']):
-            tip = output(root, 'rev-parse', f"refs/heads/{state['branch']}")
-            if tip != state['tip'] or not ancestor(root, tip, state['base']):
-                raise Blocked('temporary branch changed or is unmerged; cleanup refused')
+        if branch_exists(root, state["branch"]):
+            tip = output(root, "rev-parse", f"refs/heads/{state['branch']}")
+            if tip != state["tip"] or not ancestor(root, tip, state["base"]):
+                raise Blocked(
+                    "temporary branch changed or is unmerged; cleanup refused"
+                )
         elif entries:
-            raise Blocked('registered worktree branch is missing; cleanup refused')
+            raise Blocked("registered worktree branch is missing; cleanup refused")
         if target.exists() or entries:
-            phase = 'remove_worktree'
+            phase = "remove_worktree"
             git(root, "worktree", "remove", str(target))
-        phase = 'remove_branch'
+        phase = "remove_branch"
         if branch_exists(root, state["branch"]):
             # -d checks against HEAD when no upstream exists. Use the verified base worktree.
             git(base_worktree(root, state), "branch", "-d", state["branch"])
-        phase = 'remove_import_proof'
-        discard_import_proof(target, state['task_file'])
-        phase = 'remove_state'
+        phase = "remove_import_proof"
+        discard_import_proof(target, state["task_file"])
+        phase = "remove_state"
         path.unlink()
-        return {**state, "cleaned": True, 'cleanup': cleanup_progress(root, path, state, 'complete')}
+        return {
+            **state,
+            "cleaned": True,
+            "cleanup": cleanup_progress(root, path, state, "complete"),
+        }
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
-        error.cleanup = {'phase': phase, 'stop_reason': str(error)}
+        error.cleanup = {"phase": phase, "stop_reason": str(error)}
         try:
             error.cleanup = cleanup_progress(root, path, state, phase, str(error))
         except (OSError, ValueError, KeyError, TypeError) as inspection_error:
-            error.cleanup['inspection_error'] = str(inspection_error)
+            error.cleanup["inspection_error"] = str(inspection_error)
         raise
 
 
@@ -334,82 +449,135 @@ def cleanup(where, task_id):
 def _run_model_guard(target, task_file, approved=False, *, sources=None):
     runtime = python_env.runtime(target)
     if runtime is None:
-        raise Blocked('registered Python runtime is missing; rerun worktree setup')
+        raise Blocked("registered Python runtime is missing; rerun worktree setup")
     interpreter, environment = runtime
     serialized_sources = json.dumps(None)
     if sources is not None:
         serialized_sources = json.dumps(sorted(sources))
-    command = [str(interpreter), '-B', '-c',
-               f'import sys, json; from pathlib import Path; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); '
-               'import task_contract as tasks; from import_guard import require_import_changes; '
-               'root = Path.cwd()\n'
-               'options = {}\n'
-               'if sys.argv[2] == "approved": options["contract_file"] = sys.argv[1]\n'
-               'if sys.argv[3] != "null": options["supplied"] = set(json.loads(sys.argv[3]))\n'
-               'with tasks.selected_task(root, sys.argv[1]):\n'
-               '    require_import_changes(root, **options)',
-               task_file, 'approved' if approved else 'normal', serialized_sources]
-    result = subprocess.run(command, cwd=target, env=environment, capture_output=True, text=True, encoding='utf-8')
+    command = [
+        str(interpreter),
+        "-B",
+        "-c",
+        f"import sys, json; from pathlib import Path; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
+        "import task_contract as tasks; from import_guard import require_import_changes; "
+        "root = Path.cwd()\n"
+        "options = {}\n"
+        'if sys.argv[2] == "approved": options["contract_file"] = sys.argv[1]\n'
+        'if sys.argv[3] != "null": options["supplied"] = set(json.loads(sys.argv[3]))\n'
+        "with tasks.selected_task(root, sys.argv[1]):\n"
+        "    require_import_changes(root, **options)",
+        task_file,
+        "approved" if approved else "normal",
+        serialized_sources,
+    ]
+    result = subprocess.run(
+        command,
+        cwd=target,
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
     if result.returncode:
-        error = Blocked(f'Model guard failed (exit {result.returncode}); worktree retained\n'
-                        f'stdout:\n{result.stdout}\nstderr:\n{result.stderr}')
-        error.diagnostics = {'returncode': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}
+        error = Blocked(
+            f"Model guard failed (exit {result.returncode}); worktree retained\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+        error.diagnostics = {
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
         raise error
     # CLI stdout is reserved for its single JSON result, including successful warnings.
-    for stream in ('stdout', 'stderr'):
+    for stream in ("stdout", "stderr"):
         diagnostic = getattr(result, stream)
         if diagnostic:
-            print('Model guard ' + stream + ':\n' + diagnostic, file=sys.stderr, end='' if diagnostic.endswith('\n') else '\n')
+            print(
+                "Model guard " + stream + ":\n" + diagnostic,
+                file=sys.stderr,
+                end="" if diagnostic.endswith("\n") else "\n",
+            )
 
 
 def _commit_preconditions(target, state, changed, text, parsed_operation):
     idle_git(target)
-    tasks.validate_contract(target, state['task_file'], text)
-    declared = tasks.paths_in(text, '## Modified files')
-    allowed = tasks.paths_in(text, '## Allowed paths')
-    if changed - declared or any(not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed):
-        raise Blocked('integration changes are outside the exact task contract')
-    if any(p.startswith('tasks/') for p in changed):
-        raise Blocked('contracts must remain ignored; nothing committed')
-    head = output(target, 'rev-parse', 'HEAD')
-    if head != state['tip']:
-        raise Blocked('unexpected commits on task branch; review required')
-    if state['commit'] and not state['verified']:
-        raise Blocked('task commit verification failed; review required before any retry')
-    if state['commit'] and changed:
-        if parsed_operation is None or parsed_operation.action != 'import-delete':
-            raise Blocked('task changed after commit; rerun its workflow before integration')
+    tasks.validate_contract(target, state["task_file"], text)
+    declared = tasks.paths_in(text, "## Modified files")
+    allowed = tasks.paths_in(text, "## Allowed paths")
+    if changed - declared or any(
+        not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed
+    ):
+        raise Blocked("integration changes are outside the exact task contract")
+    if any(p.startswith("tasks/") for p in changed):
+        raise Blocked("contracts must remain ignored; nothing committed")
+    head = output(target, "rev-parse", "HEAD")
+    if head != state["tip"]:
+        raise Blocked("unexpected commits on task branch; review required")
+    if state["commit"] and not state["verified"]:
+        raise Blocked(
+            "task commit verification failed; review required before any retry"
+        )
+    if state["commit"] and changed:
+        if parsed_operation is None or parsed_operation.action != "import-delete":
+            raise Blocked(
+                "task changed after commit; rerun its workflow before integration"
+            )
     return head
 
 
 def _prepare_commit(root, path, state, target, approval):
     changed = changed_paths(target)
-    task_id = state['task_id']
-    model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
-    contract = tasks.read_task_snapshot(target, state['task_file'], live=True).text
+    task_id = state["task_id"]
+    model_changes = changed | (
+        committed_task_paths(target, state["task_file"]) or set()
+    )
+    contract = tasks.read_task_snapshot(target, state["task_file"], live=True).text
     operation = tasks.final_model_task(contract)
     parsed_operation = tasks.model_operation(contract)
-    if approval and (tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action in {'import-retarget', 'import-delete'}):
-        raise Blocked('Model refactor/retarget/delete integration requires successful final candidate validation')
+    if approval and (
+        tasks.model_refactor(contract) is not None
+        or parsed_operation is not None
+        and parsed_operation.action in {"import-retarget", "import-delete"}
+    ):
+        raise Blocked(
+            "Model refactor/retarget/delete integration requires successful final candidate validation"
+        )
     head = _commit_preconditions(target, state, changed, contract, parsed_operation)
     base_worktree(root, state)
-    if not ancestor(root, state['start'], state['base']):
-        raise Blocked('base history was rewritten; task retained for review')
-    if (not operation or approval) and ('- Workflow: `import`' in tasks.section(contract, '## Task contract') or any(p.startswith('model/') or p == 'project.json' for p in model_changes)):
+    if not ancestor(root, state["start"], state["base"]):
+        raise Blocked("base history was rewritten; task retained for review")
+    if (not operation or approval) and (
+        "- Workflow: `import`" in tasks.section(contract, "## Task contract")
+        or any(p.startswith("model/") or p == "project.json" for p in model_changes)
+    ):
         integration_task(target, state, approval)
-        index = output(target, 'diff', '--cached', '--raw', '--no-abbrev', '--no-renames')
-        before = {p: (target / p).read_bytes() if (target / p).is_file() else None for p in changed}
-        _run_model_guard(target, state['task_file'], bool(approval))
+        index = output(
+            target, "diff", "--cached", "--raw", "--no-abbrev", "--no-renames"
+        )
+        before = {
+            p: (target / p).read_bytes() if (target / p).is_file() else None
+            for p in changed
+        }
+        _run_model_guard(target, state["task_file"], bool(approval))
         changed = changed_paths(target)
-        current = tasks.read_task_snapshot(target, state['task_file'], live=True).text
-        if output(target, 'diff', '--cached', '--raw', '--no-abbrev', '--no-renames') != index:
-            raise Blocked('task index changed during Model guard; retain worktree')
+        current = tasks.read_task_snapshot(target, state["task_file"], live=True).text
+        if (
+            output(target, "diff", "--cached", "--raw", "--no-abbrev", "--no-renames")
+            != index
+        ):
+            raise Blocked("task index changed during Model guard; retain worktree")
         if current != contract:
-            raise Blocked('task contract changed during Model guard; retain worktree')
-        after = {p: (target / p).read_bytes() if (target / p).is_file() else None for p in changed}
+            raise Blocked("task contract changed during Model guard; retain worktree")
+        after = {
+            p: (target / p).read_bytes() if (target / p).is_file() else None
+            for p in changed
+        }
         for p in before.keys() | after.keys():
             if p not in before or p not in after or before[p] != after[p]:
-                raise Blocked('task changes changed during Model guard; retain worktree: ' + p)
+                raise Blocked(
+                    "task changes changed during Model guard; retain worktree: " + p
+                )
         integration_task(target, state, approval)
         head = _commit_preconditions(target, state, changed, current, parsed_operation)
     if approval:
@@ -418,7 +586,9 @@ def _prepare_commit(root, path, state, target, approval):
         whitespace = git(target, "config", "--get", "core.whitespace", check=False)
         if whitespace.returncode not in (0, 1):
             raise Blocked("cannot determine Git whitespace checks")
-        rules = whitespace.stdout.strip() or "blank-at-eol,blank-at-eof,space-before-tab"
+        rules = (
+            whitespace.stdout.strip() or "blank-at-eol,blank-at-eof,space-before-tab"
+        )
         diff_check = ("-c", "core.whitespace=" + rules + ",cr-at-eol", "diff")
         git(target, *diff_check, "--check", check=not approval)
         git(target, *diff_check, "--cached", "--check", check=not approval)
@@ -428,15 +598,23 @@ def _prepare_commit(root, path, state, target, approval):
         changed = paths(target, "diff", "--cached", "--no-renames", "--name-only", "-z")
     if changed:
         tree = output(target, "write-tree")
-        message = (f"task({task_id}): human-approved validation failure" if approval
-                   else f"task({task_id}): Model operation candidate" if operation
-                   else f"task({task_id}): completed task")
+        message = (
+            f"task({task_id}): human-approved validation failure"
+            if approval
+            else f"task({task_id}): Model operation candidate"
+            if operation
+            else f"task({task_id}): completed task"
+        )
         git(target, "commit", "-m", message, *(["-m", approval] if approval else []))
         state["commit"] = output(target, "rev-parse", "HEAD")
         state["tip"] = state["commit"]
         save(path, state)  # Preserve the task commit before touching the latest base.
-        if output(target, "rev-parse", "HEAD^") != head or output(target, "rev-parse", "HEAD^{tree}") != tree or paths(
-                target, "diff", "--no-renames", "--name-only", "-z", head, "HEAD") != changed:
+        if (
+            output(target, "rev-parse", "HEAD^") != head
+            or output(target, "rev-parse", "HEAD^{tree}") != tree
+            or paths(target, "diff", "--no-renames", "--name-only", "-z", head, "HEAD")
+            != changed
+        ):
             raise Blocked("commit differs from the task changes; review required")
         state["verified"] = True
         save(path, state)
@@ -447,35 +625,61 @@ def _prepare_commit(root, path, state, target, approval):
     # Do not replay unexpected history if the base was rewritten after creation.
     if not ancestor(root, state["start"], state["base"]):
         raise Blocked("base history was rewritten; task retained for review")
-    result = git(target, "-c", "rebase.updateRefs=false", "rebase", "--no-autostash", latest, check=False)
+    result = git(
+        target,
+        "-c",
+        "rebase.updateRefs=false",
+        "rebase",
+        "--no-autostash",
+        latest,
+        check=False,
+    )
     if result.returncode:
         git(target, "rebase", "--abort")
-        raise Blocked("rebase failed and was aborted; human review required: " + result.stderr.strip())
+        raise Blocked(
+            "rebase failed and was aborted; human review required: "
+            + result.stderr.strip()
+        )
     state["tip"] = output(target, "rev-parse", "HEAD")
     if state["commit"]:
         state["commit"] = state["tip"]
     save(path, state)
     if changed_paths(target):
         raise Blocked("task worktree changed during rebase; review required")
-    base = base_worktree(root, state)  # Recheck dirty/operation state immediately before merge.
+    base = base_worktree(
+        root, state
+    )  # Recheck dirty/operation state immediately before merge.
     if output(base, "rev-parse", "HEAD") != latest:
-        raise Blocked("base advanced during rebase; retry finalize with latest local base")
+        raise Blocked(
+            "base advanced during rebase; retry finalize with latest local base"
+        )
     return latest
 
 
 def _recovery_candidate(target, state, text, recovery):
     """Reuse the exact history/scope boundary for finishing and explicitly re-pinning."""
-    base = recovery['base']
-    head = output(target, 'rev-parse', 'HEAD')
-    if (changed_paths(target) or tasks.status(text) != 'running' or
-            git(target, 'merge-base', '--is-ancestor', base, head, check=False).returncode != 0 or
-            output(target, 'rev-list', '--count', base + '..' + head) != recovery['count'] or
-            output(target, 'rev-list', '--merges', base + '..' + head)):
-        raise Blocked("recovery candidate is dirty, unfinished or has unexpected history")
-    changed = paths(target, 'diff', '--name-only', '--no-renames', '-z', base, head)
-    declared = tasks.paths_in(text, '## Modified files')
-    allowed = tasks.paths_in(text, '## Allowed paths')
-    if changed - declared or any(not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed):
+    base = recovery["base"]
+    head = output(target, "rev-parse", "HEAD")
+    if (
+        changed_paths(target)
+        or tasks.status(text) != "running"
+        or git(
+            target, "merge-base", "--is-ancestor", base, head, check=False
+        ).returncode
+        != 0
+        or output(target, "rev-list", "--count", base + ".." + head)
+        != recovery["count"]
+        or output(target, "rev-list", "--merges", base + ".." + head)
+    ):
+        raise Blocked(
+            "recovery candidate is dirty, unfinished or has unexpected history"
+        )
+    changed = paths(target, "diff", "--name-only", "--no-renames", "-z", base, head)
+    declared = tasks.paths_in(text, "## Modified files")
+    allowed = tasks.paths_in(text, "## Allowed paths")
+    if changed - declared or any(
+        not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed
+    ):
         raise Blocked("recovery candidate is outside the exact task contract")
     return head
 
@@ -488,82 +692,157 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
     with lifecycle_lock(root):
         target = task_worktree(root, state)
         base = base_worktree(root, state)
-        if not all(re.fullmatch(r"[0-9a-f]{40}", value or "") for value in (expected_commit, expected_base)):
+        if not all(
+            re.fullmatch(r"[0-9a-f]{40}", value or "")
+            for value in (expected_commit, expected_base)
+        ):
             raise Blocked("recovery requires full expected commit/base hashes")
-        if state['merged'] or state.get('validation_failure_approval') or not state['verified']:
-            raise Blocked("recovery requires an unmerged verified task without failure approval")
-        if output(base, 'rev-parse', 'HEAD') != expected_base:
+        if (
+            state["merged"]
+            or state.get("validation_failure_approval")
+            or not state["verified"]
+        ):
+            raise Blocked(
+                "recovery requires an unmerged verified task without failure approval"
+            )
+        if output(base, "rev-parse", "HEAD") != expected_base:
             raise Blocked("recovery base changed")
-        text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
-        tasks.validate_contract(target, state['task_file'], text)
-        if '- Task type: `governance`' not in tasks.section(text, '## Task contract'):
+        text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
+        tasks.validate_contract(target, state["task_file"], text)
+        if "- Task type: `governance`" not in tasks.section(text, "## Task contract"):
             raise Blocked("reviewed recovery is limited to governance tasks")
         if repin:
-            recovery = state.get('recovery')
+            recovery = state.get("recovery")
             if not recovery:
                 raise Blocked("re-pin requires an existing recovery receipt")
             head = _recovery_candidate(target, state, text, recovery)
             if head != expected_commit:
                 raise Blocked("recovery candidate differs from expected commit")
-            if (expected_base == recovery['base'] or
-                    git(root, 'merge-base', '--is-ancestor', recovery['base'], expected_base, check=False).returncode):
-                raise Blocked("recovery re-pin requires a descendant of its previous base")
-            state['recovery'] = dict(commit=head, base=expected_base, count=recovery['count'], previous=recovery)
+            if (
+                expected_base == recovery["base"]
+                or git(
+                    root,
+                    "merge-base",
+                    "--is-ancestor",
+                    recovery["base"],
+                    expected_base,
+                    check=False,
+                ).returncode
+            ):
+                raise Blocked(
+                    "recovery re-pin requires a descendant of its previous base"
+                )
+            state["recovery"] = dict(
+                commit=head,
+                base=expected_base,
+                count=recovery["count"],
+                previous=recovery,
+            )
             save(path, state)
             return state
         if finish:
-            recovery = state.get('recovery')
-            if not recovery or (recovery['commit'], recovery['base']) != (expected_commit, expected_base):
+            recovery = state.get("recovery")
+            if not recovery or (recovery["commit"], recovery["base"]) != (
+                expected_commit,
+                expected_base,
+            ):
                 raise Blocked("recovery receipt does not match expected commit/base")
             head = _recovery_candidate(target, state, text, recovery)
-            state.update(tip=head, commit=head, verified=True, validation_base=expected_base)
-            del state['recovery']
+            state.update(
+                tip=head, commit=head, verified=True, validation_base=expected_base
+            )
+            del state["recovery"]
             save(path, state)
             return state
-        if state.get('recovery') or state['commit'] != expected_commit or state['tip'] != expected_commit or output(target, 'rev-parse', 'HEAD') != expected_commit:
+        if (
+            state.get("recovery")
+            or state["commit"] != expected_commit
+            or state["tip"] != expected_commit
+            or output(target, "rev-parse", "HEAD") != expected_commit
+        ):
             raise Blocked("recovery task commit changed or recovery already started")
-        if tasks.status(text) not in {'completed', 'running'}:
+        if tasks.status(text) not in {"completed", "running"}:
             raise Blocked("resume suspended tasks before recovery")
-        if git(target, 'merge-base', '--is-ancestor', state['start'], expected_base, check=False).returncode:
+        if git(
+            target,
+            "merge-base",
+            "--is-ancestor",
+            state["start"],
+            expected_base,
+            check=False,
+        ).returncode:
             raise Blocked("recovery base history was rewritten")
-        count = int(output(target, 'rev-list', '--count', expected_base + '..' + expected_commit))
+        count = int(
+            output(
+                target, "rev-list", "--count", expected_base + ".." + expected_commit
+            )
+        )
         changed = bool(changed_paths(target))
-        state['recovery'] = dict(commit=expected_commit, base=expected_base, count=str(count + changed))
-        tasks.atomic_files({target / state['task_file']: tasks.set_status(text, 'running')}, staging_directory=target)
+        state["recovery"] = dict(
+            commit=expected_commit, base=expected_base, count=str(count + changed)
+        )
+        tasks.atomic_files(
+            {target / state["task_file"]: tasks.set_status(text, "running")},
+            staging_directory=target,
+        )
         # Permit only this explicitly pinned correction commit; normal finalize guards stay closed.
         if changed:
-            state['commit'] = None
+            state["commit"] = None
         try:
             _prepare_commit(root, path, state, target, None)
         except Blocked as error:
-            if str(error).startswith('rebase failed and was aborted'):
+            if str(error).startswith("rebase failed and was aborted"):
                 save(path, state)
             raise
         return state
 
 
 def finalize(where, task_id, human_approved_validation_failure=None):
-    if human_approved_validation_failure is not None and not human_approved_validation_failure.strip():
+    if (
+        human_approved_validation_failure is not None
+        and not human_approved_validation_failure.strip()
+    ):
         raise Blocked("human approval must identify the accepted validation failures")
     root, common, path, state = load(where, task_id)
-    if state.get('deployRepair'):
+    if state.get("deployRepair"):
         if human_approved_validation_failure is not None:
-            raise Blocked('deploy repair result requires successful static validation')
+            raise Blocked("deploy repair result requires successful static validation")
         return deploy_finalize(where, task_id)
     if state.get("recovery"):
         raise Blocked("finish reviewed recovery and rerun validation before finalize")
-    if not state['merged'] and human_approved_validation_failure is None and not state.get('validation_failure_approval'):
+    if (
+        not state["merged"]
+        and human_approved_validation_failure is None
+        and not state.get("validation_failure_approval")
+    ):
         target = task_worktree(root, state)
-        text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
+        text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
         if tasks.final_model_task(text):
             interpreter, environment = python_env.runtime(target)
-            command = [str(interpreter), '-B', '-c',
-                       f'import sys; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); '
-                       'from worktree_task import _integrate_model; '
-                       '_integrate_model(sys.argv[1], sys.argv[2])', str(root), task_id]
-            result = subprocess.run(command, cwd=target, env=environment, capture_output=True, text=True, encoding='utf-8')
+            command = [
+                str(interpreter),
+                "-B",
+                "-c",
+                f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
+                "from worktree_task import _integrate_model; "
+                "_integrate_model(sys.argv[1], sys.argv[2])",
+                str(root),
+                task_id,
+            ]
+            result = subprocess.run(
+                command,
+                cwd=target,
+                env=environment,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
             if result.returncode:
-                raise Blocked('Model final integration failed; worktree retained: ' + result.stderr.strip() + result.stdout.strip())
+                raise Blocked(
+                    "Model final integration failed; worktree retained: "
+                    + result.stderr.strip()
+                    + result.stdout.strip()
+                )
             # The surviving launcher owns cleanup, after the registered child exits.
             return cleanup(root, task_id)
     with lifecycle_lock(root):
@@ -574,26 +853,44 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         if state["merged"]:
             return cleanup_state(root, path, state)
         target = task_worktree(root, state)
-        approval = human_approved_validation_failure or state.get("validation_failure_approval")
+        approval = human_approved_validation_failure or state.get(
+            "validation_failure_approval"
+        )
         integration_task(target, state, approval)
         latest = _prepare_commit(root, path, state, target, approval)
         base = base_worktree(root, state)
         expected = output(target, "rev-parse", "HEAD")
-        model_paths = paths(target, 'diff', '--name-only', '--no-renames', '-z', latest, expected)
-        contract = tasks.read_task_snapshot(target, state['task_file'], live=True).raw
-        if any(p.startswith('model/') or p == 'project.json' for p in model_paths) or b'- Workflow: `import`' in contract:
-            _run_model_guard(target, state['task_file'], bool(approval), sources=model_paths)
-            if (output(target, 'rev-parse', 'HEAD') != expected or changed_paths(target)
-                    or tasks.read_task_snapshot(target, state['task_file'], live=True).raw != contract
-                    or output(base, 'rev-parse', 'HEAD') != latest):
-                raise Blocked('validated candidate, Task or base changed before merge; retain worktree')
+        model_paths = paths(
+            target, "diff", "--name-only", "--no-renames", "-z", latest, expected
+        )
+        contract = tasks.read_task_snapshot(target, state["task_file"], live=True).raw
+        if (
+            any(p.startswith("model/") or p == "project.json" for p in model_paths)
+            or b"- Workflow: `import`" in contract
+        ):
+            _run_model_guard(
+                target, state["task_file"], bool(approval), sources=model_paths
+            )
+            if (
+                output(target, "rev-parse", "HEAD") != expected
+                or changed_paths(target)
+                or tasks.read_task_snapshot(target, state["task_file"], live=True).raw
+                != contract
+                or output(base, "rev-parse", "HEAD") != latest
+            ):
+                raise Blocked(
+                    "validated candidate, Task or base changed before merge; retain worktree"
+                )
         git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
-        if output(base, "rev-parse", "HEAD") != expected or not ancestor(root, expected, state["base"]):
-            raise Blocked("merge result differs from expected task commit; retain worktrees for review")
+        if output(base, "rev-parse", "HEAD") != expected or not ancestor(
+            root, expected, state["base"]
+        ):
+            raise Blocked(
+                "merge result differs from expected task commit; retain worktrees for review"
+            )
         state["merged"] = expected
         save(path, state)
         return cleanup_state(root, path, state)
-
 
 
 @dataclass(frozen=True)
@@ -629,38 +926,61 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
     lifecycle lock. No rebase, regeneration, validation rerun or cleanup here.
     """
     if not isinstance(result, _ValidatedCandidate) or result.returncode:
-        raise Blocked('final candidate validation failed; no merge')
+        raise Blocked("final candidate validation failed; no merge")
     candidate = result.candidate
     root, _, path, state = load(candidate.root, Path(candidate.task_file).stem)
     with lifecycle_lock(root):
         target = task_worktree(root, state)
         base = base_worktree(root, state)
-        if (target != candidate.root or changed_paths(target) or
-            output(target, 'rev-parse', 'HEAD') != candidate.candidate_head or
-            output(base, 'rev-parse', 'HEAD') != candidate.base_commit):
-            raise Blocked('validated candidate/base changed; no merge')
-        if paths(target, 'ls-files', '-z', 'tasks'):
-            raise Blocked('contracts must remain ignored; no status commit')
+        if (
+            target != candidate.root
+            or changed_paths(target)
+            or output(target, "rev-parse", "HEAD") != candidate.candidate_head
+            or output(base, "rev-parse", "HEAD") != candidate.base_commit
+        ):
+            raise Blocked("validated candidate/base changed; no merge")
+        if paths(target, "ls-files", "-z", "tasks"):
+            raise Blocked("contracts must remain ignored; no status commit")
         task_path = target / candidate.task_file
         text = tasks.read_task_snapshot(target, candidate.task_file, live=True).text
         if text != candidate.task_text:
-            raise Blocked('validated task contract changed; no merge')
-        completed = tasks.set_status(text, 'completed') if tasks.status(text) == 'running' else text
+            raise Blocked("validated task contract changed; no merge")
+        completed = (
+            tasks.set_status(text, "completed")
+            if tasks.status(text) == "running"
+            else text
+        )
         if text != completed:
             tasks.atomic_files({task_path: completed}, staging_directory=target)
-        if tasks.read_task_snapshot(target, candidate.task_file, live=True).text != completed or changed_paths(target) or output(target, 'rev-parse', 'HEAD') != candidate.candidate_head or output(base, 'rev-parse', 'HEAD') != candidate.base_commit:
-            raise Blocked('validated state changed during task completion; no merge')
-        git(base, 'merge', '--ff-only', '--no-autostash', state['branch'])
-        if output(base, 'rev-parse', 'HEAD') != candidate.candidate_head or not ancestor(root, candidate.candidate_head, state['base']):
-            raise Blocked('merge result differs from validated candidate')
-        state['merged'] = candidate.candidate_head
+        if (
+            tasks.read_task_snapshot(target, candidate.task_file, live=True).text
+            != completed
+            or changed_paths(target)
+            or output(target, "rev-parse", "HEAD") != candidate.candidate_head
+            or output(base, "rev-parse", "HEAD") != candidate.base_commit
+        ):
+            raise Blocked("validated state changed during task completion; no merge")
+        git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
+        if output(
+            base, "rev-parse", "HEAD"
+        ) != candidate.candidate_head or not ancestor(
+            root, candidate.candidate_head, state["base"]
+        ):
+            raise Blocked("merge result differs from validated candidate")
+        state["merged"] = candidate.candidate_head
         save(path, state)
         return state
 
 
 def _integrate_model(where, task_id):
     """Internal registered-runtime composition; diagnostics remain outside CLI JSON."""
-    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', prefix='blueprint-model-integration-', suffix='.log', delete=False) as log:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix="blueprint-model-integration-",
+        suffix=".log",
+        delete=False,
+    ) as log:
         try:
             with redirect_stdout(log), redirect_stderr(log):
                 candidate = prepare_integration(Path(where), task_id)
@@ -668,11 +988,18 @@ def _integrate_model(where, task_id):
                 merge_validated_candidate(result)
         except (OSError, ValueError, KeyError, TypeError) as error:
             _, _, _, state = load(Path(where), task_id)
-            tasks.suspend(Path(state['worktree']), state['task_file'], str(error) + '; integration log: ' + log.name)
-            raise Blocked(str(error) + '; integration log: ' + log.name) from error
+            tasks.suspend(
+                Path(state["worktree"]),
+                state["task_file"],
+                str(error) + "; integration log: " + log.name,
+            )
+            raise Blocked(str(error) + "; integration log: " + log.name) from error
+
 
 def bind_deploy_workflow(where, session_path, session, ledger, *, activate=False):
-    return _worktree_runtime().bind_deploy_workflow(where, session_path, session, ledger, activate=activate)
+    return _worktree_runtime().bind_deploy_workflow(
+        where, session_path, session, ledger, activate=activate
+    )
 
 
 def deploy_request(where, request_path):
@@ -684,25 +1011,38 @@ def deploy_checkpoint(where, task_id, session_path):
 
 
 def deploy_child_contract(target, state, request):
-    text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
-    tasks.validate_contract(target, state['task_file'], text)
-    lines = tasks.section(text, '## Task contract')
-    for line in ('- Task type: `infrastructure`', '- Infrastructure phase: `implement`',
-                 '- AWS API execution: `forbidden`', '- AWS mutation: `forbidden`', '- Deploy/apply: `forbidden`',
-                 f'- Deploy repair request: `{request["requestPath"]}`',
-                 f'- Target environment: `{request["environment"]}`', f'- Target AWS account: `{request["target"]["awsAccountId"]}`'):
+    text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
+    tasks.validate_contract(target, state["task_file"], text)
+    lines = tasks.section(text, "## Task contract")
+    for line in (
+        "- Task type: `infrastructure`",
+        "- Infrastructure phase: `implement`",
+        "- AWS API execution: `forbidden`",
+        "- AWS mutation: `forbidden`",
+        "- Deploy/apply: `forbidden`",
+        f"- Deploy repair request: `{request['requestPath']}`",
+        f"- Target environment: `{request['environment']}`",
+        f"- Target AWS account: `{request['target']['awsAccountId']}`",
+    ):
         if line not in lines:
-            raise Blocked('child repair contract must contain ' + line)
-    if request['target'].get('alias') and f'- Target alias: `{request["target"]["alias"]}`' not in lines:
-        raise Blocked('child target alias differs from request')
-    if tasks.paths_in(text, '## Allowed paths') != set(request['allowedPaths']) | {state['task_file']}:
-        raise Blocked('child repair write authority differs from request')
-    if not tasks.paths_in(text, '## Modified files') <= set(request['allowedPaths']) | {state['task_file']}:
-        raise Blocked('child contract contains undeclared repair paths')
-    if tasks.paths_in(text, '## Validation scope') != set(request['validationScope']):
-        raise Blocked('child repair Validation scope changed')
-    if any(p.startswith('tasks/') for p in paths(target, 'ls-files', '-z', 'tasks')):
-        raise Blocked('child must not commit Task contracts')
+            raise Blocked("child repair contract must contain " + line)
+    if (
+        request["target"].get("alias")
+        and f"- Target alias: `{request['target']['alias']}`" not in lines
+    ):
+        raise Blocked("child target alias differs from request")
+    if tasks.paths_in(text, "## Allowed paths") != set(request["allowedPaths"]) | {
+        state["task_file"]
+    }:
+        raise Blocked("child repair write authority differs from request")
+    if not tasks.paths_in(text, "## Modified files") <= set(request["allowedPaths"]) | {
+        state["task_file"]
+    }:
+        raise Blocked("child contract contains undeclared repair paths")
+    if tasks.paths_in(text, "## Validation scope") != set(request["validationScope"]):
+        raise Blocked("child repair Validation scope changed")
+    if any(p.startswith("tasks/") for p in paths(target, "ls-files", "-z", "tasks")):
+        raise Blocked("child must not commit Task contracts")
     return text
 
 
@@ -729,73 +1069,137 @@ def sync_base(where, task_id, expected_base):
     root, _, path, state = load(where, task_id)
     with lifecycle_lock(root):
         target = task_worktree(root, state)
-        text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
-        tasks.validate_contract(target, state['task_file'], text)
-        if tasks.status(text) != 'running' or '- Task type: `governance`' not in tasks.section(text, '## Task contract'):
-            raise Blocked('base sync requires the running governance Task')
-        base = output(root, 'rev-parse', 'refs/heads/' + state['base'])
+        text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
+        tasks.validate_contract(target, state["task_file"], text)
+        if tasks.status(
+            text
+        ) != "running" or "- Task type: `governance`" not in tasks.section(
+            text, "## Task contract"
+        ):
+            raise Blocked("base sync requires the running governance Task")
+        base = output(root, "rev-parse", "refs/heads/" + state["base"])
         if not expected_base or base != expected_base:
-            raise Blocked('review the exact latest base before sync')
-        if state['commit'] or state['merged'] or state.get('deployRepair') or state['tip'] != state.get('validation_base', state['start']):
-            raise Blocked('fresh uncommitted tasks only; committed candidates retain normal integration')
-        if paths(target, 'diff', '--cached', '--name-only', '-z'):
-            raise Blocked('preserve/review the staged index before base sync')
-        intent = state.get('baseSyncIntent')
+            raise Blocked("review the exact latest base before sync")
+        if (
+            state["commit"]
+            or state["merged"]
+            or state.get("deployRepair")
+            or state["tip"] != state.get("validation_base", state["start"])
+        ):
+            raise Blocked(
+                "fresh uncommitted tasks only; committed candidates retain normal integration"
+            )
+        if paths(target, "diff", "--cached", "--name-only", "-z"):
+            raise Blocked("preserve/review the staged index before base sync")
+        intent = state.get("baseSyncIntent")
         if intent is None:
-            head = output(target, 'rev-parse', 'HEAD')
-            if head != state['tip'] or git(target, 'merge-base', '--is-ancestor', head, base, check=False).returncode:
-                raise Blocked('base sync requires a proven fast-forward from the lifecycle tip')
+            head = output(target, "rev-parse", "HEAD")
+            if (
+                head != state["tip"]
+                or git(
+                    target, "merge-base", "--is-ancestor", head, base, check=False
+                ).returncode
+            ):
+                raise Blocked(
+                    "base sync requires a proven fast-forward from the lifecycle tip"
+                )
             changed = changed_paths(target)
-            if changed - tasks.paths_in(text, '## Modified files') or changed - tasks.paths_in(text, '## Allowed paths'):
-                raise Blocked('unregistered dirty changes before base sync')
-            upstream = paths(target, 'diff', '--name-only', '--no-renames', '-z', head, base)
+            if changed - tasks.paths_in(
+                text, "## Modified files"
+            ) or changed - tasks.paths_in(text, "## Allowed paths"):
+                raise Blocked("unregistered dirty changes before base sync")
+            upstream = paths(
+                target, "diff", "--name-only", "--no-renames", "-z", head, base
+            )
             overlap = changed & upstream
-            backup = Path(tempfile.mkdtemp(prefix='blueprint-base-sync-'))
+            backup = Path(tempfile.mkdtemp(prefix="blueprint-base-sync-"))
             files = {}
             for number, relative in enumerate(sorted(overlap)):
                 actual = tasks.safe_path(target, relative)
-                if actual.exists() and not actual.is_file() or git(target, 'cat-file', '-e', head + ':' + relative, check=False).returncode != 0:
-                    raise Blocked('base sync requires reviewed existing regular overlapping files')
+                if (
+                    actual.exists()
+                    and not actual.is_file()
+                    or git(
+                        target, "cat-file", "-e", head + ":" + relative, check=False
+                    ).returncode
+                    != 0
+                ):
+                    raise Blocked(
+                        "base sync requires reviewed existing regular overlapping files"
+                    )
                 raw = actual.read_bytes() if actual.is_file() else None
                 file = backup / str(number)
                 if raw is not None:
                     file.write_bytes(raw)
-                files[relative] = {'backup': str(file) if raw is not None else None, 'sha256': hashlib.sha256(raw).hexdigest() if raw is not None else None,
-                                   'old': hashlib.sha256(subprocess_bytes(target, head, relative)).hexdigest(),
-                                   'base': hashlib.sha256(subprocess_bytes(target, base, relative)).hexdigest()}
-            intent = {'head': head, 'base': base, 'files': files, 'contract': hashlib.sha256(text.encode()).hexdigest()}
-            state['baseSyncIntent'] = intent
+                files[relative] = {
+                    "backup": str(file) if raw is not None else None,
+                    "sha256": hashlib.sha256(raw).hexdigest()
+                    if raw is not None
+                    else None,
+                    "old": hashlib.sha256(
+                        subprocess_bytes(target, head, relative)
+                    ).hexdigest(),
+                    "base": hashlib.sha256(
+                        subprocess_bytes(target, base, relative)
+                    ).hexdigest(),
+                }
+            intent = {
+                "head": head,
+                "base": base,
+                "files": files,
+                "contract": hashlib.sha256(text.encode()).hexdigest(),
+            }
+            state["baseSyncIntent"] = intent
             save(path, state)
-        if intent['base'] != base or intent['contract'] != hashlib.sha256(text.encode()).hexdigest():
-            raise Blocked('base sync intent/contract changed')
-        head = output(target, 'rev-parse', 'HEAD')
-        if head not in {intent['head'], base}:
-            raise Blocked('base sync HEAD changed outside its intent')
-        for relative, record in intent['files'].items():
+        if (
+            intent["base"] != base
+            or intent["contract"] != hashlib.sha256(text.encode()).hexdigest()
+        ):
+            raise Blocked("base sync intent/contract changed")
+        head = output(target, "rev-parse", "HEAD")
+        if head not in {intent["head"], base}:
+            raise Blocked("base sync HEAD changed outside its intent")
+        for relative, record in intent["files"].items():
             actual = tasks.safe_path(target, relative)
-            if (record['backup'] is not None and sha(Path(record['backup'])) != record['sha256']) or (sha(actual) if actual.is_file() else None) not in {record['sha256'], record['old'], record['base']}:
-                raise Blocked('base sync candidate changed; retain external backup')
-        if head == intent['head']:
-            for relative in intent['files']:
-                (target / relative).write_bytes(subprocess_bytes(target, head, relative))
-            outcome = git(target, 'merge', '--ff-only', '--no-autostash', base, check=False)
+            if (
+                record["backup"] is not None
+                and sha(Path(record["backup"])) != record["sha256"]
+            ) or (sha(actual) if actual.is_file() else None) not in {
+                record["sha256"],
+                record["old"],
+                record["base"],
+            }:
+                raise Blocked("base sync candidate changed; retain external backup")
+        if head == intent["head"]:
+            for relative in intent["files"]:
+                (target / relative).write_bytes(
+                    subprocess_bytes(target, head, relative)
+                )
+            outcome = git(
+                target, "merge", "--ff-only", "--no-autostash", base, check=False
+            )
             if outcome.returncode:
-                for relative, record in intent['files'].items():
-                    if record['backup'] is None:
+                for relative, record in intent["files"].items():
+                    if record["backup"] is None:
                         (target / relative).unlink(missing_ok=True)
                     else:
-                        (target / relative).write_bytes(Path(record['backup']).read_bytes())
-                raise Blocked('base fast-forward failed; candidates restored: ' + outcome.stderr.strip())
-        for relative, record in intent['files'].items():
-            if record['backup'] is None:
+                        (target / relative).write_bytes(
+                            Path(record["backup"]).read_bytes()
+                        )
+                raise Blocked(
+                    "base fast-forward failed; candidates restored: "
+                    + outcome.stderr.strip()
+                )
+        for relative, record in intent["files"].items():
+            if record["backup"] is None:
                 (target / relative).unlink(missing_ok=True)
             else:
-                (target / relative).write_bytes(Path(record['backup']).read_bytes())
-        if output(target, 'rev-parse', 'HEAD') != base:
-            raise Blocked('base sync result differs from pinned base')
-        state['tip'] = base
-        state['validation_base'] = base
-        state.setdefault('baseSyncs', []).append(state.pop('baseSyncIntent'))
+                (target / relative).write_bytes(Path(record["backup"]).read_bytes())
+        if output(target, "rev-parse", "HEAD") != base:
+            raise Blocked("base sync result differs from pinned base")
+        state["tip"] = base
+        state["validation_base"] = base
+        state.setdefault("baseSyncs", []).append(state.pop("baseSyncIntent"))
         save(path, state)
         return state
 
@@ -806,59 +1210,126 @@ def _worktree_runtime():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("create", "setup", "finalize", "cleanup", "recover", "repair-checkpoint", "repair-validate", "sync-base"))
+    parser.add_argument(
+        "command",
+        choices=(
+            "create",
+            "setup",
+            "finalize",
+            "cleanup",
+            "recover",
+            "repair-checkpoint",
+            "repair-validate",
+            "sync-base",
+        ),
+    )
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
     parser.add_argument("--task-id", required=True)
-    parser.add_argument("--human-approved-validation-failure", metavar="APPROVAL",
-                        help="Finalize a suspended task only after explicit human approval of named validation failures")
+    parser.add_argument(
+        "--human-approved-validation-failure",
+        metavar="APPROVAL",
+        help="Finalize a suspended task only after explicit human approval of named validation failures",
+    )
     parser.add_argument("--repair-request", type=Path)
     parser.add_argument("--state", type=Path)
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-base")
     recovery_mode = parser.add_mutually_exclusive_group()
     recovery_mode.add_argument("--finish-recovery", action="store_true")
-    recovery_mode.add_argument("--repin-recovery", action="store_true",
-                               help="Explicitly pin a reviewed clean recovery candidate to the latest descendant base")
+    recovery_mode.add_argument(
+        "--repin-recovery",
+        action="store_true",
+        help="Explicitly pin a reviewed clean recovery candidate to the latest descendant base",
+    )
     args = parser.parse_args()
-    if args.human_approved_validation_failure is not None and args.command != "finalize":
+    if (
+        args.human_approved_validation_failure is not None
+        and args.command != "finalize"
+    ):
         parser.error("--human-approved-validation-failure is only valid with finalize")
-    if args.command not in {"recover", "sync-base"} and (args.expected_commit or args.expected_base or args.finish_recovery or args.repin_recovery):
+    if args.command not in {"recover", "sync-base"} and (
+        args.expected_commit
+        or args.expected_base
+        or args.finish_recovery
+        or args.repin_recovery
+    ):
         parser.error("recovery arguments require recover")
     where = args.repository_root
     try:
         if args.command != "create":
-            where = load(where, args.task_id)[0]  # Keep diagnostics usable after task checkout removal.
-        if args.command == 'sync-base':
+            where = load(where, args.task_id)[
+                0
+            ]  # Keep diagnostics usable after task checkout removal.
+        if args.command == "sync-base":
             state = sync_base(where, args.task_id, args.expected_base)
-        elif args.command == 'repair-checkpoint':
+        elif args.command == "repair-checkpoint":
             if not args.state:
-                raise Blocked('repair-checkpoint requires --state')
+                raise Blocked("repair-checkpoint requires --state")
             state = deploy_checkpoint(where, args.task_id, args.state)
-        elif args.command == 'repair-validate':
+        elif args.command == "repair-validate":
             if not args.repair_request:
-                raise Blocked('repair-validate requires --repair-request')
+                raise Blocked("repair-validate requires --repair-request")
             state = deploy_validate(where, args.task_id, args.repair_request)
-        elif args.command == 'create':
+        elif args.command == "create":
             state = create(where, args.task_id, args.repair_request)
         else:
-            state = (recover(where, args.task_id, args.expected_commit, args.expected_base, args.finish_recovery, args.repin_recovery)
-                 if args.command == "recover" else finalize(where, args.task_id, args.human_approved_validation_failure)
-                 if args.command == "finalize" else globals()[args.command](where, args.task_id))
+            state = (
+                recover(
+                    where,
+                    args.task_id,
+                    args.expected_commit,
+                    args.expected_base,
+                    args.finish_recovery,
+                    args.repin_recovery,
+                )
+                if args.command == "recover"
+                else finalize(
+                    where, args.task_id, args.human_approved_validation_failure
+                )
+                if args.command == "finalize"
+                else globals()[args.command](where, args.task_id)
+            )
         print(json.dumps({"status": "ok", **state}, ensure_ascii=False))
         return 0
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
         retained = {}
         try:
             root, _, retained_path, retained = load(where, args.task_id)
-            if not hasattr(error, 'cleanup') and (args.command == 'cleanup' or args.command == 'finalize' and retained.get('merged')):
-                error.cleanup = cleanup_progress(root, retained_path, retained, 'preflight', str(error))
-            retained = {**retained, "remaining_worktree": retained["worktree"] if Path(retained["worktree"]).exists() else None,
-                        "remaining_branch": retained["branch"] if branch_exists(root, retained["branch"]) else None}
+            if not hasattr(error, "cleanup") and (
+                args.command == "cleanup"
+                or args.command == "finalize"
+                and retained.get("merged")
+            ):
+                error.cleanup = cleanup_progress(
+                    root, retained_path, retained, "preflight", str(error)
+                )
+            retained = {
+                **retained,
+                "remaining_worktree": retained["worktree"]
+                if Path(retained["worktree"]).exists()
+                else None,
+                "remaining_branch": retained["branch"]
+                if branch_exists(root, retained["branch"])
+                else None,
+            }
         except (OSError, ValueError, KeyError, TypeError):
             pass
-        print(json.dumps({**retained, "status": "blocked", "error": str(error),
-                          **({'cleanup': error.cleanup} if hasattr(error, 'cleanup') else {}),
-                          **({"diagnostics": error.diagnostics} if hasattr(error, "diagnostics") else {})}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    **retained,
+                    "status": "blocked",
+                    "error": str(error),
+                    **({"cleanup": error.cleanup} if hasattr(error, "cleanup") else {}),
+                    **(
+                        {"diagnostics": error.diagnostics}
+                        if hasattr(error, "diagnostics")
+                        else {}
+                    ),
+                },
+                ensure_ascii=False,
+            )
+        )
         return 1
 
 

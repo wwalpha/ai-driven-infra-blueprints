@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Explicit saved references: fixed identity, dependencies and semantic warnings."""
+
 import sys
 from pathlib import Path
 
@@ -23,52 +24,113 @@ from support.producer_identifier_reference_fixtures import (
 )
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 @it_case
 def check(root):
-    setup(root, ['cloudtrail', 's3'], ['CloudTrail.Trail', 'S3.Bucket'])
-    producer = root / 'model/preview/team/cloudtrail.properties'
-    original = resource('017', 'CloudTrail.Trail', 'cloudtrail-audit', [
-        ('TrailName', '`audit-preview`'), ('S3BucketName', '`audit-bucket`'), ('Tags[].Name', '`unrelated-tag`')])
+    setup(root, ["cloudtrail", "s3"], ["CloudTrail.Trail", "S3.Bucket"])
+    producer = root / "model/preview/team/cloudtrail.properties"
+    original = resource(
+        "017",
+        "CloudTrail.Trail",
+        "cloudtrail-audit",
+        [
+            ("TrailName", "`audit-preview`"),
+            ("S3BucketName", "`audit-bucket`"),
+            ("Tags[].Name", "`unrelated-tag`"),
+        ],
+    )
     write_model(producer, original)
-    path = producer.with_name('s3.properties')
-    key = 'desired.row.003-002.document'
-    values = resource('003', 'S3.Bucket', 's3-003', [('BucketName', '`audit-preview-archive`'),
-        ('PolicyDocument', '[policy](s3/policy.json)')])
-    link = '[audit-preview](cloudtrail.md#cloudtrail-audit)'
-    values[key] = json.dumps({'Statement': [
-        {'Condition': {'StringEquals': {'aws:SourceArn': link}}},
-        {'Condition': {'NumericLessThan': {'s3:TlsVersion': 1.2}}}]})
-    values.update(reference('trail-name', 'desired.row.003-001.value', 'audit-preview', 'cloudtrail', '017', 'CloudTrail.Trail', prop='CloudTrail.Trail.TrailName'))
-    values.update(reference('trail', key, link, 'cloudtrail', '017', 'CloudTrail.Trail', mode='link', pointer='/Statement/0/Condition/StringEquals/aws:SourceArn', label='display-name'))
+    path = producer.with_name("s3.properties")
+    key = "desired.row.003-002.document"
+    values = resource(
+        "003",
+        "S3.Bucket",
+        "s3-003",
+        [
+            ("BucketName", "`audit-preview-archive`"),
+            ("PolicyDocument", "[policy](s3/policy.json)"),
+        ],
+    )
+    link = "[audit-preview](cloudtrail.md#cloudtrail-audit)"
+    values[key] = json.dumps(
+        {
+            "Statement": [
+                {"Condition": {"StringEquals": {"aws:SourceArn": link}}},
+                {"Condition": {"NumericLessThan": {"s3:TlsVersion": 1.2}}},
+            ]
+        }
+    )
+    values.update(
+        reference(
+            "trail-name",
+            "desired.row.003-001.value",
+            "audit-preview",
+            "cloudtrail",
+            "017",
+            "CloudTrail.Trail",
+            prop="CloudTrail.Trail.TrailName",
+        )
+    )
+    values.update(
+        reference(
+            "trail",
+            key,
+            link,
+            "cloudtrail",
+            "017",
+            "CloudTrail.Trail",
+            mode="link",
+            pointer="/Statement/0/Condition/StringEquals/aws:SourceArn",
+            label="display-name",
+        )
+    )
     write_model(path, values)
     snapshot = load_model(path)
     assert not snapshot.warnings, snapshot.warnings
-    assert json.loads(snapshot.authoritative[key])['Statement'][1]['Condition']['NumericLessThan']['s3:TlsVersion'] == 1.2
-    assert snapshot.authoritative['desired.row.003-001.value'] == '`audit-preview-archive`'
+    assert (
+        json.loads(snapshot.authoritative[key])["Statement"][1]["Condition"][
+            "NumericLessThan"
+        ]["s3:TlsVersion"]
+        == 1.2
+    )
+    assert (
+        snapshot.authoritative["desired.row.003-001.value"] == "`audit-preview-archive`"
+    )
     assert producer in source_inputs(path)
-    assert affected(root, [producer.relative_to(root)]) == {('preview', 'team', 'cloudtrail'), ('preview', 'team', 's3')}
+    assert affected(root, [producer.relative_to(root)]) == {
+        ("preview", "team", "cloudtrail"),
+        ("preview", "team", "s3"),
+    }
     digest, dependencies = design_source_digest(path), dependency_hashes(path)
-    producer.write_text(producer.read_text() + '# annotation\n')
-    assert dependency_hashes(path) != dependencies and design_source_digest(path) == digest
+    producer.write_text(producer.read_text() + "# annotation\n")
+    assert (
+        dependency_hashes(path) != dependencies and design_source_digest(path) == digest
+    )
     assert load_model(path).authoritative == snapshot.authoritative
-    write_model(producer, {**original, 'desired.row.017-001.value': '`audit-next`'})
-    assert warning(path, 'differs').authoritative == snapshot.authoritative
-    write_model(producer, {key.replace('.017', '.018', 1): value for key, value in original.items()})
+    write_model(producer, {**original, "desired.row.017-001.value": "`audit-next`"})
+    assert warning(path, "differs").authoritative == snapshot.authoritative
+    write_model(
+        producer,
+        {key.replace(".017", ".018", 1): value for key, value in original.items()},
+    )
     assert not load_model(path).warnings
     write_model(producer, original)
     write_model(producer, original)
     explicit = dict(values)
-    explicit[key] = values[key].replace('[audit-preview]', '[existing-label]')
-    explicit['desired.reference.trail.text'] = '[existing-label](cloudtrail.md#cloudtrail-audit)'
-    explicit['desired.reference.trail.labelPolicy'] = 'fixed'
+    explicit[key] = values[key].replace("[audit-preview]", "[existing-label]")
+    explicit["desired.reference.trail.text"] = (
+        "[existing-label](cloudtrail.md#cloudtrail-audit)"
+    )
+    explicit["desired.reference.trail.labelPolicy"] = "fixed"
     write_model(path, explicit)
     assert not load_model(path).warnings
-    print('CloudTrail references: PASS (TrailName; exact JSON; fixed labels; dependency snapshots; warning preservation)')
+    print(
+        "CloudTrail references: PASS (TrailName; exact JSON; fixed labels; dependency snapshots; warning preservation)"
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as directory:
         check(Path(directory).resolve())

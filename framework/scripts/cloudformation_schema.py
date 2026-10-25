@@ -9,7 +9,9 @@ from utils.cloudformation import schema
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument(
+        "--repository-root", type=Path, default=Path(__file__).resolve().parents[2]
+    )
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
     if args.write:
@@ -20,7 +22,9 @@ def main() -> int:
         for error in errors:
             print(f"- {error}")
         return 1
-    print(f"CloudFormation schema snapshot: PASS ({len(schema.material_files(args.repository_root))} resource types)")
+    print(
+        f"CloudFormation schema snapshot: PASS ({len(schema.material_files(args.repository_root))} resource types)"
+    )
     return 0
 
 

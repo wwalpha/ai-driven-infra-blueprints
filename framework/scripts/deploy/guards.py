@@ -1,4 +1,5 @@
 """Deploy mutation checks and timing; transport owns no Task or Issue decisions."""
+
 import re
 
 from issue_gate import require_target_no_issues
@@ -6,10 +7,21 @@ from task_contract_core import task_reads
 from utils.aws import cloudformation, kms, s3, secretsmanager, sts
 from utils.cloudformation.inputs import Blocked
 
-MUTATIONS = {'create_change_set', 'execute_change_set', 'put_object', 'delete_stack',
-             'put_secret_value', 'update_secret_version_stage'}
-SERVICES = {'cloudformation': cloudformation, 's3': s3, 'kms': kms,
-            'secretsmanager': secretsmanager, 'sts': sts}
+MUTATIONS = {
+    "create_change_set",
+    "execute_change_set",
+    "put_object",
+    "delete_stack",
+    "put_secret_value",
+    "update_secret_version_stage",
+}
+SERVICES = {
+    "cloudformation": cloudformation,
+    "s3": s3,
+    "kms": kms,
+    "secretsmanager": secretsmanager,
+    "sts": sts,
+}
 
 
 def call(runtime, service, operation, arguments):
@@ -17,19 +29,30 @@ def call(runtime, service, operation, arguments):
         with task_reads(runtime.root, live=True):
             snapshot = runtime.guard()
             try:
-                require_target_no_issues(runtime.root, (runtime.environment, runtime.directory), snapshot=snapshot)
+                require_target_no_issues(
+                    runtime.root,
+                    (runtime.environment, runtime.directory),
+                    snapshot=snapshot,
+                )
             except (OSError, ValueError) as error:
                 raise Blocked(str(error)) from error
-    with runtime.timing.phase('awsApi', service=service, operation=operation.replace('_', '-')):
+    with runtime.timing.phase(
+        "awsApi", service=service, operation=operation.replace("_", "-")
+    ):
         return getattr(SERVICES[service], operation)(runtime.connection, **arguments)
 
 
 def secret_value_missing(reason):
-    if reason == 'SECRET_CURRENT_VALUE_MISSING':
+    if reason == "SECRET_CURRENT_VALUE_MISSING":
         return True
-    text = (reason or '').lower()
-    if any(word in text for word in ('accessdenied', 'access denied', 'kms', 'decrypt', 'timeout')):
+    text = (reason or "").lower()
+    if any(
+        word in text
+        for word in ("accessdenied", "access denied", "kms", "decrypt", "timeout")
+    ):
         return False
-    subject = r'(?:secret value|secret version|initial secret version|secretstring|secretbinary|awscurrent)'
+    subject = r"(?:secret value|secret version|initial secret version|secretstring|secretbinary|awscurrent)"
     missing = r"(?:can't find|cannot find|not found|does not exist|not exist|missing|not registered|no )"
-    return bool(re.search(subject + r'.*' + missing + '|' + missing + r'.*' + subject, text))
+    return bool(
+        re.search(subject + r".*" + missing + "|" + missing + r".*" + subject, text)
+    )

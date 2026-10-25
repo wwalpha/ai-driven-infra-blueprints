@@ -23,52 +23,109 @@ from model.sources import (
 
 def execute(args):
     try:
-        root = args.repository_root.resolve() if args.command == 'list' else scope_for(args.model).root
+        root = (
+            args.repository_root.resolve()
+            if args.command == "list"
+            else scope_for(args.model).root
+        )
         with _imports_task_contract.task_reads(root):
-            if args.command in {'read', 'trace', 'resource', 'find', 'render', 'incoming'}:
-
+            if args.command in {
+                "read",
+                "trace",
+                "resource",
+                "find",
+                "render",
+                "incoming",
+            }:
                 task_path(scope_for(args.model).root, required=False)
-            if args.command == 'read':
+            if args.command == "read":
                 snapshot = load_model(args.model)
-                result = {'scope': [snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service],
-                          'authoritative': dict(snapshot.authoritative), 'files': [str(path) for path in snapshot.files],
-                          'warnings': list(snapshot.warnings)}
-            elif args.command == 'edit':
-
+                result = {
+                    "scope": [
+                        snapshot.scope.environment,
+                        snapshot.scope.target,
+                        snapshot.scope.service,
+                    ],
+                    "authoritative": dict(snapshot.authoritative),
+                    "files": [str(path) for path in snapshot.files],
+                    "warnings": list(snapshot.warnings),
+                }
+            elif args.command == "edit":
                 scope = scope_for(args.model)
-                with selected_task(scope.root, args.task_file), _imports_task_contract.task_reads(scope.root):
-                    task = _imports_task_contract.task_snapshot(scope.root, args.task_file, live=True)
+                with (
+                    selected_task(scope.root, args.task_file),
+                    _imports_task_contract.task_reads(scope.root),
+                ):
+                    task = _imports_task_contract.task_snapshot(
+                        scope.root, args.task_file, live=True
+                    )
                     operation = model_operation(task.text)
-                    task_adapter = module('model/adapters/task.py', 'model.adapters.task')
-                    authority = task_adapter.source_write_context(scope.root, args.task_file, snapshot=task) if operation is not None else task_adapter.edit_write_context(
-                        scope.root, {(scope.environment, scope.target, scope.service)}, args.task_file, snapshot=task)
+                    task_adapter = module(
+                        "model/adapters/task.py", "model.adapters.task"
+                    )
+                    authority = (
+                        task_adapter.source_write_context(
+                            scope.root, args.task_file, snapshot=task
+                        )
+                        if operation is not None
+                        else task_adapter.edit_write_context(
+                            scope.root,
+                            {(scope.environment, scope.target, scope.service)},
+                            args.task_file,
+                            snapshot=task,
+                        )
+                    )
                     with authority as context:
                         reader = edit_base
                         if operation is not None:
                             reader = raw_model
                         snapshot = reader(scope.path, context.snapshot)
-                        candidate, _ = candidate_sources(scope.root, args.candidate, snapshot)
-                        paths = publish_edit(prepare_edit(snapshot, candidate, context), context)
-                result = {'status': 'saved', 'paths': [str(path) for path in paths]}
-            elif args.command == 'trace':
+                        candidate, _ = candidate_sources(
+                            scope.root, args.candidate, snapshot
+                        )
+                        paths = publish_edit(
+                            prepare_edit(snapshot, candidate, context), context
+                        )
+                result = {"status": "saved", "paths": [str(path) for path in paths]}
+            elif args.command == "trace":
                 result = trace_model(args.model, args.key)
-            elif args.command in {'resource', 'find'}:
-                selected = read_resource(args.model, args.selector) if args.command == 'resource' else find_model(args.model, args.selector)
-                result = {key: [str(origin[0]), *origin[1:]] for key, origin in selected.items()}
-            elif args.command == 'render':
+            elif args.command in {"resource", "find"}:
+                selected = (
+                    read_resource(args.model, args.selector)
+                    if args.command == "resource"
+                    else find_model(args.model, args.selector)
+                )
+                result = {
+                    key: [str(origin[0]), *origin[1:]]
+                    for key, origin in selected.items()
+                }
+            elif args.command == "render":
                 snapshot = load_model(args.model)
-                result = {str(path): text for path, text in render_model(snapshot, None).items()}
-            elif args.command == 'incoming':
-
+                result = {
+                    str(path): text
+                    for path, text in render_model(snapshot, None).items()
+                }
+            elif args.command == "incoming":
                 snapshot = load_model(args.model)
                 warnings = []
                 records = reference_incoming(snapshot, args.resource, warnings=warnings)
-                result = {'status': 'incomplete' if warnings else 'complete', 'warnings': warnings,
-                          'references': [{'consumer': str(scope.path), **asdict(usage)} for scope, usage in records]}
-            elif args.command == 'list':
-                result = [str(scope.path) for scope in list_models(args.repository_root)]
+                result = {
+                    "status": "incomplete" if warnings else "complete",
+                    "warnings": warnings,
+                    "references": [
+                        {"consumer": str(scope.path), **asdict(usage)}
+                        for scope, usage in records
+                    ],
+                }
+            elif args.command == "list":
+                result = [
+                    str(scope.path) for scope in list_models(args.repository_root)
+                ]
             print(json.dumps(result, ensure_ascii=False, allow_nan=False))
             return 0
     except (OSError, ValueError, KeyError, TypeError) as error:
-        print(json.dumps({'status': 'failed', 'reason': str(error)}, ensure_ascii=False), file=sys.stderr)
+        print(
+            json.dumps({"status": "failed", "reason": str(error)}, ensure_ascii=False),
+            file=sys.stderr,
+        )
         return 1

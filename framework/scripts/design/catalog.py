@@ -25,7 +25,12 @@ from design.services.macie import job_errors
 def design_material_files(root: Path) -> list[Path]:
     definition_root = _imports_utils_aws_mappings.definition_root
     root = definition_root(root)
-    return sorted([*_dependency_cloudformation_schema.material_files(root), *input_select(root / "framework/materials/api", "*.properties")])
+    return sorted(
+        [
+            *_dependency_cloudformation_schema.material_files(root),
+            *input_select(root / "framework/materials/api", "*.properties"),
+        ]
+    )
 
 
 def property_paths_with_parents(paths: set[str]) -> set[str]:
@@ -51,14 +56,20 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
 
     def cloudformation_type(self, resource_type: str) -> str:
         if resource_type in self.api_schemas:
-            raise ValueError(f"{resource_type}: CloudFormation unsupported; implementation remains incomplete if this resource is in scope")
+            raise ValueError(
+                f"{resource_type}: CloudFormation unsupported; implementation remains incomplete if this resource is in scope"
+            )
         return super().schema(resource_type)["typeName"]
 
     def required_design_properties(self, resource_type: str) -> set[str]:
-        return self.required_properties(resource_type) & selected_properties(self.root, resource_type)
+        return self.required_properties(resource_type) & selected_properties(
+            self.root, resource_type
+        )
 
-    def literal_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str]:
-        if raw_value.lstrip().startswith('{'):
+    def literal_errors(
+        self, resource_type: str, property_path: str, raw_value: str
+    ) -> list[str]:
+        if raw_value.lstrip().startswith("{"):
             try:
                 value = json.loads(raw_value)
             except ValueError:
@@ -75,7 +86,9 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
             return [f"{property_path}: must be {node.get('type')}"]
         return self.api_value_errors(resource_type, node, value, property_path)
 
-    def api_value_errors(self, resource_type: str, node: dict, value, path: str) -> list[str]:
+    def api_value_errors(
+        self, resource_type: str, node: dict, value, path: str
+    ) -> list[str]:
         """Validate the JSON Schema subset used by the pinned API snapshot."""
         intrinsic = _imports_json_intrinsics.intrinsic
         project_document = _imports_json_intrinsics.project_document
@@ -88,24 +101,48 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
         if is_reference(value):
             parse(value)
             return []  # This structural layer has no producer scope; do not guess its type.
-        types = {"string": str, "integer": int, "boolean": bool, "array": list, "object": dict}
+        types = {
+            "string": str,
+            "integer": int,
+            "boolean": bool,
+            "array": list,
+            "object": dict,
+        }
         if expected and type(value) is not types[expected]:
             return [f"{path}: must be {expected}"]
         errors = []
         if "enum" in node and value not in node["enum"]:
             errors.append(f"{path}: must be one of {node['enum']}")
-        if "oneOf" in node and sum(not self.api_value_errors(resource_type, branch, value, path) for branch in node["oneOf"]) != 1:
+        if (
+            "oneOf" in node
+            and sum(
+                not self.api_value_errors(resource_type, branch, value, path)
+                for branch in node["oneOf"]
+            )
+            != 1
+        ):
             errors.append(f"{path}: must satisfy exactly one alternative")
         if isinstance(value, str):
-            if path in self.schema(resource_type)["properties"] and value.lower() in {"n/a", "none", "not-used", "not used", "unset", "unused", "未使用"} and value not in node.get("enum", []):
-                errors.append(f"{path}: omit unused optional properties instead of sentinel values")
+            if (
+                path in self.schema(resource_type)["properties"]
+                and value.lower()
+                in {"n/a", "none", "not-used", "not used", "unset", "unused", "未使用"}
+                and value not in node.get("enum", [])
+            ):
+                errors.append(
+                    f"{path}: omit unused optional properties instead of sentinel values"
+                )
             if "pattern" in node and re.search(node["pattern"], value) is None:
                 errors.append(f"{path}: must match {node['pattern']}")
             bounds = ("minLength", "maxLength", len(value))
         elif isinstance(value, list):
             bounds = ("minItems", "maxItems", len(value))
             for index, item in enumerate(value):
-                errors.extend(self.api_value_errors(resource_type, node["items"], item, f"{path}[{index}]"))
+                errors.extend(
+                    self.api_value_errors(
+                        resource_type, node["items"], item, f"{path}[{index}]"
+                    )
+                )
         elif isinstance(value, dict):
             bounds = ("minProperties", "maxProperties", len(value))
             for key in node.get("required", []):
@@ -113,12 +150,22 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
                     errors.append(f"{path}.{key}: required property missing")
             for key, item in value.items():
                 if "propertyNames" in node:
-                    errors.extend(self.api_value_errors(resource_type, node["propertyNames"], key, f"{path} key"))
-                child = node.get("properties", {}).get(key, node.get("additionalProperties", True))
+                    errors.extend(
+                        self.api_value_errors(
+                            resource_type, node["propertyNames"], key, f"{path} key"
+                        )
+                    )
+                child = node.get("properties", {}).get(
+                    key, node.get("additionalProperties", True)
+                )
                 if child is False:
                     errors.append(f"{path}.{key}: unknown property")
                 elif isinstance(child, dict):
-                    errors.extend(self.api_value_errors(resource_type, child, item, f"{path}.{key}"))
+                    errors.extend(
+                        self.api_value_errors(
+                            resource_type, child, item, f"{path}.{key}"
+                        )
+                    )
         else:
             bounds = ("minimum", "maximum", value)
         lower, upper, size = bounds
@@ -145,26 +192,51 @@ def api_snapshot_errors(root: Path) -> list[str]:
     try:
         catalog = DesignSchemaCatalog(root)
         expected_files = {
-            "Macie_ClassificationJob.json", "Macie_ClassificationJob.properties",
-            "QuickSight_Group.json", "QuickSight_Group.properties",
+            "Macie_ClassificationJob.json",
+            "Macie_ClassificationJob.properties",
+            "QuickSight_Group.json",
+            "QuickSight_Group.properties",
         }
         if {path.name for path in files} != expected_files:
             return ["API design catalog files differ from the registered API snapshots"]
-        if input_text(root / "framework/materials/api-catalog.sha256", encoding="utf-8") != _dependency_cloudformation_schema.manifest_text(root, files):
+        if input_text(
+            root / "framework/materials/api-catalog.sha256", encoding="utf-8"
+        ) != _dependency_cloudformation_schema.manifest_text(root, files):
             return ["API design catalog checksum mismatch"]
 
         schema = catalog.schema(MACIE_JOB)
         source = schema["source"]
-        if schema["resourceType"] != MACIE_JOB or schema["cloudFormationType"] is not None:
-            return ["Macie Job must be an API design type without a CloudFormation type"]
+        if (
+            schema["resourceType"] != MACIE_JOB
+            or schema["cloudFormationType"] is not None
+        ):
+            return [
+                "Macie Job must be an API design type without a CloudFormation type"
+            ]
         if catalog.canonical_type(MACIE_JOB) in catalog.resource_types:
-            return ["Macie Job API and CloudFormation catalogs overlap; explicit migration required"]
-        if source["operation"] != "CreateClassificationJob" or source["apiVersion"] != "2020-01-01" or not re.fullmatch(r"[0-9a-f]{64}", source["modelSha256"]):
+            return [
+                "Macie Job API and CloudFormation catalogs overlap; explicit migration required"
+            ]
+        if (
+            source["operation"] != "CreateClassificationJob"
+            or source["apiVersion"] != "2020-01-01"
+            or not re.fullmatch(r"[0-9a-f]{64}", source["modelSha256"])
+        ):
             return ["invalid Macie API snapshot provenance"]
-        if schema["identifierOutputs"] != ["jobId"] or {"clientToken", "jobArn"} & schema["properties"].keys():
-            return ["Macie catalog must separate jobId from runtime token and generated ARN"]
-        selected = input_text(directory / "Macie_ClassificationJob.properties", encoding="utf-8").splitlines()
-        expected = [f"{MACIE_JOB}.{key}=" + ("IDENTIFIER_OUTPUT" if key == "jobId" else "") for key in sorted(schema["properties"])]
+        if (
+            schema["identifierOutputs"] != ["jobId"]
+            or {"clientToken", "jobArn"} & schema["properties"].keys()
+        ):
+            return [
+                "Macie catalog must separate jobId from runtime token and generated ARN"
+            ]
+        selected = input_text(
+            directory / "Macie_ClassificationJob.properties", encoding="utf-8"
+        ).splitlines()
+        expected = [
+            f"{MACIE_JOB}.{key}=" + ("IDENTIFIER_OUTPUT" if key == "jobId" else "")
+            for key in sorted(schema["properties"])
+        ]
         if len(selected) != len(expected) or set(selected) != set(expected):
             return ["Macie API selection list does not match its design schema"]
         for key in schema["properties"]:
@@ -173,21 +245,49 @@ def api_snapshot_errors(root: Path) -> list[str]:
         schema = catalog.schema(QUICKSIGHT_GROUP)
         source = schema["source"]
         expected_properties = {
-            "AwsAccountId": {"type": "string", "minLength": 12, "maxLength": 12, "pattern": r"^[0-9]{12}$"},
-            "Namespace": {"type": "string", "maxLength": 64, "pattern": r"^[a-zA-Z0-9._-]*$"},
-            "GroupName": {"type": "string", "minLength": 1, "pattern": r"[\u0020-\u00FF]+"},
+            "AwsAccountId": {
+                "type": "string",
+                "minLength": 12,
+                "maxLength": 12,
+                "pattern": r"^[0-9]{12}$",
+            },
+            "Namespace": {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": r"^[a-zA-Z0-9._-]*$",
+            },
+            "GroupName": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": r"[\u0020-\u00FF]+",
+            },
             "Description": {"type": "string", "minLength": 1, "maxLength": 512},
             "Arn": {"type": "string"},
             "PrincipalId": {"type": "string"},
         }
-        if schema["resourceType"] != QUICKSIGHT_GROUP or schema["cloudFormationType"] is not None:
-            return ["QuickSight Group must be an API design type without a CloudFormation type"]
+        if (
+            schema["resourceType"] != QUICKSIGHT_GROUP
+            or schema["cloudFormationType"] is not None
+        ):
+            return [
+                "QuickSight Group must be an API design type without a CloudFormation type"
+            ]
         if catalog.canonical_type(QUICKSIGHT_GROUP) in catalog.resource_types:
-            return ["QuickSight Group API and CloudFormation catalogs overlap; explicit migration required"]
+            return [
+                "QuickSight Group API and CloudFormation catalogs overlap; explicit migration required"
+            ]
         if schema["identityProperties"] != ["AwsAccountId", "Namespace", "GroupName"]:
-            return ["QuickSight Group identity must be AwsAccountId + Namespace + GroupName"]
-        if schema["properties"] != expected_properties or schema["required"] != ["AwsAccountId", "Namespace", "GroupName"] or schema["additionalProperties"] is not False:
-            return ["QuickSight Group schema differs from the official API fields and constraints"]
+            return [
+                "QuickSight Group identity must be AwsAccountId + Namespace + GroupName"
+            ]
+        if (
+            schema["properties"] != expected_properties
+            or schema["required"] != ["AwsAccountId", "Namespace", "GroupName"]
+            or schema["additionalProperties"] is not False
+        ):
+            return [
+                "QuickSight Group schema differs from the official API fields and constraints"
+            ]
         if schema["identifierOutputs"] != ["Arn", "PrincipalId"]:
             return ["QuickSight Group identifier outputs must be Arn and PrincipalId"]
         if (
@@ -196,10 +296,15 @@ def api_snapshot_errors(root: Path) -> list[str]:
             or source["updateOperation"] != "UpdateGroup"
             or source["deleteOperation"] != "DeleteGroup"
             or source["apiVersion"] != "2018-04-01"
-            or source["modelSha256"] != "2c2fe286859ba2014551f49f60fc4ab3be90df17ae2632472b7912c14b774175"
+            or source["modelSha256"]
+            != "2c2fe286859ba2014551f49f60fc4ab3be90df17ae2632472b7912c14b774175"
         ):
-            return ["QuickSight Group lifecycle, discovery, or source provenance is incomplete"]
-        selected = input_text(directory / "QuickSight_Group.properties", encoding="utf-8").splitlines()
+            return [
+                "QuickSight Group lifecycle, discovery, or source provenance is incomplete"
+            ]
+        selected = input_text(
+            directory / "QuickSight_Group.properties", encoding="utf-8"
+        ).splitlines()
         expected = [
             "QuickSight.Group.AwsAccountId=",
             "QuickSight.Group.Namespace=",
@@ -209,7 +314,9 @@ def api_snapshot_errors(root: Path) -> list[str]:
             "QuickSight.Group.PrincipalId=IDENTIFIER_OUTPUT",
         ]
         if selected != expected:
-            return ["QuickSight Group selection list or display order differs from its design schema"]
+            return [
+                "QuickSight Group selection list or display order differs from its design schema"
+            ]
         for key in schema["properties"]:
             catalog.property_schema(QUICKSIGHT_GROUP, key)
     except (OSError, KeyError, ValueError, TypeError) as error:
@@ -219,17 +326,33 @@ def api_snapshot_errors(root: Path) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[3])
+    parser.add_argument(
+        "--repository-root", type=Path, default=Path(__file__).resolve().parents[3]
+    )
     parser.add_argument("--write-lock", action="store_true")
-    parser.add_argument("--cloudformation-type", help="Resolve a selected design type; reject API-only and unknown types")
+    parser.add_argument(
+        "--cloudformation-type",
+        help="Resolve a selected design type; reject API-only and unknown types",
+    )
     args = parser.parse_args()
     if args.write_lock:
-        files = sorted(input_select(args.repository_root / "framework/materials/api", "*"))
-        (args.repository_root / "framework/materials/api-catalog.sha256").write_text(_dependency_cloudformation_schema.manifest_text(args.repository_root, files), encoding="utf-8")
+        files = sorted(
+            input_select(args.repository_root / "framework/materials/api", "*")
+        )
+        (args.repository_root / "framework/materials/api-catalog.sha256").write_text(
+            _dependency_cloudformation_schema.manifest_text(
+                args.repository_root, files
+            ),
+            encoding="utf-8",
+        )
     errors = api_snapshot_errors(args.repository_root)
     if not errors and args.cloudformation_type:
         try:
-            print(DesignSchemaCatalog(args.repository_root).cloudformation_type(args.cloudformation_type))
+            print(
+                DesignSchemaCatalog(args.repository_root).cloudformation_type(
+                    args.cloudformation_type
+                )
+            )
         except (KeyError, ValueError) as error:
             errors.append(str(error))
     print("API design catalog: " + ("FAIL" if errors else "PASS"))

@@ -1,4 +1,5 @@
 """Catalog row construction and path selection; no input acquisition."""
+
 import re
 
 MISSING = {"absent": True}
@@ -13,7 +14,11 @@ def select(value, path):
         return value
     part, _, rest = path.partition(".")
     array = part.endswith("[]")
-    child = value.get(part.removesuffix("[]"), MISSING) if isinstance(value, dict) else MISSING
+    child = (
+        value.get(part.removesuffix("[]"), MISSING)
+        if isinstance(value, dict)
+        else MISSING
+    )
     if array:
         if child == MISSING:
             return MISSING
@@ -27,10 +32,12 @@ def put_row(tree, path, value):
     """Use explicit membership for nested arrays; retain simple repeated rows."""
     arrays = re.findall(r"[^.]+\[(?:\d+)?\]", path)
     if len(arrays) > 1:
-        for part in path.split('.')[:-1]:
-            if part.endswith('[]'):
-                raise Unresolved(f"array membership unresolved: {path}; {part} has no element index; "
-                                 "row order does not identify parent/child membership or omitted fields")
+        for part in path.split(".")[:-1]:
+            if part.endswith("[]"):
+                raise Unresolved(
+                    f"array membership unresolved: {path}; {part} has no element index; "
+                    "row order does not identify parent/child membership or omitted fields"
+                )
     part, _, rest = path.partition(".")
     indexed = re.fullmatch(r"(.+)\[(\d+)\]", part)
     if indexed:
@@ -58,6 +65,8 @@ def put_row(tree, path, value):
     elif part in tree:
         # Repeated list-valued rows are individual resource references.
         old = tree[part]
-        tree[part] = (old if isinstance(old, list) else [old]) + (value if isinstance(value, list) else [value])
+        tree[part] = (old if isinstance(old, list) else [old]) + (
+            value if isinstance(value, list) else [value]
+        )
     else:
         tree[part] = value

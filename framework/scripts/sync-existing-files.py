@@ -53,13 +53,18 @@ def main() -> int:
         unchanged = 0
 
         for source_file in chain(
-            FRAMEWORK_ROOT.rglob("*"), (REPOSITORY_ROOT / ".agents").rglob("*"),
+            FRAMEWORK_ROOT.rglob("*"),
+            (REPOSITORY_ROOT / ".agents").rglob("*"),
             (REPOSITORY_ROOT / name for name in ("AGENTS.md", "README.md")),
         ):
             relative = source_file.relative_to(REPOSITORY_ROOT)
             if "tests" in relative.parts:
                 continue
-            if ".git" in relative.parts or "__pycache__" in relative.parts or source_file.suffix in {".pyc", ".pyo"}:
+            if (
+                ".git" in relative.parts
+                or "__pycache__" in relative.parts
+                or source_file.suffix in {".pyc", ".pyo"}
+            ):
                 continue
             if source_file.is_symlink():
                 raise ValueError(f"Symbolic links are not supported: {relative}")
@@ -69,7 +74,9 @@ def main() -> int:
             target_file = target / target_relative
             resolved_target_file = target_file.resolve(strict=False)
             if target not in resolved_target_file.parents:
-                raise ValueError(f"Target path escapes the repository: {target_relative}")
+                raise ValueError(
+                    f"Target path escapes the repository: {target_relative}"
+                )
             if target_file.is_symlink():
                 raise ValueError(f"Symbolic links are not supported: {target_relative}")
             if not target_file.exists():
@@ -114,13 +121,17 @@ def main() -> int:
                                 shutil.copy2(backup, target_file)
                         except OSError as rollback_error:
                             rollback_errors.append(f"{target_file}: {rollback_error}")
-                    for parent in sorted(created_dirs, key=lambda path: len(path.parts), reverse=True):
+                    for parent in sorted(
+                        created_dirs, key=lambda path: len(path.parts), reverse=True
+                    ):
                         try:
                             parent.rmdir()
                         except OSError:
                             pass
                     if rollback_errors:
-                        raise OSError(f"{error}; rollback failed: {'; '.join(rollback_errors)}") from error
+                        raise OSError(
+                            f"{error}; rollback failed: {'; '.join(rollback_errors)}"
+                        ) from error
                     raise
 
         copied = added = 0

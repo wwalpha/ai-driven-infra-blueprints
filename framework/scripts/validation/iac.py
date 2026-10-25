@@ -1,4 +1,5 @@
 """Common engine selection and environment/target placement checks."""
+
 from utils.input_cache import input_exists, input_is_dir, input_is_file, input_select
 
 from . import terraform
@@ -9,23 +10,45 @@ def check_iac_selection(root, scope, accounts, template_mode, findings) -> None:
     engine_root = root / "infra" / "cloudformation"
     # A valid alias may itself be "cloudformation"; its Terraform subtree is not CFn IaC.
     alias_root = terraform.module_directory(root, "cloudformation").parent
-    terraform_alias = any(key[1] == "cloudformation" and value["engine"] == "terraform"
-                          for key, value in accounts.items())
-    files = [path for path in input_select(engine_root, "*", recursive=True)
-             if input_is_file(path) and not path.name.startswith(".")
-             and not (terraform_alias and path.is_relative_to(alias_root))]
+    terraform_alias = any(
+        key[1] == "cloudformation" and value["engine"] == "terraform"
+        for key, value in accounts.items()
+    )
+    files = [
+        path
+        for path in input_select(engine_root, "*", recursive=True)
+        if input_is_file(path)
+        and not path.name.startswith(".")
+        and not (terraform_alias and path.is_relative_to(alias_root))
+    ]
     if template_mode:
-        findings.check(not files, "template mode contains cloudformation implementation")
+        findings.check(
+            not files, "template mode contains cloudformation implementation"
+        )
     elif "cloudformation" in active_engines:
-        findings.check(input_is_dir(engine_root), "selected IaC engine directory missing: cloudformation")
+        findings.check(
+            input_is_dir(engine_root),
+            "selected IaC engine directory missing: cloudformation",
+        )
     else:
-        only_terraform = (terraform_alias and input_is_dir(engine_root)
-                          and set(input_select(engine_root)) == {alias_root})
-        findings.check(not input_exists(engine_root) or only_terraform, "unselected IaC engine directory remains: cloudformation")
+        only_terraform = (
+            terraform_alias
+            and input_is_dir(engine_root)
+            and set(input_select(engine_root)) == {alias_root}
+        )
+        findings.check(
+            not input_exists(engine_root) or only_terraform,
+            "unselected IaC engine directory remains: cloudformation",
+        )
     terraform.check_placement(root, scope, accounts, template_mode, findings)
 
     for engine, relative_base, label, placement in (
-        ("cloudformation", "infra/cloudformation/parameters", "CloudFormation", "parameter"),
+        (
+            "cloudformation",
+            "infra/cloudformation/parameters",
+            "CloudFormation",
+            "parameter",
+        ),
     ):
         base = root / relative_base
         for path in input_select(base, "*", recursive=True):
@@ -33,11 +56,20 @@ def check_iac_selection(root, scope, accounts, template_mode, findings) -> None:
                 continue
             parts = path.relative_to(base).parts
             check = findings.check
-            check(len(parts) >= 3, f"{label} {placement} must be scoped by environment/target directory: {findings.relative(path)}")
+            check(
+                len(parts) >= 3,
+                f"{label} {placement} must be scoped by environment/target directory: {findings.relative(path)}",
+            )
             if len(parts) >= 3:
                 target = (parts[0], parts[1])
                 if scope is not None and not any(item[:2] == target for item in scope):
                     continue
-                check(target in accounts, f"{label} target is not defined: {findings.relative(path)}")
+                check(
+                    target in accounts,
+                    f"{label} target is not defined: {findings.relative(path)}",
+                )
                 if target in accounts:
-                    check(accounts[target]["engine"] == engine, f"{label} is not selected: {findings.relative(path)}")
+                    check(
+                        accounts[target]["engine"] == engine,
+                        f"{label} is not selected: {findings.relative(path)}",
+                    )

@@ -36,13 +36,15 @@ def markdown_sections(text):
             aliases = []
     result = {}
     for index, (start, level, anchors) in enumerate(headings):
-        end = next((pos for pos, depth, _ in headings[index + 1:] if depth <= level), len(text))
+        end = next(
+            (pos for pos, depth, _ in headings[index + 1 :] if depth <= level),
+            len(text),
+        )
         for anchor in dict.fromkeys(anchors):
             if anchor in result:
                 raise ValueError(f"ambiguous rule section: {anchor}")
             result[anchor] = text[start:end]
     return result
-
 
 
 def rule_readings(root, source, text, engine=None):
@@ -61,7 +63,10 @@ def rule_readings(root, source, text, engine=None):
         if Path(target).suffix != ".md":
             continue
         path = (source.parent / target).resolve()
-        if not any(path.is_relative_to(root / directory) for directory in ("framework/rules", ".agents/skills")):
+        if not any(
+            path.is_relative_to(root / directory)
+            for directory in ("framework/rules", ".agents/skills")
+        ):
             continue
         relative = path.relative_to(root).as_posix()
         safe_path(root, relative)
@@ -70,11 +75,25 @@ def rule_readings(root, source, text, engine=None):
         content = contents[path]
         sections = markdown_sections(content)
         if anchor and anchor not in sections:
-            raise ValueError(f"missing rule section: {source.relative_to(root)} -> {relative}#{anchor}")
-        if engine and path.name in {"cloudformation.md", "terraform.md"} and path.stem != engine:
+            raise ValueError(
+                f"missing rule section: {source.relative_to(root)} -> {relative}#{anchor}"
+            )
+        if (
+            engine
+            and path.name in {"cloudformation.md", "terraform.md"}
+            and path.stem != engine
+        ):
             continue
         readings.setdefault(path, set()).add(anchor)
-    return {path: {"sections": sorted(anchors), "sourceText": contents[path],
-                   "text": contents[path] if "" in anchors
-                   else "\n".join(markdown_sections(contents[path])[anchor] for anchor in sorted(anchors))}
-            for path, anchors in readings.items()}
+    return {
+        path: {
+            "sections": sorted(anchors),
+            "sourceText": contents[path],
+            "text": contents[path]
+            if "" in anchors
+            else "\n".join(
+                markdown_sections(contents[path])[anchor] for anchor in sorted(anchors)
+            ),
+        }
+        for path, anchors in readings.items()
+    }

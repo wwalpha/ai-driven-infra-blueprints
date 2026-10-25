@@ -1,4 +1,5 @@
 """Type-only contracts for the existing injected scheduler and persisted records."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
@@ -27,7 +28,9 @@ StackState: TypeAlias = JsonObject
 States: TypeAlias = dict[str, StackState]
 Target: TypeAlias = dict[str, str]
 Manifest: TypeAlias = dict[str, str | None]
-AwsValue: TypeAlias = JsonValue | date | datetime | bytes | list['AwsValue'] | dict[str, 'AwsValue']
+AwsValue: TypeAlias = (
+    JsonValue | date | datetime | bytes | list["AwsValue"] | dict[str, "AwsValue"]
+)
 AwsResponse: TypeAlias = dict[str, AwsValue]
 Save: TypeAlias = Callable[[], None]
 Sleep: TypeAlias = Callable[[float], None]
@@ -77,7 +80,7 @@ class SchedulerBackend(Protocol):
     def poll(self, unit: StackUnit, state: StackState) -> str: ...
 
 
-CacheKey: TypeAlias = str | int | None | tuple['CacheKey', ...]
+CacheKey: TypeAlias = str | int | None | tuple["CacheKey", ...]
 
 
 class DeliveryBoundary(TypedDict, total=False):

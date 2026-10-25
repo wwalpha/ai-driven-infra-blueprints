@@ -27,4 +27,6 @@ def connection_session(profile, region):
 
 
 def operation_name(model, operation):
-    return next((name for name in model.operation_names if xform_name(name) == operation), None)
+    return next(
+        (name for name in model.operation_names if xform_name(name) == operation), None
+    )

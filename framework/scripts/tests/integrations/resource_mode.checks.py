@@ -25,11 +25,17 @@ from support.resource_mode_fixtures import (
 )
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 def _callback_main_check(path, root, source, /, values):
-    values = {key: value for key, value in values.items() if not (key.startswith("observed.row.") and key.endswith((".property", ".comment")))}
+    values = {
+        key: value
+        for key, value in values.items()
+        if not (
+            key.startswith("observed.row.") and key.endswith((".property", ".comment"))
+        )
+    }
     original = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
     write_model(source, original)
     original = {file: file.read_bytes() for file in (source, *model_parts(source))}
@@ -50,25 +56,46 @@ def _callback_main_check(path, root, source, /, values):
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
-            "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation",
-        }]}) + "\n", encoding="utf-8")
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "test",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         path = root / "docs/designs/dev/123456789012/ec2.md"
         source = root / "model/dev/123456789012/ec2.properties"
         path.parent.mkdir(parents=True)
         source.parent.mkdir(parents=True)
 
-        write_model(source.with_name('cloudformation-stacks.properties'), {
-            'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
-            'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
-            'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
+        write_model(
+            source.with_name("cloudformation-stacks.properties"),
+            {
+                "desired.stack.001.name": "fixture",
+                "desired.stack.001.placementName": "fixture",
+                "desired.stack.001.template": "fixture.yaml",
+                "desired.stack.001.parameters": "fixture.json",
+                "desired.stack.001.deployOrder": "1",
+                "display.stack.001.comment": "合成Stack",
+            },
+        )
         check = _bind_framework_callback(_callback_main_check, path, root, source)
 
         imported = model(name="PRIVATE_SUBNET_01", mode="IMPORT")
         assert not (error := check(imported)), error
         original = path.read_text(encoding="utf-8")
-        stale = original + '# edited generated view\n'
-        path.write_text(stale, encoding='utf-8')
+        stale = original + "# edited generated view\n"
+        path.write_text(stale, encoding="utf-8")
         try:
             SYNC.sync(root, False, "dev", "123456789012", services=["ec2"])
         except ValueError as error:
@@ -84,8 +111,8 @@ def main():
         assert "PRIVATE_SUBNET_01" in path.read_text(encoding="utf-8")
 
 
-
 if __name__ == "__main__":
     from support.model_sources import catalog_display
+
     with catalog_display():
         main()

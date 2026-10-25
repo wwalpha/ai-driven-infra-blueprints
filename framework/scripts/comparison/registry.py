@@ -28,40 +28,40 @@ from .services import (
 )
 
 SERVICES = {
-    'ApiGateway.DomainName': apigateway,
-    'S3.Bucket': s3,
-    'Logs.LogGroup': cloudwatch_logs,
-    'KMS.Key': kms,
-    'KMS.Alias': kms,
-    'IAM.Role': iam,
-    'IAM.InstanceProfile': iam,
-    'IAM.ManagedPolicy': iam,
-    'IAM.Policy': iam,
-    'IAM.Group': iam,
-    'IAM.User': iam,
-    'EC2.Subnet': vpc,
-    'EC2.VPC': vpc,
-    'EC2.RouteTable': vpc,
-    'EC2.FlowLog': vpc,
-    'EC2.SecurityGroup': security_group,
-    'EC2.SecurityGroupIngress': security_group,
-    'EC2.SecurityGroupEgress': security_group,
-    'CodeBuild.Project': codebuild,
-    'Glue.Connection': glue,
-    'Glue.SecurityConfiguration': glue,
-    'Glue.Job': glue,
-    'Glue.Crawler': glue,
-    'Glue.Database': glue,
-    'Glue.Table': glue,
-    'Athena.WorkGroup': athena,
-    'SecretsManager.Secret': secrets_manager,
-    'CloudTrail.Trail': cloudtrail,
-    'CodePipeline.Pipeline': codepipeline,
-    'QuickSight.Group': quicksight,
-    'QuickSight.DataSource': quicksight,
-    'Route53.RecordSet': route53,
-    'Events.Rule': events,
-    'NetworkFirewall.RuleGroup': network_firewall,
+    "ApiGateway.DomainName": apigateway,
+    "S3.Bucket": s3,
+    "Logs.LogGroup": cloudwatch_logs,
+    "KMS.Key": kms,
+    "KMS.Alias": kms,
+    "IAM.Role": iam,
+    "IAM.InstanceProfile": iam,
+    "IAM.ManagedPolicy": iam,
+    "IAM.Policy": iam,
+    "IAM.Group": iam,
+    "IAM.User": iam,
+    "EC2.Subnet": vpc,
+    "EC2.VPC": vpc,
+    "EC2.RouteTable": vpc,
+    "EC2.FlowLog": vpc,
+    "EC2.SecurityGroup": security_group,
+    "EC2.SecurityGroupIngress": security_group,
+    "EC2.SecurityGroupEgress": security_group,
+    "CodeBuild.Project": codebuild,
+    "Glue.Connection": glue,
+    "Glue.SecurityConfiguration": glue,
+    "Glue.Job": glue,
+    "Glue.Crawler": glue,
+    "Glue.Database": glue,
+    "Glue.Table": glue,
+    "Athena.WorkGroup": athena,
+    "SecretsManager.Secret": secrets_manager,
+    "CloudTrail.Trail": cloudtrail,
+    "CodePipeline.Pipeline": codepipeline,
+    "QuickSight.Group": quicksight,
+    "QuickSight.DataSource": quicksight,
+    "Route53.RecordSet": route53,
+    "Events.Rule": events,
+    "NetworkFirewall.RuleGroup": network_firewall,
 }
 
 
@@ -74,17 +74,15 @@ def ref_attribute(kind):
 
 
 def kms_forms(kind, path):
-    return getattr(rules(kind), 'KMS_FORMS', {}).get(kind + '.' + path)
+    return getattr(rules(kind), "KMS_FORMS", {}).get(kind + "." + path)
 
 
 def hook(kind, name):
     return getattr(rules(kind), name, None)
 
 
-
-
 def import_consumer(prop, kind, attribute):
-    return (prop, kind, attribute) == hook(kind, 'IMPORT_CONSUMER')
+    return (prop, kind, attribute) == hook(kind, "IMPORT_CONSUMER")
 
 
 def kms_format(value, resources, *, project_arn=None):
@@ -92,63 +90,99 @@ def kms_format(value, resources, *, project_arn=None):
 
 
 def context_value(pseudo, group):
-    field, pattern = {'partition': ('Partition', r'aws(?:-[a-z]+)*'),
-                      'region': ('Region', r'[a-z]{2}(?:-[a-z]+)+-\d+'),
-                      'account': ('AccountId', r'[0-9]{12}')}[group]
-    value = pseudo.get('AWS::' + field)
+    field, pattern = {
+        "partition": ("Partition", r"aws(?:-[a-z]+)*"),
+        "region": ("Region", r"[a-z]{2}(?:-[a-z]+)+-\d+"),
+        "account": ("AccountId", r"[0-9]{12}"),
+    }[group]
+    value = pseudo.get("AWS::" + field)
     if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
-        raise _imports_cfn_inputs.Blocked('reference requires a confirmed ' + field)
+        raise _imports_cfn_inputs.Blocked("reference requires a confirmed " + field)
     return value
 
 
-def named_arn(kind, properties, pseudo, *, evaluate, schema, recorded=None, reference=None):
+def named_arn(
+    kind, properties, pseudo, *, evaluate, schema, recorded=None, reference=None
+):
     """Concretize a proven Producer using the shared ARN identity contract."""
     Blocked = _imports_cfn_inputs.Blocked
     identifier, template, patterns = ARN_SHAPES[kind]
-    fields = identifier if isinstance(identifier, dict) else {identifier: 'id'}
-    generated = [field for field in fields if any(
-        ('/properties/' + field.replace('.', '/')).startswith(pointer.rstrip('/') + '/') or
-        '/properties/' + field.replace('.', '/') == pointer for pointer in schema.get('readOnlyProperties', ()))]
+    fields = identifier if isinstance(identifier, dict) else {identifier: "id"}
+    generated = [
+        field
+        for field in fields
+        if any(
+            ("/properties/" + field.replace(".", "/")).startswith(
+                pointer.rstrip("/") + "/"
+            )
+            or "/properties/" + field.replace(".", "/") == pointer
+            for pointer in schema.get("readOnlyProperties", ())
+        )
+    ]
     if generated:
         if recorded is None:
-            raise Blocked('ARN requires a proven generated identifier: ' + ', '.join(generated))
+            raise Blocked(
+                "ARN requires a proven generated identifier: " + ", ".join(generated)
+            )
     components = {}
     for field, group in fields.items():
         if field in generated:
             explicit = recorded(field)
         else:
             explicit = properties
-            for token in field.split('.'):
-                explicit = explicit.get(token, ARN_DEFAULTS.get((kind, field))) if isinstance(explicit, dict) else None
+            for token in field.split("."):
+                explicit = (
+                    explicit.get(token, ARN_DEFAULTS.get((kind, field)))
+                    if isinstance(explicit, dict)
+                    else None
+                )
             explicit = evaluate(explicit)
-        if (not isinstance(explicit, str) or explicit in {'UNSET', 'PENDING_DEPLOY', 'TBD', 'TODO', '未確定'}
-                or re.fullmatch(patterns[group], explicit) is None
-                or any(token in explicit for token in ('*', '?', '${', '{{resolve:'))):
-            raise Blocked(('attribute_format_unproven: recorded ARN identifier format: ' if field in generated else
-                           'ARN requires a valid explicit resource ') + field)
+        if (
+            not isinstance(explicit, str)
+            or explicit in {"UNSET", "PENDING_DEPLOY", "TBD", "TODO", "未確定"}
+            or re.fullmatch(patterns[group], explicit) is None
+            or any(token in explicit for token in ("*", "?", "${", "{{resolve:"))
+        ):
+            raise Blocked(
+                (
+                    "attribute_format_unproven: recorded ARN identifier format: "
+                    if field in generated
+                    else "ARN requires a valid explicit resource "
+                )
+                + field
+            )
         components[group] = explicit
-    provider = hook(kind, 'arn_components')
+    provider = hook(kind, "arn_components")
     if provider:
         components.update(provider(properties, evaluate))
-    for group in ('partition', 'region', 'account'):
-        if '{' + group + '}' not in template:
+    for group in ("partition", "region", "account"):
+        if "{" + group + "}" not in template:
             continue
         value = context_value(pseudo, group)
         if group in components and components[group] != value:
-            raise Blocked('ARN identifier and confirmed ' + group + ' differ')
+            raise Blocked("ARN identifier and confirmed " + group + " differ")
         components[group] = value
     if reference is None:
         return template.format(**components)
     for field, group in fields.items():
-        if group not in {'partition', 'region', 'account'}:
+        if group not in {"partition", "region", "account"}:
             components[group] = reference(field)
     parts = []
     for text, field, _, _ in Formatter().parse(template):
         parts.append(text)
         if field is not None:
             parts.append(components[field])
-    return Expression('Join', ['', parts])
+    return Expression("Join", ["", parts])
 
 
-def compare_kms_forms(left, right, allowed, *, resolve_literal, format_of, project_arn=None):
-    return kms.compare_forms(left, right, allowed, resolve_literal=resolve_literal, format_of=format_of, project_arn=project_arn)
+def compare_kms_forms(
+    left, right, allowed, *, resolve_literal, format_of, project_arn=None
+):
+    return kms.compare_forms(
+        left,
+        right,
+        allowed,
+        resolve_literal=resolve_literal,
+        format_of=format_of,
+        project_arn=project_arn,
+    )

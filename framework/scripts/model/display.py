@@ -67,18 +67,33 @@ class ReferenceTable:
 def reference_rows(values):
     result = {}
     rows_by_resource = _display_model_files.resource_row_index(values)
-    for identity, resource in entries(values, 'desired.resource.'):
-        rows = tuple((rid, row['property'], row['value'], row.get('comment', ''))
-                     for rid, row in rows_by_resource[identity])
-        result[resource['logicalId']] = ReferenceRows(resource['logicalId'], resource['resourceType'],
-            resource.get('resourceMode', 'CREATE'), rows,
-            tuple((row[0], references) for row in rows if (references := tuple(nodes(literal(row[2]))))))
+    for identity, resource in entries(values, "desired.resource."):
+        rows = tuple(
+            (rid, row["property"], row["value"], row.get("comment", ""))
+            for rid, row in rows_by_resource[identity]
+        )
+        result[resource["logicalId"]] = ReferenceRows(
+            resource["logicalId"],
+            resource["resourceType"],
+            resource.get("resourceMode", "CREATE"),
+            rows,
+            tuple(
+                (row[0], references)
+                for row in rows
+                if (references := tuple(nodes(literal(row[2]))))
+            ),
+        )
     return result
 
 
-def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[list[str]]:
+def catalog_display_rows(
+    rows: list[list[str]], kind: str, root: Path
+) -> list[list[str]]:
     """Sort property blocks without separating contiguous array elements."""
-    if kind == "EC2.SecurityGroup" or _display_design_layout.GROUPED.get(kind, {}).get("display") == "rule-table":
+    if (
+        kind == "EC2.SecurityGroup"
+        or _display_design_layout.GROUPED.get(kind, {}).get("display") == "rule-table"
+    ):
         return rows  # Horizontal rule tables have their own generation and restoration.
     order = dict(_display_common.catalog_property_order(root, kind) or {})
     design.services.codebuild.adjust_display_order(kind, order)
@@ -100,12 +115,29 @@ def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[l
         else:
             blocks.append([row])
         previous_array = array
-    return [row for block in sorted(blocks, key=lambda block: array_order.get(
-        block[0][1].split("[]", 1)[0] + "[]", order.get(block[0][1], len(order)))) for row in block]
+    return [
+        row
+        for block in sorted(
+            blocks,
+            key=lambda block: array_order.get(
+                block[0][1].split("[]", 1)[0] + "[]", order.get(block[0][1], len(order))
+            ),
+        )
+        for row in block
+    ]
 
 
 @input_scope
-def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="CREATE", _counts=None, consumed: list[str] | None = None, references=None) -> list[list[str]]:
+def display_rows(
+    kind: str,
+    rows: list[list[str]],
+    root: Path = ROOT,
+    *,
+    mode="CREATE",
+    _counts=None,
+    consumed: list[str] | None = None,
+    references=None,
+) -> list[list[str]]:
     rows = _display_aws_mapping_display.selected_rows(rows, root)
     references = set(references or ())
     projected = []
@@ -115,7 +147,15 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
             references.add(row[0])
             shown[2] = project_text(row[2])
         projected.append(shown)
-    return _display_rows(kind, projected, root, mode=mode, _counts=_counts, consumed=consumed, references=references)
+    return _display_rows(
+        kind,
+        projected,
+        root,
+        mode=mode,
+        _counts=_counts,
+        consumed=consumed,
+        references=references,
+    )
 
 
 def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
@@ -129,29 +169,49 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
     while index < len(rows):
         start = index
         identity, prop, value, comment = rows[index]
-        packed = design.compact_rows.packed_compact_rows(rows, index) if mode == 'IMPORT' else None
+        packed = (
+            design.compact_rows.packed_compact_rows(rows, index)
+            if mode == "IMPORT"
+            else None
+        )
         if packed is not None:
             block, expanded = packed
-            rendered = display_rows(kind, expanded, root, mode=mode, _counts=counts, references=references)
-            source = json.dumps([[row[1:] for row in block], len(rendered)], ensure_ascii=True)
-            for char in '|<>':
-                source = source.replace(char, f'\\u{ord(char):04x}')
-            rendered[0][3] = '<!-- compact-source: ' + source + ' --> ' + rendered[0][3]
+            rendered = display_rows(
+                kind, expanded, root, mode=mode, _counts=counts, references=references
+            )
+            source = json.dumps(
+                [[row[1:] for row in block], len(rendered)], ensure_ascii=True
+            )
+            for char in "|<>":
+                source = source.replace(char, f"\\u{ord(char):04x}")
+            rendered[0][3] = "<!-- compact-source: " + source + " --> " + rendered[0][3]
             result.extend(rendered)
             processed.extend(row[0] for row in block)
             index += len(block)
             continue
         if prop == CODEBUILD_FORMAL_VARIABLE + "Name":
-            _, prop, value, comment = design.services.codebuild.codebuild_display_row(rows, index, comment, mode=mode,
-                                                                                   typed=rows[index + 2][0] in references)
+            _, prop, value, comment = design.services.codebuild.codebuild_display_row(
+                rows, index, comment, mode=mode, typed=rows[index + 2][0] in references
+            )
             index += 2
         elif prop in _display_design_layout.LINKED_LIST_PROPERTIES:
             linked = LINK.fullmatch(value)
-            if prop in CODEBUILD_VPC_PROPERTIES and not linked and mode != "IMPORT" and identity not in references:
-                if literal(value).lstrip().startswith(('[', '{')):
+            if (
+                prop in CODEBUILD_VPC_PROPERTIES
+                and not linked
+                and mode != "IMPORT"
+                and identity not in references
+            ):
+                if literal(value).lstrip().startswith(("[", "{")):
                     _display_common.subnet_list_items(prop, value)
-                raise ReferenceResolutionError("CodeBuild VpcConfig value must be a resource link", property=prop, reference=value)
-            items = [value] if linked else _display_common.subnet_list_items(prop, value)
+                raise ReferenceResolutionError(
+                    "CodeBuild VpcConfig value must be a resource link",
+                    property=prop,
+                    reference=value,
+                )
+            items = (
+                [value] if linked else _display_common.subnet_list_items(prop, value)
+            )
             source = ""
             if not linked:
                 encoded = json.dumps(value, ensure_ascii=True)
@@ -161,8 +221,15 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
             field = prop.removesuffix("[]").removeprefix(kind + ".")
             for offset, item in enumerate(items):
                 counts[prop] = counts.get(prop, 0) + 1
-                result.append([identity, f"{field}[{counts[prop]}]", item, (source if offset == 0 else "") + comment])
-            processed.extend(row[0] for row in rows[start:index + 1])
+                result.append(
+                    [
+                        identity,
+                        f"{field}[{counts[prop]}]",
+                        item,
+                        (source if offset == 0 else "") + comment,
+                    ]
+                )
+            processed.extend(row[0] for row in rows[start : index + 1])
             index += 1
             continue
         elif prop == GUARDDUTY_FORMAL_FEATURE + "Name":
@@ -171,17 +238,36 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
         elif prop == CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Type":
             prop, value = cloudtrail_display_row(rows, index, counts, mode)
             index += 1
-        elif prop.startswith((CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE)) and not prop.startswith(GUARDDUTY_FORMAL_FEATURE + "AdditionalConfiguration"):
+        elif prop.startswith(
+            (
+                CODEBUILD_FORMAL_VARIABLE,
+                GUARDDUTY_FORMAL_FEATURE,
+                CLOUDTRAIL_FORMAL_DATA_RESOURCE,
+            )
+        ) and not prop.startswith(GUARDDUTY_FORMAL_FEATURE + "AdditionalConfiguration"):
             raise ValueError(f"incomplete compact display group: {prop}")
         # Compact producers own their dynamic names; ordinary rows use Mapping names.
-        item = _display_aws_mapping_display.rule(prop, root) if not _display_aws_mapping_display.compact_group(prop) and prop in formal_properties else None
+        item = (
+            _display_aws_mapping_display.rule(prop, root)
+            if not _display_aws_mapping_display.compact_group(prop)
+            and prop in formal_properties
+            else None
+        )
         is_import_role_arn = _imports_design_layout.is_import_role_arn
-        prop = "RoleARN" if is_import_role_arn(prop, value, mode) else _display_aws_mapping_display.display_name(prop, kind, root) if item else prop.removeprefix(kind + ".")
+        prop = (
+            "RoleARN"
+            if is_import_role_arn(prop, value, mode)
+            else _display_aws_mapping_display.display_name(prop, kind, root)
+            if item
+            else prop.removeprefix(kind + ".")
+        )
         result.append([identity, prop, value, comment])
-        processed.extend(row[0] for row in rows[start:index + 1])
+        processed.extend(row[0] for row in rows[start : index + 1])
         index += 1
     if Counter(processed) != Counter(row[0] for row in rows):
-        raise ValueError("selected display rows were omitted or consumed more than once")
+        raise ValueError(
+            "selected display rows were omitted or consumed more than once"
+        )
     if kind == "CodePipeline.Pipeline":
         result = design.services.codepipeline.pipeline_rows(result)
     elif kind in _display_definitions.REQUIRED_NAME_TAG_TYPES:

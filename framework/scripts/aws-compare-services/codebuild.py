@@ -2,19 +2,26 @@
 
 from model.adapters.aws import one
 
-APIS = {('codebuild', 'batch_get_projects')}
+APIS = {("codebuild", "batch_get_projects")}
 
 
 def sensitive(prop):
-    return prop.endswith('EnvironmentVariables[].Value') or prop.endswith('Source.BuildSpec')
+    return prop.endswith("EnvironmentVariables[].Value") or prop.endswith(
+        "Source.BuildSpec"
+    )
 
 
 def fetch(ctx, r, getter):
-    return one(ctx.call('codebuild', 'batch_get_projects', names=[r.value('Name')]).get('projects', []), 'codebuild.batch_get_projects')
+    return one(
+        ctx.call("codebuild", "batch_get_projects", names=[r.value("Name")]).get(
+            "projects", []
+        ),
+        "codebuild.batch_get_projects",
+    )
 
 
-SDK_OPERATIONS = {'CodeBuild.Project': 'batch_get_projects'}
+SDK_OPERATIONS = {"CodeBuild.Project": "batch_get_projects"}
 
 
 def fetch_sdk(ctx, r, operation):
-    return ctx.call('codebuild', operation, names=[r.value('Name')])
+    return ctx.call("codebuild", operation, names=[r.value("Name")])

@@ -35,205 +35,322 @@ from support.pytest_cli import run
 from task_contract_core import selected_task
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
-FIRST = 'cfn-stack-app-dev-first'
-SECOND = 'cfn-stack-app-dev-second'
-THIRD = 'cfn-stack-app-dev-third'
+FIRST = "cfn-stack-app-dev-first"
+SECOND = "cfn-stack-app-dev-second"
+THIRD = "cfn-stack-app-dev-third"
 
 
 @pytest.fixture(autouse=True)
 def offline_workflow(tmp_path, monkeypatch):
-    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    monkeypatch.setattr(handoff, 'register_workflow', lambda *args, **kwargs: None)
-    monkeypatch.setattr(resume, 'verify_integration_owner', lambda *args: None)
-    monkeypatch.setattr(contracts, 'task_start_commit', ordinary_base)
-    monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path))
-    for name in ('TMPDIR', 'TMP', 'TEMP'):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    monkeypatch.setattr(handoff, "register_workflow", lambda *args, **kwargs: None)
+    monkeypatch.setattr(resume, "verify_integration_owner", lambda *args: None)
+    monkeypatch.setattr(contracts, "task_start_commit", ordinary_base)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    for name in ("TMPDIR", "TMP", "TEMP"):
         monkeypatch.setenv(name, str(tmp_path))
     for name, value in child_environment().items():
-        if name.startswith('AWS_'):
+        if name.startswith("AWS_"):
             monkeypatch.setenv(name, value)
 
 
 def child_run(root, session, aws, options=(), fault=None):
-    helper = Path(__file__).resolve().parents[1] / 'support/deploy_controller_fixtures.py'
+    helper = (
+        Path(__file__).resolve().parents[1] / "support/deploy_controller_fixtures.py"
+    )
     environment = child_environment()
     if fault:
-        environment['BLUEPRINT_OBSERVED_FAULT'] = fault
-    return subprocess.run([sys.executable, '-B', str(helper), str(root), str(session), str(aws), *options],
-        cwd=root, env=environment, capture_output=True, text=True, timeout=90)
+        environment["BLUEPRINT_OBSERVED_FAULT"] = fault
+    return subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(helper),
+            str(root),
+            str(session),
+            str(aws),
+            *options,
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
 
 
 def assert_single_execution(aws, states):
-    calls = json.loads(aws.read_text())['calls']
+    calls = json.loads(aws.read_text())["calls"]
     for name, state in states.items():
-        assert sum(op == 'create_change_set' and args['StackName'] == name for _, op, args in calls) == 1
-        assert sum(op == 'execute_change_set' and args['StackName'] == state['executionEvidence']['StackId']
-                   for _, op, args in calls) == 1
+        assert (
+            sum(
+                op == "create_change_set" and args["StackName"] == name
+                for _, op, args in calls
+            )
+            == 1
+        )
+        assert (
+            sum(
+                op == "execute_change_set"
+                and args["StackName"] == state["executionEvidence"]["StackId"]
+                for _, op, args in calls
+            )
+            == 1
+        )
 
 
 def assert_published(root, session, evidence):
     saved = json.loads(session.read_text())
-    assert saved['result'] == 'COMPLETE' and 'pendingObserved' not in saved
-    assert saved['repository'] == str(root) and saved['taskFile'] == 'tasks/deploy.md'
-    assert all(state['status'] == 'SUCCESS' and state['observedSynced'] for state in saved['states'].values())
-    assert {name: saved['states'][name]['executionEvidence'] for name in evidence} == evidence
-    ec2 = properties(read_model(root / f'model/dev/{ACCOUNT}/ec2.properties'))
-    assert ec2['observed.row.001-001.value'].strip('`') == 'vpc-fixture'
-    removed = any(item['Action'] == 'Remove' for item in evidence[FIRST]['resources'])
-    subnet = 'PENDING_DEPLOY' if removed else 'subnet-fixture'
-    assert ec2['observed.row.002-001.value'].strip('`') == subnet
-    if 'desired.resource.003.cfn-logicalId' in ec2:
-        assert ec2['observed.row.003-001.value'].strip('`') == 'vpc-first-fixture'
-    design = root / f'docs/designs/dev/{ACCOUNT}'
-    assert subnet in (design / 'ec2.md').read_text() and 'vpc-fixture' in (design / 'ec2.md').read_text()
-    policy = json.loads((design / 's3/s3-bucket-001-bucket-policy.json').read_text())
-    s3 = properties(read_model(root / f'model/dev/{ACCOUNT}/s3.properties'))
-    assert policy == json.loads(s3['desired.row.001-003.document'])
-    if THIRD in saved['states']:
-        assert 'app-dev-third' in (design / 's3.md').read_text()
-        assert s3['desired.row.003-001.value'].strip('`') == 'app-dev-third'
-    with selected_task(root, 'tasks/deploy.md'):
-        assert saved['modelInputManifest'] == model_input_manifest(root, 'dev', ACCOUNT)
+    assert saved["result"] == "COMPLETE" and "pendingObserved" not in saved
+    assert saved["repository"] == str(root) and saved["taskFile"] == "tasks/deploy.md"
+    assert all(
+        state["status"] == "SUCCESS" and state["observedSynced"]
+        for state in saved["states"].values()
+    )
+    assert {
+        name: saved["states"][name]["executionEvidence"] for name in evidence
+    } == evidence
+    ec2 = properties(read_model(root / f"model/dev/{ACCOUNT}/ec2.properties"))
+    assert ec2["observed.row.001-001.value"].strip("`") == "vpc-fixture"
+    removed = any(item["Action"] == "Remove" for item in evidence[FIRST]["resources"])
+    subnet = "PENDING_DEPLOY" if removed else "subnet-fixture"
+    assert ec2["observed.row.002-001.value"].strip("`") == subnet
+    if "desired.resource.003.cfn-logicalId" in ec2:
+        assert ec2["observed.row.003-001.value"].strip("`") == "vpc-first-fixture"
+    design = root / f"docs/designs/dev/{ACCOUNT}"
+    assert (
+        subnet in (design / "ec2.md").read_text()
+        and "vpc-fixture" in (design / "ec2.md").read_text()
+    )
+    policy = json.loads((design / "s3/s3-bucket-001-bucket-policy.json").read_text())
+    s3 = properties(read_model(root / f"model/dev/{ACCOUNT}/s3.properties"))
+    assert policy == json.loads(s3["desired.row.001-003.document"])
+    if THIRD in saved["states"]:
+        assert "app-dev-third" in (design / "s3.md").read_text()
+        assert s3["desired.row.003-001.value"].strip("`") == "app-dev-third"
+    with selected_task(root, "tasks/deploy.md"):
+        assert saved["modelInputManifest"] == model_input_manifest(root, "dev", ACCOUNT)
         # Verify every final generated byte against the final combined Model, not an older peer plan.
-        assert sync_runtime.sync(root, False, 'dev', ACCOUNT, services=['s3', 'ec2', 'cloudformation-stacks']) == 0
+        assert (
+            sync_runtime.sync(
+                root,
+                False,
+                "dev",
+                ACCOUNT,
+                services=["s3", "ec2", "cloudformation-stacks"],
+            )
+            == 0
+        )
 
 
 def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
-    session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
-    root = seed(tmp_path / 'project', session, 'ordered-delivery')
+    session, aws = tmp_path / "session.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", session, "ordered-delivery")
     monkeypatch.chdir(root)
-    monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/deploy.md')
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
     aws_state(aws, delivery=True)
     assert invoke(root, session, aws) == 0
     saved, provider = json.loads(session.read_text()), json.loads(aws.read_text())
-    calls = provider['calls']
-    first_create = next(i for i, (_, op, _) in enumerate(calls) if op == 'create_change_set')
-    expected = {(obj['bucket'], obj['key']) for name in (FIRST, SECOND) for obj in saved['states'][name]['delivery']['objects']}
-    puts = [(args['Bucket'], args['Key']) for _, op, args in calls[:first_create] if op == 'put_object']
+    calls = provider["calls"]
+    first_create = next(
+        i for i, (_, op, _) in enumerate(calls) if op == "create_change_set"
+    )
+    expected = {
+        (obj["bucket"], obj["key"])
+        for name in (FIRST, SECOND)
+        for obj in saved["states"][name]["delivery"]["objects"]
+    }
+    puts = [
+        (args["Bucket"], args["Key"])
+        for _, op, args in calls[:first_create]
+        if op == "put_object"
+    ]
     assert set(puts) == expected and len(puts) == len(expected)
-    barrier = provider['barriers'][THIRD]
-    assert set(barrier['earlier']) == {FIRST, SECOND}
-    assert all(s['status'] == 'SUCCESS' and s['observedSynced'] for s in barrier['states'].values())
-    assert barrier['observed']['observed.row.001-001.value'].strip('`') == 'vpc-fixture'
-    assert barrier['observed']['observed.row.002-001.value'].strip('`') == 'subnet-fixture'
-    assert_single_execution(aws, saved['states'])
-    assert_published(root, session, {name: s['executionEvidence'] for name, s in saved['states'].items()})
+    barrier = provider["barriers"][THIRD]
+    assert set(barrier["earlier"]) == {FIRST, SECOND}
+    assert all(
+        s["status"] == "SUCCESS" and s["observedSynced"]
+        for s in barrier["states"].values()
+    )
+    assert barrier["observed"]["observed.row.001-001.value"].strip("`") == "vpc-fixture"
+    assert (
+        barrier["observed"]["observed.row.002-001.value"].strip("`") == "subnet-fixture"
+    )
+    assert_single_execution(aws, saved["states"])
+    assert_published(
+        root,
+        session,
+        {name: s["executionEvidence"] for name, s in saved["states"].items()},
+    )
 
 
 def check_delivery_failure_stops_execution(tmp_path, monkeypatch):
-    session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
-    root = seed(tmp_path / 'project', session, 'delivery')
+    session, aws = tmp_path / "session.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", session, "delivery")
     monkeypatch.chdir(root)
-    monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/deploy.md')
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
     aws_state(aws, delivery=True, delivery_fail=True)
     assert invoke(root, session, aws) == 2
-    calls = json.loads(aws.read_text())['calls']
-    assert any(op == 'put_object' for _, op, _ in calls)
-    assert not any(op in {'create_change_set', 'execute_change_set'} for _, op, _ in calls)
+    calls = json.loads(aws.read_text())["calls"]
+    assert any(op == "put_object" for _, op, _ in calls)
+    assert not any(
+        op in {"create_change_set", "execute_change_set"} for _, op, _ in calls
+    )
     saved = json.loads(session.read_text())
-    assert any(s.get('failure', {}).get('code') == 'AccessDenied' for s in saved['states'].values())
+    assert any(
+        s.get("failure", {}).get("code") == "AccessDenied"
+        for s in saved["states"].values()
+    )
 
 
 def check_approved_remove_resumes_without_duplicate_execute(tmp_path, monkeypatch):
-    session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
-    root = seed(tmp_path / 'project', session, 'remove')
+    session, aws = tmp_path / "session.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", session, "remove")
     monkeypatch.chdir(root)
-    monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/deploy.md')
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
     aws_state(aws, remove=True, crash_execute=True)
     assert invoke(root, session, aws) == 2
-    blocked = json.loads(session.read_text())['states'][FIRST]
-    assert blocked['status'] == 'BLOCKED' and 'executionEvidence' not in blocked
-    assert not any(op == 'execute_change_set' for _, op, _ in json.loads(aws.read_text())['calls'])
-    change_id, digest = blocked['changeSetId'], blocked['changeDigest']
-    child = child_run(root, session, aws, ['--resume', '--approve-change-set', change_id])
+    blocked = json.loads(session.read_text())["states"][FIRST]
+    assert blocked["status"] == "BLOCKED" and "executionEvidence" not in blocked
+    assert not any(
+        op == "execute_change_set" for _, op, _ in json.loads(aws.read_text())["calls"]
+    )
+    change_id, digest = blocked["changeSetId"], blocked["changeDigest"]
+    child = child_run(
+        root, session, aws, ["--resume", "--approve-change-set", change_id]
+    )
     assert child.returncode == 73, child.stdout + child.stderr
     interrupted = json.loads(session.read_text())
-    state = interrupted['states'][FIRST]
-    evidence = state['executionEvidence']
-    assert state['status'] == 'RUNNING' and state['approvedChangeDigest'] == digest
-    assert state['changeSetId'] == change_id and evidence['ChangeSetId'] == change_id
-    assert evidence['changeDigest'] == digest and evidence['clientToken'] == state['clientToken']
-    assert evidence['StackId'] == blocked['stackId']
-    assert next(item for item in evidence['resources'] if item['Action'] == 'Remove')['PhysicalResourceId'] == 'subnet-before'
-    assert interrupted['states'][SECOND]['status'] == 'NOT_STARTED'
+    state = interrupted["states"][FIRST]
+    evidence = state["executionEvidence"]
+    assert state["status"] == "RUNNING" and state["approvedChangeDigest"] == digest
+    assert state["changeSetId"] == change_id and evidence["ChangeSetId"] == change_id
+    assert (
+        evidence["changeDigest"] == digest
+        and evidence["clientToken"] == state["clientToken"]
+    )
+    assert evidence["StackId"] == blocked["stackId"]
+    assert (
+        next(item for item in evidence["resources"] if item["Action"] == "Remove")[
+            "PhysicalResourceId"
+        ]
+        == "subnet-before"
+    )
+    assert interrupted["states"][SECOND]["status"] == "NOT_STARTED"
     recover_owned_lock(root, child)
-    resumed = child_run(root, session, aws, ['--resume'])
+    resumed = child_run(root, session, aws, ["--resume"])
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
     after = json.loads(session.read_text())
-    assert after['states'][FIRST]['approvedChangeDigest'] == digest
-    assert after['states'][FIRST]['changeSetId'] == change_id
-    assert after['states'][FIRST]['clientToken'] == evidence['clientToken']
+    assert after["states"][FIRST]["approvedChangeDigest"] == digest
+    assert after["states"][FIRST]["changeSetId"] == change_id
+    assert after["states"][FIRST]["clientToken"] == evidence["clientToken"]
     assert_published(root, session, {FIRST: evidence})
-    assert_single_execution(aws, after['states'])
+    assert_single_execution(aws, after["states"])
 
 
 def check_observed_failure_drains_peers_and_resumes(tmp_path, monkeypatch):
-    session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
-    root = seed(tmp_path / 'project', session, 'observed-peers')
+    session, aws = tmp_path / "session.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", session, "observed-peers")
     monkeypatch.chdir(root)
-    monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/deploy.md')
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
     aws_state(aws, defer_peer=True)
-    assert invoke(root, session, aws, fault='design-io') == 2
+    assert invoke(root, session, aws, fault="design-io") == 2
     saved = json.loads(session.read_text())
-    assert set(saved['pendingObserved']['evidence']) == {FIRST}
-    assert all(saved['states'][name]['status'] == 'SUCCESS' and not saved['states'][name].get('observedSynced') for name in (FIRST, SECOND))
-    assert saved['states'][THIRD]['status'] == 'NOT_STARTED'
-    assert THIRD not in json.loads(aws.read_text())['changes']
-    evidence = {name: saved['states'][name]['executionEvidence'] for name in (FIRST, SECOND)}
-    at_failure = json.loads(aws.read_text())['observedFailure']
-    assert at_failure['statuses'] == {FIRST: 'SUCCESS', SECOND: 'RUNNING', THIRD: 'NOT_STARTED'}
-    assert at_failure['planEvidence'] == [FIRST]
-    assert {name: at_failure['executionEvidence'][name] for name in evidence} == evidence
-    failure = saved['observedFailures'][0]
-    assert failure == {'stage': 'MODEL_PUBLISHED', 'cause':
-        '0 services succeeded; 1 services failed; 1 diagnostics\n'
-        f'- docs/designs/dev/{ACCOUNT}/ec2.md: injected design I/O failure'}
-    resumed = child_run(root, session, aws, ['--resume'])
+    assert set(saved["pendingObserved"]["evidence"]) == {FIRST}
+    assert all(
+        saved["states"][name]["status"] == "SUCCESS"
+        and not saved["states"][name].get("observedSynced")
+        for name in (FIRST, SECOND)
+    )
+    assert saved["states"][THIRD]["status"] == "NOT_STARTED"
+    assert THIRD not in json.loads(aws.read_text())["changes"]
+    evidence = {
+        name: saved["states"][name]["executionEvidence"] for name in (FIRST, SECOND)
+    }
+    at_failure = json.loads(aws.read_text())["observedFailure"]
+    assert at_failure["statuses"] == {
+        FIRST: "SUCCESS",
+        SECOND: "RUNNING",
+        THIRD: "NOT_STARTED",
+    }
+    assert at_failure["planEvidence"] == [FIRST]
+    assert {
+        name: at_failure["executionEvidence"][name] for name in evidence
+    } == evidence
+    failure = saved["observedFailures"][0]
+    assert failure == {
+        "stage": "MODEL_PUBLISHED",
+        "cause": "0 services succeeded; 1 services failed; 1 diagnostics\n"
+        f"- docs/designs/dev/{ACCOUNT}/ec2.md: injected design I/O failure",
+    }
+    resumed = child_run(root, session, aws, ["--resume"])
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
     after = json.loads(session.read_text())
-    assert after['observedFailures'][0] == failure
+    assert after["observedFailures"][0] == failure
     assert_published(root, session, evidence)
-    assert_single_execution(aws, after['states'])
+    assert_single_execution(aws, after["states"])
 
 
 def check_pending_observed_recovers_before_model_load(tmp_path):
-    session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
-    root = seed(tmp_path / 'project', session, 'multi-observed')
+    session, aws = tmp_path / "session.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", session, "multi-observed")
     aws_state(aws)
-    child = child_run(root, session, aws, fault='model-partial')
+    child = child_run(root, session, aws, fault="model-partial")
     assert child.returncode == 76, child.stdout + child.stderr
     saved = json.loads(session.read_text())
-    plan = saved['pendingObserved']
-    evidence = saved['states'][FIRST]['executionEvidence']
-    assert plan['stage'] == 'PREPARED' and len(plan['outputs']) >= 2
-    assert plan['evidence'][FIRST]['executionEvidence'] == evidence
-    assert saved['states'][SECOND]['status'] == 'NOT_STARTED'
-    current = {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in plan['beforeManifest']}
-    assert current != plan['beforeManifest'] and current != plan['afterManifest']
-    assert all(current[p] in (plan['beforeManifest'][p], plan['afterManifest'][p]) for p in current)
-    journal = tmp_path / 'blueprint-model-publication' / (hashlib.sha256(str(root).encode()).hexdigest() + '.json')
-    assert journal.is_file() and json.loads(journal.read_text())['originals']
+    plan = saved["pendingObserved"]
+    evidence = saved["states"][FIRST]["executionEvidence"]
+    assert plan["stage"] == "PREPARED" and len(plan["outputs"]) >= 2
+    assert plan["evidence"][FIRST]["executionEvidence"] == evidence
+    assert saved["states"][SECOND]["status"] == "NOT_STARTED"
+    current = {
+        p: hashlib.sha256((root / p).read_bytes()).hexdigest()
+        for p in plan["beforeManifest"]
+    }
+    assert current != plan["beforeManifest"] and current != plan["afterManifest"]
+    assert all(
+        current[p] in (plan["beforeManifest"][p], plan["afterManifest"][p])
+        for p in current
+    )
+    journal = (
+        tmp_path
+        / "blueprint-model-publication"
+        / (hashlib.sha256(str(root).encode()).hexdigest() + ".json")
+    )
+    assert journal.is_file() and json.loads(journal.read_text())["originals"]
     # Only the reaped child's controller/handoff locks are recovered here. The actual
     # controller startup must reconcile partial Model bytes before its read-only loads.
     recover_owned_lock(root, child)
-    resumed = child_run(root, session, aws, ['--resume'])
+    resumed = child_run(root, session, aws, ["--resume"])
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
     assert not journal.exists()
     assert_published(root, session, {FIRST: evidence})
-    assert_single_execution(aws, json.loads(session.read_text())['states'])
+    assert_single_execution(aws, json.loads(session.read_text())["states"])
 
 
 def check_external_repair_cleanup_resumes(tmp_path, monkeypatch):
-    context = external_round_trip(tmp_path, monkeypatch, 'cleanup', seed=seed, deliver=ordinary_delivery)
+    context = external_round_trip(
+        tmp_path, monkeypatch, "cleanup", seed=seed, deliver=ordinary_delivery
+    )
     assert_same_result_reapplication(context)
-    saved = json.loads(context['session'].read_text())
-    assert_published(context['parent'], context['session'], {name: s['executionEvidence'] for name, s in saved['states'].items()})
-    calls = json.loads(context['aws'].read_text())['calls']
-    assert sum(op == 'create_change_set' and args['StackName'] == SECOND for _, op, args in calls) == 3
-    assert sum(op == 'execute_change_set' for _, op, _ in calls) == 4
+    saved = json.loads(context["session"].read_text())
+    assert_published(
+        context["parent"],
+        context["session"],
+        {name: s["executionEvidence"] for name, s in saved["states"].items()},
+    )
+    calls = json.loads(context["aws"].read_text())["calls"]
+    assert (
+        sum(
+            op == "create_change_set" and args["StackName"] == SECOND
+            for _, op, args in calls
+        )
+        == 3
+    )
+    assert sum(op == "execute_change_set" for _, op, _ in calls) == 4
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(run(__file__))

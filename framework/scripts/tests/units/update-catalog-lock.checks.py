@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-
 import importlib.util
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from unittest.mock import patch
@@ -18,7 +17,7 @@ from unittest.mock import patch
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-SCRIPT = (Path(__file__).resolve().parents[2] / 'update-catalog-lock.py')
+SCRIPT = Path(__file__).resolve().parents[2] / "update-catalog-lock.py"
 SPEC = importlib.util.spec_from_file_location("update_catalog_lock", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Destroy explicitly scoped CloudFormation stacks; never enter deploy validation."""
+
 from __future__ import annotations
 
 import argparse
@@ -39,13 +40,24 @@ def context_module():
 
 
 def local_plan(root, environment, directory, requested, check_scope=True):
-    source = root / "model" / environment / directory / "cloudformation-stacks.properties"
+    source = (
+        root / "model" / environment / directory / "cloudformation-stacks.properties"
+    )
     limit, stacks = stack_model(load_model(source).values)
     by_name = {stack["name"]: stack for _, stack in stacks}
-    if not requested or len(set(requested)) != len(requested) or set(requested) - by_name.keys():
+    if (
+        not requested
+        or len(set(requested)) != len(requested)
+        or set(requested) - by_name.keys()
+    ):
         raise Blocked("destroy scope must contain unique designed StackName values")
-    units = [{"name": name, "deployOrder": int(by_name[name]["deployOrder"])} for name in sorted(requested)]
-    observed = destroy_plan(root, environment, directory, sorted(requested), check_scope)
+    units = [
+        {"name": name, "deployOrder": int(by_name[name]["deployOrder"])}
+        for name in sorted(requested)
+    ]
+    observed = destroy_plan(
+        root, environment, directory, sorted(requested), check_scope
+    )
     return {"units": units, "maxConcurrentStacks": limit, "observed": observed}
 
 
@@ -56,24 +68,40 @@ def task_snapshot(root, environment, target, requested, plan):
     text = snapshot.text
     if status(text) != "running":
         raise Blocked("destroy requires a running task")
-    required = ["- Task type: `infrastructure`", "- Infrastructure phase: `destroy`",
-                "- AWS API execution: `allowed`", "- Destroy: `allowed`",
-                f"- Target environment: `{environment}`", f"- Target AWS account: `{target['awsAccountId']}`"]
+    required = [
+        "- Task type: `infrastructure`",
+        "- Infrastructure phase: `destroy`",
+        "- AWS API execution: `allowed`",
+        "- Destroy: `allowed`",
+        f"- Target environment: `{environment}`",
+        f"- Target AWS account: `{target['awsAccountId']}`",
+    ]
     if target.get("alias"):
         required.append(f"- Target alias: `{target['alias']}`")
     for line in required:
         if text.splitlines().count(line) != 1:
             raise Blocked(f"active task must explicitly contain {line}")
     scopes = [line for line in text.splitlines() if line.startswith("- Destroy scope:")]
-    if len(scopes) != 1 or sorted(re.findall(r"`([^`]+)`", scopes[0])) != sorted(requested):
-        raise Blocked("requested StackName scope must exactly match active task Destroy scope")
+    if len(scopes) != 1 or sorted(re.findall(r"`([^`]+)`", scopes[0])) != sorted(
+        requested
+    ):
+        raise Blocked(
+            "requested StackName scope must exactly match active task Destroy scope"
+        )
     scope = active_scope(root)
     services = {tuple(service.split("/")) for service in plan["observed"]["services"]}
     if scope is None or not services <= scope:
-        raise Blocked("destroy requires explicit service Validation scope covering ownership and incoming references")
+        raise Blocked(
+            "destroy requires explicit service Validation scope covering ownership and incoming references"
+        )
     paths = {root / value for value in plan["observed"]["paths"]} | {path}
     allowed = paths_in(text, "## Allowed paths")
-    if any(not any(matches(file.relative_to(root).as_posix(), pattern) for pattern in allowed) for file in paths):
+    if any(
+        not any(
+            matches(file.relative_to(root).as_posix(), pattern) for pattern in allowed
+        )
+        for file in paths
+    ):
         raise Blocked("destroy observed outputs outside Allowed paths")
     return path, text
 
@@ -86,11 +114,20 @@ def issue_snapshot(root, environment, directory):
 class AwsBackend:
     READS = {"describe-stacks", "list-exports", "list-imports", "describe-stack-events"}
 
-    def __init__(self, root, environment, directory, target, profile=None, timing_log=None):
-        self.root, self.environment, self.directory, self.target = root, environment, directory, target
+    def __init__(
+        self, root, environment, directory, target, profile=None, timing_log=None
+    ):
+        self.root, self.environment, self.directory, self.target = (
+            root,
+            environment,
+            directory,
+            target,
+        )
         self.profile = select_profile(target, profile)
         self.timing_log = timing_log
-        self.env = os.environ.copy()  # Freeze the invocation's credential chain; never persist credentials.
+        self.env = (
+            os.environ.copy()
+        )  # Freeze the invocation's credential chain; never persist credentials.
 
     def aws(self, operation, *arguments):
         if operation not in self.READS | {"delete-stack"}:
@@ -98,24 +135,48 @@ class AwsBackend:
         command = ["aws", "--region", self.target["awsRegion"]]
         if self.profile:
             command += ["--profile", self.profile]
-        command += ["cloudformation", operation, *arguments, "--output", "json", "--no-cli-pager"]
+        command += [
+            "cloudformation",
+            operation,
+            *arguments,
+            "--output",
+            "json",
+            "--no-cli-pager",
+        ]
         started = time.perf_counter()
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=60, env=self.env)
+            result = subprocess.run(
+                command, capture_output=True, text=True, timeout=60, env=self.env
+            )
             if result.returncode:
                 # Only this exact CFN not-found diagnostic constitutes absence.
-                if operation == "describe-stacks" and re.search(r"\(ValidationError\).*Stack with id .+ does not exist", result.stderr):
+                if operation == "describe-stacks" and re.search(
+                    r"\(ValidationError\).*Stack with id .+ does not exist",
+                    result.stderr,
+                ):
                     return None
                 if operation == "list-imports" and re.search(
-                        r"\(ValidationError\) when calling the ListImports operation: Export .+ is not imported by any stack\.?\s*$", result.stderr):
+                    r"\(ValidationError\) when calling the ListImports operation: Export .+ is not imported by any stack\.?\s*$",
+                    result.stderr,
+                ):
                     return {"Imports": []}
-                raise Blocked(f"{operation}: {result.stderr.strip() or 'AWS CLI failed'}")
+                raise Blocked(
+                    f"{operation}: {result.stderr.strip() or 'AWS CLI failed'}"
+                )
             return json.loads(result.stdout) if result.stdout.strip() else {}
         finally:
             if self.timing_log:
                 with self.timing_log.open("a", encoding="utf-8") as stream:
-                    stream.write(json.dumps({"phase": "awsApi", "operation": operation,
-                                             "seconds": time.perf_counter() - started}) + "\n")
+                    stream.write(
+                        json.dumps(
+                            {
+                                "phase": "awsApi",
+                                "operation": operation,
+                                "seconds": time.perf_counter() - started,
+                            }
+                        )
+                        + "\n"
+                    )
 
     def describe(self, identity):
         response = self.aws("describe-stacks", "--stack-name", identity)
@@ -133,14 +194,23 @@ class AwsBackend:
         # Stop at this deletion's root start, avoiding old retained events/history pages.
         events, arguments = [], []
         while True:
-            response = self.aws("describe-stack-events", "--stack-name", stack_id, "--no-paginate", *arguments)
+            response = self.aws(
+                "describe-stack-events",
+                "--stack-name",
+                stack_id,
+                "--no-paginate",
+                *arguments,
+            )
             page = response.get("StackEvents")
             if not isinstance(page, list):
                 raise Blocked("invalid describe-stack-events response")
             for event in page:
                 events.append(event)
-                if (event.get("PhysicalResourceId") == stack_id and event.get("ResourceType") == "AWS::CloudFormation::Stack"
-                        and event.get("ResourceStatus") == "DELETE_IN_PROGRESS"):
+                if (
+                    event.get("PhysicalResourceId") == stack_id
+                    and event.get("ResourceType") == "AWS::CloudFormation::Stack"
+                    and event.get("ResourceStatus") == "DELETE_IN_PROGRESS"
+                ):
                     return events
             if not response.get("NextToken"):
                 return events
@@ -151,9 +221,15 @@ def validate_identity(stack, name, target, pinned=None):
     identity = stack.get("StackId", "")
     parts = identity.split(":", 5)
     account = target.get("awsExecutionAccountId", target["awsAccountId"])
-    if (len(parts) != 6 or parts[0] != "arn" or parts[2:5] != ["cloudformation", target["awsRegion"], account]
-            or not re.fullmatch(r"stack/" + re.escape(name) + r"/[A-Za-z0-9-]+", parts[5])
-            or stack.get("StackName") != name or pinned and identity != pinned):
+    if (
+        len(parts) != 6
+        or parts[0] != "arn"
+        or parts[2:5] != ["cloudformation", target["awsRegion"], account]
+        or not re.fullmatch(r"stack/" + re.escape(name) + r"/[A-Za-z0-9-]+", parts[5])
+        or stack.get("StackName") != name
+        or pinned
+        and identity != pinned
+    ):
         raise Blocked(f"Stack identity/account/region mismatch: {name}")
     if not isinstance(stack.get("StackStatus"), str):
         raise Blocked(f"StackStatus missing: {name}")
@@ -164,7 +240,9 @@ def protection(stack, name):
     if stack.get("EnableTerminationProtection") is not False:
         raise Blocked(f"termination protection enabled or unknown: {name}")
     if stack.get("ParentId"):
-        raise Blocked(f"nested stack direct target forbidden: {name}; request its parent in a separate scope")
+        raise Blocked(
+            f"nested stack direct target forbidden: {name}; request its parent in a separate scope"
+        )
     if stack.get("RootId") and stack["RootId"] != stack["StackId"]:
         raise Blocked(f"nested root identity mismatch: {name}")
 
@@ -172,31 +250,53 @@ def protection(stack, name):
 def preflight(session, backend, limit, save):
     states = session["states"]
     # Fresh absence is terminal for this session; never adopt a later same-name creation.
-    names = sorted(name for name, state in states.items() if state["status"] != "ALREADY_ABSENT")
+    names = sorted(
+        name for name, state in states.items() if state["status"] != "ALREADY_ABSENT"
+    )
     with ThreadPoolExecutor(max_workers=limit) as pool:
-        results = list(pool.map(lambda name: backend.describe(states[name].get("StackId") or name), names))
+        results = list(
+            pool.map(
+                lambda name: backend.describe(states[name].get("StackId") or name),
+                names,
+            )
+        )
     errors = []
     for name, stack in zip(names, results, strict=False):
         state = states[name]
         try:
-            evidence = state.get("deleteObserved") or state["status"] == "DELETE_IN_PROGRESS"
+            evidence = (
+                state.get("deleteObserved") or state["status"] == "DELETE_IN_PROGRESS"
+            )
             if stack is not None:
-                identity = validate_identity(stack, name, backend.target, state.get("StackId"))
+                identity = validate_identity(
+                    stack, name, backend.target, state.get("StackId")
+                )
             if stack is None or stack.get("StackStatus") == "DELETE_COMPLETE":
-                state["status"] = "DELETE_COMPLETE" if evidence and state.get("StackId") else "ALREADY_ABSENT"
+                state["status"] = (
+                    "DELETE_COMPLETE"
+                    if evidence and state.get("StackId")
+                    else "ALREADY_ABSENT"
+                )
                 if state["status"] == "DELETE_COMPLETE":
                     state["deleteObserved"] = True
                 continue
-            state.update(StackId=identity, StackStatus=stack["StackStatus"],
-                         EnableTerminationProtection=stack.get("EnableTerminationProtection"),
-                         ParentId=stack.get("ParentId"), RootId=stack.get("RootId"))
+            state.update(
+                StackId=identity,
+                StackStatus=stack["StackStatus"],
+                EnableTerminationProtection=stack.get("EnableTerminationProtection"),
+                ParentId=stack.get("ParentId"),
+                RootId=stack.get("RootId"),
+            )
             if state["status"] == "DELETE_COMPLETE":
                 raise Blocked(f"completed stack exists again: {name}")
             actual = stack["StackStatus"]
             if actual == "DELETE_IN_PROGRESS":
                 state.update(status="DELETE_IN_PROGRESS", deleteObserved=True)
             elif actual == "DELETE_FAILED":
-                state.update(status="DELETE_FAILED", reason=stack.get("StackStatusReason", actual))
+                state.update(
+                    status="DELETE_FAILED",
+                    reason=stack.get("StackStatusReason", actual),
+                )
                 state["events"] = backend.events(identity)
                 raise Blocked(f"DELETE_FAILED requires Human action: {name}")
             elif actual.endswith("_IN_PROGRESS"):
@@ -204,7 +304,11 @@ def preflight(session, backend, limit, save):
             else:
                 state["status"] = "NOT_STARTED"
             protection(stack, name)
-            state["exportNames"] = sorted(output["ExportName"] for output in stack.get("Outputs", []) if output.get("ExportName"))
+            state["exportNames"] = sorted(
+                output["ExportName"]
+                for output in stack.get("Outputs", [])
+                if output.get("ExportName")
+            )
         except (ValueError, Blocked) as error:
             state["preflightError"] = str(error)
             errors.append(str(error))
@@ -218,37 +322,72 @@ def dependencies(session, backend, save):
     if "exports" not in session:
         # AWS CLI auto-pagination covers all pages in one logical list-exports call.
         exports = backend.aws("list-exports").get("Exports")
-        if (not isinstance(exports, list) or any(not isinstance(export, dict) or
-                not all(isinstance(export.get(key), str) and export[key] for key in ("Name", "ExportingStackId")) for export in exports)
-                or len({export["Name"] for export in exports}) != len(exports)):
+        if (
+            not isinstance(exports, list)
+            or any(
+                not isinstance(export, dict)
+                or not all(
+                    isinstance(export.get(key), str) and export[key]
+                    for key in ("Name", "ExportingStackId")
+                )
+                for export in exports
+            )
+            or len({export["Name"] for export in exports}) != len(exports)
+        ):
             raise Blocked("invalid list-exports response; cannot prove dependencies")
-        session["exports"] = [{key: export[key] for key in ("Name", "ExportingStackId")}
-                              for export in exports
-                              if export.get("ExportingStackId") in {state.get("StackId") for state in states.values()}]
+        session["exports"] = [
+            {key: export[key] for key in ("Name", "ExportingStackId")}
+            for export in exports
+            if export.get("ExportingStackId")
+            in {state.get("StackId") for state in states.values()}
+        ]
         save()
     else:
         # Reuse the single export snapshot only when current scoped Outputs prove it unchanged.
         for name, state in states.items():
             if state["status"] in {"DELETE_COMPLETE", "ALREADY_ABSENT"}:
                 continue
-            expected = sorted(export["Name"] for export in session["exports"] if export["ExportingStackId"] == state.get("StackId"))
+            expected = sorted(
+                export["Name"]
+                for export in session["exports"]
+                if export["ExportingStackId"] == state.get("StackId")
+            )
             if expected != state.get("exportNames", []):
-                raise Blocked(f"export snapshot changed on resume: {name}; require a new session")
-    owners = {state.get("StackId"): name for name, state in states.items() if state.get("StackId")}
+                raise Blocked(
+                    f"export snapshot changed on resume: {name}; require a new session"
+                )
+    owners = {
+        state.get("StackId"): name
+        for name, state in states.items()
+        if state.get("StackId")
+    }
     snapshot, errors = [], []
     for export in session["exports"]:
         producer = owners[export["ExportingStackId"]]
         if states[producer]["status"] in {"DELETE_COMPLETE", "ALREADY_ABSENT"}:
             continue
-        imports = backend.aws("list-imports", "--export-name", export["Name"]).get("Imports")
-        if not isinstance(imports, list) or any(not isinstance(name, str) or not name for name in imports):
+        imports = backend.aws("list-imports", "--export-name", export["Name"]).get(
+            "Imports"
+        )
+        if not isinstance(imports, list) or any(
+            not isinstance(name, str) or not name for name in imports
+        ):
             raise Blocked("invalid list-imports response; cannot prove dependencies")
-        snapshot.append({"export": export["Name"], "producer": producer, "importers": imports})
+        snapshot.append(
+            {"export": export["Name"], "producer": producer, "importers": imports}
+        )
         for consumer in imports:
-            if consumer not in states or states[consumer]["status"] in {"DELETE_COMPLETE", "ALREADY_ABSENT"}:
-                errors.append(f"importer outside live destroy scope: {consumer} imports {export['Name']}")
+            if consumer not in states or states[consumer]["status"] in {
+                "DELETE_COMPLETE",
+                "ALREADY_ABSENT",
+            }:
+                errors.append(
+                    f"importer outside live destroy scope: {consumer} imports {export['Name']}"
+                )
             elif states[consumer]["DeployOrder"] <= states[producer]["DeployOrder"]:
-                errors.append(f"actual import dependency conflicts with designed DeployOrder: {consumer} -> {producer}")
+                errors.append(
+                    f"actual import dependency conflicts with designed DeployOrder: {consumer} -> {producer}"
+                )
     session["dependencySnapshot"] = snapshot
     save()
     if errors:
@@ -258,7 +397,9 @@ def dependencies(session, backend, save):
 def poll(name, state, backend):
     stack = backend.describe(state["StackId"])
     if stack is None:
-        return "DELETE_COMPLETE" if state.get("deleteObserved") else "ALREADY_ABSENT", None
+        return "DELETE_COMPLETE" if state.get(
+            "deleteObserved"
+        ) else "ALREADY_ABSENT", None
     validate_identity(stack, name, backend.target, state["StackId"])
     return stack["StackStatus"], stack.get("StackStatusReason")
 
@@ -270,14 +411,24 @@ def _callback_run_session_read(backend, states, /, name):
         return name, None, str(error)
 
 
-def run_session(session, backend, limit, save, guard, sleep=time.sleep, drain_only=False):
+def run_session(
+    session, backend, limit, save, guard, sleep=time.sleep, drain_only=False
+):
     """Poll all active peers before freeing slots; never advance a failed group."""
     states = session["states"]
-    stopped = drain_only or any(state["status"] == "DELETE_FAILED" for state in states.values())
-    for order in sorted({state["DeployOrder"] for state in states.values()}, reverse=True):
-        group = [name for name in sorted(states) if states[name]["DeployOrder"] == order]
+    stopped = drain_only or any(
+        state["status"] == "DELETE_FAILED" for state in states.values()
+    )
+    for order in sorted(
+        {state["DeployOrder"] for state in states.values()}, reverse=True
+    ):
+        group = [
+            name for name in sorted(states) if states[name]["DeployOrder"] == order
+        ]
         while True:
-            active = [name for name in group if states[name]["status"] == "DELETE_IN_PROGRESS"]
+            active = [
+                name for name in group if states[name]["status"] == "DELETE_IN_PROGRESS"
+            ]
             read = _bind_framework_callback(_callback_run_session_read, backend, states)
             with ThreadPoolExecutor(max_workers=limit) as pool:
                 results = list(pool.map(read, active))
@@ -300,19 +451,32 @@ def run_session(session, backend, limit, save, guard, sleep=time.sleep, drain_on
                     state["status"] = actual
                 else:
                     stopped = True
-                    state.update(status="DELETE_FAILED" if actual == "DELETE_FAILED" else "BLOCKED", reason=reason or actual)
+                    state.update(
+                        status="DELETE_FAILED"
+                        if actual == "DELETE_FAILED"
+                        else "BLOCKED",
+                        reason=reason or actual,
+                    )
                 if state["status"] in {"DELETE_COMPLETE", "DELETE_FAILED"}:
                     try:
                         state["events"] = backend.events(state["StackId"])
-                        state["retained"] = [event for event in state["events"] if event.get("ResourceStatus") == "DELETE_SKIPPED"]
+                        state["retained"] = [
+                            event
+                            for event in state["events"]
+                            if event.get("ResourceStatus") == "DELETE_SKIPPED"
+                        ]
                     except Exception as error:
                         # Destruction proof is independent of diagnostics availability.
                         state["eventsError"] = str(error)
             save()
             if unavailable:
-                session["reason"] = "read access unavailable; running stacks require resume/drain"
+                session["reason"] = (
+                    "read access unavailable; running stacks require resume/drain"
+                )
                 return "BLOCKED"
-            active = [name for name in group if states[name]["status"] == "DELETE_IN_PROGRESS"]
+            active = [
+                name for name in group if states[name]["status"] == "DELETE_IN_PROGRESS"
+            ]
             if not stopped:
                 for name in group:
                     if states[name]["status"] != "NOT_STARTED" or len(active) >= limit:
@@ -326,8 +490,12 @@ def run_session(session, backend, limit, save, guard, sleep=time.sleep, drain_on
                             continue
                         validate_identity(stack, name, backend.target, state["StackId"])
                         protection(stack, name)
-                        if stack["StackStatus"].endswith("_IN_PROGRESS") or stack["StackStatus"] in {"DELETE_COMPLETE", "DELETE_FAILED"}:
-                            raise Blocked(f"stack state changed before delete: {name}: {stack['StackStatus']}")
+                        if stack["StackStatus"].endswith("_IN_PROGRESS") or stack[
+                            "StackStatus"
+                        ] in {"DELETE_COMPLETE", "DELETE_FAILED"}:
+                            raise Blocked(
+                                f"stack state changed before delete: {name}: {stack['StackStatus']}"
+                            )
                         state["status"] = "DELETE_INTENT"
                         save()  # Durable identity/intent before mutation; intent alone never proves deletion.
                         backend.delete(state["StackId"])
@@ -346,7 +514,9 @@ def run_session(session, backend, limit, save, guard, sleep=time.sleep, drain_on
                             state["pollError"] = str(read_error)
                         save()
                         break
-            active = [name for name in group if states[name]["status"] == "DELETE_IN_PROGRESS"]
+            active = [
+                name for name in group if states[name]["status"] == "DELETE_IN_PROGRESS"
+            ]
             if not active:
                 break
             sleep(5)
@@ -363,11 +533,33 @@ def _callback_controller_main_persist(session, state_path, /):
 
 
 # Only cheap invariants: no templates, infra manifests or validation tree digests.
-def _callback_controller_main_guard(_state_controller_main_355, args, context, contract, contract_path, directory, identity, immutable, issue_digest, root, session, target, /, name, state):
+def _callback_controller_main_guard(
+    _state_controller_main_355,
+    args,
+    context,
+    contract,
+    contract_path,
+    directory,
+    identity,
+    immutable,
+    issue_digest,
+    root,
+    session,
+    target,
+    /,
+    name,
+    state,
+):
     # Only cheap invariants: no templates, infra manifests or validation tree digests.
-    if read_task_snapshot(root, live=True).text != contract or status(contract) != "running":
+    if (
+        read_task_snapshot(root, live=True).text != contract
+        or status(contract) != "running"
+    ):
         raise Blocked("selected active task changed before mutation")
-    if context.load_target(root, args.environment, args.aws_account_id, args.alias) != target:
+    if (
+        context.load_target(root, args.environment, args.aws_account_id, args.alias)
+        != target
+    ):
         raise Blocked("project target/account/region/profile changed before mutation")
     if issue_snapshot(root, args.environment, directory) != issue_digest:
         raise Blocked("issue gate snapshot changed before mutation")
@@ -375,7 +567,15 @@ def _callback_controller_main_guard(_state_controller_main_355, args, context, c
         raise Blocked("session scope changed before mutation")
     if state["StackId"] != _state_controller_main_355.pinned.get(name):
         raise Blocked("pinned StackId changed before mutation")
-    validate_identity({"StackName": name, "StackId": state["StackId"], "StackStatus": state["StackStatus"]}, name, target)
+    validate_identity(
+        {
+            "StackName": name,
+            "StackId": state["StackId"],
+            "StackStatus": state["StackStatus"],
+        },
+        name,
+        target,
+    )
 
 
 def controller_main(argv=None, root=None):
@@ -390,33 +590,59 @@ def controller_main(argv=None, root=None):
     parser.add_argument("--profile")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--sequential", action="store_true")
-    parser.add_argument("--local-plan", action="store_true", help="local JSON resource/output plan; no AWS calls")
+    parser.add_argument(
+        "--local-plan",
+        action="store_true",
+        help="local JSON resource/output plan; no AWS calls",
+    )
     parser.add_argument("--timing-log", type=Path)
     args = parser.parse_args(argv)
     root = (root if root is not None else Path.cwd()).resolve()
     session, lock, save = None, None, None
     try:
         context = context_module()
-        target = context.load_target(root, args.environment, args.aws_account_id, args.alias)
+        target = context.load_target(
+            root, args.environment, args.aws_account_id, args.alias
+        )
         profile = select_profile(target, args.profile)
         if target["iacEngine"] != "cloudformation":
             raise Blocked("destroy requires CloudFormation target")
         directory = args.alias or args.aws_account_id
-        plan = local_plan(root, args.environment, directory, args.stack, check_scope=not args.local_plan)
+        plan = local_plan(
+            root,
+            args.environment,
+            directory,
+            args.stack,
+            check_scope=not args.local_plan,
+        )
         if args.local_plan:
-            print(json.dumps({"target": target, "directory": directory, **plan}, indent=2))
+            print(
+                json.dumps({"target": target, "directory": directory, **plan}, indent=2)
+            )
             return 0
-        contract_path, contract = task_snapshot(root, args.environment, target, args.stack, plan)
+        contract_path, contract = task_snapshot(
+            root, args.environment, target, args.stack, plan
+        )
         if not args.state or args.state.resolve().is_relative_to(root):
             raise Blocked("destroy requires --state outside repository")
         state_path = args.state.resolve()
         if args.timing_log and args.timing_log.resolve().is_relative_to(root):
             raise Blocked("timing log must be outside repository")
         limit = 1 if args.sequential else plan["maxConcurrentStacks"]
-        identity = {"repository": str(root), "environment": args.environment, "target": target,
-                    "profile": profile, "scope": sorted(args.stack),
-                    "profileIdentity": profile or os.environ.get("AWS_PROFILE") or os.environ.get("AWS_DEFAULT_PROFILE") or "default credential chain",
-                    "limit": limit, "taskFile": contract_path.relative_to(root).as_posix(), "plan": plan}
+        identity = {
+            "repository": str(root),
+            "environment": args.environment,
+            "target": target,
+            "profile": profile,
+            "scope": sorted(args.stack),
+            "profileIdentity": profile
+            or os.environ.get("AWS_PROFILE")
+            or os.environ.get("AWS_DEFAULT_PROFILE")
+            or "default credential chain",
+            "limit": limit,
+            "taskFile": contract_path.relative_to(root).as_posix(),
+            "plan": plan,
+        }
         immutable = fingerprint(identity)
         if args.resume:
             session = json.loads(state_path.read_text(encoding="utf-8"))
@@ -425,57 +651,124 @@ def controller_main(argv=None, root=None):
         else:
             if state_path.exists():
                 raise Blocked("new destroy session requires unused state path")
-            session = {"version": 1, "identity": identity, "states": {
-                unit["name"]: {"StackName": unit["name"], "DeployOrder": unit["deployOrder"],
-                               "status": "NOT_STARTED", "observedSynced": False} for unit in plan["units"]}}
+            session = {
+                "version": 1,
+                "identity": identity,
+                "states": {
+                    unit["name"]: {
+                        "StackName": unit["name"],
+                        "DeployOrder": unit["deployOrder"],
+                        "status": "NOT_STARTED",
+                        "observedSynced": False,
+                    }
+                    for unit in plan["units"]
+                },
+            }
         if set(session["states"]) != set(args.stack):
             raise Blocked("saved StackName scope changed")
         for unit in plan["units"]:
             state = session["states"][unit["name"]]
-            if state.get("StackName") != unit["name"] or state.get("DeployOrder") != unit["deployOrder"]:
+            if (
+                state.get("StackName") != unit["name"]
+                or state.get("DeployOrder") != unit["deployOrder"]
+            ):
                 raise Blocked("saved stack identity/DeployOrder changed")
             if state.get("StackId"):
-                validate_identity({"StackName": unit["name"], "StackId": state["StackId"],
-                                   "StackStatus": state["status"]}, unit["name"], target)
+                validate_identity(
+                    {
+                        "StackName": unit["name"],
+                        "StackId": state["StackId"],
+                        "StackStatus": state["status"],
+                    },
+                    unit["name"],
+                    target,
+                )
         # Share deploy's target lock; do not run deploy code or its guard.
-        lock_target = {key: value for key, value in target.items() if key != "awsProfile"}
-        lock_path = Path(tempfile.gettempdir()) / ("blueprint-cfn-" + fingerprint([args.environment, lock_target]) + ".lock")
+        lock_target = {
+            key: value for key, value in target.items() if key != "awsProfile"
+        }
+        lock_path = Path(tempfile.gettempdir()) / (
+            "blueprint-cfn-" + fingerprint([args.environment, lock_target]) + ".lock"
+        )
         lock = lock_path.open("x")
-        persist = _bind_framework_callback(_callback_controller_main_persist, session, state_path)
+        persist = _bind_framework_callback(
+            _callback_controller_main_persist, session, state_path
+        )
         save = persist
         save()
         started = time.perf_counter()
-        authenticated = context.check_deploy_context(root, args.environment, args.aws_account_id, args.alias,
-                                                    args.profile, read_only=True)
+        authenticated = context.check_deploy_context(
+            root,
+            args.environment,
+            args.aws_account_id,
+            args.alias,
+            args.profile,
+            read_only=True,
+        )
         if authenticated != target:
             raise Blocked("AWS context changed during authentication")
         if args.timing_log:
             with args.timing_log.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps({"phase": "authenticationContext", "seconds": time.perf_counter() - started}) + "\n")
-        backend = AwsBackend(root, args.environment, directory, target, args.profile, args.timing_log)
-        session["context"] = {"account": execution_account(target),
-                              "region": target["awsRegion"], "profile": backend.profile}
+                stream.write(
+                    json.dumps(
+                        {
+                            "phase": "authenticationContext",
+                            "seconds": time.perf_counter() - started,
+                        }
+                    )
+                    + "\n"
+                )
+        backend = AwsBackend(
+            root, args.environment, directory, target, args.profile, args.timing_log
+        )
+        session["context"] = {
+            "account": execution_account(target),
+            "region": target["awsRegion"],
+            "profile": backend.profile,
+        }
         issue_digest = issue_snapshot(root, args.environment, directory)
         _state_controller_main_355.pinned = {}
-        guard = _bind_framework_callback(_callback_controller_main_guard, _state_controller_main_355, args, context, contract, contract_path, directory, identity, immutable, issue_digest, root, session, target)
+        guard = _bind_framework_callback(
+            _callback_controller_main_guard,
+            _state_controller_main_355,
+            args,
+            context,
+            contract,
+            contract_path,
+            directory,
+            identity,
+            immutable,
+            issue_digest,
+            root,
+            session,
+            target,
+        )
         try:
             preflight(session, backend, limit, save)
-            _state_controller_main_355.pinned = {name: state.get("StackId") for name, state in session["states"].items()}
+            _state_controller_main_355.pinned = {
+                name: state.get("StackId") for name, state in session["states"].items()
+            }
             dependencies(session, backend, save)
-            require_target_no_issues(root, (args.environment, directory))  # Once before the first mutation.
+            require_target_no_issues(
+                root, (args.environment, directory)
+            )  # Once before the first mutation.
             if issue_snapshot(root, args.environment, directory) != issue_digest:
                 raise Blocked("issue list changed during preflight")
             session.pop("reason", None)
             session["status"] = run_session(session, backend, limit, save, guard)
         except Exception as error:
             session["reason"] = str(error)
-            session["status"] = run_session(session, backend, limit, save, guard, drain_only=True)
+            session["status"] = run_session(
+                session, backend, limit, save, guard, drain_only=True
+            )
         finally:
             sync_destroyed(backend, session["states"], plan["observed"])
             save()
         if session["status"] == "COMPLETE":
             # The workflow owns exactly one final scoped local loop, never a full regression here.
-            session["completion"] = "Run blueprint-loop.py --mode task --task-file " + identity["taskFile"]
+            session["completion"] = (
+                "Run blueprint-loop.py --mode task --task-file " + identity["taskFile"]
+            )
         save()
         print(json.dumps(session, indent=2))
         return 0 if session["status"] == "COMPLETE" else 1

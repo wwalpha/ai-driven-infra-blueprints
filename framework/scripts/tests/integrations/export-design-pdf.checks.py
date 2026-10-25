@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-
 import importlib.util
 import subprocess
 import tempfile
@@ -21,7 +20,7 @@ from support.it_case_receipt import it_case
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-SCRIPT = (Path(__file__).resolve().parents[2] / 'export-design-pdf.py')
+SCRIPT = Path(__file__).resolve().parents[2] / "export-design-pdf.py"
 SPEC = importlib.util.spec_from_file_location("export_design_pdf", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -51,29 +50,31 @@ def main() -> None:
         other = stg / "vpc.md"
         artifact = cde / "vpc" / "policy.json"
         artifact.parent.mkdir()
-        artifact.write_text('{"Version":"2012-10-17","Statement":[]}\n', encoding="utf-8")
+        artifact.write_text(
+            '{"Version":"2012-10-17","Statement":[]}\n', encoding="utf-8"
+        )
         iam.write_text(
-            '# IAM 詳細設計\n\n## リソース一覧\n\n### IAM.Role\n\n'
-            '| Role |\n| --- |\n| [Role](#iam-role) |\n| [RoleTwo](#iam-role-two) |\n\n'
-            '### IAM.Policy\n\n| Policy |\n| --- |\n| [Policy](#iam-policy) |\n\n'
+            "# IAM 詳細設計\n\n## リソース一覧\n\n### IAM.Role\n\n"
+            "| Role |\n| --- |\n| [Role](#iam-role) |\n| [RoleTwo](#iam-role-two) |\n\n"
+            "### IAM.Policy\n\n| Policy |\n| --- |\n| [Policy](#iam-policy) |\n\n"
             '## リソース詳細\n\n<a id="iam-role"></a>\n### IAM.Role: Role\n\n'
-            '| No. | Property |\n| ---: | --- |\n| 1 | RoleName |\n\n'
+            "| No. | Property |\n| ---: | --- |\n| 1 | RoleName |\n\n"
             '<a id="iam-role-two"></a>\n### IAM.Role: RoleTwo\n\n'
             '<a id="iam-policy"></a>\n### IAM.Policy: Policy\n',
             encoding="utf-8",
         )
         vpc.write_text(
-            '# VPC 詳細設計\n\n## リソース一覧\n\n'
-            '| VPC |\n| --- |\n| [A](#vpc-a) |\n\n'
+            "# VPC 詳細設計\n\n## リソース一覧\n\n"
+            "| VPC |\n| --- |\n| [A](#vpc-a) |\n\n"
             '## リソース詳細\n\n<a id="vpc-a"></a>\n### EC2.VPC: A\n\n'
-            '[A](#vpc-a) [Role](iam.md#iam-role)\n'
-            '[policy](vpc/policy.json) [policy again](vpc/policy.json)\n'
-            '~~~md\n[example](missing.md#example)\n~~~\n',
+            "[A](#vpc-a) [Role](iam.md#iam-role)\n"
+            "[policy](vpc/policy.json) [policy again](vpc/policy.json)\n"
+            "~~~md\n[example](missing.md#example)\n~~~\n",
             encoding="utf-8",
         )
         other.write_text(
-            '# VPC 詳細設計\n\n## リソース一覧\n\n'
-            '| VPC |\n| --- |\n| [A](#vpc-a) |\n\n'
+            "# VPC 詳細設計\n\n## リソース一覧\n\n"
+            "| VPC |\n| --- |\n| [A](#vpc-a) |\n\n"
             '## リソース詳細\n\n<a id="vpc-a"></a>\n### EC2.VPC: A\n[A](#vpc-a)\n',
             encoding="utf-8",
         )
@@ -87,44 +88,83 @@ def main() -> None:
             "appendix-dev-cde-vpc-policy": 2,
             "stg-non-cde-vpc-a": 2,
         }, expected
-        assert '[Role](#dev-cde-iam-role)' in merged
-        assert '[A](#dev-cde-vpc-a)' in merged
-        assert '[A](#stg-non-cde-vpc-a)' in merged
-        assert merged.count('{#appendix-dev-cde-vpc-policy}') == 1
-        assert merged.count('](#appendix-dev-cde-vpc-policy)') == 2
-        assert '[example](missing.md#example)' in merged
-        assert '# 詳細設計書' not in merged
-        assert '# dev / cde {#target-dev-cde .target-title .first-target}' in merged
-        assert '# stg / non-cde {#target-stg-non-cde .target-title}' in merged
-        assert '## IAM 詳細設計 {#service-dev-cde-iam .service-title .first-service}' in merged
-        assert '## VPC 詳細設計 {#service-dev-cde-vpc .service-title}' in merged
-        assert '## VPC 詳細設計 {#service-stg-non-cde-vpc .service-title .first-service}' in merged
-        assert '| No. | Role |\n| ---: | --- |\n| 1 | [Role](#dev-cde-iam-role) |\n| 2 | [RoleTwo](#dev-cde-iam-role-two) |' in merged
-        assert '| No. | Policy |\n| ---: | --- |\n| 1 | [Policy](#dev-cde-iam-policy) |' in merged
-        assert '| No. | Property |\n| ---: | --- |\n| 1 | RoleName |' in merged
+        assert "[Role](#dev-cde-iam-role)" in merged
+        assert "[A](#dev-cde-vpc-a)" in merged
+        assert "[A](#stg-non-cde-vpc-a)" in merged
+        assert merged.count("{#appendix-dev-cde-vpc-policy}") == 1
+        assert merged.count("](#appendix-dev-cde-vpc-policy)") == 2
+        assert "[example](missing.md#example)" in merged
+        assert "# 詳細設計書" not in merged
+        assert "# dev / cde {#target-dev-cde .target-title .first-target}" in merged
+        assert "# stg / non-cde {#target-stg-non-cde .target-title}" in merged
+        assert (
+            "## IAM 詳細設計 {#service-dev-cde-iam .service-title .first-service}"
+            in merged
+        )
+        assert "## VPC 詳細設計 {#service-dev-cde-vpc .service-title}" in merged
+        assert (
+            "## VPC 詳細設計 {#service-stg-non-cde-vpc .service-title .first-service}"
+            in merged
+        )
+        assert (
+            "| No. | Role |\n| ---: | --- |\n| 1 | [Role](#dev-cde-iam-role) |\n| 2 | [RoleTwo](#dev-cde-iam-role-two) |"
+            in merged
+        )
+        assert (
+            "| No. | Policy |\n| ---: | --- |\n| 1 | [Policy](#dev-cde-iam-policy) |"
+            in merged
+        )
+        assert "| No. | Property |\n| ---: | --- |\n| 1 | RoleName |" in merged
         assert '<a id="dev-cde-vpc-a"></a>\n\n#### EC2.VPC: A' in merged
 
         output = root / "existing.pdf"
         output.write_bytes(b"existing PDF")
         missing_native = "cannot load library 'libgobject-2.0-0': error 0x7e"
-        with patch.object(MODULE.shutil, "which", return_value="available"), \
-                patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess(
-                    ["weasyprint", "--info"], 1, "", missing_native)) as run:
+        with (
+            patch.object(MODULE.shutil, "which", return_value="available"),
+            patch.object(
+                MODULE.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(
+                    ["weasyprint", "--info"], 1, "", missing_native
+                ),
+            ) as run,
+        ):
             try:
                 MODULE.export(root, output)
             except RuntimeError as error:
-                assert "README.md#pdf-dependencies" in str(error) and missing_native in str(error)
+                assert "README.md#pdf-dependencies" in str(
+                    error
+                ) and missing_native in str(error)
             else:
                 raise AssertionError("missing native libraries must stop PDF export")
-            assert run.call_count == 1 and run.call_args.args[0] == ["weasyprint", "--info"]
+            assert run.call_count == 1 and run.call_args.args[0] == [
+                "weasyprint",
+                "--info",
+            ]
             assert output.read_bytes() == b"existing PDF"
 
-        vpc.write_text(vpc.read_text(encoding="utf-8").replace('iam.md#iam-role', 'iam.md#missing'), encoding="utf-8")
+        vpc.write_text(
+            vpc.read_text(encoding="utf-8").replace(
+                "iam.md#iam-role", "iam.md#missing"
+            ),
+            encoding="utf-8",
+        )
         expect_error(root, "missing PDF link target")
-        vpc.write_text(vpc.read_text(encoding="utf-8").replace('iam.md#missing', 'iam.md#iam-role'), encoding="utf-8")
-        iam.write_text(iam.read_text(encoding="utf-8") + '<a id="iam-role"></a>\n', encoding="utf-8")
+        vpc.write_text(
+            vpc.read_text(encoding="utf-8").replace(
+                "iam.md#missing", "iam.md#iam-role"
+            ),
+            encoding="utf-8",
+        )
+        iam.write_text(
+            iam.read_text(encoding="utf-8") + '<a id="iam-role"></a>\n',
+            encoding="utf-8",
+        )
         expect_error(root, "duplicate design anchor")
-    print("export-design-pdf: PASS (bundle, links, appendix, fences, anchors, native dependency failure retains output)")
+    print(
+        "export-design-pdf: PASS (bundle, links, appendix, fences, anchors, native dependency failure retains output)"
+    )
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 """Design references, grouped resources and resource overviews."""
 
-
 from __future__ import annotations
 
 from functools import partial as _bind_framework_callback
@@ -30,25 +29,56 @@ def errors_for(rows: list[list[str]]) -> list[str]:
 
 
 def check_artifact_naming() -> None:
-    trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-trust-policy.json)", "信頼ポリシー"]
-    old_trust = ["1", "AssumeRolePolicyDocument", "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)", "信頼ポリシー"]
-    inline_name = ["1", "Policies[].PolicyName", "`VPCFlowLogsToCloudWatchLogs`", "ポリシー名"]
-    inline = ["2", "Policies[].PolicyDocument", "[Policy](iam/vpcflowlogrole01-vpc-flow-logs-to-cloud-watch-logs.json)", "権限ポリシー"]
-    old_inline = ["2", "Policies[].PolicyDocument", "[Policy](iam/vpcflowlogrole01-inline-policy-document.json)", "権限ポリシー"]
+    trust = [
+        "1",
+        "AssumeRolePolicyDocument",
+        "[Trust](iam/vpcflowlogrole01-trust-policy.json)",
+        "信頼ポリシー",
+    ]
+    old_trust = [
+        "1",
+        "AssumeRolePolicyDocument",
+        "[Trust](iam/vpcflowlogrole01-assume-role-policy-document.json)",
+        "信頼ポリシー",
+    ]
+    inline_name = [
+        "1",
+        "Policies[].PolicyName",
+        "`VPCFlowLogsToCloudWatchLogs`",
+        "ポリシー名",
+    ]
+    inline = [
+        "2",
+        "Policies[].PolicyDocument",
+        "[Policy](iam/vpcflowlogrole01-vpc-flow-logs-to-cloud-watch-logs.json)",
+        "権限ポリシー",
+    ]
+    old_inline = [
+        "2",
+        "Policies[].PolicyDocument",
+        "[Policy](iam/vpcflowlogrole01-inline-policy-document.json)",
+        "権限ポリシー",
+    ]
     assert not errors_for([trust])
     assert errors_for([old_trust])
     assert not errors_for([inline_name, inline])
     assert errors_for([inline_name, old_inline])
-    assert MODULE.artifact_id("VPCFlowLogsToCloudWatchLogs") == "vpc-flow-logs-to-cloud-watch-logs"
+    assert (
+        MODULE.artifact_id("VPCFlowLogsToCloudWatchLogs")
+        == "vpc-flow-logs-to-cloud-watch-logs"
+    )
 
 
 def check_identifier_propagation() -> None:
     repository = SCRIPT.parents[2]
-    catalog_types, property_owners, identifier_outputs = MODULE.Validator(repository).catalog_design_properties()
+    catalog_types, property_owners, identifier_outputs = MODULE.Validator(
+        repository
+    ).catalog_design_properties()
     with project() as root:
         design = root / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
         design.parent.mkdir(parents=True)
-        write(design,
+        write(
+            design,
             """# Amazon VPC 詳細設計
 
 - Design service ID: `vpc`
@@ -74,48 +104,70 @@ def check_identifier_propagation() -> None:
 | 1 | Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
 | 2 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
 | 3 | SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
-"""
+""",
         )
         metadata = {design: ("vpc", ("EC2.VPC", "EC2.Subnet"))}
         validator = schema_validator(root)
-        validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
+        validator.check_design_tables(
+            metadata, catalog_types, property_owners, identifier_outputs
+        )
         validator.check_design_links(identifier_outputs)
         assert not validator.errors, validator.errors
 
-        write(design,
+        write(
+            design,
             design.read_text(encoding="utf-8")
             .replace("VpcId | PENDING_DEPLOY", "VpcId | vpc-0123456789abcdef0")
-            .replace("[PENDING_DEPLOY](#vpc-vpc-app-dev)", "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)")
-            .replace("SubnetId | PENDING_DEPLOY", "SubnetId | subnet-0123456789abcdef0")
+            .replace(
+                "[PENDING_DEPLOY](#vpc-vpc-app-dev)",
+                "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)",
+            )
+            .replace(
+                "SubnetId | PENDING_DEPLOY", "SubnetId | subnet-0123456789abcdef0"
+            ),
         )
         validator = schema_validator(root)
-        validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
+        validator.check_design_tables(
+            metadata, catalog_types, property_owners, identifier_outputs
+        )
         validator.check_design_links(identifier_outputs)
         assert not validator.errors, validator.errors
 
         deployed = design.read_text(encoding="utf-8")
-        write(design,
-            deployed.replace("vpc-0123456789abcdef0", "vpc-app-dev")
-        )
+        write(design, deployed.replace("vpc-0123456789abcdef0", "vpc-app-dev"))
         validator = schema_validator(root)
-        validator.check_design_tables(metadata, catalog_types, property_owners, identifier_outputs)
-        assert any("must use a physical value" in error for error in diagnostics(validator))
+        validator.check_design_tables(
+            metadata, catalog_types, property_owners, identifier_outputs
+        )
+        assert any(
+            "must use a physical value" in error for error in diagnostics(validator)
+        )
 
-        write(design,
+        write(
+            design,
             deployed.replace(
-                "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)", "[vpc-wrong](#vpc-vpc-app-dev)"
-            )
+                "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)",
+                "[vpc-wrong](#vpc-vpc-app-dev)",
+            ),
         )
         validator = MODULE.Validator(root)
         validator.check_design_links(identifier_outputs)
-        assert any("identifier reference does not match observed target" in error for error in diagnostics(validator))
+        assert any(
+            "identifier reference does not match observed target" in error
+            for error in diagnostics(validator)
+        )
 
 
-def _callback_check_array_source_role_links_errors(indexed_rows, path, role, root, /, label):
-    rows = indexed_rows([
-        ["1", "InstanceProfileName", "`app-profile`", "Profile name"],
-        ["2", "Roles", f"[{label}](#iam-role)", "Selected role"],
-    ], "IAM.InstanceProfile")
+def _callback_check_array_source_role_links_errors(
+    indexed_rows, path, role, root, /, label
+):
+    rows = indexed_rows(
+        [
+            ["1", "InstanceProfileName", "`app-profile`", "Profile name"],
+            ["2", "Roles", f"[{label}](#iam-role)", "Selected role"],
+        ],
+        "IAM.InstanceProfile",
+    )
     content = role + "\n".join("| " + " | ".join(row) + " |" for row in rows) + "\n"
     # Hidden links must not enter reference discovery or broken-link checks.
     content += "<!--\n[hidden](missing.md#missing)\n-->\n"
@@ -145,13 +197,31 @@ def check_array_source_role_links() -> None:
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 """
-        errors = _bind_framework_callback(_callback_check_array_source_role_links_errors, indexed_rows, path, role, root)
+        errors = _bind_framework_callback(
+            _callback_check_array_source_role_links_errors,
+            indexed_rows,
+            path,
+            role,
+            root,
+        )
 
         assert not errors("app-role"), errors("app-role")
-        assert any("IAM Role link must display RoleName" in error for error in errors("wrong-role")), errors("wrong-role")
+        assert any(
+            "IAM Role link must display RoleName" in error
+            for error in errors("wrong-role")
+        ), errors("wrong-role")
 
 
-def _callback_check_s3_bucket_policy_grouping_errors(catalog_types, design, identifier_outputs, metadata, property_owners, root, /, markdown: str):
+def _callback_check_s3_bucket_policy_grouping_errors(
+    catalog_types,
+    design,
+    identifier_outputs,
+    metadata,
+    property_owners,
+    root,
+    /,
+    markdown: str,
+):
     write(design, markdown)
     validator = schema_validator(root)
     validator.check_design_tables(
@@ -172,7 +242,8 @@ def check_s3_bucket_policy_grouping() -> None:
         artifact.parent.mkdir(parents=True)
         write(artifact, '{"Version":"2012-10-17","Statement":[]}\n')
         kms_design = design.with_name("kms.md")
-        write(kms_design,
+        write(
+            kms_design,
             """# AWS KMS 詳細設計
 
 - Design service ID: `kms`
@@ -188,7 +259,7 @@ def check_s3_bucket_policy_grouping() -> None:
 | ---: | --- | --- | --- |
 | 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
 | 2 | KMS.Alias.AliasName | `alias/app-data` | <a id="resource-AppDataKeyAlias"></a><!-- logical-id: AppDataKeyAlias --> application data用keyを識別するalias |
-"""
+""",
         )
         valid = """# Amazon S3 詳細設計
 
@@ -215,7 +286,15 @@ def check_s3_bucket_policy_grouping() -> None:
             kms_design: ("kms", ("KMS.Key", "KMS.Alias")),
         }
 
-        errors = _bind_framework_callback(_callback_check_s3_bucket_policy_grouping_errors, catalog_types, design, identifier_outputs, metadata, property_owners, root)
+        errors = _bind_framework_callback(
+            _callback_check_s3_bucket_policy_grouping_errors,
+            catalog_types,
+            design,
+            identifier_outputs,
+            metadata,
+            property_owners,
+            root,
+        )
 
         assert not (failures := errors(valid)), failures
         wrong_order = valid.replace(
@@ -224,37 +303,56 @@ def check_s3_bucket_policy_grouping() -> None:
             "| 1 | Region | `ap-northeast-1` | bucketを配置するAWS region |\n"
             "| 2 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |",
         )
-        assert any("BucketName must be the first row" in error for error in errors(wrong_order))
+        assert any(
+            "BucketName must be the first row" in error for error in errors(wrong_order)
+        )
         other_region = valid.replace("`ap-northeast-1`", "`us-east-1`")
         assert not errors(other_region)
         unset_region = valid.replace("`ap-northeast-1`", "`UNSET`")
-        assert any("must be a confirmed AWS region ID" in error for error in errors(unset_region))
+        assert any(
+            "must be a confirmed AWS region ID" in error
+            for error in errors(unset_region)
+        )
         literal_alias = valid.replace(
             "[alias/app-data](kms.md#resource-AppDataKeyAlias)", "`alias/app-data`"
         )
-        assert any("must link to a KMS.Alias" in error for error in errors(literal_alias))
+        assert any(
+            "must link to a KMS.Alias" in error for error in errors(literal_alias)
+        )
         wrong_alias = valid.replace("[alias/app-data]", "[alias/other]")
-        assert any("must display the referenced KMS alias" in error for error in errors(wrong_alias))
+        assert any(
+            "must display the referenced KMS alias" in error
+            for error in errors(wrong_alias)
+        )
         wrong_heading = valid.replace(
             "### S3.Bucket: app-dev-data-123456789012",
             "### S3.Bucket: AppDataBucket",
         )
-        assert any("heading identifier must match BucketName" in error for error in errors(wrong_heading))
+        assert any(
+            "heading identifier must match BucketName" in error
+            for error in errors(wrong_heading)
+        )
         explicit_bucket = valid.replace(
             "| 6 | S3.BucketPolicy.PolicyDocument",
             "| 6 | S3.BucketPolicy.Bucket | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | bucket policyを適用するbucket |\n"
             "| 7 | S3.BucketPolicy.PolicyDocument",
         )
-        assert any("S3.BucketPolicy.Bucket must be omitted" in error for error in errors(explicit_bucket))
+        assert any(
+            "S3.BucketPolicy.Bucket must be omitted" in error
+            for error in errors(explicit_bucket)
+        )
         separate_heading = valid.replace(
             "| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
-            "\n<a id=\"s3-appdatabucketpolicy\"></a>\n\n"
+            '\n<a id="s3-appdatabucketpolicy"></a>\n\n'
             "### S3.BucketPolicy: AppDataBucketPolicy\n\n"
             "| No. | Property | Value | Source / Comment |\n"
             "| ---: | --- | --- | --- |\n"
             "| 1 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |",
         )
-        assert any("must not have an independent heading" in error for error in errors(separate_heading))
+        assert any(
+            "must not have an independent heading" in error
+            for error in errors(separate_heading)
+        )
 
 
 def _callback_check_subnet_association_overview_errors(design, root, /, markdown):
@@ -272,18 +370,35 @@ def check_subnet_association_overview() -> None:
         f"- Owned catalog resource types: `EC2.Subnet`, `EC2.RouteTable`, `{association_type}`\n\n"
     )
     subnet_header = "| No. | ResourceName | Comment |"
-    subnet_rows = [f"| {number} | [subnet-{number}](#vpc-subnet-{number}) | Subnetの用途 |" for number in range(1, 4)]
-    overview = "\n".join([
-        "## リソース一覧", "", "### EC2.Subnet", "", subnet_header,
-        "| ---: | --- | --- |", *subnet_rows, "",
-        "### EC2.RouteTable", "", subnet_header, "| ---: | --- | --- |",
-        "| 1 | [route](#vpc-route) | Subnetの経路を管理するtable |", "", "",
-    ])
+    subnet_rows = [
+        f"| {number} | [subnet-{number}](#vpc-subnet-{number}) | Subnetの用途 |"
+        for number in range(1, 4)
+    ]
+    overview = "\n".join(
+        [
+            "## リソース一覧",
+            "",
+            "### EC2.Subnet",
+            "",
+            subnet_header,
+            "| ---: | --- | --- |",
+            *subnet_rows,
+            "",
+            "### EC2.RouteTable",
+            "",
+            subnet_header,
+            "| ---: | --- | --- |",
+            "| 1 | [route](#vpc-route) | Subnetの経路を管理するtable |",
+            "",
+            "",
+        ]
+    )
     details = "## リソース詳細\n\n"
     for number in range(1, 4):
         route_table = (
             "| 3 | EC2.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"
-            if number < 3 else ""
+            if number < 3
+            else ""
         )
         details += (
             f'<a id="vpc-subnet-{number}"></a>\n\n### EC2.Subnet: subnet-{number}\n\n'
@@ -305,12 +420,14 @@ def check_subnet_association_overview() -> None:
         f"| 3 | {association_type}.SubnetId | [subnet-00000001](#vpc-subnet-1) | 関連付けるSubnet |\n\n"
     )
     valid = metadata + overview + details
-    annotated_overview = overview.replace('Subnetの用途', 'Subnetの用途の補足')
+    annotated_overview = overview.replace("Subnetの用途", "Subnetの用途の補足")
     with project() as root:
         design = root / "docs/designs/dev/123456789012/vpc.md"
         design.parent.mkdir(parents=True)
 
-        errors = _bind_framework_callback(_callback_check_subnet_association_overview_errors, design, root)
+        errors = _bind_framework_callback(
+            _callback_check_subnet_association_overview_errors, design, root
+        )
 
         assert not errors(valid), errors(valid)
         DesignDocument = _imports_design_document.DesignDocument
@@ -319,17 +436,34 @@ def check_subnet_association_overview() -> None:
         write(design, metadata + annotated_overview + details)
         changed = DesignDocument(design, design.read_text()).raw.expanded[0]
         assert tuple(line for line in changed if "| EC2." in line) == tuple(
-            line for line in original if "| EC2." in line)
-        normalized, children = __import__("design.layout", fromlist=["expanded_design"]).expanded_design(details.splitlines())
+            line for line in original if "| EC2." in line
+        )
+        normalized, children = __import__(
+            "design.layout", fromlist=["expanded_design"]
+        ).expanded_design(details.splitlines())
         assert not children
-        assert sum("| EC2.SubnetRouteTableAssociation.RouteTableId |" in line for line in normalized) == 2
-        assert any("| EC2.RouteTable.RouteTableId | `rtb-00000001` |" in line for line in normalized)
+        assert (
+            sum(
+                "| EC2.SubnetRouteTableAssociation.RouteTableId |" in line
+                for line in normalized
+            )
+            == 2
+        )
+        assert any(
+            "| EC2.RouteTable.RouteTableId | `rtb-00000001` |" in line
+            for line in normalized
+        )
         assert any("[rtb-00000001](#vpc-route)" in line for line in normalized)
-        assert not any("EC2.SubnetRouteTableAssociation.Id" in line for line in normalized)
-        assert not any("EC2.SubnetRouteTableAssociation.SubnetId" in line for line in normalized)
+        assert not any(
+            "EC2.SubnetRouteTableAssociation.Id" in line for line in normalized
+        )
+        assert not any(
+            "EC2.SubnetRouteTableAssociation.SubnetId" in line for line in normalized
+        )
 
-        write(design,
-            valid.replace("EC2.RouteTableId", f"{association_type}.RouteTableId")
+        write(
+            design,
+            valid.replace("EC2.RouteTableId", f"{association_type}.RouteTableId"),
         )
         catalog_types, property_owners, identifier_outputs = MODULE.Validator(
             SCRIPT.parents[2]
@@ -342,18 +476,24 @@ def check_subnet_association_overview() -> None:
             identifier_outputs,
         )
         assert any(
-        "must use its Markdown display alias" in error
+            "must use its Markdown display alias" in error
             for error in diagnostics(validator)
         ), validator.errors
 
         pending = valid
-        for identifier in ("rtb-00000001", *(f"subnet-{number:08d}" for number in range(1, 4))):
+        for identifier in (
+            "rtb-00000001",
+            *(f"subnet-{number:08d}" for number in range(1, 4)),
+        ):
             pending = pending.replace(identifier, "PENDING_DEPLOY")
         assert not errors(pending), errors(pending)
 
         bad_designs = [
             (valid + independent, "types must match"),
-            (valid.replace(subnet_rows[0] + "\n", ""), "must list every detail resource exactly once"),
+            (
+                valid.replace(subnet_rows[0] + "\n", ""),
+                "must list every detail resource exactly once",
+            ),
         ]
         for markdown, message in bad_designs:
             failures = errors(markdown)
@@ -395,36 +535,111 @@ def check_resource_overview() -> None:
 | 1 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
 """
 
-        errors = _bind_framework_callback(_callback_check_resource_overview_errors, design, root)
+        errors = _bind_framework_callback(
+            _callback_check_resource_overview_errors, design, root
+        )
 
         assert not (failures := errors(valid)), failures
-        assert any("resource overview numbering error" in error for error in errors(valid.replace("| 1 | [app-dev-data", "| 2 | [app-dev-data", 1)))
-        assert any("Comment must describe the resource in Japanese" in error for error in errors(valid.replace("アプリケーションのデータを保管するbucket |", "resource |", 1)))
-        assert any("must state a distinct purpose or role" in error for error in errors(valid.replace("アプリケーションのデータを保管するbucket |", "バケット（app-dev-data-123456789012）の設定 |", 1)))
-        sg = valid.replace("S3.Bucket", "EC2.SecurityGroup").replace("app-dev-data-123456789012", "VULNERABILITYSCANCDESECURITYGROUP01")
-        sg = sg.replace("アプリケーションのデータを保管するbucket |", "セキュリティグループ（VULNERABILITYSCANCDESECURITYGROUP01）の設定 |", 1)
-        assert any("must state a distinct purpose or role" in error for error in errors(sg))
-        assert not errors(sg.replace("セキュリティグループ（VULNERABILITYSCANCDESECURITYGROUP01）の設定 |", "脆弱性スキャン用ホストから検査対象への通信を制御する |", 1))
-        assert any("resource overview must use No." in error for error in errors(valid.replace("| No. | ResourceName |", "| ResourceName |", 1)))
-        extra = valid.replace("| ResourceName | Comment |", "| ResourceName | SSEAlgorithm | Comment |", 1)
+        assert any(
+            "resource overview numbering error" in error
+            for error in errors(
+                valid.replace("| 1 | [app-dev-data", "| 2 | [app-dev-data", 1)
+            )
+        )
+        assert any(
+            "Comment must describe the resource in Japanese" in error
+            for error in errors(
+                valid.replace(
+                    "アプリケーションのデータを保管するbucket |", "resource |", 1
+                )
+            )
+        )
+        assert any(
+            "must state a distinct purpose or role" in error
+            for error in errors(
+                valid.replace(
+                    "アプリケーションのデータを保管するbucket |",
+                    "バケット（app-dev-data-123456789012）の設定 |",
+                    1,
+                )
+            )
+        )
+        sg = valid.replace("S3.Bucket", "EC2.SecurityGroup").replace(
+            "app-dev-data-123456789012", "VULNERABILITYSCANCDESECURITYGROUP01"
+        )
+        sg = sg.replace(
+            "アプリケーションのデータを保管するbucket |",
+            "セキュリティグループ（VULNERABILITYSCANCDESECURITYGROUP01）の設定 |",
+            1,
+        )
+        assert any(
+            "must state a distinct purpose or role" in error for error in errors(sg)
+        )
+        assert not errors(
+            sg.replace(
+                "セキュリティグループ（VULNERABILITYSCANCDESECURITYGROUP01）の設定 |",
+                "脆弱性スキャン用ホストから検査対象への通信を制御する |",
+                1,
+            )
+        )
+        assert any(
+            "resource overview must use No." in error
+            for error in errors(
+                valid.replace("| No. | ResourceName |", "| ResourceName |", 1)
+            )
+        )
+        extra = valid.replace(
+            "| ResourceName | Comment |", "| ResourceName | SSEAlgorithm | Comment |", 1
+        )
         assert any("resource overview must use No." in error for error in errors(extra))
         details_heading = "## リソース詳細\n\n"
         invalid_sections = [
-            (valid.replace(details_heading, "", 1), "details heading must appear exactly once"),
-            (valid.replace(details_heading, details_heading * 2, 1), "details heading must appear exactly once"),
-            (valid.replace(details_heading, "", 1).replace("## リソース一覧", details_heading + "## リソース一覧", 1), "details must follow the overview"),
-            (valid.replace(details_heading, "", 1) + "\n" + details_heading, "details must follow the overview"),
-            (valid.replace("### S3.Bucket:", "## S3.Bucket:", 1), "detail heading must use H3"),
-            (valid.replace("### S3.Bucket:", "#### S3.Bucket:", 1), "detail heading must use H3"),
-            (valid.replace(details_heading, "", 1).replace("### S3.Bucket:", details_heading + "### S3.Bucket:", 1), "anchors must be inside resource details"),
+            (
+                valid.replace(details_heading, "", 1),
+                "details heading must appear exactly once",
+            ),
+            (
+                valid.replace(details_heading, details_heading * 2, 1),
+                "details heading must appear exactly once",
+            ),
+            (
+                valid.replace(details_heading, "", 1).replace(
+                    "## リソース一覧", details_heading + "## リソース一覧", 1
+                ),
+                "details must follow the overview",
+            ),
+            (
+                valid.replace(details_heading, "", 1) + "\n" + details_heading,
+                "details must follow the overview",
+            ),
+            (
+                valid.replace("### S3.Bucket:", "## S3.Bucket:", 1),
+                "detail heading must use H3",
+            ),
+            (
+                valid.replace("### S3.Bucket:", "#### S3.Bucket:", 1),
+                "detail heading must use H3",
+            ),
+            (
+                valid.replace(details_heading, "", 1).replace(
+                    "### S3.Bucket:", details_heading + "### S3.Bucket:", 1
+                ),
+                "anchors must be inside resource details",
+            ),
             (valid + "\n### 実装注記\n", "details must follow the overview"),
         ]
         for markdown, message in invalid_sections:
             failures = errors(markdown)
             assert any(message in failure for failure in failures), (message, failures)
-        assert any("resource overview must use No." in error for error in errors(valid.replace("| ResourceName |", "| BucketName |", 1)))
+        assert any(
+            "resource overview must use No." in error
+            for error in errors(valid.replace("| ResourceName |", "| BucketName |", 1))
+        )
         missing_row = valid.replace(
             "| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | アプリケーションのデータを保管するbucket |\n",
             "",
         )
-        assert any("must list every detail resource exactly once" in error for error in errors(missing_row))
+        assert any(
+            "must list every detail resource exactly once" in error
+            for error in errors(missing_row)
+        )

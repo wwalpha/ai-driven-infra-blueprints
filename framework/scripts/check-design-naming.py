@@ -13,10 +13,16 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd().resolve())
     parser.add_argument("--resource-type", required=True)
     parser.add_argument("--mode", choices=("CREATE", "IMPORT"), default="CREATE")
-    parser.add_argument("--name-tag", action="store_true", help="Check a human-selected optional Name tag")
+    parser.add_argument(
+        "--name-tag",
+        action="store_true",
+        help="Check a human-selected optional Name tag",
+    )
     args = parser.parse_args()
     try:
-        errors = design_naming_errors(args.root, args.resource_type, args.mode, args.name_tag)
+        errors = design_naming_errors(
+            args.root, args.resource_type, args.mode, args.name_tag
+        )
     except (OSError, ValueError) as error:
         errors = [str(error)]
     if errors:

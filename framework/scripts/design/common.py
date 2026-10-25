@@ -41,29 +41,59 @@ def subnet_list_items(prop: str, value: str) -> list[str]:
         items = [raw]
     else:
         items = json.loads(raw)
-    if not isinstance(items, list) or not items or any(
-        not isinstance(item, str) or not item.strip() or any(char in item for char in "|\n\r`")
-        for item in items
+    if (
+        not isinstance(items, list)
+        or not items
+        or any(
+            not isinstance(item, str)
+            or not item.strip()
+            or any(char in item for char in "|\n\r`")
+            for item in items
+        )
     ):
         raise ValueError(f"{prop}: Subnet list must contain non-empty string elements")
-    return [item if re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", item) else f"`{item}`" for item in items]
+    return [
+        item if re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", item) else f"`{item}`"
+        for item in items
+    ]
 
 
 def code(value: object) -> str:
-    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    text = (
+        value
+        if isinstance(value, str)
+        else json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    )
     if text == "":
         return '`""`'
     if any(char in text for char in "`|<>&\n\r"):
-        escaped = html.escape(text, quote=False).replace("|", "&#124;").replace("\n", "&#10;").replace("\r", "&#13;")
+        escaped = (
+            html.escape(text, quote=False)
+            .replace("|", "&#124;")
+            .replace("\n", "&#10;")
+            .replace("\r", "&#13;")
+        )
         return f"<code>{escaped}</code>"
     return f"`{text}`"
 
 
 def cell(value: object) -> str:
-    return "<br>".join(code(item) for item in value) if isinstance(value, list) and value else code(value)
+    return (
+        "<br>".join(code(item) for item in value)
+        if isinstance(value, list) and value
+        else code(value)
+    )
 
 
-def table(headers: list[str], rows: list[list[str]], numbered: bool = False) -> list[str]:
+def table(
+    headers: list[str], rows: list[list[str]], numbered: bool = False
+) -> list[str]:
     alignment = ["---"] * len(headers)
     if numbered:
         alignment[0] = "---:"
@@ -71,4 +101,11 @@ def table(headers: list[str], rows: list[list[str]], numbered: bool = False) -> 
 
 
 def row_table(rows: list[list[str]]) -> list[str]:
-    return [HEADER, ALIGNMENT, *("| " + " | ".join([str(number), *row[1:]]) + " |" for number, row in enumerate(rows, 1))]
+    return [
+        HEADER,
+        ALIGNMENT,
+        *(
+            "| " + " | ".join([str(number), *row[1:]]) + " |"
+            for number, row in enumerate(rows, 1)
+        ),
+    ]

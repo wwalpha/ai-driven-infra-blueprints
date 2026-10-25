@@ -1,4 +1,5 @@
 """Assemble lazy inputs and atomic comparison steps; run() retains its full-scan contract."""
+
 from __future__ import annotations
 
 import re
@@ -26,8 +27,14 @@ from .inputs import Inputs
 from .result import RowResult, record, setting_result
 from .values import ValueDecision, compare_values, unverified
 
-ComparisonValue: TypeAlias = JsonValue | Expression | ResourceReference | tuple[str, str] | list['ComparisonValue'] | dict[str, 'ComparisonValue']
-
+ComparisonValue: TypeAlias = (
+    JsonValue
+    | Expression
+    | ResourceReference
+    | tuple[str, str]
+    | list["ComparisonValue"]
+    | dict[str, "ComparisonValue"]
+)
 
 
 @dataclass
@@ -67,9 +74,21 @@ class Comparison(Inputs):
         cause: JsonObject | None = None,
         **details: JsonValue,
     ) -> JsonObject:
-        return record(category, service, identity, prop, reason, desired, actual, stack,
-            source or self.source(service, f'desired.resource.{identity}.resourceType'), template,
-            cause, redact=self.redacted, **details)
+        return record(
+            category,
+            service,
+            identity,
+            prop,
+            reason,
+            desired,
+            actual,
+            stack,
+            source or self.source(service, f"desired.resource.{identity}.resourceType"),
+            template,
+            cause,
+            redact=self.redacted,
+            **details,
+        )
 
     def record(self, *args: ComparisonValue, **kwargs: ComparisonValue) -> JsonObject:
         item = self.make_record(*args, **kwargs)
@@ -87,15 +106,40 @@ class Comparison(Inputs):
         definition: JsonObject,
     ) -> JsonObject:
         document, parameters, pseudo = self.stack_inputs[name]
-        stack_id, unit = next((stack_id, unit) for stack_id, unit in self.templates() if unit['name'] == name)
+        stack_id, unit = next(
+            (stack_id, unit)
+            for stack_id, unit in self.templates()
+            if unit["name"] == name
+        )
         parameter_path, supplied = self.parameter_keys(unit)
-        location, cause = resource_rules.inactive_evidence(name, logical, definition, document, parameters, pseudo,
-            path=template.relative_to(self.root).as_posix(), parameter_path=parameter_path.relative_to(self.root).as_posix(),
-            supplied=supplied, stack_id=stack_id, target=self.target, environment=self.environment,
-            directory=self.directory, marks=self.template_locations.get(id(definition), {}),
-            source_lookup=self.source, redact=self.redacted)
-        return self.make_record('difference', service, identity, prop,
-            'CREATE resource is inactive under confirmed parameters', stack=name, template=location, cause=cause)
+        location, cause = resource_rules.inactive_evidence(
+            name,
+            logical,
+            definition,
+            document,
+            parameters,
+            pseudo,
+            path=template.relative_to(self.root).as_posix(),
+            parameter_path=parameter_path.relative_to(self.root).as_posix(),
+            supplied=supplied,
+            stack_id=stack_id,
+            target=self.target,
+            environment=self.environment,
+            directory=self.directory,
+            marks=self.template_locations.get(id(definition), {}),
+            source_lookup=self.source,
+            redact=self.redacted,
+        )
+        return self.make_record(
+            "difference",
+            service,
+            identity,
+            prop,
+            "CREATE resource is inactive under confirmed parameters",
+            stack=name,
+            template=location,
+            cause=cause,
+        )
 
     def record_inactive(self, *args: str | Path | JsonObject) -> None:
         self.results.append(self.inactive_record(*args))
@@ -104,72 +148,165 @@ class Comparison(Inputs):
         self.local_comparison = True
         self.symbols.clear()
         for service, message in self.reference_unavailable.items():
-            self.record('uncompared', service, '*', '*', message, cause={'kind': 'reference-unresolved'})
+            self.record(
+                "uncompared",
+                service,
+                "*",
+                "*",
+                message,
+                cause={"kind": "reference-unresolved"},
+            )
         for service, error in self.load_errors:
-            self.record('error', service, '*', '*', error)
-        if self.target['iacEngine'] != 'cloudformation':
+            self.record("error", service, "*", "*", error)
+        if self.target["iacEngine"] != "cloudformation":
             for service in self.services:
-                self.record('uncompared', service, '*', '*', 'Terraform: no existing local resource correspondence/evaluator; no init/plan/provider calls')
+                self.record(
+                    "uncompared",
+                    service,
+                    "*",
+                    "*",
+                    "Terraform: no existing local resource correspondence/evaluator; no init/plan/provider calls",
+                )
             return self.results
-        stacks = dict((unit['name'], unit) for _, unit in self.templates())
+        stacks = dict((unit["name"], unit) for _, unit in self.templates())
         # Load/evaluate only stacks explicitly assigned to selected resources.
         for service in self.services:
             for identity, resource in self.resources[service].items():
                 mode = resource_mode(resource)
-                if mode == 'IMPORT':
-                    self.record('excluded', service, identity, '*', 'IMPORT is outside IaC generation')
+                if mode == "IMPORT":
+                    self.record(
+                        "excluded",
+                        service,
+                        identity,
+                        "*",
+                        "IMPORT is outside IaC generation",
+                    )
                     continue
                 try:
-                    kind = resource.get('resourceType')
+                    kind = resource.get("resourceType")
                     if not isinstance(kind, str) or not kind:
-                        raise ValueError('resourceType is missing or malformed')
+                        raise ValueError("resourceType is missing or malformed")
                     if kind in self.catalog.api_schemas:
-                        self.record('uncompared', service, identity, '*',
-                                    'CloudFormation unsupported; outside CFn comparison; API implementation status unverified',
-                                    cause={'kind': 'cloudformation-unsupported', 'resource_type': kind,
-                                           'implementation_status': 'unverified'})
+                        self.record(
+                            "uncompared",
+                            service,
+                            identity,
+                            "*",
+                            "CloudFormation unsupported; outside CFn comparison; API implementation status unverified",
+                            cause={
+                                "kind": "cloudformation-unsupported",
+                                "resource_type": kind,
+                                "implementation_status": "unverified",
+                            },
+                        )
                         continue
-                    if self.catalog.canonical_type(kind) not in self.catalog.resource_types:
-                        raise ValueError(f'unknown resource type: {kind}')
+                    if (
+                        self.catalog.canonical_type(kind)
+                        not in self.catalog.resource_types
+                    ):
+                        raise ValueError(f"unknown resource type: {kind}")
                     cfn_type = self.catalog.cloudformation_type(kind)
-                    name, logical, unit = resource_rules.correspondence(resource, stacks)
-                    template = self.root / 'infra/cloudformation/templates' / self.target.get('alias', '') / unit['template']
+                    name, logical, unit = resource_rules.correspondence(
+                        resource, stacks
+                    )
+                    template = (
+                        self.root
+                        / "infra/cloudformation/templates"
+                        / self.target.get("alias", "")
+                        / unit["template"]
+                    )
                     self.inputs.add(template)
                     if not template.is_file():
-                        self.record('difference', service, identity, '*', 'モデルに対応するtemplateが存在しない（CREATE未実装）', desired={'resourceType': kind, 'logical': logical}, stack=name, template={'path': template.relative_to(self.root).as_posix()},
-                                    cause={'kind': 'template-missing', 'path': template.relative_to(self.root).as_posix(),
-                                           'stack': name, 'relationship': 'direct'})
+                        self.record(
+                            "difference",
+                            service,
+                            identity,
+                            "*",
+                            "モデルに対応するtemplateが存在しない（CREATE未実装）",
+                            desired={"resourceType": kind, "logical": logical},
+                            stack=name,
+                            template={
+                                "path": template.relative_to(self.root).as_posix()
+                            },
+                            cause={
+                                "kind": "template-missing",
+                                "path": template.relative_to(self.root).as_posix(),
+                                "stack": name,
+                                "relationship": "direct",
+                            },
+                        )
                         continue
                     template, (document, parameters, pseudo) = self.stack(unit)
-                    definition = document.get('Resources', {}).get(logical)
+                    definition = document.get("Resources", {}).get(logical)
                     # Explicit identity is authoritative even if the template resource is missing.
                     direct = self.index()
                     if len(direct.get((name, logical), [])) != 1:
-                        raise Blocked(f'duplicate resource correspondence: {name}/{logical}')
-                    if document.get('Transform'):
-                        raise Blocked('Transform requires external evaluation')
+                        raise Blocked(
+                            f"duplicate resource correspondence: {name}/{logical}"
+                        )
+                    if document.get("Transform"):
+                        raise Blocked("Transform requires external evaluation")
                     if definition is None:
-                        self.record('difference', service, identity, '*', 'resource missing', desired={'resourceType': kind, 'logical': logical}, stack=name,
-                                    template={'path': template.relative_to(self.root).as_posix()})
+                        self.record(
+                            "difference",
+                            service,
+                            identity,
+                            "*",
+                            "resource missing",
+                            desired={"resourceType": kind, "logical": logical},
+                            stack=name,
+                            template={
+                                "path": template.relative_to(self.root).as_posix()
+                            },
+                        )
                         continue
-                    if definition.get('Type') != cfn_type:
-                        raise Blocked(f'formal resource type mismatch: {definition.get("Type")} != {cfn_type}')
+                    if definition.get("Type") != cfn_type:
+                        raise Blocked(
+                            f"formal resource type mismatch: {definition.get('Type')} != {cfn_type}"
+                        )
                     if not condition_active(document, parameters, pseudo, definition):
-                        self.record_inactive(service, identity, '*', name, logical, template, definition)
+                        self.record_inactive(
+                            service, identity, "*", name, logical, template, definition
+                        )
                         continue
-                    batch = self.compare_rows(service, identity, resource, name, logical, template, definition, document)
+                    batch = self.compare_rows(
+                        service,
+                        identity,
+                        resource,
+                        name,
+                        logical,
+                        template,
+                        definition,
+                        document,
+                    )
                     self.results.extend(batch.records)
                     self.warnings.extend(batch.warnings)
                     self.display_differences.update(batch.display_differences)
                     if batch.failure is not None:
                         raise batch.failure
                 except (Blocked, KeyError) as error:
-                    self.record(failure_category(error), service, identity, '*', str(error), cause=getattr(error, 'iac_cause', None))
+                    self.record(
+                        failure_category(error),
+                        service,
+                        identity,
+                        "*",
+                        str(error),
+                        cause=getattr(error, "iac_cause", None),
+                    )
                 except ReferenceResolutionError as error:
-                    self.warnings.append({**error.diagnostic, 'service': service, 'resource': identity})
-                    self.record('uncompared', service, identity, '*', str(error), cause={'kind': 'reference-unresolved'})
+                    self.warnings.append(
+                        {**error.diagnostic, "service": service, "resource": identity}
+                    )
+                    self.record(
+                        "uncompared",
+                        service,
+                        identity,
+                        "*",
+                        str(error),
+                        cause={"kind": "reference-unresolved"},
+                    )
                 except (OSError, ValueError, ImportError, TypeError) as error:
-                    self.record('error', service, identity, '*', str(error))
+                    self.record("error", service, identity, "*", str(error))
         return self.results
 
     def compare_rows(
@@ -188,8 +325,19 @@ class Comparison(Inputs):
         result = RowResult()
         grouped = row_rules.grouped_rows(resource, self.rows[service][identity])
         for rowkind, rows in grouped.items():
-            batch = self.compare_group(service, identity, resource['resourceType'], rowkind, rows,
-                                       name, logical, template, definition, document, properties=properties)
+            batch = self.compare_group(
+                service,
+                identity,
+                resource["resourceType"],
+                rowkind,
+                rows,
+                name,
+                logical,
+                template,
+                definition,
+                document,
+                properties=properties,
+            )
             result.records.extend(batch.records)
             result.warnings.extend(batch.warnings)
             result.display_differences.update(batch.display_differences)
@@ -216,62 +364,146 @@ class Comparison(Inputs):
         result = RowResult()
         try:
             if properties is not None:
-                context_properties = registry.hook(rowkind, 'CONTEXT_PROPERTIES') or {}
-                required = set(properties).union(*(context_properties.get(prop, set()) for prop in properties))
+                context_properties = registry.hook(rowkind, "CONTEXT_PROPERTIES") or {}
+                required = set(properties).union(
+                    *(context_properties.get(prop, set()) for prop in properties)
+                )
                 rows = row_rules.selected_rows(rowkind, rows, required)
                 if not rows:
                     return result
-            prepare = registry.hook(rowkind, 'prepare_rows')
+            prepare = registry.hook(rowkind, "prepare_rows")
             if prepare:
                 try:
                     rows = self.project_rows(rowkind, rows)
                 except Unresolved as error:
-                    deferred = registry.hook(rowkind, 'DEFERRED_ROWS')
+                    deferred = registry.hook(rowkind, "DEFERRED_ROWS")
                     if not deferred:
                         raise
-                    result.records.append(self.make_record('uncompared', service, identity, rowkind + '.' + deferred,
-                        str(error), stack=name, source=self.source(service, f'desired.row.{rows[0][0]}.property')))
-                    rows = [(rid, row) for rid, row in rows if not row['property'].startswith(rowkind + '.' + deferred)]
+                    result.records.append(
+                        self.make_record(
+                            "uncompared",
+                            service,
+                            identity,
+                            rowkind + "." + deferred,
+                            str(error),
+                            stack=name,
+                            source=self.source(
+                                service, f"desired.row.{rows[0][0]}.property"
+                            ),
+                        )
+                    )
+                    rows = [
+                        (rid, row)
+                        for rid, row in rows
+                        if not row["property"].startswith(rowkind + "." + deferred)
+                    ]
             rows, unresolved = row_rules.validated_rows(rowkind, rows)
             for setting, (rid, reason) in unresolved.items():
                 if properties is None or setting in properties:
-                    result.records.append(self.make_record('uncompared', service, identity, rowkind + '.' + setting, reason,
-                        stack=name, source=self.source(service, f'desired.row.{rid}.property')))
-            contexts = registry.hook(rowkind, 'contexts')
+                    result.records.append(
+                        self.make_record(
+                            "uncompared",
+                            service,
+                            identity,
+                            rowkind + "." + setting,
+                            reason,
+                            stack=name,
+                            source=self.source(service, f"desired.row.{rid}.property"),
+                        )
+                    )
+            contexts = registry.hook(rowkind, "contexts")
             contexts = contexts(rows) if self.local_comparison and contexts else {}
             if properties is not None:
                 rows = row_rules.selected_rows(rowkind, rows, properties)
             _, parameters, pseudo = self.stack_inputs[name]
             rule = GROUPED.get(rowkind)
-            childtype = self.catalog.cloudformation_type(rowkind) if rowkind != kind and rule and rule['parent'] == kind and rule['identityProperty'] is None else None
-            owner, failure = resource_rules.inline_owner(kind, rowkind, logical, definition, document, parameters, pseudo, childtype)
+            childtype = (
+                self.catalog.cloudformation_type(rowkind)
+                if rowkind != kind
+                and rule
+                and rule["parent"] == kind
+                and rule["identityProperty"] is None
+                else None
+            )
+            owner, failure = resource_rules.inline_owner(
+                kind,
+                rowkind,
+                logical,
+                definition,
+                document,
+                parameters,
+                pseudo,
+                childtype,
+            )
             if failure:
                 category, reason = failure
-                if category == 'difference':
-                    item = self.make_record(category, service, identity, rowkind, reason, desired={'resourceType': rowkind}, stack=name,
-                        source=self.source(service, f'desired.row.{rows[0][0]}.property'), template={'path': template.relative_to(self.root).as_posix()})
+                if category == "difference":
+                    item = self.make_record(
+                        category,
+                        service,
+                        identity,
+                        rowkind,
+                        reason,
+                        desired={"resourceType": rowkind},
+                        stack=name,
+                        source=self.source(
+                            service, f"desired.row.{rows[0][0]}.property"
+                        ),
+                        template={"path": template.relative_to(self.root).as_posix()},
+                    )
                 else:
-                    item = self.make_record(category, service, identity, rowkind, reason)
+                    item = self.make_record(
+                        category, service, identity, rowkind, reason
+                    )
                 result.records.append(item)
                 return result
-            if rowkind != kind and not condition_active(document, parameters, pseudo, owner):
-                child_logical = next(key for key, child in document['Resources'].items() if child is owner)
-                result.records.append(self.inactive_record(service, identity, rowkind, name, child_logical, template, owner))
+            if rowkind != kind and not condition_active(
+                document, parameters, pseudo, owner
+            ):
+                child_logical = next(
+                    key
+                    for key, child in document["Resources"].items()
+                    if child is owner
+                )
+                result.records.append(
+                    self.inactive_record(
+                        service, identity, rowkind, name, child_logical, template, owner
+                    )
+                )
                 return result
-            settings = self.prepare_settings(service, identity, rowkind, rows, contexts, name, owner, template)
+            settings = self.prepare_settings(
+                service, identity, rowkind, rows, contexts, name, owner, template
+            )
             result.records.extend(settings.result.records)
             result.warnings.extend(settings.result.warnings)
             if settings.result.failure is not None:
                 result.failure = settings.result.failure
                 return result
             for key, value in settings.desired.items():
-                batch = self.compare_setting(service, identity, rowkind, key, value, settings, name, owner, template)
+                batch = self.compare_setting(
+                    service,
+                    identity,
+                    rowkind,
+                    key,
+                    value,
+                    settings,
+                    name,
+                    owner,
+                    template,
+                )
                 result.records.extend(batch.records)
                 result.warnings.extend(batch.warnings)
                 result.display_differences.update(batch.display_differences)
             return result
 
-        except (Blocked, KeyError, OSError, ValueError, ImportError, TypeError) as error:
+        except (
+            Blocked,
+            KeyError,
+            OSError,
+            ValueError,
+            ImportError,
+            TypeError,
+        ) as error:
             result.failure = error
             return result
 
@@ -290,38 +522,106 @@ class Comparison(Inputs):
         try:
             outputs = catalog_outputs(self.root, kind) | HIDDEN_PROPERTIES
             for rid, row in rows:
-                prop = row['property']
-                short = prop.removeprefix(kind + '.')
-                source = self.source(service, f'desired.resource.{identity}.parentReference' if rid == '@parent' else
-                    f'desired.row.{rid}.document' if 'document' in row else f'desired.row.{rid}.value')
-                if prop in outputs or (kind, short) in getattr(registry.rules(kind), 'DESIGN_ONLY', set()):
-                    settings.result.records.append(self.make_record('excluded', service, identity, prop,
-                        'identifier output/design-only metadata', source=source))
+                prop = row["property"]
+                short = prop.removeprefix(kind + ".")
+                source = self.source(
+                    service,
+                    f"desired.resource.{identity}.parentReference"
+                    if rid == "@parent"
+                    else f"desired.row.{rid}.document"
+                    if "document" in row
+                    else f"desired.row.{rid}.value",
+                )
+                if prop in outputs or (kind, short) in getattr(
+                    registry.rules(kind), "DESIGN_ONLY", set()
+                ):
+                    settings.result.records.append(
+                        self.make_record(
+                            "excluded",
+                            service,
+                            identity,
+                            prop,
+                            "identifier output/design-only metadata",
+                            source=source,
+                        )
+                    )
                     continue
-                tagged = row_rules.name_tag(kind, short, row['value'], getattr(registry.rules(kind), 'NAME_TAG_KINDS', set()))
+                tagged = row_rules.name_tag(
+                    kind,
+                    short,
+                    row["value"],
+                    getattr(registry.rules(kind), "NAME_TAG_KINDS", set()),
+                )
                 if tagged:
                     short, value = tagged
                 else:
                     try:
-                        parent = re.split(r'\.(?:Configuration|Values)(?:\[|\.|$)', short)[0]
-                        prepared = self.prepare_value(service, row, kind, row_id=rid, stack=name, context=contexts.get(rid, contexts.get(parent)))
+                        parent = re.split(
+                            r"\.(?:Configuration|Values)(?:\[|\.|$)", short
+                        )[0]
+                        prepared = self.prepare_value(
+                            service,
+                            row,
+                            kind,
+                            row_id=rid,
+                            stack=name,
+                            context=contexts.get(rid, contexts.get(parent)),
+                        )
                         settings.result.warnings.extend(prepared.warnings)
                         for path, pointer, error in prepared.failures:
-                            self.incomplete_value(settings, service, identity, kind, kind + '.' + path, error,
-                                dict(source or {}, pointer=pointer), name, owner, template)
+                            self.incomplete_value(
+                                settings,
+                                service,
+                                identity,
+                                kind,
+                                kind + "." + path,
+                                error,
+                                dict(source or {}, pointer=pointer),
+                                name,
+                                owner,
+                                template,
+                            )
                         if prepared.error is not None:
                             raise prepared.error
                         value = prepared.value
-                    except (Blocked, KeyError, OSError, ValueError, ImportError, TypeError, IndexError) as error:
-                        self.incomplete_value(settings, service, identity, kind, prop, error, source, name, owner, template)
-                        value = Expression('Unverified', [])
-                if '.' not in short and not short.endswith('[]'):
+                    except (
+                        Blocked,
+                        KeyError,
+                        OSError,
+                        ValueError,
+                        ImportError,
+                        TypeError,
+                        IndexError,
+                    ) as error:
+                        self.incomplete_value(
+                            settings,
+                            service,
+                            identity,
+                            kind,
+                            prop,
+                            error,
+                            source,
+                            name,
+                            owner,
+                            template,
+                        )
+                        value = Expression("Unverified", [])
+                if "." not in short and not short.endswith("[]"):
                     settings.exact.add(short)
                 put_row(settings.desired, short, value)
-                settings.sources.setdefault(re.sub(r'\[\d*\]', '', short.split('.', 1)[0]), []).append(source)
+                settings.sources.setdefault(
+                    re.sub(r"\[\d*\]", "", short.split(".", 1)[0]), []
+                ).append(source)
             return settings
 
-        except (Blocked, KeyError, OSError, ValueError, ImportError, TypeError) as error:
+        except (
+            Blocked,
+            KeyError,
+            OSError,
+            ValueError,
+            ImportError,
+            TypeError,
+        ) as error:
             settings.result.failure = error
             return settings
 
@@ -338,21 +638,39 @@ class Comparison(Inputs):
         owner: JsonObject,
         template: Path,
     ) -> None:
-        details = dict(stack=name, template={'path': template.relative_to(self.root).as_posix()})
+        details = dict(
+            stack=name, template={"path": template.relative_to(self.root).as_posix()}
+        )
         category = failure_category(error)
-        if hasattr(error, 'reference_detail'):
+        if hasattr(error, "reference_detail"):
             symbol, field = error.reference_detail
             try:
-                actual = self.evaluate(name, select(owner.get('Properties', {}), field))
-                reason = 'Model attribute is outside allowed property forms; comparison remains deferred'
-            except (Blocked, KeyError, ValueError, TypeError, IndexError) as actual_error:
-                actual = {'unresolved': self.redacted(str(actual_error))}
-                reason = 'Model attribute is outside allowed property forms; IaC reference evaluation also failed'
-            details['reference_diagnostics'] = [self.reference_diagnostic(symbol, actual, kind, field, reason)]
-        item = self.make_record(category, service, identity, prop, str(error), source=source,
-            cause=getattr(error, 'iac_cause', None), **details)
+                actual = self.evaluate(name, select(owner.get("Properties", {}), field))
+                reason = "Model attribute is outside allowed property forms; comparison remains deferred"
+            except (
+                Blocked,
+                KeyError,
+                ValueError,
+                TypeError,
+                IndexError,
+            ) as actual_error:
+                actual = {"unresolved": self.redacted(str(actual_error))}
+                reason = "Model attribute is outside allowed property forms; IaC reference evaluation also failed"
+            details["reference_diagnostics"] = [
+                self.reference_diagnostic(symbol, actual, kind, field, reason)
+            ]
+        item = self.make_record(
+            category,
+            service,
+            identity,
+            prop,
+            str(error),
+            source=source,
+            cause=getattr(error, "iac_cause", None),
+            **details,
+        )
         settings.result.records.append(item)
-        key = re.sub(r'\[\d*\]', '', prop.removeprefix(kind + '.').split('.', 1)[0])
+        key = re.sub(r"\[\d*\]", "", prop.removeprefix(kind + ".").split(".", 1)[0])
         settings.incomplete.setdefault(key, []).append(self.redacted(item))
 
     def compare_setting(
@@ -367,69 +685,162 @@ class Comparison(Inputs):
         owner: JsonObject,
         template: Path,
     ) -> RowResult:
-        prop = kind + '.' + key
+        prop = kind + "." + key
         sources = settings.sources[key]
-        iac_source = {'path': template.relative_to(self.root).as_posix()}
-        marks = self.template_locations.get(id(owner.get('Properties', {})), {})
+        iac_source = {"path": template.relative_to(self.root).as_posix()}
+        marks = self.template_locations.get(id(owner.get("Properties", {})), {})
         if line := marks.get(key, self.template_locations.get(id(owner), {}).get(None)):
-            iac_source['line'] = line
-        actual = owner.get('Properties', {}).get(key)
-        inverse = self.local_comparison and (kind, key) == registry.hook(kind, 'INVERSE_ROLES')
-        missing = 'property missing' if key not in owner.get('Properties', {}) and not inverse else None
+            iac_source["line"] = line
+        actual = owner.get("Properties", {}).get(key)
+        inverse = self.local_comparison and (kind, key) == registry.hook(
+            kind, "INVERSE_ROLES"
+        )
+        missing = (
+            "property missing"
+            if key not in owner.get("Properties", {}) and not inverse
+            else None
+        )
         warnings, actual_error = [], None
         failures = []
         raw_actual = actual
         try:
             if inverse:
-                actual = registry.hook(kind, 'managed_policy_roles')(service, identity, name,
-                    owner.get('Properties', {}).get(key, []), stack_inputs=self.stack_inputs,
-                    evaluate=self.evaluate, reference_same=self.reference_same, symbol=self.symbol)
+                actual = registry.hook(kind, "managed_policy_roles")(
+                    service,
+                    identity,
+                    name,
+                    owner.get("Properties", {}).get(key, []),
+                    stack_inputs=self.stack_inputs,
+                    evaluate=self.evaluate,
+                    reference_same=self.reference_same,
+                    symbol=self.symbol,
+                )
             elif not missing:
                 if self.local_comparison:
-                    prepared = evaluation.project_actual(actual, evaluate=lambda child: self.evaluate(name, child),
-                        property_name=prop, model_path=template, desired=value, exact=key in settings.exact)
+                    prepared = evaluation.project_actual(
+                        actual,
+                        evaluate=lambda child: self.evaluate(name, child),
+                        property_name=prop,
+                        model_path=template,
+                        desired=value,
+                        exact=key in settings.exact,
+                    )
                     warnings.extend(prepared.warnings)
                     actual = prepared.value
                     for _path, pointer, error in prepared.failures:
-                        if isinstance(error, (Blocked, KeyError)) and not isinstance(error, ImportReferenceDeferred):
+                        if isinstance(error, (Blocked, KeyError)) and not isinstance(
+                            error, ImportReferenceDeferred
+                        ):
                             actual_error = actual_error or error
                             continue
                         location = dict(iac_source, pointer=pointer)
                         node = raw_actual
-                        for token in pointer.lstrip('/').split('/') if pointer else []:
-                            token = token.replace('~1', '/').replace('~0', '~')
-                            key_or_index = int(token) if isinstance(node, list) else token
-                            if line := self.template_locations.get(id(node), {}).get(key_or_index):
-                                location['line'] = line
+                        for token in pointer.lstrip("/").split("/") if pointer else []:
+                            token = token.replace("~1", "/").replace("~0", "~")
+                            key_or_index = (
+                                int(token) if isinstance(node, list) else token
+                            )
+                            if line := self.template_locations.get(id(node), {}).get(
+                                key_or_index
+                            ):
+                                location["line"] = line
                             node = node[key_or_index]
-                        failures.append(self.make_record(failure_category(error), service, identity, prop + ('#' + pointer if pointer else ''), str(error),
-                            source=sources[0], stack=name, template=location, cause=getattr(error, 'iac_cause', None)))
+                        failures.append(
+                            self.make_record(
+                                failure_category(error),
+                                service,
+                                identity,
+                                prop + ("#" + pointer if pointer else ""),
+                                str(error),
+                                source=sources[0],
+                                stack=name,
+                                template=location,
+                                cause=getattr(error, "iac_cause", None),
+                            )
+                        )
                 else:
                     actual = self.evaluate(name, actual)
         except (Blocked, KeyError, ValueError, TypeError, IndexError) as error:
             category = failure_category(error)
-            return RowResult([self.make_record(category, service, identity, prop, str(error), source=sources[0],
-                template=iac_source, cause=getattr(error, 'iac_cause', None))], warnings)
-        if actual == {'$noValue': True}:
-            missing = 'property omitted by AWS::NoValue'
-        reference = (lambda a, b, path: self.reference_decision(a, b, kind, path)) if self.local_comparison else None
-        decision = (ValueDecision(False, (), False) if missing else
-                    compare_values(value, actual, key, exact=key in settings.exact, unordered=inverse, reference=reference))
+            return RowResult(
+                [
+                    self.make_record(
+                        category,
+                        service,
+                        identity,
+                        prop,
+                        str(error),
+                        source=sources[0],
+                        template=iac_source,
+                        cause=getattr(error, "iac_cause", None),
+                    )
+                ],
+                warnings,
+            )
+        if actual == {"$noValue": True}:
+            missing = "property omitted by AWS::NoValue"
+        reference = (
+            (lambda a, b, path: self.reference_decision(a, b, kind, path))
+            if self.local_comparison
+            else None
+        )
+        decision = (
+            ValueDecision(False, (), False)
+            if missing
+            else compare_values(
+                value,
+                actual,
+                key,
+                exact=key in settings.exact,
+                unordered=inverse,
+                reference=reference,
+            )
+        )
         if actual_error is not None and decision.equal is True:
             decision = ValueDecision(None, decision.diagnostics, decision.equivalent)
         if failures and decision.equal is not False:
-            if actual_error is None and not decision.diagnostics and not list(unverified(value)):
+            if (
+                actual_error is None
+                and not decision.diagnostics
+                and not list(unverified(value))
+            ):
                 return RowResult(failures, warnings)
             decision = ValueDecision(None, decision.diagnostics, decision.equivalent)
         if key in settings.incomplete and decision.equal is True:
             return RowResult(warnings=warnings)
-        if (key in settings.incomplete and decision.equal is None and actual_error is None and not decision.diagnostics
-                and not list(unverified(value)) and not list(unverified(actual))):
+        if (
+            key in settings.incomplete
+            and decision.equal is None
+            and actual_error is None
+            and not decision.diagnostics
+            and not list(unverified(value))
+            and not list(unverified(actual))
+        ):
             return RowResult(warnings=warnings)
-        batch = setting_result(service, identity, prop, value, actual, decision, name, sources, iac_source,
-            exact=key in settings.exact, actual_error=actual_error, redact=self.redacted, reference=reference,
-            default_source=self.source(service, f'desired.resource.{identity}.resourceType'), missing=missing,
-            deferred_children=[item for item in settings.incomplete.get(key, []) if item['category'] not in {'deferred', 'excluded'}])
+        batch = setting_result(
+            service,
+            identity,
+            prop,
+            value,
+            actual,
+            decision,
+            name,
+            sources,
+            iac_source,
+            exact=key in settings.exact,
+            actual_error=actual_error,
+            redact=self.redacted,
+            reference=reference,
+            default_source=self.source(
+                service, f"desired.resource.{identity}.resourceType"
+            ),
+            missing=missing,
+            deferred_children=[
+                item
+                for item in settings.incomplete.get(key, [])
+                if item["category"] not in {"deferred", "excluded"}
+            ],
+        )
         batch.records.extend(failures)
         batch.warnings.extend(warnings)
         return batch

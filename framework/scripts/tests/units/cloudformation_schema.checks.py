@@ -10,8 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-
-
 from design.catalog import DesignSchemaCatalog
 from design.layout import resource_display_name, resource_name_fields
 from design.layout_schema import LAYOUTS
@@ -27,31 +25,83 @@ def main() -> None:
     catalog = CloudFormationSchemaCatalog(root)
 
     # Boolean conversion still feeds enum/const checks and the existing diagnostic.
-    catalog.schemas['AWS::Test::Boolean'] = {'properties': {'Value': {'type': 'boolean', 'enum': [False], 'const': False}}}
-    assert catalog.literal_errors('Test.Boolean', 'Value', 'FaLsE') == []
-    assert catalog.literal_errors('Test.Boolean', 'Value', 'yes') == ['must be boolean']
-    assert catalog.literal_errors('Test.Boolean', 'Value', 'True') == ['must be one of [False]', 'must equal False']
+    catalog.schemas["AWS::Test::Boolean"] = {
+        "properties": {"Value": {"type": "boolean", "enum": [False], "const": False}}
+    }
+    assert catalog.literal_errors("Test.Boolean", "Value", "FaLsE") == []
+    assert catalog.literal_errors("Test.Boolean", "Value", "yes") == ["must be boolean"]
+    assert catalog.literal_errors("Test.Boolean", "Value", "True") == [
+        "must be one of [False]",
+        "must equal False",
+    ]
 
     for resource_type, property_path, accepted, rejected in (
-        ("IAM.Role", "Description",
-         ("Role for application logs", "Cafe café ¡ÿ", "tab\tline\nreturn\r", "quotes '\" and ?%\\"),
-         ("日本語の説明", "emoji 😀", "bad\x00", "bad\x1f", "bad\x7f", "bad\x80", "bad\xa0", "bad\u0100", "text\n日本語")),
-        ("EC2.SecurityGroup", "GroupDescription",
-         ("Application access", "aZ09 ._-:/()#,@[]+=&;{}!$*"),
-         ("日本語の説明", "café", "tab\t", "line\n", "return\r", "quote'", 'quote"', "question?", "percent%", "backslash\\", "pipe|", "text\n日本語")),
+        (
+            "IAM.Role",
+            "Description",
+            (
+                "Role for application logs",
+                "Cafe café ¡ÿ",
+                "tab\tline\nreturn\r",
+                "quotes '\" and ?%\\",
+            ),
+            (
+                "日本語の説明",
+                "emoji 😀",
+                "bad\x00",
+                "bad\x1f",
+                "bad\x7f",
+                "bad\x80",
+                "bad\xa0",
+                "bad\u0100",
+                "text\n日本語",
+            ),
+        ),
+        (
+            "EC2.SecurityGroup",
+            "GroupDescription",
+            ("Application access", "aZ09 ._-:/()#,@[]+=&;{}!$*"),
+            (
+                "日本語の説明",
+                "café",
+                "tab\t",
+                "line\n",
+                "return\r",
+                "quote'",
+                'quote"',
+                "question?",
+                "percent%",
+                "backslash\\",
+                "pipe|",
+                "text\n日本語",
+            ),
+        ),
     ):
         assert catalog.property_schema(resource_type, property_path)["type"] == "string"
         for spelling in (resource_type, catalog.canonical_type(resource_type)):
             for value in accepted:
-                assert catalog.literal_errors(spelling, property_path, value) == [], (spelling, value)
+                assert catalog.literal_errors(spelling, property_path, value) == [], (
+                    spelling,
+                    value,
+                )
             for value in rejected:
                 errors = catalog.literal_errors(spelling, property_path, value)
-                assert any("must match" in error for error in errors), (spelling, value, errors)
+                assert any("must match" in error for error in errors), (
+                    spelling,
+                    value,
+                    errors,
+                )
     # Supplement only the two formal properties, not unrelated descriptions/tags.
     assert catalog.literal_errors("EC2.SecurityGroup", "Tags[].Value", "日本語") == []
-    assert catalog.literal_errors("EC2.SecurityGroupIngress", "Description", "日本語") == []
+    assert (
+        catalog.literal_errors("EC2.SecurityGroupIngress", "Description", "日本語")
+        == []
+    )
 
-    assert catalog.property_schema("Events.Rule", "EventPattern")["type"] == ["string", "object"]
+    assert catalog.property_schema("Events.Rule", "EventPattern")["type"] == [
+        "string",
+        "object",
+    ]
     for resource_type, property_path in (
         ("Events.Rule", "EventPattern"),
         ("IAM.User", "Policies[].PolicyDocument"),
@@ -62,27 +112,62 @@ def main() -> None:
 
     # Exercise union rejection and constraints without changing the pinned schemas.
     for node, accepted, rejected in (
-        ({"type": ["object", "array"]}, ('{}', '[]'), ('42', 'true', '"text"', '{invalid')),
-        ({"type": ["boolean", "null"]}, ('false', 'true', 'null'), ('0', '"null"', '{}')),
-        ({"type": ["string", "integer"], "minimum": 2, "minLength": 3}, ('2', 'abc'), ('1', 'ab')),
-        ({"type": ["string", "boolean"], "enum": [False]}, ('false',), ('true', 'text')),
-        ({"type": ["integer", "number"], "maximum": 3}, ('2', '2.5'), ('4', 'true')),
-        ({"type": ["object", "string"], "const": {"enabled": True}}, ('{"enabled":true}',), ('{}', 'text')),
-        ({"type": ["object", "string"], "pattern": "^allowed$"}, ('{}', 'allowed'), ('other',)),
+        (
+            {"type": ["object", "array"]},
+            ("{}", "[]"),
+            ("42", "true", '"text"', "{invalid"),
+        ),
+        (
+            {"type": ["boolean", "null"]},
+            ("false", "true", "null"),
+            ("0", '"null"', "{}"),
+        ),
+        (
+            {"type": ["string", "integer"], "minimum": 2, "minLength": 3},
+            ("2", "abc"),
+            ("1", "ab"),
+        ),
+        (
+            {"type": ["string", "boolean"], "enum": [False]},
+            ("false",),
+            ("true", "text"),
+        ),
+        ({"type": ["integer", "number"], "maximum": 3}, ("2", "2.5"), ("4", "true")),
+        (
+            {"type": ["object", "string"], "const": {"enabled": True}},
+            ('{"enabled":true}',),
+            ("{}", "text"),
+        ),
+        (
+            {"type": ["object", "string"], "pattern": "^allowed$"},
+            ("{}", "allowed"),
+            ("other",),
+        ),
     ):
         catalog.schemas["AWS::Test::Union"] = {"properties": {"Value": node}}
         for raw_value in accepted:
-            assert catalog.literal_errors("Test.Union", "Value", raw_value) == [], (node, raw_value)
+            assert catalog.literal_errors("Test.Union", "Value", raw_value) == [], (
+                node,
+                raw_value,
+            )
         for raw_value in rejected:
-            assert catalog.literal_errors("Test.Union", "Value", raw_value), (node, raw_value)
+            assert catalog.literal_errors("Test.Union", "Value", raw_value), (
+                node,
+                raw_value,
+            )
 
     logs = catalog.schema("Logs.LogGroup")
-    assert "BearerTokenAuthenticationEnabled" in logs["properties"]  # full schema, not the curated list
-    assert catalog.literal_errors(
-        "Logs.LogGroup",
-        "KmsKeyId",
-        "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555",
-    ) == []
+    assert (
+        "BearerTokenAuthenticationEnabled" in logs["properties"]
+    )  # full schema, not the curated list
+    assert (
+        catalog.literal_errors(
+            "Logs.LogGroup",
+            "KmsKeyId",
+            "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555",
+        )
+        == []
+    )
     assert catalog.literal_errors("Logs.LogGroup", "KmsKeyId", "not-used")
     assert catalog.literal_errors("Logs.LogGroup", "RetentionInDays", "30") == []
     assert catalog.literal_errors("Logs.LogGroup", "RetentionInDays", "31")
@@ -96,7 +181,10 @@ def main() -> None:
     assert catalog.required_properties("Athena.WorkGroup") == {"Name"}
     assert catalog.literal_errors("Athena.WorkGroup", "State", "ENABLED") == []
     assert catalog.literal_errors("Athena.WorkGroup", "State", "unexpected")
-    assert catalog.property_schema("DynamoDB.Table", "KeySchema[].AttributeName")["type"] == "string"
+    assert (
+        catalog.property_schema("DynamoDB.Table", "KeySchema[].AttributeName")["type"]
+        == "string"
+    )
     materials = root / "framework" / "materials" / "aws"
     # These fields are intentionally supported by the curated catalog.
     for resource_type, properties in {
@@ -128,7 +216,11 @@ def main() -> None:
             "Tags[].Value",
         ),
     }.items():
-        lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text(encoding="utf-8").splitlines()
+        lines = (
+            (materials / (resource_type.replace(".", "_") + ".properties"))
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
         for property_path in properties:
             assert f"{resource_type}.{property_path}=" in lines, property_path
             node = catalog.property_schema(resource_type, property_path)
@@ -136,26 +228,50 @@ def main() -> None:
             if resource_type.startswith("SecretsManager."):
                 assert node["type"] == "string"
     assert catalog.property_schema("IAM.User", "UserName")["type"] == "string"
-    assert catalog.property_schema("IAM.User", "LoginProfile.PasswordResetRequired")["type"] == "boolean"
-    assert "object" in catalog.property_schema("IAM.User", "Policies[].PolicyDocument")["type"]
-    assert catalog.required_properties("GuardDuty.MalwareProtectionPlan") == {"ProtectedResource", "Role"}
-    assert "GuardDuty.MalwareProtectionPlan.MalwareProtectionPlanId=IDENTIFIER_OUTPUT" in (
-        materials / "GuardDuty_MalwareProtectionPlan.properties"
-    ).read_text(encoding="utf-8").splitlines()
-    assert catalog.property_schema("GuardDuty.MalwareProtectionPlan", "MalwareProtectionPlanId")["type"] == "string"
+    assert (
+        catalog.property_schema("IAM.User", "LoginProfile.PasswordResetRequired")[
+            "type"
+        ]
+        == "boolean"
+    )
+    assert (
+        "object"
+        in catalog.property_schema("IAM.User", "Policies[].PolicyDocument")["type"]
+    )
+    assert catalog.required_properties("GuardDuty.MalwareProtectionPlan") == {
+        "ProtectedResource",
+        "Role",
+    }
+    assert (
+        "GuardDuty.MalwareProtectionPlan.MalwareProtectionPlanId=IDENTIFIER_OUTPUT"
+        in (materials / "GuardDuty_MalwareProtectionPlan.properties")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    assert (
+        catalog.property_schema(
+            "GuardDuty.MalwareProtectionPlan", "MalwareProtectionPlanId"
+        )["type"]
+        == "string"
+    )
     assert catalog.schema("GuardDuty.MalwareProtectionPlan")["primaryIdentifier"] == [
         "/properties/MalwareProtectionPlanId"
     ]
-    assert catalog.literal_errors("GuardDuty.MalwareProtectionPlan", "Actions.Tagging.Status", "ENABLED") == []
+    assert (
+        catalog.literal_errors(
+            "GuardDuty.MalwareProtectionPlan", "Actions.Tagging.Status", "ENABLED"
+        )
+        == []
+    )
     eip = (materials / "EC2_EIP.properties").read_text(encoding="utf-8")
     assert "EC2.EIP.AllocationId=IDENTIFIER_OUTPUT" in eip
     assert "EC2.EIP.PublicIp=IDENTIFIER_OUTPUT" in eip
     assert "Glue.Database.DatabaseName=" in (
         materials / "Glue_Database.properties"
     ).read_text(encoding="utf-8")
-    assert "SNS.Topic.TopicArn" not in (
-        materials / "SNS_Topic.properties"
-    ).read_text(encoding="utf-8")
+    assert "SNS.Topic.TopicArn" not in (materials / "SNS_Topic.properties").read_text(
+        encoding="utf-8"
+    )
     for resource_type, paths in {
         "Glue.Connection": "ConnectionInput ConnectionInput.AuthenticationConfiguration ConnectionInput.PhysicalConnectionRequirements ConnectionInput.AthenaProperties",
         "Glue.Catalog": "FederatedCatalog",
@@ -163,13 +279,25 @@ def main() -> None:
         "LakeFormation.PrincipalPermissions": "Catalog Permissions PermissionsWithGrantOption Principal Resource Principal.DataLakePrincipalIdentifier Resource.Catalog Resource.Database Resource.Table Resource.TableWithColumns Resource.Database.CatalogId Resource.Database.Name Resource.Table.CatalogId Resource.Table.DatabaseName Resource.Table.Name Resource.Table.TableWildcard Resource.TableWithColumns.CatalogId Resource.TableWithColumns.DatabaseName Resource.TableWithColumns.Name Resource.TableWithColumns.ColumnNames Resource.TableWithColumns.ColumnWildcard Resource.TableWithColumns.ColumnWildcard.ExcludedColumnNames",
         "QuickSight.DataSource": "Credentials.KeyPairCredentials Credentials.KeyPairCredentials.KeyPairUsername Credentials.KeyPairCredentials.PrivateKey Credentials.KeyPairCredentials.PrivateKeyPassphrase",
     }.items():
-        lines = (materials / (resource_type.replace(".", "_") + ".properties")).read_text(encoding="utf-8").splitlines()
+        lines = (
+            (materials / (resource_type.replace(".", "_") + ".properties"))
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
         for path in paths.split():
             assert f"{resource_type}.{path}=" in lines, path
             assert catalog.property_schema(resource_type, path)
-    lake = (materials / "LakeFormation_PrincipalPermissions.properties").read_text(encoding="utf-8")
-    assert "LakeFormation.PrincipalPermissions.PrincipalIdentifier=IDENTIFIER_OUTPUT" in lake
-    assert "LakeFormation.PrincipalPermissions.ResourceIdentifier=IDENTIFIER_OUTPUT" in lake
+    lake = (materials / "LakeFormation_PrincipalPermissions.properties").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "LakeFormation.PrincipalPermissions.PrincipalIdentifier=IDENTIFIER_OUTPUT"
+        in lake
+    )
+    assert (
+        "LakeFormation.PrincipalPermissions.ResourceIdentifier=IDENTIFIER_OUTPUT"
+        in lake
+    )
     for path in ("DataCatalog.DatabaseName", "DataCatalog.TableName"):
         try:
             catalog.property_schema("Athena.WorkGroup", path)
@@ -177,21 +305,41 @@ def main() -> None:
             pass
         else:
             raise AssertionError(f"unsupported Athena.WorkGroup path: {path}")
-    scheduler = (materials / "Scheduler_Schedule.properties").read_text(encoding="utf-8").splitlines()
+    scheduler = (
+        (materials / "Scheduler_Schedule.properties")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
     assert len(scheduler) == 43
     assert "Scheduler.Schedule.Arn=" not in scheduler
-    assert DesignSchemaCatalog(root).cloudformation_type("Scheduler.Schedule") == "AWS::Scheduler::Schedule"
+    assert (
+        DesignSchemaCatalog(root).cloudformation_type("Scheduler.Schedule")
+        == "AWS::Scheduler::Schedule"
+    )
     assert catalog.required_properties("Scheduler.Schedule") == {
-        "FlexibleTimeWindow", "ScheduleExpression", "Target"
+        "FlexibleTimeWindow",
+        "ScheduleExpression",
+        "Target",
     }
     for path in (
-        "Name", "FlexibleTimeWindow.Mode", "ScheduleExpression", "ScheduleExpressionTimezone",
-        "Target.Arn", "Target.RoleArn", "Target.Input", "Target.RetryPolicy.MaximumRetryAttempts",
+        "Name",
+        "FlexibleTimeWindow.Mode",
+        "ScheduleExpression",
+        "ScheduleExpressionTimezone",
+        "Target.Arn",
+        "Target.RoleArn",
+        "Target.Input",
+        "Target.RetryPolicy.MaximumRetryAttempts",
     ):
         assert f"Scheduler.Schedule.{path}=" in scheduler
         assert catalog.property_schema("Scheduler.Schedule", path)
-    assert catalog.literal_errors("Scheduler.Schedule", "FlexibleTimeWindow.Mode", "OFF") == []
-    assert catalog.literal_errors("Scheduler.Schedule", "FlexibleTimeWindow.Mode", "WRONG")
+    assert (
+        catalog.literal_errors("Scheduler.Schedule", "FlexibleTimeWindow.Mode", "OFF")
+        == []
+    )
+    assert catalog.literal_errors(
+        "Scheduler.Schedule", "FlexibleTimeWindow.Mode", "WRONG"
+    )
     for kind, paths in {
         "EC2.VPCBlockPublicAccessOptions": "AccountId InternetGatewayBlockMode",
         "EC2.VPCBlockPublicAccessExclusion": "ExclusionId InternetGatewayExclusionMode VpcId SubnetId Tags[].Key Tags[].Value",
@@ -204,73 +352,128 @@ def main() -> None:
         "SSM.MaintenanceWindowTask": "WindowTaskId WindowId Name TaskArn TaskType Targets[].Key TaskInvocationParameters.MaintenanceWindowRunCommandParameters.Parameters",
         "Config.ConfigRule": "ConfigRuleId ConfigRuleName Source.Owner Source.SourceIdentifier Source.CustomPolicyDetails.PolicyText Scope.ComplianceResourceTypes InputParameters EvaluationModes[].Mode",
     }.items():
-        assert DesignSchemaCatalog(root).cloudformation_type(kind) == "AWS::" + kind.replace(".", "::", 1)
+        assert DesignSchemaCatalog(root).cloudformation_type(
+            kind
+        ) == "AWS::" + kind.replace(".", "::", 1)
         assert LAYOUTS[kind] == "independent"
-        lines = (materials / (kind.replace(".", "_", 1) + ".properties")).read_text(encoding="utf-8").splitlines()
+        lines = (
+            (materials / (kind.replace(".", "_", 1) + ".properties"))
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
         selected = {line.partition("=")[0] for line in lines}
         for path in paths.split():
             assert f"{kind}.{path}" in selected, (kind, path)
             assert catalog.property_schema(kind, path)
-        assert all(not line.partition("=")[0].split(".")[-1].lower().endswith("arn")
-                   for line in lines if line.endswith("=IDENTIFIER_OUTPUT"))
+        assert all(
+            not line.partition("=")[0].split(".")[-1].lower().endswith("arn")
+            for line in lines
+            if line.endswith("=IDENTIFIER_OUTPUT")
+        )
     for kind, prop, value in (
-        ("EC2.VPCBlockPublicAccessOptions", "InternetGatewayBlockMode", "block-bidirectional"),
-        ("EC2.VPCBlockPublicAccessExclusion", "InternetGatewayExclusionMode", "allow-egress"),
+        (
+            "EC2.VPCBlockPublicAccessOptions",
+            "InternetGatewayBlockMode",
+            "block-bidirectional",
+        ),
+        (
+            "EC2.VPCBlockPublicAccessExclusion",
+            "InternetGatewayExclusionMode",
+            "allow-egress",
+        ),
         ("Organizations.Policy", "Type", "SERVICE_CONTROL_POLICY"),
         ("SSM.PatchBaseline", "OperatingSystem", "AMAZON_LINUX_2023"),
     ):
         assert catalog.literal_errors(kind, prop, value) == [], (kind, prop)
         assert catalog.literal_errors(kind, prop, "INVALID_ENUM"), (kind, prop)
-    assert catalog.literal_errors("SSM.MaintenanceWindowTask", "TaskType", "RUN_COMMAND") == []
+    assert (
+        catalog.literal_errors("SSM.MaintenanceWindowTask", "TaskType", "RUN_COMMAND")
+        == []
+    )
     assert catalog.literal_errors("Config.ConfigRule", "Source.Owner", "AWS") == []
     assert resource_name_fields("SSM.Association") == ["AssociationName"]
-    rows = [["1", "SSM.Association.Name", "AWS-RunPatchBaseline", "参照document"],
-            ["2", "SSM.Association.AssociationName", "patch-scan", "associationの名前"]]
+    rows = [
+        ["1", "SSM.Association.Name", "AWS-RunPatchBaseline", "参照document"],
+        ["2", "SSM.Association.AssociationName", "patch-scan", "associationの名前"],
+    ]
     assert resource_display_name("SSM.Association", rows) == "patch-scan"
     assert resource_display_name("SSM.Association", rows[:1]) is None
 
     reference = "{{resolve:secretsmanager:example/dev/snowflake-pat/iad/pii:SecretString:username}}"
     valid_references = (
-        reference, reference.replace(":username}}", ":password}}"),
-        "{{resolve:secretsmanager:example}}", "{{resolve:secretsmanager:example::::}}",
+        reference,
+        reference.replace(":username}}", ":password}}"),
+        "{{resolve:secretsmanager:example}}",
+        "{{resolve:secretsmanager:example::::}}",
         "{{resolve:secretsmanager:example:SecretString:username:AWSCURRENT}}",
         "{{resolve:secretsmanager:example:SecretString:username::version-id}}",
         "{{resolve:secretsmanager:arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:example-Ab1234:SecretString:username}}",
         "{{resolve:secretsmanager:arn:aws-cn:secretsmanager:cn-north-1:123456789012:secret:example}}",
-        "{{resolve:ssm:/example/username}}", "{{resolve:ssm:/example/username:2}}",
-        "prefix-" + reference + "-suffix", reference + ":" + reference,
+        "{{resolve:ssm:/example/username}}",
+        "{{resolve:ssm:/example/username:2}}",
+        "prefix-" + reference + "-suffix",
+        reference + ":" + reference,
     )
     invalid_references = (
-        "{{resolve", "{{resolve:ssm:/example}", "{{ resolve:ssm:/example}}",
-        "{{resolve :ssm:/example}}", "{{resolve:unknown:example}}",
-        "{{resolve:secretsmanager:}}", "{{resolve:secretsmanager:example:SecretBinary:username}}",
+        "{{resolve",
+        "{{resolve:ssm:/example}",
+        "{{ resolve:ssm:/example}}",
+        "{{resolve :ssm:/example}}",
+        "{{resolve:unknown:example}}",
+        "{{resolve:secretsmanager:}}",
+        "{{resolve:secretsmanager:example:SecretBinary:username}}",
         "{{resolve:secretsmanager:example:SecretString:username:stage:version}}",
         "{{resolve:secretsmanager:example:SecretString:username:::extra}}",
         "{{resolve:secretsmanager:arn:aws:s3:ap-northeast-1:123456789012:secret:example}}",
         "{{resolve:secretsmanager:arn:aws:secretsmanager:ap-northeast-1:wrong:secret:example}}",
         "{{resolve:secretsmanager:example:SecretString:username\\}}",
-        "{{resolve:ssm:}}", "{{resolve:ssm:/example:label}}",
-        "{{resolve:ssm:/example:1:2}}", "{{resolve:ssm:/bad name}}",
-        reference + "{{resolve:ssm:}}", reference + "{{resolve:ssm:/missing",
+        "{{resolve:ssm:}}",
+        "{{resolve:ssm:/example:label}}",
+        "{{resolve:ssm:/example:1:2}}",
+        "{{resolve:ssm:/bad name}}",
+        reference + "{{resolve:ssm:}}",
+        reference + "{{resolve:ssm:/missing",
         "{{resolve:secretsmanager:{{resolve:ssm:/nested}}}}",
     )
     for schemas in (catalog, DesignSchemaCatalog(root)):
         for prop in ("Username", "Password"):
             path = "Credentials.CredentialPair." + prop
             for value in valid_references:
-                assert schemas.literal_errors("QuickSight.DataSource", path, value) == [], (prop, value)
+                assert (
+                    schemas.literal_errors("QuickSight.DataSource", path, value) == []
+                ), (prop, value)
             for value in invalid_references:
-                assert schemas.literal_errors("QuickSight.DataSource", path, value), (prop, value)
+                assert schemas.literal_errors("QuickSight.DataSource", path, value), (
+                    prop,
+                    value,
+                )
             limit = 64 if prop == "Username" else 1024
-            assert schemas.literal_errors("QuickSight.DataSource", path, "x" * limit) == []
-            assert schemas.literal_errors("QuickSight.DataSource", path, "x" * (limit + 1))
+            assert (
+                schemas.literal_errors("QuickSight.DataSource", path, "x" * limit) == []
+            )
+            assert schemas.literal_errors(
+                "QuickSight.DataSource", path, "x" * (limit + 1)
+            )
             assert schemas.literal_errors("QuickSight.DataSource", path, "")
         assert schemas.literal_errors("IAM.Role", "Description", reference) == []
-        assert schemas.literal_errors("IAM.User", "LoginProfile.Password", "{{resolve:ssm-secure:/example:2}}") == []
-        assert schemas.literal_errors("QuickSight.DataSource", "Credentials.CredentialPair.Username", "{{resolve:ssm-secure:/example}}")
+        assert (
+            schemas.literal_errors(
+                "IAM.User", "LoginProfile.Password", "{{resolve:ssm-secure:/example:2}}"
+            )
+            == []
+        )
+        assert schemas.literal_errors(
+            "QuickSight.DataSource",
+            "Credentials.CredentialPair.Username",
+            "{{resolve:ssm-secure:/example}}",
+        )
         assert schemas.literal_errors("EC2.Instance", "UserData", reference)
-        for kind, path in (("Logs.LogGroup", "RetentionInDays"), ("EC2.VPC", "EnableDnsSupport"),
-                           ("QuickSight.DataSource", "Credentials.CredentialPair"), ("IAM.User", "Groups")):
+        for kind, path in (
+            ("Logs.LogGroup", "RetentionInDays"),
+            ("EC2.VPC", "EnableDnsSupport"),
+            ("QuickSight.DataSource", "Credentials.CredentialPair"),
+            ("IAM.User", "Groups"),
+        ):
             assert schemas.literal_errors(kind, path, reference), (kind, path)
 
     # Defer value constraints together, while retaining every ordinary-literal check.
@@ -287,8 +490,17 @@ def main() -> None:
         assert catalog.literal_errors("Test.Dynamic", "Value", rejected)
         assert catalog.literal_errors("Test.Dynamic", "Value", invalid_references[0])
     long_reference = reference.replace("username", "k" * 1100)
-    assert catalog.literal_errors("QuickSight.DataSource", "Credentials.CredentialPair.Password", long_reference) == []
-    assert DesignSchemaCatalog(root).literal_errors("QuickSight.Group", "Description", long_reference)
+    assert (
+        catalog.literal_errors(
+            "QuickSight.DataSource",
+            "Credentials.CredentialPair.Password",
+            long_reference,
+        )
+        == []
+    )
+    assert DesignSchemaCatalog(root).literal_errors(
+        "QuickSight.Group", "Description", long_reference
+    )
     print("cloudformation-schema: PASS")
 
 

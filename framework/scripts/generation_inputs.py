@@ -10,6 +10,7 @@ from utils.aws_mappings import definition_root, mapping_alias
 
 class GenerationInputs:
     """Invocation-owned record of consumed raw bytes, kinds and selections."""
+
     def __init__(self, root, definitions_root=None, *, task_file=None):
         status = _imports_task_contract.status
         self.root = root
@@ -23,38 +24,53 @@ class GenerationInputs:
         self.lifetime = ExitStack()
         self.stage = None
         with _imports_task_contract.task_reads(root) as reads:
-            self.task_snapshot = _imports_task_contract.task_snapshot(root, task_file, required=False)
+            self.task_snapshot = _imports_task_contract.task_snapshot(
+                root, task_file, required=False
+            )
             self.task_selector = _imports_task_contract._selector(root)
             if reads.catalog is not None:
                 for task in reads.catalog.tasks:
                     self.record(task.path, task.raw)
-                directory = root / 'tasks'
+                directory = root / "tasks"
                 self.kind(directory)
-                self.selections[(directory, '*', False, None)] = tuple(task.path for task in reads.catalog.tasks)
+                self.selections[(directory, "*", False, None)] = tuple(
+                    task.path for task in reads.catalog.tasks
+                )
             selected = self.task_snapshot
             if selected is not None:
                 self.record(selected.path, selected.raw)
-            self.expected_task = (None, None) if selected is None else (selected.name, selected.text)
+            self.expected_task = (
+                (None, None) if selected is None else (selected.name, selected.text)
+            )
         name, text = self.expected_task
-        if text is not None and status(text) != 'running':
-            raise ValueError('completed task cannot write')
+        if text is not None and status(text) != "running":
+            raise ValueError("completed task cannot write")
 
     def tracks(self, path):
         if self.stage is not None and path.is_relative_to(self.stage):
             return False
         for root in (self.root, self.definitions_root, self.runtime_root):
-            if path.is_relative_to(root / 'framework'):
+            if path.is_relative_to(root / "framework"):
                 return False
-        return path.is_relative_to(self.root) or path.is_relative_to(self.definitions_root)
+        return path.is_relative_to(self.root) or path.is_relative_to(
+            self.definitions_root
+        )
 
     def require_open(self, path):
         if self.sealed:
-            raise ValueError(f'new generation dependency after seal: {path}')
+            raise ValueError(f"new generation dependency after seal: {path}")
 
     @staticmethod
     def live_kind(path):
-        return ('symlink' if path.is_symlink() else 'file' if path.is_file() else
-                'dir' if path.is_dir() else 'missing')
+        return (
+            "symlink"
+            if path.is_symlink()
+            else "file"
+            if path.is_file()
+            else "dir"
+            if path.is_dir()
+            else "missing"
+        )
 
     def kind(self, path):
         path = Path(path)
@@ -73,7 +89,7 @@ class GenerationInputs:
         if path in self.contents:
             if self.contents[path] != content:
                 self.conflicts.add(path)
-                raise ValueError(f'generation inputs changed while reading: {path}')
+                raise ValueError(f"generation inputs changed while reading: {path}")
         else:
             self.require_open(path)
             self.kind(path)
@@ -84,19 +100,30 @@ class GenerationInputs:
         path = Path(path)
         if path not in self.contents:
             kind = self.kind(path)
-            if kind not in {'file', 'missing'}:
-                raise ValueError(f'unsafe generation input ({kind}): {path}')
-            self.record(path, path.read_bytes() if kind == 'file' else None)
+            if kind not in {"file", "missing"}:
+                raise ValueError(f"unsafe generation input ({kind}): {path}")
+            self.record(path, path.read_bytes() if kind == "file" else None)
         return self.contents[path]
 
     @staticmethod
     def live_select(base, pattern, recursive, kinds):
         paths = base.rglob(pattern) if recursive else base.glob(pattern)
-        return tuple(sorted(p for p in paths if not (p.suffix == '.pyc' and '__pycache__' in p.parts)
-                            and (kinds is None or GenerationInputs.live_kind(p) in kinds)))
+        return tuple(
+            sorted(
+                p
+                for p in paths
+                if not (p.suffix == ".pyc" and "__pycache__" in p.parts)
+                and (kinds is None or GenerationInputs.live_kind(p) in kinds)
+            )
+        )
 
-    def select(self, base, pattern='*', recursive=False, kinds=None):
-        key = (Path(base), pattern, recursive, None if kinds is None else tuple(sorted(kinds)))
+    def select(self, base, pattern="*", recursive=False, kinds=None):
+        key = (
+            Path(base),
+            pattern,
+            recursive,
+            None if kinds is None else tuple(sorted(kinds)),
+        )
         if key not in self.selections:
             self.require_open(base)
             self.selections[key] = self.live_select(*key)
@@ -104,15 +131,21 @@ class GenerationInputs:
 
     def open_stage(self):
         if self.stage is None:
-            self.stage = Path(self.lifetime.enter_context(tempfile.TemporaryDirectory())).resolve()
-            self.lifetime.enter_context(mapping_alias(self.definitions_root, self.stage))
+            self.stage = Path(
+                self.lifetime.enter_context(tempfile.TemporaryDirectory())
+            ).resolve()
+            self.lifetime.enter_context(
+                mapping_alias(self.definitions_root, self.stage)
+            )
         return self.stage
 
     def copy_to_stage(self, paths):
         stage = self.open_stage()
         for path in paths:
-            if not path.is_relative_to(self.root) or path.is_relative_to(self.root / 'framework'):
-                raise ValueError(f'not a project stage dependency: {path}')
+            if not path.is_relative_to(self.root) or path.is_relative_to(
+                self.root / "framework"
+            ):
+                raise ValueError(f"not a project stage dependency: {path}")
             data = self.read(path)
             if data is not None:
                 staged = stage / path.relative_to(self.root)
@@ -129,11 +162,21 @@ class GenerationInputs:
         """Exactly one live comparison, before any service saves."""
         if self.task_selector != _imports_task_contract._selector(self.root):
             raise ValueError("task selection changed before publication")
-        changed = self.conflicts | {p for p, data in self.contents.items()
-                   if (p.read_bytes() if p.is_file() else None) != data}
+        changed = self.conflicts | {
+            p
+            for p, data in self.contents.items()
+            if (p.read_bytes() if p.is_file() else None) != data
+        }
         changed.update(p for p, kind in self.kinds.items() if self.live_kind(p) != kind)
         for selection, paths in self.selections.items():
             changed.update(set(self.live_select(*selection)) ^ set(paths))
         if changed:
-            raise ValueError('generation inputs changed before publication: ' +
-                             ', '.join(str(p.relative_to(self.root)) if p.is_relative_to(self.root) else str(p) for p in sorted(changed)))
+            raise ValueError(
+                "generation inputs changed before publication: "
+                + ", ".join(
+                    str(p.relative_to(self.root))
+                    if p.is_relative_to(self.root)
+                    else str(p)
+                    for p in sorted(changed)
+                )
+            )

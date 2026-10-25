@@ -1,4 +1,5 @@
 """Ordered group control through an injected backend, without AWS transport."""
+
 from __future__ import annotations
 
 import copy
@@ -18,9 +19,18 @@ from deploy.typing import Save, SchedulerBackend, Sleep, StackState, StackUnit, 
 ReadResult = TypeVar("ReadResult")
 
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
-FAILED = {"CREATE_FAILED", "ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "DELETE_COMPLETE", "DELETE_FAILED",
-          "UPDATE_FAILED", "UPDATE_ROLLBACK_COMPLETE", "UPDATE_ROLLBACK_FAILED",
-          "IMPORT_ROLLBACK_COMPLETE", "IMPORT_ROLLBACK_FAILED"}
+FAILED = {
+    "CREATE_FAILED",
+    "ROLLBACK_COMPLETE",
+    "ROLLBACK_FAILED",
+    "DELETE_COMPLETE",
+    "DELETE_FAILED",
+    "UPDATE_FAILED",
+    "UPDATE_ROLLBACK_COMPLETE",
+    "UPDATE_ROLLBACK_FAILED",
+    "IMPORT_ROLLBACK_COMPLETE",
+    "IMPORT_ROLLBACK_FAILED",
+}
 
 
 def _callback_read_parallel_read(method, states, /, unit):
@@ -57,41 +67,67 @@ def run_group(
     """Single event loop owns the queue; AWS executions overlap, Python decisions do not."""
     pending = [unit for unit in units if states[unit["name"]]["status"] != "SUCCESS"]
     if not pending:
-        return "STOPPED" if any(s.get('schedulerError') for s in states.values()) else "COMPLETE"
+        return (
+            "STOPPED"
+            if any(s.get("schedulerError") for s in states.values())
+            else "COMPLETE"
+        )
     order = min(int(unit["deployOrder"]) for unit in pending)
     group = [unit for unit in pending if int(unit["deployOrder"]) == order]
-    active = [u for u in units if states[u['name']]['status'] == 'RUNNING']
+    active = [u for u in units if states[u["name"]]["status"] == "RUNNING"]
     violation = None
     if len(active) > limit:
-        violation = f'RUNNING stacks exceed concurrency limit {limit}: ' + ', '.join(u['name'] for u in active)
-    elif any(int(u['deployOrder']) != order for u in active):
-        violation = 'RUNNING stacks cross the active DeployOrder barrier'
+        violation = f"RUNNING stacks exceed concurrency limit {limit}: " + ", ".join(
+            u["name"] for u in active
+        )
+    elif any(int(u["deployOrder"]) != order for u in active):
+        violation = "RUNNING stacks cross the active DeployOrder barrier"
     if violation:
         for unit in active:
-            states[unit['name']].setdefault('schedulerError', violation)
+            states[unit["name"]].setdefault("schedulerError", violation)
         save()
-    stopped = drain_only or any(state["status"] == "FAILED" or state.get('schedulerError') for state in states.values())
-    if not stopped and hasattr(backend, 'prepare_delivery_group'):
+    stopped = drain_only or any(
+        state["status"] == "FAILED" or state.get("schedulerError")
+        for state in states.values()
+    )
+    if not stopped and hasattr(backend, "prepare_delivery_group"):
         try:
             backend.prepare_delivery_group(group, states)
         except Exception as error:
-            candidate = next((u for u in group if states[u['name']]['status'] not in {'RUNNING', 'SUCCESS'}), None)
+            candidate = next(
+                (
+                    u
+                    for u in group
+                    if states[u["name"]]["status"] not in {"RUNNING", "SUCCESS"}
+                ),
+                None,
+            )
             if candidate:
-                states[candidate['name']].update(status='BLOCKED', reason=str(error))
-                failures.exception(states[candidate['name']], error, 'DELIVERY')
+                states[candidate["name"]].update(status="BLOCKED", reason=str(error))
+                failures.exception(states[candidate["name"]], error, "DELIVERY")
             stopped = True
             save()
     while True:
         # Poll every running stack before reusing any freed slot.
-        active = [unit for unit in (units if stopped else group) if states[unit["name"]]["status"] == "RUNNING"]
-        for unit, snapshot, status, error in read_parallel(active, states, backend.poll, limit):
+        active = [
+            unit
+            for unit in (units if stopped else group)
+            if states[unit["name"]]["status"] == "RUNNING"
+        ]
+        for unit, snapshot, status, error in read_parallel(
+            active, states, backend.poll, limit
+        ):
             state = states[unit["name"]]
             state.update(snapshot)
             try:
                 if error:
                     raise error
                 state["stackStatus"] = status
-                if state.get("failureDetected") or "ROLLBACK" in status or status.endswith("_FAILED"):
+                if (
+                    state.get("failureDetected")
+                    or "ROLLBACK" in status
+                    or status.endswith("_FAILED")
+                ):
                     stopped = True
                 if status in SUCCESS:
                     state["status"] = "SUCCESS"
@@ -102,23 +138,35 @@ def run_group(
                     raise Blocked(f"unrecognized stack status: {status}")
                 state.pop("pollError", None)
                 if state["status"] in {"SUCCESS", "FAILED"}:
-                    state["executionSeconds"] = time.time() - state.get("executionStarted", time.time())
+                    state["executionSeconds"] = time.time() - state.get(
+                        "executionStarted", time.time()
+                    )
             except Exception as error:
                 # Lost read access is not proof of terminal failure. Drain/retry only.
                 state["pollError"] = str(error)
-                failures.exception(state, error, 'POLL')
+                failures.exception(state, error, "POLL")
                 stopped = True
             save()
-        if any(states[u["name"]]["status"] == "SUCCESS" and not states[u["name"]].get("observedSynced") for u in group) and hasattr(backend, "sync_completed"):
+        if any(
+            states[u["name"]]["status"] == "SUCCESS"
+            and not states[u["name"]].get("observedSynced")
+            for u in group
+        ) and hasattr(backend, "sync_completed"):
             if not backend.sync_completed():
                 stopped = True
         running = sum(states[unit["name"]]["status"] == "RUNNING" for unit in group)
         # Start multiple change sets without waiting for one to become CREATE_COMPLETE.
         # Preparation is bounded too; do not speculate across DeployOrder barriers.
-        preparing = sum(states[u["name"]]["status"] == "CHANGESET_CREATING" for u in group)
+        preparing = sum(
+            states[u["name"]]["status"] == "CHANGESET_CREATING" for u in group
+        )
         if not stopped:
-            pending = [u for u in group if states[u["name"]]["status"] in {"NOT_STARTED", "BLOCKED"}]
-            for unit in pending[:max(0, limit - running - preparing)]:
+            pending = [
+                u
+                for u in group
+                if states[u["name"]]["status"] in {"NOT_STARTED", "BLOCKED"}
+            ]
+            for unit in pending[: max(0, limit - running - preparing)]:
                 state = states[unit["name"]]
                 try:
                     begin = getattr(backend, "begin_prepare", backend.prepare)
@@ -134,8 +182,15 @@ def run_group(
                 if stopped:
                     break
         if not stopped:
-            creating = [u for u in group if states[u["name"]]["status"] == "CHANGESET_CREATING"]
-            for unit, snapshot, change_set, error in read_parallel(creating, states, backend.describe_change_set if creating else backend.poll, limit):
+            creating = [
+                u for u in group if states[u["name"]]["status"] == "CHANGESET_CREATING"
+            ]
+            for unit, snapshot, change_set, error in read_parallel(
+                creating,
+                states,
+                backend.describe_change_set if creating else backend.poll,
+                limit,
+            ):
                 state = states[unit["name"]]
                 state.update(snapshot)
                 try:
@@ -151,7 +206,7 @@ def run_group(
                 save()
         if not stopped:
             ready = [u for u in group if states[u["name"]]["status"] == "READY"]
-            for unit in ready[:max(0, limit - running)]:
+            for unit in ready[: max(0, limit - running)]:
                 state = states[unit["name"]]
                 try:
                     # Persist execution intent before AWS mutation, including interruptions.
@@ -167,7 +222,10 @@ def run_group(
                 save()
                 if stopped:
                     break
-        running = sum(states[u["name"]]["status"] == "RUNNING" for u in (units if stopped else group))
+        running = sum(
+            states[u["name"]]["status"] == "RUNNING"
+            for u in (units if stopped else group)
+        )
         if not running:
             if stopped:
                 return "STOPPED"

@@ -21,30 +21,38 @@ from utils.input_cache import input_bytes, input_select, input_text
 from utils.json_format import canonical_json
 
 REGION = "ap-northeast-1"
-SOURCE_URL = f"https://schema.cloudformation.{REGION}.amazonaws.com/CloudformationSchema.zip"
+SOURCE_URL = (
+    f"https://schema.cloudformation.{REGION}.amazonaws.com/CloudformationSchema.zip"
+)
 IDENTIFIER_OUTPUT = "IDENTIFIER_OUTPUT"
 
 # The pinned provider schemas omit these API character constraints.
 # https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateRole.html
 # https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_CreateSecurityGroup.html
 DESCRIPTION_PATTERNS = {
-    ("AWS::IAM::Role", "Description"): r"\A[\u0009\u000A\u000D\u0020-\u007E\u00A1-\u00FF]*\Z",
-    ("AWS::EC2::SecurityGroup", "GroupDescription"): r"\A[a-zA-Z0-9 ._:/()#,@\[\]+=&;{}!$*\-]*\Z",
+    (
+        "AWS::IAM::Role",
+        "Description",
+    ): r"\A[\u0009\u000A\u000D\u0020-\u007E\u00A1-\u00FF]*\Z",
+    (
+        "AWS::EC2::SecurityGroup",
+        "GroupDescription",
+    ): r"\A[a-zA-Z0-9 ._:/()#,@\[\]+=&;{}!$*\-]*\Z",
 }
 
 # Supported SSM secure string slots; paths retain array wildcards.
 SSM_SECURE_PROPERTIES = {
-    'Resources/AWS::DirectoryService::MicrosoftAD/Properties/Password',
-    'Resources/AWS::DirectoryService::SimpleAD/Properties/Password',
-    'Resources/AWS::ElastiCache::ReplicationGroup/Properties/AuthToken',
-    'Resources/AWS::IAM::User/Properties/LoginProfile/Password',
-    'Resources/AWS::KinesisFirehose::DeliveryStream/Properties/RedshiftDestinationConfiguration/Password',
-    'Resources/AWS::OpsWorks::App/Properties/AppSource/Password',
-    'Resources/AWS::OpsWorks::Stack/Properties/RdsDbInstances/*/DbPassword',
-    'Resources/AWS::OpsWorks::Stack/Properties/CustomCookbooksSource/Password',
-    'Resources/AWS::RDS::DBCluster/Properties/MasterUserPassword',
-    'Resources/AWS::RDS::DBInstance/Properties/MasterUserPassword',
-    'Resources/AWS::Redshift::Cluster/Properties/MasterUserPassword',
+    "Resources/AWS::DirectoryService::MicrosoftAD/Properties/Password",
+    "Resources/AWS::DirectoryService::SimpleAD/Properties/Password",
+    "Resources/AWS::ElastiCache::ReplicationGroup/Properties/AuthToken",
+    "Resources/AWS::IAM::User/Properties/LoginProfile/Password",
+    "Resources/AWS::KinesisFirehose::DeliveryStream/Properties/RedshiftDestinationConfiguration/Password",
+    "Resources/AWS::OpsWorks::App/Properties/AppSource/Password",
+    "Resources/AWS::OpsWorks::Stack/Properties/RdsDbInstances/*/DbPassword",
+    "Resources/AWS::OpsWorks::Stack/Properties/CustomCookbooksSource/Password",
+    "Resources/AWS::RDS::DBCluster/Properties/MasterUserPassword",
+    "Resources/AWS::RDS::DBInstance/Properties/MasterUserPassword",
+    "Resources/AWS::Redshift::Cluster/Properties/MasterUserPassword",
 }
 
 DYNAMIC_REFERENCE_START = re.compile(r"\{\{\s*resolve\b")
@@ -66,7 +74,9 @@ def design_type(material: Path) -> str:
 def material_files(root: Path) -> list[Path]:
     definition_root = _imports_utils_aws_mappings.definition_root
     root = definition_root(root)
-    return sorted(input_select(root / "framework" / "materials" / "aws", "*.properties"))
+    return sorted(
+        input_select(root / "framework" / "materials" / "aws", "*.properties")
+    )
 
 
 def manifest_text(root: Path, files: list[Path]) -> str:
@@ -78,7 +88,6 @@ def manifest_text(root: Path, files: list[Path]) -> str:
 
 class CloudFormationSchemaCatalog:
     def __init__(self, root: Path, *, definitions=None) -> None:
-
         schemas_for = _imports_utils_aws_schemas.schemas_for
         self.root = root
         self.definitions = definitions if definitions is not None else schemas_for(root)
@@ -89,14 +98,20 @@ class CloudFormationSchemaCatalog:
 
     @staticmethod
     def canonical_type(resource_type: str) -> str:
-        return resource_type if resource_type.startswith("AWS::") else "AWS::" + resource_type.replace(".", "::", 1)
+        return (
+            resource_type
+            if resource_type.startswith("AWS::")
+            else "AWS::" + resource_type.replace(".", "::", 1)
+        )
 
     def schema(self, resource_type: str) -> dict[str, Any]:
         resource_type = self.canonical_type(resource_type)
         with self._schema_lock:
             if resource_type not in self.schemas:
                 # The public catalog permits local overrides; isolate each resource once.
-                self.schemas[resource_type] = deepcopy(self.definitions.cloudformation(resource_type))
+                self.schemas[resource_type] = deepcopy(
+                    self.definitions.cloudformation(resource_type)
+                )
             return self.schemas[resource_type]
 
     @staticmethod
@@ -114,7 +129,10 @@ class CloudFormationSchemaCatalog:
                 break
             seen.add(reference)
             target = self._pointer(document, reference)
-            node = {**target, **{key: value for key, value in node.items() if key != "$ref"}}
+            node = {
+                **target,
+                **{key: value for key, value in node.items() if key != "$ref"},
+            }
         return node
 
     def property_schema(self, resource_type: str, property_path: str) -> dict[str, Any]:
@@ -127,11 +145,14 @@ class CloudFormationSchemaCatalog:
             candidates = [node] if isinstance(node, dict) else []
             if isinstance(node, dict):
                 for keyword in ("allOf", "anyOf", "oneOf"):
-                    candidates.extend(self._resolve(document, item) for item in node.get(keyword, []))
+                    candidates.extend(
+                        self._resolve(document, item) for item in node.get(keyword, [])
+                    )
             matches = [
                 candidate["properties"][name]
                 for candidate in candidates
-                if isinstance(candidate, dict) and name in candidate.get("properties", {})
+                if isinstance(candidate, dict)
+                and name in candidate.get("properties", {})
             ]
             if not matches:
                 raise KeyError(f"{resource_type}.{property_path}")
@@ -141,7 +162,8 @@ class CloudFormationSchemaCatalog:
                 if isinstance(node, dict):
                     for keyword in ("allOf", "anyOf", "oneOf"):
                         array_candidates.extend(
-                            self._resolve(document, item) for item in node.get(keyword, [])
+                            self._resolve(document, item)
+                            for item in node.get(keyword, [])
                         )
                 arrays = [
                     candidate
@@ -149,7 +171,9 @@ class CloudFormationSchemaCatalog:
                     if isinstance(candidate, dict) and candidate.get("type") == "array"
                 ]
                 if not arrays:
-                    raise KeyError(f"{resource_type}.{property_path}: [] used for non-array")
+                    raise KeyError(
+                        f"{resource_type}.{property_path}: [] used for non-array"
+                    )
                 node = self._resolve(document, arrays[0].get("items", {}))
         if not isinstance(node, dict):
             raise KeyError(f"{resource_type}.{property_path}")
@@ -159,27 +183,42 @@ class CloudFormationSchemaCatalog:
         schema = self.schema(resource_type)
         return set(schema.get("required", []))
 
-    def literal_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str]:
+    def literal_errors(
+        self, resource_type: str, property_path: str, raw_value: str
+    ) -> list[str]:
         node = self.property_schema(resource_type, property_path)
         expected = node.get("type")
-        if expected == "string" or (isinstance(expected, list) and "string" in expected):
-            dynamic_errors = self._dynamic_reference_errors(resource_type, property_path, raw_value)
+        if expected == "string" or (
+            isinstance(expected, list) and "string" in expected
+        ):
+            dynamic_errors = self._dynamic_reference_errors(
+                resource_type, property_path, raw_value
+            )
             if dynamic_errors is not None:
                 # AWS resolves references at deployment; their text is not the property value.
                 return dynamic_errors
         errors = self._literal_errors(node, raw_value)
-        pattern = DESCRIPTION_PATTERNS.get((self.canonical_type(resource_type), property_path))
+        pattern = DESCRIPTION_PATTERNS.get(
+            (self.canonical_type(resource_type), property_path)
+        )
         if pattern and not errors:
-            errors.extend(self._literal_errors({"type": "string", "pattern": pattern}, raw_value))
+            errors.extend(
+                self._literal_errors({"type": "string", "pattern": pattern}, raw_value)
+            )
         return errors
 
-    def _dynamic_reference_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str] | None:
+    def _dynamic_reference_errors(
+        self, resource_type: str, property_path: str, raw_value: str
+    ) -> list[str] | None:
         if DYNAMIC_REFERENCE_START.search(raw_value) is None:
             return None
         if DYNAMIC_REFERENCE_START.search(DYNAMIC_REFERENCE.sub("", raw_value)):
             return ["invalid CloudFormation dynamic reference syntax"]
         resource_type = self.canonical_type(resource_type)
-        if resource_type.startswith("AWS::EC2::") and property_path.split(".")[-1] == "UserData":
+        if (
+            resource_type.startswith("AWS::EC2::")
+            and property_path.split(".")[-1] == "UserData"
+        ):
             return ["CloudFormation dynamic references are unsupported in EC2 UserData"]
         for match in DYNAMIC_REFERENCE.finditer(raw_value):
             kind, _, target = match[1].partition(":")
@@ -187,8 +226,12 @@ class CloudFormationSchemaCatalog:
                 secret = SECRETS_MANAGER_REFERENCE.fullmatch(target)
                 if secret is None or target.endswith("\\"):
                     return ["invalid Secrets Manager dynamic reference syntax"]
-                fields = secret["fields"].split(":") if secret["fields"] is not None else []
-                if len(fields) > 4 or (fields and fields[0] not in {"", "SecretString"}):
+                fields = (
+                    secret["fields"].split(":") if secret["fields"] is not None else []
+                )
+                if len(fields) > 4 or (
+                    fields and fields[0] not in {"", "SecretString"}
+                ):
                     return ["invalid Secrets Manager dynamic reference syntax"]
                 if len(fields) == 4 and fields[2] and fields[3]:
                     return ["invalid Secrets Manager dynamic reference syntax"]
@@ -196,22 +239,45 @@ class CloudFormationSchemaCatalog:
                 if re.fullmatch(r"[a-zA-Z0-9_.\-/]+(?::[0-9]+)?", target) is None:
                     return ["invalid SSM dynamic reference syntax"]
                 if kind == "ssm-secure":
-                    path = "Resources/" + resource_type + "/Properties/" + property_path.replace("[]", "/*").replace(".", "/")
+                    path = (
+                        "Resources/"
+                        + resource_type
+                        + "/Properties/"
+                        + property_path.replace("[]", "/*").replace(".", "/")
+                    )
                     if path not in SSM_SECURE_PROPERTIES:
-                        return ["SSM secure dynamic reference is unsupported for this resource property"]
+                        return [
+                            "SSM secure dynamic reference is unsupported for this resource property"
+                        ]
             else:
                 return ["unsupported CloudFormation dynamic reference provider"]
         return []
 
     def _literal_errors(self, node: dict[str, Any], raw_value: str) -> list[str]:
-        if raw_value.lower() in {"n/a", "none", "not-used", "not used", "unset", "unused", "未使用"} and raw_value not in node.get("enum", []):
-            return ["unused optional properties must be omitted instead of using a sentinel value"]
+        if raw_value.lower() in {
+            "n/a",
+            "none",
+            "not-used",
+            "not used",
+            "unset",
+            "unused",
+            "未使用",
+        } and raw_value not in node.get("enum", []):
+            return [
+                "unused optional properties must be omitted instead of using a sentinel value"
+            ]
         expected_type = node.get("type")
         if isinstance(expected_type, list):
-            alternatives = [self._literal_errors({**node, "type": kind}, raw_value) for kind in expected_type]
+            alternatives = [
+                self._literal_errors({**node, "type": kind}, raw_value)
+                for kind in expected_type
+            ]
             if any(not errors for errors in alternatives):
                 return []
-            return [f"must satisfy one of {expected_type}", *dict.fromkeys(error for errors in alternatives for error in errors)]
+            return [
+                f"must satisfy one of {expected_type}",
+                *dict.fromkeys(error for errors in alternatives for error in errors),
+            ]
         value: Any = raw_value
         try:
             if expected_type == "boolean":
@@ -284,7 +350,10 @@ def refresh(root: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     index = {
         "region": REGION,
-        "resourceTypes": {resource_type: schemas[resource_type][0] for resource_type in sorted(schemas)},
+        "resourceTypes": {
+            resource_type: schemas[resource_type][0]
+            for resource_type in sorted(schemas)
+        },
         "source": SOURCE_URL,
     }
     expected = {"index.json", *(filename for filename, _ in schemas.values())}
@@ -305,7 +374,8 @@ def refresh(root: Path) -> None:
         "schema.sourceUrl": SOURCE_URL,
     }
     (root / "framework" / "materials" / "cloudformation-schema.properties").write_text(
-        "".join(f"{key}={value}\n" for key, value in sorted(metadata.items())), encoding="utf-8"
+        "".join(f"{key}={value}\n" for key, value in sorted(metadata.items())),
+        encoding="utf-8",
     )
     (root / "framework" / "materials" / "cloudformation-schema.sha256").write_text(
         manifest_text(root, schema_files), encoding="utf-8"
@@ -314,7 +384,9 @@ def refresh(root: Path) -> None:
 
 def snapshot_errors(root: Path) -> list[str]:
     errors: list[str] = []
-    metadata_path = root / "framework" / "materials" / "cloudformation-schema.properties"
+    metadata_path = (
+        root / "framework" / "materials" / "cloudformation-schema.properties"
+    )
     manifest_path = root / "framework" / "materials" / "cloudformation-schema.sha256"
     try:
         metadata = dict(
@@ -328,8 +400,13 @@ def snapshot_errors(root: Path) -> list[str]:
 
     selected = {aws_type(path) for path in material_files(root)}
     if set(catalog.resource_types) != selected:
-        errors.append("schema index resource types do not match framework/materials/aws")
-    if metadata.get("schema.sourceUrl") != SOURCE_URL or metadata.get("schema.region") != REGION:
+        errors.append(
+            "schema index resource types do not match framework/materials/aws"
+        )
+    if (
+        metadata.get("schema.sourceUrl") != SOURCE_URL
+        or metadata.get("schema.region") != REGION
+    ):
         errors.append("schema provenance does not match the configured regional source")
     if metadata.get("schema.resourceTypeCount") != str(len(selected)):
         errors.append("schema.resourceTypeCount does not match framework/materials/aws")
@@ -341,8 +418,12 @@ def snapshot_errors(root: Path) -> list[str]:
     if {path.name for path in schema_files} != expected_names:
         errors.append("schema snapshot files do not match index.json")
     try:
-        if input_text(manifest_path, encoding="utf-8") != manifest_text(root, schema_files):
-            errors.append("framework/materials/cloudformation-schema.sha256 does not match the schema snapshot")
+        if input_text(manifest_path, encoding="utf-8") != manifest_text(
+            root, schema_files
+        ):
+            errors.append(
+                "framework/materials/cloudformation-schema.sha256 does not match the schema snapshot"
+            )
     except FileNotFoundError:
         errors.append("framework/materials/cloudformation-schema.sha256 is missing")
 
@@ -361,21 +442,29 @@ def snapshot_errors(root: Path) -> list[str]:
             continue
         for line in input_text(material, encoding="utf-8").splitlines():
             key, separator, marker = line.partition("=")
-            if not separator or not key.startswith(prefix) or marker not in {"", IDENTIFIER_OUTPUT}:
+            if (
+                not separator
+                or not key.startswith(prefix)
+                or marker not in {"", IDENTIFIER_OUTPUT}
+            ):
                 errors.append(f"invalid catalog line: {resource_type}: {line}")
                 continue
             property_path = key[len(prefix) :]
             try:
                 catalog.property_schema(resource_type, property_path)
             except (KeyError, TypeError) as error:
-                errors.append(f"catalog property is absent from provider schema: {resource_type}.{property_path}: {error}")
+                errors.append(
+                    f"catalog property is absent from provider schema: {resource_type}.{property_path}: {error}"
+                )
                 continue
             pointer = "/properties/" + property_path.replace("[]", "").replace(".", "/")
             catalog_pointers.add(pointer)
             if marker == IDENTIFIER_OUTPUT:
                 identifier_outputs.add(pointer)
             elif pointer in schema.get("readOnlyProperties", []):
-                errors.append(f"read-only catalog property lacks identifier marker: {resource_type}.{property_path}")
+                errors.append(
+                    f"read-only catalog property lacks identifier marker: {resource_type}.{property_path}"
+                )
 
         primary = set(schema.get("primaryIdentifier", []))
         read_only = set(schema.get("readOnlyProperties", []))
@@ -390,15 +479,22 @@ def snapshot_errors(root: Path) -> list[str]:
             if pointer.rsplit("/", 1)[-1].lower().endswith(("id", "identifier"))
         }
         for pointer in sorted(expected_outputs - identifier_outputs):
-            errors.append(f"generated primary identifier is missing: {resource_type}: {pointer}")
+            errors.append(
+                f"generated primary identifier is missing: {resource_type}: {pointer}"
+            )
         for pointer in sorted(identifier_outputs - allowed_outputs):
             errors.append(f"invalid identifier output: {resource_type}: {pointer}")
         for pointer in sorted((primary - read_only) - catalog_pointers):
-            errors.append(f"selected primary identifier is missing: {resource_type}: {pointer}")
+            errors.append(
+                f"selected primary identifier is missing: {resource_type}: {pointer}"
+            )
         for pointer in sorted(
-            pointer for pointer in primary & read_only if pointer.rsplit("/", 1)[-1].lower().endswith("arn")
+            pointer
+            for pointer in primary & read_only
+            if pointer.rsplit("/", 1)[-1].lower().endswith("arn")
         ):
             if pointer in catalog_pointers:
-                errors.append(f"generated ARN primary identifier is forbidden: {resource_type}: {pointer}")
+                errors.append(
+                    f"generated ARN primary identifier is forbidden: {resource_type}: {pointer}"
+                )
     return errors
-

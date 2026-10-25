@@ -32,7 +32,9 @@ def check_deploy_context(
     target = load_target(root, environment, account_id, alias)
     if not read_only:
         try:
-            require_target_no_issues(root, (environment, alias or target["awsAccountId"]))
+            require_target_no_issues(
+                root, (environment, alias or target["awsAccountId"])
+            )
         except (OSError, ValueError) as error:
             raise DeployContextError(str(error)) from error
     profile = select_profile(target, profile)
@@ -58,11 +60,17 @@ def check_deploy_context(
         "--no-cli-pager",
     ]
     try:
-        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            command, check=False, capture_output=True, text=True, timeout=30
+        )
     except subprocess.TimeoutExpired as error:
         raise DeployContextError("AWS credential check timed out") from error
     if result.returncode != 0:
-        detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else f"exit {result.returncode}"
+        detail = (
+            result.stderr.strip().splitlines()[-1]
+            if result.stderr.strip()
+            else f"exit {result.returncode}"
+        )
         raise DeployContextError(f"AWS credential check failed: {detail}")
 
     try:

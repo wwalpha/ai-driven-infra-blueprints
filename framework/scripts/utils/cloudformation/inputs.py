@@ -23,74 +23,128 @@ def _callback_resolve_value_resolve_replace(substitutions, /, match):
     return substitutions[key]
 
 
-def _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, /, value, seen=frozenset()):
+def _recursive_resolve_value_resolve(
+    conditions, exports, parameters, pseudo, /, value, seen=frozenset()
+):
     if isinstance(value, (str, bool, int, float)):
         return value
     if isinstance(value, list):
-        return [_recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, part, seen) for part in value]
+        return [
+            _recursive_resolve_value_resolve(
+                conditions, exports, parameters, pseudo, part, seen
+            )
+            for part in value
+        ]
     if not isinstance(value, dict) or len(value) != 1:
         raise Blocked("cannot resolve ImportValue expression")
     key, argument = next(iter(value.items()))
     if key == "Condition":
-        if not isinstance(argument, str) or argument in seen or argument not in (conditions or {}):
+        if (
+            not isinstance(argument, str)
+            or argument in seen
+            or argument not in (conditions or {})
+        ):
             raise Blocked(f"unresolved or cyclic Condition: {argument}")
-        result = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, conditions[argument], seen | {argument})
+        result = _recursive_resolve_value_resolve(
+            conditions,
+            exports,
+            parameters,
+            pseudo,
+            conditions[argument],
+            seen | {argument},
+        )
         if type(result) is not bool:
             raise Blocked(f"non-boolean Condition: {argument}")
         return result
     if key == "Fn::If" and isinstance(argument, list) and len(argument) == 3:
-        active = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, {"Condition": argument[0]}, seen)
-        return _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument[1 if active else 2], seen)
+        active = _recursive_resolve_value_resolve(
+            conditions, exports, parameters, pseudo, {"Condition": argument[0]}, seen
+        )
+        return _recursive_resolve_value_resolve(
+            conditions, exports, parameters, pseudo, argument[1 if active else 2], seen
+        )
     if key == "Fn::Equals" and isinstance(argument, list) and len(argument) == 2:
-        left, right = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument, seen)
-        return any(isinstance(left, kind) and isinstance(right, kind) and left == right
-                   for kind in (str, bool, int, float)) and isinstance(left, bool) == isinstance(right, bool)
+        left, right = _recursive_resolve_value_resolve(
+            conditions, exports, parameters, pseudo, argument, seen
+        )
+        return any(
+            isinstance(left, kind) and isinstance(right, kind) and left == right
+            for kind in (str, bool, int, float)
+        ) and isinstance(left, bool) == isinstance(right, bool)
     if key in {"Fn::And", "Fn::Or", "Fn::Not"} and isinstance(argument, list):
-        operands = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument, seen)
-        if (all(type(part) is bool for part in operands) and
-                (len(operands) == 1 if key == "Fn::Not" else 2 <= len(operands) <= 10)):
-            return not operands[0] if key == "Fn::Not" else all(operands) if key == "Fn::And" else any(operands)
+        operands = _recursive_resolve_value_resolve(
+            conditions, exports, parameters, pseudo, argument, seen
+        )
+        if all(type(part) is bool for part in operands) and (
+            len(operands) == 1 if key == "Fn::Not" else 2 <= len(operands) <= 10
+        ):
+            return (
+                not operands[0]
+                if key == "Fn::Not"
+                else all(operands)
+                if key == "Fn::And"
+                else any(operands)
+            )
         raise Blocked(f"invalid condition operands: {key}")
     if key == "Fn::ImportValue" and exports is not None:
-        name = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument, seen)
+        name = _recursive_resolve_value_resolve(
+            conditions, exports, parameters, pseudo, argument, seen
+        )
         if name in exports:
             return exports[name]
         raise Blocked(f"unresolved artifact bucket export: {name}")
     if key == "Ref" and argument in parameters | pseudo:
         return (parameters | pseudo)[argument]
     if key == "Fn::Join" and isinstance(argument, list) and len(argument) == 2:
-        delimiter, parts = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument, seen)
-        if isinstance(delimiter, str) and isinstance(parts, list) and all(isinstance(part, str) for part in parts):
+        delimiter, parts = _recursive_resolve_value_resolve(
+            conditions, exports, parameters, pseudo, argument, seen
+        )
+        if (
+            isinstance(delimiter, str)
+            and isinstance(parts, list)
+            and all(isinstance(part, str) for part in parts)
+        ):
             return delimiter.join(parts)
         raise Blocked("invalid Join operands")
     if key == "Fn::Sub":
         text, variables = (argument, {}) if isinstance(argument, str) else argument
-        substitutions = parameters | pseudo | {key: _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, val, seen) for key, val in variables.items()}
-        replace = _bind_framework_callback(_callback_resolve_value_resolve_replace, substitutions)
+        substitutions = (
+            parameters
+            | pseudo
+            | {
+                key: _recursive_resolve_value_resolve(
+                    conditions, exports, parameters, pseudo, val, seen
+                )
+                for key, val in variables.items()
+            }
+        )
+        replace = _bind_framework_callback(
+            _callback_resolve_value_resolve_replace, substitutions
+        )
         return re.sub(r"\$\{([^}]+)\}", replace, text)
     raise Blocked(f"unsupported ImportValue expression: {key}")
 
 
 def resolve_value(value, parameters, pseudo, exports=None, conditions=None):
     """Resolve the same explicit inputs for imports and artifact destinations."""
-    resolve = _bind_framework_callback(_recursive_resolve_value_resolve, conditions, exports, parameters, pseudo)
+    resolve = _bind_framework_callback(
+        _recursive_resolve_value_resolve, conditions, exports, parameters, pseudo
+    )
     return resolve(value)
-
-
 
 
 def _checked_parameters_number(raw, key):
     if isinstance(raw, bool) or not isinstance(raw, (str, int, float)):
-        raise ValueError(f'invalid Number parameter: {key}')
+        raise ValueError(f"invalid Number parameter: {key}")
     try:
         value = Decimal(str(raw))
     except InvalidOperation as error:
-        raise ValueError(f'invalid Number parameter: {key}') from error
+        raise ValueError(f"invalid Number parameter: {key}") from error
     if not value.is_finite():
-        raise ValueError(f'invalid Number parameter: {key}')
+        raise ValueError(f"invalid Number parameter: {key}")
     result = int(value) if value == value.to_integral_value() else float(value)
     if isinstance(result, float) and (not math.isfinite(result)):
-        raise ValueError(f'invalid Number parameter: {key}')
+        raise ValueError(f"invalid Number parameter: {key}")
     return result
 
 
@@ -107,7 +161,9 @@ def checked_parameters(document, inputs):
     values = {}
     number = _checked_parameters_number
     for key, definition in definitions.items():
-        if not isinstance(definition, dict) or not isinstance(definition.get("Type"), str):
+        if not isinstance(definition, dict) or not isinstance(
+            definition.get("Type"), str
+        ):
             raise ValueError(f"invalid parameter declaration: {key}")
         if key not in supplied and "Default" not in definition:
             raise ValueError(f"required parameter missing: {key}")
@@ -124,8 +180,13 @@ def checked_parameters(document, inputs):
             items = [raw]
         if kind == "Number" or kind == "List<Number>":
             items = [number(item, key) for item in items]
-        elif kind in {"String", "CommaDelimitedList"} or kind.startswith(("AWS::", "List<AWS::")):
-            if any(isinstance(item, bool) or not isinstance(item, (str, int, float)) for item in items):
+        elif kind in {"String", "CommaDelimitedList"} or kind.startswith(
+            ("AWS::", "List<AWS::")
+        ):
+            if any(
+                isinstance(item, bool) or not isinstance(item, (str, int, float))
+                for item in items
+            ):
                 raise ValueError(f"invalid String parameter: {key}")
             items = [str(item) for item in items]
         else:
@@ -134,53 +195,87 @@ def checked_parameters(document, inputs):
             allowed = definition["AllowedValues"]
             if not isinstance(allowed, list):
                 raise ValueError(f"invalid AllowedValues: {key}")
-            allowed = [number(item, key) for item in allowed] if kind in {"Number", "List<Number>"} else [str(item) for item in allowed]
+            allowed = (
+                [number(item, key) for item in allowed]
+                if kind in {"Number", "List<Number>"}
+                else [str(item) for item in allowed]
+            )
             if any(item not in allowed for item in items):
                 raise ValueError(f"parameter violates AllowedValues: {key}")
         for item in items:
             if "AllowedPattern" in definition:
                 try:
-                    valid = isinstance(item, str) and re.fullmatch(definition["AllowedPattern"], item) is not None
+                    valid = (
+                        isinstance(item, str)
+                        and re.fullmatch(definition["AllowedPattern"], item) is not None
+                    )
                 except re.error as error:
-                    raise Blocked(f"AllowedPattern cannot be evaluated locally: {key}") from error
+                    raise Blocked(
+                        f"AllowedPattern cannot be evaluated locally: {key}"
+                    ) from error
                 if not valid:
                     raise ValueError(f"parameter violates AllowedPattern: {key}")
-            for constraint, measured, minimum in (("MinLength", len(item) if isinstance(item, str) else None, True),
-                                                   ("MaxLength", len(item) if isinstance(item, str) else None, False),
-                                                   ("MinValue", item if type(item) in (int, float) else None, True),
-                                                   ("MaxValue", item if type(item) in (int, float) else None, False)):
+            for constraint, measured, minimum in (
+                ("MinLength", len(item) if isinstance(item, str) else None, True),
+                ("MaxLength", len(item) if isinstance(item, str) else None, False),
+                ("MinValue", item if type(item) in (int, float) else None, True),
+                ("MaxValue", item if type(item) in (int, float) else None, False),
+            ):
                 if constraint in definition:
                     limit = number(definition[constraint], key)
-                    if measured is None or (measured < limit if minimum else measured > limit):
+                    if measured is None or (
+                        measured < limit if minimum else measured > limit
+                    ):
                         raise ValueError(f"parameter violates {constraint}: {key}")
         values[key] = items if is_list else items[0]
     return values
 
 
-def load_template_inputs(template, parameter_file, *, strict_parameters=False, document=None):
+def load_template_inputs(
+    template, parameter_file, *, strict_parameters=False, document=None
+):
     if document is None:
         decode_file = _imports_cfn_format.decode_file
         document, errors = decode_file(template)
         if errors or not isinstance(document, dict) or document.get("Transform"):
-            raise Blocked("invalid/transform template; inputs must be resolvable locally: " + "; ".join(errors))
+            raise Blocked(
+                "invalid/transform template; inputs must be resolvable locally: "
+                + "; ".join(errors)
+            )
     if strict_parameters:
         inputs = policy_json(parameter_file.read_text(encoding="utf-8"))
     else:
         inputs = json.loads(parameter_file.read_text(encoding="utf-8"))
-    if not isinstance(inputs, list) or not all(isinstance(item, dict) and isinstance(item.get("ParameterKey"), str)
-                                             and isinstance(item.get("ParameterValue"), str) for item in inputs):
-        raise (ValueError if strict_parameters else Blocked)("parameter file must contain explicit stack-specific ParameterKey/ParameterValue entries")
+    if not isinstance(inputs, list) or not all(
+        isinstance(item, dict)
+        and isinstance(item.get("ParameterKey"), str)
+        and isinstance(item.get("ParameterValue"), str)
+        for item in inputs
+    ):
+        raise (ValueError if strict_parameters else Blocked)(
+            "parameter file must contain explicit stack-specific ParameterKey/ParameterValue entries"
+        )
     if len({item["ParameterKey"] for item in inputs}) != len(inputs):
         raise (ValueError if strict_parameters else Blocked)("duplicate parameter key")
     if strict_parameters:
         return document, checked_parameters(document, inputs)
-    defaults = {key: str(value["Default"]) for key, value in document.get("Parameters", {}).items() if "Default" in value}
-    return document, defaults | {item["ParameterKey"]: item["ParameterValue"] for item in inputs}
+    defaults = {
+        key: str(value["Default"])
+        for key, value in document.get("Parameters", {}).items()
+        if "Default" in value
+    }
+    return document, defaults | {
+        item["ParameterKey"]: item["ParameterValue"] for item in inputs
+    }
 
 
 def condition_active(document, parameters, pseudo, definition):
     return "Condition" not in definition or resolve_value(
-        {"Condition": definition["Condition"]}, parameters, pseudo, conditions=document.get("Conditions", {}))
+        {"Condition": definition["Condition"]},
+        parameters,
+        pseudo,
+        conditions=document.get("Conditions", {}),
+    )
 
 
 def output_value(document, parameters, pseudo, value):
@@ -189,7 +284,11 @@ def output_value(document, parameters, pseudo, value):
         argument = value["Fn::If"]
         if len(value) != 1 or not isinstance(argument, list) or len(argument) != 3:
             raise Blocked("invalid Fn::If expression")
-        selected = resolve_value({"Condition": argument[0]}, parameters, pseudo, conditions=document.get("Conditions", {}))
+        selected = resolve_value(
+            {"Condition": argument[0]},
+            parameters,
+            pseudo,
+            conditions=document.get("Conditions", {}),
+        )
         value = argument[1 if selected else 2]
     return value
-

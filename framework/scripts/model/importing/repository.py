@@ -8,15 +8,23 @@ from task_contract_core import task_read_scope, task_snapshot
 
 
 def has_baseline(root):
-    return (root / '.git').exists()
+    return (root / ".git").exists()
 
 
 def working_revision(root):
-    result = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, capture_output=True, text=True, encoding='utf-8')
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
     if result.returncode:
-        valid = subprocess.run(['git', 'rev-parse', '--git-dir'], cwd=root, capture_output=True)
+        valid = subprocess.run(
+            ["git", "rev-parse", "--git-dir"], cwd=root, capture_output=True
+        )
         if valid.returncode:
-            raise ValueError('cannot determine the versioned IMPORT baseline')
+            raise ValueError("cannot determine the versioned IMPORT baseline")
         return None  # Initial registration has no previous versioned configuration.
     return result.stdout.strip()
 
@@ -31,11 +39,15 @@ def changed_paths(root, *, task_file=None):
     changed_paths = _imports_worktree_state.changed_paths
     paths = _imports_worktree_state.paths
     changed = changed_paths(root)
-    snapshot = task_snapshot(root, task_file, required=False, executable=task_file is None)
+    snapshot = task_snapshot(
+        root, task_file, required=False, executable=task_file is None
+    )
     if snapshot is not None:
         start = task_start_commit(root, snapshot.name)
         if start is not None:
-            changed |= paths(root, 'diff', '--no-renames', '--name-only', '-z', start, 'HEAD')
+            changed |= paths(
+                root, "diff", "--no-renames", "--name-only", "-z", start, "HEAD"
+            )
     return changed
 
 
@@ -51,7 +63,7 @@ def task_worktree(root, state):
 
 def task_head(root):
     output = _imports_worktree_state.output
-    return output(root, 'rev-parse', 'HEAD')
+    return output(root, "rev-parse", "HEAD")
 
 
 def publication_revision(root, name):

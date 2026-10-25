@@ -3,7 +3,7 @@
 import model.adapters.aws as _imports_model_adapters_aws
 from model.adapters.aws import MISSING, Unresolved
 
-APIS = {('sqs', 'get_queue_url'), ('sqs', 'get_queue_attributes')}
+APIS = {("sqs", "get_queue_url"), ("sqs", "get_queue_attributes")}
 
 
 def sensitive(prop):
@@ -11,17 +11,41 @@ def sensitive(prop):
 
 
 def fetch(ctx, r, getter):
-    if r.kind=='SQS.Queue':
-        name=r.value('QueueName')
-        url=ctx.call('sqs','get_queue_url',QueueName=name,QueueOwnerAWSAccountId=ctx.target.get('awsExecutionAccountId',ctx.target['awsAccountId']))['QueueUrl']
-        return {'QueueName':name,'QueueUrl':url,**ctx.call('sqs','get_queue_attributes',QueueUrl=url,AttributeNames=['All'])}
-    queues=[r.parse(row,'id') for _,row in r.rows_for('Queues[]')]
-    urls=[url for value in queues for url in (value if isinstance(value,list) else [value])]
-    documents=[ctx.call('sqs','get_queue_attributes',QueueUrl=url,AttributeNames=['Policy']).get('Attributes',{}).get('Policy',MISSING) for url in urls]
+    if r.kind == "SQS.Queue":
+        name = r.value("QueueName")
+        url = ctx.call(
+            "sqs",
+            "get_queue_url",
+            QueueName=name,
+            QueueOwnerAWSAccountId=ctx.target.get(
+                "awsExecutionAccountId", ctx.target["awsAccountId"]
+            ),
+        )["QueueUrl"]
+        return {
+            "QueueName": name,
+            "QueueUrl": url,
+            **ctx.call(
+                "sqs", "get_queue_attributes", QueueUrl=url, AttributeNames=["All"]
+            ),
+        }
+    queues = [r.parse(row, "id") for _, row in r.rows_for("Queues[]")]
+    urls = [
+        url
+        for value in queues
+        for url in (value if isinstance(value, list) else [value])
+    ]
+    documents = [
+        ctx.call("sqs", "get_queue_attributes", QueueUrl=url, AttributeNames=["Policy"])
+        .get("Attributes", {})
+        .get("Policy", MISSING)
+        for url in urls
+    ]
     if not documents:
-        raise Unresolved('queue policy has no queue relationship')
+        raise Unresolved("queue policy has no queue relationship")
     policy = _imports_model_adapters_aws.policy
     stable = _imports_model_adapters_aws.stable
-    if len({stable(policy(v)) for v in documents if v!=MISSING})>1 or any(v==MISSING for v in documents):
-        raise Unresolved('associated queues have missing or different policies')
-    return {'Queues':urls,'Policy':documents[0]}
+    if len({stable(policy(v)) for v in documents if v != MISSING}) > 1 or any(
+        v == MISSING for v in documents
+    ):
+        raise Unresolved("associated queues have missing or different policies")
+    return {"Queues": urls, "Policy": documents[0]}

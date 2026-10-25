@@ -27,17 +27,22 @@ def view_text(self, path, *, phase, consumer=None):
         failure = error
     else:
         try:
-            return raw.decode('utf-8')
+            return raw.decode("utf-8")
         except UnicodeError as error:
             failure = error
-    consumers = self.view_errors.get(path, {}).get('consumers', [])
-    self.view_errors[path] = dict(code='mechanical.view_read', service=path.stem,
-        path=path.relative_to(self.root).as_posix(), phase=phase, exception=type(failure).__name__,
-        message='saved View could not be read; dependent checks not run')
+    consumers = self.view_errors.get(path, {}).get("consumers", [])
+    self.view_errors[path] = dict(
+        code="mechanical.view_read",
+        service=path.stem,
+        path=path.relative_to(self.root).as_posix(),
+        phase=phase,
+        exception=type(failure).__name__,
+        message="saved View could not be read; dependent checks not run",
+    )
     if consumer is not None:
         error = self.view_errors[path]
-        error['consumers'] = consumers
+        error["consumers"] = consumers
         name = consumer.relative_to(self.root).as_posix()
-        if name not in error['consumers']:
-            error['consumers'].append(name)
+        if name not in error["consumers"]:
+            error["consumers"].append(name)
     return None

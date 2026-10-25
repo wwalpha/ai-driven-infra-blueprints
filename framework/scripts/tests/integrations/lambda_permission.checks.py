@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
 from pathlib import Path
 
@@ -22,18 +23,36 @@ from support.lambda_permission_fixtures import (
 )
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 @it_case
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [
-            {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "test",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         path = root / "docs/designs/dev/123456789012/lambda.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        (path.parent / "iam.md").write_text('# IAM\n\n- Design service ID: `iam`\n- Owned catalog resource types: `IAM.Role`\n\n<a id="iam-app-dev-worker-role"></a>\n### IAM.Role: app-dev-worker-role\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n| 1 | RoleName | `app-dev-worker-role` | ロールの名前 |\n', encoding="utf-8")
+        (path.parent / "iam.md").write_text(
+            '# IAM\n\n- Design service ID: `iam`\n- Owned catalog resource types: `IAM.Role`\n\n<a id="iam-app-dev-worker-role"></a>\n### IAM.Role: app-dev-worker-role\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n| 1 | RoleName | `app-dev-worker-role` | ロールの名前 |\n',
+            encoding="utf-8",
+        )
         values = fixture(1, 2)
         HELPERS.roundtrip(path, values, root)
         source = root / "model/dev/123456789012/lambda.properties"
@@ -46,12 +65,15 @@ def main():
         bad = dict(values)
         del bad["desired.resource.002.parentReference"]
         write_model(source, HELPERS.text(bad))
-        rejects(lambda: SYNC.sync(root, True, "dev", "123456789012", services=["lambda"]), "parentReference")
+        rejects(
+            lambda: SYNC.sync(root, True, "dev", "123456789012", services=["lambda"]),
+            "parentReference",
+        )
         assert path.read_bytes() == saved
-
 
 
 if __name__ == "__main__":
     from support.model_sources import catalog_display
+
     with catalog_display():
         main()

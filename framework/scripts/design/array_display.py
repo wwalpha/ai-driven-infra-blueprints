@@ -21,13 +21,20 @@ ARRAY_TEMPLATES = {
     "GuardDuty.Detector": guardduty.array_template,
     "CodeBuild.Project": codebuild.array_template,
 }
-COMPACT_ARRAYS = (cloudtrail.compact_array, guardduty.compact_array, codebuild.compact_array)
+COMPACT_ARRAYS = (
+    cloudtrail.compact_array,
+    guardduty.compact_array,
+    codebuild.compact_array,
+)
 
 
 @memoized
 def display_catalog(root):
     catalog = DesignSchemaCatalog(root)
-    types = {name.removeprefix("AWS::").replace("::", ".", 1) for name in catalog.resource_types}
+    types = {
+        name.removeprefix("AWS::").replace("::", ".", 1)
+        for name in catalog.resource_types
+    }
     types.update(catalog.api_schemas)
     return catalog, tuple(kind + "." for kind in sorted(types))
 
@@ -37,7 +44,9 @@ def array_template(prop, kind, root):
     catalog, prefixes = display_catalog(root)
     qualified = prop if prop.startswith(prefixes) else kind + "." + prop
     owner = ".".join(qualified.split(".")[:2])
-    formal = (formal_name(prop, kind, root) if kind + "." in prefixes else None) or qualified
+    formal = (
+        formal_name(prop, kind, root) if kind + "." in prefixes else None
+    ) or qualified
     template = prop
     # Retain a displayed ancestor when an alias hides an array component.
     if formal != qualified and "[]" in formal and "[]" not in template:
@@ -46,8 +55,15 @@ def array_template(prop, kind, root):
             ancestors.append(part.removesuffix("[]"))
             if part.endswith("[]"):
                 for ancestor in reversed(ancestors):
-                    if re.search(r"(?:^|\.)" + re.escape(ancestor) + r"(?:\.|$)", template):
-                        template = re.sub(r"(^|\.)" + re.escape(ancestor) + r"(?=\.|$)", r"\g<0>[]", template, count=1)
+                    if re.search(
+                        r"(?:^|\.)" + re.escape(ancestor) + r"(?:\.|$)", template
+                    ):
+                        template = re.sub(
+                            r"(^|\.)" + re.escape(ancestor) + r"(?=\.|$)",
+                            r"\g<0>[]",
+                            template,
+                            count=1,
+                        )
                         break
     if owner in ARRAY_TEMPLATES:
         template = ARRAY_TEMPLATES[owner](template)
@@ -58,7 +74,10 @@ def array_template(prop, kind, root):
     if re.search(r"\[\d+\]", formal) or formal.endswith("[]"):
         return template
     try:
-        if catalog.property_schema(owner, formal.removeprefix(owner + ".")).get("type") == "array":
+        if (
+            catalog.property_schema(owner, formal.removeprefix(owner + ".")).get("type")
+            == "array"
+        ):
             template += "[]"
     except KeyError:
         pass  # Design-only fields and compact names are not schema properties.
@@ -68,15 +87,20 @@ def array_template(prop, kind, root):
 def numbered_property(prop, states, compact=False):
     """Repeat a direct field to start a new object; count nested arrays separately."""
     while match := ARRAY.search(prop):
-        prefix, field = prop[:match.start()], prop[match.end():]
+        prefix, field = prop[: match.start()], prop[match.end() :]
         number, seen = states.get(prefix, (0, set()))
         nested = bool(re.search(r"\[(?:\d*)\]", field))
-        if not number or not field or (compact and not nested) or (not nested and field in seen):
+        if (
+            not number
+            or not field
+            or (compact and not nested)
+            or (not nested and field in seen)
+        ):
             number, seen = number + 1, set()
         if not nested:
             seen.add(field)
         states[prefix] = number, seen
-        prop = prop[:match.start()] + f"[{number}]" + field
+        prop = prop[: match.start()] + f"[{number}]" + field
     return prop
 
 
@@ -97,24 +121,55 @@ def indexed_rows(rows, kind, root=ROOT):
             continue
         items = [value]
         if template.endswith("[]"):
-            raw = value[1:-1] if value.startswith("`") and value.endswith("`") else value
+            raw = (
+                value[1:-1] if value.startswith("`") and value.endswith("`") else value
+            )
             if raw.startswith("["):
                 try:
                     parsed = json.loads(raw)
                 except ValueError:
                     parsed = None  # A resource link remains one selected element.
                 if isinstance(parsed, list):
-                    items = ["`" + (item if isinstance(item, str) else json.dumps(item, ensure_ascii=False, separators=(",", ":"))) + "`" for item in parsed]
-                    if any(any(char in item[1:-1] for char in "|`\n\r") for item in items):
-                        raise ValueError("array display elements cannot contain Markdown table delimiters")
+                    items = [
+                        "`"
+                        + (
+                            item
+                            if isinstance(item, str)
+                            else json.dumps(
+                                item, ensure_ascii=False, separators=(",", ":")
+                            )
+                        )
+                        + "`"
+                        for item in parsed
+                    ]
+                    if any(
+                        any(char in item[1:-1] for char in "|`\n\r") for item in items
+                    ):
+                        raise ValueError(
+                            "array display elements cannot contain Markdown table delimiters"
+                        )
                     # A complete source array is one parent field, regardless of its element count.
-                    template = numbered_property(template.removesuffix("[]"), states) + "[]"
+                    template = (
+                        numbered_property(template.removesuffix("[]"), states) + "[]"
+                    )
         metadata = json.dumps([prop, value, max(1, len(items))], ensure_ascii=True)
         for char in "|<>":
             metadata = metadata.replace(char, f"\\u{ord(char):04x}")
         for offset, item in enumerate(items or [value]):
-            field = numbered_property(template, states, compact) if items else template.removesuffix("[]")
-            result.append([identity, field, item, (f"<!-- array-source: {metadata} --> " if offset == 0 else "") + comment])
+            field = (
+                numbered_property(template, states, compact)
+                if items
+                else template.removesuffix("[]")
+            )
+            result.append(
+                [
+                    identity,
+                    field,
+                    item,
+                    (f"<!-- array-source: {metadata} --> " if offset == 0 else "")
+                    + comment,
+                ]
+            )
     return result
 
 
@@ -134,15 +189,21 @@ def restored_rows(rows, kind, root=ROOT):
             index += 1
             continue
         source = json.loads(marker[1])
-        if (not isinstance(source, list) or len(source) != 3 or
-                not all(isinstance(item, str) for item in source[:2]) or
-                type(source[2]) is not int or not 1 <= source[2] <= len(rows) - index):
+        if (
+            not isinstance(source, list)
+            or len(source) != 3
+            or not all(isinstance(item, str) for item in source[:2])
+            or type(source[2]) is not int
+            or not 1 <= source[2] <= len(rows) - index
+        ):
             raise ValueError("invalid array source row or element count")
         marked = True
-        result.append([identity, *source[:2], comment[marker.end():]])
+        result.append([identity, *source[:2], comment[marker.end() :]])
         index += source[2]
     if marked:
         expected = indexed_rows(result, kind, root)
         if [row[1:] for row in expected] != [row[1:] for row in rows]:
-            raise ValueError("array indexes, elements or comments differ from their source rows")
+            raise ValueError(
+                "array indexes, elements or comments differ from their source rows"
+            )
     return result

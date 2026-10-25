@@ -19,11 +19,18 @@ import worktree_task as wt
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-spec = importlib.util.spec_from_file_location("lifecycle_checks", (Path(__file__).resolve().parents[4] / 'framework/scripts/tests/support/worktree_task_fixtures.py'))
+spec = importlib.util.spec_from_file_location(
+    "lifecycle_checks",
+    (
+        Path(__file__).resolve().parents[4]
+        / "framework/scripts/tests/support/worktree_task_fixtures.py"
+    ),
+)
 
 checks = importlib.util.module_from_spec(spec)
 
 spec.loader.exec_module(checks)
+
 
 def blocked(call, text):
     try:
@@ -34,7 +41,20 @@ def blocked(call, text):
         raise AssertionError("expected failure: " + text)
 
 
-__all__ = ['Path', 'blocked', 'fake_run', 'checks', 'importlib', 'json', 'patch', 'py', 'spec', 'sys', 'tempfile', 'wt']
+__all__ = [
+    "Path",
+    "blocked",
+    "fake_run",
+    "checks",
+    "importlib",
+    "json",
+    "patch",
+    "py",
+    "spec",
+    "sys",
+    "tempfile",
+    "wt",
+]
 
 
 def fake_run(command, root, env=None):

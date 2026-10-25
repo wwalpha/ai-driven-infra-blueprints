@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
 from pathlib import Path
 
@@ -20,12 +21,20 @@ from support.issue_gate_fixtures import (
 from support.it_case_receipt import it_case
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 @it_case
 def main():
-    context, sync, validator, deploy = map(load, ("check-deploy-context", "sync-model", "validate-blueprint", "cloudformation-deploy"))
+    context, sync, validator, deploy = map(
+        load,
+        (
+            "check-deploy-context",
+            "sync-model",
+            "validate-blueprint",
+            "cloudformation-deploy",
+        ),
+    )
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         scope = {("dev", "cde", "ec2")}
@@ -37,12 +46,18 @@ def main():
         active = root / "tasks/example.md"
         active.parent.mkdir()
         contract = "## Task contract\n\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n\n## Validation scope\n\n- `dev/cde/ec2`\n"
-        active.write_text("legacy deployment contract without service Validation scope\n")
+        active.write_text(
+            "legacy deployment contract without service Validation scope\n"
+        )
         path.unlink()
-        require_target_no_issues(root, ("dev", "cde"))  # No inventory preserves existing preflight behavior.
+        require_target_no_issues(
+            root, ("dev", "cde")
+        )  # No inventory preserves existing preflight behavior.
         path.write_text(original)
         active.write_text(contract)
-        instance = validator.Validator(root, scope=None)  # --all does not broaden the task's issue scope.
+        instance = validator.Validator(
+            root, scope=None
+        )  # --all does not broaden the task's issue scope.
         instance.task_type = "design"
         instance.check_issue_gate()
         assert instance.errors
@@ -61,13 +76,25 @@ def main():
         else:
             raise AssertionError("model save bypassed issues")
 
-        target = {"environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
-                  "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
+        target = {
+            "environment": "dev",
+            "alias": "cde",
+            "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1",
+            "iacEngine": "cloudformation",
+        }
         (root / "project.json").write_text(json.dumps({"targets": [target]}))
         backend = deploy.create_runtime(root, "dev", "cde", target)
-        with mock.patch.object(context.shutil, "which", return_value="/mock/aws"), mock.patch.object(
-            context.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, '{"Account":"123456789012"}', "")
-        ) as run:
+        with (
+            mock.patch.object(context.shutil, "which", return_value="/mock/aws"),
+            mock.patch.object(
+                context.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(
+                    [], 0, '{"Account":"123456789012"}', ""
+                ),
+            ) as run,
+        ):
             try:
                 context.check_deploy_context(root, "dev", alias="cde")
             except context.DeployContextError as error:
@@ -90,9 +117,21 @@ def main():
 
         active.write_text(contract + "\n## Issue remediation\n\n- `dev/cde/ec2`\n")
         require_no_issues(root, scope)
-        command = [sys.executable, str((Path(__file__).resolve().parents[2] / 'issue_gate.py')), "--repository-root", str(root),
-                   "--environment", "dev", "--target-directory", "cde", "--service", "ec2"]
-        assert subprocess.run(command, capture_output=True).returncode == 1  # A new task cannot inherit a repair waiver.
+        command = [
+            sys.executable,
+            str((Path(__file__).resolve().parents[2] / "issue_gate.py")),
+            "--repository-root",
+            str(root),
+            "--environment",
+            "dev",
+            "--target-directory",
+            "cde",
+            "--service",
+            "ec2",
+        ]
+        assert (
+            subprocess.run(command, capture_output=True).returncode == 1
+        )  # A new task cannot inherit a repair waiver.
         assert subprocess.run([*command, "--task"], capture_output=True).returncode == 0
         active.write_text(contract)
         path.write_text("未解決issueなし\n")

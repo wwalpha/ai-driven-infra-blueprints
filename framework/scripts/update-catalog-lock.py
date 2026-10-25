@@ -80,7 +80,9 @@ def main() -> int:
 
     if args.write:
         MANIFEST.write_text(expected_manifest, encoding="utf-8")
-        METADATA.write_text(replace_metadata(metadata_lines(), values), encoding="utf-8")
+        METADATA.write_text(
+            replace_metadata(metadata_lines(), values), encoding="utf-8"
+        )
         print(
             f"catalog lock updated: {len(files)} files, {property_count} properties, "
             f"{identifier_output_count} identifier outputs"
@@ -93,7 +95,9 @@ def main() -> int:
         if metadata.get(key) != expected:
             errors.append(f"{key}: expected {expected}, got {metadata.get(key)}")
     if MANIFEST.read_text(encoding="utf-8") != expected_manifest:
-        errors.append("framework/materials/catalog.sha256 does not match framework/materials/aws")
+        errors.append(
+            "framework/materials/catalog.sha256 does not match framework/materials/aws"
+        )
     if errors:
         print("catalog lock: FAIL")
         for error in errors:

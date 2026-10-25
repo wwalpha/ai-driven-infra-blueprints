@@ -2,7 +2,7 @@
 
 from model.adapters.aws import MISSING
 
-APIS = {('codepipeline', 'get_pipeline')}
+APIS = {("codepipeline", "get_pipeline")}
 
 
 def sensitive(prop):
@@ -10,5 +10,8 @@ def sensitive(prop):
 
 
 def fetch(ctx, r, getter):
-    result=ctx.call('codepipeline', 'get_pipeline', name=r.value('Name'))
-    return dict(result['pipeline'],PipelineArn=result.get('metadata',{}).get('pipelineArn',MISSING))
+    result = ctx.call("codepipeline", "get_pipeline", name=r.value("Name"))
+    return dict(
+        result["pipeline"],
+        PipelineArn=result.get("metadata", {}).get("pipelineArn", MISSING),
+    )

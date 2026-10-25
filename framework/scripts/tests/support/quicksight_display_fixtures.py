@@ -19,4 +19,13 @@ ROOT = Path(__file__).resolve().parents[4]
 KIND = "QuickSight.DataSource"
 
 
-__all__ = ['ALIGNMENT', 'HEADER', 'KIND', 'Path', 'ROOT', 'display_rows', 'expanded_design', 'sys']
+__all__ = [
+    "ALIGNMENT",
+    "HEADER",
+    "KIND",
+    "Path",
+    "ROOT",
+    "display_rows",
+    "expanded_design",
+    "sys",
+]

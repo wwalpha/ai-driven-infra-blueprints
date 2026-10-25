@@ -19,7 +19,9 @@ RESOURCE_PROPERTY_PREFIXES = tuple(name + "." for name in LAYOUTS)
 GROUPED = {name: rule for name, rule in LAYOUTS.items() if isinstance(rule, dict)}
 
 GROUPED_RESOURCE_TYPES = {
-    rule["parent"]: {name for name, child in GROUPED.items() if child["parent"] == rule["parent"]}
+    rule["parent"]: {
+        name for name, child in GROUPED.items() if child["parent"] == rule["parent"]
+    }
     for rule in GROUPED.values()
 }
 
@@ -29,18 +31,22 @@ IMPLICIT_GROUPED_PROPERTIES = {
 
 DETAILS_HEADING = "## リソース詳細"
 
-RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([^<>|`\s](?:[^<>|`]*[^<>|`\s])?)$")
+RESOURCE = re.compile(
+    r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([^<>|`\s](?:[^<>|`]*[^<>|`\s])?)$"
+)
 
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 
-RESOURCE_ID = re.compile(r"^<!-- resource-logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->$")
+RESOURCE_ID = re.compile(
+    r"^<!-- resource-logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->$"
+)
 
 CHILD = re.compile(
     r'^<a id="([A-Za-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->\s*'
 )
 
 
-CHILD_NAME = re.compile(r'^([^<>|`\n：]+)：')
+CHILD_NAME = re.compile(r"^([^<>|`\n：]+)：")
 
 HEADER = "| No. | Property | Value | Source / Comment |"
 
@@ -62,4 +68,4 @@ def resource_anchor(service_id: str, name: str, resource_type: str = "") -> str:
     return prefix + "-" + re.sub(r"[^a-z0-9_.-]+", "-", name.lower()).strip("-")
 
 
-COMPACT_SOURCE = re.compile(r'^<!-- compact-source: (.+?) --> ')
+COMPACT_SOURCE = re.compile(r"^<!-- compact-source: (.+?) --> ")

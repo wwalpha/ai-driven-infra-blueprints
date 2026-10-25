@@ -19,7 +19,7 @@ from utils.aws_mappings import mapping_alias
 from utils.json_format import document_sha256, validate_aws_document
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 @it_case
@@ -28,20 +28,26 @@ def main():
         root = Path(directory).resolve()
         with mapping_alias(FRAMEWORK, root):
             producer, values, consumer, policy = project(root)
-            view = root / 'docs/designs/qa/team/iam.md'
-            artifact = view.with_suffix('') / 'policy.json'
+            view = root / "docs/designs/qa/team/iam.md"
+            artifact = view.with_suffix("") / "policy.json"
             original = consumer.path.read_bytes()
             json_bytes = None
-            for observed, expected in [(None, 'unresolved'), ('PENDING_DEPLOY', 'pending_deploy'),
-                ('arn:aws:kms:ap-northeast-1:123456789012:key/confirmed', 'arn:aws:kms:ap-northeast-1:123456789012:key/confirmed')]:
+            for observed, expected in [
+                (None, "unresolved"),
+                ("PENDING_DEPLOY", "pending_deploy"),
+                (
+                    "arn:aws:kms:ap-northeast-1:123456789012:key/confirmed",
+                    "arn:aws:kms:ap-northeast-1:123456789012:key/confirmed",
+                ),
+            ]:
                 if observed is not None:
-                    values['observed.row.001-001.value'] = '`' + observed + '`'
+                    values["observed.row.001-001.value"] = "`" + observed + "`"
                     save(producer, values)
                 files = generate_files(view, load_model(consumer).values, root)
                 save_files(files)
-                assert '$modelRef' not in files[view] and expected in files[view]
+                assert "$modelRef" not in files[view] and expected in files[view]
                 display = rendered_design(view, definitions_root=FRAMEWORK)
-                assert '$modelRef' not in display and expected in display
+                assert "$modelRef" not in display and expected in display
                 if json_bytes is None:
                     json_bytes = artifact.read_bytes()
                 assert artifact.read_bytes() == json_bytes
@@ -52,11 +58,13 @@ def main():
                 try:
                     validate_aws_document(document)
                 except ValueError as error:
-                    assert 'Model reference' in str(error)
+                    assert "Model reference" in str(error)
                 else:
-                    raise AssertionError('internal reference reached the AWS JSON boundary')
-    print('Model reference round-trip: PASS')
+                    raise AssertionError(
+                        "internal reference reached the AWS JSON boundary"
+                    )
+    print("Model reference round-trip: PASS")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -1,4 +1,3 @@
-
 import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -30,660 +29,1391 @@ from utils.iac_values import Expression, ResourceReference, same, selected_same
 
 
 class ModelDependencyTests(unittest.TestCase):
-  def dependency_models(self):
-    directory = tempfile.TemporaryDirectory()
-    self.addCleanup(directory.cleanup)
-    root = Path(directory.name)
-    (root / 'project.json').write_text(json.dumps({'targets': [dict(environment='fixture', alias='team',
-        awsAccountId='123456789012', awsRegion='ap-northeast-1', iacEngine='cloudformation')]}), encoding='utf-8')
-    consumer = root / 'model/fixture/team/s3.properties'
-    consumer.parent.mkdir(parents=True)
-    consumer.write_text(serialize({COUNTERS: json.dumps({'S3.Bucket': 1}), 'desired.service.s3.serviceId': 's3',
-        'desired.resource.001.resourceType': 'S3.Bucket', 'desired.resource.001.logicalId': 'S3_Bucket_001',
-        'desired.row.001-001.property': 'S3.Bucket.KmsMasterKeyId',
-        'desired.row.001-001.value': '[key](kms.md#key)',
-        'desired.row.001-001.comment': '合成参照'}), encoding='utf-8')
-    producer = consumer.with_name('kms.properties')
-    raw = serialize({COUNTERS: json.dumps({'KMS.Key': 1}), 'desired.service.kms.serviceId': 'kms',
-        'desired.resource.001.resourceType': 'KMS.Key', 'desired.resource.001.logicalId': 'KMS_Key_001',
-        'desired.resource.001.anchor': 'key'}).encode('utf-8')
-    return root, producer, raw
+    def dependency_models(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "targets": [
+                        dict(
+                            environment="fixture",
+                            alias="team",
+                            awsAccountId="123456789012",
+                            awsRegion="ap-northeast-1",
+                            iacEngine="cloudformation",
+                        )
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        consumer = root / "model/fixture/team/s3.properties"
+        consumer.parent.mkdir(parents=True)
+        consumer.write_text(
+            serialize(
+                {
+                    COUNTERS: json.dumps({"S3.Bucket": 1}),
+                    "desired.service.s3.serviceId": "s3",
+                    "desired.resource.001.resourceType": "S3.Bucket",
+                    "desired.resource.001.logicalId": "S3_Bucket_001",
+                    "desired.row.001-001.property": "S3.Bucket.KmsMasterKeyId",
+                    "desired.row.001-001.value": "[key](kms.md#key)",
+                    "desired.row.001-001.comment": "合成参照",
+                }
+            ),
+            encoding="utf-8",
+        )
+        producer = consumer.with_name("kms.properties")
+        raw = serialize(
+            {
+                COUNTERS: json.dumps({"KMS.Key": 1}),
+                "desired.service.kms.serviceId": "kms",
+                "desired.resource.001.resourceType": "KMS.Key",
+                "desired.resource.001.logicalId": "KMS_Key_001",
+                "desired.resource.001.anchor": "key",
+            }
+        ).encode("utf-8")
+        return root, producer, raw
 
-  def test_missing_producer_dependency(self):
-    for comparison_type in (issues_iac.Comparison, IssueComparison):
-      with self.subTest(comparison=comparison_type):
-        root, producer, raw = self.dependency_models()
-        with patch('comparison.inputs.hashlib', wraps=hashlib) as hashing:
-          comparison = comparison_type(root, 'fixture', 'team', ['s3'])
-          assert not comparison.load_errors
-          assert comparison.models['s3'].dependencies[producer] is None
-          assert producer not in comparison.model_reads.contents
-          assert producer in comparison.inputs
-          producer.write_bytes(raw)
-          if comparison_type is IssueComparison:
-            assert comparison.model('kms').dependencies[producer] == raw
-            assert comparison.read_hashes == {} and hashing.sha256.call_count == 0
-            assert not getattr(comparison, 'stale_inputs', False)
-          else:
-            assert comparison.read_hashes[producer] is None
-            with pytest.raises(ValueError, match='stale scan: contradictory input observations: model/fixture/team/kms.properties'):
-              comparison.model('kms')
-            assert comparison.stale_inputs
+    def test_missing_producer_dependency(self):
+        for comparison_type in (issues_iac.Comparison, IssueComparison):
+            with self.subTest(comparison=comparison_type):
+                root, producer, raw = self.dependency_models()
+                with patch("comparison.inputs.hashlib", wraps=hashlib) as hashing:
+                    comparison = comparison_type(root, "fixture", "team", ["s3"])
+                    assert not comparison.load_errors
+                    assert comparison.models["s3"].dependencies[producer] is None
+                    assert producer not in comparison.model_reads.contents
+                    assert producer in comparison.inputs
+                    producer.write_bytes(raw)
+                    if comparison_type is IssueComparison:
+                        assert comparison.model("kms").dependencies[producer] == raw
+                        assert (
+                            comparison.read_hashes == {}
+                            and hashing.sha256.call_count == 0
+                        )
+                        assert not getattr(comparison, "stale_inputs", False)
+                    else:
+                        assert comparison.read_hashes[producer] is None
+                        with pytest.raises(
+                            ValueError,
+                            match="stale scan: contradictory input observations: model/fixture/team/kms.properties",
+                        ):
+                            comparison.model("kms")
+                        assert comparison.stale_inputs
 
-  def test_existing_producer_dependency(self):
-    for comparison_type in (issues_iac.Comparison, IssueComparison):
-      with self.subTest(comparison=comparison_type):
-        root, producer, raw = self.dependency_models()
-        producer.write_bytes(raw)
-        comparison = comparison_type(root, 'fixture', 'team', ['s3'])
-        assert not comparison.load_errors
-        assert comparison.models['s3'].dependencies[producer] == raw
-        assert producer in comparison.inputs
-        with patch.object(Path, 'read_bytes', side_effect=AssertionError('dependency retention must not reread')), \
-             patch('comparison.inputs.hashlib', sha256=Mock(side_effect=AssertionError('same bytes must not be hashed twice'))), \
-             patch('comparison.inputs.load_model', side_effect=AssertionError('cached Model must not reload')):
-          assert comparison.model('s3') is comparison.models['s3']
-          comparison.retain_model_dependencies(comparison.models['s3'].dependencies)
-        if comparison_type is IssueComparison:
-          with patch('comparison.inputs.hashlib', sha256=Mock(side_effect=AssertionError('Issue must not hash'))):
-            comparison.retain_model_dependencies({producer: raw + b'# changed\n'})
-          assert comparison.read_hashes == {}
-        else:
-          assert comparison.read_hashes[producer] == hashlib.sha256(raw).hexdigest()
-          with pytest.raises(ValueError, match='contradictory input observations'):
-            comparison.retain_model_dependencies({producer: raw + b'# changed\n'})
-          assert comparison.stale_inputs
+    def test_existing_producer_dependency(self):
+        for comparison_type in (issues_iac.Comparison, IssueComparison):
+            with self.subTest(comparison=comparison_type):
+                root, producer, raw = self.dependency_models()
+                producer.write_bytes(raw)
+                comparison = comparison_type(root, "fixture", "team", ["s3"])
+                assert not comparison.load_errors
+                assert comparison.models["s3"].dependencies[producer] == raw
+                assert producer in comparison.inputs
+                with (
+                    patch.object(
+                        Path,
+                        "read_bytes",
+                        side_effect=AssertionError(
+                            "dependency retention must not reread"
+                        ),
+                    ),
+                    patch(
+                        "comparison.inputs.hashlib",
+                        sha256=Mock(
+                            side_effect=AssertionError(
+                                "same bytes must not be hashed twice"
+                            )
+                        ),
+                    ),
+                    patch(
+                        "comparison.inputs.load_model",
+                        side_effect=AssertionError("cached Model must not reload"),
+                    ),
+                ):
+                    assert comparison.model("s3") is comparison.models["s3"]
+                    comparison.retain_model_dependencies(
+                        comparison.models["s3"].dependencies
+                    )
+                if comparison_type is IssueComparison:
+                    with patch(
+                        "comparison.inputs.hashlib",
+                        sha256=Mock(side_effect=AssertionError("Issue must not hash")),
+                    ):
+                        comparison.retain_model_dependencies(
+                            {producer: raw + b"# changed\n"}
+                        )
+                    assert comparison.read_hashes == {}
+                else:
+                    assert (
+                        comparison.read_hashes[producer]
+                        == hashlib.sha256(raw).hexdigest()
+                    )
+                    with pytest.raises(
+                        ValueError, match="contradictory input observations"
+                    ):
+                        comparison.retain_model_dependencies(
+                            {producer: raw + b"# changed\n"}
+                        )
+                    assert comparison.stale_inputs
 
 
 def legacy_comparison(root, count=3, services=1, stacks=2):
-  """Synthetic current Models and real local templates; no consumer inputs."""
-  models, documents, units = {}, [{'Resources': {}} for _ in range(stacks)], []
-  for number in range(count):
-    service, identity = f'service-{number % services}', f'{number:04d}'
-    values = models.setdefault(service, {f'desired.service.{service}.serviceId': service})
-    values.update({f'desired.resource.{identity}.resourceType': 'Logs.LogGroup',
-                   f'desired.resource.{identity}.logicalId': f'Log{number}',
-                   f'desired.row.{identity}-001.property': 'Logs.LogGroup.RetentionInDays',
-                   f'desired.row.{identity}-001.value': '`7`'})
-    documents[number % stacks]['Resources'][f'Log{number}'] = {
-        'Type': 'AWS::Logs::LogGroup', 'Properties': {'RetentionInDays': 7}}
-  loaded = {}
-  for service, values in models.items():
-    path = root / 'model/fixture/team' / (service + '.properties')
-    path.parent.mkdir(parents=True, exist_ok=True)
-    raw = serialize(values).encode()
-    path.write_bytes(raw)
-    loaded[path] = SimpleNamespace(values=values, authoritative=values, dependencies={path: raw}, locations={},
-                                   scope=Scope(root, 'fixture', 'team', service))
-  for number, document in enumerate(documents):
-    unit = {'name': f'stack{number}', 'template': f'{number}.json', 'parameters': f'{number}.json'}
-    units.append((str(number), unit))
-    for path, value in [(root / 'infra/cloudformation/templates' / unit['template'], document),
-                        (root / 'infra/cloudformation/parameters/fixture/team' / unit['parameters'], [])]:
-      path.parent.mkdir(parents=True, exist_ok=True)
-      path.write_text(json.dumps(value), encoding='utf-8')
-  catalog = DesignSchemaCatalog(Path(__file__).resolve().parents[4])
-  target = {'iacEngine': 'cloudformation', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'}
-  with patch('comparison.inputs.load_target', return_value=target), patch('comparison.inputs.load_model', side_effect=lambda path, reads: loaded[path]):
-    comparison = issues_iac.Comparison(root, 'fixture', 'team', models, catalog=catalog)
-  comparison.templates = lambda: units
-  return comparison
+    """Synthetic current Models and real local templates; no consumer inputs."""
+    models, documents, units = {}, [{"Resources": {}} for _ in range(stacks)], []
+    for number in range(count):
+        service, identity = f"service-{number % services}", f"{number:04d}"
+        values = models.setdefault(
+            service, {f"desired.service.{service}.serviceId": service}
+        )
+        values.update(
+            {
+                f"desired.resource.{identity}.resourceType": "Logs.LogGroup",
+                f"desired.resource.{identity}.logicalId": f"Log{number}",
+                f"desired.row.{identity}-001.property": "Logs.LogGroup.RetentionInDays",
+                f"desired.row.{identity}-001.value": "`7`",
+            }
+        )
+        documents[number % stacks]["Resources"][f"Log{number}"] = {
+            "Type": "AWS::Logs::LogGroup",
+            "Properties": {"RetentionInDays": 7},
+        }
+    loaded = {}
+    for service, values in models.items():
+        path = root / "model/fixture/team" / (service + ".properties")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        raw = serialize(values).encode()
+        path.write_bytes(raw)
+        loaded[path] = SimpleNamespace(
+            values=values,
+            authoritative=values,
+            dependencies={path: raw},
+            locations={},
+            scope=Scope(root, "fixture", "team", service),
+        )
+    for number, document in enumerate(documents):
+        unit = {
+            "name": f"stack{number}",
+            "template": f"{number}.json",
+            "parameters": f"{number}.json",
+        }
+        units.append((str(number), unit))
+        for path, value in [
+            (root / "infra/cloudformation/templates" / unit["template"], document),
+            (
+                root
+                / "infra/cloudformation/parameters/fixture/team"
+                / unit["parameters"],
+                [],
+            ),
+        ]:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(value), encoding="utf-8")
+    catalog = DesignSchemaCatalog(Path(__file__).resolve().parents[4])
+    target = {
+        "iacEngine": "cloudformation",
+        "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+    }
+    with (
+        patch("comparison.inputs.load_target", return_value=target),
+        patch(
+            "comparison.inputs.load_model", side_effect=lambda path, reads: loaded[path]
+        ),
+    ):
+        comparison = issues_iac.Comparison(
+            root, "fixture", "team", models, catalog=catalog
+        )
+    comparison.templates = lambda: units
+    return comparison
 
 
 class BooleanValueTests(unittest.TestCase):
-  def test_login_profile_boolean_comparison_and_issue_summary(self):
-    prop = 'LoginProfile.PasswordResetRequired'
-    cases = [('False', False, 'matched'), ('false', False, 'matched'),
-             ('True', True, 'matched'), ('true', True, 'matched'),
-             ('True', False, 'difference'), ('False', True, 'difference')]
-    with tempfile.TemporaryDirectory() as directory, patch('socket.socket', side_effect=AssertionError('network forbidden')):
-      for model, actual, expected in cases:
-        with self.subTest(model=model, actual=actual):
-          comparison = legacy_comparison(Path(directory), count=1, stacks=1)
-          comparison.resources['service-0']['0000'].update(resourceType='IAM.User', **{'cfn-logicalId': 'stack0-Log0'})
-          comparison.models['service-0'].values.update({
-              'desired.resource.0000.resourceType': 'IAM.User',
-              'desired.resource.0000.cfn-logicalId': 'stack0-Log0',
-              'desired.row.0000-001.property': 'IAM.User.' + prop,
-              'desired.row.0000-001.value': '`' + model + '`'})
-          row = {'property': 'IAM.User.' + prop, 'value': '`' + model + '`'}
-          comparison.rows['service-0']['0000'] = [('0000-001', row)]
-          _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
-          document['Resources']['Log0'] = {'Type': 'AWS::IAM::User',
-              'Properties': {'LoginProfile': {'PasswordResetRequired': actual}}}
-          self.assertEqual(comparison.catalog.literal_errors('IAM.User', prop, model), [])
-          records = comparison.run()
-          self.assertEqual([item['category'] for item in records], [expected])
-          self.assertIs(type(comparison.prepare_value('service-0', row, 'IAM.User').require_value()), bool)
-          summary = _imports_issues_aggregate.iac_summary(records, 'fixture', 'team', ['service-0'])
-          self.assertEqual(summary['records']['error'], 0)
-          self.assertEqual(summary['records'][expected], 1)
-          self.assertEqual(summary['issue_count'], int(expected == 'difference'))
+    def test_login_profile_boolean_comparison_and_issue_summary(self):
+        prop = "LoginProfile.PasswordResetRequired"
+        cases = [
+            ("False", False, "matched"),
+            ("false", False, "matched"),
+            ("True", True, "matched"),
+            ("true", True, "matched"),
+            ("True", False, "difference"),
+            ("False", True, "difference"),
+        ]
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("socket.socket", side_effect=AssertionError("network forbidden")),
+        ):
+            for model, actual, expected in cases:
+                with self.subTest(model=model, actual=actual):
+                    comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+                    comparison.resources["service-0"]["0000"].update(
+                        resourceType="IAM.User", **{"cfn-logicalId": "stack0-Log0"}
+                    )
+                    comparison.models["service-0"].values.update(
+                        {
+                            "desired.resource.0000.resourceType": "IAM.User",
+                            "desired.resource.0000.cfn-logicalId": "stack0-Log0",
+                            "desired.row.0000-001.property": "IAM.User." + prop,
+                            "desired.row.0000-001.value": "`" + model + "`",
+                        }
+                    )
+                    row = {"property": "IAM.User." + prop, "value": "`" + model + "`"}
+                    comparison.rows["service-0"]["0000"] = [("0000-001", row)]
+                    _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
+                    document["Resources"]["Log0"] = {
+                        "Type": "AWS::IAM::User",
+                        "Properties": {
+                            "LoginProfile": {"PasswordResetRequired": actual}
+                        },
+                    }
+                    self.assertEqual(
+                        comparison.catalog.literal_errors("IAM.User", prop, model), []
+                    )
+                    records = comparison.run()
+                    self.assertEqual([item["category"] for item in records], [expected])
+                    self.assertIs(
+                        type(
+                            comparison.prepare_value(
+                                "service-0", row, "IAM.User"
+                            ).require_value()
+                        ),
+                        bool,
+                    )
+                    summary = _imports_issues_aggregate.iac_summary(
+                        records, "fixture", "team", ["service-0"]
+                    )
+                    self.assertEqual(summary["records"]["error"], 0)
+                    self.assertEqual(summary["records"][expected], 1)
+                    self.assertEqual(
+                        summary["issue_count"], int(expected == "difference")
+                    )
 
-  def test_other_types_and_union_conversion_stay_unchanged(self):
-    cases = [('string', 'False', 'False'), ('integer', '7', 7), ('number', '1.25', 1.25),
-             ('object', '{"enabled":true}', {'enabled': True}), ('array', '[false,1]', [False, 1]),
-             ('null', 'null', None), (['boolean', 'null'], 'false', False),
-             (['string', 'object'], '{"a":1}', {'a': 1})]
-    schema = Mock()
-    options = dict(local_comparison=True, desired_reference=Mock(), property_schema=schema,
-                   evaluate=Mock(), model_path=Path('/synthetic/model.properties'))
-    for kind, raw, expected in cases:
-      with self.subTest(kind=kind, raw=raw):
-        schema.return_value = {'type': kind}
-        prepared = desired_value('fixture', {'property': 'IAM.User.Value', 'value': '`' + raw + '`'}, 'IAM.User', **options)
-        self.assertEqual(prepared.require_value(), expected)
-        self.assertIs(type(prepared.value), type(expected))
-    for kind, raw, error in [(['boolean', 'null'], 'False', ValueError),
-                             (['string', 'object'], 'plain text', ValueError),
-                             (None, 'false', Blocked), ('boolean', 'yes', ValueError)]:
-      with self.subTest(kind=kind, raw=raw):
-        schema.return_value = {'type': kind}
-        prepared = desired_value('fixture', {'property': 'IAM.User.Value', 'value': raw}, 'IAM.User', **options)
-        self.assertIsInstance(prepared.error, error)
+    def test_other_types_and_union_conversion_stay_unchanged(self):
+        cases = [
+            ("string", "False", "False"),
+            ("integer", "7", 7),
+            ("number", "1.25", 1.25),
+            ("object", '{"enabled":true}', {"enabled": True}),
+            ("array", "[false,1]", [False, 1]),
+            ("null", "null", None),
+            (["boolean", "null"], "false", False),
+            (["string", "object"], '{"a":1}', {"a": 1}),
+        ]
+        schema = Mock()
+        options = dict(
+            local_comparison=True,
+            desired_reference=Mock(),
+            property_schema=schema,
+            evaluate=Mock(),
+            model_path=Path("/synthetic/model.properties"),
+        )
+        for kind, raw, expected in cases:
+            with self.subTest(kind=kind, raw=raw):
+                schema.return_value = {"type": kind}
+                prepared = desired_value(
+                    "fixture",
+                    {"property": "IAM.User.Value", "value": "`" + raw + "`"},
+                    "IAM.User",
+                    **options,
+                )
+                self.assertEqual(prepared.require_value(), expected)
+                self.assertIs(type(prepared.value), type(expected))
+        for kind, raw, error in [
+            (["boolean", "null"], "False", ValueError),
+            (["string", "object"], "plain text", ValueError),
+            (None, "false", Blocked),
+            ("boolean", "yes", ValueError),
+        ]:
+            with self.subTest(kind=kind, raw=raw):
+                schema.return_value = {"type": kind}
+                prepared = desired_value(
+                    "fixture",
+                    {"property": "IAM.User.Value", "value": raw},
+                    "IAM.User",
+                    **options,
+                )
+                self.assertIsInstance(prepared.error, error)
 
-  def test_boolean_model_reference_and_document_bypass_literal_conversion(self):
-    reference = {'$modelRef': {'logicalId': 'Fixture', 'attribute': 'Value'}}
-    options = dict(local_comparison=True, desired_reference=Mock(), property_schema=Mock(return_value={'type': 'boolean'}),
-                   evaluate=Mock(), model_path=Path('/synthetic/model.properties'))
-    for row, expected in [({'value': json.dumps(reference)}, reference),
-                          ({'value': '', 'document': 'false'}, False)]:
-      with self.subTest(row=row):
-        prepared = desired_value('fixture', dict(row, property='IAM.User.LoginProfile.PasswordResetRequired'), 'IAM.User', **options)
-        self.assertEqual(prepared.require_value(), expected)
-        self.assertIs(type(prepared.value), type(expected))
-    expressions = [{'Fn::GetAtt': ['Fixture', 'Value']}, {'Fn::Sub': '${Fixture.Value}'},
-                   {'Fn::Join': ['', ['false']]}, {'Ref': 'Fixture'}]
-    for local in (False, True):
-      for expression in expressions:
-        with self.subTest(local=local, expression=expression):
-          options.update(local_comparison=local, evaluate=Mock(return_value=False), stack='fixture')
-          prepared = desired_value('fixture', {'property': 'IAM.User.LoginProfile.PasswordResetRequired',
-              'value': json.dumps(expression)}, 'IAM.User', **options)
-          self.assertEqual(prepared.require_value(), False if local else expression)
+    def test_boolean_model_reference_and_document_bypass_literal_conversion(self):
+        reference = {"$modelRef": {"logicalId": "Fixture", "attribute": "Value"}}
+        options = dict(
+            local_comparison=True,
+            desired_reference=Mock(),
+            property_schema=Mock(return_value={"type": "boolean"}),
+            evaluate=Mock(),
+            model_path=Path("/synthetic/model.properties"),
+        )
+        for row, expected in [
+            ({"value": json.dumps(reference)}, reference),
+            ({"value": "", "document": "false"}, False),
+        ]:
+            with self.subTest(row=row):
+                prepared = desired_value(
+                    "fixture",
+                    dict(row, property="IAM.User.LoginProfile.PasswordResetRequired"),
+                    "IAM.User",
+                    **options,
+                )
+                self.assertEqual(prepared.require_value(), expected)
+                self.assertIs(type(prepared.value), type(expected))
+        expressions = [
+            {"Fn::GetAtt": ["Fixture", "Value"]},
+            {"Fn::Sub": "${Fixture.Value}"},
+            {"Fn::Join": ["", ["false"]]},
+            {"Ref": "Fixture"},
+        ]
+        for local in (False, True):
+            for expression in expressions:
+                with self.subTest(local=local, expression=expression):
+                    options.update(
+                        local_comparison=local,
+                        evaluate=Mock(return_value=False),
+                        stack="fixture",
+                    )
+                    prepared = desired_value(
+                        "fixture",
+                        {
+                            "property": "IAM.User.LoginProfile.PasswordResetRequired",
+                            "value": json.dumps(expression),
+                        },
+                        "IAM.User",
+                        **options,
+                    )
+                    self.assertEqual(
+                        prepared.require_value(), False if local else expression
+                    )
 
 
 class IntrinsicWarningTests(unittest.TestCase):
-  def test_unresolved_leaves_keep_other_comparisons_and_report_counts(self):
-    comparison_status = _imports_issues_aggregate.comparison_status
-    iac_summary = _imports_issues_aggregate.iac_summary
-    validate_aws_document = _imports_utils_json_format.validate_aws_document
-    expressions = [
-        {'Fn::Sub': '${Missing}'}, {'Fn::GetAtt': ['Missing', 'Arn']},
-        {'Fn::ImportValue': 'External'}, {'Ref': 'Missing'},
-        {'Fn::Join': ['', [{'Fn::GetAtt': ['Missing', 'Arn']}]]},
-        {'Fn::If': ['Pending', {'Ref': 'Missing'}, 'literal']},
-        {'Fn::UnknownFuture': 'unverified'},
-    ]
-    with tempfile.TemporaryDirectory() as directory, patch('socket.socket', side_effect=AssertionError('network forbidden')):
-      for expression in expressions:
-        with self.subTest(expression=expression):
-          comparison = legacy_comparison(Path(directory), count=1, stacks=1)
-          comparison.resources['service-0']['0000']['cfn-logicalId'] = 'stack0-Log0'
-          comparison.models['service-0'].values['desired.resource.0000.cfn-logicalId'] = 'stack0-Log0'
-          rows = comparison.rows['service-0']['0000']
-          rows.append(('0000-002', {'property': 'Logs.LogGroup.DataProtectionPolicy', 'value': '',
-              'document': json.dumps({'Known': 7, 'Deferred': expression})}))
-          unit = comparison.templates()[0][1]
-          template, (document, _, _) = comparison.stack(unit)
-          document['Resources']['Log0']['Properties']['DataProtectionPolicy'] = {'Known': 7, 'Deferred': expression}
-          results = comparison.run()
-          self.assertEqual([item['category'] for item in results], ['matched', 'uncompared'])
-          self.assertTrue(comparison.warnings)
-          saved_records, saved_warnings = list(comparison.results), list(comparison.warnings)
-          partial = comparison.compare_rows('service-0', '0000', comparison.resources['service-0']['0000'],
-              'stack0', 'Log0', template, document['Resources']['Log0'], document,
-              properties={'DataProtectionPolicy'})
-          self.assertEqual(partial.records, [item for item in results if item['property'] == 'Logs.LogGroup.DataProtectionPolicy'])
-          self.assertTrue(partial.warnings)
-          self.assertEqual(comparison.results, saved_records)
-          self.assertEqual(comparison.warnings, saved_warnings)
+    def test_unresolved_leaves_keep_other_comparisons_and_report_counts(self):
+        comparison_status = _imports_issues_aggregate.comparison_status
+        iac_summary = _imports_issues_aggregate.iac_summary
+        validate_aws_document = _imports_utils_json_format.validate_aws_document
+        expressions = [
+            {"Fn::Sub": "${Missing}"},
+            {"Fn::GetAtt": ["Missing", "Arn"]},
+            {"Fn::ImportValue": "External"},
+            {"Ref": "Missing"},
+            {"Fn::Join": ["", [{"Fn::GetAtt": ["Missing", "Arn"]}]]},
+            {"Fn::If": ["Pending", {"Ref": "Missing"}, "literal"]},
+            {"Fn::UnknownFuture": "unverified"},
+        ]
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("socket.socket", side_effect=AssertionError("network forbidden")),
+        ):
+            for expression in expressions:
+                with self.subTest(expression=expression):
+                    comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+                    comparison.resources["service-0"]["0000"]["cfn-logicalId"] = (
+                        "stack0-Log0"
+                    )
+                    comparison.models["service-0"].values[
+                        "desired.resource.0000.cfn-logicalId"
+                    ] = "stack0-Log0"
+                    rows = comparison.rows["service-0"]["0000"]
+                    rows.append(
+                        (
+                            "0000-002",
+                            {
+                                "property": "Logs.LogGroup.DataProtectionPolicy",
+                                "value": "",
+                                "document": json.dumps(
+                                    {"Known": 7, "Deferred": expression}
+                                ),
+                            },
+                        )
+                    )
+                    unit = comparison.templates()[0][1]
+                    template, (document, _, _) = comparison.stack(unit)
+                    document["Resources"]["Log0"]["Properties"][
+                        "DataProtectionPolicy"
+                    ] = {"Known": 7, "Deferred": expression}
+                    results = comparison.run()
+                    self.assertEqual(
+                        [item["category"] for item in results],
+                        ["matched", "uncompared"],
+                    )
+                    self.assertTrue(comparison.warnings)
+                    saved_records, saved_warnings = (
+                        list(comparison.results),
+                        list(comparison.warnings),
+                    )
+                    partial = comparison.compare_rows(
+                        "service-0",
+                        "0000",
+                        comparison.resources["service-0"]["0000"],
+                        "stack0",
+                        "Log0",
+                        template,
+                        document["Resources"]["Log0"],
+                        document,
+                        properties={"DataProtectionPolicy"},
+                    )
+                    self.assertEqual(
+                        partial.records,
+                        [
+                            item
+                            for item in results
+                            if item["property"] == "Logs.LogGroup.DataProtectionPolicy"
+                        ],
+                    )
+                    self.assertTrue(partial.warnings)
+                    self.assertEqual(comparison.results, saved_records)
+                    self.assertEqual(comparison.warnings, saved_warnings)
 
-          self.assertTrue(all(w['severity'] == 'WARNING' and w['property'] == 'Logs.LogGroup.DataProtectionPolicy'
-                              and w['pointer'].startswith('/Deferred') for w in comparison.warnings))
-          summary = iac_summary(results, 'fixture', 'team', ['service-0'])
-          self.assertEqual(summary['records']['uncompared'], 1)
-          self.assertEqual(summary['records']['error'], 0)
-          self.assertEqual(comparison_status(summary['records']), 'partial')
-          document['Resources']['Log0']['Properties']['DataProtectionPolicy']['Known'] = 8
-          comparison.results = []
-          self.assertEqual([item['category'] for item in comparison.run()], ['matched', 'difference', 'uncompared'])
-          with self.assertRaises(ValueError):
-            validate_aws_document(json.loads(rows[-1][1]['document']))
+                    self.assertTrue(
+                        all(
+                            w["severity"] == "WARNING"
+                            and w["property"] == "Logs.LogGroup.DataProtectionPolicy"
+                            and w["pointer"].startswith("/Deferred")
+                            for w in comparison.warnings
+                        )
+                    )
+                    summary = iac_summary(results, "fixture", "team", ["service-0"])
+                    self.assertEqual(summary["records"]["uncompared"], 1)
+                    self.assertEqual(summary["records"]["error"], 0)
+                    self.assertEqual(comparison_status(summary["records"]), "partial")
+                    document["Resources"]["Log0"]["Properties"]["DataProtectionPolicy"][
+                        "Known"
+                    ] = 8
+                    comparison.results = []
+                    self.assertEqual(
+                        [item["category"] for item in comparison.run()],
+                        ["matched", "difference", "uncompared"],
+                    )
+                    with self.assertRaises(ValueError):
+                        validate_aws_document(json.loads(rows[-1][1]["document"]))
 
-  def test_local_functions_resolve_with_proven_stack_inputs(self):
-    with tempfile.TemporaryDirectory() as directory:
-      comparison = legacy_comparison(Path(directory), count=1, stacks=1)
-      comparison.local_comparison = True
-      comparison.stack_inputs['stack0'] = ({'Conditions': {'Yes': {'Fn::Equals': [1, 1]}},
-          'Mappings': {'M': {'K': {'V': 'mapped'}}}}, {'Name': 'confirmed'}, {'AWS::Region': 'fixture-region'})
-      expressions = [({'Ref': 'Name'}, 'confirmed'), ({'Fn::Sub': '${AWS::Region}/${Name}'}, 'fixture-region/confirmed'),
-          ({'Fn::Join': ['-', ['a', 'b']]}, 'a-b'), ({'Fn::Split': [',', 'a,b']}, ['a', 'b']),
-          ({'Fn::Select': [0, ['a']]}, 'a'), ({'Fn::If': ['Yes', 'a', {'Ref': 'Unknown'}]}, 'a'),
-          ({'Fn::FindInMap': ['M', 'K', 'V']}, 'mapped')]
-      for expression, expected in expressions:
-        row = {'property': 'Logs.LogGroup.DataProtectionPolicy', 'value': '', 'document': json.dumps({'Value': expression})}
-        self.assertEqual(comparison.prepare_value('service-0', row, 'Logs.LogGroup', stack='stack0').require_value(), {'Value': expected})
-      self.assertFalse(comparison.warnings)
-      row['document'] = '{"Value": {"Fn::Join": [""]}}'
-      with self.assertRaises(ValueError):
-        comparison.prepare_value('service-0', row, 'Logs.LogGroup', stack='stack0').require_value()
+    def test_local_functions_resolve_with_proven_stack_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+            comparison.local_comparison = True
+            comparison.stack_inputs["stack0"] = (
+                {
+                    "Conditions": {"Yes": {"Fn::Equals": [1, 1]}},
+                    "Mappings": {"M": {"K": {"V": "mapped"}}},
+                },
+                {"Name": "confirmed"},
+                {"AWS::Region": "fixture-region"},
+            )
+            expressions = [
+                ({"Ref": "Name"}, "confirmed"),
+                ({"Fn::Sub": "${AWS::Region}/${Name}"}, "fixture-region/confirmed"),
+                ({"Fn::Join": ["-", ["a", "b"]]}, "a-b"),
+                ({"Fn::Split": [",", "a,b"]}, ["a", "b"]),
+                ({"Fn::Select": [0, ["a"]]}, "a"),
+                ({"Fn::If": ["Yes", "a", {"Ref": "Unknown"}]}, "a"),
+                ({"Fn::FindInMap": ["M", "K", "V"]}, "mapped"),
+            ]
+            for expression, expected in expressions:
+                row = {
+                    "property": "Logs.LogGroup.DataProtectionPolicy",
+                    "value": "",
+                    "document": json.dumps({"Value": expression}),
+                }
+                self.assertEqual(
+                    comparison.prepare_value(
+                        "service-0", row, "Logs.LogGroup", stack="stack0"
+                    ).require_value(),
+                    {"Value": expected},
+                )
+            self.assertFalse(comparison.warnings)
+            row["document"] = '{"Value": {"Fn::Join": [""]}}'
+            with self.assertRaises(ValueError):
+                comparison.prepare_value(
+                    "service-0", row, "Logs.LogGroup", stack="stack0"
+                ).require_value()
 
 
 class ExplicitIdentityTests(unittest.TestCase):
-  def test_missing_mapping_never_searches_legacy_ids(self):
-    with tempfile.TemporaryDirectory() as directory:
-      comparison = legacy_comparison(Path(directory))
-      with patch.object(comparison, 'stack_input', side_effect=AssertionError('implicit CFn search')):
-        results = comparison.run()
-      self.assertEqual([item['category'] for item in results], ['uncompared'] * 3)
-      self.assertTrue(all('explicit cfn-logicalId is required' in item['reason'] for item in results))
+    def test_missing_mapping_never_searches_legacy_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            comparison = legacy_comparison(Path(directory))
+            with patch.object(
+                comparison,
+                "stack_input",
+                side_effect=AssertionError("implicit CFn search"),
+            ):
+                results = comparison.run()
+            self.assertEqual([item["category"] for item in results], ["uncompared"] * 3)
+            self.assertTrue(
+                all(
+                    "explicit cfn-logicalId is required" in item["reason"]
+                    for item in results
+                )
+            )
 
-  def test_explicit_mapping_and_run_isolation(self):
-    with tempfile.TemporaryDirectory() as directory:
-      comparison = legacy_comparison(Path(directory))
-      for number in range(3):
-        key = f'{number:04d}'
-        mapping = f'stack{number % 2}-Log{number}'
-        comparison.resources['service-0'][key]['cfn-logicalId'] = mapping
-        comparison.models['service-0'].values[f'desired.resource.{key}.cfn-logicalId'] = mapping
-      self.assertEqual([item['category'] for item in comparison.run()], ['matched'] * 3)
-      del comparison.stack_inputs['stack1'][0]['Resources']['Log1']
-      comparison.results = []
-      self.assertEqual(comparison.run()[1]['reason'], 'resource missing')
-      # Changing a Model logicalId never changes the explicit CFn correspondence.
-      comparison.resources['service-0']['0000']['logicalId'] = 'Logs_LogGroup_999'
-      comparison.results = []
-      self.assertEqual(comparison.run()[0]['category'], 'matched')
+    def test_explicit_mapping_and_run_isolation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            comparison = legacy_comparison(Path(directory))
+            for number in range(3):
+                key = f"{number:04d}"
+                mapping = f"stack{number % 2}-Log{number}"
+                comparison.resources["service-0"][key]["cfn-logicalId"] = mapping
+                comparison.models["service-0"].values[
+                    f"desired.resource.{key}.cfn-logicalId"
+                ] = mapping
+            self.assertEqual(
+                [item["category"] for item in comparison.run()], ["matched"] * 3
+            )
+            del comparison.stack_inputs["stack1"][0]["Resources"]["Log1"]
+            comparison.results = []
+            self.assertEqual(comparison.run()[1]["reason"], "resource missing")
+            # Changing a Model logicalId never changes the explicit CFn correspondence.
+            comparison.resources["service-0"]["0000"]["logicalId"] = "Logs_LogGroup_999"
+            comparison.results = []
+            self.assertEqual(comparison.run()[0]["category"], "matched")
 
-  def test_duplicate_direct_ownership_and_type_mismatch(self):
-    with tempfile.TemporaryDirectory() as directory:
-      comparison = legacy_comparison(Path(directory))
-      for key in ('0000', '0001'):
-        comparison.resources['service-0'][key]['cfn-logicalId'] = 'stack0-Log0'
-        comparison.models['service-0'].values[f'desired.resource.{key}.cfn-logicalId'] = 'stack0-Log0'
-      self.assertTrue(all('duplicate resource correspondence' in item['reason'] for item in comparison.run()[:2]))
-      comparison.resources['service-0']['0001']['cfn-logicalId'] = 'stack1-Log1'
-      comparison.models['service-0'].values['desired.resource.0001.cfn-logicalId'] = 'stack1-Log1'
-      comparison.resources['service-0']['0001']['resourceType'] = 'SQS.Queue'
-      comparison._index = None
-      comparison.results = []
-      self.assertIn('formal resource type mismatch', comparison.run()[1]['reason'])
-
-
-def _callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_desired_value(contexts, /, service, row, kind, **kwargs):
-  value = row['value'].strip('`')
-  if row['property'].endswith('.Configuration'):
-    contexts.append(kwargs['context'])
-    return json.loads(value)
-  return value
-
-
-def _callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_selected_value(prepare, self, /, service, row, kind, **kwargs):
-  self.assertNotEqual(row['property'], 'CodePipeline.Pipeline.Name')
-  return prepare(service, row, kind, **kwargs)
-
-
-def _callback_ImportValueResolutionTests_test_codecommit_name_uses_only_explicit_repository_name_equal(comparison, desired, path, /, actual):
-  return comparison.reference_same(desired, actual, 'CodePipeline.Pipeline', path)
+    def test_duplicate_direct_ownership_and_type_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            comparison = legacy_comparison(Path(directory))
+            for key in ("0000", "0001"):
+                comparison.resources["service-0"][key]["cfn-logicalId"] = "stack0-Log0"
+                comparison.models["service-0"].values[
+                    f"desired.resource.{key}.cfn-logicalId"
+                ] = "stack0-Log0"
+            self.assertTrue(
+                all(
+                    "duplicate resource correspondence" in item["reason"]
+                    for item in comparison.run()[:2]
+                )
+            )
+            comparison.resources["service-0"]["0001"]["cfn-logicalId"] = "stack1-Log1"
+            comparison.models["service-0"].values[
+                "desired.resource.0001.cfn-logicalId"
+            ] = "stack1-Log1"
+            comparison.resources["service-0"]["0001"]["resourceType"] = "SQS.Queue"
+            comparison._index = None
+            comparison.results = []
+            self.assertIn(
+                "formal resource type mismatch", comparison.run()[1]["reason"]
+            )
 
 
-def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_equal(comparison, prop, /, left, right):
-  return comparison.reference_same(left, right, 'CodeBuild.Project', prop)
+def _callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_desired_value(
+    contexts, /, service, row, kind, **kwargs
+):
+    value = row["value"].strip("`")
+    if row["property"].endswith(".Configuration"):
+        contexts.append(kwargs["context"])
+        return json.loads(value)
+    return value
 
 
-def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired(comparison, /, logical, attribute=None, name='VALUE', variable_type='PLAINTEXT'):
-  service = {'Bucket': 's3', 'Vpc': 'vpc', 'Secret': 'secrets-manager'}.get(logical, 'kms')
-  link = f'[resource]({service}.md#existing-{logical})'
-  return comparison.desired_reference('codebuild', link, 'CodeBuild.Project',
-      'Environment.EnvironmentVariables[].Value', attribute, {'Type': variable_type})
+def _callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_selected_value(
+    prepare, self, /, service, row, kind, **kwargs
+):
+    self.assertNotEqual(row["property"], "CodePipeline.Pipeline.Name")
+    return prepare(service, row, kind, **kwargs)
+
+
+def _callback_ImportValueResolutionTests_test_codecommit_name_uses_only_explicit_repository_name_equal(
+    comparison, desired, path, /, actual
+):
+    return comparison.reference_same(desired, actual, "CodePipeline.Pipeline", path)
+
+
+def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_equal(
+    comparison, prop, /, left, right
+):
+    return comparison.reference_same(left, right, "CodeBuild.Project", prop)
+
+
+def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired(
+    comparison, /, logical, attribute=None, name="VALUE", variable_type="PLAINTEXT"
+):
+    service = {"Bucket": "s3", "Vpc": "vpc", "Secret": "secrets-manager"}.get(
+        logical, "kms"
+    )
+    link = f"[resource]({service}.md#existing-{logical})"
+    return comparison.desired_reference(
+        "codebuild",
+        link,
+        "CodeBuild.Project",
+        "Environment.EnvironmentVariables[].Value",
+        attribute,
+        {"Type": variable_type},
+    )
 
 
 class ImportValueResolutionTests(unittest.TestCase):
-  def test_codecommit_name_uses_only_explicit_repository_name(self):
-    with tempfile.TemporaryDirectory() as directory, patch('socket.socket', side_effect=AssertionError('network forbidden')):
-      comparison = legacy_comparison(Path(directory), count=1, stacks=1)
-      comparison.local_comparison = comparison.reference_models_loaded = True
-      resource = comparison.resources['service-0']['0000']
-      resource.update(resourceType='CodeCommit.Repository', anchor='repository', **{'cfn-logicalId': 'stack0-Repository'})
-      comparison.models['service-0'].values.update({
-          'desired.resource.0000.' + key: value for key, value in resource.items()})
-      definition = {'Type': 'AWS::CodeCommit::Repository', 'Properties': {'RepositoryName': {'Fn::Sub': '${Prefix}-repository'}}}
-      document = {'Resources': {'Repository': definition}, 'Conditions': {'Inactive': {'Fn::Equals': ['yes', 'no']}}}
-      comparison.stack_inputs = {'stack0': (document, {'Prefix': 'fixture'}, {})}
-      path = 'Stages[].Actions[].Configuration.RepositoryName'
-      with patch('comparison.inputs.catalog_outputs', return_value=set()):
-        desired = comparison.desired_reference('service-0', '[repository](service-0.md#repository)',
-            'CodePipeline.Pipeline', path,
-            context={'ActionTypeId': dict(Category='Source', Owner='AWS', Provider='CodeCommit', Version='1')})
-      equal = _bind_framework_callback(_callback_ImportValueResolutionTests_test_codecommit_name_uses_only_explicit_repository_name_equal, comparison, desired, path)
-      self.assertEqual(registry.ref_attribute('CodeCommit.Repository'), 'RepositoryId')
-      self.assertTrue(equal(comparison.evaluate('stack0', {'Fn::GetAtt': ['Repository', 'Name']})))
-      self.assertFalse(equal(comparison.evaluate('stack0', {'Ref': 'Repository'})))
-      self.assertTrue(equal('fixture-repository'))
-      self.assertFalse(equal('different-repository'))
-      self.assertEqual(comparison.reference_literal(comparison.evaluate('stack0', {'Fn::Sub': '${Repository.Name}'})), 'fixture-repository')
-      self.assertEqual(comparison.evaluate('stack0', {'Fn::Sub': '${Repository}'})['$attribute'], 'RepositoryId')
-      for setting in [None, {'Ref': 'Unknown'}, {'Fn::GetAtt': ['Repository', 'RepositoryId']}, 42, True, ['repository'], 'PENDING_DEPLOY', '']:
-        definition['Properties'] = {} if setting is None else {'RepositoryName': setting}
-        with self.subTest(setting=setting):
-          self.assertIsNone(equal('fixture-repository'))
-      definition['Properties'] = {'RepositoryName': 'fixture-repository'}
-      for change in ['condition', 'transform', 'resource-type', 'resource-mapping', 'stack-mapping']:
-        with self.subTest(change=change):
-          comparison.symbols.clear()
-          if change == 'condition':
-            definition['Condition'] = 'Inactive'
-          elif change == 'transform':
-            document['Transform'] = 'UnresolvedTransform'
-          elif change == 'resource-type':
-            definition['Type'] = 'AWS::S3::Bucket'
-          elif change == 'resource-mapping':
-            comparison.resources['service-0']['duplicate'] = dict(resource)
-            comparison.models['service-0'].values.update({
-                'desired.resource.duplicate.' + key: value for key, value in resource.items()})
+    def test_codecommit_name_uses_only_explicit_repository_name(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("socket.socket", side_effect=AssertionError("network forbidden")),
+        ):
+            comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+            comparison.local_comparison = comparison.reference_models_loaded = True
+            resource = comparison.resources["service-0"]["0000"]
+            resource.update(
+                resourceType="CodeCommit.Repository",
+                anchor="repository",
+                **{"cfn-logicalId": "stack0-Repository"},
+            )
+            comparison.models["service-0"].values.update(
+                {
+                    "desired.resource.0000." + key: value
+                    for key, value in resource.items()
+                }
+            )
+            definition = {
+                "Type": "AWS::CodeCommit::Repository",
+                "Properties": {"RepositoryName": {"Fn::Sub": "${Prefix}-repository"}},
+            }
+            document = {
+                "Resources": {"Repository": definition},
+                "Conditions": {"Inactive": {"Fn::Equals": ["yes", "no"]}},
+            }
+            comparison.stack_inputs = {"stack0": (document, {"Prefix": "fixture"}, {})}
+            path = "Stages[].Actions[].Configuration.RepositoryName"
+            with patch("comparison.inputs.catalog_outputs", return_value=set()):
+                desired = comparison.desired_reference(
+                    "service-0",
+                    "[repository](service-0.md#repository)",
+                    "CodePipeline.Pipeline",
+                    path,
+                    context={
+                        "ActionTypeId": dict(
+                            Category="Source",
+                            Owner="AWS",
+                            Provider="CodeCommit",
+                            Version="1",
+                        )
+                    },
+                )
+            equal = _bind_framework_callback(
+                _callback_ImportValueResolutionTests_test_codecommit_name_uses_only_explicit_repository_name_equal,
+                comparison,
+                desired,
+                path,
+            )
+            self.assertEqual(
+                registry.ref_attribute("CodeCommit.Repository"), "RepositoryId"
+            )
+            self.assertTrue(
+                equal(
+                    comparison.evaluate(
+                        "stack0", {"Fn::GetAtt": ["Repository", "Name"]}
+                    )
+                )
+            )
+            self.assertFalse(
+                equal(comparison.evaluate("stack0", {"Ref": "Repository"}))
+            )
+            self.assertTrue(equal("fixture-repository"))
+            self.assertFalse(equal("different-repository"))
+            self.assertEqual(
+                comparison.reference_literal(
+                    comparison.evaluate("stack0", {"Fn::Sub": "${Repository.Name}"})
+                ),
+                "fixture-repository",
+            )
+            self.assertEqual(
+                comparison.evaluate("stack0", {"Fn::Sub": "${Repository}"})[
+                    "$attribute"
+                ],
+                "RepositoryId",
+            )
+            for setting in [
+                None,
+                {"Ref": "Unknown"},
+                {"Fn::GetAtt": ["Repository", "RepositoryId"]},
+                42,
+                True,
+                ["repository"],
+                "PENDING_DEPLOY",
+                "",
+            ]:
+                definition["Properties"] = (
+                    {} if setting is None else {"RepositoryName": setting}
+                )
+                with self.subTest(setting=setting):
+                    self.assertIsNone(equal("fixture-repository"))
+            definition["Properties"] = {"RepositoryName": "fixture-repository"}
+            for change in [
+                "condition",
+                "transform",
+                "resource-type",
+                "resource-mapping",
+                "stack-mapping",
+            ]:
+                with self.subTest(change=change):
+                    comparison.symbols.clear()
+                    if change == "condition":
+                        definition["Condition"] = "Inactive"
+                    elif change == "transform":
+                        document["Transform"] = "UnresolvedTransform"
+                    elif change == "resource-type":
+                        definition["Type"] = "AWS::S3::Bucket"
+                    elif change == "resource-mapping":
+                        comparison.resources["service-0"]["duplicate"] = dict(resource)
+                        comparison.models["service-0"].values.update(
+                            {
+                                "desired.resource.duplicate." + key: value
+                                for key, value in resource.items()
+                            }
+                        )
+                        comparison._index = None
+                    else:
+                        comparison.templates = lambda: [
+                            ("one", {"name": "stack0"}),
+                            ("two", {"name": "stack0"}),
+                        ]
+                    self.assertIsNone(equal("fixture-repository"))
+                    definition.pop("Condition", None)
+                    document.pop("Transform", None)
+                    definition["Type"] = "AWS::CodeCommit::Repository"
+                    if change == "resource-mapping":
+                        comparison.resources["service-0"].pop("duplicate")
+                        for key in resource:
+                            comparison.models["service-0"].values.pop(
+                                "desired.resource.duplicate." + key
+                            )
+                        comparison._index = None
+
+    def test_codebuild_plaintext_resource_attributes(self):
+        # Authored identities and templates only; no consumer inputs or physical identifiers.
+        with tempfile.TemporaryDirectory() as directory:
+            comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
+            comparison.export_provenance = {}
+            comparison.sensitive_values = set()
+            comparison.root = Path(directory)
+            comparison.environment, comparison.directory = "fixture", "team"
+            comparison.catalog = DesignSchemaCatalog(
+                Path(__file__).resolve().parents[4]
+            )
+            comparison.local_comparison = comparison.reference_models_loaded = True
+            comparison.reference_formats, comparison.symbols = {}, {}
             comparison._index = None
-          else:
-            comparison.templates = lambda: [('one', {'name': 'stack0'}), ('two', {'name': 'stack0'})]
-          self.assertIsNone(equal('fixture-repository'))
-          definition.pop('Condition', None)
-          document.pop('Transform', None)
-          definition['Type'] = 'AWS::CodeCommit::Repository'
-          if change == 'resource-mapping':
-            comparison.resources['service-0'].pop('duplicate')
-            for key in resource:
-              comparison.models['service-0'].values.pop('desired.resource.duplicate.' + key)
-            comparison._index = None
+            comparison.resources = {
+                "kms": {},
+                "s3": {},
+                "vpc": {},
+                "secrets-manager": {},
+            }
+            comparison.rows = {service: {} for service in comparison.resources}
+            comparison.models = {}
+            definitions = {}
+            for service, identity, kind, logical in [
+                ("kms", "001", "KMS.Key", "Key"),
+                ("kms", "002", "KMS.Alias", "Alias"),
+                ("kms", "003", "KMS.Key", "OtherKey"),
+                ("s3", "001", "S3.Bucket", "Bucket"),
+                ("vpc", "001", "EC2.VPC", "Vpc"),
+                ("secrets-manager", "001", "SecretsManager.Secret", "Secret"),
+            ]:
+                resource = {
+                    "resourceType": kind,
+                    "logicalId": kind.replace(".", "_") + "_" + identity,
+                    "anchor": "existing-" + logical,
+                    "cfn-logicalId": "producer-" + logical,
+                }
+                if kind == "KMS.Alias":
+                    resource["parentReference"] = "[key](kms.md#existing-Key)"
+                comparison.resources[service][identity] = resource
+                comparison.rows[service][identity] = []
+                definitions[logical] = {
+                    "Type": "AWS::" + kind.replace(".", "::"),
+                    "Properties": {},
+                }
+            definitions["Alias"]["Properties"] = {
+                "AliasName": "alias/fixture",
+                "TargetKeyId": {"Ref": "Key"},
+            }
+            definitions["Bucket"]["Properties"] = {"BucketName": "fixture-bucket"}
+            for service, resources in comparison.resources.items():
+                comparison.models[service] = SimpleNamespace(
+                    values={
+                        f"desired.resource.{identity}.{key}": value
+                        for identity, resource in resources.items()
+                        for key, value in resource.items()
+                    }
+                )
+            producer = {"Resources": definitions}
+            pseudo = {
+                "AWS::Partition": "aws",
+                "AWS::Region": "ap-northeast-1",
+                "AWS::AccountId": "123456789012",
+            }
+            comparison.stack_inputs = {
+                "producer": (producer, {}, pseudo),
+                "build": ({}, {}, pseudo),
+            }
+            comparison.templates = lambda: [("001", {"name": "producer"})]
+            comparison.stack = lambda unit: (
+                Path("producer.yaml"),
+                comparison.stack_inputs["producer"],
+            )
+            alias_value = {
+                "Fn::Sub": [
+                    "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}",
+                    {"Alias": {"Ref": "Alias"}},
+                ]
+            }
+            producer["Outputs"] = {
+                "Key": {
+                    "Value": {"Fn::GetAtt": ["Key", "Arn"]},
+                    "Export": {"Name": "key-export"},
+                },
+                "Alias": {"Value": alias_value, "Export": {"Name": "alias-export"}},
+            }
+            comparison.exports = None
+            comparison.export_failures = []
+            prop = "Environment.EnvironmentVariables[].Value"
+            desired = _bind_framework_callback(
+                _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired,
+                comparison,
+            )
+            equal = _bind_framework_callback(
+                _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_equal,
+                comparison,
+                prop,
+            )
+            with patch("comparison.inputs.catalog_outputs", return_value=set()):
+                key, alias = desired("Key", "Arn"), desired("Alias", "AliasArn")
+                for model, actual, exported in [
+                    (key, {"Fn::GetAtt": ["Key", "Arn"]}, "key-export"),
+                    (alias, alias_value, "alias-export"),
+                ]:
+                    self.assertTrue(
+                        equal(model, comparison.evaluate("producer", actual))
+                    )
+                    self.assertTrue(
+                        equal(
+                            model,
+                            comparison.evaluate("build", {"Fn::ImportValue": exported}),
+                        )
+                    )
+                    self.assertIsNot(equal(model, exported), True)
+                self.assertFalse(equal(key, alias))
+                self.assertFalse(
+                    equal(key, comparison.evaluate("producer", alias_value))
+                )
+                self.assertFalse(equal(key, desired("OtherKey", "Arn")))
+                self.assertFalse(equal(key, desired("Key", "KeyId")))
+                self.assertFalse(equal(alias, desired("Alias", "AliasName")))
+                with self.assertRaises((Blocked, KeyError)):
+                    comparison.evaluate(
+                        "producer", {"Fn::GetAtt": ["Alias", "AliasArn"]}
+                    )
+                self.assertFalse(
+                    equal(alias, comparison.evaluate("producer", {"Ref": "Alias"}))
+                )
+                self.assertIsNone(
+                    equal(
+                        key,
+                        "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+                    )
+                )
+                self.assertTrue(
+                    equal(
+                        alias, "arn:aws:kms:ap-northeast-1:123456789012:alias/fixture"
+                    )
+                )
+                definitions["Alias"]["Properties"].pop("AliasName")
+                self.assertIsNone(
+                    equal(
+                        alias, "arn:aws:kms:ap-northeast-1:123456789012:alias/fixture"
+                    )
+                )
+                definitions["Alias"]["Properties"]["AliasName"] = "alias/fixture"
+                self.assertTrue(
+                    equal(
+                        desired("Bucket"),
+                        comparison.evaluate("producer", {"Ref": "Bucket"}),
+                    )
+                )
+                self.assertEqual(
+                    desired("Key", "KeyId", name="KEY_ARN")["$attribute"], "KeyId"
+                )
+                for logical in ["Key", "Alias"]:
+                    with self.assertRaisesRegex(
+                        Blocked, "requires an explicit attribute for KMS"
+                    ):
+                        desired(logical)
+                self.assertEqual(
+                    desired("Secret", variable_type="SECRETS_MANAGER"),
+                    comparison.evaluate("producer", {"Ref": "Secret"}),
+                )
+                for variable_type in [None, "INVALID"]:
+                    with (
+                        self.subTest(variable_type=variable_type),
+                        self.assertRaisesRegex(
+                            Blocked,
+                            "reference context or receiving property contract unproven",
+                        ),
+                    ):
+                        desired("Bucket", variable_type=variable_type)
+                with self.assertRaisesRegex(
+                    Blocked, "reference attribute not confirmed: Name"
+                ):
+                    desired("Bucket", variable_type="PARAMETER_STORE")
+                comparison.resources["kms"]["001"]["resourceMode"] = "IMPORT"
+                comparison.models["kms"].values["desired.resource.001.resourceMode"] = (
+                    "IMPORT"
+                )
+                comparison.reference_anchor_indexes.pop("kms")
+                with self.assertRaisesRegex(Blocked, "approved handoff"):
+                    desired("Key", "Arn")
+                comparison.resources["kms"]["001"].pop("resourceMode")
+                comparison.models["kms"].values.pop("desired.resource.001.resourceMode")
+                comparison.reference_anchor_indexes.pop("kms")
+                for logical, attribute in [
+                    ("Key", None),
+                    ("Alias", None),
+                    ("Missing", "Arn"),
+                    ("Key", "AliasArn"),
+                ]:
+                    with (
+                        self.subTest(logical=logical, attribute=attribute),
+                        self.assertRaises((Blocked, KeyError)),
+                    ):
+                        desired(logical, attribute)
+                with self.assertRaises(Blocked):
+                    comparison.evaluate("build", {"Fn::ImportValue": "unknown-export"})
+                self.assertIsNone(equal(key, Expression("Sub", ["${Unknown}", {}])))
+                unknown = Expression("Sub", ["${Unknown}", {}])
+                self.assertIsNone(equal(unknown, unknown))
 
-  def test_codebuild_plaintext_resource_attributes(self):
-    # Authored identities and templates only; no consumer inputs or physical identifiers.
-    with tempfile.TemporaryDirectory() as directory:
-      comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
-      comparison.export_provenance = {}
-      comparison.sensitive_values = set()
-      comparison.root = Path(directory)
-      comparison.environment, comparison.directory = 'fixture', 'team'
-      comparison.catalog = DesignSchemaCatalog(Path(__file__).resolve().parents[4])
-      comparison.local_comparison = comparison.reference_models_loaded = True
-      comparison.reference_formats, comparison.symbols = {}, {}
-      comparison._index = None
-      comparison.resources = {'kms': {}, 's3': {}, 'vpc': {}, 'secrets-manager': {}}
-      comparison.rows = {service: {} for service in comparison.resources}
-      comparison.models = {}
-      definitions = {}
-      for service, identity, kind, logical in [
-          ('kms', '001', 'KMS.Key', 'Key'), ('kms', '002', 'KMS.Alias', 'Alias'),
-          ('kms', '003', 'KMS.Key', 'OtherKey'), ('s3', '001', 'S3.Bucket', 'Bucket'),
-          ('vpc', '001', 'EC2.VPC', 'Vpc'), ('secrets-manager', '001', 'SecretsManager.Secret', 'Secret')]:
-        resource = {'resourceType': kind, 'logicalId': kind.replace('.', '_') + '_' + identity, 'anchor': 'existing-' + logical, 'cfn-logicalId': 'producer-' + logical}
-        if kind == 'KMS.Alias':
-          resource['parentReference'] = '[key](kms.md#existing-Key)'
-        comparison.resources[service][identity] = resource
-        comparison.rows[service][identity] = []
-        definitions[logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
-      definitions['Alias']['Properties'] = {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}}
-      definitions['Bucket']['Properties'] = {'BucketName': 'fixture-bucket'}
-      for service, resources in comparison.resources.items():
-        comparison.models[service] = SimpleNamespace(values={
-            f'desired.resource.{identity}.{key}': value
-            for identity, resource in resources.items() for key, value in resource.items()})
-      producer = {'Resources': definitions}
-      pseudo = {'AWS::Partition': 'aws', 'AWS::Region': 'ap-northeast-1', 'AWS::AccountId': '123456789012'}
-      comparison.stack_inputs = {'producer': (producer, {}, pseudo), 'build': ({}, {}, pseudo)}
-      comparison.templates = lambda: [('001', {'name': 'producer'})]
-      comparison.stack = lambda unit: (Path('producer.yaml'), comparison.stack_inputs['producer'])
-      alias_value = {'Fn::Sub': ['arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}', {'Alias': {'Ref': 'Alias'}}]}
-      producer['Outputs'] = {'Key': {'Value': {'Fn::GetAtt': ['Key', 'Arn']}, 'Export': {'Name': 'key-export'}},
-                             'Alias': {'Value': alias_value, 'Export': {'Name': 'alias-export'}}}
-      comparison.exports = None
-      comparison.export_failures = []
-      prop = 'Environment.EnvironmentVariables[].Value'
-      desired = _bind_framework_callback(_callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired, comparison)
-      equal = _bind_framework_callback(_callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_equal, comparison, prop)
-      with patch('comparison.inputs.catalog_outputs', return_value=set()):
-        key, alias = desired('Key', 'Arn'), desired('Alias', 'AliasArn')
-        for model, actual, exported in [
-            (key, {'Fn::GetAtt': ['Key', 'Arn']}, 'key-export'), (alias, alias_value, 'alias-export')]:
-          self.assertTrue(equal(model, comparison.evaluate('producer', actual)))
-          self.assertTrue(equal(model, comparison.evaluate('build', {'Fn::ImportValue': exported})))
-          self.assertIsNot(equal(model, exported), True)
-        self.assertFalse(equal(key, alias))
-        self.assertFalse(equal(key, comparison.evaluate('producer', alias_value)))
-        self.assertFalse(equal(key, desired('OtherKey', 'Arn')))
-        self.assertFalse(equal(key, desired('Key', 'KeyId')))
-        self.assertFalse(equal(alias, desired('Alias', 'AliasName')))
-        with self.assertRaises((Blocked, KeyError)):
-          comparison.evaluate('producer', {'Fn::GetAtt': ['Alias', 'AliasArn']})
-        self.assertFalse(equal(alias, comparison.evaluate('producer', {'Ref': 'Alias'})))
-        self.assertIsNone(equal(key, 'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012'))
-        self.assertTrue(equal(alias, 'arn:aws:kms:ap-northeast-1:123456789012:alias/fixture'))
-        definitions['Alias']['Properties'].pop('AliasName')
-        self.assertIsNone(equal(alias, 'arn:aws:kms:ap-northeast-1:123456789012:alias/fixture'))
-        definitions['Alias']['Properties']['AliasName'] = 'alias/fixture'
-        self.assertTrue(equal(desired('Bucket'), comparison.evaluate('producer', {'Ref': 'Bucket'})))
-        self.assertEqual(desired('Key', 'KeyId', name='KEY_ARN')['$attribute'], 'KeyId')
-        for logical in ['Key', 'Alias']:
-          with self.assertRaisesRegex(Blocked, 'requires an explicit attribute for KMS'):
-            desired(logical)
-        self.assertEqual(desired('Secret', variable_type='SECRETS_MANAGER'), comparison.evaluate('producer', {'Ref': 'Secret'}))
-        for variable_type in [None, 'INVALID']:
-          with self.subTest(variable_type=variable_type), self.assertRaisesRegex(Blocked, 'reference context or receiving property contract unproven'):
-            desired('Bucket', variable_type=variable_type)
-        with self.assertRaisesRegex(Blocked, 'reference attribute not confirmed: Name'):
-          desired('Bucket', variable_type='PARAMETER_STORE')
-        comparison.resources['kms']['001']['resourceMode'] = 'IMPORT'
-        comparison.models['kms'].values['desired.resource.001.resourceMode'] = 'IMPORT'
-        comparison.reference_anchor_indexes.pop('kms')
-        with self.assertRaisesRegex(Blocked, 'approved handoff'):
-          desired('Key', 'Arn')
-        comparison.resources['kms']['001'].pop('resourceMode')
-        comparison.models['kms'].values.pop('desired.resource.001.resourceMode')
-        comparison.reference_anchor_indexes.pop('kms')
-        for logical, attribute in [('Key', None), ('Alias', None), ('Missing', 'Arn'), ('Key', 'AliasArn')]:
-          with self.subTest(logical=logical, attribute=attribute), self.assertRaises((Blocked, KeyError)):
-            desired(logical, attribute)
-        with self.assertRaises(Blocked):
-          comparison.evaluate('build', {'Fn::ImportValue': 'unknown-export'})
-        self.assertIsNone(equal(key, Expression('Sub', ['${Unknown}', {}])))
-        unknown = Expression('Sub', ['${Unknown}', {}])
-        self.assertIsNone(equal(unknown, unknown))
-
-  def test_formal_pipeline_membership_and_configuration_context(self):
-    comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
-    comparison.models = {}
-    comparison.sensitive_values = set()
-    comparison.template_locations = {}
-    comparison.catalog = Mock()
-    comparison.stack_inputs = {'stack': ({}, {}, {})}
-    comparison.evaluate = Mock()
-    comparison.reference_decision = Mock()
-    comparison.root = Path(__file__).resolve().parents[4]
-    comparison.local_comparison = True
-    comparison.results, comparison.warnings = [], []
-    fields = [
-        ('Stages[].Actions[].ActionTypeId.Category', '`Build`'),
-        ('Stages[].Actions[].ActionTypeId.Owner', '`AWS`'),
-        ('Stages[].Actions[].ActionTypeId.Provider', '`CodeBuild`'),
-        ('Stages[].Actions[].ActionTypeId.Version', '`1`'),
-        ('Stages[].Actions[].Configuration', '`{"ProjectName":"one","Extra":"two"}`'),
-        ('Stages[].Actions[].InputArtifacts[].Name', '`first`'),
-        ('Stages[].Actions[].InputArtifacts[].Name', '`second`'),
-        ('Stages[].Actions[].Name', '`Build`'),
-        ('Stages[].Actions[].ActionTypeId.Category', '`Approval`'),
-        ('Stages[].Actions[].Name', '`Approve`'),
-        ('Stages[].Name', '`BuildAndApprove`'),
-        ('Stages[].Actions[].Name', '`Finish`'),
-        ('Stages[].Name', '`Final`'),
-    ]
-    rows = [(str(i), {'property': 'CodePipeline.Pipeline.' + prop, 'value': value,
-                     'comment': 'ProjectName: project / Extra: extra' if prop.endswith('.Configuration') else ''})
-            for i, (prop, value) in enumerate(fields)]
-    comparison.rows = {'codepipeline': {'001': rows}}
-    contexts = []
-    desired_value = _bind_framework_callback(_callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_desired_value, contexts)
-    comparison.prepare_value = lambda *args, **kwargs: PreparedValue(desired_value(*args, **kwargs), [])
-    comparison.evaluate.side_effect = lambda stack, value: value
-    ReferenceDecision = _imports_comparison_references.ReferenceDecision
-    comparison.reference_decision.return_value = ReferenceDecision(True)
-    stages = [
-        {'Name': 'BuildAndApprove', 'Actions': [
-            {'Name': 'Build', 'ActionTypeId': {'Category': 'Build', 'Owner': 'AWS', 'Provider': 'CodeBuild', 'Version': '1'},
-             'Configuration': {'ProjectName': 'one', 'Extra': 'two'}, 'InputArtifacts': [{'Name': 'first'}, {'Name': 'second'}]},
-            {'Name': 'Approve', 'ActionTypeId': {'Category': 'Approval'}}]},
-        {'Name': 'Final', 'Actions': [{'Name': 'Finish'}]},
-    ]
-    template = comparison.root / 'infra/cloudformation/templates/fixture.yaml'
-    definition = {'Properties': {'Stages': stages}}
-    batch = comparison.compare_rows('codepipeline', '001',
-        {'resourceType': 'CodePipeline.Pipeline'}, 'stack', 'Pipeline', template, definition, {})
-    self.assertEqual(contexts, [{'ActionTypeId': {'Category': 'Build', 'Owner': 'AWS', 'Provider': 'CodeBuild', 'Version': '1'}}])
-    self.assertEqual(len(batch.records), 1)
-    self.assertEqual(tuple(batch.records[0][key] for key in ('category', 'service', 'resource', 'property', 'reason')),
-                     ('matched', 'codepipeline', '001', 'CodePipeline.Pipeline.Stages', 'equal'))
-    self.assertEqual(comparison.results, [])
-    self.assertEqual(comparison.warnings, [])
-    # Selecting Stages still uses its sibling action context and never prepares Name.
-    rows.append(('other', {'property': 'CodePipeline.Pipeline.Name', 'value': '`unrelated`'}))
-    prepare = comparison.prepare_value
-    selected_value = _bind_framework_callback(_callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_selected_value, prepare, self)
-    comparison.prepare_value = selected_value
-    selected = comparison.compare_rows('codepipeline', '001', {'resourceType': 'CodePipeline.Pipeline'},
-        'stack', 'Pipeline', template, definition, {}, properties={'Stages'})
-    self.assertIsNone(selected.failure)
-    self.assertEqual(selected.records, batch.records)
-    self.assertEqual(contexts[-1], contexts[0])
-
-    # Invalid indexed siblings defer their setting while independent Name still compares.
-    comparison.rows['codepipeline']['001'] = [
-        ('bad', {'property': 'CodePipeline.Pipeline.Stages[0].Actions[1].ActionTypeId.Category', 'value': '`Build`'}),
-        ('name', {'property': 'CodePipeline.Pipeline.Name', 'value': '`pipeline`'})]
-    comparison.prepare_value = lambda *args, **kwargs: PreparedValue('pipeline', [])
-    definition = {'Properties': {'Name': 'pipeline'}}
-    complete = comparison.compare_rows('codepipeline', '001', {'resourceType': 'CodePipeline.Pipeline'},
-        'stack', 'Pipeline', template, definition, {})
-    self.assertIsNone(complete.failure)
-    self.assertEqual([(item['property'], item['category']) for item in complete.records],
-        [('CodePipeline.Pipeline.Stages', 'uncompared'), ('CodePipeline.Pipeline.Name', 'matched')])
-    limited = comparison.compare_rows('codepipeline', '001', {'resourceType': 'CodePipeline.Pipeline'},
-        'stack', 'Pipeline', template, definition, {}, properties={'Name'})
-    self.assertIsNone(limited.failure)
-    self.assertEqual(limited.records, complete.records[1:])
-
-
-  def test_api_managed_resource_remains_unverified_in_cloudformation_comparison(self):
-    comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
-    comparison.catalog = Mock(api_schemas={'Macie.ClassificationJob': {}})
-    comparison.target = {'iacEngine': 'cloudformation'}
-    comparison.services = ['macie']
-    comparison.resources = {'macie': {'001': {'resourceType': 'Macie.ClassificationJob'}}}
-    comparison.results = []
-    comparison.load_errors = []
-    comparison.reference_unavailable = {}
-    comparison.symbols = {}
-    comparison.record = lambda *args, **kwargs: comparison.results.append((args, kwargs))
-    comparison.templates = lambda: []
-
-    results = comparison.run()
-
-    self.assertEqual(results[0][0][:5], ('uncompared', 'macie', '001', '*', 'CloudFormation unsupported; outside CFn comparison; API implementation status unverified'))
-
-    self.assertEqual(results[0][1]['cause'], {'kind': 'cloudformation-unsupported', 'resource_type': 'Macie.ClassificationJob', 'implementation_status': 'unverified'})
-
-  def test_import_value_requires_a_complete_export_search(self):
-    comparison = Mock()
-    comparison.stack_inputs = {'s3': ({}, {}, {'AWS::Partition': 'aws', 'AWS::Region': 'ap-northeast-1', 'AWS::AccountId': '123456789012'})}
-    comparison.evaluate.side_effect = lambda stack, value, seen: (
-        "KmsAppKeyAlias-p4x8r2" if isinstance(value, dict) else value
-    )
-    comparison.templates.return_value = [
-        (Path("missing.yaml"), {"name": "missing", "template": "missing.yaml"}),
-        (Path("kms.yaml"), {"name": "kms", "template": "kms.yaml"}),
-    ]
-    comparison.stack.side_effect = [
-        Blocked("stack input missing: missing.yaml"),
-        (
-            Path("kms.yaml"),
+    def test_formal_pipeline_membership_and_configuration_context(self):
+        comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
+        comparison.models = {}
+        comparison.sensitive_values = set()
+        comparison.template_locations = {}
+        comparison.catalog = Mock()
+        comparison.stack_inputs = {"stack": ({}, {}, {})}
+        comparison.evaluate = Mock()
+        comparison.reference_decision = Mock()
+        comparison.root = Path(__file__).resolve().parents[4]
+        comparison.local_comparison = True
+        comparison.results, comparison.warnings = [], []
+        fields = [
+            ("Stages[].Actions[].ActionTypeId.Category", "`Build`"),
+            ("Stages[].Actions[].ActionTypeId.Owner", "`AWS`"),
+            ("Stages[].Actions[].ActionTypeId.Provider", "`CodeBuild`"),
+            ("Stages[].Actions[].ActionTypeId.Version", "`1`"),
             (
-                {"Outputs": {"Alias": {"Export": {"Name": "KmsAppKeyAlias-p4x8r2"}, "Value": "alias/app"}}},
-                {},
-                {},
+                "Stages[].Actions[].Configuration",
+                '`{"ProjectName":"one","Extra":"two"}`',
             ),
-        ),
-    ]
-    comparison.exports = None
-    comparison.export_failures = []
-    comparison.local_comparison = True
-    comparison.import_value = issues_iac.Comparison.import_value.__get__(comparison)
+            ("Stages[].Actions[].InputArtifacts[].Name", "`first`"),
+            ("Stages[].Actions[].InputArtifacts[].Name", "`second`"),
+            ("Stages[].Actions[].Name", "`Build`"),
+            ("Stages[].Actions[].ActionTypeId.Category", "`Approval`"),
+            ("Stages[].Actions[].Name", "`Approve`"),
+            ("Stages[].Name", "`BuildAndApprove`"),
+            ("Stages[].Actions[].Name", "`Finish`"),
+            ("Stages[].Name", "`Final`"),
+        ]
+        rows = [
+            (
+                str(i),
+                {
+                    "property": "CodePipeline.Pipeline." + prop,
+                    "value": value,
+                    "comment": "ProjectName: project / Extra: extra"
+                    if prop.endswith(".Configuration")
+                    else "",
+                },
+            )
+            for i, (prop, value) in enumerate(fields)
+        ]
+        comparison.rows = {"codepipeline": {"001": rows}}
+        contexts = []
+        desired_value = _bind_framework_callback(
+            _callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_desired_value,
+            contexts,
+        )
+        comparison.prepare_value = lambda *args, **kwargs: PreparedValue(
+            desired_value(*args, **kwargs), []
+        )
+        comparison.evaluate.side_effect = lambda stack, value: value
+        ReferenceDecision = _imports_comparison_references.ReferenceDecision
+        comparison.reference_decision.return_value = ReferenceDecision(True)
+        stages = [
+            {
+                "Name": "BuildAndApprove",
+                "Actions": [
+                    {
+                        "Name": "Build",
+                        "ActionTypeId": {
+                            "Category": "Build",
+                            "Owner": "AWS",
+                            "Provider": "CodeBuild",
+                            "Version": "1",
+                        },
+                        "Configuration": {"ProjectName": "one", "Extra": "two"},
+                        "InputArtifacts": [{"Name": "first"}, {"Name": "second"}],
+                    },
+                    {"Name": "Approve", "ActionTypeId": {"Category": "Approval"}},
+                ],
+            },
+            {"Name": "Final", "Actions": [{"Name": "Finish"}]},
+        ]
+        template = comparison.root / "infra/cloudformation/templates/fixture.yaml"
+        definition = {"Properties": {"Stages": stages}}
+        batch = comparison.compare_rows(
+            "codepipeline",
+            "001",
+            {"resourceType": "CodePipeline.Pipeline"},
+            "stack",
+            "Pipeline",
+            template,
+            definition,
+            {},
+        )
+        self.assertEqual(
+            contexts,
+            [
+                {
+                    "ActionTypeId": {
+                        "Category": "Build",
+                        "Owner": "AWS",
+                        "Provider": "CodeBuild",
+                        "Version": "1",
+                    }
+                }
+            ],
+        )
+        self.assertEqual(len(batch.records), 1)
+        self.assertEqual(
+            tuple(
+                batch.records[0][key]
+                for key in ("category", "service", "resource", "property", "reason")
+            ),
+            ("matched", "codepipeline", "001", "CodePipeline.Pipeline.Stages", "equal"),
+        )
+        self.assertEqual(comparison.results, [])
+        self.assertEqual(comparison.warnings, [])
+        # Selecting Stages still uses its sibling action context and never prepares Name.
+        rows.append(
+            (
+                "other",
+                {"property": "CodePipeline.Pipeline.Name", "value": "`unrelated`"},
+            )
+        )
+        prepare = comparison.prepare_value
+        selected_value = _bind_framework_callback(
+            _callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_selected_value,
+            prepare,
+            self,
+        )
+        comparison.prepare_value = selected_value
+        selected = comparison.compare_rows(
+            "codepipeline",
+            "001",
+            {"resourceType": "CodePipeline.Pipeline"},
+            "stack",
+            "Pipeline",
+            template,
+            definition,
+            {},
+            properties={"Stages"},
+        )
+        self.assertIsNone(selected.failure)
+        self.assertEqual(selected.records, batch.records)
+        self.assertEqual(contexts[-1], contexts[0])
 
-    with self.assertRaisesRegex(Blocked, "search incomplete"):
-      comparison.import_value("s3", {"Fn::ImportValue": "KmsAppKeyAlias-p4x8r2"}, frozenset())
+        # Invalid indexed siblings defer their setting while independent Name still compares.
+        comparison.rows["codepipeline"]["001"] = [
+            (
+                "bad",
+                {
+                    "property": "CodePipeline.Pipeline.Stages[0].Actions[1].ActionTypeId.Category",
+                    "value": "`Build`",
+                },
+            ),
+            ("name", {"property": "CodePipeline.Pipeline.Name", "value": "`pipeline`"}),
+        ]
+        comparison.prepare_value = lambda *args, **kwargs: PreparedValue("pipeline", [])
+        definition = {"Properties": {"Name": "pipeline"}}
+        complete = comparison.compare_rows(
+            "codepipeline",
+            "001",
+            {"resourceType": "CodePipeline.Pipeline"},
+            "stack",
+            "Pipeline",
+            template,
+            definition,
+            {},
+        )
+        self.assertIsNone(complete.failure)
+        self.assertEqual(
+            [(item["property"], item["category"]) for item in complete.records],
+            [
+                ("CodePipeline.Pipeline.Stages", "uncompared"),
+                ("CodePipeline.Pipeline.Name", "matched"),
+            ],
+        )
+        limited = comparison.compare_rows(
+            "codepipeline",
+            "001",
+            {"resourceType": "CodePipeline.Pipeline"},
+            "stack",
+            "Pipeline",
+            template,
+            definition,
+            {},
+            properties={"Name"},
+        )
+        self.assertIsNone(limited.failure)
+        self.assertEqual(limited.records, complete.records[1:])
 
-  def test_kms_alias_retains_identity_even_with_the_same_parent_key(self):
-    comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
-    comparison.sensitive_values = set()
-    comparison.local_comparison = True
-    comparison.resources = {
-        "kms": {
-            "002": {"resourceType": "KMS.Alias", "parentReference": "[LogKey](#kms-log)"},
-            "001": {"resourceType": "KMS.Key", "anchor": "kms-log"},
+    def test_api_managed_resource_remains_unverified_in_cloudformation_comparison(self):
+        comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
+        comparison.catalog = Mock(api_schemas={"Macie.ClassificationJob": {}})
+        comparison.target = {"iacEngine": "cloudformation"}
+        comparison.services = ["macie"]
+        comparison.resources = {
+            "macie": {"001": {"resourceType": "Macie.ClassificationJob"}}
         }
-    }
-    comparison.reference_formats = {}
-    comparison.reference_forms = lambda kind, path: {"Arn"}
+        comparison.results = []
+        comparison.load_errors = []
+        comparison.reference_unavailable = {}
+        comparison.symbols = {}
+        comparison.record = lambda *args, **kwargs: comparison.results.append(
+            (args, kwargs)
+        )
+        comparison.templates = lambda: []
 
-    left = ResourceReference({"$resource": ["kms", "002"], "$attribute": "AliasName"})
-    right = ResourceReference({"$resource": ["kms", "001"], "$attribute": "Arn"})
+        results = comparison.run()
 
-    result = issues_iac.Comparison.reference_same(comparison, left, right, "S3.Bucket", "BucketEncryption")
+        self.assertEqual(
+            results[0][0][:5],
+            (
+                "uncompared",
+                "macie",
+                "001",
+                "*",
+                "CloudFormation unsupported; outside CFn comparison; API implementation status unverified",
+            ),
+        )
 
-    self.assertFalse(result)
-    self.assertFalse(issues_iac.Comparison.reference_same(comparison, right, left, "S3.Bucket", "BucketEncryption"))
-    self.assertTrue(issues_iac.Comparison.reference_same(comparison, right, right, "S3.Bucket", "BucketEncryption"))
-    comparison.resources['s3'] = {'001': {'resourceType': 'S3.Bucket'}}
-    bucket = ResourceReference({'$resource': ['s3', '001'], '$attribute': 'Arn'})
-    self.assertIs(comparison.reference_decision(bucket, right, 'S3.BucketPolicy', 'PolicyDocument').equal, False)
-    self.assertIs(comparison.reference_decision(right, bucket, 'S3.BucketPolicy', 'PolicyDocument').equal, False)
+        self.assertEqual(
+            results[0][1]["cause"],
+            {
+                "kind": "cloudformation-unsupported",
+                "resource_type": "Macie.ClassificationJob",
+                "implementation_status": "unverified",
+            },
+        )
 
+    def test_import_value_requires_a_complete_export_search(self):
+        comparison = Mock()
+        comparison.stack_inputs = {
+            "s3": (
+                {},
+                {},
+                {
+                    "AWS::Partition": "aws",
+                    "AWS::Region": "ap-northeast-1",
+                    "AWS::AccountId": "123456789012",
+                },
+            )
+        }
+        comparison.evaluate.side_effect = lambda stack, value, seen: (
+            "KmsAppKeyAlias-p4x8r2" if isinstance(value, dict) else value
+        )
+        comparison.templates.return_value = [
+            (Path("missing.yaml"), {"name": "missing", "template": "missing.yaml"}),
+            (Path("kms.yaml"), {"name": "kms", "template": "kms.yaml"}),
+        ]
+        comparison.stack.side_effect = [
+            Blocked("stack input missing: missing.yaml"),
+            (
+                Path("kms.yaml"),
+                (
+                    {
+                        "Outputs": {
+                            "Alias": {
+                                "Export": {"Name": "KmsAppKeyAlias-p4x8r2"},
+                                "Value": "alias/app",
+                            }
+                        }
+                    },
+                    {},
+                    {},
+                ),
+            ),
+        ]
+        comparison.exports = None
+        comparison.export_failures = []
+        comparison.local_comparison = True
+        comparison.import_value = issues_iac.Comparison.import_value.__get__(comparison)
+
+        with self.assertRaisesRegex(Blocked, "search incomplete"):
+            comparison.import_value(
+                "s3", {"Fn::ImportValue": "KmsAppKeyAlias-p4x8r2"}, frozenset()
+            )
+
+    def test_kms_alias_retains_identity_even_with_the_same_parent_key(self):
+        comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
+        comparison.sensitive_values = set()
+        comparison.local_comparison = True
+        comparison.resources = {
+            "kms": {
+                "002": {
+                    "resourceType": "KMS.Alias",
+                    "parentReference": "[LogKey](#kms-log)",
+                },
+                "001": {"resourceType": "KMS.Key", "anchor": "kms-log"},
+            }
+        }
+        comparison.reference_formats = {}
+        comparison.reference_forms = lambda kind, path: {"Arn"}
+
+        left = ResourceReference(
+            {"$resource": ["kms", "002"], "$attribute": "AliasName"}
+        )
+        right = ResourceReference({"$resource": ["kms", "001"], "$attribute": "Arn"})
+
+        result = issues_iac.Comparison.reference_same(
+            comparison, left, right, "S3.Bucket", "BucketEncryption"
+        )
+
+        self.assertFalse(result)
+        self.assertFalse(
+            issues_iac.Comparison.reference_same(
+                comparison, right, left, "S3.Bucket", "BucketEncryption"
+            )
+        )
+        self.assertTrue(
+            issues_iac.Comparison.reference_same(
+                comparison, right, right, "S3.Bucket", "BucketEncryption"
+            )
+        )
+        comparison.resources["s3"] = {"001": {"resourceType": "S3.Bucket"}}
+        bucket = ResourceReference({"$resource": ["s3", "001"], "$attribute": "Arn"})
+        self.assertIs(
+            comparison.reference_decision(
+                bucket, right, "S3.BucketPolicy", "PolicyDocument"
+            ).equal,
+            False,
+        )
+        self.assertIs(
+            comparison.reference_decision(
+                right, bucket, "S3.BucketPolicy", "PolicyDocument"
+            ).equal,
+            False,
+        )
 
 
 def reference_comparison(root):
     comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
-    comparison.root, comparison.environment, comparison.directory = root, 'fixture', 'team'
+    comparison.root, comparison.environment, comparison.directory = (
+        root,
+        "fixture",
+        "team",
+    )
     comparison.catalog = DesignSchemaCatalog(Path(__file__).resolve().parents[4])
     comparison.local_comparison = comparison.reference_models_loaded = True
-    comparison.reference_formats, comparison.symbols, comparison.export_provenance = {}, {}, {}
+    comparison.reference_formats, comparison.symbols, comparison.export_provenance = (
+        {},
+        {},
+        {},
+    )
     comparison.sensitive_values, comparison._index = set(), None
     comparison.resources, comparison.rows, comparison.models = {}, {}, {}
     definitions = {}
-    specifications = [('kms', '001', 'KMS.Key', 'Key', {}),
-        ('kms', '002', 'KMS.Alias', 'Alias', {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}}),
-        ('kms', '003', 'KMS.Alias', 'OtherAlias', {'AliasName': 'alias/other', 'TargetKeyId': {'Ref': 'Key'}}),
-        ('kms', '004', 'KMS.Key', 'OtherKey', {}),
-        ('cloudwatch-logs', '001', 'Logs.LogGroup', 'Log', {'LogGroupName': '/fixture/log'}),
-        ('codebuild', '001', 'CodeBuild.Project', 'Build', {'Name': 'fixture-build'}),
-        ('eventbridge', '001', 'Events.Rule', 'Rule', {'Name': 'fixture-rule'}),
-        ('s3', '002', 'S3.Bucket', 'Bucket', {'BucketName': 'bucket-app-dev-data2'})]
+    specifications = [
+        ("kms", "001", "KMS.Key", "Key", {}),
+        (
+            "kms",
+            "002",
+            "KMS.Alias",
+            "Alias",
+            {"AliasName": "alias/fixture", "TargetKeyId": {"Ref": "Key"}},
+        ),
+        (
+            "kms",
+            "003",
+            "KMS.Alias",
+            "OtherAlias",
+            {"AliasName": "alias/other", "TargetKeyId": {"Ref": "Key"}},
+        ),
+        ("kms", "004", "KMS.Key", "OtherKey", {}),
+        (
+            "cloudwatch-logs",
+            "001",
+            "Logs.LogGroup",
+            "Log",
+            {"LogGroupName": "/fixture/log"},
+        ),
+        ("codebuild", "001", "CodeBuild.Project", "Build", {"Name": "fixture-build"}),
+        ("eventbridge", "001", "Events.Rule", "Rule", {"Name": "fixture-rule"}),
+        ("s3", "002", "S3.Bucket", "Bucket", {"BucketName": "bucket-app-dev-data2"}),
+    ]
     for service, identity, kind, logical, props in specifications:
-        logical_id = kind.replace('.', '_') + '_' + ('002' if logical in {'OtherAlias', 'OtherKey'} else '001')
-        resource = {'resourceType': kind, 'logicalId': logical_id, 'anchor': 'resource-' + logical_id,
-                    'cfn-logicalId': 'producer-' + logical}
+        logical_id = (
+            kind.replace(".", "_")
+            + "_"
+            + ("002" if logical in {"OtherAlias", "OtherKey"} else "001")
+        )
+        resource = {
+            "resourceType": kind,
+            "logicalId": logical_id,
+            "anchor": "resource-" + logical_id,
+            "cfn-logicalId": "producer-" + logical,
+        }
         comparison.resources.setdefault(service, {})[identity] = resource
         comparison.rows.setdefault(service, {})[identity] = []
-        definitions[logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': props}
-    comparison.resources['s3']['001'] = {'resourceType': 'S3.Bucket', 'logicalId': 'S3_Bucket_001',
-                                        'anchor': 'resource-S3_Bucket_001', 'cfn-logicalId': 'consumer-Bucket'}
-    comparison.resources['s3']['002']['logicalId'] = 'S3_Bucket_002'
-    comparison.resources['s3']['002']['anchor'] = 'resource-S3_Bucket_002'
+        definitions[logical] = {
+            "Type": "AWS::" + kind.replace(".", "::"),
+            "Properties": props,
+        }
+    comparison.resources["s3"]["001"] = {
+        "resourceType": "S3.Bucket",
+        "logicalId": "S3_Bucket_001",
+        "anchor": "resource-S3_Bucket_001",
+        "cfn-logicalId": "consumer-Bucket",
+    }
+    comparison.resources["s3"]["002"]["logicalId"] = "S3_Bucket_002"
+    comparison.resources["s3"]["002"]["anchor"] = "resource-S3_Bucket_002"
     for service, resources in comparison.resources.items():
-        comparison.models[service] = SimpleNamespace(values={f'desired.resource.{identity}.{key}': value
-            for identity, resource in resources.items() for key, value in resource.items()})
-    pseudo = {'AWS::Partition': 'aws', 'AWS::Region': 'ap-northeast-1', 'AWS::AccountId': '123456789012'}
-    comparison.stack_inputs = {'producer': ({'Resources': definitions}, {}, dict(pseudo)),
-        'consumer': ({'Resources': {'Bucket': {'Type': 'AWS::S3::Bucket', 'Properties': {'BucketName': 'bucket-app-dev-data1'}}}}, {}, dict(pseudo))}
-    comparison.templates = lambda: [(name, {'name': name}) for name in comparison.stack_inputs]
-    comparison.stack = lambda unit: (Path(unit['name'] + '.yaml'), comparison.stack_inputs[unit['name']])
-    comparison.stack_inputs['producer'][0]['Outputs'] = {'BucketArn': {
-        'Value': {'Fn::GetAtt': ['Bucket', 'Arn']}, 'Export': {'Name': 'fixture-BucketArn'}}}
+        comparison.models[service] = SimpleNamespace(
+            values={
+                f"desired.resource.{identity}.{key}": value
+                for identity, resource in resources.items()
+                for key, value in resource.items()
+            }
+        )
+    pseudo = {
+        "AWS::Partition": "aws",
+        "AWS::Region": "ap-northeast-1",
+        "AWS::AccountId": "123456789012",
+    }
+    comparison.stack_inputs = {
+        "producer": ({"Resources": definitions}, {}, dict(pseudo)),
+        "consumer": (
+            {
+                "Resources": {
+                    "Bucket": {
+                        "Type": "AWS::S3::Bucket",
+                        "Properties": {"BucketName": "bucket-app-dev-data1"},
+                    }
+                }
+            },
+            {},
+            dict(pseudo),
+        ),
+    }
+    comparison.templates = lambda: [
+        (name, {"name": name}) for name in comparison.stack_inputs
+    ]
+    comparison.stack = lambda unit: (
+        Path(unit["name"] + ".yaml"),
+        comparison.stack_inputs[unit["name"]],
+    )
+    comparison.stack_inputs["producer"][0]["Outputs"] = {
+        "BucketArn": {
+            "Value": {"Fn::GetAtt": ["Bucket", "Arn"]},
+            "Export": {"Name": "fixture-BucketArn"},
+        }
+    }
     comparison.exports = None
     comparison.export_failures = []
     return comparison
@@ -692,142 +1422,357 @@ def reference_comparison(root):
 def _lambda_main_checks_callback_156(comparison, /, a, b, p, *, kind):
     return comparison.reference_same(a, b, kind, p)
 
+
 def _lambda_main_checks_callback_192(comparison, /, a, b, p):
-    return comparison.reference_same(a, b, 'IAM.Role', p)
+    return comparison.reference_same(a, b, "IAM.Role", p)
+
 
 def _lambda_main_checks_callback_76(comparison, /, a, b, path):
-    return comparison.reference_same(a, b, 'IAM.Role', path)
+    return comparison.reference_same(a, b, "IAM.Role", path)
+
 
 class ReferenceValueTests(unittest.TestCase):
     def test_kms_forms_and_arn_values(self):
         with tempfile.TemporaryDirectory() as directory:
             comparison = reference_comparison(Path(directory))
-            stack = 'producer'
-            key_id = '12345678-1234-1234-1234-123456789012'
-            key_arn = 'arn:aws:kms:ap-northeast-1:123456789012:key/' + key_id
-            alias_arn = 'arn:aws:kms:ap-northeast-1:123456789012:alias/fixture'
-            KMS_COMPARISON_FORMS = {key: forms for rules in set(registry.SERVICES.values()) for key, forms in getattr(rules, 'KMS_FORMS', {}).items()}
-            key = comparison.evaluate(stack, {'Ref': 'Key'})
-            arn = comparison.evaluate(stack, {'Fn::GetAtt': ['Key', 'Arn']})
-            alias = comparison.reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)')
+            stack = "producer"
+            key_id = "12345678-1234-1234-1234-123456789012"
+            key_arn = "arn:aws:kms:ap-northeast-1:123456789012:key/" + key_id
+            alias_arn = "arn:aws:kms:ap-northeast-1:123456789012:alias/fixture"
+            KMS_COMPARISON_FORMS = {
+                key: forms
+                for rules in set(registry.SERVICES.values())
+                for key, forms in getattr(rules, "KMS_FORMS", {}).items()
+            }
+            key = comparison.evaluate(stack, {"Ref": "Key"})
+            arn = comparison.evaluate(stack, {"Fn::GetAtt": ["Key", "Arn"]})
+            alias = comparison.reference(
+                "kms", "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)"
+            )
             for prop, allowed in KMS_COMPARISON_FORMS.items():
-                kind, path = '.'.join(prop.split('.')[:2]), '.'.join(prop.split('.')[2:])
-                callback = _bind_framework_callback(_lambda_main_checks_callback_156, comparison, kind=kind)
-                for form, literal in [('KeyId', key_id), ('KeyArn', key_arn), ('AliasName', 'alias/fixture'), ('AliasArn', alias_arn)]:
-                    assert same(literal, literal, reference=callback, path=path) is (form in allowed), (prop, form)
+                kind, path = (
+                    ".".join(prop.split(".")[:2]),
+                    ".".join(prop.split(".")[2:]),
+                )
+                callback = _bind_framework_callback(
+                    _lambda_main_checks_callback_156, comparison, kind=kind
+                )
+                for form, literal in [
+                    ("KeyId", key_id),
+                    ("KeyArn", key_arn),
+                    ("AliasName", "alias/fixture"),
+                    ("AliasArn", alias_arn),
+                ]:
+                    assert same(literal, literal, reference=callback, path=path) is (
+                        form in allowed
+                    ), (prop, form)
                 assert same(key, arn, reference=callback, path=path) is False
-                assert same('not-a-key', 'not-a-key', reference=callback, path=path) is False
-                assert same('{{resolve:secretsmanager:key}}', alias_arn if 'AliasArn' in allowed else key_arn,
-                            reference=callback, path=path) is None
+                assert (
+                    same("not-a-key", "not-a-key", reference=callback, path=path)
+                    is False
+                )
+                assert (
+                    same(
+                        "{{resolve:secretsmanager:key}}",
+                        alias_arn if "AliasArn" in allowed else key_arn,
+                        reference=callback,
+                        path=path,
+                    )
+                    is None
+                )
                 assert same(key_arn, alias_arn, reference=callback, path=path) is False
                 assert same(alias_arn, key_arn, reference=callback, path=path) is False
-                if allowed == {'KeyArn'}:
-                    with pytest.raises(Blocked, match='outside receiving property contract'):
-                        comparison.desired_reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', kind, path)
-                elif allowed <= {'KeyArn', 'AliasArn'}:
-                    symbolic = comparison.desired_reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', kind, path)
-                    assert symbolic['$attribute'] == 'AliasArn'
+                if allowed == {"KeyArn"}:
+                    with pytest.raises(
+                        Blocked, match="outside receiving property contract"
+                    ):
+                        comparison.desired_reference(
+                            "kms",
+                            "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)",
+                            kind,
+                            path,
+                        )
+                elif allowed <= {"KeyArn", "AliasArn"}:
+                    symbolic = comparison.desired_reference(
+                        "kms",
+                        "[KMS_Alias_001](kms.md#resource-KMS_Alias_001)",
+                        kind,
+                        path,
+                    )
+                    assert symbolic["$attribute"] == "AliasArn"
                     assert same(symbolic, arn, reference=callback, path=path) is False
                     assert same(arn, symbolic, reference=callback, path=path) is False
-                    assert same(symbolic, alias_arn, reference=callback, path=path) is ('AliasArn' in allowed)
-                    assert same(alias_arn, symbolic, reference=callback, path=path) is ('AliasArn' in allowed)
-                    assert same(symbolic, alias_arn.replace('123456789012', '999999999999'), reference=callback, path=path) is False
-                    assert same(symbolic, alias_arn.replace('ap-northeast-1', 'us-east-1'), reference=callback, path=path) is False
+                    assert same(symbolic, alias_arn, reference=callback, path=path) is (
+                        "AliasArn" in allowed
+                    )
+                    assert same(alias_arn, symbolic, reference=callback, path=path) is (
+                        "AliasArn" in allowed
+                    )
+                    assert (
+                        same(
+                            symbolic,
+                            alias_arn.replace("123456789012", "999999999999"),
+                            reference=callback,
+                            path=path,
+                        )
+                        is False
+                    )
+                    assert (
+                        same(
+                            symbolic,
+                            alias_arn.replace("ap-northeast-1", "us-east-1"),
+                            reference=callback,
+                            path=path,
+                        )
+                        is False
+                    )
                     assert same(symbolic, alias, reference=callback, path=path) is False
-                    other = comparison.desired_reference('kms', '[KMS_Alias_002](kms.md#resource-KMS_Alias_002)', kind, path)
+                    other = comparison.desired_reference(
+                        "kms",
+                        "[KMS_Alias_002](kms.md#resource-KMS_Alias_002)",
+                        kind,
+                        path,
+                    )
                     assert same(symbolic, other, reference=callback, path=path) is False
                 else:
                     assert same(arn, key_arn, reference=callback, path=path) is None
                     assert same(key, key_arn, reference=callback, path=path) is False
-                    assert same(key_id, key_id[:-1] + '3', reference=callback, path=path) is False
+                    assert (
+                        same(key_id, key_id[:-1] + "3", reference=callback, path=path)
+                        is False
+                    )
 
             # Existing contracts outside this repair are deliberately unchanged.
-            assert comparison.reference_same(alias, alias, 'CloudTrail.Trail', 'KMSKeyId') is True
-            assert comparison.reference_same(key, arn, 'MWAA.Environment', 'KmsKey') is True
-            assert comparison.reference_same(alias, alias, 'SecretsManager.Secret', 'KmsKeyId') is True
-            assert comparison.reference_same(alias, alias, 'S3.Bucket', 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID') is True
+            assert (
+                comparison.reference_same(alias, alias, "CloudTrail.Trail", "KMSKeyId")
+                is True
+            )
+            assert (
+                comparison.reference_same(key, arn, "MWAA.Environment", "KmsKey")
+                is True
+            )
+            assert (
+                comparison.reference_same(
+                    alias, alias, "SecretsManager.Secret", "KmsKeyId"
+                )
+                is True
+            )
+            assert (
+                comparison.reference_same(
+                    alias,
+                    alias,
+                    "S3.Bucket",
+                    "BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID",
+                )
+                is True
+            )
 
-            for logical, expected in [('Log', 'arn:aws:logs:ap-northeast-1:123456789012:log-group:/fixture/log:*'),
-                                      ('Build', 'arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build'),
-                                      ('Rule', 'arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule')]:
-                symbol = comparison.evaluate(stack, {'Fn::GetAtt': [logical, 'Arn']})
-                callback = _bind_framework_callback(_lambda_main_checks_callback_192, comparison)
+            for logical, expected in [
+                (
+                    "Log",
+                    "arn:aws:logs:ap-northeast-1:123456789012:log-group:/fixture/log:*",
+                ),
+                (
+                    "Build",
+                    "arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build",
+                ),
+                (
+                    "Rule",
+                    "arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule",
+                ),
+            ]:
+                symbol = comparison.evaluate(stack, {"Fn::GetAtt": [logical, "Arn"]})
+                callback = _bind_framework_callback(
+                    _lambda_main_checks_callback_192, comparison
+                )
                 assert same(symbol, expected, reference=callback)
                 assert same(expected, symbol, reference=callback)
-                assert same(symbol, expected + '-wrong', reference=callback) is False
-                expression = Expression('Sub', ['${Resource}', {'Resource': symbol}])
+                assert same(symbol, expected + "-wrong", reference=callback) is False
+                expression = Expression("Sub", ["${Resource}", {"Resource": symbol}])
                 assert same(expression, expected, reference=callback)
-            log = comparison.evaluate(stack, {'Fn::GetAtt': ['Log', 'Arn']})
-            expression = Expression('Select', [0, Expression('Split', [':*', log])])
-            assert comparison.reference_same(expression, 'arn:aws:logs:ap-northeast-1:123456789012:log-group:/fixture/log', 'IAM.Role', '') is True
-            assert comparison.reference_same(Expression('Select', [9, Expression('Split', [':*', log])]), 'x', 'IAM.Role', '') is None
-            rule = comparison.evaluate(stack, {'Fn::GetAtt': ['Rule', 'Arn']})
-            comparison.stack_inputs[stack][0]['Resources']['Rule']['Properties']['EventBusName'] = 'other-bus'
-            assert comparison.reference_same(rule, 'arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule', 'Lambda.Permission', 'SourceArn') is False
-            comparison.stack_inputs[stack][0]['Resources']['Build']['Properties'].pop('Name')
-            build = comparison.evaluate(stack, {'Fn::GetAtt': ['Build', 'Arn']})
-            assert comparison.reference_same(build, 'arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build', 'IAM.Role', '') is None
+            log = comparison.evaluate(stack, {"Fn::GetAtt": ["Log", "Arn"]})
+            expression = Expression("Select", [0, Expression("Split", [":*", log])])
+            assert (
+                comparison.reference_same(
+                    expression,
+                    "arn:aws:logs:ap-northeast-1:123456789012:log-group:/fixture/log",
+                    "IAM.Role",
+                    "",
+                )
+                is True
+            )
+            assert (
+                comparison.reference_same(
+                    Expression("Select", [9, Expression("Split", [":*", log])]),
+                    "x",
+                    "IAM.Role",
+                    "",
+                )
+                is None
+            )
+            rule = comparison.evaluate(stack, {"Fn::GetAtt": ["Rule", "Arn"]})
+            comparison.stack_inputs[stack][0]["Resources"]["Rule"]["Properties"][
+                "EventBusName"
+            ] = "other-bus"
+            assert (
+                comparison.reference_same(
+                    rule,
+                    "arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule",
+                    "Lambda.Permission",
+                    "SourceArn",
+                )
+                is False
+            )
+            comparison.stack_inputs[stack][0]["Resources"]["Build"]["Properties"].pop(
+                "Name"
+            )
+            build = comparison.evaluate(stack, {"Fn::GetAtt": ["Build", "Arn"]})
+            assert (
+                comparison.reference_same(
+                    build,
+                    "arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build",
+                    "IAM.Role",
+                    "",
+                )
+                is None
+            )
             # Neither a fake Alias GetAtt nor a generated key ARN is synthesized.
-            with pytest.raises(Blocked, match='unproven GetAtt return attribute: Alias.Arn'):
-                comparison.evaluate(stack, {'Fn::GetAtt': ['Alias', 'Arn']})
-            with pytest.raises((Blocked, ValueError), match='ARN requires a proven generated identifier: KeyId'):
+            with pytest.raises(
+                Blocked, match="unproven GetAtt return attribute: Alias.Arn"
+            ):
+                comparison.evaluate(stack, {"Fn::GetAtt": ["Alias", "Arn"]})
+            with pytest.raises(
+                (Blocked, ValueError),
+                match="ARN requires a proven generated identifier: KeyId",
+            ):
                 comparison.reference_literal(arn)
-
-
 
     def test_policy_action_and_expression_values(self):
         with tempfile.TemporaryDirectory() as directory:
             comparison = reference_comparison(Path(directory))
-            consumer, producer = 'consumer', 'producer'
-            arn = 'arn:aws:s3:::bucket-app-dev-data2'
-            imported = {'Fn::ImportValue': 'fixture-BucketArn'}
-            actual = {'Statement': [{}, {}, {'Resource': {'Fn::Sub': ['${BucketArn}/results/*', {'BucketArn': imported}]}}]}
-            callback = _bind_framework_callback(_lambda_main_checks_callback_76, comparison)
-            action_path = 'Policies[].PolicyDocument.Statement[].Action'
+            consumer, producer = "consumer", "producer"
+            arn = "arn:aws:s3:::bucket-app-dev-data2"
+            imported = {"Fn::ImportValue": "fixture-BucketArn"}
+            actual = {
+                "Statement": [
+                    {},
+                    {},
+                    {
+                        "Resource": {
+                            "Fn::Sub": [
+                                "${BucketArn}/results/*",
+                                {"BucketArn": imported},
+                            ]
+                        }
+                    },
+                ]
+            }
+            callback = _bind_framework_callback(
+                _lambda_main_checks_callback_76, comparison
+            )
+            action_path = "Policies[].PolicyDocument.Statement[].Action"
             for predicate in (same, selected_same):
-                assert predicate('s3:GetObject', ['s3:GetObject'], reference=callback, path=action_path)
-                assert predicate(['s3:GetObject'], 's3:GetObject', reference=callback, path=action_path)
-                for wrong in ([], ['s3:PutObject'], ['s3:GetObject', 's3:GetObject'], [True], [['s3:GetObject']]):
-                    assert predicate('s3:GetObject', wrong, reference=callback, path=action_path) is False
-                assert not predicate(['a', 'b'], ['b', 'a'], reference=callback, path=action_path)
-                for field in ('Tags[].Value', 'Policies[].Action',
-                              'Policies[].PolicyDocument.Statement[].Condition.Action',
-                              'Policies[].PolicyDocument.Statement[].Resource'):
-                    assert not predicate('same', ['same'], reference=callback, path=field)
-                assert not predicate('same', ['same'])
-            for kind, path in [('IAM.Role', 'AssumeRolePolicyDocument.Statement[].Action'),
-                               ('IAM.ManagedPolicy', 'PolicyDocument.Statement[].Action'),
-                               ('IAM.User', action_path)]:
-                assert comparison.reference_same('a', ['a'], kind, path) is True
-            assert comparison.reference_same('a', ['a'], 'S3.BucketPolicy', 'PolicyDocument.Statement[].Action') is NotImplemented
+                assert predicate(
+                    "s3:GetObject",
+                    ["s3:GetObject"],
+                    reference=callback,
+                    path=action_path,
+                )
+                assert predicate(
+                    ["s3:GetObject"],
+                    "s3:GetObject",
+                    reference=callback,
+                    path=action_path,
+                )
+                for wrong in (
+                    [],
+                    ["s3:PutObject"],
+                    ["s3:GetObject", "s3:GetObject"],
+                    [True],
+                    [["s3:GetObject"]],
+                ):
+                    assert (
+                        predicate(
+                            "s3:GetObject", wrong, reference=callback, path=action_path
+                        )
+                        is False
+                    )
+                assert not predicate(
+                    ["a", "b"], ["b", "a"], reference=callback, path=action_path
+                )
+                for field in (
+                    "Tags[].Value",
+                    "Policies[].Action",
+                    "Policies[].PolicyDocument.Statement[].Condition.Action",
+                    "Policies[].PolicyDocument.Statement[].Resource",
+                ):
+                    assert not predicate(
+                        "same", ["same"], reference=callback, path=field
+                    )
+                assert not predicate("same", ["same"])
+            for kind, path in [
+                ("IAM.Role", "AssumeRolePolicyDocument.Statement[].Action"),
+                ("IAM.ManagedPolicy", "PolicyDocument.Statement[].Action"),
+                ("IAM.User", action_path),
+            ]:
+                assert comparison.reference_same("a", ["a"], kind, path) is True
+            assert (
+                comparison.reference_same(
+                    "a", ["a"], "S3.BucketPolicy", "PolicyDocument.Statement[].Action"
+                )
+                is NotImplemented
+            )
 
             reference = comparison.evaluate(consumer, imported)
-            assert reference == {'$resource': ['s3', '002'], '$attribute': 'Arn'}
+            assert reference == {"$resource": ["s3", "002"], "$attribute": "Arn"}
             assert comparison.reference_literal(reference) == arn
-            sub = comparison.evaluate(consumer, actual['Statement'][2]['Resource'])
-            for symbolic, text in ((reference, arn), (sub, arn + '/results/*')):
+            sub = comparison.evaluate(consumer, actual["Statement"][2]["Resource"])
+            for symbolic, text in ((reference, arn), (sub, arn + "/results/*")):
                 assert same(symbolic, text, reference=callback)
                 assert same(text, symbolic, reference=callback)
-                for wrong in (text + '-other', text.replace('aws:', 'aws-cn:'), text.replace('data2', 'data1')):
+                for wrong in (
+                    text + "-other",
+                    text.replace("aws:", "aws-cn:"),
+                    text.replace("data2", "data1"),
+                ):
                     assert same(symbolic, wrong, reference=callback) is False
-            other = comparison.evaluate(consumer, {'Fn::GetAtt': ['Bucket', 'Arn']})
+            other = comparison.evaluate(consumer, {"Fn::GetAtt": ["Bucket", "Arn"]})
             assert same(reference, other, reference=callback) is False
             assert same(reference, dict(reference), reference=callback) is not True
-            escaped = Expression('Sub', ['${BucketArn}/${!literal}/${Tail}', {'BucketArn': reference, 'Tail': 'one'}])
-            assert same(escaped, arn + '/${literal}/one', reference=callback)
-            for unresolved in (Expression('Sub', ['${Missing}', {}]),
-                               Expression('Sub', ['${Value}', {'Value': {'$resource': ['s3', '002'], '$attribute': 'Arn'}}])):
+            escaped = Expression(
+                "Sub",
+                [
+                    "${BucketArn}/${!literal}/${Tail}",
+                    {"BucketArn": reference, "Tail": "one"},
+                ],
+            )
+            assert same(escaped, arn + "/${literal}/one", reference=callback)
+            for unresolved in (
+                Expression("Sub", ["${Missing}", {}]),
+                Expression(
+                    "Sub",
+                    [
+                        "${Value}",
+                        {"Value": {"$resource": ["s3", "002"], "$attribute": "Arn"}},
+                    ],
+                ),
+            ):
                 assert same(unresolved, arn, reference=callback) is None
-            for different in (Expression('Sub', ['${Value}', {'Value': Expression('Join', ['', [reference, '/*']])}]),
-                               Expression('Join', ['', [reference, '/*']])):
+            for different in (
+                Expression(
+                    "Sub",
+                    [
+                        "${Value}",
+                        {"Value": Expression("Join", ["", [reference, "/*"]])},
+                    ],
+                ),
+                Expression("Join", ["", [reference, "/*"]]),
+            ):
                 assert same(different, arn, reference=callback) is False
-            comparison.stack_inputs[producer][2]['AWS::Partition'] = 'aws-cn'
+            comparison.stack_inputs[producer][2]["AWS::Partition"] = "aws-cn"
             assert same(reference, arn, reference=callback) is False
-            assert same(reference, arn.replace('aws:', 'aws-cn:'), reference=callback)
-
-
-
+            assert same(reference, arn.replace("aws:", "aws-cn:"), reference=callback)
 
 
 if __name__ == "__main__":
-  unittest.main()
+    unittest.main()

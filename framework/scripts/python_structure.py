@@ -34,8 +34,9 @@ def violations(source):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("root", nargs="?", type=Path,
-                        default=Path(__file__).resolve().parent)
+    parser.add_argument(
+        "root", nargs="?", type=Path, default=Path(__file__).resolve().parent
+    )
     args = parser.parse_args(argv)
     failed = False
     for path in sorted(args.root.rglob("*.py")):

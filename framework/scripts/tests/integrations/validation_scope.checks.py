@@ -34,7 +34,7 @@ from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_context
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 def _callback_check_single_target_cache_overlap(barrier, original, /, worker):
@@ -63,42 +63,83 @@ def _callback_check_single_target_cache_validate(root, scope, /, workers=4, cach
 @it_case
 def check_single_target_cache(root):
     docs, models = root / "docs/designs/dev/cde", root / "model/dev/cde"
-    services = {"codecommit": ("CodeCommit.Repository", "RepositoryName", "repo-app-dev-cde"),
-                "sqs": ("SQS.Queue", "QueueName", "queue-app-dev-cde"),
-                "cloudwatch-logs": ("Logs.LogGroup", "LogGroupName", "logs-app-dev-cde")}
+    services = {
+        "codecommit": ("CodeCommit.Repository", "RepositoryName", "repo-app-dev-cde"),
+        "sqs": ("SQS.Queue", "QueueName", "queue-app-dev-cde"),
+        "cloudwatch-logs": ("Logs.LogGroup", "LogGroupName", "logs-app-dev-cde"),
+    }
     for service, (kind, prop, name) in services.items():
-        values = {f"desired.service.{service}.serviceId": service,
-                  f"desired.service.{service}.ownedCatalogResourceTypes": kind,
-                  "desired.resource.001.resourceType": kind, "desired.resource.001.logicalId": kind.replace(".", "_") + "_001", 'desired.resource.001.anchor': 'resource-' + (kind.replace('.', '_') + '_001'),
-                  "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
-                  "desired.resource.001.cfn-logicalId": "fixture-FixtureResource",
-                  "desired.row.001-001.property": f"{kind}.{prop}", "desired.row.001-001.value": f"`{name}`",
-                  "desired.row.001-001.comment": "検証用の名前", "display.service.title": "# 詳細設計",
-                  "display.resource.001.comment": "サービス単位の検証対象"}
-        for number, output in enumerate(sorted(model_projection.identifier_outputs(root).get(kind, set())), 2):
+        values = {
+            f"desired.service.{service}.serviceId": service,
+            f"desired.service.{service}.ownedCatalogResourceTypes": kind,
+            "desired.resource.001.resourceType": kind,
+            "desired.resource.001.logicalId": kind.replace(".", "_") + "_001",
+            "desired.resource.001.anchor": "resource-"
+            + (kind.replace(".", "_") + "_001"),
+            "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
+            "desired.resource.001.cfn-logicalId": "fixture-FixtureResource",
+            "desired.row.001-001.property": f"{kind}.{prop}",
+            "desired.row.001-001.value": f"`{name}`",
+            "desired.row.001-001.comment": "検証用の名前",
+            "display.service.title": "# 詳細設計",
+            "display.resource.001.comment": "サービス単位の検証対象",
+        }
+        for number, output in enumerate(
+            sorted(model_projection.identifier_outputs(root).get(kind, set())), 2
+        ):
             row = f"row.001-{number:03d}"
-            values.update({f"desired.{row}.property": output,
-                           f"desired.{row}.value": f"[resource](#{values['desired.resource.001.anchor']})",
-                           f"desired.{row}.comment": "生成される識別子",
-                           f"observed.{row}.property": output, f"observed.{row}.value": "PENDING_DEPLOY",
-                           f"observed.{row}.comment": "生成される識別子"})
-        write_model(models / f"{service}.properties", "".join(f"{key}={value}\n" for key, value in values.items()))
+            values.update(
+                {
+                    f"desired.{row}.property": output,
+                    f"desired.{row}.value": f"[resource](#{values['desired.resource.001.anchor']})",
+                    f"desired.{row}.comment": "生成される識別子",
+                    f"observed.{row}.property": output,
+                    f"observed.{row}.value": "PENDING_DEPLOY",
+                    f"observed.{row}.comment": "生成される識別子",
+                }
+            )
+        write_model(
+            models / f"{service}.properties",
+            "".join(f"{key}={value}\n" for key, value in values.items()),
+        )
     scope = {("dev", "cde", service) for service in ["ec2", *services]}
     active = root / "tasks/example.md"
     saved_contract = active.read_text(encoding="utf-8")
-    active.write_text(saved_contract.split("## Modified files")[0] + "## Validation scope\n" + "".join(f"- `{'/'.join(entry)}`\n" for entry in sorted(scope)) + "## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n", encoding="utf-8")
-    planned = [*models.glob('*.properties'), *(docs / (service + '.md') for service in ['ec2', *services])]
-    active.write_text(active.read_text().replace('## Modified files\n', '## Modified files\n' +
-        ''.join('- `' + file.relative_to(root).as_posix() + '`\n' for file in planned)))
+    active.write_text(
+        saved_contract.split("## Modified files")[0]
+        + "## Validation scope\n"
+        + "".join(f"- `{'/'.join(entry)}`\n" for entry in sorted(scope))
+        + "## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n",
+        encoding="utf-8",
+    )
+    planned = [
+        *models.glob("*.properties"),
+        *(docs / (service + ".md") for service in ["ec2", *services]),
+    ]
+    active.write_text(
+        active.read_text().replace(
+            "## Modified files\n",
+            "## Modified files\n"
+            + "".join(
+                "- `" + file.relative_to(root).as_posix() + "`\n" for file in planned
+            ),
+        )
+    )
     with redirect_stdout(io.StringIO()):
-        SYNC.sync(root, True, "dev", "cde", services=[entry[2] for entry in sorted(scope)])
+        SYNC.sync(
+            root, True, "dev", "cde", services=[entry[2] for entry in sorted(scope)]
+        )
 
-    validate = _bind_framework_callback(_callback_check_single_target_cache_validate, root, scope)
+    validate = _bind_framework_callback(
+        _callback_check_single_target_cache_validate, root, scope
+    )
 
     serial = validate(1)
     barrier = threading.Barrier(4, timeout=10)
     original = VALIDATOR.Validator.check_designs
-    overlap = _bind_framework_callback(_callback_check_single_target_cache_overlap, barrier, original)
+    overlap = _bind_framework_callback(
+        _callback_check_single_target_cache_overlap, barrier, original
+    )
     with patch.object(VALIDATOR.Validator, "check_designs", overlap):
         parallel = validate()
     assert not serial.errors and not parallel.errors, serial.errors + parallel.errors
@@ -107,16 +148,31 @@ def check_single_target_cache(root):
         shared_cache = PassCache(root, directory=directory)
         cold = validate(cache=shared_cache)
         assert not cold.errors, cold.errors
-        with patch.object(VALIDATOR.Validator, "check_generated_service_models", side_effect=AssertionError("unchanged generation reran")), \
-             patch.object(VALIDATOR.Validator, "check_designs", side_effect=AssertionError("unchanged service reran")):
+        with (
+            patch.object(
+                VALIDATOR.Validator,
+                "check_generated_service_models",
+                side_effect=AssertionError("unchanged generation reran"),
+            ),
+            patch.object(
+                VALIDATOR.Validator,
+                "check_designs",
+                side_effect=AssertionError("unchanged service reran"),
+            ),
+        ):
             warm = validate(cache=shared_cache)
         assert not warm.errors and cold.checks == warm.checks, warm.errors
         # An out-of-scope reference remains shallow, but changing its anchor invalidates its consumer.
         reference = docs / "vpc.md"
         saved = reference.read_text(encoding="utf-8")
-        reference.write_text(saved.replace('id="resource-EC2_Subnet_001"', 'id="changed-anchor"'), encoding="utf-8")
+        reference.write_text(
+            saved.replace('id="resource-EC2_Subnet_001"', 'id="changed-anchor"'),
+            encoding="utf-8",
+        )
         invalid = validate(cache=shared_cache)
-        assert not invalid.errors and any("anchor" in warning["message"] for warning in invalid.findings.warnings), invalid.findings.warnings
+        assert not invalid.errors and any(
+            "anchor" in warning["message"] for warning in invalid.findings.warnings
+        ), invalid.findings.warnings
         reference.write_text(saved, encoding="utf-8")
         # Newly introduced JSON must never disappear behind an unchanged Markdown cache hit.
         artifact = docs / "codecommit/orphan.json"
@@ -129,10 +185,14 @@ def check_single_target_cache(root):
         cache = PassCache(root, fresh=True, directory=directory)
         model = models / "sqs.properties"
         saved = read_model(model)
-        changed = _bind_framework_callback(_callback_check_single_target_cache_changed, model, original, saved)
+        changed = _bind_framework_callback(
+            _callback_check_single_target_cache_changed, model, original, saved
+        )
         with patch.object(VALIDATOR.Validator, "check_designs", changed):
             invalid = validate(cache=cache)
-        assert any("inputs changed" in error for error in invalid.errors), invalid.errors
+        assert any("inputs changed" in error for error in invalid.errors), (
+            invalid.errors
+        )
         write_model(model, saved)
     for service in services:
         (models / (service + ".properties")).unlink()
@@ -154,56 +214,103 @@ def _callback_check_template_consumers_validate(directory, root, scope, /):
 
 @it_case
 def check_template_consumers(root):
-    source_checks.fixture(root, ('dev', 'stg'))
+    source_checks.fixture(root, ("dev", "stg"))
     values = source_checks.config_model()
-    for env in ('dev', 'stg'):
-        source_checks.write_fixture(root, env, 'config', values)
-    scope = {(env, 'team', 'config') for env in ('dev', 'stg')}
-    contract = root/'tasks/example.md'
-    contract.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n' +
-                        ''.join(f'- `{"/".join(entry)}`\n' for entry in sorted(scope)) +
-                        '## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n')
-    planned = ['project.json', 'model/dev/team/config.properties', 'model/stg/team/config.properties',
-               'docs/designs/dev/team/config.md', 'docs/designs/stg/team/config.md']
-    contract.write_text(contract.read_text().replace('## Modified files\n', '## Modified files\n' +
-        ''.join('- `' + path + '`\n' for path in planned)).replace('## Allowed paths\n', '## Allowed paths\n- `project.json`\n'))
-    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
-    command = [sys.executable, str(ROOT/'framework/scripts/sync-model.py'), '--repository-root', str(root)]
-    for selection, expected in ((['--scope', 'dev/team/config', '--scope', 'stg/team/config'], 0),
-                                (['--scope', 'dev/team/config'], 1),
-                                (['--scope', 'dev/other/config'], 1),
-                                (['--scope', '../team/config'], 1),
-                                (['--scope', 'dev/team/config', '--all'], 2)):
+    for env in ("dev", "stg"):
+        source_checks.write_fixture(root, env, "config", values)
+    scope = {(env, "team", "config") for env in ("dev", "stg")}
+    contract = root / "tasks/example.md"
+    contract.write_text(
+        "## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n"
+        + "".join(f"- `{'/'.join(entry)}`\n" for entry in sorted(scope))
+        + "## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n"
+    )
+    planned = [
+        "project.json",
+        "model/dev/team/config.properties",
+        "model/stg/team/config.properties",
+        "docs/designs/dev/team/config.md",
+        "docs/designs/stg/team/config.md",
+    ]
+    contract.write_text(
+        contract.read_text()
+        .replace(
+            "## Modified files\n",
+            "## Modified files\n" + "".join("- `" + path + "`\n" for path in planned),
+        )
+        .replace("## Allowed paths\n", "## Allowed paths\n- `project.json`\n")
+    )
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    command = [
+        sys.executable,
+        str(ROOT / "framework/scripts/sync-model.py"),
+        "--repository-root",
+        str(root),
+    ]
+    for selection, expected in (
+        (["--scope", "dev/team/config", "--scope", "stg/team/config"], 0),
+        (["--scope", "dev/team/config"], 1),
+        (["--scope", "dev/other/config"], 1),
+        (["--scope", "../team/config"], 1),
+        (["--scope", "dev/team/config", "--all"], 2),
+    ):
         result = subprocess.run(command + selection, capture_output=True, text=True)
         assert result.returncode == expected, (selection, result.stdout, result.stderr)
-        if selection == ['--scope', 'dev/team/config']:
-            assert 'stg/team/config' in result.stderr
+        if selection == ["--scope", "dev/team/config"]:
+            assert "stg/team/config" in result.stderr
     # A committed baseline makes the environment-specific change real rather than mocking Git.
-    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
-    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
-                    'commit', '-qm', 'synthetic scope baseline'], cwd=root, check=True)
-    model = root / 'model/dev/team/config.properties'
-    model.write_text(model.read_text(encoding='utf-8') + '# dev input changed\n', encoding='utf-8')
-    with patch.object(sys, 'argv', command[1:] + ['--scope', 'dev/team/config']), redirect_stdout(io.StringIO()):
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "synthetic scope baseline",
+        ],
+        cwd=root,
+        check=True,
+    )
+    model = root / "model/dev/team/config.properties"
+    model.write_text(
+        model.read_text(encoding="utf-8") + "# dev input changed\n", encoding="utf-8"
+    )
+    with (
+        patch.object(sys, "argv", command[1:] + ["--scope", "dev/team/config"]),
+        redirect_stdout(io.StringIO()),
+    ):
         assert SYNC.active_scope(root) == scope
         assert SYNC.main() == 0
     with tempfile.TemporaryDirectory() as directory, input_context():
-        validate = _bind_framework_callback(_callback_check_template_consumers_validate, directory, root, scope)
+        validate = _bind_framework_callback(
+            _callback_check_template_consumers_validate, directory, root, scope
+        )
         cold = validate()
-        dev_key = cold.service_keys[('dev', 'team', 'config')]
+        dev_key = cold.service_keys[("dev", "team", "config")]
         cold.cache._results().pop(dev_key)
         sync_runtime = _imports_sync_runtime
-        with patch.object(sync_runtime, 'compare_generation', wraps=sync_runtime.compare_generation) as generate:
+        with patch.object(
+            sync_runtime, "compare_generation", wraps=sync_runtime.compare_generation
+        ) as generate:
             partial = validate()
         assert generate.call_count == 1, generate.call_args_list
         assert generate.call_args.args == (root, scope), generate.call_args
         options = generate.call_args.kwargs
-        assert options.keys() == {'jobs', 'definitions_root', 'findings'}
-        assert options['jobs'] == 1 and options['definitions_root'] == __import__('utils.aws_mappings', fromlist=['definition_root']).definition_root(root)
-        assert isinstance(options['findings'], type(partial.findings))
-        assert options['findings'].canonical_root == root
+        assert options.keys() == {"jobs", "definitions_root", "findings"}
+        assert options["jobs"] == 1 and options["definitions_root"] == __import__(
+            "utils.aws_mappings", fromlist=["definition_root"]
+        ).definition_root(root)
+        assert isinstance(options["findings"], type(partial.findings))
+        assert options["findings"].canonical_root == root
         assert partial.checks == cold.checks
-        with patch.object(VALIDATOR.Validator, 'check_generated_service_models', side_effect=AssertionError('unchanged generation reran')):
+        with patch.object(
+            VALIDATOR.Validator,
+            "check_generated_service_models",
+            side_effect=AssertionError("unchanged generation reran"),
+        ):
             warm = validate()
         assert warm.checks == cold.checks
 
@@ -219,22 +326,40 @@ def main():
         root = Path(temporary).resolve()
         (root / "tasks").mkdir()
         active = root / "tasks/example.md"
-        scope = {(env, target, 'ec2') for env in ('dev', 'stg') for target in ('cde', 'non-cde')}
-        contract = '## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n- `README.md`\n## Allowed paths\n- `tasks/example.md`\n- `README.md`\n## Validation scope\n' + ''.join(f"- `{'/'.join(item)}`\n" for item in sorted(scope))
+        scope = {
+            (env, target, "ec2")
+            for env in ("dev", "stg")
+            for target in ("cde", "non-cde")
+        }
+        contract = (
+            "## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n- `README.md`\n## Allowed paths\n- `tasks/example.md`\n- `README.md`\n## Validation scope\n"
+            + "".join(f"- `{'/'.join(item)}`\n" for item in sorted(scope))
+        )
         active.write_text(contract)
         project = {"projectName": "app", "targets": []}
         for env in ("dev", "prod", "stg"):
             for target in ("cde", "non-cde"):
-                project["targets"].append({"environment": env, "alias": target, "awsAccountId": "123456789012",
-                                           "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"})
+                project["targets"].append(
+                    {
+                        "environment": env,
+                        "alias": target,
+                        "awsAccountId": "123456789012",
+                        "awsRegion": "ap-northeast-1",
+                        "iacEngine": "cloudformation",
+                    }
+                )
                 docs = root / f"docs/designs/{env}/{target}"
                 models = root / f"model/{env}/{target}"
                 docs.mkdir(parents=True)
                 models.mkdir(parents=True)
                 (docs / "logs.md").write_text("invalid unrelated service\n")
-                (models / 'logs.properties').write_text('# model-format: 2\nobserved.bad=arn:aws:logs:invalid\n')
+                (models / "logs.properties").write_text(
+                    "# model-format: 2\nobserved.bad=arn:aws:logs:invalid\n"
+                )
                 if env == "prod":
-                    (models / 'ec2.properties').write_text('# model-format: 2\ninvalid=excluded EC2\n')
+                    (models / "ec2.properties").write_text(
+                        "# model-format: 2\ninvalid=excluded EC2\n"
+                    )
                     (docs / "ec2.md").write_text("invalid excluded EC2\n")
                     continue
                 # A reference target with intentionally invalid schema/metadata must supply only link information.
@@ -253,21 +378,45 @@ def main():
 | No. | Property | Value | Source / Comment |
 invalid unrelated table alignment
 ''')
-                write_model(models / 'vpc.properties', {
-                    'desired.resource.001.resourceType': 'EC2.Subnet', 'desired.resource.001.logicalId': 'EC2_Subnet_001', 'desired.resource.001.anchor': 'resource-EC2_Subnet_001', 'desired.service.identity.lastAllocated': '{"EC2.Subnet":1}',
-                    'desired.row.001-001.property': 'EC2.Subnet.Name',
-                    'desired.row.001-001.value': '`subnet-app-' + env + '-' + target + '`',
-                    'desired.row.001-001.comment': '参照先のみを読む合成値'})
+                write_model(
+                    models / "vpc.properties",
+                    {
+                        "desired.resource.001.resourceType": "EC2.Subnet",
+                        "desired.resource.001.logicalId": "EC2_Subnet_001",
+                        "desired.resource.001.anchor": "resource-EC2_Subnet_001",
+                        "desired.service.identity.lastAllocated": '{"EC2.Subnet":1}',
+                        "desired.row.001-001.property": "EC2.Subnet.Name",
+                        "desired.row.001-001.value": "`subnet-app-"
+                        + env
+                        + "-"
+                        + target
+                        + "`",
+                        "desired.row.001-001.comment": "参照先のみを読む合成値",
+                    },
+                )
                 name = f"{env}-app-{target}-01"
-                values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.Instance",
-                          "desired.resource.001.resourceType": "EC2.Instance", "desired.resource.001.logicalId": "EC2_Instance_001", 'desired.resource.001.anchor': 'resource-EC2_Instance_001',
-                          "desired.resource.001.cfn-logicalId": "fixture-AppInstance",
-                          "desired.service.identity.lastAllocated": '{"EC2.Instance":1}', "display.service.title": "# EC2 詳細設計",
-                          "display.resource.001.comment": "アプリケーションの仮想マシン"}
-                for index, (prop, value) in enumerate((
-                    ("InstanceId", '[Instance](#resource-EC2_Instance_001)'), ("ImageId", "`ami-0123456789abcdef0`"),
-                    ("InstanceType", "`t3.micro`"), ("SubnetId", '[Subnet](vpc.md#resource-EC2_Subnet_001)'),
-                    ("Tags[].Key", "`Name`"), ("Tags[].Value", f"`{name}`")), 1):
+                values = {
+                    "desired.service.ec2.serviceId": "ec2",
+                    "desired.service.ec2.ownedCatalogResourceTypes": "EC2.Instance",
+                    "desired.resource.001.resourceType": "EC2.Instance",
+                    "desired.resource.001.logicalId": "EC2_Instance_001",
+                    "desired.resource.001.anchor": "resource-EC2_Instance_001",
+                    "desired.resource.001.cfn-logicalId": "fixture-AppInstance",
+                    "desired.service.identity.lastAllocated": '{"EC2.Instance":1}',
+                    "display.service.title": "# EC2 詳細設計",
+                    "display.resource.001.comment": "アプリケーションの仮想マシン",
+                }
+                for index, (prop, value) in enumerate(
+                    (
+                        ("InstanceId", "[Instance](#resource-EC2_Instance_001)"),
+                        ("ImageId", "`ami-0123456789abcdef0`"),
+                        ("InstanceType", "`t3.micro`"),
+                        ("SubnetId", "[Subnet](vpc.md#resource-EC2_Subnet_001)"),
+                        ("Tags[].Key", "`Name`"),
+                        ("Tags[].Value", f"`{name}`"),
+                    ),
+                    1,
+                ):
                     key = f"row.001-{index:03d}"
                     values[f"desired.{key}.property"] = f"EC2.Instance.{prop}"
                     values[f"desired.{key}.value"] = value
@@ -276,12 +425,38 @@ invalid unrelated table alignment
                         values[f"observed.{key}.property"] = f"EC2.Instance.{prop}"
                         values[f"observed.{key}.value"] = "PENDING_DEPLOY"
                         values[f"observed.{key}.comment"] = "仮想マシンの設定"
-                write_model(models / 'cloudformation-stacks.properties', {'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture', 'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json', 'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
-                write_model(models / "ec2.properties", "".join(f"{key}={value}\n" for key, value in values.items()))
+                write_model(
+                    models / "cloudformation-stacks.properties",
+                    {
+                        "desired.stack.001.name": "fixture",
+                        "desired.stack.001.placementName": "fixture",
+                        "desired.stack.001.template": "fixture.yaml",
+                        "desired.stack.001.parameters": "fixture.json",
+                        "desired.stack.001.deployOrder": "1",
+                        "display.stack.001.comment": "合成Stack",
+                    },
+                )
+                write_model(
+                    models / "ec2.properties",
+                    "".join(f"{key}={value}\n" for key, value in values.items()),
+                )
         (root / "project.json").write_text(json.dumps(project) + "\n")
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         subprocess.run(["git", "add", "."], cwd=root, check=True)
-        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-qm",
+                "fixture",
+            ],
+            cwd=root,
+            check=True,
+        )
         # Generate exactly four EC2 views; neither invalid prod nor invalid Logs may block them.
         with redirect_stdout(io.StringIO()):
             for env, target, service in sorted(scope):
@@ -295,8 +470,13 @@ invalid unrelated table alignment
         barrier = threading.Barrier(4, timeout=10)
         original = VALIDATOR.Validator.check_designs
         workers = set()
-        overlapping = _bind_framework_callback(_callback_main_overlapping, barrier, original, workers)
-        with patch.object(VALIDATOR.Validator, "check_designs", overlapping), redirect_stdout(io.StringIO()):
+        overlapping = _bind_framework_callback(
+            _callback_main_overlapping, barrier, original, workers
+        )
+        with (
+            patch.object(VALIDATOR.Validator, "check_designs", overlapping),
+            redirect_stdout(io.StringIO()),
+        ):
             validator.check_scoped_designs()
         assert len(workers) == 4 and not validator.errors, validator.errors
         assert validator.generated_models_checked
@@ -311,24 +491,48 @@ invalid unrelated table alignment
         rejected = VALIDATOR.Validator(root, {("dev", "cde", "ec2")})
         rejected.accounts = validator.accounts
         rejected.check_validation_scope()
-        assert any("validation input missing" in error for error in rejected.errors), rejected.errors
+        assert any("validation input missing" in error for error in rejected.errors), (
+            rejected.errors
+        )
         assert not design.exists(), "scope validation regenerated missing Markdown"
         design.write_text(saved)
-        design.write_text(saved.replace("vpc.md#resource-EC2_Subnet_001", "vpc.md#missing-anchor"))
+        design.write_text(
+            saved.replace("vpc.md#resource-EC2_Subnet_001", "vpc.md#missing-anchor")
+        )
         rejected = VALIDATOR.Validator(root, {("dev", "cde", "ec2")})
         rejected.accounts = validator.accounts
         rejected.schema_catalog = DesignSchemaCatalog(root)
         rejected.check_design_links(rejected.catalog_design_properties()[2])
         assert not rejected.errors
-        assert any("missing design anchor" in warning["message"] for warning in rejected.findings.warnings), rejected.findings.warnings
+        assert any(
+            "missing design anchor" in warning["message"]
+            for warning in rejected.findings.warnings
+        ), rejected.findings.warnings
         design.write_text(saved)
         # Selected schema, naming, JSON, and generation errors remain failures.
         model = root / "model/dev/cde/ec2.properties"
         source = read_model(model)
         active = root / "tasks/example.md"
-        active.write_text(active.read_text().replace("## Modified files\n", "## Modified files\n- `model/dev/cde/ec2.properties`\n").replace("## Allowed paths\n", "## Allowed paths\n- `model/dev/cde/ec2.properties`\n"))
-        for bad, token in ((source.replace('EC2.Instance.InstanceType', 'EC2.Instance.EbsOptimized'), 'provider schema'),
-                           (source.replace('`dev-app-cde-01`', '`UNSET`'), 'Name')):
+        active.write_text(
+            active.read_text()
+            .replace(
+                "## Modified files\n",
+                "## Modified files\n- `model/dev/cde/ec2.properties`\n",
+            )
+            .replace(
+                "## Allowed paths\n",
+                "## Allowed paths\n- `model/dev/cde/ec2.properties`\n",
+            )
+        )
+        for bad, token in (
+            (
+                source.replace(
+                    "EC2.Instance.InstanceType", "EC2.Instance.EbsOptimized"
+                ),
+                "provider schema",
+            ),
+            (source.replace("`dev-app-cde-01`", "`UNSET`"), "Name"),
+        ):
             write_model(model, bad)
             try:
                 with redirect_stdout(io.StringIO()):
@@ -341,18 +545,48 @@ invalid unrelated table alignment
         with redirect_stdout(io.StringIO()):
             full = VALIDATOR.Validator(root)
             full.check_generated_service_models()
-        assert full.errors, "overall validation accepted invalid out-of-scope authorities"
+        assert full.errors, (
+            "overall validation accepted invalid out-of-scope authorities"
+        )
         # CLI sync must also stop on absent scope; it cannot silently select everything.
         active.write_text(contract.split("## Validation scope")[0])
-        result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"), "--repository-root", str(root)], capture_output=True, text=True)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "framework/scripts/sync-model.py"),
+                "--repository-root",
+                str(root),
+            ],
+            capture_output=True,
+            text=True,
+        )
         assert result.returncode and "validation scope missing" in result.stderr
         active.write_text(contract)
-        result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"), "--repository-root", str(root),
-                                 "--environment", "prod", "--alias", "cde", "--service", "ec2"], capture_output=True, text=True)
-        assert result.returncode and "outside active task validation scope" in result.stderr
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "framework/scripts/sync-model.py"),
+                "--repository-root",
+                str(root),
+                "--environment",
+                "prod",
+                "--alias",
+                "cde",
+                "--service",
+                "ec2",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert (
+            result.returncode
+            and "outside active task validation scope" in result.stderr
+        )
     with tempfile.TemporaryDirectory() as directory:
         check_template_consumers(Path(directory).resolve())
-    print("validation-scope: PASS (4 parallel targets/services, serial equality, cache invalidation, excluded errors, references, schema/naming/JSON, missing scope, explicit all)")
+    print(
+        "validation-scope: PASS (4 parallel targets/services, serial equality, cache invalidation, excluded errors, references, schema/naming/JSON, missing scope, explicit all)"
+    )
 
 
 if __name__ == "__main__":

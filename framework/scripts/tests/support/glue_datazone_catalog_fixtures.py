@@ -23,6 +23,7 @@ if not __debug__:
 
 ROOT = Path(__file__).resolve().parents[4]
 
+
 def write_designs(root: Path) -> tuple[Path, Path]:
     directory = root / "docs/designs/dev/123456789012"
     directory.mkdir(parents=True)
@@ -97,4 +98,18 @@ def write_designs(root: Path) -> tuple[Path, Path]:
     return glue, datazone
 
 
-__all__ = ['CloudFormationSchemaCatalog', 'Path', 'ROOT', 'annotations', 'io', 'model_projection', 'redirect_stdout', 'shutil', 'snapshot_errors', 'sys', 'tempfile', 'write_designs', 'write_model']
+__all__ = [
+    "CloudFormationSchemaCatalog",
+    "Path",
+    "ROOT",
+    "annotations",
+    "io",
+    "model_projection",
+    "redirect_stdout",
+    "shutil",
+    "snapshot_errors",
+    "sys",
+    "tempfile",
+    "write_designs",
+    "write_model",
+]

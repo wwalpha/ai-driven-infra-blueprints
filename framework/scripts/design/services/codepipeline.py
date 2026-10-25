@@ -39,7 +39,11 @@ def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
         if not action_counts:
             # Authored stage rows may put Name before or after their action rows.
             name_last = action
-        if not action_counts or (name_last and "Name" in seen_stage) or (not action and field in seen_stage):
+        if (
+            not action_counts
+            or (name_last and "Name" in seen_stage)
+            or (not action and field in seen_stage)
+        ):
             seen_stage, seen_action = set(), set()
             action_counts.append(0)
         if action:
@@ -49,28 +53,55 @@ def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
             seen_action.add(field)
         else:
             seen_stage.add(field)
-        ordered.append((len(action_counts), action_counts[-1] if action else 0, [row[0], field, *row[2:]]))
+        ordered.append(
+            (
+                len(action_counts),
+                action_counts[-1] if action else 0,
+                [row[0], field, *row[2:]],
+            )
+        )
     for stage, action, (identity, field, value, comment) in ordered:
         prefix = f"Stages[{stage}]."
         if action:
-            prefix += "Actions." if action_counts[stage - 1] == 1 else f"Actions[{action}]."
+            prefix += (
+                "Actions." if action_counts[stage - 1] == 1 else f"Actions[{action}]."
+            )
         if field != "Configuration":
             result.append([identity, prefix + field, value, comment])
             continue
         config = policy_json(literal(value))
         if not isinstance(config, dict) or not config:
-            raise ValueError("CodePipeline Configuration must be a non-empty string/reference object")
+            raise ValueError(
+                "CodePipeline Configuration must be a non-empty string/reference object"
+            )
         for item in config.values():
             if is_reference(item):
                 parse(item)
             elif not isinstance(item, str) or not item.strip():
-                raise ValueError("CodePipeline Configuration values must be non-empty strings or Model references")
-        comments = dict(part.split(": ", 1) for part in comment.split(" / ") if ": " in part)
+                raise ValueError(
+                    "CodePipeline Configuration values must be non-empty strings or Model references"
+                )
+        comments = dict(
+            part.split(": ", 1) for part in comment.split(" / ") if ": " in part
+        )
         if set(comments) != set(config):
-            raise ValueError("CodePipeline Configuration requires a comment for each key")
+            raise ValueError(
+                "CodePipeline Configuration requires a comment for each key"
+            )
         for key, item in config.items():
-            value = json.dumps(item, ensure_ascii=False, separators=(",", ":")) if is_reference(item) else item
-            result.append([identity, prefix + "Configuration." + key, value if LINK.fullmatch(value) else f"`{value}`", comments[key]])
+            value = (
+                json.dumps(item, ensure_ascii=False, separators=(",", ":"))
+                if is_reference(item)
+                else item
+            )
+            result.append(
+                [
+                    identity,
+                    prefix + "Configuration." + key,
+                    value if LINK.fullmatch(value) else f"`{value}`",
+                    comments[key],
+                ]
+            )
     return result + trailing
 
 
@@ -95,37 +126,53 @@ def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
         stage = int(match.group(1))
         if stage != previous_stage:
             if stage != len(stages) + 1:
-                raise ValueError("CodePipeline stage indexes must be sequential and contiguous")
+                raise ValueError(
+                    "CodePipeline stage indexes must be sequential and contiguous"
+                )
             stages[stage] = {}
             previous_stage, previous_action = stage, 0
         is_action = display.startswith(f"Stages[{stage}].Actions")
         action = int(match.group(2) or 1) if is_action else 0
         field = match.group(3)
         if is_action and field.startswith("Actions"):
-            raise ValueError("CodePipeline actions must use Actions or Actions[N], without []")
+            raise ValueError(
+                "CodePipeline actions must use Actions or Actions[N], without []"
+            )
         identity_field = stage, action, field
         if "[]" not in field and identity_field in fields:
             raise ValueError(f"duplicate CodePipeline stage/action field: {display}")
         fields.add(identity_field)
         if is_action and action != previous_action:
             if action != len(stages[stage]) + 1:
-                raise ValueError("CodePipeline action indexes must be sequential and contiguous per stage")
+                raise ValueError(
+                    "CodePipeline action indexes must be sequential and contiguous per stage"
+                )
             stages[stage][action] = bool(match.group(2))
             previous_action = action
         elif is_action and stages[stage][action] != bool(match.group(2)):
             raise ValueError("CodePipeline action index spelling must be consistent")
         row = row.copy()
-        row[1] = "CodePipeline.Pipeline.Stages[]." + ("Actions[]." if is_action else "") + field
+        row[1] = (
+            "CodePipeline.Pipeline.Stages[]."
+            + ("Actions[]." if is_action else "")
+            + field
+        )
         if not is_action or not field.startswith("Configuration"):
             result.append(row)
             previous_configuration = None
             continue
         key = field.removeprefix("Configuration.")
-        if not field.startswith("Configuration.") or not re.fullmatch(r"[A-Za-z0-9_-]+", key):
-            raise ValueError("CodePipeline Configuration must use Configuration.<Key> display rows")
+        if not field.startswith("Configuration.") or not re.fullmatch(
+            r"[A-Za-z0-9_-]+", key
+        ):
+            raise ValueError(
+                "CodePipeline Configuration must use Configuration.<Key> display rows"
+            )
         identity = stage, action
         if identity in configurations and previous_configuration != identity:
-            raise ValueError("CodePipeline Configuration key rows must be contiguous per action")
+            raise ValueError(
+                "CodePipeline Configuration key rows must be contiguous per action"
+            )
         values = configurations.setdefault(identity, {})
         if key in values:
             raise ValueError(f"duplicate CodePipeline Configuration key: {key}")
@@ -137,8 +184,16 @@ def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
             if value.startswith("{"):
                 value = policy_json(value)
                 parse(value)
-            elif not value.strip() or value.startswith(("[", "!")) or "Fn::" in value or "](" in value or "\n" in value:
-                raise ValueError("CodePipeline Configuration value must be a literal, Model reference or resource link, without CFN intrinsics")
+            elif (
+                not value.strip()
+                or value.startswith(("[", "!"))
+                or "Fn::" in value
+                or "](" in value
+                or "\n" in value
+            ):
+                raise ValueError(
+                    "CodePipeline Configuration value must be a literal, Model reference or resource link, without CFN intrinsics"
+                )
         values[key] = value
         if identity not in configuration_rows:
             row[1] = CODEPIPELINE_CONFIGURATION
@@ -147,11 +202,15 @@ def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
             row[3] = f"{key}: {row[3]}"
         else:
             configuration_rows[identity][3] += f" / {key}: {row[3]}"
-        configuration_rows[identity][2] = "`" + json.dumps(values, ensure_ascii=False, separators=(",", ":")) + "`"
+        configuration_rows[identity][2] = (
+            "`" + json.dumps(values, ensure_ascii=False, separators=(",", ":")) + "`"
+        )
         previous_configuration = identity
     for actions in stages.values():
         if len(actions) > 1 and not all(actions.values()):
             raise ValueError("CodePipeline multiple actions must use Actions[N]")
         if len(actions) == 1 and any(actions.values()):
-            raise ValueError("CodePipeline single action must use Actions without an index")
+            raise ValueError(
+                "CodePipeline single action must use Actions without an index"
+            )
     return result

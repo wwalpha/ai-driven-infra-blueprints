@@ -105,6 +105,7 @@ def refresh(root, name, resuming=False):
         atomic_files({safe_path(root, name): text}, staging_directory=root)
         invalidate_task_reads(root)
 
+
 def complete(root, name):
     snapshot = task_snapshot(root, name, executable=False, live=True)
     text = snapshot.text
@@ -125,8 +126,11 @@ def complete(root, name):
             else:
                 os.environ[SELECTOR] = previous
     verify_snapshot(snapshot)
-    atomic_files({safe_path(root, name): set_status(text, "completed")}, staging_directory=root)
+    atomic_files(
+        {safe_path(root, name): set_status(text, "completed")}, staging_directory=root
+    )
     invalidate_task_reads(root)
+
 
 def resume(root, name):
     refresh(root, name, resuming=True)

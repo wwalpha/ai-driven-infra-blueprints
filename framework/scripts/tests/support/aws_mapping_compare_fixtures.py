@@ -17,19 +17,34 @@ from support.validator import load
 from utils.input_cache import input_scope
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
-checks = __import__('support.check_model_aws_fixtures', fromlist=['m'])
+checks = __import__("support.check_model_aws_fixtures", fromlist=["m"])
 
 m = checks.m
 
 ROOT = Path(__file__).resolve().parents[4]
 
+
 def outcome(function):
     try:
-        return ('value', function())
+        return ("value", function())
     except (m.Unresolved, ValueError, KeyError, TypeError) as error:
-        return ('error', type(error).__name__, str(error))
+        return ("error", type(error).__name__, str(error))
 
 
-__all__ = ['Path', 'ROOT', 'Registry', 'checks', 'comparison', 'input_scope', 'load', 'm', 'mapped_value', 'outcome', 'patch', 'socket', 'sys']
+__all__ = [
+    "Path",
+    "ROOT",
+    "Registry",
+    "checks",
+    "comparison",
+    "input_scope",
+    "load",
+    "m",
+    "mapped_value",
+    "outcome",
+    "patch",
+    "socket",
+    "sys",
+]

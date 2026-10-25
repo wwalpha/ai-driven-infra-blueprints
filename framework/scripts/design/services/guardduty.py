@@ -32,13 +32,18 @@ def formal_rows(cells, names):
     if len(status) >= 2 and status[0] == status[-1] == "`":
         status = status[1:-1]
     for field, field_value in (("Name", name), ("Status", status)):
-        result.append([cells[0], GUARDDUTY_FORMAL_FEATURE + field, f"`{field_value}`", cells[3]])
+        result.append(
+            [cells[0], GUARDDUTY_FORMAL_FEATURE + field, f"`{field_value}`", cells[3]]
+        )
     return result
 
 
 def display_row(rows, index):
     value = rows[index][2]
-    if index + 1 >= len(rows) or rows[index + 1][1] != GUARDDUTY_FORMAL_FEATURE + "Status":
+    if (
+        index + 1 >= len(rows)
+        or rows[index + 1][1] != GUARDDUTY_FORMAL_FEATURE + "Status"
+    ):
         raise ValueError("GuardDuty features require contiguous Name/Status rows")
     prop = GUARDDUTY_FEATURE + literal(value)
     value = rows[index + 1][2]

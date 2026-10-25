@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from units.validation_checks import (
 )
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 def main():
@@ -60,5 +61,6 @@ def main():
 
 if __name__ == "__main__":
     from support.model_sources import catalog_display
+
     with catalog_display():
         main()

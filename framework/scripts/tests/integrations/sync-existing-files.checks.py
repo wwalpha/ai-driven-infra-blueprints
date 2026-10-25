@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-
 import importlib.util
 import io
 import shutil
@@ -26,7 +25,7 @@ from support.it_case_receipt import it_case
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-SCRIPT = (Path(__file__).resolve().parents[2] / 'sync-existing-files.py')
+SCRIPT = Path(__file__).resolve().parents[2] / "sync-existing-files.py"
 SPEC = importlib.util.spec_from_file_location("sync_existing_files", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -34,15 +33,26 @@ SPEC.loader.exec_module(MODULE)
 
 
 def _callback_check_failure_safety_run(source, target, /) -> int:
-    with mock.patch.object(MODULE, "FRAMEWORK_ROOT", source / "framework"), mock.patch.object(
-        MODULE, "REPOSITORY_ROOT", source
-    ), mock.patch.object(sys, "argv", [str(SCRIPT), "--target", str(target)]), redirect_stdout(
-        io.StringIO()
-    ), redirect_stderr(io.StringIO()):
+    with (
+        mock.patch.object(MODULE, "FRAMEWORK_ROOT", source / "framework"),
+        mock.patch.object(MODULE, "REPOSITORY_ROOT", source),
+        mock.patch.object(sys, "argv", [str(SCRIPT), "--target", str(target)]),
+        redirect_stdout(io.StringIO()),
+        redirect_stderr(io.StringIO()),
+    ):
         return MODULE.main()
 
 
-def _callback_check_failure_safety_fail_once(_state_check_failure_safety_44, copy2, target, /, src: Path, dst: Path, *args: object, **kwargs: object):
+def _callback_check_failure_safety_fail_once(
+    _state_check_failure_safety_44,
+    copy2,
+    target,
+    /,
+    src: Path,
+    dst: Path,
+    *args: object,
+    **kwargs: object,
+):
     pass
     if Path(dst) == target / "README.md" and not _state_check_failure_safety_44.failed:
         _state_check_failure_safety_44.failed = True
@@ -53,7 +63,9 @@ def _callback_check_failure_safety_fail_once(_state_check_failure_safety_44, cop
 @it_case
 def check_failure_safety() -> None:
     _state_check_failure_safety_44 = _CallbackState()
-    missing_target = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True)
+    missing_target = subprocess.run(
+        [sys.executable, str(SCRIPT)], capture_output=True, text=True
+    )
     assert missing_target.returncode != 0 and "--target" in missing_target.stderr
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "source"
@@ -63,11 +75,19 @@ def check_failure_safety() -> None:
         (source / ".github/workflows").mkdir(parents=True)
         target.mkdir()
         target = target.resolve()
-        for relative in ("framework/a.txt", "framework/b.txt", "AGENTS.md", "README.md", ".github/workflows/framework-it.yml"):
+        for relative in (
+            "framework/a.txt",
+            "framework/b.txt",
+            "AGENTS.md",
+            "README.md",
+            ".github/workflows/framework-it.yml",
+        ):
             (source / relative).write_text("original\n", encoding="utf-8")
 
-
-        for relative in ("framework/scripts/tests/new.py", "framework/nested/tests/fixture.json"):
+        for relative in (
+            "framework/scripts/tests/new.py",
+            "framework/nested/tests/fixture.json",
+        ):
             path = source / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("test asset\n", encoding="utf-8")
@@ -76,20 +96,35 @@ def check_failure_safety() -> None:
         assert not (target / "framework/nested/tests").exists()
         assert not (target / ".github/workflows/framework-it.yml").exists()
         (target / "framework/b.txt").unlink()
-        original = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+        original = {
+            path.relative_to(target): path.read_bytes()
+            for path in target.rglob("*")
+            if path.is_file()
+        }
         (source / "framework/a.txt").write_text("updated\n", encoding="utf-8")
         (source / "README.md").write_text("updated\n", encoding="utf-8")
-        (source / ".github/workflows/framework-it.yml").write_text("updated\n", encoding="utf-8")
+        (source / ".github/workflows/framework-it.yml").write_text(
+            "updated\n", encoding="utf-8"
+        )
         copy2 = shutil.copy2
         _state_check_failure_safety_44.failed = False
 
-        fail_once = _bind_framework_callback(_callback_check_failure_safety_fail_once, _state_check_failure_safety_44, copy2, target)
+        fail_once = _bind_framework_callback(
+            _callback_check_failure_safety_fail_once,
+            _state_check_failure_safety_44,
+            copy2,
+            target,
+        )
 
         with mock.patch.object(MODULE.shutil, "copy2", side_effect=fail_once):
             result = _callback_check_failure_safety_run(source, target)
             assert result == 1, (result, _state_check_failure_safety_44.failed)
         assert _state_check_failure_safety_44.failed
-        assert {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()} == original
+        assert {
+            path.relative_to(target): path.read_bytes()
+            for path in target.rglob("*")
+            if path.is_file()
+        } == original
 
         new_source = source / "framework/new.txt"
         new_source.write_text("new\n", encoding="utf-8")
@@ -101,7 +136,17 @@ def main() -> None:
     check_failure_safety()
     with tempfile.TemporaryDirectory() as directory:
         target = Path(directory)
-        protected = ("project.json", "docs/keep.md", "infra/keep.yaml", "model/keep.properties", "tasks/example.md", "tests/keep.py", ".github/workflows/project.yml", ".github/workflows/framework-it.yml", "framework/scripts/tests/keep.py")
+        protected = (
+            "project.json",
+            "docs/keep.md",
+            "infra/keep.yaml",
+            "model/keep.properties",
+            "tasks/example.md",
+            "tests/keep.py",
+            ".github/workflows/project.yml",
+            ".github/workflows/framework-it.yml",
+            "framework/scripts/tests/keep.py",
+        )
         for relative in protected:
             path = target / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -114,15 +159,23 @@ def main() -> None:
         )
         assert result.returncode == 0, result.stderr
         assert (target / "framework" / "scripts" / SCRIPT.name).is_file()
-        assert list((target / "framework/scripts/tests").rglob("*")) == [target / "framework/scripts/tests/keep.py"]
-        skill = Path(__file__).resolve().parents[4] / ".agents/skills/initialize/SKILL.md"
-        assert (target / ".agents/skills/initialize/SKILL.md").read_bytes() == skill.read_bytes()
+        assert list((target / "framework/scripts/tests").rglob("*")) == [
+            target / "framework/scripts/tests/keep.py"
+        ]
+        skill = (
+            Path(__file__).resolve().parents[4] / ".agents/skills/initialize/SKILL.md"
+        )
+        assert (
+            target / ".agents/skills/initialize/SKILL.md"
+        ).read_bytes() == skill.read_bytes()
         root = SCRIPT.resolve().parents[2]
         for name in ("AGENTS.md", "README.md"):
             assert (target / name).read_bytes() == (root / name).read_bytes()
             (target / name).write_text("outdated", encoding="utf-8")
         command = [sys.executable, str(SCRIPT), "--target", str(target)]
-        preview = subprocess.run([*command, "--dry-run"], capture_output=True, text=True)
+        preview = subprocess.run(
+            [*command, "--dry-run"], capture_output=True, text=True
+        )
         assert preview.returncode == 0, preview.stderr
         assert "pending=2" in preview.stdout, preview.stdout
         for name in ("AGENTS.md", "README.md"):
@@ -133,7 +186,9 @@ def main() -> None:
         assert "copied=2 added=0 pending=0" in updated.stdout, updated.stdout
         for name in ("AGENTS.md", "README.md"):
             assert (target / name).read_bytes() == (root / name).read_bytes()
-        repeated = subprocess.run([*command, "--dry-run"], capture_output=True, text=True)
+        repeated = subprocess.run(
+            [*command, "--dry-run"], capture_output=True, text=True
+        )
         assert repeated.returncode == 0, repeated.stderr
         assert "pending=0" in repeated.stdout, repeated.stdout
         assert "scope=framework,.agents,AGENTS.md,README.md" in repeated.stdout
@@ -141,7 +196,11 @@ def main() -> None:
         for relative in protected:
             assert (target / relative).read_text(encoding="utf-8") == "target-specific"
             if "/" in relative and not relative.startswith((".github/", "framework/")):
-                assert {path.relative_to(target).as_posix() for path in (target / relative.split("/")[0]).rglob("*") if path.is_file()} == {relative}
+                assert {
+                    path.relative_to(target).as_posix()
+                    for path in (target / relative.split("/")[0]).rglob("*")
+                    if path.is_file()
+                } == {relative}
     print("sync-existing-files: PASS")
 
 

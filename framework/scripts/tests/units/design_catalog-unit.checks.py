@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
 from pathlib import Path
 
@@ -25,7 +26,7 @@ from support.design_catalog_fixtures import (
 )
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 def check_api_schema():
@@ -38,7 +39,11 @@ def check_api_schema():
     assert group["source"]["readOperations"] == ["ListGroups", "DescribeGroup"]
     assert group["source"]["updateOperation"] == "UpdateGroup"
     assert group["source"]["deleteOperation"] == "DeleteGroup"
-    assert catalog.required_design_properties(QUICKSIGHT_GROUP) == {"AwsAccountId", "Namespace", "GroupName"}
+    assert catalog.required_design_properties(QUICKSIGHT_GROUP) == {
+        "AwsAccountId",
+        "Namespace",
+        "GroupName",
+    }
     for resource_type in (MACIE_JOB, QUICKSIGHT_GROUP, "Macie.Unknown"):
         try:
             catalog.cloudformation_type(resource_type)
@@ -54,19 +59,20 @@ def check_api_schema():
         raise AssertionError("API design leaked into the CFn catalog")
 
 
-
-
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
+
 
 def check_macie_inputs_and_tables():
     with tempfile.TemporaryDirectory() as directory:
         group_path = Path(directory) / "quicksight.md"
         group_path.write_text(quicksight_group_markdown(), encoding="utf-8")
         expanded_display_rows = _imports_design_layout.expanded_display_rows
-        group_model = "\n".join(expanded_display_rows(group_path.read_text().splitlines()))
-        assert '### QuickSight.Group: reader-group' in group_model
-        assert '| QuickSight.Group.PrincipalId | `PENDING_DEPLOY` |' in group_model
-        assert 'QuickSight.Group.Arn' not in group_model and 'arn:' not in group_model
+        group_model = "\n".join(
+            expanded_display_rows(group_path.read_text().splitlines())
+        )
+        assert "### QuickSight.Group: reader-group" in group_model
+        assert "| QuickSight.Group.PrincipalId | `PENDING_DEPLOY` |" in group_model
+        assert "QuickSight.Group.Arn" not in group_model and "arn:" not in group_model
 
     schema = DesignSchemaCatalog(ROOT)
     bad_values = [
@@ -80,19 +86,36 @@ def check_macie_inputs_and_tables():
         {**VALUES, "samplingPercentage": True},
         {**VALUES, "initialRun": "yes"},
         {**VALUES, "scheduleFrequency": {}},
-        {**VALUES, "scheduleFrequency": {"dailySchedule": {}, "weeklySchedule": {"dayOfWeek": "MONDAY"}}},
+        {
+            **VALUES,
+            "scheduleFrequency": {
+                "dailySchedule": {},
+                "weeklySchedule": {"dayOfWeek": "MONDAY"},
+            },
+        },
         {**VALUES, "scheduleFrequency": {"monthlySchedule": {"dayOfMonth": 32}}},
         {**VALUES, "s3JobDefinition": {}},
         {**VALUES, "s3JobDefinition": {"bucketDefinitions": [], "bucketCriteria": {}}},
-        {**VALUES, "s3JobDefinition": {"bucketDefinitions": [{"accountId": "bad", "buckets": [1]}]}},
-        {**VALUES, "s3JobDefinition": {"bucketDefinitions": [{"accountId": "123456789012"}]}},
+        {
+            **VALUES,
+            "s3JobDefinition": {
+                "bucketDefinitions": [{"accountId": "bad", "buckets": [1]}]
+            },
+        },
+        {
+            **VALUES,
+            "s3JobDefinition": {"bucketDefinitions": [{"accountId": "123456789012"}]},
+        },
         {**VALUES, "s3JobDefinition": {"bucketCriteria": {"typo": True}}},
         {**VALUES, "managedDataIdentifierSelector": "NONE"},
         {**VALUES, "managedDataIdentifierSelector": "INCLUDE"},
         {**VALUES, "managedDataIdentifierIds": ["id"]},
         {**VALUES, "tags": {"team": 3}},
         {**VALUES, "clientToken": "runtime-token"},
-        {**VALUES, "jobArn": "arn:aws:macie2:ap-northeast-1:123456789012:classification-job/example"},
+        {
+            **VALUES,
+            "jobArn": "arn:aws:macie2:ap-northeast-1:123456789012:classification-job/example",
+        },
     ]
     expected_errors = [
         (".name: required property missing",),
@@ -108,8 +131,14 @@ def check_macie_inputs_and_tables():
         ("scheduleFrequency: maxProperties must be <= 1",),
         ("scheduleFrequency.monthlySchedule.dayOfMonth: maximum must be <= 31",),
         ("s3JobDefinition: must satisfy exactly one alternative",),
-        ("s3JobDefinition: must satisfy exactly one alternative", "s3JobDefinition.bucketDefinitions: minItems must be >= 1"),
-        ("s3JobDefinition.bucketDefinitions[0].accountId: must match", "s3JobDefinition.bucketDefinitions[0].buckets[0]: must be string"),
+        (
+            "s3JobDefinition: must satisfy exactly one alternative",
+            "s3JobDefinition.bucketDefinitions: minItems must be >= 1",
+        ),
+        (
+            "s3JobDefinition.bucketDefinitions[0].accountId: must match",
+            "s3JobDefinition.bucketDefinitions[0].buckets[0]: must be string",
+        ),
         ("s3JobDefinition.bucketDefinitions[0].buckets: required property missing",),
         ("s3JobDefinition.bucketCriteria.typo: unknown property",),
         ("NONE requires customDataIdentifierIds",),
@@ -128,9 +157,17 @@ def check_macie_inputs_and_tables():
         errors = schema.api_value_errors(MACIE_JOB, job_schema, values, "")
         for key, value in values.items():
             if key in job_schema["properties"]:
-                errors.extend(schema.api_value_errors(MACIE_JOB, job_schema["properties"][key], value, key))
+                errors.extend(
+                    schema.api_value_errors(
+                        MACIE_JOB, job_schema["properties"][key], value, key
+                    )
+                )
         errors.extend(schema.job_errors(values))
-        assert all(any(message in error for error in errors) for message in expected), (values, expected, errors)
+        assert all(any(message in error for error in errors) for message in expected), (
+            values,
+            expected,
+            errors,
+        )
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         design = root / "docs/designs/dev/123456789012/macie.md"
@@ -139,8 +176,13 @@ def check_macie_inputs_and_tables():
         text = markdown(VALUES)
         design.write_text(text, encoding="utf-8")
         s3 = design.with_name("s3.md")
-        s3.write_text('<a id="s3-app-data"></a>\n\n### S3.Bucket: app-data\n', encoding="utf-8")
-        design.write_text(text.replace("`app-data` |", "[wrong](s3.md#s3-app-data) |"), encoding="utf-8")
+        s3.write_text(
+            '<a id="s3-app-data"></a>\n\n### S3.Bucket: app-data\n', encoding="utf-8"
+        )
+        design.write_text(
+            text.replace("`app-data` |", "[wrong](s3.md#s3-app-data) |"),
+            encoding="utf-8",
+        )
         try:
             job_bucket_tables(design)
         except ValueError as error:
@@ -156,9 +198,12 @@ def check_macie_inputs_and_tables():
             assert "conflicts with bucketCriteria" in str(error)
         else:
             raise AssertionError("bucketCriteria accepted with a fixed bucket table")
-    print("design-catalog: PASS (QuickSight display, current Macie schema, 23 invalid inputs, bucket link and JSON conflict guards)")
+    print(
+        "design-catalog: PASS (QuickSight display, current Macie schema, 23 invalid inputs, bucket link and JSON conflict guards)"
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from support.pytest_cli import run
+
     raise SystemExit(run(__file__))

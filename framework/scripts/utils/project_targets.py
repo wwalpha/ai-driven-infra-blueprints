@@ -20,7 +20,9 @@ def select_target(topology, environment, account_id=None, alias=None):
         not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", alias)
         or re.fullmatch(r"\d{12}", alias)
     ):
-        raise DeployContextError("alias must be lower-kebab-case and not a 12-digit number")
+        raise DeployContextError(
+            "alias must be lower-kebab-case and not a 12-digit number"
+        )
 
     targets = topology.get("targets") if isinstance(topology, dict) else None
     if not isinstance(targets, list):
@@ -39,7 +41,9 @@ def select_target(topology, environment, account_id=None, alias=None):
     ]
     if len(matches) != 1:
         selector = alias or account_id
-        raise DeployContextError(f"topology target must exist exactly once: {environment}/{selector}")
+        raise DeployContextError(
+            f"topology target must exist exactly once: {environment}/{selector}"
+        )
 
     target = matches[0]
     resolved_account_id = target.get("awsAccountId")
@@ -73,7 +77,6 @@ def load_target(
     account_id: str | None = None,
     alias: str | None = None,
 ) -> dict[str, str]:
-
     input_text = _imports_validation_cache.input_text
     path = root / "project.json"
     try:
@@ -92,7 +95,11 @@ LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 def load_target_directory(root, environment, directory):
     """Reuse topology validation without invoking credential checks or any AWS operation."""
     try:
-        return load_target(root, environment, directory if directory.isdigit() else None,
-                      None if directory.isdigit() else directory)
+        return load_target(
+            root,
+            environment,
+            directory if directory.isdigit() else None,
+            None if directory.isdigit() else directory,
+        )
     except DeployContextError as error:
         raise ValueError(str(error)) from error

@@ -71,11 +71,19 @@ def merge_definitions(services, name):
     return result
 
 
-POLICY_FORMATS = dict(sorted(merge_definitions(SERVICES, "POLICY_FORMATS").items(),
-                             key=lambda item: (item[1] == "settings", item[0])))
-RESOURCE_REFERENCE_PROPERTIES = merge_definitions(SERVICES, "RESOURCE_REFERENCE_PROPERTIES")
+POLICY_FORMATS = dict(
+    sorted(
+        merge_definitions(SERVICES, "POLICY_FORMATS").items(),
+        key=lambda item: (item[1] == "settings", item[0]),
+    )
+)
+RESOURCE_REFERENCE_PROPERTIES = merge_definitions(
+    SERVICES, "RESOURCE_REFERENCE_PROPERTIES"
+)
 HIDDEN_PROPERTIES = set(merge_definitions(SERVICES, "HIDDEN_PROPERTIES"))
 REQUIRED_NAME_TAG_TYPES = set(merge_definitions(SERVICES, "REQUIRED_NAME_TAG_TYPES"))
 COMPACT_FIELDS = merge_definitions(SERVICES, "COMPACT_FIELDS")
 PACKED_ARRAY_PREFIXES = tuple(merge_definitions(SERVICES, "PACKED_ARRAY_PREFIXES"))
-IMPORT_PENDING_PROPERTIES = set(merge_definitions(SERVICES, "IMPORT_PENDING_PROPERTIES"))
+IMPORT_PENDING_PROPERTIES = set(
+    merge_definitions(SERVICES, "IMPORT_PENDING_PROPERTIES")
+)

@@ -3,7 +3,7 @@
 IMPORT_PENDING_PROPERTIES = {"Config.ConfigurationRecorder.RoleARN"}
 
 RESOURCE_REFERENCE_PROPERTIES = {
-    'Config.ConfigurationRecorder.RoleARN': ('IAM.Role', 'RoleName'),
+    "Config.ConfigurationRecorder.RoleARN": ("IAM.Role", "RoleName"),
 }
 
 RESOURCE_ANCHOR_KINDS = {

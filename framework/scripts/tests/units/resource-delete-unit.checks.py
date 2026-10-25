@@ -37,24 +37,12 @@ from support.resource_delete_fixtures import (
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-@pytest.mark.parametrize('multiple', [False, True])
+@pytest.mark.parametrize("multiple", [False, True])
 def check_ten_deletions(tmp_path, multiple):
-    before, after = tmp_path / 'before', tmp_path / 'after'
+    before, after = tmp_path / "before", tmp_path / "after"
     sources = fixture(before, multiple)
     shutil.copytree(before, after)
     operation = tasks.model_operation(contract(sources))
@@ -62,176 +50,311 @@ def check_ten_deletions(tmp_path, multiple):
     for address in sources:
         save(deletion(after, address))
     verify_model_operation(before, after, operation, changed(before, after))
-    assert (before / 'model/dev').exists()
+    assert (before / "model/dev").exists()
     for source_scope in operation.source_scopes:
         env, target, service = source_scope
-        current = load_model(after / 'model' / env / target / (service + '.properties'))
-        assert len(entries(current.authoritative, 'desired.resource.')) == 1
-        assert current.authoritative['desired.service.' + service + '.serviceId'] == service
+        current = load_model(after / "model" / env / target / (service + ".properties"))
+        assert len(entries(current.authoritative, "desired.resource.")) == 1
+        assert (
+            current.authoritative["desired.service." + service + ".serviceId"]
+            == service
+        )
 
 
-@pytest.mark.parametrize('bad', ['duplicate', 'empty', 'cross-target', 'merge', 'reference-unrelated', 'detach-unrelated'])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "duplicate",
+        "empty",
+        "cross-target",
+        "merge",
+        "reference-unrelated",
+        "detach-unrelated",
+    ],
+)
 def check_contract_rejects_unscoped_deletion(bad):
-    sources = ['stg/cde/service-a/001', 'stg/cde/service-b/002']
+    sources = ["stg/cde/service-a/001", "stg/cde/service-b/002"]
     text = contract(sources)
-    if bad == 'duplicate':
-        text += '- `' + sources[0] + '`\n'
-    elif bad == 'empty':
+    if bad == "duplicate":
+        text += "- `" + sources[0] + "`\n"
+    elif bad == "empty":
         text = contract([])
-    elif bad == 'cross-target':
-        text = text.replace('stg/cde/service-b', 'dev/cde/service-b')
-    elif bad == 'merge':
-        text = text.replace('import-delete', 'import-merge')
-    elif bad == 'reference-unrelated':
-        text = contract(sources, [{'consumer': 'stg/cde/service-c/003', 'field': 'value', 'property': 'Example.Resource.Name',
-                                   'source': 'stg/cde/service-a/099', 'destination': 'stg/cde/service-a/004'}])
-    elif bad == 'detach-unrelated':
-        text = contract(sources, detaches=[{'consumer': 'stg/cde/service-c/003', 'producer': 'stg/cde/service-a/099', 'key': 'desired.row.003-001.value'}])
+    elif bad == "cross-target":
+        text = text.replace("stg/cde/service-b", "dev/cde/service-b")
+    elif bad == "merge":
+        text = text.replace("import-delete", "import-merge")
+    elif bad == "reference-unrelated":
+        text = contract(
+            sources,
+            [
+                {
+                    "consumer": "stg/cde/service-c/003",
+                    "field": "value",
+                    "property": "Example.Resource.Name",
+                    "source": "stg/cde/service-a/099",
+                    "destination": "stg/cde/service-a/004",
+                }
+            ],
+        )
+    elif bad == "detach-unrelated":
+        text = contract(
+            sources,
+            detaches=[
+                {
+                    "consumer": "stg/cde/service-c/003",
+                    "producer": "stg/cde/service-a/099",
+                    "key": "desired.row.003-001.value",
+                }
+            ],
+        )
     with pytest.raises(ValueError):
         tasks.model_operation(text)
 
 
 def check_deletion_and_detach_normalization():
-    old = tasks.model_operation(operation_contract('import-delete'))
-    new = tasks.model_operation(contract(['stg/cde/vpc/009']))
-    assert old == new and old.delete_sources == ('stg/cde/vpc/009',)
-    text = dependency_contract().replace('## Model dependency detach', '- Model operation: `import-delete`\n## Model delete sources\n- `stg/cde/service-a/001`\n## Model dependency detach')
+    old = tasks.model_operation(operation_contract("import-delete"))
+    new = tasks.model_operation(contract(["stg/cde/vpc/009"]))
+    assert old == new and old.delete_sources == ("stg/cde/vpc/009",)
+    text = dependency_contract().replace(
+        "## Model dependency detach",
+        "- Model operation: `import-delete`\n## Model delete sources\n- `stg/cde/service-a/001`\n## Model dependency detach",
+    )
     operation = tasks.model_operation(text)
     assert operation.detaches == tasks.model_refactor(text)
-    assert operation.scopes == {('stg', 'cde', 'service-a'), ('stg', 'cde', 'service-b')}
+    assert operation.scopes == {
+        ("stg", "cde", "service-a"),
+        ("stg", "cde", "service-b"),
+    }
 
 
-@pytest.mark.parametrize('mutation', ['missing', 'extra-delete', 'setting', 'identity', 'observation', 'shared-consumer'])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "extra-delete",
+        "setting",
+        "identity",
+        "observation",
+        "shared-consumer",
+    ],
+)
 def check_final_rejects_unrequested_changes(tmp_path, mutation):
-    before, after = tmp_path / 'before', tmp_path / 'after'
+    before, after = tmp_path / "before", tmp_path / "after"
     sources = fixture(before)
     shutil.copytree(before, after)
     for source in sources:
-        if mutation == 'missing' and source == sources[-1]:
+        if mutation == "missing" and source == sources[-1]:
             continue
         save(deletion(after, source))
-    if mutation == 'extra-delete':
-        save(deletion(after, 'stg/cde/service-a/011'))
-    elif mutation != 'missing':
-        file = after / ('model/dev/cde/service-a.properties' if mutation == 'shared-consumer' else 'model/stg/cde/service-a.properties')
+    if mutation == "extra-delete":
+        save(deletion(after, "stg/cde/service-a/011"))
+    elif mutation != "missing":
+        file = after / (
+            "model/dev/cde/service-a.properties"
+            if mutation == "shared-consumer"
+            else "model/stg/cde/service-a.properties"
+        )
         values = dict(load_model(file).authoritative)
-        field = 'desired.row.011-001.value' if mutation in {'setting', 'shared-consumer'} else 'desired.resource.011.anchor' if mutation == 'identity' else 'observed.row.011-001.value'
-        values[field] = 'changed'
+        field = (
+            "desired.row.011-001.value"
+            if mutation in {"setting", "shared-consumer"}
+            else "desired.resource.011.anchor"
+            if mutation == "identity"
+            else "observed.row.011-001.value"
+        )
+        values[field] = "changed"
         write_model(file, values)
     with pytest.raises(ValueError):
-        verify_model_operation(before, after, tasks.model_operation(contract(sources)), changed(before, after))
+        verify_model_operation(
+            before,
+            after,
+            tasks.model_operation(contract(sources)),
+            changed(before, after),
+        )
 
 
 def check_related_detach_and_two_consumers(tmp_path):
-    before, after = tmp_path / 'before', tmp_path / 'after'
+    before, after = tmp_path / "before", tmp_path / "after"
     dependency_fixture(before)
-    file = before / 'model/stg/cde/service-b.properties'
+    file = before / "model/stg/cde/service-b.properties"
     values = dict(load_model(file).authoritative)
-    values.update(resource_values('004', 'ServiceB.Resource', 'second', 'IMPORT', [('Name', 'same-name-stg')]))
-    values.update(reference_fields('second', 'desired.row.004-001.value', 'same-name-stg', 'stg/cde/service-a/001'))
+    values.update(
+        resource_values(
+            "004", "ServiceB.Resource", "second", "IMPORT", [("Name", "same-name-stg")]
+        )
+    )
+    values.update(
+        reference_fields(
+            "second",
+            "desired.row.004-001.value",
+            "same-name-stg",
+            "stg/cde/service-a/001",
+        )
+    )
     write_model(file, values)
     dependency_refactor(before, after)
     file = after / file.relative_to(before)
-    values = {key: value for key, value in load_model(file).authoritative.items() if not key.startswith('desired.reference.second.')}
+    values = {
+        key: value
+        for key, value in load_model(file).authoritative.items()
+        if not key.startswith("desired.reference.second.")
+    }
     write_model(file, values)
-    save(deletion(after, 'stg/cde/service-a/001'))
-    detaches = [{'consumer': 'stg/cde/service-b/' + rid, 'producer': 'stg/cde/service-a/001', 'key': 'desired.row.' + rid + '-001.value'} for rid in ('002', '004')]
-    operation = tasks.model_operation(contract(['stg/cde/service-a/001'], detaches=detaches))
+    save(deletion(after, "stg/cde/service-a/001"))
+    detaches = [
+        {
+            "consumer": "stg/cde/service-b/" + rid,
+            "producer": "stg/cde/service-a/001",
+            "key": "desired.row." + rid + "-001.value",
+        }
+        for rid in ("002", "004")
+    ]
+    operation = tasks.model_operation(
+        contract(["stg/cde/service-a/001"], detaches=detaches)
+    )
     verify_model_operation(before, after, operation, changed(before, after))
-    file = after / 'model/dev/cde/service-b.properties'
+    file = after / "model/dev/cde/service-b.properties"
     values = dict(load_model(file).authoritative)
-    values['desired.row.002-001.value'] = 'unrelated'
+    values["desired.row.002-001.value"] = "unrelated"
     write_model(file, values)
     with pytest.raises(ValueError):
         verify_model_operation(before, after, operation, changed(before, after))
 
 
 def check_remaining_reference_is_warning(tmp_path):
-    before, after = tmp_path / 'before', tmp_path / 'after'
+    before, after = tmp_path / "before", tmp_path / "after"
     dependency_fixture(before)
     shutil.copytree(before, after)
-    save(deletion(after, 'stg/cde/service-a/001'))
-    warnings = verify_model_operation(before, after, tasks.model_operation(contract(['stg/cde/service-a/001'])), changed(before, after))
-    assert any(item['code'] == 'reference.mismatch' and 'absent' in item['message'] for item in warnings)
+    save(deletion(after, "stg/cde/service-a/001"))
+    warnings = verify_model_operation(
+        before,
+        after,
+        tasks.model_operation(contract(["stg/cde/service-a/001"])),
+        changed(before, after),
+    )
+    assert any(
+        item["code"] == "reference.mismatch" and "absent" in item["message"]
+        for item in warnings
+    )
 
 
-def _callback_check_fifth_save_failure_retains_first_four_fail_partial_write(original_write, path, /, destination, content, *args, **kwargs):
+def _callback_check_fifth_save_failure_retains_first_four_fail_partial_write(
+    original_write, path, /, destination, content, *args, **kwargs
+):
     if destination == path:
-        raise OSError('injected fifth leaf write failure')
+        raise OSError("injected fifth leaf write failure")
     return original_write(destination, content, *args, **kwargs)
 
 
-@pytest.mark.parametrize('failure', ['syntax', 'io'])
+@pytest.mark.parametrize("failure", ["syntax", "io"])
 def check_fifth_save_failure_retains_first_four(tmp_path, failure):
     sources = fixture(tmp_path, True)
-    name = 'tasks/parent.md'
-    paths = sorted({path.relative_to(tmp_path).as_posix() for source in sources for path in deletion(tmp_path, source)})
-    listed = '\n'.join('- `' + path + '`' for path in [name, *paths])
-    text = contract(sources) + '## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n## Modified files\n' + listed + '\n## Allowed paths\n' + listed + '\n'
+    name = "tasks/parent.md"
+    paths = sorted(
+        {
+            path.relative_to(tmp_path).as_posix()
+            for source in sources
+            for path in deletion(tmp_path, source)
+        }
+    )
+    listed = "\n".join("- `" + path + "`" for path in [name, *paths])
+    text = (
+        contract(sources)
+        + "## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n## Modified files\n"
+        + listed
+        + "\n## Allowed paths\n"
+        + listed
+        + "\n"
+    )
     tasks.start(tmp_path, name, text)
-    with patch('model.operations.verify_model_operation', side_effect=AssertionError('leaf must not run final validation')):
+    with patch(
+        "model.operations.verify_model_operation",
+        side_effect=AssertionError("leaf must not run final validation"),
+    ):
         for source in sources[:4]:
             with source_write_context(tmp_path, name) as context:
                 write_candidate(context, deletion(tmp_path, source))
-        saved = {path: path.read_bytes() for path in tmp_path.rglob('*') if path.is_file()}
+        saved = {
+            path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
+        }
         with source_write_context(tmp_path, name) as context:
             edits = deletion(tmp_path, sources[4])
             path = next(iter(edits))
-            if failure == 'syntax':
-                edits[path] = '# model-format: 2\ninvalid\n'
+            if failure == "syntax":
+                edits[path] = "# model-format: 2\ninvalid\n"
                 with pytest.raises(ValueError):
                     write_candidate(context, edits)
             else:
                 original_write = Path.write_text
-                fail_partial_write = _bind_framework_callback(_callback_check_fifth_save_failure_retains_first_four_fail_partial_write, original_write, path)
-                with patch.object(Path, 'write_text', fail_partial_write), pytest.raises(OSError, match='fifth leaf'):
+                fail_partial_write = _bind_framework_callback(
+                    _callback_check_fifth_save_failure_retains_first_four_fail_partial_write,
+                    original_write,
+                    path,
+                )
+                with (
+                    patch.object(Path, "write_text", fail_partial_write),
+                    pytest.raises(OSError, match="fifth leaf"),
+                ):
                     write_candidate(context, edits)
         assert all(path.read_bytes() == content for path, content in saved.items())
-        assert tasks.status((tmp_path / name).read_text()) == 'running'
+        assert tasks.status((tmp_path / name).read_text()) == "running"
         # Resume the same parent; each next save sees the preceding successful sources.
         for source in sources[4:]:
             with source_write_context(tmp_path, name) as context:
                 write_candidate(context, deletion(tmp_path, source))
 
 
-
-
 def check_related_retarget(tmp_path):
-    before, after = tmp_path / 'before', tmp_path / 'after'
+    before, after = tmp_path / "before", tmp_path / "after"
     dependency_fixture(before)
     shutil.copytree(before, after)
-    file = after / 'model/stg/cde/service-b.properties'
+    file = after / "model/stg/cde/service-b.properties"
     values = dict(load_model(file).authoritative)
-    values['desired.reference.origin.producerLogicalId'] = 'ServiceA_Resource_003'
+    values["desired.reference.origin.producerLogicalId"] = "ServiceA_Resource_003"
     write_model(file, values)
-    save(deletion(after, 'stg/cde/service-a/001'))
-    references = [{'consumer': 'stg/cde/service-b/002', 'field': 'value', 'property': 'ServiceB.Resource.Name',
-                   'source': 'stg/cde/service-a/001', 'destination': 'stg/cde/service-a/003'}]
-    operation = tasks.model_operation(contract(['stg/cde/service-a/001'], references))
+    save(deletion(after, "stg/cde/service-a/001"))
+    references = [
+        {
+            "consumer": "stg/cde/service-b/002",
+            "field": "value",
+            "property": "ServiceB.Resource.Name",
+            "source": "stg/cde/service-a/001",
+            "destination": "stg/cde/service-a/003",
+        }
+    ]
+    operation = tasks.model_operation(contract(["stg/cde/service-a/001"], references))
     verify_model_operation(before, after, operation, changed(before, after))
-    with pytest.raises(ValueError, match='scope|undeclared'):
-        verify_model_operation(before, after, tasks.model_operation(contract(['stg/cde/service-a/001'])), changed(before, after))
+    with pytest.raises(ValueError, match="scope|undeclared"):
+        verify_model_operation(
+            before,
+            after,
+            tasks.model_operation(contract(["stg/cde/service-a/001"])),
+            changed(before, after),
+        )
 
 
 def check_delete_issue_exception_is_service_scoped(tmp_path):
     sources = fixture(tmp_path, True)
-    name = 'tasks/parent.md'
-    text = contract(sources) + ('## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n- `stg/cde/service-c`\n'
-        '## Modified files\n- `' + name + '`\n## Allowed paths\n- `' + name + '`\n')
+    name = "tasks/parent.md"
+    text = contract(sources) + (
+        "## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n- `stg/cde/service-c`\n"
+        "## Modified files\n- `" + name + "`\n## Allowed paths\n- `" + name + "`\n"
+    )
     tasks.start(tmp_path, name, text)
-    issues = tmp_path / 'issues/stg/cde/issues.md'
+    issues = tmp_path / "issues/stg/cde/issues.md"
     issues.parent.mkdir(parents=True)
-    issues.write_text('### service-a\n1. Existing failure\n### service-b\n2. Existing failure\n### service-c\n3. Ordinary failure\n')
-    selected = {('stg', 'cde', 'service-a'), ('stg', 'cde', 'service-b')}
+    issues.write_text(
+        "### service-a\n1. Existing failure\n### service-b\n2. Existing failure\n### service-c\n3. Ordinary failure\n"
+    )
+    selected = {("stg", "cde", "service-a"), ("stg", "cde", "service-b")}
     assert task_issue_errors(tmp_path, selected, task_file=name) == []
-    errors = task_issue_errors(tmp_path, selected | {('stg', 'cde', 'service-c')}, task_file=name)
-    assert len(errors) == 1 and 'service-c' in errors[0]
+    errors = task_issue_errors(
+        tmp_path, selected | {("stg", "cde", "service-c")}, task_file=name
+    )
+    assert len(errors) == 1 and "service-c" in errors[0]
 
 
-
-
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     from support.pytest_cli import run
+
     raise SystemExit(run(__file__))

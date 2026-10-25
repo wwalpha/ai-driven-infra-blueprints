@@ -2,7 +2,11 @@
 
 from model.adapters.aws import one
 
-APIS = {('config', 'describe_configuration_recorders'), ('config', 'describe_delivery_channels'), ('iam', 'get_role')}
+APIS = {
+    ("config", "describe_configuration_recorders"),
+    ("config", "describe_delivery_channels"),
+    ("iam", "get_role"),
+}
 
 
 def sensitive(prop):
@@ -10,6 +14,20 @@ def sensitive(prop):
 
 
 def fetch(ctx, r, getter):
-    if getter == 'recorder':
-        return one(ctx.call('config', 'describe_configuration_recorders', ConfigurationRecorderNames=[r.value('Name')]).get('ConfigurationRecorders', []), 'config.describe_configuration_recorders')
-    return one(ctx.call('config', 'describe_delivery_channels', DeliveryChannelNames=[r.value('Name')]).get('DeliveryChannels', []), 'config.describe_delivery_channels')
+    if getter == "recorder":
+        return one(
+            ctx.call(
+                "config",
+                "describe_configuration_recorders",
+                ConfigurationRecorderNames=[r.value("Name")],
+            ).get("ConfigurationRecorders", []),
+            "config.describe_configuration_recorders",
+        )
+    return one(
+        ctx.call(
+            "config",
+            "describe_delivery_channels",
+            DeliveryChannelNames=[r.value("Name")],
+        ).get("DeliveryChannels", []),
+        "config.describe_delivery_channels",
+    )

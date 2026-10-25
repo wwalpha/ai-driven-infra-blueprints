@@ -108,7 +108,25 @@ VPC_DESIGN = """# Amazon VPC 詳細設計
 """
 
 
-__all__ = ['COMMENTS', 'DESIGN', 'DIRECTIONS', 'LAYOUTS', 'Path', 'REPOSITORY', 'VALIDATOR', 'VPC_DESIGN', 'expanded_design', 'layout_errors', 'load', 'model_projection', 'port_properties', 'security_group_table_lines', 'sys', 'tempfile', 'write_model']
+__all__ = [
+    "COMMENTS",
+    "DESIGN",
+    "DIRECTIONS",
+    "LAYOUTS",
+    "Path",
+    "REPOSITORY",
+    "VALIDATOR",
+    "VPC_DESIGN",
+    "expanded_design",
+    "layout_errors",
+    "load",
+    "model_projection",
+    "port_properties",
+    "security_group_table_lines",
+    "sys",
+    "tempfile",
+    "write_model",
+]
 
 
 GENERATED_MODEL = """# Synthetic authoritative Model fixture.

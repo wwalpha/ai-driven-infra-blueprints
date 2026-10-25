@@ -51,19 +51,40 @@ os = _exports_validation_runner.os
 sys = _exports_validation_runner.sys
 
 
-
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository-root", type=Path, required=True)
     parser.add_argument("--task-file", help="Selected tasks/<task-name>.md contract")
-    parser.add_argument("--write", action="store_true", help="Generate, validate and publish selected service views")
-    parser.add_argument("--all", action="store_true", help="Explicit repository-wide validation")
-    parser.add_argument("--repository-wide-iac", action="store_true", help="Retain whole-IaC checks for full/framework regression")
-    parser.add_argument("--contract-scope", action="store_true", help="Also enforce the active generation scope while validating all services")
-    parser.add_argument("--fresh", action="store_true", help="Revalidate instead of reusing successful content-addressed checks")
-    parser.add_argument("--jobs", type=int, choices=(1, 2, 4), default=4, help="Service validation workers")
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Generate, validate and publish selected service views",
+    )
+    parser.add_argument(
+        "--all", action="store_true", help="Explicit repository-wide validation"
+    )
+    parser.add_argument(
+        "--repository-wide-iac",
+        action="store_true",
+        help="Retain whole-IaC checks for full/framework regression",
+    )
+    parser.add_argument(
+        "--contract-scope",
+        action="store_true",
+        help="Also enforce the active generation scope while validating all services",
+    )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Revalidate instead of reusing successful content-addressed checks",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        choices=(1, 2, 4),
+        default=4,
+        help="Service validation workers",
+    )
     return parser.parse_args()
 
 
@@ -84,7 +105,9 @@ def main() -> int:
                 validator = profile.runcall(run_validation, root, args)
             finally:
                 profile.dump_stats(str(Path(directory) / "validate-blueprint.prof"))
-                pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
+                pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(
+                    25
+                )
         else:
             validator = run_validation(root, args)
         return validator.display_report()

@@ -2,13 +2,17 @@
 
 import re
 
-REQUIRED_NAME_TAG_TYPES = {'EC2.VPCEndpoint', 'EC2.Instance'}
+REQUIRED_NAME_TAG_TYPES = {"EC2.VPCEndpoint", "EC2.Instance"}
 
 POLICY_FORMATS = {
-    'EC2.VPCEndpoint.PolicyDocument': 'statement',
+    "EC2.VPCEndpoint.PolicyDocument": "statement",
 }
 
-SECURITY_GROUP_TYPES = {"EC2.SecurityGroup", "EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}
+SECURITY_GROUP_TYPES = {
+    "EC2.SecurityGroup",
+    "EC2.SecurityGroupIngress",
+    "EC2.SecurityGroupEgress",
+}
 
 EC2_BLOCK_DEVICE = "EC2.Instance.BlockDeviceMappings[]."
 
@@ -22,7 +26,9 @@ TAGS_PREFIX = "<!-- security-group-tags:"
 
 SECURITY_GROUP_ID_PREFIX = "<!-- security-group-id:"
 
-IDENTITY = re.compile(r'^(Inbound|Outbound) <a id="([A-Za-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) --><!-- rule-id: ([^<>]+) -->$')
+IDENTITY = re.compile(
+    r'^(Inbound|Outbound) <a id="([A-Za-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) --><!-- rule-id: ([^<>]+) -->$'
+)
 
 COMMENTS = {
     "Id": "一意に識別するID",

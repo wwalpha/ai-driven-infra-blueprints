@@ -27,8 +27,13 @@ def registry(root: Path, service: str) -> Registry:
     mappings_for = _imports_utils_aws_mappings.mappings_for
     schemas_for = _imports_utils_aws_schemas.schemas_for
     sdk_for = _imports_utils_aws_sdk.sdk_for
-    validated = mappings_for(root).validated(service, sdk_for(root), schemas_for(root),
-                                             catalogs_for(root), catalog_properties)
+    validated = mappings_for(root).validated(
+        service,
+        sdk_for(root),
+        schemas_for(root),
+        catalogs_for(root),
+        catalog_properties,
+    )
     return validated.at_root(root)
 
 

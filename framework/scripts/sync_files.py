@@ -8,17 +8,26 @@ from utils.input_cache import input_bytes, input_is_file
 
 def changed_files(expected: dict[Path, str]) -> dict[Path, str]:
     """Compare the bytes publication would write, including preserved Markdown newlines."""
-    expected = {path: markdown_newlines(path, content) if path.suffix == ".md" else content
-                for path, content in expected.items()}
-    return {path: content for path, content in expected.items()
-            if not path.is_file() or path.read_bytes() != content.encode("utf-8")}
+    expected = {
+        path: markdown_newlines(path, content) if path.suffix == ".md" else content
+        for path, content in expected.items()
+    }
+    return {
+        path: content
+        for path, content in expected.items()
+        if not path.is_file() or path.read_bytes() != content.encode("utf-8")
+    }
 
 
 def save_files(expected: dict[Path, str]) -> None:
     """Rollback this service if a filesystem write fails after successful generation."""
-    expected = {path: markdown_newlines(path, content) if path.suffix == ".md" else content
-                for path, content in expected.items()}
-    originals = {path: path.read_bytes() if path.is_file() else None for path in expected}
+    expected = {
+        path: markdown_newlines(path, content) if path.suffix == ".md" else content
+        for path, content in expected.items()
+    }
+    originals = {
+        path: path.read_bytes() if path.is_file() else None for path in expected
+    }
     written = []
     try:
         for path, content in expected.items():
@@ -31,7 +40,9 @@ def save_files(expected: dict[Path, str]) -> None:
         try:
             restore_files({path: originals[path] for path in reversed(written)})
         except OSError as rollback_error:
-            raise OSError(f"{error}; generated-file rollback failed: {rollback_error}") from error
+            raise OSError(
+                f"{error}; generated-file rollback failed: {rollback_error}"
+            ) from error
         raise
 
 

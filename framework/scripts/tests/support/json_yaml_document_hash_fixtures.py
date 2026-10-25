@@ -1,4 +1,5 @@
 """Canonical JSON document hashes and explicit environment source fixtures."""
+
 from model.projection import document_sha256 as document_sha256
 from model.projection import json_sha256 as json_sha256
 from model.sources import json_text as json_text

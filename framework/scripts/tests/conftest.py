@@ -63,4 +63,4 @@ def ordinary_publication(request):
 def pytest_sessionstart(session):
     errors = violations(Path(__file__).resolve().parent)
     if errors:
-        raise pytest.UsageError('Worktree test policy: ' + '; '.join(errors))
+        raise pytest.UsageError("Worktree test policy: " + "; ".join(errors))

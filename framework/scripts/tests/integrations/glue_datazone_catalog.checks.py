@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
 from pathlib import Path
 
@@ -19,19 +20,41 @@ from support.glue_datazone_catalog_fixtures import (
 from support.it_case_receipt import it_case
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 @it_case
 def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        (root / "project.json").write_text(__import__("json").dumps({"projectName": "synthetic", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        (root / "project.json").write_text(
+            __import__("json").dumps(
+                {
+                    "projectName": "synthetic",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            )
+            + "\n"
+        )
         glue, datazone = write_designs(root)
-        write_model(root / 'model/dev/123456789012/cloudformation-stacks.properties', {
-            'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
-            'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
-            'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
+        write_model(
+            root / "model/dev/123456789012/cloudformation-stacks.properties",
+            {
+                "desired.stack.001.name": "fixture",
+                "desired.stack.001.placementName": "fixture",
+                "desired.stack.001.template": "fixture.yaml",
+                "desired.stack.001.parameters": "fixture.json",
+                "desired.stack.001.deployOrder": "1",
+                "display.stack.001.comment": "合成Stack",
+            },
+        )
         glue_model = """# Synthetic authoritative Model fixture.
 display.service.title=# Glue 詳細設計
 display.resource.001.comment=合成 Glue catalog
@@ -149,17 +172,32 @@ desired.row.003-007.value=GLUE
 desired.row.003-007.comment=data sourceの種別
 """
         assert "| CatalogId | PENDING_DEPLOY |" in glue.read_text()
-        assert "[federated-catalog](glue.md#glue-federatedcatalog)" in datazone.read_text()
+        assert (
+            "[federated-catalog](glue.md#glue-federatedcatalog)" in datazone.read_text()
+        )
         assert "desired.resource.001.resourceType=Glue.Catalog" in glue_model
-        assert "desired.row.001-001.value=[Glue_Catalog_001](glue.md#resource-Glue_Catalog_001)" in glue_model
+        assert (
+            "desired.row.001-001.value=[Glue_Catalog_001](glue.md#resource-Glue_Catalog_001)"
+            in glue_model
+        )
         assert "observed.row.001-001.value=PENDING_DEPLOY" in glue_model
-        assert "desired.service.datazone.ownedCatalogResourceTypes=DataZone.Domain,DataZone.Project,DataZone.DataSource" in datazone_model
+        assert (
+            "desired.service.datazone.ownedCatalogResourceTypes=DataZone.Domain,DataZone.Project,DataZone.DataSource"
+            in datazone_model
+        )
         assert "desired.resource.003.resourceType=DataZone.DataSource" in datazone_model
-        assert "desired.row.003-003.value=[Glue_Catalog_001](glue.md#resource-Glue_Catalog_001)" in datazone_model
+        assert (
+            "desired.row.003-003.value=[Glue_Catalog_001](glue.md#resource-Glue_Catalog_001)"
+            in datazone_model
+        )
         assert "observed.row.003-003.value=federated-catalog" in datazone_model
         assert "desired.row.003-007.value=GLUE" in datazone_model
         for design, contents in ((glue, glue_model), (datazone, datazone_model)):
-            output = root / "model" / design.relative_to(root / "docs/designs").with_suffix(".properties")
+            output = (
+                root
+                / "model"
+                / design.relative_to(root / "docs/designs").with_suffix(".properties")
+            )
             output.parent.mkdir(parents=True, exist_ok=True)
             write_model(output, contents)
         original = {path: path.read_bytes() for path in (glue, datazone)}
@@ -171,10 +209,13 @@ desired.row.003-007.comment=data sourceの種別
         else:
             raise AssertionError("stale design accepted by generation")
         assert original == {path: path.read_bytes() for path in (glue, datazone)}
-    print("glue-datazone-catalog: PASS (schema, fixed anchors, read-only projection and stale view rejection)")
+    print(
+        "glue-datazone-catalog: PASS (schema, fixed anchors, read-only projection and stale view rejection)"
+    )
 
 
 if __name__ == "__main__":
     from support.model_sources import catalog_display
+
     with catalog_display():
         main()

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from utils.function_wrapper import FunctionWrapper
 
-_baselines = ContextVar('import_baselines', default=None)
+_baselines = ContextVar("import_baselines", default=None)
 
 
 @contextmanager
@@ -17,7 +17,7 @@ def baseline_scope():
     if _baselines.get() is not None:
         yield
         return
-    with tempfile.TemporaryDirectory(prefix='blueprint-import-baselines-') as directory:
+    with tempfile.TemporaryDirectory(prefix="blueprint-import-baselines-") as directory:
         token = _baselines.set((Path(directory).resolve(), {}))
         try:
             yield
@@ -59,7 +59,12 @@ def input_bytes(path):
 def input_text(path, encoding="utf-8", errors=None):
     if input_recorder(path) is None:
         return Path(path).read_text(encoding=encoding, errors=errors)
-    return input_bytes(path).decode(encoding, errors or "strict").replace("\r\n", "\n").replace("\r", "\n")
+    return (
+        input_bytes(path)
+        .decode(encoding, errors or "strict")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
 
 
 def input_kind(path):
@@ -67,8 +72,15 @@ def input_kind(path):
     inputs = input_recorder(path)
     if inputs is not None:
         return inputs.kind(path)
-    return ("symlink" if path.is_symlink() else "file" if path.is_file() else
-            "dir" if path.is_dir() else "missing")
+    return (
+        "symlink"
+        if path.is_symlink()
+        else "file"
+        if path.is_file()
+        else "dir"
+        if path.is_dir()
+        else "missing"
+    )
 
 
 def input_is_file(path):
@@ -127,7 +139,9 @@ def _invoke_memoized(function, /, *args, **kwargs):
     memo = _inputs.get()
     if memo is None:
         return function(*args, **kwargs)
-    key = (function, args, tuple(sorted(kwargs.items()))) if kwargs else (function, args)
+    key = (
+        (function, args, tuple(sorted(kwargs.items()))) if kwargs else (function, args)
+    )
     if key not in memo:
         memo[key] = function(*args, **kwargs)
     return memo[key]
@@ -142,11 +156,25 @@ def digest_files(root, paths, contents=None):
     digest = hashlib.sha256()
     for path in sorted(set(paths)):
         relative = path.relative_to(root)
-        if any((root.joinpath(*relative.parts[:number])).is_symlink()
-               for number in range(1, len(relative.parts) + 1)):
+        if any(
+            (root.joinpath(*relative.parts[:number])).is_symlink()
+            for number in range(1, len(relative.parts) + 1)
+        ):
             raise ValueError("symlink inputs cannot reuse validation results")
-        content = contents[path] if contents is not None else path.read_bytes() if path.is_file() else None
+        content = (
+            contents[path]
+            if contents is not None
+            else path.read_bytes()
+            if path.is_file()
+            else None
+        )
         # Length-delimited names and byte hashes distinguish missing/empty/new files.
-        digest.update(json.dumps([relative.as_posix(), None if content is None else
-                                  hashlib.sha256(content).hexdigest()]).encode("utf-8"))
+        digest.update(
+            json.dumps(
+                [
+                    relative.as_posix(),
+                    None if content is None else hashlib.sha256(content).hexdigest(),
+                ]
+            ).encode("utf-8")
+        )
     return digest.hexdigest()

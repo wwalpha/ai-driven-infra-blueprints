@@ -17,32 +17,64 @@ class Schemas:
     def __init__(self, root):
         definition_root = _imports_utils_aws_mappings.definition_root
         self.root = definition_root(root)
-        self.directory = self.root / 'framework/materials/cloudformation-schema/ap-northeast-1'
+        self.directory = (
+            self.root / "framework/materials/cloudformation-schema/ap-northeast-1"
+        )
         self._lock = Lock()
         self._cache = {}
 
     @property
     def resource_types(self):
-        return load_once(self._lock, self._cache, ('index',), lambda: json.loads(
-            input_text(self.directory / 'index.json', encoding='utf-8'))['resourceTypes'])
+        return load_once(
+            self._lock,
+            self._cache,
+            ("index",),
+            lambda: json.loads(
+                input_text(self.directory / "index.json", encoding="utf-8")
+            )["resourceTypes"],
+        )
 
     @property
     def api_paths(self):
-        return load_once(self._lock, self._cache, ('api-index',), lambda: {
-            path.stem.replace('_', '.', 1): path
-            for path in input_select(self.root / 'framework/materials/api', '*.json')})
+        return load_once(
+            self._lock,
+            self._cache,
+            ("api-index",),
+            lambda: {
+                path.stem.replace("_", ".", 1): path
+                for path in input_select(
+                    self.root / "framework/materials/api", "*.json"
+                )
+            },
+        )
 
     def cloudformation(self, resource_type):
-        return load_once(self._lock, self._cache, ('cfn', resource_type), lambda: json.loads(
-            input_text(self.directory / self.resource_types[resource_type], encoding='utf-8')))
+        return load_once(
+            self._lock,
+            self._cache,
+            ("cfn", resource_type),
+            lambda: json.loads(
+                input_text(
+                    self.directory / self.resource_types[resource_type],
+                    encoding="utf-8",
+                )
+            ),
+        )
 
     def api(self, resource_type):
-        return load_once(self._lock, self._cache, ('api', resource_type), lambda: json.loads(
-            input_text(self.api_paths[resource_type], encoding='utf-8')))
+        return load_once(
+            self._lock,
+            self._cache,
+            ("api", resource_type),
+            lambda: json.loads(
+                input_text(self.api_paths[resource_type], encoding="utf-8")
+            ),
+        )
 
 
 class ApiSchemas(Mapping):
     """Compatibility view: membership/iteration never parse schema bodies."""
+
     def __init__(self, definitions):
         self.definitions = definitions
         self._values = {}
@@ -58,8 +90,9 @@ class ApiSchemas(Mapping):
         return key in self.definitions.api_paths
 
     def __getitem__(self, key):
-        return load_once(self._lock, self._values, key,
-                         lambda: deepcopy(self.definitions.api(key)))
+        return load_once(
+            self._lock, self._values, key, lambda: deepcopy(self.definitions.api(key))
+        )
 
 
 def schemas_for(root):

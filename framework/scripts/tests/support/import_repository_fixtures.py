@@ -10,22 +10,26 @@ from pathlib import Path
 import model.importing.repository as _imports_model_importing_repository
 from utils import sealed_evidence
 
-_cases = ContextVar('import_it_repositories', default=None)
+_cases = ContextVar("import_it_repositories", default=None)
 
 
 def contents(root):
-    files = [root / 'project.json']
-    for directory in ('model', 'tasks'):
-        files.extend(path for path in (root / directory).rglob('*') if path.is_file())
-    return {path.relative_to(root).as_posix(): path.read_bytes() for path in files if path.is_file()}
+    files = [root / "project.json"]
+    for directory in ("model", "tasks"):
+        files.extend(path for path in (root / directory).rglob("*") if path.is_file())
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in files
+        if path.is_file()
+    }
 
 
 @dataclass
 class Repository:
     root: Path
-    head: str = 'synthetic-head'
-    base: str = 'synthetic-head'
-    task: str = 'tasks/import-fixture.md'
+    head: str = "synthetic-head"
+    base: str = "synthetic-head"
+    task: str = "tasks/import-fixture.md"
     baseline: dict = field(default_factory=dict)
 
     def checkpoint(self):
@@ -33,7 +37,7 @@ class Repository:
         self.base = self.head
 
 
-def checkpoint(root, *, task='tasks/import-fixture.md'):
+def checkpoint(root, *, task="tasks/import-fixture.md"):
     cases = _cases.get()
     if cases is None:
         return  # Real-Git boundary suites use the same authored seed, without this provider.
@@ -48,11 +52,13 @@ def state(root):
     return _cases.get()[root.resolve()]
 
 
-
-
 def _callback_repositories_changed(root, *, task_file=None):
     before, after = state(root).baseline, contents(root)
-    return {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+    return {
+        name
+        for name in before.keys() | after.keys()
+        if before.get(name) != after.get(name)
+    }
 
 
 @contextmanager
@@ -62,12 +68,18 @@ def repositories(monkeypatch):
     token = _cases.set(cases)
     changed = _callback_repositories_changed
     with monkeypatch.context() as patch:
-        patch.setattr(repository, 'has_baseline', lambda root: root.resolve() in cases)
-        patch.setattr(repository, 'working_revision', lambda root: state(root).head)
-        patch.setattr(repository, 'task_head', lambda root: state(root).head)
-        patch.setattr(repository, 'task_start_commit', lambda root, name: state(root).base)
-        patch.setattr(repository, 'changed_paths', changed)
-        patch.setattr(repository, 'publication_revision', lambda root, name: (str(root.resolve()), name, state(root).head))
+        patch.setattr(repository, "has_baseline", lambda root: root.resolve() in cases)
+        patch.setattr(repository, "working_revision", lambda root: state(root).head)
+        patch.setattr(repository, "task_head", lambda root: state(root).head)
+        patch.setattr(
+            repository, "task_start_commit", lambda root, name: state(root).base
+        )
+        patch.setattr(repository, "changed_paths", changed)
+        patch.setattr(
+            repository,
+            "publication_revision",
+            lambda root, name: (str(root.resolve()), name, state(root).head),
+        )
         try:
             yield cases
         finally:
@@ -81,25 +93,21 @@ def repositories(monkeypatch):
 
 @contextmanager
 def fixture():
-    with tempfile.TemporaryDirectory(prefix='model-publication-') as directory:
-        root = Path(directory).resolve() / 'baseline'
+    with tempfile.TemporaryDirectory(prefix="model-publication-") as directory:
+        root = Path(directory).resolve() / "baseline"
         root.mkdir()
         yield root
 
 
 def start(root):
-    checkpoint(root, task='tasks/example.md')
-    target = root.with_name('candidate')
+    checkpoint(root, task="tasks/example.md")
+    target = root.with_name("candidate")
     target.mkdir()
-    (target / 'tasks').mkdir()
-    shutil.copyfile(root / 'project.json', target / 'project.json')
-    shutil.copytree(root / 'model', target / 'model')
-    checkpoint(target, task='tasks/example.md')
-    return target, {'task_file': 'tasks/example.md', 'start': state(target).base}
-
-
-
-
+    (target / "tasks").mkdir()
+    shutil.copyfile(root / "project.json", target / "project.json")
+    shutil.copytree(root / "model", target / "model")
+    checkpoint(target, task="tasks/example.md")
+    return target, {"task_file": "tasks/example.md", "start": state(target).base}
 
 
 def _publication_workspace_begin(root, relative):
@@ -107,7 +115,7 @@ def _publication_workspace_begin(root, relative):
 
 
 def _publication_workspace_advance(target):
-    state(target).head = 'changed-head'
+    state(target).head = "changed-head"
 
 
 @contextmanager

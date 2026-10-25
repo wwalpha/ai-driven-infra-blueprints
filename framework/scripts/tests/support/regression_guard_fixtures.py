@@ -28,4 +28,16 @@ def rejected(operation, exception=ValueError):
     raise AssertionError("unsafe authorization/service_source was accepted")
 
 
-__all__ = ['Path', 'SimpleNamespace', 'guard', 'io', 'json', 'patch', 'redirect_stderr', 'redirect_stdout', 'rejected', 'sys', 'tempfile']
+__all__ = [
+    "Path",
+    "SimpleNamespace",
+    "guard",
+    "io",
+    "json",
+    "patch",
+    "redirect_stderr",
+    "redirect_stdout",
+    "rejected",
+    "sys",
+    "tempfile",
+]

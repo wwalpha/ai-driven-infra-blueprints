@@ -11,9 +11,9 @@ from integrations.parameter_cases import run
 from support.it_case_receipt import module_complete
 
 if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+    raise SystemExit("Focused checks require assertions; run without -O")
 
-for service in ('athena', 'sqs'):
+for service in ("athena", "sqs"):
     run(service)
 
 module_complete(__file__)
