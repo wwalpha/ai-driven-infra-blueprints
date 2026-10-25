@@ -18,8 +18,10 @@ import sync_runtime
 from comparison.result import redacted
 from design.document import (
     DisplayMismatchError,
+    SavedIdentityError,
     model_reference_tables,
     model_resource_reference_tables,
+    require_saved_identity,
 )
 from issues.aggregate import MAX_GROUPS
 from issues.artifact import detail_payload
@@ -40,7 +42,7 @@ from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context
 from validation import design, design_links, design_tables
-from validation.diagnostics import display_diagnostics
+from validation.diagnostics import ArtifactReferences, display_diagnostics
 from validation.findings import Findings, finish_result
 
 if not __debug__:
@@ -172,6 +174,8 @@ def test_real_identity_errors_stay_invalid(pipeline, field, check_display):
             "resource-logical-id: CodePipeline_Pipeline_001", "resource-logical-id:"
         )
     path.write_text(text, encoding="utf-8")
+    with pytest.raises(SavedIdentityError):
+        require_saved_identity(text, expected)
     findings = Findings(root)
     design.check_resource_names(
         {path: ("codepipeline", ("CodePipeline.Pipeline",))},
@@ -185,6 +189,117 @@ def test_real_identity_errors_stay_invalid(pipeline, field, check_display):
     )
     assert findings.status == "FAIL"
     assert {item.code for item in findings.diagnostics} == {"design.identity.invalid"}
+
+
+@pytest.mark.parametrize("error_type", [ValueError, OSError])
+@pytest.mark.parametrize("stage", ["model_reference_tables", "expanded_display_rows"])
+def test_unrelated_identity_expansion_failure_is_processing(
+    pipeline, error_type, stage
+):
+    root, values, path, _, expected = pipeline
+    path.write_text(expected, encoding="utf-8")
+    target = (
+        design._design_document
+        if stage == "model_reference_tables"
+        else design._dependency_design_layout
+    )
+    findings = Findings(root)
+    scope = {("qa", "team", "codepipeline")}
+    with patch.object(target, stage, side_effect=error_type("unrelated failure")):
+        findings.evaluate(
+            "design.identity",
+            scope,
+            partial(
+                design.check_resource_names,
+                {},
+                [path],
+                design_sources={path: values},
+                findings=findings,
+                root=root,
+                scope=scope,
+                definitions_root=FRAMEWORK,
+            ),
+        )
+    assert findings.status == "FAIL" and not findings.diagnostics
+    assert len(findings.processing_errors) == 1
+    failure = findings.processing_errors[0]
+    assert failure["code"] == "mechanical.processing"
+    assert failure["exception"] == error_type.__name__
+    assert failure["scope"] == ["qa/team/codepipeline"]
+    assert not findings.result("design.identity", scope).metadata["complete"]
+
+
+@pytest.mark.parametrize("document_message", ["same failure", "failure"])
+def test_resource_message_cannot_hide_document_not_run(pipeline, document_message):
+    root, values, path, _, _ = pipeline
+    document_error = ValueError(document_message)
+    resource_error = ValueError("same failure")
+    findings = Findings(root)
+    with (
+        patch.object(
+            design_tables._design_document,
+            "model_reference_tables",
+            side_effect=document_error,
+        ),
+        patch.object(
+            design_tables._design_document,
+            "model_resource_reference_tables",
+            return_value=[("saved-001", None, resource_error)],
+        ),
+    ):
+        design_tables.check_design_tables(
+            {},
+            set(),
+            {},
+            {},
+            [path],
+            design_sources={path: values},
+            findings=findings,
+            markdown_design_artifacts=ArtifactReferences(),
+            markdown_iam_policy_artifacts={},
+            root=root,
+            schema_catalog=None,
+            scope={("qa", "team", "codepipeline")},
+            definitions_root=FRAMEWORK,
+        )
+    blocked = {item["resource"]: item for item in findings.unverified}
+    assert set(blocked) == {"document", "CodePipeline_Pipeline_001"}
+    assert blocked["document"]["checks"] == ["document reference integrity"]
+    assert blocked["document"]["message"] == document_message
+    assert blocked["CodePipeline_Pipeline_001"]["message"] == str(resource_error)
+    assert all(item["status"] == "NOT_RUN" for item in blocked.values())
+    assert all(item["scope"] == ["qa/team/codepipeline"] for item in blocked.values())
+    assert findings.status == "FAIL"
+    assert (
+        finish_result(
+            findings.result("design.tables.semantic", {("qa", "team", "codepipeline")})
+        ).status
+        == "NOT_RUN"
+    )
+
+
+@pytest.mark.parametrize("saved", [r"`left\|old`", r"`left\\\|old`", r"`left\\`"])
+def test_escaped_pipe_retains_property_display_evidence(tmp_path, saved):
+    path = tmp_path / "docs/designs/qa/team/codepipeline.md"
+    wanted = r"`left\|new`"
+    expected = (
+        "<!-- resource-logical-id: CodePipeline_Pipeline_001 -->\n"
+        '<a id="saved-001"></a>\n'
+        "### CodePipeline.Pipeline: pipeline\n"
+        "| No. | Property | Value | Source / Comment |\n"
+        "| ---: | --- | --- | --- |\n"
+        f"| 1 | Name | {wanted} | 名前 |\n"
+    )
+    error = DisplayMismatchError(path, expected.replace(wanted, saved), expected)
+    assert not error.other_changes and len(error.positions) == 1
+    position = error.positions[0]
+    assert position["resourceLogicalId"] == "CodePipeline_Pipeline_001"
+    assert position["anchor"] == "saved-001" and position["property"] == "Name"
+    assert position["savedDisplay"] == saved and position["expectedDisplay"] == wanted
+    changed = expected.replace(wanted, saved) + "独立した変更\n"
+    other = DisplayMismatchError(path, changed, expected)
+    assert other.other_changes
+    assert {item["property"] for item in other.positions} == {"Name", "$document"}
 
 
 def test_missing_producer_stays_missing(pipeline):

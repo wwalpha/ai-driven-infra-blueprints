@@ -573,7 +573,7 @@ def check_resource_names(
             ):
                 findings.add_diagnostic(diagnostic)
             continue
-        except (OSError, ValueError) as error:
+        except _design_document.SavedIdentityError as error:
             findings.add_diagnostic(
                 Diagnostic.create(
                     root,
@@ -583,6 +583,11 @@ def check_resource_names(
                     source_path=path,
                     message=f"invalid resource identity: {findings.relative(path)}: {error}",
                 )
+            )
+            continue
+        except (OSError, ValueError) as error:
+            findings.processing_failure(
+                "design.identity", {(*path.parent.parts[-2:], path.stem)}, error
             )
             continue
         anchor = ""

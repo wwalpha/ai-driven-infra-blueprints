@@ -35,7 +35,7 @@ from design.layout_schema import ALIGNMENT as ALIGNMENT
 from design.layout_schema import ANCHOR as ANCHOR
 from design.layout_schema import CHILD as CHILD
 from design.layout_schema import CHILD_NAME as CHILD_NAME
-from design.layout_schema import COMPACT_SOURCE
+from design.layout_schema import COMPACT_SOURCE, SavedIdentityError
 from design.layout_schema import DETAILS_HEADING as DETAILS_HEADING
 from design.layout_schema import GROUPED as GROUPED
 from design.layout_schema import GROUPED_RESOURCE_TYPES as GROUPED_RESOURCE_TYPES
@@ -124,21 +124,23 @@ def resource_logical_ids(lines: list[str]) -> dict[str, str]:
             continue
         if marker := RESOURCE_ID.fullmatch(line):
             if pending:
-                raise ValueError("duplicate resource logical ID metadata")
+                raise SavedIdentityError("duplicate resource logical ID metadata")
             pending, anchored = marker.group(1), ""
         elif pending and ANCHOR.fullmatch(line) and not anchored:
             anchored = ANCHOR.fullmatch(line).group(1)
         elif pending and (RESOURCE.fullmatch(line)) and anchored:
             if anchored in identities or pending in identities.values():
-                raise ValueError("duplicate resource logical ID metadata")
+                raise SavedIdentityError("duplicate resource logical ID metadata")
             identities[anchored] = pending
             pending, anchored = "", ""
         elif pending or line.startswith("<!-- resource-logical-id:"):
-            raise ValueError(
+            raise SavedIdentityError(
                 "resource logical ID metadata must precede its anchor and heading"
             )
     if pending:
-        raise ValueError("resource logical ID metadata lacks its anchor and heading")
+        raise SavedIdentityError(
+            "resource logical ID metadata lacks its anchor and heading"
+        )
     return identities
 
 

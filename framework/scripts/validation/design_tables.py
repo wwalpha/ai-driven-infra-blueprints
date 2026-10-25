@@ -654,21 +654,15 @@ def check_design_tables(
                     findings=findings,
                 )
                 continue
-            failures = "\n".join(
-                str(failure) for _, _, failure in recovered if failure is not None
+            # Resource recovery cannot prove document-wide reference integrity.
+            design_dependency_not_run(
+                path,
+                "document",
+                "invalid Model reference display",
+                error,
+                findings=findings,
+                checks=("document reference integrity",),
             )
-            if (
-                isinstance(error, _design_document.DisplayMismatchError)
-                or str(error) not in failures
-            ):
-                design_dependency_not_run(
-                    path,
-                    "document",
-                    "invalid Model reference display",
-                    error,
-                    findings=findings,
-                    checks=("document reference integrity",),
-                )
             available_anchors = set()
             reference_tables = []
             for anchor, tables, failure in recovered:

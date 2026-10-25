@@ -10,6 +10,11 @@ from utils.reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROP
 
 from design.services.definitions.config import RESOURCE_ANCHOR_KINDS
 
+
+class SavedIdentityError(ValueError):
+    """Saved Resource logical IDs, anchors or ownership are invalid."""
+
+
 LAYOUT_PATH = Path(__file__).resolve().parents[2] / "rules" / "resource-layout.json"
 
 LAYOUTS = json.loads(input_text(LAYOUT_PATH, encoding="utf-8"))

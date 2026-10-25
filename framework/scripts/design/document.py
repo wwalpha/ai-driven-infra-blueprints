@@ -34,7 +34,14 @@ from validation.findings import Findings, FindingsError
 import design.array_display as _array_display
 import design.layout as _dependency_design_layout
 import design.services.ec2.security_groups as _dependency_security_group_tables
-from design.layout_schema import ANCHOR, CHILD, GROUPED, HEADER, RESOURCE
+from design.layout_schema import (
+    ANCHOR,
+    CHILD,
+    GROUPED,
+    HEADER,
+    RESOURCE,
+    SavedIdentityError,
+)
 
 
 class DisplayMismatchError(ValueError):
@@ -47,15 +54,15 @@ class DisplayMismatchError(ValueError):
 
 def _display_rows(document):
     anchor, logical = "", ""
-    identities = _dependency_design_layout.resource_logical_ids(
-        document.splitlines()
-    )
+    identities = _dependency_design_layout.resource_logical_ids(document.splitlines())
     counts, result = Counter(), {}
     for number, line in enumerate(document.splitlines()):
         if match := ANCHOR.fullmatch(line):
             anchor = match[1]
             logical = identities.get(anchor, logical)
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        cells = [
+            cell.strip() for cell in re.findall(r"((?:\\.|[^\\|])*)\|", line.strip())
+        ][1:]
         if len(cells) != 4 or not cells[0].isdigit():
             continue
         counts[anchor, cells[1]] += 1
@@ -165,7 +172,7 @@ def _saved_identity(document):
 
 def require_saved_identity(text, expected):
     if _saved_identity(text) != _saved_identity(expected):
-        raise ValueError(
+        raise SavedIdentityError(
             "Markdown Resource logicalId/anchor/ownership differs from Model"
         )
 
