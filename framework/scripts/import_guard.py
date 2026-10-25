@@ -365,7 +365,12 @@ def require_import_changes(
         scope = active_scope(root, contract_file=contract_file)
         if final_candidate is not None:
             scope = set(final_candidate.scope)
-        if operation is None and refactor is None and scope is not None:
+        if (
+            not generation
+            and operation is None
+            and refactor is None
+            and scope is not None
+        ):
             require_no_issues = _imports_issue_gate.require_no_issues
             require_no_issues(root, scope, contract_file=contract_file)
         warnings.extend(

@@ -16,7 +16,8 @@ import sync_runtime
 import task_contract as tasks
 from issue_gate import remediation_scope
 from issues.publication import save
-from support.import_model_fixtures import operation_contract
+from model.sources import load_model
+from support.import_model_fixtures import dependency_fixture, operation_contract
 from support.issue_gate_fixtures import (
     Path,
     issue_errors,
@@ -26,6 +27,7 @@ from support.issue_gate_fixtures import (
     subprocess,
     sys,
 )
+from support.model_sources import write_model
 from support.validator import MODULE as validator
 from utils.script_loader import module
 from validation.findings import Findings
@@ -326,53 +328,126 @@ def check_resume_issue_gate(deletion_gate, deletion):
         assert tasks.status(path.read_text()) == "suspend"
 
 
+@pytest.fixture
+def generation_model(tmp_path, monkeypatch):
+    dependency_fixture(tmp_path)
+    model = tmp_path / "model/stg/cde/service-b.properties"
+    values = dict(load_model(model).authoritative)
+    issues = tmp_path / "issues/stg/cde/issues.md"
+    issues.parent.mkdir(parents=True)
+    issues.write_text("### service-b\n1. 既存のIssue\n", encoding="utf-8")
+    git = _bind_framework_callback(
+        _callback_check_report_commit_independence_git, tmp_path
+    )
+    git("init", "--quiet", "--initial-branch=master")
+    git("add", ".")
+    git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "initial")
+    name = "tasks/generation.md"
+    sources = {p.relative_to(tmp_path).as_posix() for p in load_model(model).files}
+    listed = "".join(f"- `{p}`\n" for p in sorted(sources | {name}))
+    text = (
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+        "- Workflow: `update`\n## Validation scope\n"
+        "- `stg/cde/service-a`\n- `stg/cde/service-b`\n"
+        "## Modified files\n" + listed + "## Allowed paths\n" + listed
+    )
+    tasks.start(tmp_path, name, text)
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    values["display.resource.002.comment"] = "生成対象の変更"
+    write_model(model, values)
+    changed = import_guard.changed_sources(tmp_path)
+    assert changed and changed <= sources
+    assert set(git("diff", "--name-only").splitlines()) == changed
+    return tmp_path / name, model, values, issues
+
+
 @pytest.mark.parametrize("entrypoint", ["cli", "runtime"])
 @pytest.mark.parametrize(
     "inventory",
     [
-        "### vpc\n1. 既存のIssue\n",
+        "### service-b\n1. 既存のIssue\n",
         "### s3\n1. 他サービスのIssue\n",
         "所有不明のIssue",
         "未解決issueなし",
     ],
 )
-def check_generation_ignores_issues(deletion_gate, entrypoint, inventory):
-    path, text, issues, scope = deletion_gate
+def check_generation_ignores_issues(generation_model, entrypoint, inventory):
+    path, model, values, issues = generation_model
     root = path.parent.parent
-    path.write_text(
-        text.replace("- Model operation: `import-delete`\n", "").replace(
-            "## Model delete sources\n- `stg/cde/vpc/009`\n", ""
-        ),
-        encoding="utf-8",
-    )
+    scope = {("stg", "cde", service) for service in ("service-a", "service-b")}
     issues.write_text(inventory, encoding="utf-8")
     original = issues.read_bytes()
     runner = module("sync-model.py", "issue_gate_sync_cli")
     with (
-        mock.patch.object(import_guard, "require_import_changes"),
         mock.patch.object(sync_runtime, "run_generation", return_value=0) as generate,
         mock.patch.object(runner, "run_generation", generate),
         mock.patch.object(runner, "generation_context", return_value=nullcontext()),
     ):
         if entrypoint == "cli":
             assert (
-                runner.run(["--write", "--scope", "stg/cde/vpc"], repository_root=root)[
-                    0
-                ]
+                runner.run(
+                    [
+                        "--write",
+                        "--scope",
+                        "stg/cde/service-a",
+                        "--scope",
+                        "stg/cde/service-b",
+                    ],
+                    repository_root=root,
+                )[0]
                 == 0
             )
         else:
-            assert sync_runtime._sync(root, True, "stg", "cde", ["vpc"]) == 0
+            assert (
+                sync_runtime._sync(root, True, "stg", "cde", ["service-a", "service-b"])
+                == 0
+            )
         assert generate.call_args.args[:2] == (root, scope)
         generate.side_effect = ValueError("new candidate validation error")
         if entrypoint == "cli":
             code, diagnostic = runner.run(
-                ["--write", "--scope", "stg/cde/vpc"], repository_root=root
+                [
+                    "--write",
+                    "--scope",
+                    "stg/cde/service-a",
+                    "--scope",
+                    "stg/cde/service-b",
+                ],
+                repository_root=root,
             )
             assert code == 1 and "new candidate validation error" in diagnostic
         else:
             with pytest.raises(ValueError, match="new candidate validation error"):
-                sync_runtime._sync(root, True, "stg", "cde", ["vpc"])
+                sync_runtime._sync(root, True, "stg", "cde", ["service-a", "service-b"])
+    assert issues.read_bytes() == original
+
+
+@pytest.mark.parametrize("failure", ["issue", "allowed", "scope", "reference"])
+def check_generation_preserves_model_guards(generation_model, failure):
+    path, model, values, issues = generation_model
+    root = path.parent.parent
+    original = issues.read_bytes()
+    if failure == "allowed":
+        path.write_text(
+            path.read_text(encoding="utf-8").split("## Allowed paths")[0]
+            + f"## Allowed paths\n- `{path.relative_to(root).as_posix()}`\n",
+            encoding="utf-8",
+        )
+        diagnostic = "Modified file is outside Allowed paths"
+    elif failure == "scope":
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("- `stg/cde/service-b`\n", ""),
+            encoding="utf-8",
+        )
+        diagnostic = "Model changes require all affected services in Validation scope"
+    elif failure == "reference":
+        values["desired.reference.origin.producerLogicalId"] = "ServiceA_Resource_999"
+        write_model(model, values)
+        diagnostic = "invalid candidate reference"
+    else:
+        diagnostic = "unresolved issue"
+    with pytest.raises(ValueError, match=diagnostic):
+        import_guard.require_import_changes(root, generation=failure != "issue")
     assert issues.read_bytes() == original
 
 
