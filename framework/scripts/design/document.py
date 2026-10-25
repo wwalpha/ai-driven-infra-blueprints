@@ -363,7 +363,7 @@ def model_resource_reference_tables(path, text, values, root):
                 )
             actual, wanted = saved[anchor][1], expected_blocks[0]
             if actual != wanted:
-                if anchor == next(reversed(saved)) and not notes_separated:
+                if notes and anchor == next(reversed(saved)) and not notes_separated:
                     if actual[: len(wanted)] == wanted:
                         raise ValueError(
                             "Service note/Resource display boundary unavailable: "

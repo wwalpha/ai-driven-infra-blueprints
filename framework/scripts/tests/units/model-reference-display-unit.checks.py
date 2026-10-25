@@ -442,11 +442,19 @@ def check_service_notes_are_outside_resource_display(
 
 @pytest.mark.parametrize("change", ["attribute", "policy", "row"])
 @pytest.mark.parametrize("last", [False, True])
-@pytest.mark.parametrize("note_changed", [False, True])
+@pytest.mark.parametrize(
+    "notes,note_changed", [(False, False), (True, False), (True, True)]
+)
 def check_resource_differences_survive_service_notes(
-    noted_policies, change, last, note_changed
+    noted_policies, change, last, notes, note_changed
 ):
     path, _, values = noted_policies
+    if not notes:
+        values = {
+            key: value
+            for key, value in values.items()
+            if not key.startswith("desired.note.")
+        }
     markdown = generate_markdown(path, values, FRAMEWORK)
     before, after = markdown.split(
         "<!-- resource-logical-id: IAM_ManagedPolicy_002 -->"
@@ -470,6 +478,7 @@ def check_resource_differences_survive_service_notes(
         not last,
         last or note_changed,
     ]
+    assert isinstance(recovered[int(last)][2], DisplayMismatchError)
     if note_changed and not last:
         assert "boundary unavailable" in str(recovered[-1][2])
     with pytest.raises(ValueError, match="Model expected display") as caught:
@@ -516,8 +525,11 @@ def check_service_note_differences_remain_document_failures(
     recovered = model_resource_reference_tables(path, changed, values, FRAMEWORK)
     assert len(recovered) == 2
     assert recovered[0][2] is None
-    assert "boundary unavailable" in str(recovered[1][2])
-    assert not isinstance(recovered[1][2], DisplayMismatchError)
+    if model_changed and change in {"deleted", "trailing"}:
+        assert isinstance(recovered[1][2], DisplayMismatchError)
+    else:
+        assert "boundary unavailable" in str(recovered[1][2])
+        assert not isinstance(recovered[1][2], DisplayMismatchError)
     with pytest.raises(ValueError, match="Model expected display"):
         model_reference_tables(path, changed, tuple(values.items()), FRAMEWORK)
     path.parent.mkdir(parents=True)
@@ -627,7 +639,7 @@ def check_last_resource_additions_are_not_ignored(noted_policies, notes, additio
         path, markdown, values if notes else without_notes, FRAMEWORK
     )
     assert recovered[0][2] is None
-    assert isinstance(recovered[1][2], ValueError)
+    assert isinstance(recovered[1][2], DisplayMismatchError), recovered[1][2]
     with pytest.raises(ValueError):
         model_reference_tables(
             path,
