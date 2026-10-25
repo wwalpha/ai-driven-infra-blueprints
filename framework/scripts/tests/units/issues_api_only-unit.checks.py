@@ -57,10 +57,10 @@ def check_api_record_classification():
         assert api['cause'] == {'kind': 'cloudformation-unsupported', 'resource_type': kind,
                                 'implementation_status': 'unverified'}
         stats = iac_summary(records, 'dev', '123456789012', ['s3'])
-        assert stats['records'] == dict(difference=0, uncompared=1, error=0, matched=0, excluded=0)
+        assert stats['records'] == dict(difference=0, uncompared=1, error=0, matched=0, deferred=0, excluded=0)
         assert stats['categories']['CFn非対応・比較対象外'] == stats['proven_causes'] == 1
         assert stats['categories']['処理エラー'] == stats['categories']['原因未確定'] == 0
-        artifact = dict(version=2, ordinary=[], judgments=[], naming={'names': []},
+        artifact = dict(version=3, ordinary=[], judgments=[], naming={'names': []},
                         **aggregate(records, 'dev', '123456789012', ['s3']))
         assert summary(artifact)['iac_status'] == 'partial'
         report = iac_report('dev', '123456789012', ['s3'], records)
@@ -71,7 +71,7 @@ def check_api_record_classification():
         records = api_comparison(resource).run()
         failure, = records
         assert failure['category'] == 'error' and failure.get('cause', {}).get('kind') != 'cloudformation-unsupported'
-        artifact = dict(version=2, **aggregate(records, 'dev', '123456789012', ['s3']))
+        artifact = dict(version=3, **aggregate(records, 'dev', '123456789012', ['s3']))
         assert summary(artifact)['iac_status'] == 'error'
 
 

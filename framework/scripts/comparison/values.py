@@ -21,6 +21,7 @@ from utils.json_format import policy_json as strict_json
 from utils.reference_contracts import reference_context
 
 from . import registry
+from .deferral import ImportReferenceDeferred
 
 _CALLBACK_DEFAULT = object()
 
@@ -76,11 +77,14 @@ def _callback__desired_value_references_86(desired_reference, evaluate, kind, lo
             return desired_reference(service, item, kind, path, attribute, context)
         except (Blocked, KeyError, OSError, ValueError, ImportError, TypeError, IndexError) as error:
             failures.append((path, pointer, error))
+            if operands and isinstance(error, ImportReferenceDeferred):
+                producer = error.iac_cause['producer']
+                return ResourceReference({'$resource': [producer['service'], producer['resource']], '$attribute': producer['attribute']})
             return Expression('Unverified', [])
     if isinstance(item, (ResourceReference, Expression)) or is_reference(item):
         return item
     if isinstance(item, list):
-        return [_callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, operands, path + '[]', context, pointer + '/' + str(index))
+        return [_callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, operands, path + ('' if operands else '[]'), context, pointer + '/' + str(index))
                 for index, child in enumerate(item)]
     if isinstance(item, dict):
         if local_comparison:
@@ -89,11 +93,16 @@ def _callback__desired_value_references_86(desired_reference, evaluate, kind, lo
             if intrinsic(item) and not operands:
                 expression = {key: _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, True, path, context, pointer + '/' + key)
                               for key, child in item.items()}
-                return project_document(expression,
+                before = len(warnings)
+                projected = project_document(expression,
                     evaluate=(lambda value: evaluate(stack, value)) if stack is not None else None,
                     unresolved=lambda value: Expression('Unverified', [value]),
                     warnings=warnings, property_name=row['property'],
                     model_path=model_path, pointer=pointer)
+                if len(warnings) == before and any(isinstance(error, ImportReferenceDeferred)
+                        and (location == pointer or location.startswith(pointer + '/')) for _, location, error in failures):
+                    return Expression('Unverified', [])
+                return projected
         context = reference_context(path, item, context)
         return {key: _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field if operands else key, operands, path + '.' + key, context,
                                 pointer + '/' + key.replace('~', '~0').replace('/', '~1')) for key, child in item.items()}
@@ -110,7 +119,7 @@ def _desired_value(service, row, kind, *, local_comparison, desired_reference, p
         attribute = getattr(registry.rules(kind), 'DIRECT_ATTRIBUTES', {}).get(row['property'])
         node = property_schema(kind, prop)
         if normalize is not None:
-            selected = normalize(literal(raw))
+            selected = normalize(literal(raw), failures)
             if isinstance(selected, Expression):
                 if node.get('type') == 'array':
                     return [selected]
@@ -135,7 +144,7 @@ def _desired_value(service, row, kind, *, local_comparison, desired_reference, p
                 raise Blocked('property type is not uniquely determined')
             value = boolean_literal(value) if schema_type == 'boolean' else strict_json(value)
     if normalize is not None:
-        value = normalize(value)
+        value = normalize(value, failures)
     policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}
     references = _bind_framework_callback(_callback__desired_value_references_86, desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, '', False, '', context, '')
     path = row['property'].removeprefix(kind + '.')

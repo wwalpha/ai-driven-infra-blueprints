@@ -84,17 +84,17 @@ def check_explicit_plan():
         assert plan(comparison)==([], [{'status':'not_applicable','reason':'Terraform scope'}])
 
 
-def fixture_v2(count=150):
+def artifact_fixture(count=150):
     records=[dict(category='difference',service='s3',resource=str(i),property='S3.Bucket.X',reason='value mismatch',
                   desired='a',actual='b',stack='S',iac={'path':'template.yaml'}) for i in range(count)]
-    artifact=dict(version=2,root='/fixture',scan_id='a'*32,naming_context_id=identifier({}),naming_context={},
+    artifact=dict(version=3,root='/fixture',scan_id='a'*32,naming_context_id=identifier({}),naming_context={},
         environment='dev',target='team',services=['s3'],ordinary=[],naming={'names':[]},judgments=[],human_confirmations=[],
         **aggregate(records,'dev','team',['s3']))
     return artifact
 
 
-def check_v2_index_and_status():
-    artifact=fixture_v2()
+def check_artifact_index_and_status():
+    artifact=artifact_fixture()
     validate_artifact(artifact)
     with patch('issues.aggregate.iac_dataset', side_effect=AssertionError('second aggregation')):
         assert summary(artifact)['iac_differences']==150
@@ -268,7 +268,7 @@ def check_scan_changes_without_cache():
                     assert not cache.save.called
                 else:
                     result=scan(_state_check_scan_cache_guard_order_256.root,'dev','team',['codepipeline'])
-                    assert result['version']==2 and result['checks']==20
+                    assert result['version']==3 and result['checks']==20
                     assert events == ['aggregation'] and not cache.save.called
                     assert not {'fingerprint', 'service_keys', 'lint_dependencies'} & result.keys()
 

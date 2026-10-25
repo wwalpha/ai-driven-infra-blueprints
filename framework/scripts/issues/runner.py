@@ -129,7 +129,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     begin = time.perf_counter()
     data = aggregate(iac, environment, directory, services, comparison.display_differences, redact=comparison.redacted)
     aggregation_seconds = time.perf_counter() - begin
-    artifact = dict(version=2, root=str(root), scan_id=scan_id, naming_context_id=context_id, naming_context=naming_context,
+    artifact = dict(version=3, root=str(root), scan_id=scan_id, naming_context_id=context_id, naming_context=naming_context,
         environment=environment, target=directory, services=sorted(set(services)),
         executed_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), ordinary=ordinary, naming=naming,
         judgments=judgments, warnings=warnings, human_confirmations=[safe_text(line) for line in human],

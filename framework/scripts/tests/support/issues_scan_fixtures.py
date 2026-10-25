@@ -236,7 +236,7 @@ def summary_fixture():
     names = [dict(id=identifier(['name', i]), service='s3', resource=f'{i:04d}', property='BucketName', value=f'bucket-app-dev-data{i}', resourceMode='CREATE', comment='human-confirmed application=app', pattern_review='required') for i in range(1000)]
     judgments = [dict(id=identifier(['judgment', i]), kind='human-components/exceptions', service='s3', materials='Confirm application component and exception scope') for i in range(100)]
     context = dict(rules={}, target_context={}, review_policy='review all')
-    artifact = dict(version=2, scan_id='a'*32, naming_context=context, naming_context_id=identifier(context),
+    artifact = dict(version=3, scan_id='a'*32, naming_context=context, naming_context_id=identifier(context),
                     environment='dev', target='cde', services=['glue', 'iam', 's3'],
                     ordinary=[], naming=dict(names=names),
                     judgments=judgments, human_confirmations=[], checks=1, executed_at='2026-10-08T00:00:00Z',

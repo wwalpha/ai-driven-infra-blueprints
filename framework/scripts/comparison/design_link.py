@@ -16,14 +16,14 @@ from utils.reference_contracts import (
 from . import registry
 
 
-def desired_reference(service, value, kind, path, attribute=None, context=None, *, local_comparison, reference, resource_type, forms_for):
+def desired_reference(service, value, kind, path, attribute=None, context=None, *, local_comparison, reference, resource_type, forms_for, protect_import):
     path = re.sub(r'\[\d+\]', '[]', path)
     context = context or {}
     declared = receiving_contract(kind + '.' + path, context) if local_comparison else {}
     if local_comparison and not declared and requires_context(kind + '.' + path, context):
         raise Blocked(f'reference context or receiving property contract unproven: {kind}.{path}')
     if local_comparison and not isinstance(value, ResourceReference) and registry.kms_forms(kind, path) is not None:
-        symbol = reference(service, value)
+        symbol = reference(service, value, protect_import=False)
         refservice, identity = symbol['$resource']
         refkind = resource_type(symbol)
         if registry.kms_forms(kind, path) <= {'KeyArn', 'AliasArn'}:
@@ -49,7 +49,7 @@ def desired_reference(service, value, kind, path, attribute=None, context=None, 
             attribute = 'Arn'
         elif attribute is None and forms_for(kind, path) is None:
             raise Blocked(f'reference property contract unproven: {kind}.{path}')
-    symbol = reference(service, value, attribute, consumer_property=kind + '.' + path)
+    symbol = reference(service, value, attribute, protect_import=False)
     forms = forms_for(kind, path) if local_comparison else None
     refservice, identity = symbol['$resource']
     refkind = resource_type(symbol)
@@ -66,6 +66,8 @@ def desired_reference(service, value, kind, path, attribute=None, context=None, 
     if declared and (refkind not in declared or symbol['$attribute'] not in
                      {reference_attribute(refkind, form) for form in declared[refkind]}):
         raise Blocked(f'reference target or attribute is outside receiving property contract: {kind}.{path}')
+    # IMPORT may wait only after every receiving/producer contract has passed.
+    symbol = protect_import(symbol, kind + '.' + path if declared or contract or forms else None)
     suffix = ATTRIBUTE_SUFFIXES.get((refkind, symbol['$attribute']))
     if suffix:
         return Expression('Join', ['', [ResourceReference(dict(symbol, **{'$attribute': suffix[0]})), suffix[1]]])

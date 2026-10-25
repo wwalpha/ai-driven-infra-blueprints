@@ -7,6 +7,7 @@ from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 
 from .values import PreparedValue
+from .deferral import ImportReferenceDeferred
 
 
 def evaluator(stack_inputs, resources, property_schema, symbol, import_value, local_comparison, resource_schema, defer_select=None):
@@ -54,6 +55,8 @@ def _visit_actual(value, selected, path, pointer, evaluate, exact, warnings, fai
         return evaluate(value)
     except (Blocked, KeyError, ValueError, TypeError, IndexError) as error:
         failures.append((path, pointer, error))
+        if isinstance(error, ImportReferenceDeferred):
+            return Expression('Unverified', [])
         if isinstance(error, (Blocked, KeyError)):
             project_document(value, evaluate=partial(_unavailable_actual, value, error), unresolved=lambda _: Expression('Unverified', []),
                 template=True, warnings=warnings, property_name=property_name, model_path=model_path, pointer=pointer)

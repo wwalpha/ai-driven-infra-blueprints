@@ -148,7 +148,7 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 |---|---|---|---|---|---|---|
 | `issues-v2::check_classification` | `check_classification` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L51) | pytest / 9 | severity・E0000 provenance・特殊Error分類 | Issues v2 |
 | `issues-v2::check_explicit_plan` | `check_explicit_plan` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L56) | pytest / 1 | Stack parametersと独立した対象・共有dedup・owner・対象外 | Issues v2 |
-| `issues-v2::check_v2_index_and_status` | `check_v2_index_and_status` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L96) | pytest / 1 | 一次集計・page先行・未対応形式拒否・status・bounded notice・review照合 | Issues v2 |
+| `issues-artifact::check_artifact_index_and_status` | `check_artifact_index_and_status` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L96) | pytest / 1 | 一次集計・page先行・未対応形式拒否・status・bounded notice・review照合 | Issues v2 |
 | `issues-v2::check_pending_notices_replace_warnings` | `check_pending_notices_replace_warnings` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L127) | pytest / 1 | 未検証時も今回診断へ置換・Human注記保持・再保存安定 | Issues v2 |
 | `issues-v2::check_deferred_cache_finalization` | `check_deferred_cache_finalization` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L137) | pytest / 1 | 最終入力確認まで候補保留・変更時不採用 | Issues v2 |
 | `issues-v2::check_scan_changes_without_cache` | `check_scan_changes_without_cache` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L237) | pytest / 1 | codepipeline.md変更中も集計完了・PASS cacheと監視artifactフィールドなし・例外/中断を保持 | Issues v2 |

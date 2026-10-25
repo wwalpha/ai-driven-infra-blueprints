@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from utils.iac_values import safe_value
+from comparison.deferral import CATEGORIES
 
 from .records import brief, condition_disabled, iac_key, identifier, safe_text
 
@@ -126,6 +127,8 @@ def iac_dataset(records, environment, directory, services, display=None, *, reda
     scoped = set(services)
     if any(item['service'] not in scoped for item in records):
         raise ValueError('IaC record outside selected services')
+    if any(item.get('category') not in CATEGORIES for item in records):
+        raise ValueError('invalid comparison category')
     entries = []
     for index,item in enumerate(records):
         record = dict(redact(item), reason=safe_text(redact(item['reason'])), **{
@@ -225,7 +228,7 @@ def iac_summary(records, environment, directory, services, display=None, *, incl
     visible += [group for group in ordered if group not in visible][:MAX_GROUPS - len(visible)]
     visible.sort(key=lambda group: (IAC_CLASSES.index(group['category']), group['services'], group['problem'], group['examples'][0]['issue_id']))
     visible_ids = {group['examples'][0]['issue_id'] for group in visible}
-    raw = {kind: sum(item['category'] == kind for item in records) for kind in ('difference', 'uncompared', 'error', 'matched', 'excluded')}
+    raw = {kind: sum(item['category'] == kind for item in records) for kind in CATEGORIES}
     return dict(issue_count=len(actions), categories=counts, record_count=len(records), records=raw,
                 comparison_incomplete=any(item.get('comparison_incomplete') for item in records),
                 **({'index': [{key: group[key] for key in ('id', 'category', 'problem', 'cause', 'remedy', 'target', 'repair_direction', 'records', 'services')}
@@ -248,7 +251,7 @@ def iac_summary(records, environment, directory, services, display=None, *, incl
 
 
 def comparison_status(counts):
-    return ('error' if counts['error'] else 'partial' if counts['uncompared'] else
+    return ('error' if counts['error'] else 'partial' if counts['uncompared'] or counts['deferred'] else
             'differences' if counts['difference'] else 'complete match' if counts['matched'] else 'no compared records')
 
 

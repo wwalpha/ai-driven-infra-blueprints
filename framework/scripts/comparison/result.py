@@ -15,6 +15,7 @@ from utils.iac_values import (
 )
 
 import comparison.values as _imports_comparison_values
+from .deferral import failure_category
 
 
 def identifier(value):
@@ -160,7 +161,7 @@ def setting_result(service, identity, prop, desired, actual, decision, stack, so
     unverified = _imports_comparison_values.unverified
     source = sources[0] or default_source
     if decision.equal is None:
-        item = record('uncompared', service, identity, prop,
+        item = record(failure_category(actual_error) if actual_error is not None else 'uncompared', service, identity, prop,
             str(actual_error) if actual_error is not None else 'reference identity or property format is unproven',
             stack=None if actual_error is not None else stack, source=source, template=template,
             cause=getattr(actual_error, 'iac_cause', None), redact=redact,

@@ -534,7 +534,7 @@ def check_other_context_dependent_references(tmp_path, models, kind, prop, conta
 
 
 @pytest.mark.parametrize('fault', ['missing', 'Category', 'Owner', 'Provider', 'Version', 'version-type',
-                                  'attribute', 'logical-missing', 'logical-duplicate', 'producer-type', 'import'])
+                                  'attribute', 'logical-missing', 'logical-duplicate', 'producer-type'])
 def check_pipeline_rejects_unproven(tmp_path, models, fault):
     inputs, scope, values, stages = pipeline(tmp_path)
     action = stages[0]['Actions'][1]
@@ -552,12 +552,6 @@ def check_pipeline_rejects_unproven(tmp_path, models, fault):
         resource(tmp_path, 'duplicate', 'CodeBuild.Project', attribute='Name')
     elif fault == 'producer-type':
         action['Configuration']['ProjectName'] = reference('S3_Bucket_001', 'BucketName')
-    elif fault == 'import':
-        model = inputs.models['codebuild']
-        producer = dict(model.authoritative)
-        producer['desired.resource.001.resourceMode'] = 'IMPORT'
-        producer.pop('desired.resource.001.cfn-logicalId')
-        save(model.scope, producer)
     values['desired.row.001-002.value'] = '`' + json.dumps(stages) + '`'
     save(scope, values)
     inputs = comparison(tmp_path, ('codepipeline', 'codebuild', 'codecommit', 's3'))
@@ -566,12 +560,33 @@ def check_pipeline_rejects_unproven(tmp_path, models, fault):
     invalid = desired[0]['Actions'][1]['Configuration']['ProjectName']
     assert isinstance(invalid, Expression) and invalid.operation == 'Unverified', invalid
     assert invalid.operands[1]
-    if fault == 'import':
-        assert 'IMPORT reference' in invalid.operands[1]
     assert inputs.reference_same(invalid, invalid, 'CodePipeline.Pipeline', 'Stages[].Actions[].Configuration.ProjectName') is None
     if fault != 'logical-duplicate':
         assert isinstance(desired[0]['Actions'][0]['Configuration']['RepositoryName'], ResourceReference)
         assert isinstance(desired[1]['Actions'][0]['Configuration']['S3Bucket'], ResourceReference)
+
+
+def check_pipeline_import_preserves_position_and_siblings(tmp_path, models):
+    from comparison.deferral import ImportReferenceDeferred
+    inputs, scope, values, stages = pipeline(tmp_path)
+    model = inputs.models['codebuild']
+    producer = dict(model.authoritative)
+    producer['desired.resource.001.resourceMode'] = 'IMPORT'
+    producer.pop('desired.resource.001.cfn-logicalId')
+    save(model.scope, producer)
+    values['desired.row.001-002.value'] = '`' + json.dumps(stages) + '`'
+    save(scope, values)
+    inputs = comparison(tmp_path, ('codepipeline', 'codebuild', 'codecommit', 's3'))
+    row = dict(entries(values, 'desired.row.'))['001-002']
+    prepared = inputs.prepare_value('codepipeline', row, 'CodePipeline.Pipeline', row_id='001-002')
+    assert prepared.error is None and len(prepared.failures) == 1
+    path, pointer, error = prepared.failures[0]
+    assert isinstance(error, ImportReferenceDeferred)
+    assert pointer == '/0/Actions/1/Configuration/ProjectName'
+    assert path == 'Stages[].Actions[].Configuration.ProjectName'
+    assert error.iac_cause['consumer_property'] == 'CodePipeline.Pipeline.' + path
+    assert isinstance(prepared.value[0]['Actions'][0]['Configuration']['RepositoryName'], ResourceReference)
+    assert isinstance(prepared.value[1]['Actions'][0]['Configuration']['S3Bucket'], ResourceReference)
 
 
 def check_pipeline_context_order_and_repeated_producer(tmp_path, models):

@@ -52,7 +52,7 @@ def check_scan_publish_mismatch(tmp_path):
     with patch('socket.socket', side_effect=AssertionError('network forbidden')):
         artifact = json.loads(json.dumps(scan(root, 'dev', '123456789012', ['s3'], fresh=True, jobs=1)))
     mismatch = next(item for item in artifact['iac'] if item['reason'] == 'value mismatch')
-    assert artifact['version'] == 2 and artifact['checks'] > 0
+    assert artifact['version'] == 3 and artifact['checks'] > 0
     assert artifact['cfn_lint']['status'] == 'checked'
     assert len(artifact['cfn_lint']['jobs']) == 1 and artifact['cfn_lint']['jobs'][0]['completed']
     assert artifact['metrics']['template_decodes'] == 1
@@ -131,7 +131,7 @@ def check_cli_save_results(tmp_path):
 def check_detail_cli(tmp_path):
     records = [dict(category='uncompared', service='s3', resource=str(i), property='Setting',
         reason='Export unresolved', cause={'kind': 'import-unresolved', 'export': 'shared', 'relationship': 'import'}) for i in range(3)]
-    artifact = dict(version=2, environment='dev', target='team', services=['s3'],
+    artifact = dict(version=3, environment='dev', target='team', services=['s3'],
                     **aggregate(records, 'dev', 'team', ['s3']))
     file = tmp_path / 'artifact.json'
     write(file, json.dumps(artifact))
@@ -222,7 +222,7 @@ def check_condition_provenance(tmp_path):
     assert '意図的な無効化か設計との不整合か' in report and 'parameter-file' in report and 'stack-1.json' in report
     _, actions, _ = iac_dataset(records, 'dev', '123456789012', ['s3'])
     assert actions[0]['classification'] == 'ConditionによるCREATE無効化'
-    artifact = dict(version=2, environment='dev', target='123456789012', services=['s3'],
+    artifact = dict(version=3, environment='dev', target='123456789012', services=['s3'],
                     **aggregate(records, 'dev', '123456789012', ['s3']))
     assert detail_payload(artifact, 'iac', issue_id=actions[0]['id'])['items'][0]['cause'] == cause
 

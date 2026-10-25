@@ -1,4 +1,5 @@
 """Select saved literal declarations from the authoritative snapshot, once per service."""
+from design.layout import resource_mode
 from design.policy_tables import literal
 from model.identity import Resolver
 from model.reference_nodes import (
@@ -14,6 +15,8 @@ from utils.iac_values import Expression, ResourceReference
 from utils.reference_contracts import reference_attribute, reference_context
 
 from . import registry
+from .deferral import ImportReferenceDeferred
+from .reference_evidence import validate_declaration
 
 
 class ModelReferences:
@@ -53,7 +56,7 @@ class ModelReferences:
         finally:
             inputs.retain_reads()
 
-    def normalize(self, inputs, key, value, pointer=None, context=None):
+    def normalize(self, inputs, key, value, pointer=None, context=None, failures=None):
         if is_reference(value):
             try:
                 node = parse(value, pointer or '')
@@ -68,9 +71,16 @@ class ModelReferences:
                 inputs.model(service)
                 symbol = ResourceReference({'$resource': [service, number],
                     '$attribute': reference_attribute(resource['resourceType'], attribute)})
-                if any(token.startswith('Fn::') for token in (pointer or '').split('/')):
-                    return inputs.reference(self.scope.service, symbol, consumer_property=field)
+                if (any(token.startswith('Fn::') for token in (pointer or '').split('/'))
+                        and resource_mode(resource) != 'IMPORT'):
+                    return inputs.reference(self.scope.service, symbol)
                 return inputs.desired_reference(self.scope.service, symbol, kind, path, symbol['$attribute'], context)
+            except ImportReferenceDeferred as error:
+                if failures is None:
+                    raise
+                failures.append((path, pointer or '', error))
+                # The evaluator must still validate the complete intrinsic's other operands.
+                return symbol if any(token.startswith('Fn::') for token in (pointer or '').split('/')) else Expression('Unverified', [])
             except (Blocked, KeyError, OSError, ValueError, TypeError) as error:
                 return Expression('Unverified', [value, f'JSON Pointer={pointer or ""!r}; {key}: {error}'])
             finally:
@@ -80,10 +90,10 @@ class ModelReferences:
         if isinstance(value, dict):
             prop = inputs.model(self.scope.service).authoritative.get(key.rsplit('.', 1)[0] + '.property', '')
             context = reference_context(receiving_property(prop, pointer or ''), value, context)
-            return {name: self.normalize(inputs, key, child, (pointer or '') + '/' + name.replace('~', '~0').replace('/', '~1'), context)
+            return {name: self.normalize(inputs, key, child, (pointer or '') + '/' + name.replace('~', '~0').replace('/', '~1'), context, failures)
                     for name, child in value.items()}
         if isinstance(value, list):
-            return [self.normalize(inputs, key, child, (pointer or '') + '/' + str(index), context) for index, child in enumerate(value)]
+            return [self.normalize(inputs, key, child, (pointer or '') + '/' + str(index), context, failures) for index, child in enumerate(value)]
         if isinstance(value, str) and any(nodes(value)):
             return Expression('Unverified', [value, 'encoded JSON reference needs proven expression evaluation'])
         records = self.positions.get(key, {}).get(pointer, ())
@@ -111,13 +121,23 @@ class ModelReferences:
                 raise Blocked('producer_ambiguous: overlapping reference declarations')
             if start > end:
                 parts.append(value[end:start])
-            parts.append(self.fragment(inputs, key, value, usage, spec, text))
+            try:
+                parts.append(self.fragment(inputs, key, value, usage, spec, text, context))
+            except ImportReferenceDeferred as error:
+                if failures is None:
+                    raise
+                prop = inputs.model(self.scope.service).authoritative[key.rsplit('.', 1)[0] + '.property']
+                kind = '.'.join(prop.split('.')[:2])
+                failures.append((receiving_property(prop, pointer or '').removeprefix(kind + '.'), pointer or '', error))
+                parts.append(Expression('Unverified', []))
             end = stop
         if end < len(value):
             parts.append(value[end:])
+        if any(isinstance(part, Expression) and part.operation == 'Unverified' and not part.operands for part in parts):
+            return Expression('Unverified', [])
         return parts[0] if len(parts) == 1 else Expression('Join', ['', parts])
 
-    def fragment(self, inputs, key, value, usage, spec, text):
+    def fragment(self, inputs, key, value, usage, spec, text, context):
         if spec['producerScope'].split('/')[:2] != [inputs.environment, inputs.directory]:
             raise Blocked('producer_not_found: cross-target reference')
         service = spec['producerScope'].split('/')[2]
@@ -142,4 +162,10 @@ class ModelReferences:
         symbol.saved_property = spec['property']
         symbol.saved_literal = text
         symbol.declared_format = spec['format']
+        if resource_mode(resource) == 'IMPORT':
+            validate_declaration(inputs, symbol)
+            prop = inputs.model(self.scope.service).authoritative[key.rsplit('.', 1)[0] + '.property']
+            kind = '.'.join(prop.split('.')[:2])
+            path = receiving_property(prop, usage.pointer or '').removeprefix(kind + '.')
+            return inputs.desired_reference(self.scope.service, symbol, kind, path, symbol['$attribute'], context)
         return symbol

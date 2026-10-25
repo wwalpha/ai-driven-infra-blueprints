@@ -49,6 +49,7 @@ from . import (
     values,
 )
 from .result import redacted
+from .deferral import defer_import_reference
 
 
 class Inputs:
@@ -241,13 +242,19 @@ class Inputs:
         self.metrics['stack_evaluations'] += 1
         return template, self.stack_inputs[name]
 
-    def reference(self, service, value, expected_attribute=None, *, consumer_property=None):
+    def reference(self, service, value, expected_attribute=None, *, protect_import=True):
         if isinstance(value, ResourceReference):
             refservice, identity = value['$resource']
             resource = self.resources[refservice][identity]
             if expected_attribute is not None and reference_attribute(resource['resourceType'], expected_attribute) != value['$attribute']:
                 raise Blocked('validated reference attribute differs from receiving property contract')
-            return self.protect_import_reference(value, resource, consumer_property)
+            resolver = _imports_model_identity.Resolver(self.root)
+            resolver.catalog = self.catalog
+            try:
+                resolver.validate_attribute(resource['resourceType'], value['$attribute'])
+            except (ReferenceResolutionError, ValueError) as error:
+                raise Blocked(str(error)) from error
+            return self.protect_import_reference(value, resource, None) if protect_import else value
         Scope = _imports_model_sources.Scope
         consumer = Scope(self.root, self.environment, self.directory, service)
         environment, directory, refservice, anchor = parse_reference(value, consumer)
@@ -283,10 +290,9 @@ class Inputs:
                 and '/properties/' + expected_attribute not in primary + readonly):
             raise Blocked(f'reference attribute not confirmed: {expected_attribute}')
         symbol = ResourceReference({'$resource': [refservice, identity], '$attribute': expected_attribute})
-        return self.protect_import_reference(symbol, resource, consumer_property)
+        return self.protect_import_reference(symbol, resource, None) if protect_import else symbol
 
     def protect_import_reference(self, symbol, resource, consumer_property):
-        refservice, identity = symbol['$resource']
         expected_attribute = symbol['$attribute']
         if resource_mode(resource) == 'IMPORT':
             if (self.local_comparison and registry.import_consumer(consumer_property, resource['resourceType'], expected_attribute)
@@ -294,12 +300,7 @@ class Inputs:
                     and self.target['iacEngine'] == 'cloudformation'):
                 self.reference_literal(symbol)
                 return symbol
-            observed = [literal(self.models[refservice].values.get(f'observed.row.{rid}.value', 'PENDING_DEPLOY'))
-                        for rid, row in self.rows[refservice][identity]
-                        if row['property'] == resource['resourceType'] + '.' + expected_attribute]
-            if not observed or all(value == 'PENDING_DEPLOY' for value in observed):
-                raise Blocked('IMPORT reference is PENDING_DEPLOY (not imported/unobserved); comparison deferred until approved handoff; no physical ID inference')
-            raise Blocked('IMPORT reference requires approved handoff; no physical ID inference')
+            defer_import_reference(self, symbol, resource, consumer_property)
         return symbol
 
     def symbol(self, stack, logical, attribute=None, *, derived=False):
@@ -600,9 +601,10 @@ class Inputs:
     def desired_reference(self, service, value, kind, path, attribute=None, context=None):
         return design_link.desired_reference(service, value, kind, path, attribute, context,
             local_comparison=self.local_comparison, reference=self.reference,
-            resource_type=self.resource_type, forms_for=self.reference_forms)
+            resource_type=self.resource_type, forms_for=self.reference_forms,
+            protect_import=lambda symbol, prop: self.protect_import_reference(symbol, self.resources[symbol['$resource'][0]][symbol['$resource'][1]], prop))
 
-    def normalize_model_reference(self, service, row_id, field, value, context=None):
+    def normalize_model_reference(self, service, row_id, field, value, context=None, failures=None):
         try:
             if service not in self.model_references:
                 self.model_references[service] = model_reference.ModelReferences(self, service)
@@ -614,13 +616,13 @@ class Inputs:
                 prop = self.model(service).authoritative.get(f'desired.row.{row_id}.property', '').removeprefix(kind + '.')
                 context = contexts.get(row_id, contexts.get(prop, contexts.get(prop.rsplit('.', 1)[0])))
             return self.model_references[service].normalize(self, key, value,
-                '' if field == 'document' or isinstance(value, (list, dict)) else None, context)
+                '' if field == 'document' or isinstance(value, (list, dict)) else None, context, failures)
         except (KeyError, ValueError, TypeError) as error:
             raise Blocked(str(error)) from error
 
     def prepare_value(self, service, row, kind, *, stack=None, context=None, row_id=None):
-        normalize = (lambda value: self.normalize_model_reference(service, row_id,
-            'document' if 'document' in row else 'value', value, context)) if self.local_comparison and row_id is not None else None
+        normalize = (lambda value, failures: self.normalize_model_reference(service, row_id,
+            'document' if 'document' in row else 'value', value, context, failures)) if self.local_comparison and row_id is not None else None
         return values.desired_value(service, row, kind, stack=stack, context=context,
             local_comparison=self.local_comparison, desired_reference=self.desired_reference,
             property_schema=self.catalog.property_schema,

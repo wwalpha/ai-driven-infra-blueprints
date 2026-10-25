@@ -22,6 +22,7 @@ from . import evaluation, registry
 from . import resource as resource_rules
 from . import rows as row_rules
 from .inputs import Inputs
+from .deferral import ImportReferenceDeferred, failure_category
 from .result import RowResult, record, setting_result
 from .values import ValueDecision, compare_values, unverified
 
@@ -163,7 +164,7 @@ class Comparison(Inputs):
                     if batch.failure is not None:
                         raise batch.failure
                 except (Blocked, KeyError) as error:
-                    self.record('uncompared', service, identity, '*', str(error), cause=getattr(error, 'iac_cause', None))
+                    self.record(failure_category(error), service, identity, '*', str(error), cause=getattr(error, 'iac_cause', None))
                 except ReferenceResolutionError as error:
                     self.warnings.append({**error.diagnostic, 'service': service, 'resource': identity})
                     self.record('uncompared', service, identity, '*', str(error), cause={'kind': 'reference-unresolved'})
@@ -338,7 +339,7 @@ class Comparison(Inputs):
         template: Path,
     ) -> None:
         details = dict(stack=name, template={'path': template.relative_to(self.root).as_posix()})
-        category = 'uncompared' if isinstance(error, (Blocked, KeyError)) else 'error'
+        category = failure_category(error)
         if hasattr(error, 'reference_detail'):
             symbol, field = error.reference_detail
             try:
@@ -348,7 +349,8 @@ class Comparison(Inputs):
                 actual = {'unresolved': self.redacted(str(actual_error))}
                 reason = 'Model attribute is outside allowed property forms; IaC reference evaluation also failed'
             details['reference_diagnostics'] = [self.reference_diagnostic(symbol, actual, kind, field, reason)]
-        item = self.make_record(category, service, identity, prop, str(error), source=source, **details)
+        item = self.make_record(category, service, identity, prop, str(error), source=source,
+            cause=getattr(error, 'iac_cause', None), **details)
         settings.result.records.append(item)
         key = re.sub(r'\[\d*\]', '', prop.removeprefix(kind + '.').split('.', 1)[0])
         settings.incomplete.setdefault(key, []).append(self.redacted(item))
@@ -389,7 +391,7 @@ class Comparison(Inputs):
                     warnings.extend(prepared.warnings)
                     actual = prepared.value
                     for _path, pointer, error in prepared.failures:
-                        if isinstance(error, (Blocked, KeyError)):
+                        if isinstance(error, (Blocked, KeyError)) and not isinstance(error, ImportReferenceDeferred):
                             actual_error = actual_error or error
                             continue
                         location = dict(iac_source, pointer=pointer)
@@ -400,12 +402,12 @@ class Comparison(Inputs):
                             if line := self.template_locations.get(id(node), {}).get(key_or_index):
                                 location['line'] = line
                             node = node[key_or_index]
-                        failures.append(self.make_record('error', service, identity, prop + ('#' + pointer if pointer else ''), str(error),
+                        failures.append(self.make_record(failure_category(error), service, identity, prop + ('#' + pointer if pointer else ''), str(error),
                             source=sources[0], stack=name, template=location, cause=getattr(error, 'iac_cause', None)))
                 else:
                     actual = self.evaluate(name, actual)
         except (Blocked, KeyError, ValueError, TypeError, IndexError) as error:
-            category = 'uncompared' if isinstance(error, (Blocked, KeyError)) else 'error'
+            category = failure_category(error)
             return RowResult([self.make_record(category, service, identity, prop, str(error), source=sources[0],
                 template=iac_source, cause=getattr(error, 'iac_cause', None))], warnings)
         if actual == {'$noValue': True}:
@@ -419,13 +421,15 @@ class Comparison(Inputs):
             if actual_error is None and not decision.diagnostics and not list(unverified(value)):
                 return RowResult(failures, warnings)
             decision = ValueDecision(None, decision.diagnostics, decision.equivalent)
+        if key in settings.incomplete and decision.equal is True:
+            return RowResult(warnings=warnings)
         if (key in settings.incomplete and decision.equal is None and actual_error is None and not decision.diagnostics
                 and not list(unverified(value)) and not list(unverified(actual))):
             return RowResult(warnings=warnings)
         batch = setting_result(service, identity, prop, value, actual, decision, name, sources, iac_source,
             exact=key in settings.exact, actual_error=actual_error, redact=self.redacted, reference=reference,
             default_source=self.source(service, f'desired.resource.{identity}.resourceType'), missing=missing,
-            deferred_children=settings.incomplete.get(key, []))
+            deferred_children=[item for item in settings.incomplete.get(key, []) if item['category'] != 'deferred'])
         batch.records.extend(failures)
         batch.warnings.extend(warnings)
         return batch

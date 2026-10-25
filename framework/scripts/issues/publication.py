@@ -57,7 +57,7 @@ def save(root, environment, directory, services, candidates=(), additions=(), re
 
 
 def save_scan(root, artifact, review):
-    if artifact.get('version') != 2 or artifact.get('root') != str(root):
+    if artifact.get('version') != 3 or artifact.get('root') != str(root):
         raise ValueError('invalid scan artifact/root')
     validate_artifact = _imports_issues_artifact.validate_artifact
     validate_artifact(artifact)

@@ -2,10 +2,12 @@
 
 import re
 from collections import Counter
+from comparison.deferral import CATEGORIES, validate_cause
 
 import issues.aggregate as _imports_issues_aggregate
 
 from .records import brief, identifier
+from .aggregate import IAC_CATEGORIES
 
 CHANNELS = ('warnings', 'information', 'unverified', 'processing_errors')
 
@@ -36,13 +38,15 @@ def channel_summary(values, section):
 
 
 def summary(artifact):
+    if artifact.get('version') != 3:
+        raise ValueError('unsupported scan artifact version; version 3 required')
     comparison_status = _imports_issues_aggregate.comparison_status
     view = artifact['overview']
     counts = view['records']
     return dict(ordinary_candidates=len(artifact.get('ordinary', [])), judgment_items=len(artifact.get('judgments', [])),
                 naming_items=len(artifact.get('naming', {}).get('names', [])),
                 iac_differences=counts['difference'], iac_uncompared=counts['uncompared'], iac_errors=counts['error'],
-                iac_matched=counts['matched'], iac_excluded=counts['excluded'], iac_status=comparison_status(counts),
+                iac_matched=counts['matched'], iac_deferred=counts['deferred'], iac_excluded=counts['excluded'], iac_status=comparison_status(counts),
                 validation_status=validation_status(artifact), review_required=True,
                 processing_stages=len({item.get('job_id') or item.get('id') or item.get('code','unknown') for item in artifact.get('processing_errors', [])}),
                 comparison_incomplete=view['comparison_incomplete'], checks=artifact.get('checks'),
@@ -63,13 +67,18 @@ def review_payload(artifact, artifact_path):
                 detail='issues_scan.py detail --artifact <path> --section naming_context|naming|judgments|ordinary|human_confirmations|iac_issues|iac|warnings|information|unverified|processing_errors; --offset 0 --limit 50; IaC: --category <分類> / --issue-id ISSUE-<id>')
 
 
-def detail_payload(artifact, section, offset=0, limit=50, category=None, issue_id=None):
-    if artifact.get('version') != 2:
+def detail_payload(artifact, section, offset=0, limit=50, category=None, issue_id=None, record_category=None):
+    if artifact.get('version') != 3:
         raise ValueError('unsupported scan artifact version')
     if offset < 0 or limit < 1:
         raise ValueError('invalid detail range')
     if (category or issue_id) and section not in {'iac','iac_issues'}:
         raise ValueError('IaC filters require section iac or iac_issues')
+    if record_category is not None:
+        if section != 'iac' or record_category not in CATEGORIES:
+            raise ValueError('record-category requires section iac and a comparison category')
+        if category or issue_id:
+            raise ValueError('record-category cannot be combined with Issue filters')
     context = {}
     if section in {'iac', 'iac_issues'}:
         actions = artifact.get('iac_issues')
@@ -81,7 +90,8 @@ def detail_payload(artifact, section, offset=0, limit=50, category=None, issue_i
         if section == 'iac_issues':
             content = selected
         else:
-            indices = sorted({i for action in selected for i in action['members']}) if category or issue_id else range(len(artifact['iac']))
+            indices = ([i for i, item in enumerate(artifact['iac']) if item['category'] == record_category] if record_category else
+                       sorted({i for action in selected for i in action['members']}) if category or issue_id else range(len(artifact['iac'])))
             meta = artifact['record_meta']
             items = []
             for i in indices[offset:offset+limit]:
@@ -107,8 +117,8 @@ def detail_payload(artifact, section, offset=0, limit=50, category=None, issue_i
     return dict(total=len(content), offset=offset, items=page, omitted=max(0,len(content)-len(page)), **({'context':context} if context else {}))
 
 def validate_artifact(artifact):
-    """Validate saved indexes without normalization, hashing records or regrouping them."""
-    if artifact.get('version') != 2:
+    """Validate the saved six-category index without reclassification or regrouping."""
+    if artifact.get('version') != 3:
         raise ValueError('unsupported scan artifact version')
     if not re.fullmatch(r'[0-9a-f]{32}', artifact.get('scan_id','')):
         raise ValueError('invalid scan_id')
@@ -117,17 +127,29 @@ def validate_artifact(artifact):
     records, meta = artifact['iac'], artifact['record_meta']
     if len(records) != len(meta) or artifact['overview']['record_count'] != len(records):
         raise ValueError('invalid artifact record index')
+    counts = dict.fromkeys(CATEGORIES, 0)
+    for item in records:
+        if item.get('category') not in CATEGORIES:
+            raise ValueError('invalid comparison category')
+        counts[item['category']] += 1
+        if item['category'] == 'deferred':
+            validate_cause(item.get('cause'))
+    if counts != artifact['overview']['records'] or artifact['overview']['issue_count'] != len(artifact['iac_issues']):
+        raise ValueError('invalid artifact comparison counts')
     seen, issue_ids = set(), set()
     for group in artifact['iac_issues']:
-        if group['id'] in issue_ids or len(group['members']) != group['compact']['records']:
+        if group['id'] in issue_ids or not group['members'] or len(group['members']) != group['compact']['records']:
             raise ValueError('invalid artifact Issue index')
         issue_ids.add(group['id'])
         for index in group['members']:
-            if type(index) is not int or not 0 <= index < len(meta) or index in seen or meta[index]['issue_id'] != group['id']:
+            if (type(index) is not int or not 0 <= index < len(meta) or index in seen
+                    or meta[index]['issue_id'] != group['id'] or records[index]['category'] not in IAC_CATEGORIES):
                 raise ValueError('invalid artifact Issue membership')
             seen.add(index)
     for i, entry in enumerate(meta):
-        if entry['category'] != records[i]['category'] or not re.fullmatch(r'[0-9a-f]{20}',entry['record_id']):
+        if entry['category'] != records[i]['category'] or entry['record_id'] != identifier(records[i]):
             raise ValueError('invalid artifact record metadata')
         if (entry['issue_id'] is not None) != (i in seen):
+            raise ValueError('invalid artifact Issue membership')
+        if (records[i]['category'] in IAC_CATEGORIES) != (i in seen):
             raise ValueError('invalid artifact Issue membership')

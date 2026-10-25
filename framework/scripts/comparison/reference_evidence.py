@@ -10,12 +10,33 @@ from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same
 from utils.reference_contracts import (
+    ARN_FORMS,
     ARN_SHAPES,
     REFERENCE_PROPERTIES,
 )
 
 from . import expressions, registry
 from .references import ReferenceDecision, literal_expression, reference_same
+
+
+def identifier_text(inputs, kind, attribute, raw):
+    """Validate a recorded identifier without treating it as an approved handoff."""
+    text = literal(raw) if raw is not None else ''
+    if not text or text in {'PENDING_DEPLOY', 'UNSET', 'TODO', 'TBD', '未確定'} or '${' in text or '{{resolve:' in text:
+        raise Blocked('identifier_unobserved')
+    schema = inputs.catalog.property_schema(kind, attribute)
+    arn = attribute == reference_attribute(kind, 'Arn') or schema.get('pattern', '').startswith('^arn:')
+    if text.startswith('arn:') != arn or inputs.catalog.literal_errors(kind, attribute, text):
+        raise Blocked('attribute_format_unproven: recorded identifier format')
+    form = ARN_FORMS.get((kind, attribute))
+    if arn and form and re.fullmatch(form[1], text) is None:
+        raise Blocked('attribute_format_unproven: recorded identifier format')
+    if kind in ARN_SHAPES:
+        fields, _, patterns = ARN_SHAPES[kind]
+        fields = fields if isinstance(fields, dict) else {fields: 'id'}
+        if attribute in fields and re.fullmatch(patterns[fields[attribute]], text) is None:
+            raise Blocked('attribute_format_unproven: recorded identifier format')
+    return text
 
 
 class Evidence:
@@ -77,13 +98,7 @@ class Evidence:
         if len(rows) != 1:
             raise Blocked('identifier_unobserved: missing or ambiguous identifier Property')
         raw = inputs.model(service).authoritative.get(f'observed.row.{rows[0][0]}.value')
-        text = literal(raw) if raw is not None else ''
-        if not text or text in {'PENDING_DEPLOY', 'UNSET', 'TODO', 'TBD', '未確定'} or '${' in text or '{{resolve:' in text:
-            raise Blocked('identifier_unobserved')
-        schema = inputs.catalog.property_schema(kind, attribute)
-        arn = attribute == reference_attribute(kind, 'Arn') or schema.get('pattern', '').startswith('^arn:')
-        if text.startswith('arn:') != arn or (schema.get('pattern') and not re.search(schema['pattern'], text)):
-            raise Blocked('attribute_format_unproven: recorded identifier format')
+        text = identifier_text(inputs, kind, attribute, raw)
         self.observed = True
         return text
 

@@ -182,7 +182,7 @@ def summary_scale_cases():
 
     records = artifact['iac']
     original = json.dumps(artifact, sort_keys=True)
-    assert hashlib.sha256(original.encode()).hexdigest() == 'ad2b273c904d963dbd08a1f864a0b3b013870144c13994711633dd0bf6d5f2c6'
+    assert hashlib.sha256(original.encode()).hexdigest() == 'a9adcee6ed8a1471745f8f33dce37873eef0d7e3b2b966c79a553ba174ea1d18'
     entries, actions, fields = iac_dataset(records, 'dev', 'cde', artifact['services'], artifact['iac_display'])
     stats = iac_summary(records, 'dev', 'cde', artifact['services'], artifact['iac_display'])
     signature = sorted((group['id'], sorted(identifier(entries[i]['record']) for i in group['members'])) for group in actions)
@@ -190,7 +190,7 @@ def summary_scale_cases():
     assert len(entries) == 2193 and len(actions) == 1194
     assert stats['categories'] == {'要修正': 100, '要対応': 0, '要判断': 0, '比較未完了': 1, 'CFn非対応・比較対象外': 0, '処理エラー': 93, '原因未確定': 1000}
     assert stats['record_count'] == 2193 and stats['direct_resources'] == 1100 and stats['proven_causes'] == 1
-    assert stats['records'] == dict(difference=1100, uncompared=1000, error=93, matched=0, excluded=0)
+    assert stats['records'] == dict(difference=1100, uncompared=1000, error=93, matched=0, deferred=0, excluded=0)
     assert len(stats['groups']) == MAX_GROUPS and stats['omitted_groups'] > 0
     assert sum(len(action['members']) for action in actions) == len(records)
     assert sorted(entries[i]['record_index'] for action in actions for i in action['members']) == list(range(len(records)))
@@ -773,7 +773,7 @@ def check_save_authority_limits_real_destinations(tmp_path, filename):
 
 @pytest.mark.parametrize('failure', ['review-id', 'context', 'names', 'judgments', 'types', 'owner'])
 def check_save_review_rejections(tmp_path, failure):
-    artifact = dict(version=2, root=str(tmp_path), scan_id='a'*32, naming_context_id=identifier({}), naming_context={},
+    artifact = dict(version=3, root=str(tmp_path), scan_id='a'*32, naming_context_id=identifier({}), naming_context={},
         environment='dev', target='team', services=['s3'], naming={'names': [{'id': 'name'}]},
         judgments=[dict(id='judgment', message='diagnostic')], ordinary=[], **aggregate([], 'dev', 'team', ['s3']))
     review = dict(scan_id=artifact['scan_id'], reviewed_naming_context_id=artifact['naming_context_id'],
@@ -791,7 +791,7 @@ def check_save_review_rejections(tmp_path, failure):
 def check_saved_input_bytes_and_revision_independence(tmp_path, input_name):
     path = tmp_path / input_name
     path.write_bytes(b'original\r\n' * 20)
-    artifact = dict(version=2, root=str(tmp_path), scan_id='a'*32,
+    artifact = dict(version=3, root=str(tmp_path), scan_id='a'*32,
         naming_context_id=identifier({}), naming_context={}, environment='dev', target='123456789012',
         services=['s3'], ordinary=[dict(service='s3', message='scan finding', source=dict(path=input_name, line=20))], naming={'names': []}, judgments=[],
         executed_at='2026-10-25T00:00:00Z', **aggregate([], 'dev', '123456789012', ['s3']))
@@ -959,7 +959,7 @@ def check_confirmed_difference_direction(reason, mapped):
     group, = data['overview']['groups']
     assert group['category'] == '要修正' and group['repair_direction'] == direction
     assert data['overview']['issue_count'] == 1 and data['overview']['record_count'] == 2
-    artifact = dict(version=2, ordinary=[], judgments=[], naming={'names': []}, **data)
+    artifact = dict(version=3, ordinary=[], judgments=[], naming={'names': []}, **data)
     assert scan_exit_code(artifact) == 0
     assert detail_payload(artifact, 'iac_issues', category='要修正')['items'] == [action]
     assert detail_payload(artifact, 'iac', category='要修正')['total'] == 2
@@ -1029,7 +1029,7 @@ def check_cli_repair_category(tmp_path, capsys, section):
         reason=reason, stack='stack', iac={'path': 'role.yaml'}, desired=1, actual=2)
         for i, (category, reason) in enumerate([('difference', 'value mismatch'), ('difference', 'property missing'),
             ('uncompared', 'Fn::ImportValue unresolved')])]
-    artifact = dict(version=2, scan_id='a'*32, naming_context={}, naming_context_id=identifier({}),
+    artifact = dict(version=3, scan_id='a'*32, naming_context={}, naming_context_id=identifier({}),
         **aggregate(records, 'dev', 'team', ['iam']))
     validate_artifact(artifact)
     path = tmp_path / 'scan.json'
@@ -1045,6 +1045,114 @@ def check_cli_repair_category(tmp_path, capsys, section):
     else:
         assert result['items'][0]['record_index'] == 1
         assert result['items'][0]['issue_id'] == artifact['record_meta'][1]['issue_id']
+
+
+
+def deferred_artifact(count=13):
+    from comparison.deferral import ImportReferenceDeferred
+    cause = ImportReferenceDeferred('unobserved', 'vpc', '004', 'EC2.Subnet', 'SubnetId',
+        'CodeBuild.Project.VpcConfig.Subnets[]').iac_cause
+    records = [dict(category='deferred', service='codebuild', resource=f'{i:03}',
+        property='CodeBuild.Project.VpcConfig.Subnets[]', reason='approved handoff required', cause=deepcopy(cause))
+        for i in range(count)]
+    return dict(version=3, scan_id='a'*32, naming_context={}, naming_context_id=identifier({}),
+        ordinary=[], judgments=[], naming={'names': []}, **aggregate(records, 'dev', 'team', ['codebuild']))
+
+
+def check_deferred_artifact_summary_report_and_gate(tmp_path):
+    artifact = deferred_artifact()
+    validate_artifact(artifact)
+    view = summary(artifact)
+    assert view['iac_deferred'] == 13 and view['iac_uncompared'] == 0 and view['iac_status'] == 'partial'
+    assert view['validation_status'] == 'CHECKED' and scan_exit_code(artifact) == 0
+    assert artifact['overview']['record_count'] == sum(artifact['overview']['records'].values()) == 13
+    assert artifact['overview']['issue_count'] == 0 and not artifact['iac_issues']
+    assert all(item['issue_id'] is None for item in artifact['record_meta'])
+    assert detail_payload(artifact, 'iac', 10, 5, record_category='deferred')['total'] == 13
+    page = detail_payload(artifact, 'iac', 10, 5, record_category='deferred')['items']
+    assert len(page) == 3 and page[0]['record_index'] == 10 and all(item['issue_id'] is None for item in page)
+    report = iac_report('dev', 'team', ['codebuild'], artifact['iac'], artifact=artifact)
+    assert '問題: 0件' in report and '想定内保留件数: 13件' in report and '未比較 0項目' in report
+    assert 'Producer Resource: vpc/004' in report and '参照属性: SubnetId' in report
+    assert '保留解除条件' in report and '保留表示省略: 3件' in report and '--record-category deferred' in report
+    assert '要調査' not in report and 'deferred' not in report.split('## 想定内保留')[0]
+    # Ordinary Issue Gate consumes only issues.md; the comparison report stays nonblocking.
+    path = tmp_path / 'issues/dev/team/issues.md'
+    path.parent.mkdir(parents=True)
+    path.write_text('未解決issueなし\n', encoding='utf-8')
+    path.with_name('iac-issues.md').write_text(report, encoding='utf-8')
+    assert unresolved_services(tmp_path, path) == []
+
+
+@pytest.mark.parametrize('fault', ['version2', 'category', 'counts', 'issue-count', 'cause', 'phase', 'meta', 'record-id', 'deferred-membership', 'missing-membership'])
+def check_artifact_v3_rejects_invalid_indexes(fault):
+    artifact = deferred_artifact(1)
+    if fault == 'version2':
+        artifact['version'] = 2
+    elif fault == 'category':
+        artifact['iac'][0]['category'] = 'unknown'
+    elif fault == 'counts':
+        artifact['overview']['records']['deferred'] = 2
+    elif fault == 'issue-count':
+        artifact['overview']['issue_count'] = 1
+    elif fault == 'cause':
+        del artifact['iac'][0]['cause']
+    elif fault == 'phase':
+        artifact['iac'][0]['cause']['phase'] = 'unknown'
+    elif fault == 'meta':
+        artifact['record_meta'][0]['category'] = 'matched'
+    elif fault == 'record-id':
+        artifact['record_meta'][0]['record_id'] = '0'*20
+    elif fault == 'deferred-membership':
+        artifact['record_meta'][0]['issue_id'] = 'ISSUE-forbidden'
+        artifact['iac_issues'] = [dict(id='ISSUE-forbidden', members=[0], compact={'records': 1})]
+        artifact['overview']['issue_count'] = 1
+    elif fault == 'missing-membership':
+        artifact = dict(version=3, scan_id='a'*32, naming_context={}, naming_context_id=identifier({}),
+            **aggregate([dict(category='uncompared', service='s3', resource='001', property='Setting', reason='unknown')], 'dev', 'team', ['s3']))
+        artifact['iac_issues'] = []
+        artifact['overview']['issue_count'] = 0
+        artifact['record_meta'][0]['issue_id'] = None
+    with pytest.raises(ValueError):
+        validate_artifact(artifact)
+    if fault == 'version2':
+        with pytest.raises(ValueError, match='version'):
+            detail_payload(artifact, 'iac')
+        with pytest.raises(ValueError, match='version'):
+            summary(artifact)
+
+
+def check_cli_deferred_pagination_and_filter_separation(tmp_path, capsys):
+    artifact = deferred_artifact()
+    path = tmp_path / 'scan.json'
+    path.write_text(json.dumps(artifact), encoding='utf-8')
+    arguments = ['issues_scan.py', '--repository-root', str(tmp_path / 'project'),
+        'detail', '--artifact', str(path), '--section', 'iac', '--record-category', 'deferred', '--offset', '10', '--limit', '5']
+    with patch.object(sys, 'argv', arguments):
+        assert issues_main() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['total'] == 13 and result['offset'] == 10 and len(result['items']) == 3
+    for extra in (['--category', '要判断'], ['--issue-id', 'ISSUE-absent']):
+        with patch.object(sys, 'argv', arguments + extra):
+            assert issues_main() == 2
+        assert 'cannot be combined' in capsys.readouterr().err
+    expect_error(lambda: detail_payload(artifact, 'iac_issues', record_category='deferred'), 'requires section iac')
+
+
+def check_six_categories_and_comparison_priority():
+    from comparison.deferral import CATEGORIES
+    from issues.aggregate import comparison_status
+    records = deferred_artifact(1)['iac']
+    records += [dict(category=category, service='codebuild', resource=category, property='Setting', reason=category)
+                for category in CATEGORIES if category != 'deferred']
+    data = aggregate(records, 'dev', 'team', ['codebuild'])
+    assert data['overview']['records'] == dict.fromkeys(CATEGORIES, 1)
+    assert data['overview']['issue_count'] == 3
+    counts = dict.fromkeys(CATEGORIES, 0)
+    for category, expected in [('excluded', 'no compared records'), ('matched', 'complete match'),
+                               ('difference', 'differences'), ('deferred', 'partial'), ('uncompared', 'partial'), ('error', 'error')]:
+        counts[category] = 1
+        assert comparison_status(counts) == expected
 
 
 if __name__ == '__main__':

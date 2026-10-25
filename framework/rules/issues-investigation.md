@@ -92,7 +92,7 @@ SQS QueuePolicy Model GetAtt resolves only through its current stack's validated
 mapping and supported attributes; missing/inactive resources and cross-stack guesses
 remain uncompared. These local contracts do not enable AWS or deployment evaluation.
 
-Uncompared: Terraform (no existing reliable local mapping/evaluator), Transform, ImportValue whose approved handoff cannot be proved locally, external input for IMPORT references, unknown attributes/nonunique mappings, unsupported expressions, and unconfirmed values/types. This is not a configuration marking all resources unsupported. IMPORT itself is not generated; absent IaC is not missing. Explicit missing CREATE templates/resources/properties are non-blocking differences. Input syntax/read/save failures are errors, not success.
+Uncompared: Terraform (no existing reliable local mapping/evaluator), Transform, ImportValue whose approved handoff cannot be proved locally, unknown attributes/nonunique mappings, unsupported expressions, and unconfirmed values/types. Validated IMPORT references without approved handoff are deferred (unobserved, pending_deploy or awaiting_handoff), retained in comparison artifacts and excluded from Issues; invalid identifiers or reference contracts remain uncompared. Deferred results are partial, never matched or complete. This is not a configuration marking all resources unsupported. IMPORT itself is not generated; absent IaC is not missing. Explicit missing CREATE templates/resources/properties are non-blocking differences. Input syntax/read/save failures are errors, not success.
 
 ## Input reuse and publication
 

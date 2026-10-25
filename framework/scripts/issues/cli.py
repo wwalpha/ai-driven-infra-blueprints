@@ -12,6 +12,7 @@ import issues.publication as _imports_issues_publication
 import issues.runner as _imports_issues_runner
 
 from .aggregate import IAC_CLASSES
+from comparison.deferral import CATEGORIES
 from .records import safe_text
 
 SELECTOR = "BLUEPRINT_TASK_FILE"
@@ -41,6 +42,7 @@ def main():
     detail.add_argument('--offset', type=int, default=0)
     detail.add_argument('--limit', type=int, default=50)
     detail.add_argument('--category', choices=IAC_CLASSES, help='IaC classification filter; applied before pagination')
+    detail.add_argument('--record-category', choices=CATEGORIES, help='comparison record filter for section iac; cannot combine with Issue filters')
     detail.add_argument('--issue-id', help='stable ISSUE-<id>; retrieve members from this artifact without comparison')
     saveparser = commands.add_parser('save')
     saveparser.add_argument('--artifact', type=Path, required=True)
@@ -68,7 +70,7 @@ def main():
         if args.command == 'detail':
             detail_payload = _imports_issues_artifact.detail_payload
             artifact = json.loads(outside(root, args.artifact).read_text(encoding='utf-8'))
-            print(json.dumps(detail_payload(artifact, args.section, args.offset, args.limit, args.category, args.issue_id), ensure_ascii=False))
+            print(json.dumps(detail_payload(artifact, args.section, args.offset, args.limit, args.category, args.issue_id, args.record_category), ensure_ascii=False))
             return 0
         if args.command == 'save':
             has_processing_errors = _imports_issues_artifact.has_processing_errors

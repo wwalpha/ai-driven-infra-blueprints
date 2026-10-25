@@ -206,9 +206,9 @@ def check_incomplete_setting_artifact():
                 comparison, records = fixture.compare(root, ['codebuild'])
             data = aggregate(records, 'dev', '123456789012', ['codebuild'], comparison.display_differences,
                              redact=comparison.redacted)
-            artifact = dict(version=2, **data)
+            artifact = dict(version=3, **data)
             counts = data['overview']['records']
-            assert counts == dict(difference=1, uncompared=1, error=1, matched=0, excluded=0), records
+            assert counts == dict(difference=1, uncompared=1, error=1, matched=0, deferred=0, excluded=0), records
             assert summary(artifact)['iac_differences'] == 1 and summary(artifact)['iac_errors'] == 1
             detail = detail_payload(artifact, 'iac')['items']
             difference = next(item for item in detail if item['category'] == 'difference')
@@ -254,7 +254,7 @@ def check_iac_partial_error_artifact():
             comparison, records = fixture.compare(root, ['codebuild'])
         data = aggregate(records, 'dev', '123456789012', ['codebuild'], comparison.display_differences,
                          redact=comparison.redacted)
-        artifact = dict(version=2, **data)
+        artifact = dict(version=3, **data)
         counts = data['overview']['records']
         detail = detail_payload(artifact, 'iac')['items']
         report = iac_report('dev', '123456789012', ['codebuild'], data['iac'], artifact=artifact)
@@ -262,7 +262,7 @@ def check_iac_partial_error_artifact():
         assert 'fixture-sensitive-value' not in serialized and '<masked>' in serialized
         print('IaC partial fixture:', json.dumps(dict(counts=counts, summary=summary(artifact), detail=detail), ensure_ascii=False))
         print(report)
-        assert counts == dict(difference=1, uncompared=1, error=1, matched=0, excluded=0), records
+        assert counts == dict(difference=1, uncompared=1, error=1, matched=0, deferred=0, excluded=0), records
         assert summary(artifact)['iac_differences'] == 1 and summary(artifact)['iac_errors'] == 1
         difference = next(item for item in detail if item['category'] == 'difference')
         unresolved = next(item for item in detail if item['category'] == 'uncompared')

@@ -746,9 +746,6 @@ def test_receiver_contracts(service, producer, attribute, kind, path):
     resource(comparison, 'wrong', '001', 'IAM.Role' if producer != 'IAM.Role' else 'SecretsManager.Secret', 'Wrong', [])
     with pytest.raises(Blocked):
         comparison.desired_reference(service, '[wrong](wrong.md#wrong)', kind, path)
-    comparison.reference_anchor_indexes[service] = {'producer': [('001', dict(comparison.resources[service]['001'], resourceMode='IMPORT'))]}
-    with pytest.raises(Blocked, match='IMPORT'):
-        comparison.desired_reference(service, link, kind, path)
 
 
 @pytest.mark.parametrize('expression,expected', [
@@ -2355,3 +2352,138 @@ def test_fragment_undeclared_identifier_and_replacement_stay_uncompared():
     assert comparison.reference_decision(KEY_ARN, actual, 'IAM.Role', 'Policies').equal is None
     undeclared = Expression('Join', ['', ['arn:aws:kms:ap-northeast-1:123456789012:key/', KEY_ID]])
     assert comparison.reference_decision(undeclared, actual, 'IAM.Role', 'Policies').equal is None
+
+
+@pytest.mark.parametrize('observed,phase', [(None, 'unobserved'), ('PENDING_DEPLOY', 'pending_deploy'), (VPC, 'awaiting_handoff')])
+@pytest.mark.parametrize('shape', ['link', 'json-link', 'model-ref', 'intrinsic-link', 'intrinsic-model-ref'])
+def test_import_wait_propagates_without_parent_issue(observed, phase, shape):
+    from issues.aggregate import aggregate, comparison_status
+    comparison = fixture()
+    vpc(comparison, observed=observed)
+    comparison.resources['vpc']['001']['resourceMode'] = 'IMPORT'
+    comparison.models['vpc'].authoritative['desired.resource.001.resourceMode'] = 'IMPORT'
+    comparison.models['vpc'].values['desired.resource.001.resourceMode'] = 'IMPORT'
+    link = '[vpc](vpc.md#vpc)'
+    value = link if shape in {'link', 'json-link', 'intrinsic-link'} else {'$modelRef': {'logicalId': 'EC2_VPC_001', 'attribute': 'VpcId'}}
+    if shape.startswith('intrinsic'):
+        value = {'Fn::Join': ['', [value]]}
+    desired = link if shape == 'link' else json.dumps({'VpcId': value, 'Subnets': ['subnet-fixed']})
+    kind, prop, actual = ('EC2.Subnet', 'VpcId', 'vpc-external') if shape == 'link' else (
+        'CodeBuild.Project', 'VpcConfig', {'VpcId': 'vpc-external', 'Subnets': ['subnet-fixed']})
+    resource(comparison, 'consumer', '001', kind, 'Receiver', [(prop, desired, None)], properties={prop: actual})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('consumer', '001', comparison.resources['consumer']['001'],
+        'producer', 'Receiver', ROOT / 'synthetic.yaml', document['Resources']['Receiver'], document)
+    assert batch.failure is None and len(batch.records) == 1, batch.records
+    item, = batch.records
+    assert item['category'] == 'deferred' and item['cause']['phase'] == phase
+    assert item['cause']['producer'] == dict(service='vpc', resource='001', resourceType='EC2.VPC', attribute='VpcId')
+    data = aggregate(batch.records, 'fixture', 'team', ['consumer'])
+    assert data['overview']['issue_count'] == 0 and data['record_meta'][0]['issue_id'] is None
+    assert comparison_status(data['overview']['records']) == 'partial'
+
+
+@pytest.mark.parametrize('fault', ['missing', 'ambiguous', 'type', 'attribute', 'consumer', '', 'UNSET', 'TODO', 'TBD', 'invalid/vpc', '${unresolved}'])
+def test_import_invalid_contract_or_identifier_stays_an_issue(fault):
+    from issues.aggregate import aggregate
+    comparison = fixture()
+    vpc(comparison, observed=fault if fault in {'', 'UNSET', 'TODO', 'TBD', 'invalid/vpc', '${unresolved}'} else VPC)
+    comparison.resources['vpc']['001']['resourceMode'] = 'IMPORT'
+    link, prop = '[vpc](vpc.md#vpc)', 'EC2.Subnet.VpcId'
+    if fault == 'missing':
+        link = '[vpc](vpc.md#absent)'
+    elif fault == 'ambiguous':
+        comparison.reference_anchor_indexes = {'vpc': {'vpc': [('001', comparison.resources['vpc']['001'])] * 2}}
+    elif fault == 'type':
+        prop = 'EC2.Subnet.AvailabilityZone'
+    elif fault == 'consumer':
+        prop = 'CodeBuild.Project.Name'
+    elif fault == 'attribute':
+        link = ResourceReference({'$resource': ['vpc', '001'], '$attribute': 'Arn'})
+    kind, path = '.'.join(prop.split('.')[:2]), '.'.join(prop.split('.')[2:])
+    from comparison.deferral import failure_category
+    with pytest.raises((Blocked, KeyError)) as failure:
+        comparison.desired_reference('consumer', link, kind, path)
+    assert failure_category(failure.value) == 'uncompared'
+    item = comparison.make_record(failure_category(failure.value), 'consumer', '001', prop, str(failure.value))
+    assert aggregate([item], 'fixture', 'team', ['consumer'])['overview']['issue_count'] == 1
+
+
+@pytest.mark.parametrize('shape', ['json-link', 'model-ref', 'intrinsic'])
+def test_import_wait_preserves_known_json_difference(shape):
+    comparison = fixture()
+    vpc(comparison, observed=None)
+    comparison.resources['vpc']['001']['resourceMode'] = 'IMPORT'
+    comparison.models['vpc'].authoritative['desired.resource.001.resourceMode'] = 'IMPORT'
+    comparison.models['vpc'].values['desired.resource.001.resourceMode'] = 'IMPORT'
+    value = '[vpc](vpc.md#vpc)' if shape == 'json-link' else {'$modelRef': {'logicalId': 'EC2_VPC_001', 'attribute': 'VpcId'}}
+    if shape == 'intrinsic':
+        value = {'Fn::Join': ['', [value]]}
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
+        [('VpcConfig', json.dumps({'VpcId': value, 'Subnets': ['subnet-first']}), None)],
+        properties={'VpcConfig': {'VpcId': 'vpc-unknown', 'Subnets': ['subnet-second']}})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert sorted(item['category'] for item in batch.records) == ['deferred', 'difference'], batch.records
+    parent = next(item for item in batch.records if item['category'] == 'difference')
+    assert not parent.get('deferred_children')
+    assert 'subnet-first' in json.dumps(batch.display_differences)
+
+
+@pytest.mark.parametrize('mismatch', [False, True])
+def test_actual_wait_retains_pointer_and_known_siblings(mismatch):
+    from comparison.deferral import ImportReferenceDeferred
+    from comparison.evaluation import project_actual
+    error = ImportReferenceDeferred('unobserved', 'vpc', '004', 'EC2.Subnet', 'SubnetId', 'CodeBuild.Project.VpcConfig.Subnets[]')
+    comparison = fixture()
+    rows = resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
+        [('VpcConfig', json.dumps({'VpcId': VPC, 'Subnets': ['subnet-fixed']}), None)],
+        properties={'VpcConfig': {'VpcId': 'vpc-different' if mismatch else VPC, 'Subnets': [{'Ref': 'External'}]}})
+    original = comparison.evaluate
+    def evaluate(stack, value, *args):
+        if value == {'Ref': 'External'}:
+            raise error
+        return original(stack, value, *args)
+    comparison.evaluate = evaluate
+    projected = project_actual({'VpcId': VPC, 'Subnets': [{'Ref': 'External'}]},
+        evaluate=lambda value: evaluate('producer', value), property_name='CodeBuild.Project.VpcConfig', model_path=ROOT / 'synthetic.yaml')
+    assert len(projected.failures) == 1 and projected.failures[0][1] == '/Subnets/0'
+    assert projected.failures[0][2] is error and not projected.warnings
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert sorted(item['category'] for item in batch.records) == (['deferred', 'difference'] if mismatch else ['deferred']), batch.records
+
+
+@pytest.mark.parametrize('failure,category', [(Blocked('not proven'), 'uncompared'), (ValueError('malformed'), 'error'), ('deferred', 'deferred')])
+def test_resource_failure_uses_shared_classification(failure, category):
+    from comparison.deferral import ImportReferenceDeferred
+    comparison = fixture()
+    comparison.services = ['codebuild']
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build', [('Name', 'build', None)])
+    if failure == 'deferred':
+        failure = ImportReferenceDeferred('pending_deploy', 'vpc', '004', 'EC2.Subnet', 'SubnetId', 'CodeBuild.Project.VpcConfig.Subnets[]')
+    comparison.compare_rows = Mock(side_effect=failure)
+    with patch.object(Path, 'is_file', return_value=True):
+        item, = comparison.run()
+    assert item['category'] == category, item
+    if category == 'deferred':
+        assert item['cause'] == failure.iac_cause
+
+
+@pytest.mark.parametrize('unknown', [{'Ref': 'Missing'}, {'Fn::Join': ['', 1]}])
+def test_deferred_intrinsic_does_not_hide_other_operand_failures(unknown):
+    comparison = fixture()
+    vpc(comparison, observed=None)
+    comparison.resources['vpc']['001']['resourceMode'] = 'IMPORT'
+    comparison.models['vpc'].authoritative['desired.resource.001.resourceMode'] = 'IMPORT'
+    comparison.models['vpc'].values['desired.resource.001.resourceMode'] = 'IMPORT'
+    expression = {'Fn::Join': ['', [{'$modelRef': {'logicalId': 'EC2_VPC_001', 'attribute': 'VpcId'}}, unknown]]}
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
+        [('VpcConfig', json.dumps({'VpcId': expression}), None)], properties={'VpcConfig': {'VpcId': 'external'}})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert any(item['category'] in {'uncompared', 'error'} for item in batch.records), batch.records
+    assert not any(item['category'] in {'matched', 'difference'} for item in batch.records), batch.records

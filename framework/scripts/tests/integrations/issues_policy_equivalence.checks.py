@@ -190,7 +190,7 @@ def sqs_policy_artifact_checks():
                 comparison, records = fixtures.compare(root, ['sqs'])
             selected = [item for item in records if item['resource'] == '002']
             assert len(selected) == 1 and selected[0]['category'] == category, records
-            artifact = dict(version=2, **aggregate(selected, 'dev', '123456789012', ['sqs'],
+            artifact = dict(version=3, **aggregate(selected, 'dev', '123456789012', ['sqs'],
                                                    comparison.display_differences, redact=comparison.redacted))
             path = Path(temporary) / 'artifact.json'
             path.write_text(json.dumps(artifact), encoding='utf-8')
