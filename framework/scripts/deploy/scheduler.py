@@ -141,7 +141,8 @@ def run_group(
         # Start multiple change sets without waiting for one to become CREATE_COMPLETE.
         # Preparation is bounded too; do not speculate across DeployOrder barriers.
         preparing = sum(
-            states[u["name"]]["status"] == "CHANGESET_CREATING" for u in group
+            states[u["name"]]["status"] in {"CHANGESET_CREATING", "READY"}
+            for u in group
         )
         if not stopped:
             pending = [
@@ -166,6 +167,8 @@ def run_group(
                             + time.perf_counter()
                             - started
                         )
+                    if hasattr(backend, "observed_readiness"):
+                        backend.observed_readiness(unit)
                     if hasattr(backend, "prepare_delivery_group"):
                         backend.prepare_delivery_group([unit], states)
                     begin = getattr(backend, "begin_prepare", backend.prepare)

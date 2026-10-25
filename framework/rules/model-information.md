@@ -260,6 +260,10 @@ display.stack.002.comment=月次集計jobを配置するstack
 - The same DeployOrder and the same Template are allowed. Do not add `DependsOn`, `AfterStack`, `DependsOnStack`, or `Dependencies`.
 - Display in ascending numeric DeployOrder, then ascending string StackName; No. is a sequential display number. Do not change model entry IDs or comment membership through sorting.
 
+Deploy checks the signed Model dependency index and only the current execution slots' known Observed owners/consumers before delivery or ChangeSet creation, then checks ChangeSet removals before execution. The index and first-used Model snapshots are checked once per process through the shared session cache; saved READY state does not replace these checks. Physical identifiers and actual Outputs remain post-success checks. Bootstrap a missing index offline with `python framework/scripts/model/cli.py index --repository-root <project-root>`; Deploy never rebuilds it.
+
+Canonical Model publication updates owner/reference metadata for desired changes and only file revisions for Observed changes, in the same rollback-protected transaction. Unchanged index content is not rewritten. Direct file edits outside the guarded Model publication API cannot guarantee index freshness: first-used snapshots are compared with the signed index, but newly added owners or incoming references in otherwise unselected Models cannot be detected completely without a full scan. After such edits, explicitly rebuild the index offline before Deploy; signature validity alone does not prove freshness.
+
 ### Resource-level CloudFormation identity
 
 Resources created with CloudFormation retain confirmed `<StackName>-<template Resources key>` in the service model's own `desired.resource.<番号>.cfn-logicalId`. Split at the last hyphen, retaining hyphens within StackName. Template resource IDs cannot contain hyphens. Example:

@@ -91,7 +91,8 @@ def _load(root):
     path = location(root)
     if not path.is_file():
         raise ValueError(
-            "Model dependency index missing; run model/cli.py index offline before Deploy"
+            "Model dependency index missing; run offline before Deploy: "
+            f"python framework/scripts/model/cli.py index --repository-root {root}"
         )
     index = read_sealed(root, path)
     validate(root, index)
@@ -195,6 +196,8 @@ def update(root, changed, *, observed=False):
             if files:
                 raise ValueError("deleted Model still has indexed parts: " + relative)
             index["models"].pop(relative, None)
+    if index == previous:
+        return
     write_sealed(root, location(root), index)
     shared = sources.session_reads(root)
     if shared is not None:

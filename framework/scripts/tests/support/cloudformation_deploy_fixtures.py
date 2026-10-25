@@ -50,6 +50,9 @@ _production_runtime = M.create_runtime
 
 
 class Runtime:
+    def observed_readiness(self, unit, state=None):
+        pass  # Adapter fixtures isolate readiness; real controller and lazy-input checks exercise it.
+
     def __init__(self, *args, **kwargs):
         runtime = _production_runtime(*args, **kwargs)
         self.__dict__.update(runtime.__dict__)

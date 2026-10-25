@@ -726,7 +726,7 @@ def observed_destinations(
     """Plan exact model parts/views before writes, preserving desired/display bytes."""
     sync = _imports_sync_runtime
     scope = active_scope(root) if check_scope else None
-    destinations = {}
+    destinations, authority_paths = {}, set()
     for path, updates in changes.items():
         service = tuple(path.relative_to(root / "model").with_suffix("").parts)
         if (
@@ -744,6 +744,11 @@ def observed_destinations(
                 f"properties Model sources missing for observed update: {path}"
             )
         destinations.update(projected)
+        snapshot = load_model(path)
+        authority_paths.update(
+            snapshot.locations[key.replace("observed.", "desired.", 1)][0]
+            for key in updates
+        )
     views = set()
     for path in changes:
         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(
@@ -757,13 +762,15 @@ def observed_destinations(
         return destinations, views, sync
     snapshot = task_snapshot(root)
     contract = snapshot.text
+    declared = paths_in(contract, "## Modified files")
     allowed = paths_in(contract, "## Allowed paths")
     if any(
-        not any(matches(path.relative_to(root).as_posix(), p) for p in allowed)
-        for path in set(destinations) | views
+        path.relative_to(root).as_posix() not in declared
+        or not any(matches(path.relative_to(root).as_posix(), p) for p in allowed)
+        for path in set(destinations) | authority_paths | views
     ):
         raise ValueError(
-            "task scope violation: observed model/view output outside Allowed paths"
+            "task scope violation: observed model/view output outside Modified files/Allowed paths"
         )
     return destinations, views, sync
 

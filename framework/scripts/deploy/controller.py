@@ -20,7 +20,7 @@ from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
 import deploy.failures as _imports_deploy_failures
-from deploy import change_sets, delivery, handoff, inputs, secret_bootstrap
+from deploy import change_sets, delivery, handoff, inputs, observed, secret_bootstrap
 from deploy import recovery as repair_ops
 from deploy import session as session_ops
 from deploy.guards import call, secret_value_missing
@@ -85,6 +85,7 @@ def create_runtime(
     runtime.check_imports = partial(check_imports, runtime)
     runtime.describe_change_set = partial(describe_change_set, runtime)
     runtime.verify_stack_ownership = partial(verify_stack_ownership, runtime)
+    runtime.observed_readiness = partial(observed.readiness, runtime)
     runtime.begin_prepare = partial(begin_prepare, runtime)
     runtime.review_prepared = partial(review_prepared, runtime)
     runtime.prepare = partial(prepare, runtime)
@@ -393,6 +394,8 @@ def verify_stack_ownership(runtime: SimpleNamespace, unit: StackUnit) -> None:
 
 
 def begin_prepare(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
+    runtime.load_inputs(unit)
+    runtime.observed_readiness(unit)
     return change_sets.begin_prepare(
         unit,
         state,
@@ -436,6 +439,8 @@ def prepare(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str
 def execute(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> None:
     expected = runtime.expected_digests.get(unit["name"])
     try:
+        runtime.load_inputs(unit)
+        runtime.observed_readiness(unit)
         current = change_sets.verify_execution(
             unit,
             state,
@@ -446,6 +451,9 @@ def execute(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> Non
             runtime.check_imports,
             runtime.describe_change_set,
             boundary={},
+        )
+        runtime.observed_readiness(
+            unit, {"changes": change_sets.change_summary(current)}
         )
         evidence = change_sets.record_execution(
             runtime.aws, unit, state, current, runtime.input_digest(unit, fresh=True)
@@ -502,6 +510,9 @@ def bootstrap(
     state: StackState,
     entry: JsonObject | None = None,
 ) -> bool:
+    if unit["name"] not in runtime.templates:
+        runtime.load_inputs(unit)
+    runtime.observed_readiness(unit)
     return secret_bootstrap.bootstrap(
         runtime.root,
         runtime.states,
@@ -524,6 +535,9 @@ def cleanup_failed_create(
     *,
     empty_only: bool = False,
 ) -> bool:
+    if unit["name"] not in runtime.templates:
+        runtime.load_inputs(unit)
+    runtime.observed_readiness(unit)
     return repair_ops.cleanup_failed_create(
         runtime.templates,
         runtime.aws,

@@ -17,10 +17,14 @@ from model.adapters.observed import (
     resolve_resources,
 )
 from model.identity import resource_link
-from model.sources import input_snapshot
+from model.sources import input_snapshot, load_model
+from model.validation import check_model_inputs
+from utils.aws_mappings import definition_root
 from utils.cloudformation.inputs import Blocked as Blocked
+from utils.json_format import fingerprint
 
 import deploy.observed_resume as _dependency_deploy_observed_resume
+from model import dependency_index
 
 
 def removed_resources(units, states):
@@ -47,6 +51,60 @@ def removed_resources(units, states):
             removed[change["LogicalResourceId"]] = definition
         result[unit["name"]] = removed
     return result
+
+
+def readiness(backend, unit, state=None):
+    """Check only this Stack's known synchronization inputs; never publish placeholders."""
+    name = unit["name"]
+    try:
+        dependency_index.load(backend.root)
+        document, parameters = backend.templates[name]
+        removed = removed_resources([unit], {name: state or {}})
+        key = (name, fingerprint([document, parameters, removed]))
+        checked = getattr(backend, "observed_checks", set())
+        if key in checked:
+            return
+        loaded, mapped = resolve_resources(
+            backend.root,
+            backend.environment,
+            backend.directory,
+            backend.templates,
+            [unit],
+            {name: set(document.get("Resources", {})) | set(removed[name])},
+            removed,
+            target=backend.target,
+        )
+        changes, identifiers = {}, {}
+        for path, _identity, resource, rows, outputs in mapped[name].values():
+            for rid, row in rows:
+                if row["property"] in outputs:
+                    changes.setdefault(path, {})[f"observed.row.{rid}.value"] = (
+                        "`PENDING_DEPLOY`"
+                    )
+                    identifiers[own_key(path, resource)] = "PENDING_DEPLOY"
+        propagate_references(backend.root, loaded, changes, identifiers)
+        observed_destinations(
+            backend.root, backend.environment, backend.directory, loaded, changes
+        )
+        models = getattr(backend, "observed_models", set())
+        for path in loaded.keys() - models:
+            view = (
+                backend.root / "docs/designs" / path.relative_to(backend.root / "model")
+            ).with_suffix(".md")
+            findings = check_model_inputs(
+                view,
+                load_model(path).authoritative,
+                backend.root,
+                definitions_root=definition_root(backend.root),
+            )
+            if findings.errors:
+                raise ValueError("\n".join(findings.errors))
+            models.add(path)
+        backend.observed_models = models
+        checked.add(key)
+        backend.observed_checks = checked
+    except (OSError, ValueError, Blocked) as error:
+        raise Blocked(f"{name}: Observed readiness: {error}") from error
 
 
 def collect_successful(backend, units, states, *, generated_views=None):

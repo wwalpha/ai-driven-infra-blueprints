@@ -16,7 +16,15 @@ import model.observed as model_observed
 import model.sources as sources
 import model.validation as model_validation
 import pytest
-from deploy import controller, handoff, inputs, model_cache, scheduler, session
+from deploy import (
+    controller,
+    handoff,
+    inputs,
+    model_cache,
+    observed,
+    scheduler,
+    session,
+)
 from deploy.model_cache import SessionModels
 from model.adapters.observed import mapped_resource, resource_index
 from model.format import FORMAT, INDEX, parse, serialize
@@ -707,6 +715,306 @@ def check_index_transaction_rollback_and_recovery(tmp_path, monkeypatch, interru
             assert dependency_index.owners(
                 tmp_path, scope.environment, scope.target, ["fixture-OriginalVpc"]
             ) == [scope.path]
+
+
+def readiness_fixture(root):
+    scope, stack = deploy_properties_fixture(root)
+    scope.path.write_text(
+        patch_properties(
+            parse(scope.path.read_text()),
+            {
+                "desired.resource.007.resourceMode": "CREATE",
+                "desired.service.network.serviceId": "network",
+                "desired.service.network.ownedCatalogResourceTypes": "EC2.VPC",
+                "display.service.title": "# 合成 VPC",
+                "display.resource.007.comment": "合成 VPC",
+                "desired.row.007-002.property": "EC2.VPC.CidrBlock",
+                "desired.row.007-002.value": "`10.0.0.0/16`",
+                "desired.row.007-002.comment": "合成 CIDR",
+                "desired.row.007-003.property": "EC2.VPC.Name",
+                "desired.row.007-003.value": "`app-qa-synthetic-vpc`",
+                "desired.row.007-003.comment": "合成名",
+            },
+        )
+    )
+    stack.write_text(
+        patch_properties(
+            parse(stack.read_text()),
+            {
+                "desired.stack.009.name": "fixture",
+                "desired.stack.009.placementName": "fixture",
+            },
+        )
+    )
+    task = root / "tasks/active.md"
+    listed = "".join(
+        f"- `{p}`\n"
+        for p in (
+            "tasks/active.md",
+            scope.path.relative_to(root).as_posix(),
+            "docs/designs/qa-synthetic/team-a/network.md",
+        )
+    )
+    task.write_text(
+        "## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n"
+        "## Validation scope\n- `qa-synthetic/team-a/network`\n"
+        "## Modified files\n" + listed + "## Allowed paths\n" + listed
+    )
+    backend = Queue(False, 1)
+    backend.root, backend.environment, backend.directory = (
+        root,
+        scope.environment,
+        scope.target,
+    )
+    backend.target = json.loads((root / "project.json").read_text())["targets"][0]
+    backend.templates = {
+        "fixture": ({"Resources": {"OriginalVpc": {"Type": "AWS::EC2::VPC"}}}, {})
+    }
+    backend.observed_readiness = partial(observed.readiness, backend)
+    return scope, backend
+
+
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "missing",
+        "signature",
+        "unknown",
+        "duplicate",
+        "type",
+        "stale",
+        "scope",
+        "structure",
+        "declared",
+        "invalid",
+        "consumer",
+        "pending-scope",
+    ],
+)
+@pytest.mark.parametrize("status", ["NOT_STARTED", "READY"])
+def check_readiness_blocks_before_mutation(tmp_path, monkeypatch, problem, status):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, backend = readiness_fixture(tmp_path)
+    if problem == "duplicate":
+        scope.path.with_name("duplicate.properties").write_bytes(
+            scope.path.read_bytes()
+        )
+    if problem == "invalid":
+        scope.path.write_text(
+            patch_properties(
+                parse(scope.path.read_text()),
+                {"desired.row.007-002.property": "EC2.VPC.Unknown"},
+            )
+        )
+    if problem == "pending-scope":
+        scope.path.write_text(
+            patch_properties(
+                parse(scope.path.read_text()),
+                {"observed.row.007-001.value": "`PENDING_DEPLOY`"},
+            )
+        )
+    if problem == "consumer":
+        values = dict(parse(scope.path.read_text()).values)
+        values.update(
+            {
+                "desired.resource.007.resourceMode": "IMPORT",
+                "desired.resource.007.cfn-logicalId": None,
+                "desired.row.007-001.value": "[vpc](network.md#network-existing)",
+            }
+        )
+        scope.path.with_name("consumer.properties").write_text(
+            serialize({k: v for k, v in values.items() if v is not None})
+        )
+    dependency_index.rebuild(tmp_path)
+    index_path = dependency_index.location(tmp_path)
+    if problem == "missing":
+        index_path.unlink()
+    elif problem == "signature":
+        index_path.write_text("{}")
+    elif problem == "unknown":
+        backend.templates["fixture"][0]["Resources"] = {
+            "Unknown": {"Type": "AWS::EC2::VPC"}
+        }
+    elif problem == "type":
+        backend.templates["fixture"][0]["Resources"]["OriginalVpc"]["Type"] = (
+            "AWS::EC2::Subnet"
+        )
+    elif problem == "stale":
+        scope.path.write_text(scope.path.read_text() + "# direct edit\n")
+    elif problem in {"scope", "pending-scope"}:
+        task = tmp_path / "tasks/active.md"
+        task.write_text(
+            task.read_text().replace(
+                f"- `{scope.path.relative_to(tmp_path).as_posix()}`\n", ""
+            )
+        )
+    elif problem == "declared":
+        task = tmp_path / "tasks/active.md"
+        modified, allowed = task.read_text().split("## Allowed paths")
+        task.write_text(
+            modified.replace(f"- `{scope.path.relative_to(tmp_path).as_posix()}`\n", "")
+            + "## Allowed paths"
+            + allowed
+        )
+    elif problem == "structure":
+        dependency_index.write_sealed(tmp_path, index_path, {"version": 1})
+    units = [{"name": "fixture", "deployOrder": 10}] + [
+        {"name": str(i), "deployOrder": 10} for i in range(99)
+    ]
+    states = {u["name"]: {"status": "NOT_STARTED"} for u in units}
+    states["fixture"]["status"] = status
+    if status == "READY":
+        backend.execute = partial(controller.execute, backend)
+        backend.expected_digests = {}
+    with (
+        sources.model_session(SessionModels(tmp_path, {})),
+        patch.object(
+            dependency_index, "inventory", side_effect=AssertionError("inventory")
+        ),
+        patch.object(
+            dependency_index, "rebuild", side_effect=AssertionError("rebuild")
+        ),
+    ):
+        assert (
+            scheduler.run_group(units, 1, states, backend, sleep=lambda _: None)
+            == "STOPPED"
+        )
+    assert states["fixture"]["status"] == "BLOCKED"
+    assert "fixture: Observed readiness:" in states["fixture"]["reason"]
+    if problem == "missing":
+        assert (
+            "python framework/scripts/model/cli.py index --repository-root"
+            in states["fixture"]["reason"]
+        )
+    assert (
+        backend.loads == ["fixture"]
+        and backend.deliveries == []
+        and backend.executed == []
+    )
+    assert all(states[str(i)]["status"] == "NOT_STARTED" for i in range(99))
+
+
+def check_readiness_cache_and_fresh_process(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, backend = readiness_fixture(tmp_path)
+    unrelated = scope.path.with_name("unrelated.properties")
+    unrelated.write_text(serialize({}))
+    dependency_index.rebuild(tmp_path)
+    unrelated.write_text("invalid unrelated Model")
+    with (
+        sources.model_session(SessionModels(tmp_path, {})),
+        patch.object(
+            dependency_index, "read_sealed", wraps=dependency_index.read_sealed
+        ) as index_reads,
+        patch.object(sources, "_read_model", wraps=sources._read_model) as loads,
+        patch.object(
+            observed, "resolve_resources", wraps=observed.resolve_resources
+        ) as mappings,
+        patch.object(
+            observed, "check_model_inputs", wraps=observed.check_model_inputs
+        ) as checks,
+    ):
+        for _ in range(100):
+            backend.observed_readiness({"name": "fixture"})
+        assert index_reads.call_count == mappings.call_count == checks.call_count == 1
+        assert (
+            sum(call.args[0].path == scope.path for call in loads.call_args_list) == 1
+        )
+    backend.observed_checks.clear()
+    backend.observed_models.clear()
+    with (
+        sources.model_session(SessionModels(tmp_path, {})),
+        patch.object(
+            observed, "resolve_resources", wraps=observed.resolve_resources
+        ) as mappings,
+    ):
+        backend.observed_readiness({"name": "fixture"})
+        assert mappings.call_count == 1
+
+
+def check_readiness_removal_and_ready_execution(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    _, backend = readiness_fixture(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    unit = {"name": "fixture"}
+    state = {
+        "status": "READY",
+        "changeDigest": "digest",
+        "clientToken": "token",
+        "stackId": "stack",
+        "changeSetId": "cs",
+    }
+    backend.expected_digests = {}
+    backend.input_digest = lambda *args, **kwargs: "digest"
+    backend.file_digest = backend.template_arguments = backend.check_imports = (
+        backend.describe_change_set
+    ) = lambda *args, **kwargs: None
+    backend.save = lambda: None
+    current = {
+        "Changes": [
+            {
+                "ResourceChange": {
+                    "Action": "Remove",
+                    "LogicalResourceId": "Unknown",
+                    "ResourceType": "AWS::EC2::VPC",
+                }
+            }
+        ]
+    }
+    with (
+        sources.model_session(SessionModels(tmp_path, {})),
+        patch.object(
+            controller.change_sets, "verify_execution", return_value=current
+        ) as verify,
+        patch.object(
+            controller.change_sets, "record_execution", return_value={}
+        ) as record,
+        patch.object(backend, "aws", create=True) as aws,
+    ):
+        with pytest.raises(Blocked, match="Unknown"):
+            controller.execute(backend, unit, state)
+        assert state["status"] == "BLOCKED"
+        record.assert_not_called()
+        aws.assert_not_called()
+        current["Changes"] = []
+        state["status"] = "READY"
+        controller.execute(backend, unit, state)
+        assert verify.call_count == 2 and record.call_count == 1
+        assert aws.call_args.args[0] == "execute_change_set"
+
+
+def check_index_noop_preserves_file_and_cache(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, _ = deploy_properties_fixture(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    cache = SessionModels(tmp_path, {})
+    with sources.model_session(cache):
+        sources.load_model(scope.path)
+        original = dependency_index.load(tmp_path)
+        checked = dict(cache.index_checks)
+        before = dependency_index.revision(dependency_index.location(tmp_path))
+        with patch.object(
+            dependency_index, "write_sealed", wraps=dependency_index.write_sealed
+        ) as write:
+            for _ in range(10):
+                dependency_index.update(tmp_path, {scope.path}, observed=True)
+                dependency_index.update(tmp_path, {scope.path})
+            assert write.call_count == 0
+            assert cache.dependency_index is original and cache.index_checks == checked
+            assert (
+                dependency_index.revision(dependency_index.location(tmp_path)) == before
+            )
+            scope.path.write_text(
+                patch_properties(
+                    parse(scope.path.read_text()),
+                    {"observed.row.007-001.value": "`vpc-changed`"},
+                )
+            )
+            dependency_index.update(tmp_path, {scope.path}, observed=True)
+            assert write.call_count == 1
+            assert cache.dependency_index["files"][
+                scope.path.relative_to(tmp_path).as_posix()
+            ] == dependency_index.revision(scope.path)
 
 
 if __name__ == "__main__":
