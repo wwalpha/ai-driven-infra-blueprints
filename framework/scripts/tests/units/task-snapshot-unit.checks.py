@@ -315,6 +315,7 @@ def check_validation_workers_share_immutable_snapshot(tmp_path, monkeypatch):
         schema_catalog=None,
         unavailable_views={},
         view_reader=None,
+        check_display=True,
     )
     with (
         tasks.contract_reads(tmp_path, verify=False) as captured,

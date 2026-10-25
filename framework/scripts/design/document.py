@@ -45,26 +45,27 @@ class DisplayMismatchError(ValueError):
         super().__init__("Markdown differs from Model expected display: " + str(path))
 
 
-def display_differences(text, expected):
-    def rows(document):
-        anchor, logical = "", ""
-        identities = _dependency_design_layout.resource_logical_ids(
-            document.splitlines()
-        )
-        counts, result = Counter(), {}
-        for number, line in enumerate(document.splitlines()):
-            if match := ANCHOR.fullmatch(line):
-                anchor = match[1]
-                logical = identities.get(anchor, logical)
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if len(cells) != 4 or not cells[0].isdigit():
-                continue
-            counts[anchor, cells[1]] += 1
-            key = anchor, logical, cells[1], counts[anchor, cells[1]]
-            result[key] = number, cells
-        return result
+def _display_rows(document):
+    anchor, logical = "", ""
+    identities = _dependency_design_layout.resource_logical_ids(
+        document.splitlines()
+    )
+    counts, result = Counter(), {}
+    for number, line in enumerate(document.splitlines()):
+        if match := ANCHOR.fullmatch(line):
+            anchor = match[1]
+            logical = identities.get(anchor, logical)
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != 4 or not cells[0].isdigit():
+            continue
+        counts[anchor, cells[1]] += 1
+        key = anchor, logical, cells[1], counts[anchor, cells[1]]
+        result[key] = number, cells
+    return result
 
-    saved_rows, expected_rows = rows(text), rows(expected)
+
+def display_differences(text, expected):
+    saved_rows, expected_rows = _display_rows(text), _display_rows(expected)
     normalized = text.splitlines()
     positions = []
     for key in sorted(saved_rows.keys() & expected_rows.keys()):
@@ -145,24 +146,25 @@ def display_differences(text, expected):
     return sorted(positions, key=lambda item: item["location"]), other
 
 
-def require_saved_identity(text, expected):
-    def identity(document):
-        lines = document.splitlines()
-        children, headings, anchor = [], [], ""
-        for line in lines:
-            if match := ANCHOR.fullmatch(line):
-                anchor = match[1]
-            if match := CHILD.match(line):
-                children.append((anchor, *match.groups()))
-            if match := RESOURCE.fullmatch(line):
-                headings.append((anchor, match[1]))
-        return (
-            _dependency_design_layout.resource_logical_ids(lines),
-            sorted(children),
-            sorted(headings),
-        )
+def _saved_identity(document):
+    lines = document.splitlines()
+    children, headings, anchor = [], [], ""
+    for line in lines:
+        if match := ANCHOR.fullmatch(line):
+            anchor = match[1]
+        if match := CHILD.match(line):
+            children.append((anchor, *match.groups()))
+        if match := RESOURCE.fullmatch(line):
+            headings.append((anchor, match[1]))
+    return (
+        _dependency_design_layout.resource_logical_ids(lines),
+        sorted(children),
+        sorted(headings),
+    )
 
-    if identity(text) != identity(expected):
+
+def require_saved_identity(text, expected):
+    if _saved_identity(text) != _saved_identity(expected):
         raise ValueError(
             "Markdown Resource logicalId/anchor/ownership differs from Model"
         )

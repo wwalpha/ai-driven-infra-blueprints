@@ -208,7 +208,7 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
         write_model(model, values)
     design.write_text(text, encoding="utf-8")
     after, new = trace_validation(root)
-    expected = (COMMON[1], COMMON[5]) if fault == "observed" else COMMON
+    expected = (COMMON[1], COMMON[4], COMMON[5]) if fault == "observed" else COMMON
     for name in COMMON:
         assert bool(new["saved", name]) == (name in expected), name
         assert not new["candidate", name], name

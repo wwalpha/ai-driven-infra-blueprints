@@ -182,7 +182,10 @@ def check(root):
             },
             [doc],
         )
-        assert not validator.errors and validator.findings.warnings
+        assert validator.errors
+        assert {d.code for d in validator.findings.diagnostics} == {
+            "design.identity.invalid"
+        }
         doc.write_text(original)
     values = dict(load_model(vpc_path).authoritative)
     original = vpc_path.read_bytes()

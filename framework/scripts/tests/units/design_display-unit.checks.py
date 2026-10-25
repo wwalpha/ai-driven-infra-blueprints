@@ -4,6 +4,7 @@ import json
 import sys
 from contextlib import ExitStack
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -43,7 +44,7 @@ from validation.diagnostics import display_diagnostics
 from validation.findings import Findings, finish_result
 
 if not __debug__:
-    raise SystemExit("Checks require assertions; run without -O")
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 @pytest.fixture
@@ -222,20 +223,34 @@ def test_missing_producer_stays_missing(pipeline):
     assert not findings.diagnostics
 
 
+def collect_display(root, findings, path, error):
+    for stage in ("tables", "links", "identity"):
+        for item in display_diagnostics(root, path, error, stage):
+            findings.add_diagnostic(item)
+    design_tables.design_dependency_not_run(
+        path, "CodePipeline_Pipeline_001", "tables", error, findings=findings
+    )
+
+
+def mechanical_display(findings, *args, validator_out, **kwargs):
+    validator_out.append(
+        SimpleNamespace(
+            findings=findings, errors=findings.errors, checks=findings.checks
+        )
+    )
+    return findings.errors, findings.checks, ""
+
+
 def collected(pipeline):
     root, values, path, saved, expected = pipeline
     findings = Findings(root)
     error = mismatch(pipeline)
 
-    def validate():
-        for stage in ("tables", "links", "identity"):
-            for item in display_diagnostics(root, path, error, stage):
-                findings.add_diagnostic(item)
-        design_tables.design_dependency_not_run(
-            path, "CodePipeline_Pipeline_001", "tables", error, findings=findings
-        )
-
-    findings.evaluate("design.display", {("qa", "team", "codepipeline")}, validate)
+    findings.evaluate(
+        "design.display",
+        {("qa", "team", "codepipeline")},
+        partial(collect_display, root, findings, path, error),
+    )
     comparison = SimpleNamespace(
         root=root,
         environment="qa",
@@ -273,14 +288,6 @@ def collected(pipeline):
     ) = {}, {}, {}, {}
     comparison.warnings, comparison.view_errors, comparison.catalog = [], {}, None
 
-    def mechanical(*args, validator_out, **kwargs):
-        validator_out.append(
-            SimpleNamespace(
-                findings=findings, errors=findings.errors, checks=findings.checks
-            )
-        )
-        return findings.errors, findings.checks, ""
-
     lint = dict(
         jobs=[],
         coverage=[],
@@ -299,7 +306,9 @@ def collected(pipeline):
     )
     with (
         patch.object(scan_runner, "Comparison", return_value=comparison),
-        patch.object(scan_runner, "mechanical", side_effect=mechanical),
+        patch.object(
+            scan_runner, "mechanical", side_effect=partial(mechanical_display, findings)
+        ),
         patch.object(scan_runner, "view_text", return_value=""),
         patch.object(scan_runner, "review_materials", return_value=[]),
         patch.object(scan_runner, "naming_materials", return_value=({"names": []}, [])),

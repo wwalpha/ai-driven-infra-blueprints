@@ -103,6 +103,7 @@ def reference_context_for(values, row_id, row, value, pointer, root):
         if row["property"].startswith(
             "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
         )
+        and not isinstance(value, list)
         else None
     )
     if context is None:

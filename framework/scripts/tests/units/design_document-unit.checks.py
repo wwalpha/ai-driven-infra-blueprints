@@ -283,9 +283,12 @@ def check_snapshot():
                 saved={},
             )
             _compare_generation(plan)
-            assert [d.message for d in plan.failure_records] == [
-                "generated Markdown is stale or missing: docs/designs/dev/account/s3.md"
-            ]
+            assert len(plan.failure_records) == 1
+            diagnostic = plan.failure_records[0]
+            assert diagnostic.code == "design.display.mismatch"
+            assert diagnostic.source_path == "docs/designs/dev/account/s3.md"
+            assert diagnostic.details["savedDisplay"] in changed
+            assert diagnostic.details["expectedDisplay"] in alias_text
         resource_modes = _imports_design_layout.resource_modes
         for mode in ("CREATE", "IMPORT"):
             source.write_text(
@@ -598,10 +601,9 @@ def check_saved_typed_reference_display_difference(project_workspace):
         scope=None,
         definitions_root=reference_models.FRAMEWORK,
     )
-    assert any(
-        "Markdown differs from Model expected display" in error
-        for error in strict.errors
-    )
+    assert strict.status == "FAIL"
+    assert {d.code for d in strict.diagnostics} == {"design.display.mismatch"}
+    assert all(d.source_path.endswith("codepipeline.md") for d in strict.diagnostics)
     assert strict.unverified and target.read_bytes() == before
 
 
@@ -637,6 +639,7 @@ def check_view_failure_isolation(tmp_path, phase):
             exception="ValueError",
             message="synthetic invalid View",
             complete=False,
+            status="NOT_RUN",
         )
     ]
     assert (
