@@ -86,6 +86,23 @@ when updated. `current_diagnostic_ids` supplies exact machine-marker corresponde
 other mappings require the corresponding resource/rule judgment. Do not infer resolution
 from an empty diagnostic list, a successful unrelated check or IaC-only comparison.
 
+`verification_targets` binds each Issue to structured `service`, `check_id`, `rule`,
+`resource`, `property` and `scope` (environment/target/service). Scan derives these
+only from the CheckResult that actually emitted the exact diagnostic; the rule is
+that check's registered ID. `resource: "*"` / `property: "*"` denotes that original
+check's entire validation domain, not a wildcard match to arbitrary Issues or fields.
+Only exact target equality is accepted. Checks without identifiable provenance and
+old Issues without this binding remain unverified. Check results expose the same
+targets and their existing status/completion; no save-time revalidation is added.
+Nonmechanical Issues may carry the same structured targets with an additional `path`
+for their actual evidence source. Do not fabricate a binding from subject/details.
+
+Unknown-Service materials have `service: null` and an `ownership_reason`. Review all
+of them as `unverified`, with a specific `not_checked_reason` and `not_run` evidence.
+They are retained without modification or service reassignment, while scoped decisions
+continue normally. Existing ownership resolution from headings, markers and same-target
+evidence links still applies; out-of-scope known Services are not review/update targets.
+
 Every decision has `id`, `service`, `status`, `verification` (`local` or `aws`),
 nonempty `reason` and nonempty structured `evidence`. IDs must cover exactly all existing
 scoped Issues, once each. Duplicate/unknown/out-of-scope IDs, wrong Services, missing
@@ -96,8 +113,12 @@ still covers every judgment material and does not replace these decisions.
   for a current `ordinary` candidate and reference it in evidence; Python reuses its
   message/source and consumes the candidate to avoid duplication. Alternatively supply
   `issue: {"message": "current problem", "source": {"path": "relative/path", "line": 12}}`
-  with concrete nonmechanical revalidation. The item is replaced with current grounds,
-  retaining its marker and Service. Keep Human confirmation prose outside Issue bodies.
+  with concrete nonmechanical revalidation. Update only `issue-generated:start/end`
+  machine content and the current `issue-review:start/end` annotation, retaining its
+  marker, Service and all surrounding Human prose. Unmarked old text is retained;
+  show the latest diagnostic inside the replaceable review annotation. Repeated updates
+  replace that annotation rather than adding history. `issue-targets` metadata stays
+  with the generated diagnostic in the same Issue; no persistent sidecar is created.
 - `resolved`: the relevant check completed and positively established that the original
   mismatch/violation is absent. Every evidence entry must establish successful completed
   revalidation. A current corresponding ordinary diagnostic prevents resolution.
@@ -110,14 +131,17 @@ Evidence forms:
 - `{"kind":"scan","section":"ordinary","id":"current-diagnostic-id"}` proves a
   current problem. `section: "check_results"` reuses a current scoped machine check,
   with additional nonempty `subject` and `details` explaining the original Issue/check
-  correspondence. Only `status: PASS` with `complete: true` proves absence. Other states
+  correspondence. Only `status: PASS` with `complete: true` and a matching recorded
+  structured target proves absence. Subject/details alone cannot establish it. Other states
   are unverified. `unverified`/`processing_errors` evidence may reference a record's `id`
   or, for older records without IDs, its existing `identifier(record)` value.
 - Individual/nonmechanical revalidation uses `kind: "revalidation"`, `verification`,
   `check`, `subject`, `rule`, `source: {"path":"relative/path","line":12}`, `details`,
-  boolean `completed` and `outcome: "present" | "absent" | "unverified"`. Cite the
-  actual checked resource, applicable rule and observed result. Only `completed: true`
-  permits present/absent. The reviewer must acquire that evidence; a structured claim
+  boolean `completed` and `outcome: "present" | "absent" | "unverified"`. For absence,
+  `target` must exactly match one recorded `verification_targets` entry, with `check`
+  matching its `check_id`, `rule` matching its rule and `source.path` matching its `path`.
+  Cite the actual checked resource, applicable rule and observed result. Incomplete or
+  unbound absence claims are unverified. The reviewer must acquire that evidence; a structured claim
   alone does not execute or independently verify a check.
 - If no relevant check ran, use `{"kind":"not_run","check":"specific check", "details":"why unexecuted"}`
   with `unverified` and `not_checked_reason`. This never proves resolution.
@@ -136,8 +160,8 @@ it requires neither Scan-wide decisions nor automatic checks and never interpret
 missing acquired results as resolution.
 
 The artifact remains v3 and all existing commands/sections remain supported, with additive
-`check_results` and `detail --section check_results`. Older v3 artifacts can use explicit
-individual revalidation, or mark Issues unverified; missing new machine evidence never
+`check_results` and `detail --section check_results`. Individual revalidation requires
+the same recorded correspondence; otherwise mark Issues unverified. Missing machine evidence never
 becomes PASS. Unsupported artifact versions are still rejected. Saving rereads only the
 ordinary report under the existing lock; a decision that no longer identifies its item
 fails atomically. Keep later/unreviewed report items and all out-of-scope content. Do not

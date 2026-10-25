@@ -19,7 +19,7 @@ from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
 
 from .records import identifier, safe_text
-from .reports import inventories, issue_marker, numbered, owned_blocks
+from .reports import inventories, issue_marker, issue_targets, numbered, owned_blocks
 
 
 def rule_section(text, heading):
@@ -307,6 +307,10 @@ def existing_materials(root, environment, directory, services):
                     "message": safe_text(text),
                     "kind": "existing-unresolved; current state decision required",
                     "marker": issue_marker(text),
+                    "verification_targets": issue_targets(text),
+                    "ownership_reason": "Service ownership cannot be established from the existing heading, markers or evidence links"
+                    if service is None
+                    else None,
                 }
             )
     human = [

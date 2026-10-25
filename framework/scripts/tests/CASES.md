@@ -3750,3 +3750,21 @@ Existing partial-comparison UTs retain confirmed sibling differences and reject 
 | `direct-pending::actual` | `test_direct_pending_deploy_retains_actual_sibling_failures` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | 除外先IaC未解決値の無視と別propertyの未解決参照維持 | Synthetic Models/IaC |
 | `direct-pending::reports` | `check_direct_pending_deploy_reports_and_dedup` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | 異property独立件数・親子重複排除・IMPORT件数維持・Artifact v3・issues/reportのIssue0 | Synthetic records |
 | `direct-pending::artifact` | `check_direct_pending_deploy_artifact_rejects_invalid_causes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 8 | 原因schema・分類・除外件数の不整合を拒否、互換分岐なし | Synthetic Artifact v3 |
+
+## issues既存Issueの状態更新とv1025v8修正
+
+| Origin | Case | Level | Entry | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `issues-current::states` | `check_all_three_states_and_scope` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 1 | 一部解消・継続・未検証、対象外Service/Human/警告保全 | Synthetic v3 |
+| `issues-current::reject` | `check_invalid_decisions_do_not_publish` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 22 | 全件decision・Service・根拠・完了・矛盾のpublication前拒否 | Synthetic v3 |
+| `issues-current::individual` | `check_explicit_revalidation_and_legacy_v3` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 2 | check_resultsなしでも既存の構造化対応と取得済みlocal/AWS根拠で解消 | Synthetic v3 |
+| `issues-current::repeat` | `check_repeat_updates_keep_marker_and_replace_state` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 1 | 未検証から継続へのID維持・機械状態の置換 | Synthetic v3 |
+| `issues-current::stale` | `check_stale_decision_preserves_all_reports` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 1 | Reportの未レビュー変更時に両report不変 | Synthetic v3 |
+| `issues-current::projection` | `check_legacy_projection_and_assigned_diagnostic` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 1 | resolved導出と所属確認済み診断の消費・重複回避 | Synthetic v3 |
+| `issues-current::annotation` | `check_unverified_annotation_replaces_only_its_suffix` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 1 | 未検証根拠のみ更新し元本文保持 | Synthetic v3 |
+| `issues-current::blocks` | `check_all_items_in_repeated_service_blocks` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 1 | 同一Service複数blockの全Issue解消 | Synthetic v3 |
+| `issues-v8::correspondence` | `check_resolution_requires_corresponding_complete_target` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 8 | 無関係PASS・別Property/Resource/ルール/範囲・欠落/未完了の解消拒否、未検証保持 | Synthetic v3 |
+| `issues-v8::individual` | `check_individual_absence_needs_bound_evidence` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 8 | 個別absent自己申告・対象/ルール/根拠path不一致・未完了を未検証化 | Synthetic v3 |
+| `issues-v8::unknown` | `check_unknown_service_retained_while_scoped_issue_resolves` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 2 | Preamble/Service未確定blockの原文とID保持、他Serviceの解消を継続 | Synthetic Markdown |
+| `issues-v8::human` | `check_continuing_preserves_human_and_replaces_only_machine_text` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 2 | 機械境界あり/なしのHuman注記保全・3回更新のID維持・重複なし | Synthetic Markdown |
+| `issues-v8::unmarked` | `check_unmarked_metadata_is_not_machine_correspondence` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 1 | 境界のない旧本文のmetadata風注記を検証対応とみなさず、原文を保持 | Synthetic Markdown |

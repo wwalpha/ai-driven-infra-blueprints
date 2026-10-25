@@ -133,34 +133,97 @@ def issue_key(root, record):
     return identifier([record["service"], record.get("key", message)])
 
 
-def issue_content(root, path, record, marker=None):
+def issue_targets(text):
+    generated = markdown_matches(
+        text, r"^.*<!-- issue-generated:start --> (.*) <!-- issue-generated:end -->.*$"
+    )
+    latest = markdown_matches(
+        text,
+        r"^.*<!-- issue-review:start -->.* 最新診断: (.*)。 <!-- issue-review:end -->.*$",
+    )
+    content = latest or generated
+    if len(content) != 1:
+        return []
+    matches = markdown_matches(content[0][2], r"^.*<!-- issue-targets: (\[.*\]) -->.*$")
+    if len(matches) != 1:
+        return []
+    try:
+        targets = json.loads(matches[0][2])
+    except ValueError:
+        return []
+    return targets if isinstance(targets, list) else []
+
+
+def generated_content(root, path, record):
     message = safe_text(record["message"]).replace(str(root) + "/", "")
     link = evidence(root, path, record.get("source"))
     content = message + (f" 根拠: {link}。" if link else "")
+    targets = record.get("verification_targets", [])
+    if targets:
+        metadata = (
+            json.dumps(targets, ensure_ascii=True)
+            .replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+        )
+        content += f" <!-- issue-targets: {metadata} -->"
+    return content
+
+
+def issue_content(root, path, record, marker=None):
+    content = generated_content(root, path, record)
     marker = marker or issue_key(root, record)
-    return content + f" <!-- issue-id: {marker} -->"
+    return (
+        "<!-- issue-generated:start --> "
+        + content
+        + " <!-- issue-generated:end -->"
+        + f" <!-- issue-id: {marker} -->"
+    )
 
 
 def reviewed_issue(root, path, service, item, decision):
     marker = issue_marker(item) or decision["id"]
-    if decision["status"] == "continuing":
-        content = issue_content(
-            root, path, dict(decision["issue"], service=service), marker
+    content = item
+    # Only marked machine text is replaceable; unmarked prose may belong to Human.
+    for start, end, _ in reversed(
+        markdown_matches(
+            content, r"^(.*<!-- issue-review:start -->[^\n]*<!-- issue-review:end -->)"
         )
+    ):
+        line = content[start:end]
+        content = (
+            content[:start]
+            + line[: line.index("<!-- issue-review:start -->")].rstrip()
+            + content[end:]
+        )
+    latest = ""
+    if decision["status"] == "continuing":
+        latest = generated_content(root, path, decision["issue"])
+        matches = markdown_matches(
+            content,
+            r"^(.*<!-- issue-generated:start -->[^\n]*<!-- issue-generated:end -->)",
+        )
+        if len(matches) == 1:
+            start, end, line = matches[0]
+            begin = line.index("<!-- issue-generated:start -->")
+            content = (
+                content[: start + begin]
+                + "<!-- issue-generated:start --> "
+                + latest
+                + " <!-- issue-generated:end -->"
+                + content[end:]
+            )
+            latest = ""
         state = "継続"
     else:
-        content = re.sub(
-            r" <!-- issue-review:start --> [^\n]* <!-- issue-review:end -->$",
-            "",
-            item,
-        ).rstrip()
-        if not issue_marker(content):
-            content += f" <!-- issue-id: {marker} -->"
         state = "未検証: " + decision["not_checked_reason"]
+    content = content.rstrip()
+    if not issue_marker(content):
+        content += f" <!-- issue-id: {marker} -->"
     return (
         content
         + " <!-- issue-review:start -->"
         + f" 今回の状態: {state}。判定理由: {decision['reason']}。根拠: {decision['evidence']}。"
+        + (f" 最新診断: {latest}。" if latest else "")
         + " <!-- issue-review:end -->"
     )
 
@@ -190,12 +253,17 @@ def normal_merge(
     preamble = re.sub(
         r"^(更新日時|今回確認した範囲):[^\n]*\n?", "", preamble, flags=re.M
     )
+    preamble = preamble.replace("未解決issueなし", "")
+    unowned = markdown_matches(preamble, r"^ {0,3}(\d+)[.)] +")
+    boundary = unowned[0][0] if unowned else len(preamble)
+    header, remainder = preamble[:boundary], preamble[boundary:]
     preamble = (
-        preamble.replace("未解決issueなし", "").rstrip()
+        header.rstrip()
         + f"\n\n更新日時: {stamp}\n今回確認した範囲: {environment}／{directory}／{', '.join(services)}\n\n"
     )
     if not re.search(r"^## ", preamble, re.M):
         preamble += f"## {environment}／{directory}\n\n"
+    preamble += remainder
     pending = {service: [] for service in services}
     for record in [*candidates, *additions]:
         service = record.get("service")
@@ -252,7 +320,9 @@ def normal_merge(
                 r"^### .*\n|^<!-- issue-service: .*? -->\n?", "", prefix, flags=re.M
             ).strip()
             if prose:
-                preamble += prose + "\n\n"
+                unowned = markdown_matches(preamble, r"^ {0,3}(\d+)[.)] +")
+                boundary = unowned[0][0] if unowned else len(preamble)
+                preamble = preamble[:boundary] + prose + "\n\n" + preamble[boundary:]
     if used != resolutions.keys():
         raise ValueError(
             "resolution is stale, outside scope or does not identify an existing issue"

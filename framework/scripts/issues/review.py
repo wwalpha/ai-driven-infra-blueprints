@@ -16,7 +16,10 @@ def existing_issues(artifact):
     ids = [item["id"] for item in items]
     if (
         len(ids) != len(set(ids))
-        or any(item["service"] not in artifact["services"] for item in items)
+        or any(
+            item["service"] is not None and item["service"] not in artifact["services"]
+            for item in items
+        )
         or any(
             item["id"] != item["materials"]["id"]
             or item["service"] != item["materials"]["service"]
@@ -34,7 +37,21 @@ def required_text(item, key):
     return value
 
 
-def decision_evidence(artifact, decision, evidence):
+def corresponding_target(artifact, decision, previous, target):
+    return (
+        isinstance(target, dict)
+        and all(
+            isinstance(target.get(key), str) and target[key].strip()
+            for key in ("service", "check_id", "rule", "resource", "property", "scope")
+        )
+        and target["service"] == decision["service"]
+        and target["scope"]
+        == f"{artifact['environment']}/{artifact['target']}/{decision['service']}"
+        and target in previous.get("verification_targets", [])
+    )
+
+
+def decision_evidence(artifact, decision, evidence, previous):
     if not isinstance(evidence, dict):
         raise ValueError("existing Issue evidence must be structured")
     kind = evidence.get("kind")
@@ -74,6 +91,12 @@ def decision_evidence(artifact, decision, evidence):
             if section == "check_results"
             and record["status"] == "PASS"
             and record.get("complete") is True
+            and any(
+                corresponding_target(artifact, decision, previous, target)
+                and target["check_id"] == record.get("check_id")
+                and target["scope"] in scopes
+                for target in record.get("verification_targets", [])
+            )
             else "unverified"
         )
         description = record.get("message") or record.get("check_id") or str(record)
@@ -101,7 +124,15 @@ def decision_evidence(artifact, decision, evidence):
     if outcome not in {"present", "absent", "unverified"}:
         raise ValueError("invalid revalidation outcome")
     if evidence.get("completed") is not True and outcome != "unverified":
-        raise ValueError("incomplete revalidation cannot confirm an Issue state")
+        outcome = "unverified"
+    target = evidence.get("target")
+    if outcome == "absent" and not (
+        corresponding_target(artifact, decision, previous, target)
+        and target["check_id"] == evidence["check"]
+        and target["rule"] == evidence["rule"]
+        and target.get("path") == source["path"]
+    ):
+        outcome = "unverified"
     return outcome, (
         f"{evidence['check']} / {evidence['subject']} / {source['path']}:{source['line']} / "
         f"{evidence['rule']}: {evidence['details']}"
@@ -135,6 +166,8 @@ def existing_decisions(artifact, review):
         if status not in {"continuing", "resolved", "unverified"}:
             raise ValueError("invalid existing Issue status")
         reason = required_text(decision, "reason")
+        if previous["service"] is None and status != "unverified":
+            raise ValueError("unknown Service ownership requires unverified retention")
         if decision.get("verification") not in {"local", "aws"}:
             raise ValueError("existing Issue decision needs local/AWS verification")
         evidence = decision.get("evidence")
@@ -142,7 +175,9 @@ def existing_decisions(artifact, review):
             raise ValueError(
                 "existing Issue decision needs current revalidation evidence"
             )
-        results = [decision_evidence(artifact, decision, item) for item in evidence]
+        results = [
+            decision_evidence(artifact, decision, item, previous) for item in evidence
+        ]
         outcomes = {result for result, _ in results}
         valid = (
             outcomes == {"absent"}
@@ -198,6 +233,8 @@ def existing_decisions(artifact, review):
                 raise ValueError("continuing Issue ownership mismatch")
         else:
             required_text(decision, "not_checked_reason")
+        if previous["service"] is None:
+            continue  # Review unknown ownership without changing its scope or original bytes.
         updates.append(
             dict(
                 id=issue_id,

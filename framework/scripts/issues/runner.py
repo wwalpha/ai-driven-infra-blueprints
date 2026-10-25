@@ -54,6 +54,20 @@ def mechanical(
     return validator.errors, validator.checks, output.getvalue()
 
 
+def check_targets(result):
+    return [
+        dict(
+            service=entry[2],
+            check_id=result.check_id,
+            rule=result.check_id,
+            resource="*",
+            property="*",
+            scope="/".join(entry),
+        )
+        for entry in sorted(result.scope or [])
+    ]
+
+
 @input_scope
 def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     started = time.perf_counter()
@@ -79,6 +93,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     )
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
+    validator = validators[0]
     for message in dict.fromkeys(errors):
         found = [
             service
@@ -95,6 +110,13 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             "service": owner,
             "message": safe_text(comparison.redacted(message)),
             "key": identifier(message),
+            "verification_targets": [
+                target
+                for result in validator.findings.results.values()
+                if message in result.errors
+                for target in check_targets(result)
+                if target["service"] == owner
+            ],
         }
         (ordinary if owner else judgments).append(candidate)
     naming, naming_judgments = naming_materials(comparison)
@@ -296,6 +318,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             and result.metadata.get("complete") is not False
             and not result.metadata.get("unverified"),
             checks=result.checks,
+            verification_targets=check_targets(result),
         )
         for result in validator.findings.results.values()
     ]

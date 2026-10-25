@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Current ordinary Issue decisions, evidence and conservative publication."""
 
+import json
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -16,7 +17,7 @@ from issues.artifact import detail_payload, validate_artifact
 from issues.materials import existing_materials
 from issues.publication import save_scan
 from issues.records import identifier
-from issues.reports import issue_marker
+from issues.reports import issue_content, issue_marker
 from issues.review import existing_decisions
 from support.issues_scan_fixtures import review_for, task, write
 from support.pytest_cli import run
@@ -25,13 +26,41 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-def scan_fixture(root, messages=("old problem",)):
+def verification_target():
+    return dict(
+        service="s3",
+        check_id="design.service",
+        rule="framework/rules/model-information.md#model-authority",
+        resource="001",
+        property="S3.Bucket.BucketName",
+        scope="dev/123456789012/s3",
+        path="model/dev/123456789012/s3.properties",
+    )
+
+
+def scan_fixture(root, messages=("old problem",), *, managed=True):
     path = root / "issues/dev/123456789012/issues.md"
     write(
         path,
         "# 問題一覧\n\nHuman確認: application=app\n\n## dev／123456789012\n\n"
         "### s3\n\nHuman確認: selected exception\n\n"
-        + "\n\n".join(f"{i}. {message}" for i, message in enumerate(messages, 1))
+        + "\n\n".join(
+            f"{i}. "
+            + (
+                issue_content(
+                    root,
+                    path,
+                    dict(
+                        service="s3",
+                        message=message,
+                        verification_targets=[verification_target()],
+                    ),
+                )
+                if managed
+                else message
+            )
+            for i, message in enumerate(messages, 1)
+        )
         + "\n\n### sqs\n\n1. outside issue\n\n"
         "## 警告（非ブロッキング）\n\n1. outside warning\n",
     )
@@ -42,6 +71,7 @@ def scan_fixture(root, messages=("old problem",)):
         scope=["dev/123456789012/s3"],
         status="PASS",
         complete=True,
+        verification_targets=[verification_target()],
     )
     artifact = dict(
         version=3,
@@ -95,11 +125,12 @@ def revalidation(outcome="absent", verification="local", completed=True):
         verification=verification,
         completed=completed,
         outcome=outcome,
-        check="compare resource setting",
+        check="design.service",
         subject="S3.Bucket 001",
         details="Checked the same property against the applicable rule",
         source=dict(path="model/dev/123456789012/s3.properties", line=12),
         rule="framework/rules/model-information.md#model-authority",
+        target=verification_target(),
     )
 
 
@@ -163,7 +194,7 @@ def check_all_three_states_and_scope(tmp_path):
     assert issue_errors(tmp_path, {("dev", "123456789012", "sqs")})
     current, _ = existing_materials(tmp_path, "dev", "123456789012", ["s3"])
     assert len(current) == 2
-    assert {item["marker"] for item in current} == {old[1]["id"], old[2]["id"]}
+    assert {item["marker"] for item in current} == {old[1]["marker"], old[2]["marker"]}
 
 
 @pytest.mark.parametrize(
@@ -319,7 +350,7 @@ def check_repeat_updates_keep_marker_and_replace_state(tmp_path):
     text = path.read_text()
     assert "今回の状態: 未検証" not in text and text.count("今回の状態: 継続") == 1
     assert "old problem" not in text
-    assert issue_marker(text.split("### sqs")[0]) == items[0]["id"]
+    assert issue_marker(text.split("### sqs")[0]) == items[0]["marker"]
 
 
 def check_stale_decision_preserves_all_reports(tmp_path):
@@ -394,7 +425,8 @@ def check_all_items_in_repeated_service_blocks(tmp_path):
     )
     path.write_text(
         path.read_text().replace(
-            "2. second scoped problem", "### s3\n\n1. second scoped problem"
+            "2. <!-- issue-generated:start --> second scoped problem",
+            "### s3\n\n1. <!-- issue-generated:start --> second scoped problem",
         )
     )
     items, _ = existing_materials(tmp_path, "dev", "123456789012", ["s3"])
@@ -419,6 +451,205 @@ def check_all_items_in_repeated_service_blocks(tmp_path):
     assert (
         "scoped problem" not in path.read_text() and "outside issue" in path.read_text()
     )
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "check_id",
+        "rule",
+        "resource",
+        "property",
+        "scope",
+        "missing",
+        "incomplete",
+        "unbound",
+    ],
+)
+def check_resolution_requires_corresponding_complete_target(tmp_path, mismatch):
+    path, artifact, items = scan_fixture(tmp_path)
+    check = artifact["check_results"][0]
+    if mismatch == "missing":
+        check.pop("verification_targets")
+    elif mismatch == "unbound":
+        items[0]["verification_targets"] = []
+    elif mismatch == "incomplete":
+        check["complete"] = False
+    else:
+        check["verification_targets"][0][mismatch] = "unrelated"
+        if mismatch == "check_id":
+            check["check_id"] = "framework.policy-tables"
+            check["verification_targets"][0]["check_id"] = check["check_id"]
+    review = dict(review_for(artifact), existing_issue_judgments=[decision(items[0])])
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="contradicts"):
+        existing_decisions(artifact, review)
+    assert path.read_bytes() == before
+    review["existing_issue_judgments"][0].update(
+        status="unverified",
+        not_checked_reason="Corresponding complete verification unavailable",
+    )
+    with task(tmp_path, ["s3"]):
+        save_scan(tmp_path, artifact, review)
+    assert (
+        "old problem" in path.read_text() and "今回の状態: 未検証" in path.read_text()
+    )
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "target",
+        "check",
+        "rule",
+        "resource",
+        "property",
+        "completed",
+        "unbound",
+        "source",
+    ],
+)
+def check_individual_absence_needs_bound_evidence(tmp_path, missing):
+    _, artifact, items = scan_fixture(tmp_path)
+    proof = revalidation()
+    if missing == "target":
+        proof.pop("target")
+    elif missing == "unbound":
+        items[0]["verification_targets"] = []
+    elif missing == "completed":
+        proof["completed"] = False
+    elif missing == "source":
+        proof["source"]["path"] = "model/dev/123456789012/sqs.properties"
+    elif missing in {"check", "rule"}:
+        proof[missing] = "unrelated"
+    else:
+        proof["target"][missing] = "unrelated"
+    current = dict(decision(items[0]), evidence=[proof])
+    review = dict(review_for(artifact), existing_issue_judgments=[current])
+    with pytest.raises(ValueError, match="contradicts"):
+        existing_decisions(artifact, review)
+    current.update(
+        status="unverified", not_checked_reason="Insufficient individual evidence"
+    )
+    assert existing_decisions(artifact, review)[0][0]["status"] == "unverified"
+
+
+@pytest.mark.parametrize("location", ["preamble", "section"])
+def check_unknown_service_retained_while_scoped_issue_resolves(tmp_path, location):
+    path, _, _ = scan_fixture(tmp_path)
+    unknown = "1. Unknown ownership with Human exception\n\n"
+    text = path.read_text()
+    if location == "preamble":
+        text = text.replace("### s3", unknown + "### s3", 1)
+    else:
+        text = text.replace("### sqs", "### 未確定\n\n" + unknown + "### sqs", 1)
+    path.write_text(text)
+    items, _ = existing_materials(tmp_path, "dev", "123456789012", ["s3"])
+    unresolved = next(item for item in items if item["service"] is None)
+    scoped = next(item for item in items if item["service"] == "s3")
+    assert unresolved["ownership_reason"]
+    # Reuse the v3 review fixture without overwriting the report being reviewed.
+    _, artifact, _ = scan_fixture(tmp_path / "artifact")
+    artifact["root"] = str(tmp_path)
+    artifact["judgments"] = [
+        dict(
+            id=item["id"],
+            service=item["service"],
+            kind="existing-issue-correspondence",
+            materials=item,
+        )
+        for item in items
+    ]
+    validate_artifact(artifact)
+    retained = dict(
+        decision(unresolved, "unverified"),
+        not_checked_reason=unresolved["ownership_reason"],
+        evidence=[
+            dict(
+                kind="not_run",
+                check="ownership",
+                details=unresolved["ownership_reason"],
+            )
+        ],
+    )
+    review = dict(
+        review_for(artifact), existing_issue_judgments=[decision(scoped), retained]
+    )
+    with task(tmp_path, ["s3"]):
+        save_scan(tmp_path, artifact, review)
+    saved = path.read_text()
+    assert unknown in saved and "old problem" not in saved
+    assert "### sqs\n\n1. outside issue\n\n" in saved
+    after, _ = existing_materials(tmp_path, "dev", "123456789012", ["s3"])
+    assert len(after) == 1 and after[0]["id"] == unresolved["id"]
+    retained.update(status="resolved", evidence=[revalidation()])
+    with pytest.raises(ValueError, match="ownership"):
+        existing_decisions(artifact, review)
+
+
+@pytest.mark.parametrize("managed", [True, False])
+def check_continuing_preserves_human_and_replaces_only_machine_text(tmp_path, managed):
+    path, artifact, items = scan_fixture(tmp_path, managed=managed)
+    human = "\n\n   Human確認: accepted exception\n   注記: keep judgment and scope\n"
+    path.write_text(path.read_text().replace("\n\n### sqs", human + "\n### sqs"))
+    for index in range(3):
+        items, _ = existing_materials(tmp_path, "dev", "123456789012", ["s3"])
+        artifact["judgments"] = [
+            dict(
+                id=items[0]["id"],
+                service="s3",
+                kind="existing-issue-correspondence",
+                materials=items[0],
+            )
+        ]
+        current = dict(
+            decision(items[0], "continuing"),
+            evidence=[revalidation("present")],
+            issue=dict(
+                message=f"latest problem {index}",
+                verification_targets=[verification_target()],
+            ),
+        )
+        with task(tmp_path, ["s3"]):
+            save_scan(
+                tmp_path,
+                artifact,
+                dict(review_for(artifact), existing_issue_judgments=[current]),
+            )
+        saved = path.read_text()
+        assert human.rstrip() in saved
+        assert saved.count("<!-- issue-review:start -->") == 1
+        assert saved.count("<!-- issue-targets:") == 1
+        assert saved.count("Human確認: accepted exception") == 1
+        assert issue_marker(saved.split("### sqs")[0]) == (
+            items[0]["marker"] or items[0]["id"]
+        )
+        assert ("old problem" in saved) is not managed
+        assert f"latest problem {index}" in saved
+        if index:
+            assert f"latest problem {index - 1}" not in saved
+
+
+def check_unmarked_metadata_is_not_machine_correspondence(tmp_path):
+    path, artifact, _ = scan_fixture(tmp_path, managed=False)
+    note = " <!-- issue-targets: " + json.dumps([verification_target()]) + " -->"
+    path.write_text(path.read_text().replace("old problem", "old problem" + note))
+    items, _ = existing_materials(tmp_path, "dev", "123456789012", ["s3"])
+    assert items[0]["verification_targets"] == []
+    artifact["judgments"] = [
+        dict(
+            id=items[0]["id"],
+            service="s3",
+            kind="existing-issue-correspondence",
+            materials=items[0],
+        )
+    ]
+    with pytest.raises(ValueError, match="contradicts"):
+        existing_decisions(
+            artifact,
+            dict(review_for(artifact), existing_issue_judgments=[decision(items[0])]),
+        )
+    assert note in path.read_text()
 
 
 if __name__ == "__main__":
