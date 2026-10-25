@@ -29,13 +29,15 @@ def working_revision(root):
     return result.stdout.strip()
 
 
-def task_start_commit(root, name):
-    start = _imports_worktree_state.task_start_commit
-    return start(root, name)
+def task_start_commit(root, name, *, required=False):
+    start = _imports_worktree_state.task_start_commit(root, name)
+    if required and start is None:
+        raise ValueError("Issue remediation requires a managed Task start commit")
+    return start
 
 
 @task_read_scope
-def changed_paths(root, *, task_file=None):
+def changed_paths(root, *, task_file=None, require_baseline=False):
     changed_paths = _imports_worktree_state.changed_paths
     paths = _imports_worktree_state.paths
     changed = changed_paths(root)
@@ -43,7 +45,11 @@ def changed_paths(root, *, task_file=None):
         root, task_file, required=False, executable=task_file is None
     )
     if snapshot is not None:
-        start = task_start_commit(root, snapshot.name)
+        start = (
+            task_start_commit(root, snapshot.name, required=True)
+            if require_baseline
+            else task_start_commit(root, snapshot.name)
+        )
         if start is not None:
             changed |= paths(
                 root, "diff", "--no-renames", "--name-only", "-z", start, "HEAD"

@@ -5,10 +5,10 @@ import re
 import sys
 from pathlib import Path
 
-import model.files as _dependency_model_files
 import model.importing.repository as repository
 import validation_scope as _dependency_validation_scope
-from issue_markdown import markdown_matches, split_notices
+from issue_inventory import SERVICE
+from issue_inventory import unresolved_services as unresolved_services
 from task_contract_core import (
     TaskSnapshot,
     issue_remediation_scope,
@@ -18,9 +18,7 @@ from task_contract_core import (
     task_snapshot,
     validate_contract,
 )
-from utils.input_cache import input_is_file, input_select, input_text
-
-SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
+from utils.input_cache import input_is_file, input_select
 
 
 @task_read_scope
@@ -41,82 +39,6 @@ def remediation_scope(
         return set()
     validate_contract(root, snapshot.name, snapshot.text, check_paths=False)
     return set(issue_remediation_scope(snapshot.text))
-
-
-def _callback_unresolved_services_flush(
-    block, environment, heading, number, path, result, root, target, /
-):
-    if not number:
-        return
-    text = "\n".join(block)
-    markers = re.findall(rf"<!-- issue-service: ({SERVICE}) -->", heading + "\n" + text)
-    services = set(markers)
-    if not services and re.fullmatch(SERVICE, heading):
-        services.add(heading)
-    if not services:
-        for link in re.findall(r"\[[^\]]+\]\(([^)#]+)(?:#[^)]*)?\)", text):
-            link = re.sub(r":\d+$", "", link)
-            linked = (path.parent / link).resolve()
-            for base, suffix in (("model", ".properties"), ("docs/designs", ".md")):
-                try:
-                    base_path = (root / base).resolve()
-                    source = (
-                        _dependency_model_files.service_model_path(linked, base_path)
-                        if base == "model"
-                        else linked
-                    )
-                    parts = source.relative_to(base_path).parts
-                except ValueError:
-                    continue
-                if (
-                    len(parts) == 3
-                    and parts[:2] == (environment, target)
-                    and linked.suffix == suffix
-                ):
-                    services.add(source.stem)
-    result.append((number, services))
-
-
-def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
-    """Existing inventories use numbered issues and model/design evidence links."""
-    environment, target = path.parent.relative_to(root / "issues").parts
-    result = []
-    heading = ""
-    block = []
-    number = ""
-    contents, notices = split_notices(input_text(path, encoding="utf-8"))
-
-    lines = markdown_matches(contents, r"^(.*)$")
-    for _, _, line in lines:
-        if re.match(r"^#{1,3} ", line):
-            _callback_unresolved_services_flush(
-                block, environment, heading, number, path, result, root, target
-            )
-            number, block = "", []
-            heading = line.removeprefix("### ") if line.startswith("### ") else ""
-        elif not number and re.fullmatch(rf"<!-- issue-service: {SERVICE} -->", line):
-            heading += "\n" + line
-        elif match := re.match(r"^ {0,3}(\d+)[.)] +", line):
-            _callback_unresolved_services_flush(
-                block, environment, heading, number, path, result, root, target
-            )
-            number, block = match[1], [line]
-        else:
-            block.append(line)
-    _callback_unresolved_services_flush(
-        block, environment, heading, number, path, result, root, target
-    )
-    substantive = [
-        line for _, _, line in lines if line.strip() and not re.match(r"^#{1,3} ", line)
-    ]
-    if (
-        not result
-        and contents.strip()
-        and "未解決issueなし" not in contents
-        and (substantive or not notices)
-    ):
-        result.append(("unknown", set()))
-    return result
 
 
 def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]:

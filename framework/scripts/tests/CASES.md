@@ -3776,3 +3776,15 @@ Existing partial-comparison UTs retain confirmed sibling differences and reject 
 | `issues-v8::unknown` | `check_unknown_service_retained_while_scoped_issue_resolves` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 2 | Preamble/Service未確定blockの原文とID保持、他Serviceの解消を継続 | Synthetic Markdown |
 | `issues-v8::human` | `check_continuing_preserves_human_and_replaces_only_machine_text` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 2 | 機械境界あり/なしのHuman注記保全・3回更新のID維持・重複なし | Synthetic Markdown |
 | `issues-v8::unmarked` | `check_unmarked_metadata_is_not_machine_correspondence` | UT | [units/issues-current-state-unit.checks.py](units/issues-current-state-unit.checks.py) | pytest / 1 | 境界のない旧本文のmetadata風注記を検証対応とみなさず、原文を保持 | Synthetic Markdown |
+
+
+### 1025v9 Issue remediation authority regressions
+
+| Boundary | Owner | Coverage |
+| --- | --- | --- |
+| F1 | `units/issue_gate-unit.checks.py::check_remediation_write_scope` / `check_remediation_forbidden_declarations` | Validation-only S3 and target inventory writes rejected; two declared repair services allowed |
+| F2 | `units/issue_gate-unit.checks.py::check_remediation_registration_inventory` / `check_remediation_completion_and_resume` | Ordinary Issues per declared service at registration; IaC-only, absent, notice-only and ambiguous rejected; resolved inventory permits refresh/resume/complete |
+| F3 | `units/issue_gate-unit.checks.py::check_remediation_model_operation_mix` | Delete/merge/retarget/refactor rejected with remediation; standalone contracts unchanged |
+| F4 | `units/worktree-model-guard-unit.checks.py::check_git_baseline_fail_closed` | Required Task baseline and committed forbidden path collection; ordinary baseline fallback retained |
+| F4 Git/Worktree | `integrations/worktree_task.checks.py::check_incomplete_and_git_safety` | Existing case extended: committed Framework, staged IaC, unstaged Skill, untracked Framework, unmanaged baseline rejection and resolved ordinary Issue completion |
+| F5 | `units/issue_gate-unit.checks.py::check_remediation_authority_fields` | Six authority fields reject case variants, duplicates and conflicting values |

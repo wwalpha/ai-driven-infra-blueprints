@@ -17,7 +17,11 @@ import task_contract as tasks
 from issue_gate import remediation_scope
 from issues.publication import save
 from model.sources import load_model
-from support.import_model_fixtures import dependency_fixture, operation_contract
+from support.import_model_fixtures import (
+    dependency_contract,
+    dependency_fixture,
+    operation_contract,
+)
 from support.issue_gate_fixtures import (
     Path,
     issue_errors,
@@ -469,12 +473,9 @@ def check_remediation_model_save_and_real_diff(generation_model):
     forbidden.parent.mkdir(parents=True)
     forbidden.write_text("outside remediation authority\n", encoding="utf-8")
     task = TaskValidation(root, Findings(root))
-    task.check_task_scope()
-    assert any(
-        "Issue remediation forbidden path: framework/rules/example.md" in error
-        for error in task.findings.errors
-    )
-    with pytest.raises(ValueError, match="Issue remediation forbidden path"):
+    with pytest.raises(ValueError, match="managed Task start commit"):
+        task.check_task_scope()
+    with pytest.raises(ValueError, match="managed Task start commit"):
         tasks.complete(root, path.relative_to(root).as_posix())
 
 
@@ -621,7 +622,6 @@ def remediation_task(tmp_path, monkeypatch):
         name,
         "model/dev/cde/ec2.properties",
         "model/dev/cde/ec2/part-001.properties",
-        "model/dev/cde/s3.properties",
         "docs/designs/dev/cde/ec2.md",
         "docs/designs/dev/cde/ec2/policy.json",
         "issues/dev/cde/issues.md",
@@ -635,6 +635,9 @@ def remediation_task(tmp_path, monkeypatch):
         "## Issue remediation\n- `dev/cde/ec2`\n"
         "## Modified files\n" + listed + "## Allowed paths\n" + listed
     )
+    inventory = tmp_path / "issues/dev/cde/issues.md"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text("### ec2\n1. 設定不足\n2. 参照不足\n", encoding="utf-8")
     tasks.start(tmp_path, name, text)
     monkeypatch.setenv(tasks.SELECTOR, name)
     return tmp_path, name, text, paths
@@ -643,7 +646,7 @@ def remediation_task(tmp_path, monkeypatch):
 def check_service_remediation_and_iac_separation(remediation_task):
     root, name, text, paths = remediation_task
     inventory = root / "issues/dev/cde/issues.md"
-    inventory.parent.mkdir(parents=True)
+    inventory.parent.mkdir(parents=True, exist_ok=True)
     inventory.write_text("### ec2\n1. 設定不足\n2. 参照不足\n", encoding="utf-8")
     iac = inventory.with_name("iac-issues.md")
     iac.write_text("### ec2\n1. ModelとIaCの値が異なる\n", encoding="utf-8")
@@ -685,6 +688,8 @@ def check_service_remediation_and_iac_separation(remediation_task):
         "issues/dev/cde/iac-issues.md",
         "model/prod/cde/ec2.properties",
         "model/dev/cde/iam.properties",
+        "model/dev/cde/s3.properties",
+        "docs/designs/dev/cde/s3.md",
         "model/dev/cde/ec2/main.tf",
         "docs/designs/dev/cde/ec2/template.yaml",
         "**",
@@ -763,6 +768,10 @@ def check_remediation_actual_changes_and_completion(remediation_task, path):
 
 def check_remediation_completion_and_resume(remediation_task):
     root, name, text, paths = remediation_task
+    (root / "issues/dev/cde/issues.md").write_text(
+        "未解決issueなし\n", encoding="utf-8"
+    )
+    tasks.refresh(root, name)
     tasks.suspend(root, name, "test stop")
     tasks.resume(root, name)
     assert tasks.status((root / name).read_text(encoding="utf-8")) == "running"
@@ -772,6 +781,159 @@ def check_remediation_completion_and_resume(remediation_task):
     ):
         tasks.complete(root, name)
     assert tasks.status((root / name).read_text(encoding="utf-8")) == "completed"
+
+
+@pytest.mark.parametrize("both", [False, True])
+def check_remediation_write_scope(remediation_task, both):
+    root, name, text, paths = remediation_task
+    inventory = root / "issues/dev/cde/issues.md"
+    inventory.write_text(
+        "### ec2\n1. 設定不足\n### s3\n1. 設定不足\n", encoding="utf-8"
+    )
+    if both:
+        text = text.replace(
+            "## Issue remediation\n- `dev/cde/ec2`",
+            "## Issue remediation\n- `dev/cde/ec2`\n- `dev/cde/s3`",
+        )
+    if both:
+        text = text.replace(
+            "## Allowed paths\n", "## Allowed paths\n- `model/dev/cde/s3.properties`\n"
+        )
+        text = text.replace(
+            "## Modified files\n",
+            "## Modified files\n- `model/dev/cde/s3.properties`\n",
+        )
+        other = "tasks/both.md"
+        tasks.start(root, other, text.replace(name, other))
+    paths = paths | {"model/dev/cde/s3.properties"}
+    task = TaskValidation(root, Findings(root))
+    task.task_type, task.contract_text = "design", text
+    task.check_task_boundary(root / name, paths)
+    assert bool(task.findings.errors) is not both
+    # Validation-only targets do not grant their shared inventory write access.
+    text = text.replace(
+        "## Issue remediation\n- `dev/cde/ec2`\n- `dev/cde/s3`",
+        "## Issue remediation\n- `dev/cde/ec2`",
+    )
+    text = text.replace("- `dev/cde/s3`", "- `prod/cde/s3`")
+    text = text.replace(
+        "## Allowed paths\n", "## Allowed paths\n- `issues/prod/cde/issues.md`\n"
+    )
+    with pytest.raises(ValueError, match="Issue remediation forbidden path"):
+        tasks.validate_contract(root, name, text)
+
+
+@pytest.mark.parametrize(
+    "inventory",
+    [
+        None,
+        "",
+        "未解決issueなし\n",
+        "### s3\n1. 対象外\n",
+        "## 警告（非ブロッキング）\n### ec2\n1. 警告\n",
+        "1. 所有不明\n",
+        "### ec2\n1. 通常Issue\n",
+        "### ec2\n1. 通常Issue\n2. 別のIssue\n",
+        "1. 通常Issue [Model](../../../model/dev/cde/ec2.properties)\n",
+        "1. 通常Issue [part](../../../model/dev/cde/ec2/part-001.properties)\n",
+        "1. 通常Issue [design](../../../docs/designs/dev/cde/ec2.md)\n",
+    ],
+)
+def check_remediation_registration_inventory(remediation_task, inventory):
+    root, name, text, _ = remediation_task
+    path = root / "issues/dev/cde/issues.md"
+    path.with_name("iac-issues.md").write_text("### ec2\n1. 不一致\n", encoding="utf-8")
+    if inventory is None:
+        path.unlink()
+    else:
+        path.write_text(inventory, encoding="utf-8")
+    other = "tasks/registration.md"
+    candidate = text.replace(name, other)
+    if inventory and "通常Issue" in inventory:
+        tasks.start(root, other, candidate)
+        assert (root / other).exists()
+        # Every declared service needs its own ordinary issue at registration.
+        candidate = candidate.replace(
+            "## Issue remediation\n- `dev/cde/ec2`",
+            "## Issue remediation\n- `dev/cde/ec2`\n- `dev/cde/s3`",
+        )
+        with pytest.raises(ValueError, match="ordinary issue: dev/cde/s3"):
+            tasks.start(
+                root, "tasks/both.md", candidate.replace(other, "tasks/both.md")
+            )
+    else:
+        with pytest.raises(ValueError, match="unresolved ordinary issue"):
+            tasks.start(root, other, candidate)
+        assert not (root / other).exists()
+
+
+@pytest.mark.parametrize(
+    "operation", ["import-delete", "import-merge", "import-retarget", "refactor"]
+)
+def check_remediation_model_operation_mix(remediation_task, operation):
+    root, name, text, _ = remediation_task
+    if operation == "refactor":
+        declaration = dependency_contract()
+    elif operation == "import-retarget":
+        declaration = text.split("## Validation scope")[0] + (
+            "- Model operation: `import-retarget`\n## Model reference changes\n- "
+            + json.dumps(
+                {
+                    "consumer": "dev/cde/ec2/002",
+                    "field": "value",
+                    "property": "EC2.VPC.VpcId",
+                    "source": "dev/cde/ec2/001",
+                    "destination": "dev/cde/ec2/003",
+                }
+            )
+            + "\n"
+        )
+    else:
+        declaration = operation_contract(
+            operation, "dev/cde/ec2/001", "dev/cde/ec2/003"
+        )
+    assert (
+        tasks.model_operation(declaration) is not None
+        or tasks.model_refactor(declaration) is not None
+    )
+    candidate = declaration + text[text.index("## Validation scope") :]
+    # A valid standalone operation retains its original authority.
+    ordinary = candidate.replace("## Issue remediation\n- `dev/cde/ec2`\n", "")
+    tasks.validate_contract(root, name, ordinary)
+    with pytest.raises(ValueError, match="Issue remediation forbids Model"):
+        tasks.validate_contract(root, name, candidate)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("Task type", "design"),
+        ("Workflow", "update"),
+        ("AWS API execution", "forbidden"),
+        ("AWS mutation", "forbidden"),
+        ("deploy/apply", "forbidden"),
+        ("Infrastructure phase", "deploy"),
+    ],
+)
+@pytest.mark.parametrize("variant", ["case", "duplicate", "conflict", "case-conflict"])
+def check_remediation_authority_fields(remediation_task, field, value, variant):
+    root, name, text, _ = remediation_task
+    canonical = f"- {field}: `{value}`"
+    if field == "AWS mutation":
+        text = text.replace(
+            "## Task contract\n", "## Task contract\n" + canonical + "\n"
+        )
+    if field == "Infrastructure phase":
+        changed = f"- {field.swapcase() if variant in {'case', 'case-conflict'} else field}: `{value}`"
+    elif variant == "case":
+        changed = f"- {field.swapcase()}: `{value}`"
+        text = text.replace(canonical, changed)
+    else:
+        changed = f"- {field.swapcase() if variant == 'case-conflict' else field}: `{value if variant == 'duplicate' else 'allowed'}`"
+    if variant != "case" or field == "Infrastructure phase":
+        text = text.replace("## Task contract\n", "## Task contract\n" + changed + "\n")
+    with pytest.raises(ValueError):
+        tasks.validate_contract(root, name, text)
 
 
 if __name__ == "__main__":

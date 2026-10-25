@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 
 import utils.json_format as _imports_utils_json_format
+from issue_inventory import unresolved_services
 from utils.file_operations import atomic_files
 from utils.function_wrapper import FunctionWrapper
 from utils.input_cache import (
@@ -395,8 +396,13 @@ def issue_remediation_scope(text):
 
 def require_issue_remediation(name, text, paths=()):
     """Restrict declarations and actual changes; the Issue Gate grants no write rights."""
-    if not issue_remediation_scope(text):
+    scope = issue_remediation_scope(text)
+    if not scope:
         return
+    if model_operation(text) is not None or model_refactor(text) is not None:
+        raise ValueError(
+            "Issue remediation forbids Model operations and Model refactor"
+        )
     lines = section(text, "## Task contract")
     for field, value in (
         ("Task type", "design"),
@@ -404,16 +410,19 @@ def require_issue_remediation(name, text, paths=()):
         ("AWS API execution", "forbidden"),
         ("deploy/apply", "forbidden"),
     ):
-        if [line for line in lines if line.startswith(f"- {field}:")] != [
-            f"- {field}: `{value}`"
-        ]:
+        if [
+            line
+            for line in lines
+            if re.match(r"-\s*" + re.escape(field) + r"\s*:", line, re.I)
+        ] != [f"- {field}: `{value}`"]:
             raise ValueError(f"Issue remediation requires {field}: `{value}`")
-    mutations = [line for line in lines if line.startswith("- AWS mutation:")]
+    mutations = [
+        line for line in lines if re.match(r"-\s*AWS mutation\s*:", line, re.I)
+    ]
     if mutations and mutations != ["- AWS mutation: `forbidden`"]:
         raise ValueError("Issue remediation forbids AWS mutation")
-    if any(line.startswith("- Infrastructure phase:") for line in lines):
+    if any(re.match(r"-\s*Infrastructure phase\s*:", line, re.I) for line in lines):
         raise ValueError("Issue remediation forbids infrastructure phases")
-    scope = _scope(text)
     for value in sorted(
         paths_in(text, "## Allowed paths")
         | paths_in(text, "## Modified files")
@@ -971,6 +980,20 @@ def start(root, name, text):
     if status(text) != "running":
         raise ValueError("new task must have running status")
     validate_contract(root, name, text)
+    for env, target, service in sorted(issue_remediation_scope(text)):
+        inventory = root / "issues" / env / target / "issues.md"
+        issues = (
+            unresolved_services(root, inventory) if input_is_file(inventory) else []
+        )
+        if (
+            not issues
+            or any(not services for _, services in issues)
+            or not any(service in services for _, services in issues)
+        ):
+            raise ValueError(
+                "Issue remediation requires an unresolved ordinary issue: "
+                + "/".join((env, target, service))
+            )
     destination = safe_path(root, name)
     destination.parent.mkdir(exist_ok=True)
     atomic_files({destination: text}, staging_directory=root)

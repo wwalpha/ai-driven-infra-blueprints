@@ -15,6 +15,7 @@ from model.core import properties as properties
 from model.impact import task_impact
 from task_contract_core import (
     TASK_NAME,
+    issue_remediation_scope,
     issues_save_only,
     matches,
     require_issue_remediation,
@@ -74,7 +75,9 @@ class TaskValidation:
         prompt = task_path(self.root, required=False)
         start = (
             repository.task_start_commit(
-                self.root, prompt.relative_to(self.root).as_posix()
+                self.root,
+                prompt.relative_to(self.root).as_posix(),
+                required=bool(issue_remediation_scope(task_snapshot(self.root).text)),
             )
             if prompt is not None
             else None

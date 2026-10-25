@@ -119,7 +119,11 @@ def complete(root, name):
             raise ValueError("only a running task can complete")
         if issue_remediation_scope(text):
             require_issue_remediation(
-                name, text, _imports_model_repository.changed_paths(root)
+                name,
+                text,
+                _imports_model_repository.changed_paths(
+                    root, task_file=name, require_baseline=True
+                ),
             )
         require_import_changes = _imports_import_guard.require_import_changes
         previous = os.environ.get(SELECTOR)

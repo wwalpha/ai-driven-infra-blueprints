@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import task_contract as transitions
 import task_contract_core as tasks
 import worktree_state
 import worktree_task as wt
@@ -152,6 +153,51 @@ def check_git_baseline_fail_closed(tmp_path):
         pytest.raises(ValueError, match="broken Git"),
     ):
         task().fix_baseline()
+
+    name = "tasks/remediation.md"
+    inventory = tmp_path / "issues/dev/cde/issues.md"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text("### ec2\n1. Ordinary issue\n", encoding="utf-8")
+    text = (
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+        "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n"
+        "## Issue remediation\n- `dev/cde/ec2`\n## Validation scope\n- `dev/cde/ec2`\n"
+        f"## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n"
+    )
+    tasks.start(tmp_path, name, text)
+    with tasks.selected_task(tmp_path, name):
+        with (
+            patch("worktree_state.task_start_commit", return_value=None),
+            patch("worktree_state.changed_paths", return_value=set()),
+            patch("import_guard.require_import_changes") as guard,
+        ):
+            with pytest.raises(ValueError, match="managed Task start commit"):
+                transitions.complete(tmp_path, name)
+            with pytest.raises(ValueError, match="managed Task start commit"):
+                TaskValidation(tmp_path, Findings(tmp_path)).fix_baseline()
+            guard.assert_not_called()
+        for path in (
+            "framework/scripts/blocked.py",
+            "infra/template.yaml",
+            ".agents/skills/update/SKILL.md",
+        ):
+            with (
+                patch("worktree_state.task_start_commit", return_value="task-start"),
+                patch("worktree_state.changed_paths", return_value=set()),
+                patch("worktree_state.paths", return_value={path}) as paths,
+                pytest.raises(ValueError, match="Issue remediation forbidden path"),
+            ):
+                transitions.complete(tmp_path, name)
+            assert paths.call_args.args == (
+                tmp_path,
+                "diff",
+                "--no-renames",
+                "--name-only",
+                "-z",
+                "task-start",
+                "HEAD",
+            )
+        assert tasks.status((tmp_path / name).read_text(encoding="utf-8")) == "running"
 
 
 def check_issue_gate_rejects_foreign_managed_task(tmp_path):

@@ -53,6 +53,8 @@ from task_contract_core import task_digest
 from utils import sealed_evidence
 from utils.aws_mappings import mapping_alias
 from validation import loop
+from validation.findings import Findings
+from validation.task import TaskValidation
 from validation_scope import active_scope
 
 from model import prepare_edit, publish_edit
@@ -272,6 +274,69 @@ def check_incomplete_and_git_safety():
         assert git(target, "rev-parse", "HEAD") == state["start"]
         assert (target / "file.txt").read_text() == "task\n"
         cli(root, "cleanup", success=False)
+
+    for kind, forbidden in (
+        ("committed", "framework/scripts/blocked.py"),
+        ("staged", "infra/template.yaml"),
+        ("unstaged", ".agents/skills/update/SKILL.md"),
+        ("untracked", "framework/scripts/untracked.py"),
+        ("resolved", ""),
+        ("unmanaged", ""),
+    ):
+        with fixture() as root:
+            report = "issues/dev/cde/issues.md"
+            for relative in (report, ".agents/skills/update/SKILL.md"):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("### ec2\n1. Ordinary issue\n", encoding="utf-8")
+            git(root, "add", ".")
+            git(root, "commit", "-qm", "remediation baseline")
+            if kind == "unmanaged":
+                target, name = root, "tasks/remediation.md"
+            else:
+                state = cli(root, "create", task_id="remediation")
+                target, name = Path(state["worktree"]), state["task_file"]
+            listed = f"- `{name}`\n- `{report}`\n"
+            text = (
+                "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+                "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n"
+                "## Validation scope\n- `dev/cde/ec2`\n## Issue remediation\n- `dev/cde/ec2`\n"
+                "## Modified files\n" + listed + "## Allowed paths\n" + listed
+            )
+            tasks.start(target, name, text)
+            with tasks.selected_task(target, name):
+                if kind == "unmanaged":
+                    with pytest.raises(ValueError, match="managed Task start commit"):
+                        tasks.complete(target, name)
+                    with pytest.raises(ValueError, match="managed Task start commit"):
+                        TaskValidation(target, Findings(target)).fix_baseline()
+                    continue
+                if kind == "resolved":
+                    (target / report).write_text("未解決issueなし\n", encoding="utf-8")
+                    tasks.refresh(target, name)
+                    tasks.complete(target, name)
+                    assert tasks.status((target / name).read_text()) == "completed"
+                    continue
+                path = target / forbidden
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("forbidden change\n", encoding="utf-8")
+                if kind in {"staged", "committed"}:
+                    git(target, "add", forbidden)
+                if kind == "committed":
+                    git(target, "commit", "-qm", "forbidden Framework change")
+                    assert not wt.changed_paths(target)
+                with pytest.raises(
+                    ValueError, match="Issue remediation forbidden path"
+                ):
+                    tasks.complete(target, name)
+                task = TaskValidation(target, Findings(target))
+                task.check_task_scope()
+                assert task.baseline == state["start"]
+                assert any(
+                    "Issue remediation forbidden path: " + forbidden in error
+                    for error in task.findings.errors
+                ), task.findings.errors
+                assert tasks.status((target / name).read_text()) == "running"
 
 
 @it_case
