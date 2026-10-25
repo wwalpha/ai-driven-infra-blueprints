@@ -7,7 +7,6 @@ from datetime import datetime as real_datetime
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from types import SimpleNamespace as _CallbackState
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -57,13 +56,12 @@ from support.issues_scan_fixtures import (
     tempfile,
     value_differences,
     write,
-    write_model,
 )
 from support.issues_scan_fixtures import pytestmark as pytestmark
+from task_contract_core import contract_snapshot
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_context
 from validation.runner import Validator
-from task_contract_core import contract_snapshot
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -675,7 +673,6 @@ def check_scan_exception_classification(tmp_path, exception):
     comparison.models, comparison.display_differences, comparison.catalog = {}, {}, None
     comparison.source = Mock(return_value=None)
     comparison.track = Mock()
-    cache = SimpleNamespace(common=None, common_key=Mock(return_value='common'))
     validator = SimpleNamespace(checks=1, findings=SimpleNamespace(unverified=[],
         result=Mock(return_value=SimpleNamespace(metadata={}))), finalize_service_cache=Mock())
     lint = dict(jobs=[], coverage=[], status='not_applicable',

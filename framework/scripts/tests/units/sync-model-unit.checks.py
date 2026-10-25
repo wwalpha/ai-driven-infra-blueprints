@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
-import sys
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
@@ -21,6 +21,7 @@ import pytest
 import sync_progress as progress
 import sync_runtime
 import sync_views
+import task_contract_runtime
 import utils.aws_mappings as aws_mappings
 import utils.aws_schemas as aws_schemas
 import utils.input_cache as _imports_input_cache
@@ -29,9 +30,11 @@ from design.catalog import property_paths_with_parents
 from model.format import serialize
 from model.identity import COUNTERS
 from model.sources import runtime_values
+from support.issues_scan_fixtures import task as issue_task
 from support.pytest_cli import run
 from support.validator import load
 from sync_files import changed_files, markdown_newlines
+from task_contract_core import selected_task
 from utils.aws_mappings import definition_root, mapping_alias
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import (
@@ -42,9 +45,6 @@ from utils.input_cache import (
     recording_inputs,
 )
 from utils.script_loader import module
-from task_contract_core import selected_task
-from support.issues_scan_fixtures import task as issue_task
-import task_contract_runtime
 from validation.findings import CheckResult, Findings
 from validation.task import TaskValidation
 from validation_cache import PassCache
