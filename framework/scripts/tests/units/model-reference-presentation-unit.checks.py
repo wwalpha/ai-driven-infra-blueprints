@@ -10,10 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
+from design.common import code
 from design.document import DesignIndex
 from design.policy_tables import Policy, policy_document_lines, rendered_design
-from model.core import ModelNeedsFixError
+from model.core import ModelNeedsFixError, literal
 from model.identity import COUNTERS
+from model.projection import reference_display
 from model.reference_presentation import Position, Presentation
 from model.render import generate_files, generate_markdown
 from model.sources import Scope, load_model
@@ -83,6 +85,14 @@ def test_positions_glue_equal_names_escaping_and_roundtrip(models):
         "--literal": "shared-name",
     }
     rid = add(values, "Glue.Job", "DefaultArguments", args)
+    exact_link = "[shared-name](s3.md#s3-saved-anchor)"
+    add(values, "Glue.Job", "Description", exact_link, number=3, comment=exact_link)
+    _, other = resource(models, "glue", "Glue.Job", attribute="Name", number="002")
+    other["desired.row.002-001.value"] = "`other-job`"
+    other["desired.row.002-002.property"] = "Glue.Job.Description"
+    other["desired.row.002-002.value"] = "`" + exact_link + "`"
+    other["desired.row.002-002.comment"] = exact_link
+    values.update(other)
     save(scope, values)
     before = copy.deepcopy(values)
     presentation = Presentation(values, path, models)
@@ -99,6 +109,11 @@ def test_positions_glue_equal_names_escaping_and_roundtrip(models):
         if 'DefaultArguments["--literal"]' in line
     )
     assert "| `shared-name` |" in literal_line
+    descriptions = [line for line in markdown.splitlines() if "| Description |" in line]
+    assert len(descriptions) == 2
+    assert all(
+        "| `" + exact_link + "` | " + exact_link + " |" in line for line in descriptions
+    )
     assert "glue-arguments-source:" in markdown
     assert "$modelRef" not in markdown
     assert generate_markdown(path, values, FRAMEWORK) == markdown
@@ -109,6 +124,95 @@ def test_positions_glue_equal_names_escaping_and_roundtrip(models):
         changed = markdown.replace(target, "s3.md#wrong-anchor", 1)
         with pytest.raises(ValueError, match="Model expected display"):
             restore(path, changed, values)
+
+
+@pytest.mark.parametrize("decorated", [False, True])
+def test_exact_link_literals_and_typed_positions_in_shared_cell(models, decorated):
+    scope, values, path = consumer(models, "lambda", "Lambda.Function")
+    values["desired.row.001-001.property"] = "Lambda.Function.FunctionName"
+    link = "[shared-name](s3.md#s3-saved-anchor)"
+    args = {
+        "typed": reference("S3_Bucket_001", "BucketName"),
+        "literal": link,
+        "other": reference("CodeBuild_Project_001", "Name"),
+    }
+    if decorated:
+        args["decoration"] = "<tag>&`text`"
+    rid = add(values, "Lambda.Function", "Environment.Variables", args, comment=link)
+    before = copy.deepcopy(values)
+    presentation = Presentation(values, path, models)
+    assert set(presentation.references) == {
+        Position(rid, "value", "/typed"),
+        Position(rid, "value", "/other"),
+    }
+    # Exercise the shared display boundary directly: JSON authority validation
+    # independently rejects Markdown links inside JSON and is not weakened here.
+    projected = reference_display(values, path, models)
+    baseline_row = [
+        rid,
+        values[f"desired.row.{rid}.property"],
+        projected[f"desired.row.{rid}.value"],
+        link,
+    ]
+    marked_row = presentation.rows([baseline_row])[0]
+    baseline = ["| " + code(literal(baseline_row[2])) + " | " + link + " |"]
+    marked = ["| " + code(literal(marked_row[2])) + " | " + link + " |"]
+    displayed = presentation.lines(baseline, marked)
+    mixed = displayed[0]
+    opening, closing = ("<code>", "</code>") if decorated else ("`", "`")
+    assert closing + link + opening in mixed
+    assert opening + '", "literal": "' + link + '", "other": "' + closing in mixed
+    assert (
+        closing + "[shared-name](codebuild.md#codebuild-saved-anchor)" + opening
+        in mixed
+    )
+    assert mixed.endswith(" | " + link + " |")
+    if decorated:
+        assert "&lt;tag&gt;&amp;`text`" in mixed
+    assert not any(token in mixed for token in presentation.tokens)
+    assert presentation.lines(baseline, marked) == displayed
+    assert values == before
+
+
+def test_marker_collision_and_comment_source_preservation(models):
+    scope, values, path = consumer(models)
+    collision = "[blueprint-reference-0](#blueprint-reference-0)"
+    add(
+        values,
+        "Glue.Job",
+        "DefaultArguments",
+        {"--input": reference("S3_Bucket_001", "BucketName")},
+    )
+    add(values, "Glue.Job", "Description", collision, number=3)
+    # Also cover a candidate marker authored with JSON Unicode escapes.
+    values["desired.row.001-003.comment"] = (
+        '{"collision": "\\u0062lueprint-reference-x0"}'
+    )
+    presentation = Presentation(values, path, models)
+    assert all(
+        "blueprint-reference-xx" in marker for marker in presentation.marker_links
+    )
+    marker = next(iter(presentation.marker_links))
+    link = presentation.marker_links[marker]
+    baseline = ["| `ordinary` | <!-- source: " + link + " --> comment " + link + " |"]
+    marked = [
+        "| `" + marker + "` | <!-- source: " + marker + " --> comment " + link + " |"
+    ]
+    assert presentation.lines(baseline, marked) == [
+        "| " + link + " | <!-- source: " + link + " --> comment " + link + " |"
+    ]
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    assert "| `" + collision + "` |" in markdown
+    assert "glue-arguments-source:" in markdown
+    assert not any(token in markdown for token in presentation.tokens)
+    assert (
+        presentation.cell(
+            "``<br><code>ordinary</code><br>`resolved`",
+            "``<br><code>ordinary</code><br>`" + marker + "`",
+        )
+        == "``<br><code>ordinary</code><br>" + link
+    )
+    assert "$modelRef" in restore(path, markdown, values)
 
 
 @pytest.mark.parametrize(

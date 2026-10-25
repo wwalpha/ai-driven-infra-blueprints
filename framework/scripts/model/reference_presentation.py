@@ -1,5 +1,6 @@
 """Position-bound Resource links for display only; never an execution projection."""
 
+import html
 import json
 import re
 from dataclasses import dataclass
@@ -31,6 +32,26 @@ class Reference:
     position: Position
     value: object
     link: str | None
+
+
+def input_strings(value):
+    """Include decoded JSON strings so authored escapes cannot impersonate markers."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield key
+            yield from input_strings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from input_strings(child)
+    elif isinstance(value, str):
+        yield value
+        raw = literal(value)
+        if raw.lstrip().startswith(("{", "[")):
+            try:
+                decoded = json.loads(raw)
+            except ValueError:
+                return
+            yield from input_strings(decoded)
 
 
 class Presentation:
@@ -77,6 +98,28 @@ class Presentation:
                             self.link(node) if result.status == "resolved" else None,
                         )
 
+        inputs = tuple(input_strings(values)) + tuple(
+            ref.link for ref in self.references.values() if ref.link
+        )
+        prefix = "blueprint-reference-"
+        while any(prefix in text for text in inputs):
+            prefix += "x"
+        self.markers = {
+            pos: ref.link[:1] + f"{prefix}{index}-" + ref.link[1:]
+            for index, (pos, ref) in enumerate(self.references.items())
+            if ref.link
+        }
+        self.tokens = tuple(
+            f"{prefix}{index}-"
+            for index, ref in enumerate(self.references.values())
+            if ref.link
+        )
+        self.marker_links = {
+            variant: self.references[pos].link
+            for pos, marker in self.markers.items()
+            for variant in (marker, html.escape(marker, quote=False))
+        }
+
     def link(self, node):
         try:
             snapshot, number, resource = self.resolver.resolve_logical(
@@ -107,8 +150,8 @@ class Presentation:
             return None
 
     def node_value(self, row_id, field, node):
-        reference = self.references[Position(row_id, field, node.pointer)]
-        return reference.link or reference.value
+        position = Position(row_id, field, node.pointer)
+        return self.markers.get(position, self.references[position].value)
 
     def document(self, row_id, field, baseline):
         selected = [
@@ -147,18 +190,51 @@ class Presentation:
             result.append([rid, prop, value, comment])
         return result
 
-    def cell(self, value):
-        links = {ref.link for ref in self.references.values() if ref.link}
-        if not links or not any(link in value for link in links):
-            return value
-        pattern = "(" + "|".join(re.escape(link) for link in sorted(links)) + ")"
-        for opening, closing in (("`", "`"), ("<code>", "</code>")):
-            if value.startswith(opening) and value.endswith(closing):
-                return "".join(
-                    part if part in links else opening + part + closing if part else ""
-                    for part in re.split(pattern, value[len(opening) : -len(closing)])
-                )
+    def cell(self, original, marked):
+        original_parts = re.split(r"(<!--.*?-->)", original)
+        marked_parts = re.split(r"(<!--.*?-->)", marked)
+        if len(original_parts) != len(marked_parts):
+            raise ValueError("reference presentation changed comment structure")
+        return "".join(
+            self.unmark(displayed)
+            if source.startswith("<!--")
+            else self.fragment(displayed)
+            if any(marker in displayed for marker in self.marker_links)
+            else source
+            for source, displayed in zip(original_parts, marked_parts, strict=True)
+        )
+
+    def unmark(self, value):
+        for token in self.tokens:
+            value = value.replace(token, "")
         return value
+
+    def fragment(self, value):
+        pattern = "(" + "|".join(map(re.escape, self.marker_links)) + ")"
+        result = []
+        for span in re.split(r"(`[^`]*`|<code>.*?</code>)", value):
+            if not any(marker in span for marker in self.marker_links):
+                result.append(span)
+                continue
+            opening, closing = (
+                ("`", "`")
+                if span.startswith("`") and span.endswith("`")
+                else ("<code>", "</code>")
+                if span.startswith("<code>") and span.endswith("</code>")
+                else ("", "")
+            )
+            body = span[len(opening) : -len(closing)] if closing else span
+            result.append(
+                "".join(
+                    self.marker_links[part]
+                    if part in self.marker_links
+                    else opening + part + closing
+                    if part
+                    else ""
+                    for part in re.split(pattern, body)
+                )
+            )
+        return "".join(result)
 
     def lines(self, baseline, marked):
         if len(baseline) != len(marked):
@@ -173,11 +249,9 @@ class Presentation:
             if len(cells) != len(original_cells):
                 raise ValueError("reference presentation changed table structure")
             result.append(
-                "| "
-                + " | ".join(
-                    cell.strip() if "<!--" in cell else self.cell(cell.strip())
-                    for cell in cells[1:-1]
+                "|".join(
+                    self.cell(source, cell)
+                    for source, cell in zip(original_cells, cells, strict=True)
                 )
-                + " |"
             )
         return result
