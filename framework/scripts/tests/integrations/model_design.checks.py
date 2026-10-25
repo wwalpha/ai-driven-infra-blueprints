@@ -166,11 +166,11 @@ def check_kms_policy_execution_account(root):
     assert SYNC.sync(root, False, "dev", identity, services=["kms"]) == 0
     invalid = {**values, document_key: values[document_key].replace(execution, identity)}
     write_model(source, text(invalid))
-    with pytest.raises(ValueError, match='Markdown differs from Model expected display'):
+    with pytest.raises(ValueError, match=f'must use AWS execution account {execution}'):
         SYNC.sync(root, True, "dev", identity, services=["kms"])
     assert (path.read_bytes(), artifact.read_bytes()) == saved
     assert properties(read_model(source)) == properties(text(invalid))
-    # Account rejection needs a matching authored view; stale typed-reference tables stop earlier.
+    # Account rejection also protects a matching authored view.
     path.write_text(generate_markdown(path, load_model(source).values, ROOT), encoding="utf-8")
     saved = path.read_bytes(), artifact.read_bytes()
     for write in (False, True):
