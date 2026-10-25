@@ -110,13 +110,53 @@ contracts do not grant the exception.
 
 ## Issue remediation
 
-- Record the target issue, cause, and repair scope in the repair task's Goal and Required changes. Place the following section in the same active contract. Entries must be subsets of the explicit Validation scope only; repair exceptions using `all` / `framework` are prohibited. The exception applies only to that service's issue repair and revalidation; do not mix in feature additions, ordinary design, other issue repairs, etc. Do not automatically resume other suspended tasks after the repair task completes. The explicitly preauthorized CloudFormation external-repair request permits only the supervising LLM to resume its matching original deploy Task through the existing helper; it does not waive Issue Gate, extend scope, or authorize unrelated phases.
+- Use this exception only for Human-requested repair of ordinary `issues.md` issues.
+  Record the cause and necessary repair scope in Goal and Required changes. Declare
+  services below within explicit service Validation scope; `all` / `framework` are
+  prohibited. All ordinary issues in a declared service may be repaired: do not
+  register or authorize individual Issue IDs. Do not mix in unnecessary changes,
+  unrelated features or automatic creation/execution of another Task.
+- The contract must be `design`, Workflow `update`, with AWS API execution and
+  deploy/apply explicitly `forbidden`. AWS mutation, if declared, must be `forbidden`;
+  infrastructure phases are prohibited. Permit only necessary service Model settings
+  and reference corrections, guarded Model-to-Markdown/JSON generation, existing
+  static validation, revalidated ordinary issue updates and the Task's own lifecycle.
+  Include affected reference consumers in explicit Validation scope without inferring
+  write permission from read dependencies. Remove only proven resolved ordinary issues.
+- Allowed paths and Modified files must list exact service properties entrances/parts,
+  generated service Markdown/JSON, target `issues.md` and the active Task file.
+  Globs are forbidden for repair contracts. The common Task check applies the same
+  boundary to actual changes and completion. `framework/**`, `.agents/**`, root
+  Framework rules/configuration/workflows, `infra/**`, IaC/templates/Terraform/parameters
+  and `iac-issues.md` are not writable even if requested in Allowed paths. No AWS API
+  calls (including read-only), resource mutation or deploy/apply are authorized.
 
 ```md
 ## Issue remediation
 
 - `dev/cde/ec2`
 ```
+
+`iac-issues.md` Model-to-IaC differences never receive this exception. Do not register
+remediation or start repair solely because of these differences. Matching existing IaC
+may confirm an ordinary repair; never automatically adopt differing IaC values into
+the Model. Present Model and IaC values, the difference and its affected scope, and
+both Model-correction and IaC-correction options. Report that Human must decide and
+leave the mismatch unchanged. When both inventories contain issues for one service,
+continue only ordinary repairs safely independent of that decision; defer dependent
+repairs. After Human decides, an independently requested ordinary update or implement
+Task uses its normal permissions and Issue Gate without inheriting this exception.
+
+For a Framework cause, identify the responsible files/functions, explain the impact
+on the issue and proposed correction, retain unresolved issues and report the necessary
+Framework maintenance to Human. Never expand repair authority to Framework code,
+Rules, mappings, schemas or Skills. Independent Framework maintenance Tasks remain
+separate and keep their existing permissions.
+
+Do not automatically resume other suspended Tasks. The separately preauthorized
+CloudFormation external-repair implement handoff retains its own contract and permits
+only the supervising LLM to resume its matching original deploy Task; it does not use
+Issue remediation or waive Issue Gate.
 
 ## Check timing
 
@@ -135,7 +175,7 @@ python framework/scripts/issue_gate.py --environment <environment> --target-dire
 ```
 
 The Task validator and deploy context use the common decision.
-AWS read-only context only verifies authentication for investigation; it does not
-authorize continuation of another task. Immediately before mutation, run the same
-gate with `--task` in addition to ordinary preflight, applying only that Task's Issue
-remediation declaration. Recheck ordinary tasks without a remediation exception.
+AWS read-only context only verifies authentication for authorized investigation; it does
+not authorize Issue remediation or continuation of another Task. Before an ordinarily
+authorized mutation, run the gate with `--task` in addition to preflight. Issue remediation
+never authorizes mutation; ordinary Tasks cannot inherit its exception.

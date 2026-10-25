@@ -149,13 +149,34 @@ Do not enter the infrastructure branch below. /import separately permits acquire
 
 ## Check applicability and finish point first
 
-First determine requested environment/target/services, properties, issues to repair, and endpoint (through model repair, IaC, or AWS reflection). Do not ask again about explicitly requested scope; confirm only missing decisions.
+First determine requested environment/target/services, properties and ordinary issues
+to repair. Issue remediation ends at Model/view repair and revalidation; only ordinary
+independently authorized update/implement Tasks may target IaC or AWS reflection.
+Do not ask again about explicitly requested scope; confirm only missing decisions.
 
 - Use the ordinary update procedure below only for requests to reflect human manual model diffs into AWS. Do not add preflight, change sets/plans, or deploy/apply to requests ending at IaC.
-- Distinguish human-explicit issue repairs from update requiring manual model diffs. Before changes, match repair values against target models and existing IaC/parameters; treat matching existing IaC as confirmation targets. If only model repair, generated designs, and corresponding issue resolution are needed, record target service Validation scope and Issue remediation in a design-boundary repair contract. Do not stop repair due to absent manual model diffs or require same-value IaC rewrites.
-- If IaC changes are actually needed, follow existing infrastructure boundaries. Do not mix model repair with IaC changes to lift update immutable input constraints; do not automatically create/execute another task.
+- For Human-requested ordinary `issues.md` repairs, follow
+  [Issue remediation](../../rules/issue-gate.md#issue-remediation). Register design/update,
+  explicit forbidden AWS API execution/deploy/apply, service Validation scope and
+  Issue remediation, without individual Issue IDs. Allow only necessary scoped
+  Model/reference corrections, guarded generated views, static validation and proven
+  ordinary issue updates. Do not require manual Model diffs or same-value IaC rewrites.
+- Matching existing IaC may be confirmation evidence. For `iac-issues.md` differences,
+  present both values, impact and Model/IaC correction options for Human decision;
+  leave the mismatch unchanged. Continue only independent ordinary repairs. Never use
+  IaC as automatic Model authority or register repair solely for an IaC mismatch.
+- Framework causes require file/function identification, impact and correction advice
+  to Human while retaining unresolved issues. Repair Tasks cannot change Framework,
+  Skills, rules, mappings, schemas, IaC or parameters, call AWS APIs or deploy/apply.
+  Do not extend the repair contract or automatically create/execute another Task.
+  Any later Human-authorized update/implement uses its normal gate and permissions
+  without the remediation exception.
 
-Limit contract Required changes and Allowed paths to necessary changes and distinguish existing IaC confirmation targets. Do not reuse ordinary update contracts/AWS authorization for requests not meeting its applicability conditions below. Explicit issue repairs run target service generation, static validation of requested target IaC, and local loops once each, then finish at the specified endpoint. Do not omit task-type-specific checks or issue gates.
+Limit repair Required changes and exact Allowed paths to necessary Model/view/ordinary
+issue/own-Task changes. Run service generation, existing local static validation and
+classified final validation, then finish. Do not enter the infrastructure procedure
+below. Do not reuse ordinary update AWS authorization for repairs or omit applicable
+Task checks and Issue Gate.
 
 Follow [Credentials and account](../../rules/project-configuration.md#credentials-and-account) for common account/profile selection and apply [Policy account selection](../../rules/detailed-design.md#policy-account-selection) for policy-specific conditions.
 

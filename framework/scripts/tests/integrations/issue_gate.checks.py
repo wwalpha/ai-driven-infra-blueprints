@@ -115,7 +115,14 @@ def main():
 
         active.write_text(contract)
 
-        active.write_text(contract + "\n## Issue remediation\n\n- `dev/cde/ec2`\n")
+        active.write_text(
+            contract.replace(
+                "## Task contract\n",
+                "## Task contract\n- Workflow: `update`\n"
+                "- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n",
+            )
+            + "\n## Issue remediation\n\n- `dev/cde/ec2`\n"
+        )
         require_no_issues(root, scope)
         command = [
             sys.executable,

@@ -76,6 +76,13 @@ IMPORT and other authority writers retain their dedicated publication checks and
   docs/designs through the shared guarded APIs, then finish after classified validation.
   AWS acquisition and acquired add/refresh/bind/replace remain exclusive to /import; explicit ordinary IMPORT corrections use the guarded Model edit API.
   Do not proceed to IaC, AWS mutation or scenarios.
+- Any Task with `## Issue remediation` also follows the stricter
+  [Issue remediation boundary](issue-gate.md#issue-remediation): design/update only,
+  explicit forbidden AWS API execution/deploy/apply, exact scoped Model/view/ordinary
+  issue/own-Task paths, no Framework or IaC changes. Registration, refresh, snapshots,
+  actual change validation and completion share this check. Allowed paths and an
+  Issue Gate exception cannot expand this authority. Ordinary Tasks without this
+  declaration retain their existing boundaries.
 - `infrastructure`: Read the approved design, perform only explicitly authorized IaC,
   checks and deploy/apply, then synchronize permitted observations/generated views after
   success. Independent destroy changes only explicit designed Stacks, post-success

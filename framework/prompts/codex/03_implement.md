@@ -20,6 +20,11 @@ Follow [Credentials and account](../../rules/project-configuration.md#credential
 ## Unresolved issue gate
 
 Apply [issue-gate](../../rules/issue-gate.md) for target service stop decisions and exceptions before start/resume/mutation.
+This ordinary infrastructure/implement Task cannot declare or inherit Issue remediation.
+For Model-to-IaC differences, implement only after Human independently requests the
+IaC correction using approved design; retain the ordinary Issue Gate. Ordinary issue
+repairs use the separate Model-only boundary in issue-gate and cannot authorize IaC
+or Framework changes. Never automatically start a follow-up Task.
 
 ## User input
 
@@ -105,7 +110,7 @@ Correct only the requested causes using the existing typed `comparison.Compariso
 
 Before file changes, check implementation support and resolve implementation units below, then match confirmed target property design values against existing templates/modules and parameters. Matching portions are confirmation targets requiring no changes; only differences are implementation targets. If existing IaC is correct, do not create same-value rewrites or naming-only changes.
 
-If all portions match, perform target IaC static validation once, report no changes needed and results, then finish. Read-only confirmation without repository changes does not create a new active contract or count as completion of an implement task requiring IaC changes. If explicit issue repair requires model changes, handle only repair scope under existing task boundaries; do not change models here.
+If all portions match, perform target IaC static validation once, report no changes needed and results, then finish. Read-only confirmation without repository changes does not create a new active contract or count as completion of an implement task requiring IaC changes. If ordinary issue repair requires Model changes, report the separate Model-only repair scope; do not change Models or start another Task here.
 
 ## Create active task contract
 

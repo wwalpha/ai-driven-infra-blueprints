@@ -17,6 +17,7 @@ from task_contract_core import (
     TASK_NAME,
     issues_save_only,
     matches,
+    require_issue_remediation,
     task_path,
     task_snapshot,
 )
@@ -308,6 +309,14 @@ class TaskValidation:
         if self.task_type not in TASK_TYPES:
             return
         prompt_path = self.relative(prompt)
+        try:
+            require_issue_remediation(
+                prompt_path,
+                self.contract_text or "",
+                self.changed_paths if paths is None else paths,
+            )
+        except (OSError, ValueError) as error:
+            self.check(False, str(error))
         for changed in sorted(self.changed_paths if paths is None else paths):
             if self.task_type == "design":
                 forbidden = self.under(changed, "infra") or self.under(changed, "tests")

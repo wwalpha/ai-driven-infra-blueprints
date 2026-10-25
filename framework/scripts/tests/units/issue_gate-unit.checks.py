@@ -451,6 +451,33 @@ def check_generation_preserves_model_guards(generation_model, failure):
     assert issues.read_bytes() == original
 
 
+def check_remediation_model_save_and_real_diff(generation_model):
+    path, model, values, issues = generation_model
+    root = path.parent.parent
+    text = (
+        path.read_text(encoding="utf-8").replace(
+            "- Workflow: `update`\n",
+            "- Workflow: `update`\n- AWS API execution: `forbidden`\n"
+            "- deploy/apply: `forbidden`\n",
+        )
+        + "## Issue remediation\n- `stg/cde/service-b`\n"
+    )
+    path.write_text(text, encoding="utf-8")
+    import_guard.require_import_changes(root)
+    assert issues.read_text(encoding="utf-8") == "### service-b\n1. 既存のIssue\n"
+    forbidden = root / "framework/rules/example.md"
+    forbidden.parent.mkdir(parents=True)
+    forbidden.write_text("outside remediation authority\n", encoding="utf-8")
+    task = TaskValidation(root, Findings(root))
+    task.check_task_scope()
+    assert any(
+        "Issue remediation forbidden path: framework/rules/example.md" in error
+        for error in task.findings.errors
+    )
+    with pytest.raises(ValueError, match="Issue remediation forbidden path"):
+        tasks.complete(root, path.relative_to(root).as_posix())
+
+
 def check_inventory_parser(tmp_path):
     root = tmp_path
     scope = {("dev", "cde", "ec2")}
@@ -585,6 +612,166 @@ def check_remediation_scope_inputs(tmp_path):
         pass
     else:
         raise AssertionError("all-scope remediation accepted")
+
+
+@pytest.fixture
+def remediation_task(tmp_path, monkeypatch):
+    name = "tasks/remediation.md"
+    paths = {
+        name,
+        "model/dev/cde/ec2.properties",
+        "model/dev/cde/ec2/part-001.properties",
+        "model/dev/cde/s3.properties",
+        "docs/designs/dev/cde/ec2.md",
+        "docs/designs/dev/cde/ec2/policy.json",
+        "issues/dev/cde/issues.md",
+    }
+    listed = "".join(f"- `{path}`\n" for path in sorted(paths))
+    text = (
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+        "- Workflow: `update`\n- AWS API execution: `forbidden`\n"
+        "- deploy/apply: `forbidden`\n"
+        "## Validation scope\n- `dev/cde/ec2`\n- `dev/cde/s3`\n"
+        "## Issue remediation\n- `dev/cde/ec2`\n"
+        "## Modified files\n" + listed + "## Allowed paths\n" + listed
+    )
+    tasks.start(tmp_path, name, text)
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    return tmp_path, name, text, paths
+
+
+def check_service_remediation_and_iac_separation(remediation_task):
+    root, name, text, paths = remediation_task
+    inventory = root / "issues/dev/cde/issues.md"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text("### ec2\n1. 設定不足\n2. 参照不足\n", encoding="utf-8")
+    iac = inventory.with_name("iac-issues.md")
+    iac.write_text("### ec2\n1. ModelとIaCの値が異なる\n", encoding="utf-8")
+    assert len(issue_errors(root, {("dev", "cde", "ec2")})) == 2
+    require_no_issues(root, active_scope(root))
+    assert remediation_scope(root) == {("dev", "cde", "ec2")}
+    task = TaskValidation(root, Findings(root))
+    task.task_type, task.contract_text = "design", text
+    task.check_task_boundary(root / name, paths)
+    assert not task.findings.errors
+    inventory.write_text("### s3\n1. 対象外Issue\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="unresolved issue.*s3"):
+        require_no_issues(root, active_scope(root))
+    inventory.write_text("未解決issueなし\n", encoding="utf-8")
+    ordinary = text.replace("## Issue remediation\n- `dev/cde/ec2`\n", "")
+    (root / name).write_text(ordinary, encoding="utf-8")
+    require_no_issues(root, active_scope(root))
+    assert not remediation_scope(root)  # IaC differences do not start remediation.
+    assert (root / name).read_text(encoding="utf-8") == ordinary
+    assert iac.read_text(encoding="utf-8") == "### ec2\n1. ModelとIaCの値が異なる\n"
+
+
+@pytest.mark.parametrize("heading", ["Allowed paths", "Modified files"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "infra/cloudformation/templates/ec2.yaml",
+        "infra/cloudformation/parameters/dev/cde/ec2.json",
+        "infra/cde/terraform/dev/main.tf",
+        "framework/scripts/issue_gate.py",
+        "framework/rules/issue-gate.md",
+        "framework/materials/schema.json",
+        ".agents/skills/update/SKILL.md",
+        "AGENTS.md",
+        "README.md",
+        "pyproject.toml",
+        ".github/workflows/framework-it.yml",
+        "project.json",
+        "issues/dev/cde/iac-issues.md",
+        "model/prod/cde/ec2.properties",
+        "model/dev/cde/iam.properties",
+        "model/dev/cde/ec2/main.tf",
+        "docs/designs/dev/cde/ec2/template.yaml",
+        "**",
+        "*/*",
+        "[fi]*/*",
+        "framework/**",
+        "model/**",
+    ],
+)
+def check_remediation_forbidden_declarations(remediation_task, heading, path):
+    root, name, text, _ = remediation_task
+    text = text.replace(f"## {heading}\n", f"## {heading}\n- `{path}`\n")
+    other = name.replace("remediation", "rejected")
+    with pytest.raises(ValueError):
+        tasks.start(root, other, text.replace(name, other))
+    assert not (root / other).exists()
+    (root / name).write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError):
+        tasks.refresh(root, name)
+    with pytest.raises(ValueError):
+        require_no_issues(root, {("dev", "cde", "ec2")})
+    assert tasks.status((root / name).read_text(encoding="utf-8")) == "running"
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("- AWS API execution: `forbidden`", "- AWS API execution: `allowed`"),
+        ("- AWS API execution: `forbidden`", "- AWS API execution: `read-only`"),
+        ("- AWS API execution: `forbidden`\n", ""),
+        ("- deploy/apply: `forbidden`", "- deploy/apply: `allowed`"),
+        ("- deploy/apply: `forbidden`\n", ""),
+        ("- Workflow: `update`", "- Workflow: `import`"),
+        ("- Task type: `design`", "- Task type: `infrastructure`"),
+        ("- Task type: `design`", "- Task type: `governance`"),
+        ("## Task contract", "## Task contract\n- AWS mutation: `allowed`"),
+        ("## Task contract", "## Task contract\n- Infrastructure phase: `deploy`"),
+        ("## Task contract", "## Task contract\n- AWS API execution: `forbidden`"),
+        ("## Issue remediation\n- `dev/cde/ec2`", "## Issue remediation"),
+        (
+            "## Issue remediation\n- `dev/cde/ec2`",
+            "## Issue remediation\n- `dev/cde/ec2`\n## Issue remediation\n- `dev/cde/ec2`",
+        ),
+    ],
+)
+def check_remediation_forbidden_operations(remediation_task, old, new):
+    root, name, text, _ = remediation_task
+    with pytest.raises(ValueError):
+        tasks.validate_contract(root, name, text.replace(old, new))
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "framework/scripts/issue_gate.py",
+        ".agents/skills/update/SKILL.md",
+        "AGENTS.md",
+        "infra/cde/terraform/dev/main.tf",
+        "issues/dev/cde/iac-issues.md",
+    ],
+)
+def check_remediation_actual_changes_and_completion(remediation_task, path):
+    root, name, text, _ = remediation_task
+    task = TaskValidation(root, Findings(root))
+    task.task_type, task.contract_text = "design", text
+    task.check_task_boundary(root / name, {path})
+    assert any("Issue remediation forbidden path" in e for e in task.findings.errors)
+    # Completion must reject real changes even if its earlier validator was bypassed.
+    with (
+        mock.patch("model.importing.repository.changed_paths", return_value={path}),
+        pytest.raises(ValueError, match="Issue remediation forbidden path"),
+    ):
+        tasks.complete(root, name)
+    assert tasks.status((root / name).read_text(encoding="utf-8")) == "running"
+
+
+def check_remediation_completion_and_resume(remediation_task):
+    root, name, text, paths = remediation_task
+    tasks.suspend(root, name, "test stop")
+    tasks.resume(root, name)
+    assert tasks.status((root / name).read_text(encoding="utf-8")) == "running"
+    with (
+        mock.patch("model.importing.repository.changed_paths", return_value=paths),
+        mock.patch.object(import_guard, "require_import_changes"),
+    ):
+        tasks.complete(root, name)
+    assert tasks.status((root / name).read_text(encoding="utf-8")) == "completed"
 
 
 if __name__ == "__main__":

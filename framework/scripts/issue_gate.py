@@ -11,6 +11,7 @@ import validation_scope as _dependency_validation_scope
 from issue_markdown import markdown_matches, split_notices
 from task_contract_core import (
     TaskSnapshot,
+    issue_remediation_scope,
     model_operation,
     status,
     task_read_scope,
@@ -38,26 +39,8 @@ def remediation_scope(
     )
     if snapshot is None:
         return set()
-    result = set()
-    inside = False
-    for line in snapshot.text.splitlines():
-        if line.startswith("## "):
-            inside = line == "## Issue remediation"
-        elif inside and line.strip():
-            match = re.fullmatch(rf"- `({SERVICE})/({SERVICE})/({SERVICE})`", line)
-            if not match:
-                raise ValueError(f"invalid Issue remediation entry: {line}")
-            entry = match.groups()
-            if entry in result:
-                raise ValueError("duplicate Issue remediation entry")
-            result.add(entry)
-    if result:
-        scope = snapshot.scope
-        if scope is None or not result <= scope:
-            raise ValueError(
-                "Issue remediation must be within explicit service Validation scope"
-            )
-    return result
+    validate_contract(root, snapshot.name, snapshot.text, check_paths=False)
+    return set(issue_remediation_scope(snapshot.text))
 
 
 def _callback_unresolved_services_flush(

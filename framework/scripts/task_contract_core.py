@@ -372,11 +372,75 @@ def status(text):
     return entries[0].split("`")[1]
 
 
+@memoized
+def issue_remediation_scope(text):
+    """Parse the existing service declaration once for every permission boundary."""
+    if "## Issue remediation" not in text.splitlines():
+        return frozenset()
+    entries = paths_in(text, "## Issue remediation")
+    result = set()
+    for entry in entries:
+        if not re.fullmatch(
+            r"[a-z0-9]+(?:[-_][a-z0-9]+)*(?:/[a-z0-9]+(?:[-_][a-z0-9]+)*){2}", entry
+        ):
+            raise ValueError(f"invalid Issue remediation entry: {entry}")
+        result.add(tuple(entry.split("/")))
+    scope = _scope(text)
+    if scope is None or not result <= scope:
+        raise ValueError(
+            "Issue remediation must be within explicit service Validation scope"
+        )
+    return frozenset(result)
+
+
+def require_issue_remediation(name, text, paths=()):
+    """Restrict declarations and actual changes; the Issue Gate grants no write rights."""
+    if not issue_remediation_scope(text):
+        return
+    lines = section(text, "## Task contract")
+    for field, value in (
+        ("Task type", "design"),
+        ("Workflow", "update"),
+        ("AWS API execution", "forbidden"),
+        ("deploy/apply", "forbidden"),
+    ):
+        if [line for line in lines if line.startswith(f"- {field}:")] != [
+            f"- {field}: `{value}`"
+        ]:
+            raise ValueError(f"Issue remediation requires {field}: `{value}`")
+    mutations = [line for line in lines if line.startswith("- AWS mutation:")]
+    if mutations and mutations != ["- AWS mutation: `forbidden`"]:
+        raise ValueError("Issue remediation forbids AWS mutation")
+    if any(line.startswith("- Infrastructure phase:") for line in lines):
+        raise ValueError("Issue remediation forbids infrastructure phases")
+    scope = _scope(text)
+    for value in sorted(
+        paths_in(text, "## Allowed paths")
+        | paths_in(text, "## Modified files")
+        | set(paths)
+    ):
+        # Exact paths prevent globs from granting future Framework or IaC write rights.
+        relative_path(value)
+        permitted = value == name or any(
+            value == f"model/{env}/{target}/{service}.properties"
+            or value.startswith(f"model/{env}/{target}/{service}/")
+            and value.endswith(".properties")
+            or value == f"docs/designs/{env}/{target}/{service}.md"
+            or value.startswith(f"docs/designs/{env}/{target}/{service}/")
+            and value.endswith(".json")
+            or value == f"issues/{env}/{target}/issues.md"
+            for env, target, service in scope
+        )
+        if not permitted:
+            raise ValueError(f"Issue remediation forbidden path: {value}")
+
+
 def validate_contract(root, name, text, *, check_paths=True):
     """Validate the selected contract declaration."""
     status(text)
     model_operation(text)
     model_refactor(text)
+    require_issue_remediation(name, text)
     files = paths_in(text, "## Modified files")
     allowed = paths_in(text, "## Allowed paths")
     if name not in files:
