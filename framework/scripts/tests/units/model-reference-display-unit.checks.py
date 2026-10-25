@@ -335,6 +335,12 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
         assert "$modelRef" in "\n".join(
             DesignIndex(FRAMEWORK).get(path, text=markdown).raw.display_lines
         )
+        with pytest.raises(ValueError, match="Markdown differs from Model expected display"):
+            _ = (
+                DesignIndex(FRAMEWORK)
+                .get(path, text=markdown.replace("pending_deploy", "tampered"))
+                .raw.display_lines
+            )
 
 
 def check_grouped_rows_keep_identity_and_references(tmp_path):

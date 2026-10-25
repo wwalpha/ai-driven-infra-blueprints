@@ -44,10 +44,12 @@ def model_reference_tables(path, text, values, root):
         raise ValueError("\n".join(prohibited.values()))
     if path.stem == "codebuild":
         lines = text.splitlines()
+        # Diagnose display policy here; exact Model equality below binds typed rows.
         _dependency_design_layout.expanded_display_rows(
             lines,
             root,
             modes=_dependency_design_layout.resource_modes(lines, source),
+            _verified_reference=True,
         )
     tables = []
     expected = _model_render.generate_markdown(
