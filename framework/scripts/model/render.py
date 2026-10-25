@@ -629,6 +629,13 @@ def generate_markdown(
     )
 
 
+def service_note_markdown(values):
+    """Render the service-owned suffix separately from Resource displays."""
+    return "".join(
+        "\n\n" + note["text"] for _, note in entries(values, "desired.note.")
+    )
+
+
 def render_markdown(
     path,
     values,
@@ -769,9 +776,7 @@ def render_markdown(
                             ["Job", "AWS account ID", "Bucket"], mappings
                         ),
                     ]
-    for _, note in entries(values, "desired.note."):
-        output += ["", note["text"]]
-    return "\n".join(output) + "\n"
+    return "\n".join(output) + service_note_markdown(values) + "\n"
 
 
 def model_policy_views(values, *, presentation=None):

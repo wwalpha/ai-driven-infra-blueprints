@@ -369,6 +369,103 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
             )
 
 
+@pytest.fixture
+def noted_policies(tmp_path):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        _, _, scope, values = project(tmp_path)
+        for key, value in list(values.items()):
+            if ".001" in key:
+                values[key.replace(".001", ".002")] = (
+                    value.replace("saved-001", "saved-002")
+                    .replace("IAM_ManagedPolicy_001", "IAM_ManagedPolicy_002")
+                    .replace("synthetic-policy", "second-policy")
+                    .replace("policy.json", "second.json")
+                )
+        values["desired.service.identity.lastAllocated"] = '{"IAM.ManagedPolicy":2}'
+        save(scope, values)
+        values["desired.note.001.text"] = "サービス全体の注記\n複数行の説明"
+        values["desired.note.002.text"] = "もう一つの注記"
+        path = tmp_path / "docs/designs/qa/team/iam.md"
+        yield path, scope, values
+
+
+@pytest.mark.parametrize("notes", ["none", "single", "multiple"])
+@pytest.mark.parametrize("single_resource", [False, True])
+def check_service_notes_are_outside_resource_display(
+    noted_policies, notes, single_resource
+):
+    path, scope, values = noted_policies
+    if single_resource:
+        values = {key: value for key, value in values.items() if ".002" not in key}
+    if notes != "multiple":
+        values = {
+            key: value
+            for key, value in values.items()
+            if not key.startswith("desired.note.")
+        }
+    if notes == "single":
+        values["desired.note.001.text"] = "サービス全体の注記"
+    save(
+        scope,
+        {
+            key: value
+            for key, value in values.items()
+            if not key.startswith("desired.note.")
+        },
+    )
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    without_notes = {
+        key: value
+        for key, value in values.items()
+        if not key.startswith("desired.note.")
+    }
+    suffix = "".join(
+        "\n\n" + value
+        for key, value in values.items()
+        if key.startswith("desired.note.")
+    )
+    assert (
+        markdown
+        == generate_markdown(path, without_notes, FRAMEWORK)[:-1] + suffix + "\n"
+    )
+    recovered = model_resource_reference_tables(path, markdown, values, FRAMEWORK)
+    assert len(recovered) == (1 if single_resource else 2)
+    assert all(error is None for _, _, error in recovered)
+    assert model_reference_tables(path, markdown, tuple(values.items()), FRAMEWORK)
+
+
+@pytest.mark.parametrize("change", ["attribute", "policy", "row", "trailing"])
+def check_resource_differences_survive_service_notes(noted_policies, change):
+    path, _, values = noted_policies
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    changed = {
+        "attribute": markdown.replace("`synthetic-policy`", "`edited-policy`"),
+        "policy": markdown.replace("kms:Decrypt", "kms:Encrypt", 1),
+        "row": markdown.replace("合成JSON", "改変された行", 1),
+        "trailing": markdown + "未知の末尾テキスト\n",
+    }[change]
+    assert changed != markdown
+    recovered = model_resource_reference_tables(path, changed, values, FRAMEWORK)
+    assert [error is not None for _, _, error in recovered] == (
+        [False, True] if change == "trailing" else [True, False]
+    )
+    with pytest.raises(ValueError, match="Model expected display"):
+        model_reference_tables(path, changed, tuple(values.items()), FRAMEWORK)
+
+
+@pytest.mark.parametrize("change", ["changed", "deleted", "unknown_heading"])
+def check_service_note_differences_remain_document_failures(noted_policies, change):
+    path, _, values = noted_policies
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    changed = {
+        "changed": markdown.replace("もう一つの注記", "改変した注記"),
+        "deleted": markdown.replace("\nもう一つの注記", ""),
+        "unknown_heading": markdown + "\n## 未知の末尾テキスト\n",
+    }[change]
+    with pytest.raises(ValueError, match="Model expected display"):
+        model_reference_tables(path, changed, tuple(values.items()), FRAMEWORK)
+
+
 def check_grouped_rows_keep_identity_and_references(tmp_path):
     with mapping_alias(FRAMEWORK, tmp_path):
         project(tmp_path)
@@ -427,7 +524,7 @@ def check_grouped_rows_keep_identity_and_references(tmp_path):
         )
 
 
-@pytest.mark.parametrize("tamper", [False, True])
+@pytest.mark.parametrize("tamper", ["none", "parent", "child"])
 def check_grouped_resource_recovery_keeps_parent_and_children_together(
     tmp_path, tamper
 ):
@@ -451,23 +548,29 @@ def check_grouped_resource_recovery_keeps_parent_and_children_together(
                     f"desired.row.{identity}-007.comment": "呼出元",
                 }
             )
+        values["desired.note.001.text"] = "サービス全体の注記"
+        values["desired.note.002.text"] = "もう一つの注記"
         scope = sources.Scope(tmp_path, "qa", "team", "lambda")
         write_model(scope.path, values)
         path = tmp_path / "docs/designs/qa/team/lambda.md"
         markdown = generate_markdown(path, values, FRAMEWORK)
         del values["desired.resource.002.parentProperty"]
         write_model(scope.path, values)
-        if tamper:
+        if tamper == "parent":
             markdown = markdown.replace(
                 "### Lambda.Function: app-dev-worker-2",
                 "### Lambda.Function: tampered-worker",
+            )
+        elif tamper == "child":
+            markdown = markdown.replace(
+                "`events.amazonaws.com`", "`lambda.amazonaws.com`"
             )
         with pytest.raises(ValueError, match="parentProperty"):
             model_reference_tables(path, markdown, tuple(values.items()), FRAMEWORK)
         recovered = model_resource_reference_tables(path, markdown, values, FRAMEWORK)
         assert len(recovered) == 2
         assert "parentProperty" in str(recovered[0][2])
-        if tamper:
+        if tamper != "none":
             assert "differs from Model" in str(recovered[1][2])
         else:
             assert recovered[1][2] is None

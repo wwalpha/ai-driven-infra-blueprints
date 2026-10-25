@@ -154,9 +154,14 @@ def model_resource_reference_tables(path, text, values, root):
     """Recover only complete Resource groups proven equal by the existing renderer."""
     source = dict(values)
     resources, groups = model_resource_groups(path, source)
-    blocks = resource_blocks(
-        _dependency_design_layout.resource_heading_lines(text.splitlines())
-    )
+    lines = text.splitlines()
+    notes = _model_render.service_note_markdown(source)
+    if notes:
+        # The first newline terminates the preceding Resource's last line.
+        suffix = (notes + "\n").splitlines()[1:]
+        if lines[-len(suffix) :] == suffix:
+            lines = lines[: -len(suffix)]
+    blocks = resource_blocks(_dependency_design_layout.resource_heading_lines(lines))
     saved = {}
     for block in blocks:
         identities = _dependency_design_layout.resource_logical_ids(block)
@@ -174,7 +179,8 @@ def model_resource_reference_tables(path, text, values, root):
         selected = {
             key: value
             for key, value in source.items()
-            if owned[key][0] != "resource" or owned[key][1] in members
+            if not key.startswith("desired.note.")
+            and (owned[key][0] != "resource" or owned[key][1] in members)
         }
         try:
             model_path = (
