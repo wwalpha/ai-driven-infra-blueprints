@@ -378,12 +378,13 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
             ("### service-b\n" if mode == "other-issue" else "### service-a\n")
             + "1. existing issue\n"
         )
+        issue_before = p.read_bytes()
     with (
         patch("model.importing.repository.task_start_commit", return_value=base),
         mapping_alias(Path(__file__).resolve().parents[4], before),
         selected_task(before, name),
     ):
-        if mode in {"missing-scope", "issue", "other-issue"}:
+        if mode == "missing-scope":
             with pytest.raises(ValueError):
                 with source_write_context(before, name):
                     pass
@@ -463,6 +464,8 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
                     )
                     == ()
                 )
+        if mode in {"issue", "other-issue"}:
+            assert p.read_bytes() == issue_before
 
 
 def _callback_check_final_candidate_uses_latest_base_git(before, /, *args):

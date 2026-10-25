@@ -109,10 +109,13 @@ def check_selection_order_findings_and_fresh_calls(selection):
     assert (
         findings.errors
         == [
-            "mapping failure",
-            "provider schema violation: Logs.LogGroup.RetentionInDays: literal failure",
+            error
+            for number in numbers
+            for error in (
+                f"model.mapping.{number}: mapping failure",
+                "provider schema violation: Logs.LogGroup.RetentionInDays: literal failure",
+            )
         ]
-        * 2
     )
     ids = [r.check_id for r in findings.results.values()]
     assert ids == ["model.structure", "model.json-settings", "model.references"] + [

@@ -113,7 +113,12 @@ def _callback_Validator_generate_and_validate_policy_result(plan, self, /):
 
 def _callback_Validator_check_scoped_designs_validate(self, snapshot, /, scope):
     with task_reads(self.root, snapshot=snapshot):
-        validator = Validator(self.root, scope, definitions_root=self.definitions_root)
+        validator = Validator(
+            self.root,
+            scope,
+            definitions_root=self.definitions_root,
+            check_display=self.check_display,
+        )
         validator.accounts = self.accounts
         validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(
             self.definitions_root
@@ -124,7 +129,7 @@ def _callback_Validator_check_scoped_designs_validate(self, snapshot, /, scope):
         validator.findings.evaluate(
             "design.service", scope, validator.check_designs, isolate=True
         )
-        if validator.findings.processing_errors:
+        if not self.check_display or validator.findings.processing_errors:
             validator.check_source_inputs(next(iter(scope)))
         validator.findings.evaluate(
             "design.observed-values",
@@ -187,13 +192,16 @@ def _callback_Validator_check_unavailable_design(self, entry, info, /):
         reason = "expansion"
     entry_info = dict(
         code="design.tables.dependency",
-        phase="generation",
+        phase="generation" if self.check_display else "saved-view",
         reason=reason,
         scope=["/".join(entry)],
         path=self.findings.relative(path),
         resource="document",
-        message="generated View unavailable",
-        checks=["generated View equality", "cross-resource reference integrity"],
+        message="generated View unavailable"
+        if self.check_display
+        else "saved View unavailable",
+        checks=(["generated View equality"] if self.check_display else [])
+        + ["cross-resource reference integrity"],
         complete=False,
     )
     self.findings.unverified.append(entry_info)
@@ -207,7 +215,10 @@ def _callback_Validator_check_unavailable_design(self, entry, info, /):
 
 def unavailable_service_result(parent, entry, info):
     validator = Validator(
-        parent.root, {entry}, definitions_root=parent.definitions_root
+        parent.root,
+        {entry},
+        definitions_root=parent.definitions_root,
+        check_display=parent.check_display,
     )
     validator.accounts = parent.accounts
     validator.schema_catalog = parent.schema_catalog or DesignSchemaCatalog(
@@ -256,7 +267,10 @@ def service_result(parent, entry, handler):
         return handler()
     except Exception as error:
         validator = Validator(
-            parent.root, {entry}, definitions_root=parent.definitions_root
+            parent.root,
+            {entry},
+            definitions_root=parent.definitions_root,
+            check_display=parent.check_display,
         )
         validator.accounts = parent.accounts
         validator.schema_catalog = parent.schema_catalog
@@ -297,6 +311,7 @@ class Validator:
         write=False,
         definitions_root: Path | None = None,
         final_candidate=None,
+        check_display=True,
     ) -> None:
         definition_root = _imports_utils_aws_mappings.definition_root
         self.findings = Findings(root)
@@ -309,6 +324,7 @@ class Validator:
         self.task_iac_paths = task_iac_paths
         self.workers = workers
         self.write = write
+        self.check_display = check_display
         self.service_cache_pending = []
         self.catalog_pending = None
         self.catalog_key = None
@@ -321,7 +337,7 @@ class Validator:
                 include_project=scope != set(),
                 definitions_root=definitions_root,
             )
-            if cache
+            if cache and check_display
             else None
         )
         self.relative_paths = self.findings.relative_paths
@@ -721,7 +737,7 @@ class Validator:
             definitions_root=self.definitions_root,
         )
         generator.accounts = self.accounts
-        if missing - unreadable:
+        if self.check_display and missing - unreadable:
             generator.findings.evaluate(
                 "design.generation",
                 generation_scope,
@@ -734,7 +750,8 @@ class Validator:
             self.findings.processing_errors.extend(generator.findings.processing_errors)
             self.findings.unverified.extend(generator.findings.unverified)
         # Generated equality is covered by each service record; keep target counts stable.
-        self.checks += len({entry[:2] for entry in generation_scope})
+        if self.check_display:
+            self.checks += len({entry[:2] for entry in generation_scope})
 
         generation_info = generator.findings.result(
             "framework.generated-service-model", generation_scope
@@ -861,21 +878,22 @@ class Validator:
             print(
                 f"Service validation: {len(missing)} executed, {len(reused)} reused; workers: {self.workers}"
             )
-        generation = self.findings.result(
-            "framework.generated-service-model", self.scope
-        )
-        generation.status = (
-            "FAIL" if generator.errors else "NOT_RUN" if unavailable else "PASS"
-        )
-        generation.errors = tuple(generator.errors)
-        generation.warnings = tuple(generator.warnings)
-        generation.metadata = dict(
-            generator.findings.result(
-                "framework.generated-service-model", generation_scope
-            ).metadata,
-            unavailable_services=unavailable,
-        )
-        finish_result(generation)
+        if self.check_display:
+            generation = self.findings.result(
+                "framework.generated-service-model", self.scope
+            )
+            generation.status = (
+                "FAIL" if generator.errors else "NOT_RUN" if unavailable else "PASS"
+            )
+            generation.errors = tuple(generator.errors)
+            generation.warnings = tuple(generator.warnings)
+            generation.metadata = dict(
+                generator.findings.result(
+                    "framework.generated-service-model", generation_scope
+                ).metadata,
+                unavailable_services=unavailable,
+            )
+            finish_result(generation)
         policy = self.findings.result("framework.policy-tables", self.scope)
         policies = [
             validator.findings.result("framework.policy-tables", {entry})
@@ -996,7 +1014,8 @@ class Validator:
             self.catalog_pending = (key, self.checks - before)
 
     def check_designs(self) -> None:
-        self.check_generated_service_models()
+        if self.check_display:
+            self.check_generated_service_models()
         self.findings.evaluate(
             "design.stacks",
             self.scope,
@@ -1244,6 +1263,7 @@ class Validator:
             root=self.root,
             scope=self.scope,
             definitions_root=self.definitions_root,
+            check_display=self.check_display,
         )
 
     def check_policy_tables(self) -> None:
@@ -1347,6 +1367,7 @@ class Validator:
             schema_catalog=self.schema_catalog,
             scope=self.scope,
             definitions_root=self.definitions_root,
+            check_display=self.check_display,
         )
 
     def check_design_overviews(self, paths: list[Path] | None = None) -> None:
@@ -1375,6 +1396,7 @@ class Validator:
             root=self.root,
             scope=self.scope,
             definitions_root=self.definitions_root,
+            check_display=self.check_display,
             view_reader=self.view_reader,
             unavailable_views=self.unavailable_views,
             candidate_paths=candidate_paths,

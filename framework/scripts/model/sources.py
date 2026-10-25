@@ -56,7 +56,7 @@ _session = ContextVar("model_session_reads", default=None)
 
 
 @contextmanager
-def model_session(reads):
+def model_session(reads: FileReads) -> Iterator[FileReads]:
     token = _session.set(reads)
     try:
         yield reads
@@ -64,7 +64,7 @@ def model_session(reads):
         _session.reset(token)
 
 
-def session_reads(root):
+def session_reads(root: Path) -> FileReads | None:
     reads = _session.get()
     return (
         reads
@@ -74,7 +74,7 @@ def session_reads(root):
 
 
 @contextmanager
-def model_stage(root, stage):
+def model_stage(root: Path, stage: Path) -> Iterator[None]:
     shared = session_reads(root)
     if shared is not None:
         shared.stages.add(stage)
@@ -604,7 +604,9 @@ def _read_source_snapshot(scope, reads):
     return models[key]
 
 
-def stack_snapshot(path, read_context=None):
+def stack_snapshot(
+    path: str | Path, read_context: ReadContext | None = None
+) -> ModelSnapshot:
     """Read checked Stack metadata; delivery references belong to the scheduled unit."""
     scope = scope_for(path)
     if scope.service != "cloudformation-stacks":
@@ -847,7 +849,9 @@ def candidate_base(path: Path, reads: ReadContext) -> ModelSnapshot:
     )
 
 
-def observed_snapshot(snapshot, outputs):
+def observed_snapshot(
+    snapshot: ModelSnapshot, outputs: Mapping[Path, str]
+) -> ModelSnapshot:
     """Patch checked snapshots without revalidating byte-identical desired authority."""
     selected = {p: text for p, text in outputs.items() if p in snapshot.documents}
     if not selected:

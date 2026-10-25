@@ -384,20 +384,16 @@ def test_issues_retains_mixed_causes_and_resource_dependencies(tmp_path):
             or "not selected by design catalog" in message
             for message in messages
         ), messages
-        assert not artifact["processing_errors"], artifact["processing_errors"]
-        assert any(
-            item.get("resource") == "CodeBuild_Project_001"
-            and item.get("reason") == "expansion"
+        # Link validation now reaches the intentionally absent external IAM View.
+        assert len(artifact["processing_errors"]) == 1
+        assert artifact["processing_errors"][0]["code"] == "mechanical.view_read"
+        assert artifact["processing_errors"][0]["service"] == "iam"
+        assert not any(
+            "invalid Model reference display" in str(item)
             for item in artifact["unverified"]
         )
         assert any(
             item["check_id"] == "design.service" and item["status"] == "FAIL"
-            for item in artifact["check_results"]
-        )
-        assert any(
-            item["check_id"] == "design.tables.semantic"
-            and item["status"] == "NOT_RUN"
-            and not item["complete"]
             for item in artifact["check_results"]
         )
 
@@ -667,6 +663,19 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                 "desired.row.001-001.comment": "合成Role",
             }
             write_model(path.with_name("iam.properties"), role)
+            role_view = view.with_name("iam.md")
+            write(
+                role_view,
+                generate_markdown(
+                    role_view,
+                    {
+                        **role,
+                        "display.service.title": "# 合成IAM",
+                        "display.resource.001.comment": "合成Role",
+                    },
+                    tmp_path,
+                ),
+            )
             role_key = next(
                 key.removesuffix("property") + "value"
                 for key, value in values.items()
@@ -793,13 +802,17 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                     and result["complete"]
                     for result in artifact["check_results"]
                 )
-                assert any(
-                    result["check_id"] == "design.links"
-                    and result["scope"] == ["dev/123456789012/codebuild"]
-                    and result["status"] == "NOT_RUN"
-                    and not result["complete"]
+                links = [
+                    result
                     for result in artifact["check_results"]
-                )
+                    if result["check_id"] == "design.links"
+                    and result["scope"] == ["dev/123456789012/codebuild"]
+                ]
+                if unreadable_view or markdown_link:
+                    assert len(links) == 1
+                    assert links[0]["status"] == "NOT_RUN" and not links[0]["complete"]
+                else:
+                    assert not any(result["status"] == "NOT_RUN" for result in links)
             errors = [
                 item for item in artifact["ordinary"] if REASON in item["message"]
             ]
@@ -818,8 +831,6 @@ def test_scan_save_owns_codebuild_and_deduplicates(
             else:
                 assert all(
                     REASON in item["message"]
-                    or "generated Markdown is stale or missing" in item["message"]
-                    or "Markdown differs from Model expected display" in item["message"]
                     for item in artifact["ordinary"]
                     if item["service"] == "codebuild"
                 ), artifact["ordinary"]
@@ -847,18 +858,16 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                         for result in artifact["check_results"]
                     ), artifact["check_results"]
                 else:
-                    # Generation can stop View checks before table validation begins.
-                    assert any(
+                    # A Model violation alone does not prevent valid saved-View checks.
+                    assert not any(
                         item.get("code") == "mechanical.view_unverified"
+                        and item.get("service") == "codebuild"
                         for item in artifact["unverified"]
                     ), artifact["unverified"]
-                    assert any(
-                        result["check_id"] == "design.service"
-                        and result["scope"] == ["dev/123456789012/codebuild"]
-                        and result["status"] in {"FAIL", "NOT_RUN"}
-                        and not result["complete"]
-                        for result in artifact["check_results"]
-                    ), artifact["check_results"]
+            assert not any(
+                "generated View equality" in item.get("checks", [])
+                for item in artifact["unverified"]
+            )
             assert any(
                 result["check_id"] == "mechanical.designs"
                 and result["status"] == "FAIL"

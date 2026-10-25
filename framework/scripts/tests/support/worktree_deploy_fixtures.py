@@ -7,6 +7,7 @@ import venv
 from pathlib import Path
 
 import worktree_task as wt
+from model.dependency_index import rebuild as rebuild_index
 from support.deploy_controller_fixtures import invoke
 from support.deploy_controller_fixtures import seed as seed_project
 from support.repository_fixtures import git
@@ -43,6 +44,7 @@ def seed(root, state_path, case="orders", **kwargs):
     state = wt.setup(root, "deploy")
     target = Path(state["worktree"])
     start(target, state["task_file"], saved_contract)
+    rebuild_index(target)
     return target
 
 

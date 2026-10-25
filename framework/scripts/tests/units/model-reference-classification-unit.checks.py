@@ -65,7 +65,7 @@ def models(tmp_path):
         human.parent.mkdir(parents=True)
         human.write_text(
             json.dumps(
-                dict(version=1, environment="qa", target="team", confirmations=[])
+                dict(version=2, environment="qa", target="team", confirmations=[])
             )
             + "\n",
             encoding="utf-8",
@@ -599,7 +599,7 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, state
         patch("issues.cfn_lint.run_lint", return_value=lint),
     ):
         artifact = scan(consumer.root, "qa", "team", ["iam"], jobs=1)
-    assert artifact["version"] == 4
+    assert artifact["version"] == 5
     classified = [
         record
         for record in artifact["ordinary"]

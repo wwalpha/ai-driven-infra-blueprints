@@ -365,10 +365,13 @@ def check_design_links(
     view_reader=None,
     unavailable_views=None,
     candidate_paths=None,
+    check_display=True,
 ) -> None:
     outside_design = _imports_model_importing_scope.outside_design
     definitions_root = definitions_root or root
-    design_index = design_index or DesignIndex(definitions_root)
+    design_index = design_index or DesignIndex(
+        definitions_root, check_display=check_display
+    )
     source_values = {}
     failed_views = set()
     for source in design_files(root=root, scope=scope) if paths is None else paths:
@@ -807,7 +810,7 @@ def check_design_links(
                 ("CodeBuild", "ProjectName"): ("CodeBuild.Project", "Name"),
             }.get((providers.get(identity), key))
             link = RESOURCE_LINK_PATTERN.fullmatch(value)
-            if expected:
+            if expected and check_display:
                 findings.warn(
                     bool(link),
                     f"CodePipeline Configuration.{key} must link to its resource: {findings.relative(source)}",

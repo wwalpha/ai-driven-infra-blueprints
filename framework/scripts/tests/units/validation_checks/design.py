@@ -589,7 +589,7 @@ def check_description_design_constraints() -> None:
             for error in diagnostics(validator)
         )
         assert any(
-            "broken design link" in error and "trust-policy.json" in error
+            "design JSON artifact is missing" in error and "trust-policy.json" in error
             for error in diagnostics(validator)
         )
         assert iam.read_text(encoding="utf-8") == iam_text.replace(
