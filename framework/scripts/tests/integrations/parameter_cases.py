@@ -12,7 +12,6 @@ from model.files import trace_model
 from model.format import parse, serialize
 from model.format import patch as patch_properties
 from model.operations import CandidateReads
-from model.projection import document_sha256
 from model.references import declarations
 from model.sources import design_source_digest, list_models, load_model
 from support.it_workspace import populate
@@ -133,11 +132,6 @@ def check(root, alias, service):
             statement["Condition"]["StringEquals"]["aws:SourceAccount"]
             == "123456789012"
         )
-        checksum = key.removesuffix(".document") + ".artifactSha256"
-        assert (
-            before.values[checksum] == document_sha256(document)
-            and checksum not in before.authoritative
-        )
         (spec,) = declarations(before.authoritative).values()
         assert (
             spec["producerKind"] == "context"
@@ -151,7 +145,7 @@ def check(root, alias, service):
         topology["targets"][0]["awsExecutionAccountId"] = "999999999999"
         stale = proposed({}, {project: json.dumps(topology)})
         assert stale.authoritative == before.authoritative and stale.warnings
-        assert stale.values[checksum] == before.values[checksum]
+        assert stale.values[key] == before.values[key]
         changed_document = json.loads(before.authoritative[key])
         changed_document["Statement"][0]["Condition"]["StringEquals"][
             "aws:SourceAccount"
@@ -163,7 +157,7 @@ def check(root, alias, service):
             },
             {project: json.dumps(topology)},
         )
-        assert not after.warnings and after.values[checksum] != before.values[checksum]
+        assert not after.warnings and after.values[key] != before.values[key]
         changed_document["Statement"][0]["Action"] = [
             "sqs:SendMessage",
             "sqs:GetQueueUrl",

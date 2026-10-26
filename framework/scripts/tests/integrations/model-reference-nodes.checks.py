@@ -10,14 +10,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from design.policy_tables import rendered_design
 from model.core import ReferenceResolutionError
-from model.projection import json_sha256
 from model.render import generate_files, generate_markdown
 from model.sources import load_model
 from support.it_case_receipt import it_case
 from support.model_reference_fixtures import FRAMEWORK, project, save
 from sync_files import save_files
 from utils.aws_mappings import mapping_alias
-from utils.json_format import document_sha256, validate_aws_document
+from utils.json_format import validate_aws_document
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -88,7 +87,6 @@ def main():
                 assert display == markdown and expected not in display
                 document = json.loads(artifact.read_bytes())
                 assert document["Statement"][0]["Resource"] == expected
-                assert json_sha256(artifact) == document_sha256(document)
                 validate_aws_document(document)
                 assert consumer.path.read_bytes() == original
                 assert load_model(consumer).authoritative == policy

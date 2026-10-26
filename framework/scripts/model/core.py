@@ -7,7 +7,7 @@ from pathlib import Path
 
 from utils.iac_values import cfn_resource_identity
 from utils.input_cache import memo_table
-from utils.json_format import document_sha256, strict_json
+from utils.json_format import strict_json
 
 from model.format import parse
 
@@ -114,36 +114,55 @@ def properties(text: str) -> dict[str, str]:
     return parse(text, require_header=False).values
 
 
+class SnapshotValues(dict):
+    """Owned immutable strings; identity is valid only for this fixed projection."""
+
+    __slots__ = ()
+
+    def __new__(cls, values):
+        result = dict.__new__(cls)
+        dict.__init__(result, values)
+        return result
+
+    def __init__(self, values):
+        # Initialize only in __new__; reinitialization must not change cached input.
+        pass
+
+    def _immutable(self, *args, **kwargs):
+        raise TypeError("Snapshot values are immutable")
+
+    __setitem__ = __delitem__ = __ior__ = _immutable
+    clear = pop = popitem = setdefault = update = _immutable
+
+    def __deepcopy__(self, memo):
+        return self
+
+
 def validate_runtime_keys(values):
     """Validate a projection while keeping derived fields out of canonical schema."""
-    derived = {}
-    authority = {}
+    derived, authority = {}, {}
     for key, value in values.items():
-        match = re.fullmatch(
-            r"(?:observed\.row\.([A-Za-z0-9_-]+)\.(property|comment)|desired\.row\.([A-Za-z0-9_-]+)\.artifactSha256)",
-            key,
-        )
-        (derived if match else authority)[key] = value
+        if re.fullmatch(r"observed\.row\.[A-Za-z0-9_-]+\.(property|comment)", key):
+            derived[key] = value
+        else:
+            authority[key] = value
     validate_model_keys(authority)
     for key, value in derived.items():
-        if key.endswith(".artifactSha256"):
-            document = authority.get(key.removesuffix("artifactSha256") + "document")
-            if document is None or document_sha256(strict_json(document)) != value:
-                raise ValueError("invalid derived artifactSha256: " + key)
-        else:
-            desired = key.replace("observed.", "desired.", 1)
-            if (
-                authority.get(desired) != value
-                or key.rsplit(".", 1)[0] + ".value" not in authority
-            ):
-                raise ValueError("invalid derived observed metadata: " + key)
+        desired = key.replace("observed.", "desired.", 1)
+        if (
+            authority.get(desired) != value
+            or key.rsplit(".", 1)[0] + ".value" not in authority
+        ):
+            raise ValueError("invalid derived observed metadata: " + key)
 
 
 def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, str]]]:
-    memo = memo_table()
-    key = (entries, id(values), prefix)
-    if memo is not None and key in memo:
-        return [(identity, dict(fields)) for identity, fields in memo[key][1]]
+    memo = None
+    if isinstance(values, SnapshotValues):
+        memo = memo_table()
+    cache_key = (entries, id(values), prefix)
+    if memo is not None and cache_key in memo:
+        return [(identity, dict(fields)) for identity, fields in memo[cache_key][1]]
     groups: dict[str, dict[str, str]] = {}
     for key, value in values.items():
         if key.startswith(prefix):
@@ -163,7 +182,7 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
     result = sorted(groups.items())
     if memo is not None:
         # Hold the immutable invocation input so object IDs cannot be recycled.
-        memo[key] = (values, result)
+        memo[cache_key] = (values, result)
         return [(identity, dict(fields)) for identity, fields in result]
     return result
 
@@ -426,6 +445,8 @@ def validate_authority(values):
     for identity, row in entries(values, "desired.row."):
         if not {"property", "value", "comment"} <= row.keys():
             raise ValueError("Row requires property, value and comment: " + identity)
+        if "document" in row:
+            strict_json(row["document"])
     if entries(values, "desired.stack."):
         validate_stack_metadata(values)
         stack_model(values)

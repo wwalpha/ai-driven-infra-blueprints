@@ -260,10 +260,10 @@ neither pending deployment nor absence. The result carries `resolved`, `pending_
 
 `units/arn-values-unit.checks.py` owns assembly formats/defaults/context/generated-ID guards.
 `units/model-reference-values-unit.checks.py` owns Model value resolution, concrete artifact
-and display/hash equality, encoded JSON, diagnostics, authority preservation, per-service
+and display/content equality, encoded JSON, diagnostics, authority preservation, per-service
 failure isolation and the existing dependency graph's propagation after BucketName changes.
-Canonical Model hashes describe canonical documents; display/artifact hashes describe their
-projected document, including resolved values. No hash or resolved ARN is saved into authority.
+Generated artifacts and displays are checked by their document contents, including resolved values.
+No derived document hash or resolved ARN is saved into authority.
 No automatic Model migration is provided. LLM migration must prove the producer and attribute
 and change only the proved expression under a separately authorized Model Task.
 
@@ -291,3 +291,19 @@ Human確定情報YAMLと今回の診断だけを入力にし、全Target coverag
 immutable Snapshotを作る。旧Markdown読取り禁止、決定性、Human例外/矛盾、
 関連記録だけの許可付き削除、部分Scope拒否、2 report/任意Human cleanupの
 Atomic Rollbackを検証する。旧部分保存CLIとそのUT/ITは削除する。
+
+
+## Snapshot cache / JSON内容検証
+
+固定入力の所有・可変辞書非Cache・行索引は `model-format-v2` UT、参照100回の
+同一Snapshot再利用、非参照JSON、文書/Context/除外差分、Candidate/Rollback、
+他ServiceのObserved更新・別input_context・返却結果の汚染防止は
+`model-reference-values-unit` UTが所有します。入力検証→生成の共有は既存
+`model-reference-classification-unit` の固定入力ケースを使います。
+`deploy-lazy-inputs` は同世代のValidate Once、Observed後の参照依存検証再実行、
+Desired差分、可変入力と別検証呼出しの分離を確認します。
+
+旧JSON派生ハッシュだけを検証した `json-yaml-document-hash-unit` と専用再export
+helperは削除しました。共通 `document_sha256` / `fingerprint` の仕様は既存
+`json-format` UT、Import承認/封印・Deploy入力固定は各専用UTで維持します。
+既存の文書編集/環境間隔離ITはJSON内容と正本traceで検証し、新しいITは追加しません。

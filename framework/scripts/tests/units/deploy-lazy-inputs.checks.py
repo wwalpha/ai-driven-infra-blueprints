@@ -33,6 +33,7 @@ from model.render import stack_markdown
 from support.model_v2_fixtures import deploy_properties_fixture
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
+from utils.input_cache import input_context
 from validation.findings import Findings
 
 from model import dependency_index
@@ -336,7 +337,9 @@ def check_resume_skips_success_and_dependency_unknown(tmp_path):
     }
 
 
-def check_desired_validation_reused_after_observed(tmp_path, monkeypatch):
+def check_reference_dependent_validation_invalidated_after_observed(
+    tmp_path, monkeypatch
+):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, _ = deploy_properties_fixture(tmp_path)
     cache = SessionModels(tmp_path, {})
@@ -351,6 +354,9 @@ def check_desired_validation_reused_after_observed(tmp_path, monkeypatch):
             model_validation.check_model_inputs(
                 scope.path, snapshot.authoritative, tmp_path
             )
+            model_validation.check_model_inputs(
+                scope.path, snapshot.authoritative, tmp_path
+            )
             text = patch_properties(
                 snapshot.documents[scope.path],
                 {"observed.row.007-001.value": f"`{value}`"},
@@ -360,7 +366,32 @@ def check_desired_validation_reused_after_observed(tmp_path, monkeypatch):
         model_validation.check_model_inputs(
             scope.path, sources.load_model(scope.path).authoritative, tmp_path
         )
-        assert validate.call_count == 1
+        assert validate.call_count == 3
+        current = sources.load_model(scope.path)
+        candidate = current._replace(
+            authoritative={
+                **current.authoritative,
+                "desired.row.007-001.comment": "changed",
+            }
+        )
+        model_validation.check_model_inputs(
+            scope.path, candidate.authoritative, tmp_path
+        )
+        assert validate.call_count == 4
+        mutable = dict(current.authoritative)
+        for value in ("first", "second"):
+            mutable["desired.row.007-001.comment"] = value
+            model_validation.check_model_inputs(scope.path, mutable, tmp_path)
+        assert validate.call_count == 6
+        for _ in range(2):
+            with input_context():
+                model_validation.check_model_inputs(
+                    scope.path, current.authoritative, tmp_path
+                )
+                model_validation.check_model_inputs(
+                    scope.path, current.authoritative, tmp_path
+                )
+        assert validate.call_count == 8
 
 
 def check_observed_publication_rejects_conflict(tmp_path, monkeypatch):

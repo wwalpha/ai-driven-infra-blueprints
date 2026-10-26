@@ -21,7 +21,6 @@ import generation_inputs
 import sync_files
 import task_contract_core as _imports_task_contract
 import task_contract_core as task_contract
-import utils.json_format as _imports_utils_json_format
 from sync_progress import phase, thread_lock
 from utils.file_operations import atomic_replace_file
 from utils.input_cache import (
@@ -42,6 +41,7 @@ from utils.type_contracts import JsonValue as JsonValue
 import model.core as _imports_model_core
 import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
+from model.core import SnapshotValues
 from model.format import FORMAT, INDEX, PART, Document, parse, validate_blocks
 
 if os.name == "nt":
@@ -550,6 +550,12 @@ class ModelSnapshot:
     warnings: tuple[JsonObject, ...] = ()
     provenance: Mapping[str, JsonObject] = field(default_factory=dict)
 
+    def __post_init__(self):
+        for name in ("authoritative", "values"):
+            values = getattr(self, name)
+            if not isinstance(values, SnapshotValues):
+                object.__setattr__(self, name, SnapshotValues(values))
+
     @property
     def text(self) -> str:
         return "".join(key + "=" + value + "\n" for key, value in self.values.items())
@@ -560,6 +566,12 @@ class ModelSnapshot:
 
 def runtime_values(authoritative: Mapping[str, str]) -> dict[str, str]:
     """Derived metadata is never a serializer input."""
+    memo = None
+    cache_key = (runtime_values, id(authoritative))
+    if isinstance(authoritative, SnapshotValues):
+        memo = memo_table()
+        if memo is not None and cache_key in memo:
+            return memo[cache_key][1]
     validate_authority = _imports_model_core.validate_authority
     validate_authority(authoritative)
     values = {
@@ -568,7 +580,7 @@ def runtime_values(authoritative: Mapping[str, str]) -> dict[str, str]:
         if not key.startswith("desired.reference.")
         and not key.endswith(".placementName")
     }
-    for key, value in authoritative.items():
+    for key in authoritative:
         if key.startswith("observed.row."):
             prefix = "desired." + key.removeprefix("observed.").removesuffix("value")
             if prefix + "value" not in authoritative:
@@ -578,11 +590,11 @@ def runtime_values(authoritative: Mapping[str, str]) -> dict[str, str]:
                     values[key.removesuffix("value") + field] = authoritative[
                         prefix + field
                     ]
-        elif key.startswith("desired.row.") and key.endswith(".document"):
-            document_sha256 = _imports_utils_json_format.document_sha256
-            values[key.removesuffix("document") + "artifactSha256"] = document_sha256(
-                strict_json(value)
-            )
+    if isinstance(authoritative, SnapshotValues):
+        result = SnapshotValues(values)
+        if memo is not None:
+            memo[cache_key] = (authoritative, result)
+        return result
     return values
 
 
@@ -601,13 +613,14 @@ def _read_model(scope, read_context=None):
         }
         documents = {part: parse(files[part]) for part in parts}
         authoritative, locations = validate_blocks(documents)
+        authoritative = SnapshotValues(authoritative)
         declarations = _imports_model_references.declarations
         declarations(authoritative)
         values = runtime_values(authoritative)
         return ModelSnapshot(
             scope,
-            MappingProxyType(authoritative),
-            MappingProxyType(values),
+            authoritative,
+            values,
             MappingProxyType(documents),
             MappingProxyType(locations),
             MappingProxyType(files),

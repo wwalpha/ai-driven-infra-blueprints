@@ -9,16 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from model.adapters.task import edit_write_context
 from support.it_case_receipt import it_case
-from support.json_yaml_document_hash_fixtures import (
+from support.producer_identifier_reference_fixtures import (
     Path,
     affected,
     design_source_digest,
-    document_sha256,
     json,
-    json_sha256,
-    json_text,
     load_model,
-    rejected,
     resource,
     serialize,
     setup,
@@ -28,6 +24,7 @@ from support.json_yaml_document_hash_fixtures import (
 )
 from support.publication_fixtures import publication_repository
 from support.repository_fixtures import fixture, git, start
+from utils.json_format import json_text, policy_json, validate_aws_document
 
 from model import prepare_edit, publish_edit
 
@@ -90,28 +87,16 @@ def check(root):
             actual["Statement"][0]["Enabled"] is False
             and type(actual["Statement"][0]["Count"]) is int
         )
-        assert first.values[key + "artifactSha256"] == document_sha256(actual)
-        assert key + "artifactSha256" not in first.authoritative
+        assert json.loads(first.values[key + "document"]) == actual
         artifact = root / "policy.json"
         artifact.write_text(json_text(actual) + "\n", encoding="utf-8")
-        assert json_sha256(artifact) == first.values[key + "artifactSha256"]
+        saved_document = policy_json(artifact.read_text(encoding="utf-8"))
+        validate_aws_document(saved_document)
+        assert saved_document == actual
         updated = []
         for environment, relative in paths.items():
             path = target / relative
             before = design_source_digest(path)
-            raw = path.read_bytes()
-            with edit_write_context(
-                target, {(environment, "team", "vpc-endpoint")}, name
-            ) as context:
-                snapshot = load_model(path, context.snapshot)
-                bad = {**snapshot.authoritative, key + "artifactSha256": "stale"}
-                rejected(
-                    lambda *, bad=bad, path=path, snapshot=snapshot: prepare_edit(
-                        snapshot, {path: serialize(bad)}, context
-                    ),
-                    "unknown Model field",
-                )
-            assert path.read_bytes() == raw
             changed = {
                 **values,
                 key + "document": values[key + "document"].replace(
@@ -131,17 +116,14 @@ def check(root):
                 ) == (path,)
             current = load_model(path)
             updated.append(current.values)
-            assert (
-                current.values[key + "artifactSha256"]
-                != first.values[key + "artifactSha256"]
-            )
+            assert current.values[key + "document"] != first.values[key + "document"]
             assert design_source_digest(path) != before
-            assert current.values[key + "artifactSha256"] == document_sha256(
-                json.loads(current.authoritative[key + "document"])
+            assert json.loads(current.values[key + "document"]) == json.loads(
+                changed[key + "document"]
             )
             assert (
-                trace_model(path, key + "artifactSha256")["derivedFrom"]
-                == key + "document"
+                trace_model(path, key + "document")["value"]
+                == changed[key + "document"]
             )
             raw = path.read_bytes()
             with edit_write_context(
@@ -164,7 +146,7 @@ def check(root):
             }
         assert updated[0] == updated[1]
     print(
-        "JSON document hashes: PASS (canonical types/order; derived-only hash; stale authority rejection; real managed edit/no-op; independent environments)"
+        "JSON document sources: PASS (native types/order; content equality; real managed edit/no-op; independent environments)"
     )
 
 

@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import design.document as _dependency_design_document
 import design.policy_tables as _imports_policy_tables
@@ -20,10 +20,7 @@ from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import input_is_file, input_text, memo_table, memoized
 from utils.json_format import (
-    document_sha256,
-    fingerprint,
     policy_json,
-    validate_aws_document,
 )
 from utils.reference_contracts import reference_attribute as reference_attribute
 
@@ -37,6 +34,7 @@ from model.core import (
     LINK,
     ReferenceDiagnosticError,
     ReferenceResolutionError,
+    SnapshotValues,
     entries,
     literal,
     require_reference_diagnostics,
@@ -54,16 +52,6 @@ from model.reference_nodes import (
 from model.reference_values import reference_value
 
 ANCHOR = re.compile(r'^<a\s+id="([^"]+)"\s*></a>$')
-
-
-def json_sha256(path: Path) -> str:
-    content = policy_json(input_text(path, encoding="utf-8"))
-    if any(nodes(content)):
-        _imports_json_intrinsics.project_document(content)
-        validate_aws_document(project(content))
-    else:
-        validate_aws_document(content)
-    return document_sha256(content)
 
 
 @memoized
@@ -251,15 +239,19 @@ def resource_row_scope():
 def _resource_row_entries(values):
     cache = _resource_row_cache.get()
     if cache is None:
+        cache = memo_table()
+    if cache is None or not isinstance(values, SnapshotValues):
         return entries(values, "desired.row.")
-    key = id(values)
-    signature = tuple(values.items())
-    previous = cache.get(key)
-    if previous is None or previous[1] != signature:
-        # Parse a fresh snapshot so the shared immutable-input memo cannot hide edits.
-        parsed = entries(dict(signature), "desired.row.")
-        cache[key] = (values, signature, parsed)
-    return cache[key][2]
+    key = (_resource_row_entries, id(values))
+    if key not in cache:
+        cache[key] = (
+            values,
+            tuple(
+                (identity, MappingProxyType(row))
+                for identity, row in entries(values, "desired.row.")
+            ),
+        )
+    return cache[key][1]
 
 
 def resource_rows(
@@ -271,7 +263,7 @@ def resource_rows(
         if not row_id.startswith(identity + "-"):
             continue
         if (
-            set(row) - {"property", "value", "comment", "artifactSha256", "document"}
+            set(row) - {"property", "value", "comment", "document"}
             or not {"property", "value", "comment"} <= row.keys()
         ):
             raise ValueError(f"invalid resource row: {row_id}")
@@ -378,13 +370,10 @@ def reference_display(values, path, root, *, reference_values=None):
                 result[key] = "`" + displayed + "`"
             elif key.endswith(".value") and value.startswith("`"):
                 result[key] = "`" + result[key] + "`"
-            if key.endswith(".document"):
-                prefix = key.removesuffix("document")
-                if pending:
-                    result[prefix + "value"] = "`PENDING_DEPLOY`"
-                    result.pop(prefix + "artifactSha256", None)
-                else:
-                    result[prefix + "artifactSha256"] = document_sha256(displayed)
+            if key.endswith(".document") and pending:
+                result[key.removesuffix("document") + "value"] = "`PENDING_DEPLOY`"
+    if isinstance(values, SnapshotValues):
+        return SnapshotValues(result)
     return result
 
 
@@ -431,9 +420,10 @@ def reference_resolver(values, scope, root):
     resolver = _imports_model_identity.Resolver(
         root, _imports_model_sources._invocation_reads(root)
     )
-    resolver.models[scope.path] = SimpleNamespace(
+    resolver.overrides[scope.path] = SimpleNamespace(
         scope=scope, authoritative=values, dependencies={}
     )
+    resolver.models.update(resolver.overrides)
     return resolver
 
 
@@ -552,23 +542,60 @@ def document_references(
     excluded_references=(),
 ):
     """Evaluate typed references without generating a display or document."""
+    resolver.refresh()
+    diagnostics = []
+    references = list(nodes(document, errors=diagnostics))
+    if not references and not diagnostics:
+        return {}, []
     cache = memo_table()
-    key = (
-        document_references,
-        resolver.reads,
-        scope,
-        fingerprint(dict(resolver.models[scope.path].authoritative)),
-        fingerprint(document),
-        property_name,
-        logical_id,
-        model_key,
-        fingerprint(context),
-        tuple(excluded_references),
-    )
-    if cache is not None and key in cache:
-        return copy.deepcopy(cache[key])
-    resolutions, diagnostics = {}, []
-    for node in nodes(document, errors=diagnostics):
+    values = resolver.models.get(scope.path)
+    values = getattr(values, "authoritative", None)
+    key = None
+    if (
+        cache is not None
+        and isinstance(values, SnapshotValues)
+        and model_key in values
+        and resolver.models.get(scope.path) is resolver.overrides.get(scope.path)
+    ):
+        key = (
+            document_references,
+            resolver.reads,
+            resolver.reference_revision,
+            scope,
+            id(values),
+            property_name,
+            logical_id,
+            model_key,
+            tuple(excluded_references),
+        )
+        previous = cache.get(key)
+        if previous is not None:
+            _, original, receiving_context, result = previous
+            if original == document and receiving_context == context:
+                return copy.deepcopy(result)
+        expected, structured = _imports_model_references._json(
+            model_key, values[model_key]
+        )
+        row_id = model_key.split(".")[2]
+        row = {"property": values.get(f"desired.row.{row_id}.property")}
+        expected_context = None
+        if property_name is not None and row["property"] is not None:
+            expected_context = _model_validation.reference_context_for(
+                values, row_id, row, expected, "", scope.root
+            )
+        if (
+            not structured
+            or expected != document
+            or expected_context != context
+            or property_name is not None
+            and property_name != row.get("property")
+            or logical_id is not None
+            and logical_id
+            != values.get(f"desired.resource.{row_id.rpartition('-')[0]}.logicalId")
+        ):
+            key = None
+    resolutions = {}
+    for node in references:
         if node.pointer in excluded_references:
             continue
         try:
@@ -599,8 +626,13 @@ def document_references(
             source=f"docs/designs/{scope.environment}/{scope.target}/{scope.service}.md",
             scope=f"{scope.environment}/{scope.target}/{scope.service}",
         )
-    if cache is not None:
-        cache[key] = copy.deepcopy((resolutions, diagnostics))
+    if key is not None:
+        cache[key] = (
+            values,
+            copy.deepcopy(document),
+            copy.deepcopy(context),
+            copy.deepcopy((resolutions, diagnostics)),
+        )
     return resolutions, diagnostics
 
 

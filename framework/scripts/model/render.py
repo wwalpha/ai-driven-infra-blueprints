@@ -899,6 +899,7 @@ def generate_files(path, values, root, *, warnings=None):
             policy_json(row["document"]),
             root,
             property_name=row["property"],
+            model_key=f"desired.row.{identity}.document",
             resolver=resolver,
             scope=scope,
             logical_id=values.get(

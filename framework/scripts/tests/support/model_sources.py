@@ -8,10 +8,9 @@ from unittest.mock import patch
 import aws_mapping_display as _imports_aws_mapping_display
 import design.layout as _imports_design_layout
 import model.identity as _imports_model_identity
-import model.projection as _imports_model_projection
 import utils.input_cache as _imports_input_cache
 from model.core import properties
-from model.format import FORMAT, INDEX, split, strict_json
+from model.format import FORMAT, INDEX, split
 from model.sources import load_model, model_parts, scope_for
 from sync_files import save_files
 
@@ -50,17 +49,6 @@ def write_model(path, values):
             and values.get(key.replace("observed.", "desired.", 1)) == value
         ):
             del values[key]
-        elif key.endswith(".artifactSha256"):
-            document_sha256 = _imports_model_projection.document_sha256
-            document = values.get(key.removesuffix("artifactSha256") + "document")
-            try:
-                if (
-                    document is not None
-                    and document_sha256(strict_json(document)) == value
-                ):
-                    del values[key]
-            except ValueError:
-                pass  # Keep malformed negative fixture values for the production reader.
     for key, value in list(values.items()):
         if key.startswith("desired.stack.") and key.endswith(".name"):
             values.setdefault(key.removesuffix("name") + "placementName", value)

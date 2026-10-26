@@ -10,10 +10,14 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import model.projection as projection
 import model.sources as sources
 import pytest
 import sync_runtime
+from deploy.model_cache import SessionModels
 from model.core import ModelNeedsFixError
+from model.format import patch as patch_properties
+from model.format import serialize
 from model.identity import Resolver
 from model.impact_graph import Graph
 from model.projection import generated_document, reference_display, reference_resolver
@@ -30,7 +34,10 @@ from support.model_reference_fixtures import (
     save,
 )
 from utils.aws_mappings import mapping_alias
-from utils.json_format import document_sha256, validate_aws_document
+from utils.input_cache import input_context
+from utils.json_format import validate_aws_document
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -273,7 +280,7 @@ def test_refuses_unproven_values(fixture, fault):
         )
 
 
-def test_generated_json_and_hash_keep_authority(fixture):
+def test_generated_json_keeps_authority(fixture):
     producer, values, consumer, policy = fixture
     node = reference("S3_Bucket_001")
     document = {
@@ -309,7 +316,7 @@ def test_generated_json_and_hash_keep_authority(fixture):
     )
     validate_aws_document(json.loads(files[artifact]))
     display = reference_display(policy, consumer.path, consumer.root)
-    assert display["desired.row.001-002.artifactSha256"] == document_sha256(expected)
+    assert json.loads(display["desired.row.001-002.document"]) == expected
     assert {path: path.read_bytes() for path in before} == before
     resolver = reference_resolver(policy, consumer, consumer.root)
     assert (
@@ -370,12 +377,6 @@ def test_generated_json_and_hash_keep_authority(fixture):
     assert (
         json.loads(updated[artifact])["Statement"][0]["Resource"]
         == "arn:aws:s3:::fixture-renamed"
-    )
-    assert (
-        reference_display(policy, consumer.path, consumer.root)[
-            "desired.row.001-002.artifactSha256"
-        ]
-        != display["desired.row.001-002.artifactSha256"]
     )
 
 
@@ -495,6 +496,180 @@ def test_partial_json_reference_context(fixture, empty_snapshot):
         )
         assert shown["desired.row.001-002.value"] == "`fixture-materials`"
     assert "$modelRef" in selected["desired.row.001-002.value"]
+
+
+@pytest.mark.parametrize("fixed", [True, False])
+def test_snapshot_reference_cache_and_unbound_inputs(fixture, fixed):
+    _, _, consumer, policy = fixture
+    key = "desired.row.001-002.document"
+    document = json.loads(policy[key])
+    document["Statement"][0]["Resource"] = reference("S3_Bucket_001")
+    policy[key] = json.dumps(document)
+    save(consumer, policy)
+    with input_context():
+        snapshot = load_model(consumer)
+        assert sources.runtime_values(snapshot.authoritative) is snapshot.values
+    values = snapshot.authoritative
+    if not fixed:
+        values = dict(values)
+    with (
+        input_context(),
+        patch.object(
+            projection, "reference_value", wraps=projection.reference_value
+        ) as evaluate,
+        patch.object(
+            projection._imports_utils_json_format,
+            "fingerprint",
+            side_effect=AssertionError("content hash"),
+        ),
+        patch.object(
+            projection._imports_utils_json_format,
+            "document_sha256",
+            side_effect=AssertionError("derived hash"),
+        ),
+    ):
+        resolver = reference_resolver(values, consumer, consumer.root)
+        contract = dict(
+            resolver=resolver,
+            scope=consumer,
+            model_key=key,
+            property_name="IAM.ManagedPolicy.PolicyDocument",
+            logical_id="IAM_ManagedPolicy_001",
+        )
+        for _ in range(100):
+            resolutions, diagnostics = projection.document_references(
+                document, **contract
+            )
+            assert not diagnostics and len(resolutions) == 1
+            resolutions.clear()
+        expected_calls = 100
+        if fixed:
+            expected_calls = 1
+        assert evaluate.call_count == expected_calls
+        assert projection.document_references({}, **contract) == ({}, [])
+        assert evaluate.call_count == expected_calls
+        changed = copy.deepcopy(document)
+        changed["Statement"][0]["Resource"] = reference("S3_Bucket_999")
+        if not fixed:
+            values[key] = json.dumps(changed)
+        _, diagnostics = projection.document_references(changed, **contract)
+        assert diagnostics[0]["code"] == "MODEL_REF_TARGET_MISSING"
+        assert evaluate.call_count == expected_calls + 1
+        # Context and exclusion changes cannot reuse the earlier receiving contract.
+        projection.document_references(
+            document, context={"Name": "unbound"}, **contract
+        )
+        assert evaluate.call_count == expected_calls + 2
+        resolutions, diagnostics = projection.document_references(
+            document, excluded_references=("/Statement/0/Resource",), **contract
+        )
+        assert not resolutions and not diagnostics
+        assert evaluate.call_count == expected_calls + 2
+
+
+def test_reference_cache_observed_generation_and_invocation(fixture):
+    _, _, consumer, _ = fixture
+    producer, _ = resource(consumer.root, "kms", "KMS.Key", attribute="KeyId")
+    dependency_index.rebuild(consumer.root)
+    shared = SessionModels(consumer.root, {})
+    with (
+        sources.model_session(shared),
+        patch.object(
+            projection, "reference_value", wraps=projection.reference_value
+        ) as evaluate,
+    ):
+        with input_context():
+            snapshot = load_model(consumer)
+            key = "desired.row.001-002.document"
+            document = json.loads(snapshot.authoritative[key])
+            resolver = reference_resolver(
+                snapshot.authoritative, consumer, consumer.root
+            )
+            contract = dict(
+                resolver=resolver,
+                scope=consumer,
+                model_key=key,
+                property_name="IAM.ManagedPolicy.PolicyDocument",
+                logical_id="IAM_ManagedPolicy_001",
+            )
+            _, first = projection.document_references(document, **contract)
+            expected = copy.deepcopy(first)
+            first[0]["message"] = "external contamination"
+            assert projection.document_references(document, **contract)[1] == expected
+            assert evaluate.call_count == 1
+            categories = [expected[0]["category"]]
+            for value in (
+                "PENDING_DEPLOY",
+                "12345678-1234-1234-1234-123456789012",
+            ):
+                before = load_model(producer)
+                text = patch_properties(
+                    before.documents[producer.path],
+                    {"observed.row.001-001.value": "`" + value + "`"},
+                )
+                producer.path.write_text(text, encoding="utf-8")
+                shared.apply_observed({producer.path: text})
+                resolutions, diagnostics = projection.document_references(
+                    document, **contract
+                )
+                if diagnostics:
+                    categories.append(diagnostics[0]["category"])
+                else:
+                    categories.append("RESOLVED")
+                    assert (
+                        next(iter(resolutions.values())).value
+                        == "arn:aws:kms:ap-northeast-1:123456789012:key/" + value
+                    )
+                assert projection.document_references(document, **contract) == (
+                    resolutions,
+                    diagnostics,
+                )
+            assert categories == [
+                "REFERENCE_UNRESOLVED",
+                "REFERENCE_PENDING_DEPLOY",
+                "RESOLVED",
+            ]
+            assert evaluate.call_count == 3
+        with input_context():
+            projection.document_references(document, **contract)
+            assert evaluate.call_count == 4
+
+
+def test_reference_cache_candidate_and_rollback(fixture):
+    _, _, consumer, policy = fixture
+    key = "desired.row.001-002.document"
+    with (
+        input_context(),
+        patch.object(
+            projection, "reference_value", wraps=projection.reference_value
+        ) as evaluate,
+    ):
+        reads = sources.FileReads()
+        original = load_model(consumer, reads)
+        candidate_values = dict(policy)
+        changed = json.loads(policy[key])
+        changed["Statement"][0]["Resource"] = reference("S3_Bucket_001")
+        candidate_values[key] = json.dumps(changed)
+        candidate = load_model(
+            consumer,
+            sources.CandidateReads(reads, {consumer.path: serialize(candidate_values)}),
+        )
+        diagnostics = []
+        for snapshot in (original, candidate, original):
+            document = json.loads(snapshot.authoritative[key])
+            _, found = projection.document_references(
+                document,
+                resolver=reference_resolver(
+                    snapshot.authoritative, consumer, consumer.root
+                ),
+                scope=consumer,
+                model_key=key,
+            )
+            diagnostics.append(found)
+        assert (
+            diagnostics[0] == diagnostics[2] and diagnostics[0] and not diagnostics[1]
+        )
+        assert evaluate.call_count == 2
 
 
 if __name__ == "__main__":

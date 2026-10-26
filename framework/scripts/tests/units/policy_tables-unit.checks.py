@@ -29,7 +29,6 @@ from support.policy_tables_fixtures import (
     indexed_rows,
     json,
     mapping_cache_checks,
-    model_projection,
     policy_cli,
     policy_lines,
     pytest,
@@ -266,16 +265,14 @@ def check_iam(tmp_path):
     ), "array display and policy views must preserve the model"
     path.write_text(rendered, encoding="utf-8")
 
-    # JSON changes affect the existing hash and must invalidate the derived view.
+    # Changed JSON content must invalidate the derived view.
     artifact = artifacts / "role-a-trust-policy.json"
-    original_digest = model_projection.json_sha256(artifact)
     changed = json.loads(json.dumps(trust))
     changed["Statement"][0]["Condition"]["StringEquals"]["aws:SourceAccount"] = (
         "222222222222"
     )
     artifact.write_text(json.dumps(changed), encoding="utf-8")
     assert errors(rendered)
-    assert model_projection.json_sha256(artifact) != original_digest
     artifact.write_text(json.dumps(trust, indent=4, sort_keys=True), encoding="utf-8")
     assert not errors(rendered), (
         "JSON formatting and object key order must not change views"

@@ -6,7 +6,7 @@
 |---|---|---|---|---|---|---|
 | `arn-pending::named` | `test_named_arn_with_pending_output` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 5 | CodeBuild Id待ち、IAM Path、Lambda、Glue複合識別、Events EventBusの既存計算 | 追加 |
 | `arn-pending::identity` | `test_only_generated_identity_waits` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 3 | KMS・EC2・SecretのAWS生成識別子待ちと大文字表示 | 追加 |
-| `arn-pending::policy` | `test_pending_policy_display_keeps_resolved_positions` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 1 | Policyの確定位置維持・部分Pending・リンク/ハッシュ除外・厳格実行投影 | 追加 |
+| `arn-pending::policy` | `test_pending_policy_display_keeps_resolved_positions` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 1 | Policyの確定位置維持・部分Pending・リンク除外・厳格実行投影 | 追加 |
 | `arn-pending::transaction` | `check_pending_artifact_transaction` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 3 | 実Stage/必須Validation、正常JSON保存とPending JSON削除、書込/削除失敗の完全Rollback、解消後のJSON/リンク復旧 | 追加 |
 
 S3の計算可能なArn Pendingは既存test_explicit_pendingを更新。分類/表示UTは必要構成要素の待ちを証明できる合成入力へ修正し、未確認値/矛盾はReferenceResolutionErrorとして維持。Import strict、ARN組立、JSON整合性、Model/IaC比較は既存関連UTを利用。長時間ITと全ITは実行しない。
@@ -543,7 +543,6 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `integrations/issues_api_only.checks.py:62` | `check_api_type_rejection` | UT | [units/issues_api_only-unit.checks.py](units/issues_api_only-unit.checks.py#L24) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
 | `unknown/issues_scan.checks.py:1622` | `check_mismatch_rendering` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
 | `unknown/issues_scan.checks.py:1823` | `check_summary_scale` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
-| `unknown/json-yaml-document-hash.checks.py:48` | `check_json_hash_types` | UT | [units/json-yaml-document-hash-unit.checks.py](units/json-yaml-document-hash-unit.checks.py#L21) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/lambda_permission.checks.py:93` | `check_permission_catalog` | UT | [units/lambda_permission-unit.checks.py](units/lambda_permission-unit.checks.py#L37) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
 | `unknown/model_design.checks.py:1208` | `check_design_naming_rules` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L93) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
 | `unknown/model_design.checks.py:530` | `check_subnet_list_display` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L103) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
@@ -716,7 +715,6 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `units/issues_api_only-unit.checks.py::check_api_type_rejection` | L13: 動的 (catalog.api_schemas) |
 | `units/issues_scan-unit.checks.py::check_mismatch_rendering` | L27: 4 ([(None, False, 'null', 'false'), (True, 1, 'true', '1'), (1, '1', '1', '"1"'), (False, 'false', 'false', '"false"')])<br>L?: 動的 (fields({'a': 1, 'b': 2}, {'a': 3, 'b': 4}))<br>L?: 動的 (records)<br>L?: 5 (range(5))<br>L?: 動的 (duplicates)<br>L?: 動的 (entries)<br>L?: 動的 (original)<br>L?: 動的 (entries)<br>L?: 動的 (original) |
 | `units/issues_scan-unit.checks.py::check_summary_scale` | L157: 4 (('first', 'second', 'confidential', 'arn:aws:'))<br>L159: 4 ([('matched', 'complete match'), ('uncompared', 'partial'), ('excluded', 'no compared records'), ('error', 'error')])<br>L117: 動的 (stats['categories'].items())<br>L122: 2 (('naming', 'judgments'))<br>L?: 動的 (actions)<br>L?: 動的 (actions)<br>L?: 動的 (entries)<br>L?: 動的 (records)<br>L?: 動的 (stats['groups'])<br>L?: 動的 (stats['categories'].items())<br>L?: 動的 (again_actions)<br>L?: 動的 (actions)<br>L?: 動的 (again_actions)<br>L?: 動的 (actions)<br>L?: 動的 (actions)<br>L?: 動的 (actions)<br>L?: 動的 (action['members'])<br>L?: 動的 (range(0, total, 50))<br>L?: 動的 (detail_payload(artifact, section, offset, 50)['items'])<br>L?: 動的 (group['members'])<br>L?: 動的 (group['members'])<br>L?: 動的 (group['members'])<br>L?: 動的 (group['members']) |
-| `units/json-yaml-document-hash-unit.checks.py::check_json_hash_types` | 1（内部パラメータ化なし） |
 | `units/lambda_permission-unit.checks.py::check_permission_catalog` | 1（内部パラメータ化なし） |
 | `units/model_files-unit.checks.py::check_cfn_selector` | 1（内部パラメータ化なし） |
 | `units/model_parameter_inputs-unit.checks.py::check_yaml_schema` | L13: 4 (['a: 1\na: 2', 'a: {b: 1, b: 2}', 'a: !!python/object:bad {}', 'a: &x {b: 1}\nc: {<<: *x}']) |
@@ -862,7 +860,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `unknown/issues_failed_services.checks.py:21` | `main_checks` | IT | [integrations/issues_failed_services.checks.py](integrations/issues_failed_services.checks.py#L70) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/issues_policy_equivalence.checks.py:21` | `main_checks` | IT | [integrations/issues_policy_equivalence.checks.py](integrations/issues_policy_equivalence.checks.py#L44) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `integrations/issues_ref_returns.checks.py:18` | `main_checks` | IT | [integrations/issues_ref_returns.checks.py](integrations/issues_ref_returns.checks.py#L25) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 変更不要 |
-| `unknown/json-yaml-document-hash.checks.py:21` | `check` | IT | [integrations/json-yaml-document-hash.checks.py](integrations/json-yaml-document-hash.checks.py#L38) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/json-yaml-document-hash.checks.py:21` | `check` | IT | [integrations/model-document-sources.checks.py](integrations/model-document-sources.checks.py#L38) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `integrations/lambda-input-reference.checks.py:29` | `check` | IT | [integrations/lambda-input-reference.checks.py](integrations/lambda-input-reference.checks.py#L29) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `unknown/model-input-context-digest.checks.py:30` | `check` | IT | [integrations/model-input-context-digest.checks.py](integrations/model-input-context-digest.checks.py#L33) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/model-test.checks.py:89` | `check` | IT | [integrations/model-test.checks.py](integrations/model-test.checks.py#L112) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
@@ -1034,7 +1032,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `integrations/issues_failed_services.checks.py::main_checks` | L34: 動的 (enumerate(rows, 1))<br>L66: 動的 (models.items())<br>L78: 動的 (KMS_COMPARISON_FORMS.items())<br>L112: 3 ([('Log', 'arn:aws:logs:ap-northeast-1:123456789012:log-group:/fixture/log:*'), ('Build', 'arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build'), ('Rule', 'arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule')])<br>L145: 2 ([('Missing', 'Arn'), ('Queue', 'MissingAttribute')])<br>L81: 4 ([('KeyId', key_id), ('KeyArn', key_arn), ('AliasName', 'alias/fixture'), ('AliasArn', alias_arn)])<br>L?: 動的 (records)<br>L?: 動的 (records)<br>L?: 動的 (records)<br>L?: 動的 (selected)<br>L?: 動的 (records)<br>L?: 動的 (values.items()) |
 | `integrations/issues_policy_equivalence.checks.py::main_checks` | L48: 動的 (actual['Statement'])<br>L68: 2 ((same, selected_same))<br>L79: 3 ([('IAM.Role', 'AssumeRolePolicyDocument.Statement[].Action'), ('IAM.ManagedPolicy', 'PolicyDocument.Statement[].Action'), ('IAM.User', action_path)])<br>L89: 2 (((reference, arn), (sub, arn + '/results/*')))<br>L99: 4 ((Expression('Sub', ['${Missing}', {}]), Expression('Sub', ['${Value}', {'Value': {'$resource': ['s3', '002'], '$attribute': 'Arn'}}]), Expression('Sub', ['${Value}', {'Value': Expression('Join', ['', [reference, '/*']])}]), Expression('Join', ['', [reference, '/*']])))<br>L109: 2 ([('Action', ['s3:PutObject']), ('Effect', 'Deny')])<br>L129: 4 ((None, 'invalid/path', 'wildcard-*', {'Ref': 'Bucket'}))<br>L71: 5 (([], ['s3:PutObject'], ['s3:GetObject', 's3:GetObject'], [True], [['s3:GetObject']]))<br>L74: 4 (('Tags[].Value', 'Policies[].Action', 'Policies[].PolicyDocument.Statement[].Condition.Action', 'Policies[].PolicyDocument.Statement[].Resource'))<br>L92: 3 ((text + '-other', text.replace('aws:', 'aws-cn:'), text.replace('data2', 'data1')))<br>L?: 動的 (records)<br>L?: 動的 (comparison.display_differences[identifier(result)])<br>L?: 動的 (values.items()) |
 | `integrations/issues_ref_returns.checks.py::main_checks` | L29: 動的 (specs)<br>L31: 動的 (enumerate((consumer, producer), 1))<br>L46: 動的 (specs)<br>L?: 動的 (model.items()) |
-| `integrations/json-yaml-document-hash.checks.py::check` | L38: 2 ([('preview', human), ('release', human)])<br>L46: 動的 (paths.items())<br>L?: 動的 (first.items())<br>L?: 動的 (paths.items()) |
+| `integrations/model-document-sources.checks.py::check` | L38: 2 ([('preview', human), ('release', human)])<br>L46: 動的 (paths.items())<br>L?: 動的 (first.items())<br>L?: 動的 (paths.items()) |
 | `integrations/lambda-input-reference.checks.py::check` | L83: 5 ([(original.replace('resourceType=Lambda.Function', 'resourceType=S3.Bucket'), 'type-mismatched'), (original.replace('052', '053'), 'type-mismatched'), (original.replace('Lambda.Function.FunctionName', 'Lambda.Function.Description'), 'exactly one name'), (original.replace('`app-preview-one`', '``'), 'exactly one name'), (original + 'desired.row.052-004.property=Lambda.Function.FunctionName\ndesired.row.052-004.value=`duplicate`\n', 'exactly one name')])<br>L?: 2 ([('default-label', '021', {}), ('existing-label', '083', {'Function': 'PENDING_DEPLOY'})])<br>L?: 動的 (values.items()) |
 | `integrations/model-input-context-digest.checks.py::check` | L75: 4 (([], [target, target], [{**target, 'awsExecutionAccountId': 123}], [{**target, 'awsExecutionAccountId': 'bad'}]))<br>L?: 動的 (values.items()) |
 | `integrations/model-test.checks.py::check` | L143: 動的 (ordinary)<br>L200: 2 (('Action', 'Condition'))<br>L218: 3 ([({'Fn::GetAtt': ['role', 'Arn']}, 'match'), ({'Fn::GetAtt': ['role', 'RoleId']}, 'design_unresolved'), ({'Fn::Sub': '${role.RoleId}'}, 'design_unresolved')])<br>L231: 3 ([('property', 'IAM.Role.MaxSessionDuration'), ('value', '`3600`'), ('comment', 'fixture')])<br>L112: 2 ([('vpc', vpc), ('iam', iam)])<br>L115: 動的 (sources.items())<br>L?: 動的 (sources.items())<br>L?: 動的 (records)<br>L?: 動的 (records)<br>L?: 2 (('vpc', 'iam'))<br>L?: 動的 (failed)<br>L?: 動的 (rt['audit'](configured, 'wrong', cli)[2])<br>L?: 動的 (rt['audit'](vpc, '', cli)[2])<br>L?: 動的 (rt['audit'](vpc, None, cli)[2])<br>L?: 動的 (cli.calls)<br>L?: 動的 (result)<br>L?: 動的 (resolved)<br>L?: 動的 (result)<br>L?: 動的 (result)<br>L?: 動的 (result)<br>L?: 動的 (changed)<br>L?: 動的 (logs[0].parent.glob('vpc-*.log'))<br>L?: 動的 (findings.errors)<br>L?: 2 ([('cde', '123456789012'), ('other', '210987654321')])<br>L?: 2 (('completed', 'suspend')); 既存/未作成出力の不変、running保存、契約変更/契約なし拒否 |
@@ -2110,7 +2108,7 @@ JSON Pointer の負数・先頭0・不正escape・非文字列は model-format v
 UT/IT で引き続き拒否する。transaction、競合、固定 identity、親子、保存権限のケースは
 この廃止対象に含めない。
 
-`json-yaml-document-hash` は parameters 保存を廃止し、同じ2環境・Resource/Rowと
+`model-document-sources` は parameters 保存を廃止し、同じ2環境・Resource/Rowと
 JSON型/配列順序を実管理 worktree の prepare/publish、no-op bytes、派生hash traceで確認する。
 `used-definition-inputs` は暗黙の共有入力の廃止を、同値の Resource を別々に編集する保存検査へ移行した。
 `compact-model-sources` の rollback は共有 journal transaction の機械的検査であり、
@@ -3379,7 +3377,7 @@ All patterns use the common evaluator and authored temporary Models. An incomple
 - `units/model-reference-values-unit.checks.py`: 15 synthetic cases own desired S3 resolution
   without observed, rename propagation through the existing Graph, ListQuarantine display,
   unresolved generated KMS identifiers, explicit pending, duplicate/missing/invalid/conflicting
-  producers, two policy references and JSON-string resolution, hashes and immutable authority,
+  producers, two policy references and JSON-string resolution, content equality and immutable authority,
   all unresolved pointers, explicit unknown optional properties versus absence defaults, and batch
   service isolation with saved-view retention.
 - Existing typed-node tests retain canonical design JSON preservation; pipeline display now
@@ -3508,10 +3506,10 @@ Service契約は既存Model Parameter Inputs UTでサービスごとの小さい
 | [issues_policy_equivalence.checks.py](integrations/issues_policy_equivalence.checks.py) | 実Model Policy/IaC/Import→比較/集計→保存artifact/detail/レポート |
 | [issues_ref_returns.checks.py](integrations/issues_ref_returns.checks.py) | 実Model/IaC/Export/Import→Ref返却型の解決→Issue判定 |
 | [issues_scan.checks.py](integrations/issues_scan.checks.py) | 実Scan/CLI→複数service/Adapter/Scan成果物/保存、失敗や参照警告を保持 |
-| [json-yaml-document-hash.checks.py](integrations/json-yaml-document-hash.checks.py) | 実管理Task edit→Model/JSON hash→保存、他環境・Consumer不変 |
+| [model-document-sources.checks.py](integrations/model-document-sources.checks.py) | 実管理Task edit→Model/JSON内容→保存、他環境・Consumer不変 |
 | [lambda-input-reference.checks.py](integrations/lambda-input-reference.checks.py) | 保存Producer→Lambda入力のcross-file解決・依存とConsumer不変 |
 | [lambda_permission.checks.py](integrations/lambda_permission.checks.py) | 実Model→roundtrip/Sync→Permission生成、親子保存と不正候補時の旧View保護 |
-| [model-input-context-digest.checks.py](integrations/model-input-context-digest.checks.py) | project execution account→保存JSON参照/hash/Source依存、明示候補以外の値不変 |
+| [model-input-context-digest.checks.py](integrations/model-input-context-digest.checks.py) | project execution account→保存JSON参照/内容/Source依存、明示候補以外の値不変 |
 | [model-operation-publication.checks.py](integrations/model-operation-publication.checks.py) | 実Model-only操作→Task/Publication→最終参照検証、失敗/非選択bytes保持 |
 | [model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | 実CLI/Task/Git→Model edit/Observed→Publication/Recovery、隔離されたstandalone audit |
 | [model-reference-nodes.checks.py](integrations/model-reference-nodes.checks.py) | 保存Producer/Consumer→実JSON/Markdown生成→再読込、AWS JSON境界遮断 |
@@ -3756,7 +3754,7 @@ checks retain exact journals, CAS, partial publication and execution/approval ev
 | `deploy-lazy::input-revision` | `check_claim_immutable_inputs_and_no_eager_decode` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Pin only claimed input hashes; reject changed IaC before use | Added |
 | `deploy-lazy::observed-authority` | `check_observed_patch_rejects_authority_changes` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 3 | Reject desired, display and unrelated-byte changes | Replaces eager baseline tests |
 | `deploy-lazy::success-resume` | `check_resume_skips_success_and_dependency_unknown` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | SUCCESS never starts twice; pending dependencies stay explicitly unloaded | Added |
-| `deploy-lazy::desired-once` | `check_desired_validation_reused_after_observed` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Desired confirmation cached across observed deltas | Added |
+| `deploy-lazy::desired-once` | `check_reference_dependent_validation_invalidated_after_observed` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Same-generation reuse; full reference-dependent check invalidation after observed deltas | Added |
 | `deploy-lazy::cas` | `check_observed_publication_rejects_conflict` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Real observed writer rejects concurrent bytes before publishing | Added |
 | `deploy-lazy::stack-delivery` | `check_stack_metadata_defers_delivery_model` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Stack/generated metadata equality needs no delivery Model; ordinary generation retains delivery validation | Added |
 | `deploy-lazy::index-publication` | `check_index_delta_retarget_delete_and_invalid_unrelated` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Observed index patch without reparse, retarget/delete maintenance, invalid unrelated authority excluded | Added |
@@ -3783,3 +3781,21 @@ checks retain exact journals, CAS, partial publication and execution/approval ev
 | `deploy-generation::observed-history` | `check_generation_only_preserves_observed_history` | UT | [units/deploy-generation-resume-unit.checks.py](units/deploy-generation-resume-unit.checks.py) | pytest / 2 | Generation単独成功/失敗で既存Observedエラー履歴を保持 | 追加 |
 | `deploy-handoff::observed-barrier` | `check_diagnosis_observed_barrier` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 6 | GenerationのみならAWS失敗診断可、Observed pending/未同期SUCCESS/error/RUNNING/poll失敗なら拒否 | 追加 |
 | `worktree-runtime::observed-barrier` | `check_checkpoint_observed_barrier` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 6 | Checkpointで同一Observed保護、Generationのみでも既存入力検証へ進む | 追加 |
+
+
+## JSON派生ハッシュ削除とSnapshot cache
+
+| Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `snapshot::rows` | `check_snapshot_row_index_and_mutable_entries` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 1 | entries/固定行索引100回で構築1回、Candidate差分と旧入力保持、可変入力再読取、行の外部変更拒否、別呼出し分離 | 小さい辞書のみ |
+| `snapshot::references` | `test_snapshot_reference_cache_and_unbound_inputs` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 2 | 固定/可変入力、参照100回の解決1/100回、派生hash禁止、参照なし、文書/Context/除外差分、返却結果隔離 | 既存小型Model |
+| `snapshot::observed` | `test_reference_cache_observed_generation_and_invocation` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 1 | 他ServiceのObserved反映、保持Resolverの更新、UNRESOLVED→PENDING→RESOLVED、診断汚染防止、別呼出しで再解決 | 既存SessionModelsと小型Model |
+| `snapshot::candidate` | `test_reference_cache_candidate_and_rollback` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 1 | CandidateReadsの別Snapshotと元Snapshot復帰で診断混在なし | 既存CandidateReads |
+
+旧 `check_json_hash_types` と専用再export helperは削除。共通JSON形式/ハッシュの契約は
+既存 `json-format::check_output_bytes_and_hashes` に集約。旧派生hashの生成/trace/比較の
+assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本不変性を既存ケース内で維持。
+既存文書編集ITの公開/no-op/環境間隔離とContext依存ITのProject変更検出は残す。
+`test_generated_json_and_hash_keep_authority` は `test_generated_json_keeps_authority` へ改名。
+`deploy-lazy::desired-once` は参照依存の全検証失効を確認し、Desired単独のPASS再利用とは扱わない。
+正式ITは既存Framework ITのみで、新しいITケース・大規模fixtureは追加しない。

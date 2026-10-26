@@ -29,9 +29,9 @@ from design.layout_schema import resource_anchor as resource_anchor
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils import iac_values
 from utils.aws_mappings import definition_root
-from utils.input_cache import input_is_file, memoized
+from utils.input_cache import input_is_file, memo_table, memoized
 from utils.input_cache import input_scope as input_scope
-from utils.json_format import fingerprint, policy_json
+from utils.json_format import policy_json
 from utils.reference_contracts import action_contexts, reference_error, row_contexts
 from validation.diagnostics import Diagnostic, service_scope
 
@@ -49,6 +49,7 @@ import model.sources as _imports_model_sources
 from model.core import (
     LINK,
     ReferenceResolutionError,
+    SnapshotValues,
     entries,
     properties,
     require_reference_diagnostics,
@@ -113,7 +114,7 @@ def reference_context_for(values, row_id, row, value, pointer, root):
             kind,
             [
                 (rid, item)
-                for rid, item in entries(values, "desired.row.")
+                for rid, item in _imports_model_projection._resource_row_entries(values)
                 if rid.rpartition("-")[0] == number
             ],
         )
@@ -832,47 +833,36 @@ def _callback_check_model_inputs_literal_check(
 
 def check_model_inputs(path, values, root, *, definitions_root=None):
     shared = _imports_model_sources.session_reads(root)
-    if shared is None:
+    if shared is None or not isinstance(values, SnapshotValues):
         return _check_model_inputs(
             path, values, root, definitions_root=definitions_root
         )
+    memo = memo_table()
+    invocation = None
+    if memo is not None:
+        invocation = memo.setdefault(check_model_inputs, object())
     key = (
         "desired-validation",
+        invocation,
         _imports_model_importing_scope.read_context(root),
         shared.canonical(path),
         definitions_root,
-        fingerprint({k: v for k, v in values.items() if not k.startswith("observed.")}),
+        id(values),
+        shared.reference_revision,
     )
     with shared.lock:
         if key not in shared.checks:
-            shared.checks[key] = _check_model_inputs(
-                path,
+            # JSON/reference/presentation diagnostics also depend on producer observations.
+            shared.checks[key] = (
                 values,
-                root,
-                definitions_root=definitions_root,
-                observations=False,
+                _check_model_inputs(
+                    path,
+                    values,
+                    root,
+                    definitions_root=definitions_root,
+                ),
             )
-        findings = copy.deepcopy(shared.checks[key])
-    model = (
-        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
-            ".properties"
-        )
-        if path.is_relative_to(root / "docs/designs")
-        else path
-    )
-    view = (root / "docs/designs" / model.relative_to(root / "model")).with_suffix(
-        ".md"
-    )
-    observations = _bind_framework_callback(
-        _imports_validation_design.check_observed_values,
-        [model],
-        findings=findings,
-        root=root,
-        scope=None,
-        design_sources={view: _imports_model_sources.load_model(model).values},
-    )
-    findings.evaluate("model.observed", None, observations)
-    return findings
+        return copy.deepcopy(shared.checks[key][1])
 
 
 def _check_model_inputs(
@@ -884,13 +874,11 @@ def _check_model_inputs(
     check_observed_values = _imports_validation_design.check_observed_values
     Findings = _imports_validation_findings.Findings
 
-    validate_authority = _imports_model_core.validate_authority
     validate_model_keys = _imports_model_core.validate_runtime_keys
     resource_row_index = _imports_model_files.resource_row_index
     owner = _imports_model_format.owner
     resource_details = _imports_model_render.resource_details
     runtime_values = _imports_model_sources.runtime_values
-    validate_authority(values)
     values = runtime_values(values)
 
     findings = Findings(root)
@@ -959,7 +947,9 @@ def _check_model_inputs(
                 kind, number = owner(key, values)
                 if kind == "resource":
                     resource_values.setdefault(number, {})[key] = value
-        selected = dict(resource_values.get(_state_check_model_inputs_337.identity, {}))
+        selected = SnapshotValues(
+            resource_values.get(_state_check_model_inputs_337.identity, {})
+        )
         findings.evaluate(
             "model.required." + _state_check_model_inputs_337.identity,
             None,

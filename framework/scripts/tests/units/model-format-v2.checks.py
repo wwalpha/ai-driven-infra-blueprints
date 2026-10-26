@@ -15,10 +15,12 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch as mock_patch
 
 import model.core as _imports_model_core
 import model.identity as _imports_model_identity
 import model.importing.approval as _imports_model_importing_approval
+import model.projection as projection
 import model.references as _imports_model_references
 import model.render as _imports_model_render
 import pytest
@@ -27,7 +29,12 @@ from design.catalog import DesignSchemaCatalog
 from model.adapters.task import (
     source_write_context,
 )
-from model.core import entries, validate_authority, validate_runtime_keys
+from model.core import (
+    SnapshotValues,
+    entries,
+    validate_authority,
+    validate_runtime_keys,
+)
 from model.format import FORMAT, INDEX, owner, serialize
 from model.format import parse as parse
 from model.format import patch as patch
@@ -55,6 +62,7 @@ from support.model_v2_fixtures import (
     source_context,
 )
 from task_contract_core import MergePair, ModelOperation, ReferenceChange
+from utils.input_cache import input_context
 from utils.script_loader import module
 from utils.source_reads import CandidateReads, FileReads
 
@@ -1147,7 +1155,7 @@ def check_common_shape(tmp_path):
         == "explicit-target"
     )
     assert (
-        "desired.row.017-024.artifactSha256" in model.values
+        "desired.row.017-024.artifactSha256" not in model.values
         and "desired.row.017-024.artifactSha256" not in model.authoritative
     )
     for bad in (
@@ -1157,7 +1165,6 @@ def check_common_shape(tmp_path):
             for key, value in full.items()
             if key != "desired.row.017-024.property"
         },
-        {**full, "desired.row.017-024.artifactSha256": "stale"},
     ):
         try:
             raw = serialize(bad)
@@ -1237,6 +1244,61 @@ def check_context_topology_inputs(tmp_path, fault):
     )
     with pytest.raises((ValueError, OSError)):
         load_model(scope, reads)
+
+
+class CountedSnapshot(SnapshotValues):
+    scans = 0
+
+    def items(self):
+        self.scans += 1
+        return super().items()
+
+
+def check_snapshot_row_index_and_mutable_entries():
+    values = {
+        "desired.row.001-001.property": "S3.Bucket.BucketName",
+        "desired.row.001-001.value": "`before`",
+        "desired.row.001-001.comment": "fixture",
+    }
+    fixed = CountedSnapshot(values)
+    with pytest.raises(TypeError):
+        fixed.update({"desired.row.001-001.value": "contaminated"})
+    with pytest.raises(TypeError):
+        fixed.pop("desired.row.001-001.value")
+    fixed.__init__({"desired.row.001-001.value": "contaminated"})
+    assert fixed["desired.row.001-001.value"] == "`before`"
+    with (
+        input_context(),
+        projection.resource_row_scope(),
+        mock_patch.object(projection, "entries", wraps=entries) as parse_rows,
+    ):
+        first = projection._resource_row_entries(fixed)
+        for _ in range(100):
+            assert projection._resource_row_entries(fixed) is first
+        assert parse_rows.call_count == 1
+        with pytest.raises(TypeError):
+            first[0][1]["value"] = "contaminated"
+        for _ in range(100):
+            entries(fixed, "desired.row.")
+        assert fixed.scans == 1
+        returned = entries(fixed, "desired.row.")
+        returned[0][1]["value"] = "contaminated"
+        assert entries(fixed, "desired.row.")[0][1]["value"] == "`before`"
+        values["desired.row.001-001.value"] = "`after`"
+        updated = SnapshotValues(values)
+        assert projection._resource_row_entries(updated)[0][1]["value"] == "`after`"
+        assert projection._resource_row_entries(fixed)[0][1]["value"] == "`before`"
+        assert parse_rows.call_count == 2
+        assert entries(values, "desired.row.")[0][1]["value"] == "`after`"
+        values["desired.row.001-001.value"] = "`mutated`"
+        assert entries(values, "desired.row.")[0][1]["value"] == "`mutated`"
+        assert projection._resource_row_entries(values)[0][1]["value"] == "`mutated`"
+    with (
+        input_context(),
+        mock_patch.object(projection, "entries", wraps=entries) as parse_rows,
+    ):
+        projection._resource_row_entries(fixed)
+        assert parse_rows.call_count == 1
 
 
 if __name__ == "__main__":

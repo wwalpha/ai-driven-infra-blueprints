@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 
 from model.adapters.task import edit_write_context
-from model.files import trace_model
 from model.format import serialize
 from model.sources import design_source_digest, load_model
 from support.it_case_receipt import it_case
@@ -96,14 +95,6 @@ def check_declared_inputs(service="cloudtrail"):
         initial = load_model(path)
         assert dict(initial.authoritative) == values
         assert json.loads(initial.authoritative[prefix + "document"]) == document
-        assert (
-            prefix + "artifactSha256" in initial.values
-            and prefix + "artifactSha256" not in initial.authoritative
-        )
-        assert (
-            trace_model(path, prefix + "artifactSha256")["derivedFrom"]
-            == prefix + "document"
-        )
         changed = {
             **values,
             "desired.row.017-002.value": "`changed`",

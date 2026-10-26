@@ -11,7 +11,6 @@ import model.projection as _imports_model_projection
 import model.render as _imports_model_render
 import model.sources as _imports_model_sources
 import model.sources as sources
-import utils.json_format as _imports_utils_json_format
 from model.core import entries
 from model.format import serialize
 from model.identity import (
@@ -299,11 +298,8 @@ def check_cfn_and_outputs():
             assert json.loads(files[design.with_suffix("") / "policy.json"]) == result
             assert '<a id="saved-policy"></a>' in files[design]
             assert json.loads(policy["desired.row.009-002.document"]) == document
-            document_sha256 = _imports_utils_json_format.document_sha256
             display = reference_display(policy, design, after)
-            assert display["desired.row.009-002.artifactSha256"] == document_sha256(
-                result
-            )
+            assert json.loads(display["desired.row.009-002.document"]) == result
             assert "artifactSha256" not in serialize(policy)
             assert path.read_bytes() == saved
 

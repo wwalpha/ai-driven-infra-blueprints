@@ -95,9 +95,6 @@ def text(values):
             values[key] = json.dumps(
                 document, ensure_ascii=False, separators=(",", ":")
             )
-            values[key.removesuffix(".document") + ".artifactSha256"] = (
-                model_projection.document_sha256(document)
-            )
     return (
         "# model-format: 2\n# Runtime projection for fixture comparison; write_model strips derived fields.\n"
         + "".join(f"{key}={value}\n" for key, value in sorted(values.items()))

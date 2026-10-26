@@ -20,7 +20,7 @@ from json_intrinsics import project_document
 from model.format import serialize
 from model.identity import COUNTERS
 from model.operations import prepare_edit, publish_edit, validate_candidates
-from model.projection import execution_document, json_sha256, reference_display
+from model.projection import execution_document, reference_display
 from model.render import generate_files
 from model.sources import Scope, SourceWriteContext, load_model, runtime_values
 from model.validation import validate_json_settings
@@ -28,7 +28,7 @@ from sync_runtime import generate_views
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.format import decode_file as decode
 from utils.cloudformation.inputs import resolve_value
-from utils.json_format import document_sha256, validate_aws_document
+from utils.json_format import policy_json, validate_aws_document
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -170,7 +170,7 @@ def check_standalone_expressions(tmp_path, expression):
     artifact = tmp_path / "policy.json"
     artifact.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(ValueError, match="CloudFormation"):
-        json_sha256(artifact)
+        validate_aws_document(policy_json(artifact.read_text(encoding="utf-8")))
     with pytest.raises(ValueError, match="/a~1b~0/0"):
         validate_aws_document({"a/b~": [expression]})
     assert document == original
@@ -201,7 +201,7 @@ def check_standalone_generation(tmp_path):
         files = generate_files(design, runtime_values(policy), root)
         displayed = reference_display(runtime_values(policy), scope.path, root)
         assert json.loads(files[artifact]) == good
-        assert displayed["desired.row.009-002.artifactSha256"] == document_sha256(good)
+        assert json.loads(displayed["desired.row.009-002.document"]) == good
         assert "${aws:username}" in files[design]
         # A valid first artifact must not be saved when a later document is rejected.
         for key, value in list(policy.items()):

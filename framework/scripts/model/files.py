@@ -26,8 +26,6 @@ def trace_model(path, key):
     if key not in snapshot.authoritative:
         if key.startswith("observed.row.") and key.endswith((".property", ".comment")):
             origin = key.replace("observed.", "desired.", 1)
-        elif key.endswith(".artifactSha256"):
-            origin = key.removesuffix("artifactSha256") + "document"
     file, line = snapshot.locations[origin]
     result = {
         "key": key,

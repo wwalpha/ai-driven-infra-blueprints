@@ -18,7 +18,6 @@ from model.format import FORMAT, parse, serialize
 from model.importing.cli import property_schema
 from model.importing.sources import typed_row
 from model.operations import CandidateReads
-from model.projection import document_sha256
 from model.references import usages
 from model.sources import load_model
 from support.import_model_fixtures import (
@@ -424,12 +423,8 @@ def check_iam():
         updated = json.loads(before.authoritative[key])
         updated["Statement"]["Principal"]["AWS"] = "123456789012"
         after = candidate(before, {key: json.dumps(updated)})
-        hash_key = key.removesuffix(".document") + ".artifactSha256"
-        assert (
-            after.values[hash_key] == document_sha256(updated)
-            and after.values[hash_key] != before.values[hash_key]
-        )
-        assert hash_key not in after.authoritative
+        assert json.loads(after.values[key]) == updated
+        assert after.values[key] != before.values[key]
     assert objects > 0
 
 
@@ -620,11 +615,6 @@ def check_responsibilities():
                     for key, raw in before.authoritative.items()
                     if key.startswith(("desired.resource.", "observed."))
                 )
-            for key, raw in before.authoritative.items():
-                if key.endswith(".document"):
-                    assert before.values[
-                        key.removesuffix(".document") + ".artifactSha256"
-                    ] == document_sha256(json.loads(raw))
 
 
 def check_log_group_native_scalars():

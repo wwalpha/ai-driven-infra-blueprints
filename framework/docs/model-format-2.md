@@ -36,7 +36,7 @@ Resource／Row／Stack ID、logicalId、anchor、resourceMode、cfn-logicalId、
 変更時に二つを交換しません。
 
 `observed.row.<id>.value` の不存在、空文字、`PENDING_DEPLOY` は異なる値です。
-observed.property／comment は desired から、artifactSha256 は document から導出します。
+observed.property／comment は desired から導出します。JSON文書の派生ハッシュは生成・保存しません。
 IMPORT 自身の物理 ID は一般の観測更新では変更できません。他 Resource だけを参照し、
 Schema の primary identifier と catalog output のいずれでもない Row は観測更新対象にできます。
 参照宣言で自分自身へのリンクを隠した場合や、物理 ID の値を外部リンクにした場合も拒否します。
@@ -156,3 +156,26 @@ read は正本全体と WARNING、trace は正本の場所または派生元と�
 生成候補を返す処理と保存権限の取得は別です。
 
 既存の CloudFormation 動的参照（`{{resolve:...}}`）と Markdown リンクは、backtick で囲っても scalar として原文を保持します。JSON object／array の継続・strict JSON 検査には流用しません。
+
+## 固定Snapshotと実行内キャッシュ
+
+`ModelSnapshot.authoritative` / `values` は所有された不変の `SnapshotValues` です。
+外部の可変辞書や、その辞書の読み取り専用proxyとは区別します。
+正本からのRuntime投影も同じ固定入力では一度だけ構築し、検証・生成で共有します。
+固定入力のオブジェクト同一性を、既存 `memo_table()` の実行内キャッシュと
+`SessionModels.checks` のキーに使います。識別のためのJSON化・内容ハッシュは行いません。
+`entries()` と行索引は固定入力だけを再利用し、返却した行の変更による汚染を防ぎます。
+可変辞書には同一性キャッシュを適用しません。
+
+参照キャッシュはScope、Model Key、Property、logicalId、除外位置と参照世代を区別します。
+文書・Contextが固定入力から求めた内容と一致する場合だけ再利用し、結果は独立したコピーで返します。
+参照のないJSONは参照キャッシュを通りません。構文・AWS文書・Schema検査は引き続き実行します。
+Candidate / Rollbackは入力オブジェクト、別検証呼出しは `input_context()` により分離します。
+
+Observedの原子的公開後に `SessionModels.apply_observed()` が参照世代を更新します。
+参照先の影響範囲を確定できないため、他Serviceを含む当該セッションの参照結果を失効させます。
+保持中のResolverもProducerと索引を再取得します。Desired自体は変更しません。
+現行のModel検証結果はJSON参照・表示・識別子の診断を含みDesiredだけに分離できないため、
+Observed更新後は全体を再検証します。同一世代の固定入力では既存 `SessionModels.checks` を再利用します。
+Modelの事前全件ロードは追加しません。Import承認、Deploy入力Manifest・再開、
+配信・保存の整合性確認に使うSHA-256はこのキャッシュとは別の証跡として維持します。

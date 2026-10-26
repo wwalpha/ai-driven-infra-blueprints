@@ -151,8 +151,24 @@ class Resolver:
             {},
             {},
         )
+        self.overrides = {}
+        self.reference_revision = getattr(self.reads, "reference_revision", None)
         self.logical_indexes = {}
         self.catalog = None
+
+    def refresh(self):
+        revision = getattr(self.reads, "reference_revision", None)
+        mutable = any(
+            not isinstance(
+                snapshot.authoritative, _imports_model_sources.SnapshotValues
+            )
+            for snapshot in self.overrides.values()
+        )
+        if revision is not self.reference_revision or mutable:
+            self.models = dict(self.overrides)
+            self.indexes.clear()
+            self.logical_indexes.clear()
+            self.reference_revision = revision
 
     def target(self, scope):
         target, _ = _imports_model_sources.target_for(scope, self.reads)

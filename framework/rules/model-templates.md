@@ -78,7 +78,7 @@ Final Resource/Row/Stack IDs, logicalId, resourceMode, cfn-logicalId, parent rel
 and placementName must be valid. Ordinary authorized corrections may change them. Dedicated
 operations and observation writers retain their narrower preservation rules.
 observed.value absence, empty string and PENDING_DEPLOY are distinct. Derive observed
-Property/comment from desired and artifactSha256 from document at read time; never save them.
+Derive observed Property/comment from desired at read time; never save them. JSON documents have no derived runtime hash.
 
 General observed saves change only explicitly permitted Rows and preserve all other
 canonical fields and unrelated raw bytes. They do not bypass IMPORT physical-ID protection.

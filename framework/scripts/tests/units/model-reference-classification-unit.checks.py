@@ -21,6 +21,7 @@ from model.core import (
     FrameworkUnsupportedError,
     ModelNeedsFixError,
     ReferenceResolutionError,
+    SnapshotValues,
     require_reference_diagnostics,
     resource_index,
 )
@@ -600,6 +601,7 @@ def test_input_and_generation_share_reference_evaluation(models, field):
     if field == "value":
         role.pop("desired.row.070-004.document")
         role[model_key] = "`" + json.dumps(document) + "`"
+    role = SnapshotValues(role)
     with (
         input_context(),
         patch.object(

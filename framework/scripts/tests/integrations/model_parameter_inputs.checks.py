@@ -15,7 +15,6 @@ import sync_runtime
 from model.files import trace_model
 from model.format import serialize
 from model.operations import CandidateReads
-from model.projection import document_sha256 as document_sha256
 from model.references import incoming
 from model.references import usages as usages
 from model.sources import design_source_digest, load_model

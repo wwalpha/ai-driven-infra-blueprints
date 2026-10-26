@@ -77,6 +77,7 @@ from support.model_sources import write_model
 from support.rotation_schedule_fixtures import fixture as rotation_fixture
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.iac_values import cfn_resource_identity
+from utils.json_format import policy_json, validate_aws_document
 from validation.design_links import check_design_links as validate_design_links
 from validation.findings import Findings
 
@@ -2000,7 +2001,7 @@ def check_expanded_design_and_json_digest(tmp_path) -> None:
     assert "| EC2.VPC.VpcId | PENDING_DEPLOY |" in model
     assert "| EC2.VPC.CidrBlock | 10.1.0.0/16 |" in model
     assert "| EC2.VPC.Name | vpc-app-dev |" in model
-    assert model_projection.json_sha256(artifact)
+    validate_aws_document(policy_json(artifact.read_text(encoding="utf-8")))
     assert "| EC2.Subnet.SubnetId | PENDING_DEPLOY |" in model
     assert "| EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) |" in model
     assert "| EC2.Subnet.Name | sbnt-app-dev-private-01 |" in model
@@ -2059,21 +2060,8 @@ def check_expanded_design_and_json_digest(tmp_path) -> None:
     )
     assert "S3.BucketPolicy.Bucket |" not in s3_model
     assert "| S3.BucketPolicy.PolicyDocument |" in s3_model
-    assert model_projection.json_sha256(s3_artifact)
+    validate_aws_document(policy_json(s3_artifact.read_text(encoding="utf-8")))
     assert len([line for line in lines if line.startswith("### S3.Bucket:")]) == 1
-    original_digest = model_projection.json_sha256(artifact)
-    artifact.write_text(
-        '{\r\n  "Action": [\r\n    "s3:GetObject"\r\n  ],\r\n'
-        '  "Version": "2012-10-17"\r\n}',
-        encoding="utf-8",
-        newline="",
-    )
-    assert model_projection.json_sha256(artifact) == original_digest
-    artifact.write_text(
-        '{"Version":"2012-10-17","Action":["s3:PutObject"]}\n',
-        encoding="utf-8",
-    )
-    assert model_projection.json_sha256(artifact) != original_digest
     artifact.write_text(
         '{"Version":"2012-10-17","Action":["s3:GetObject"]}\n',
         encoding="utf-8",

@@ -7,7 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from model.projection import document_sha256, json_sha256
 from support.it_case_receipt import it_case
 from support.producer_identifier_reference_fixtures import (
     Path,
@@ -92,14 +91,9 @@ def check(root):
         actual["Statement"][0]["Enabled"] is True
         and type(actual["Statement"][0]["Count"]) is int
     )
-    assert model.values[key + "artifactSha256"] == document_sha256(document)
-    assert key + "artifactSha256" not in model.authoritative
-    artifact = root / "policy.json"
-    artifact.write_text(json.dumps(document, indent=2) + "\n")
-    assert json_sha256(artifact) == model.values[key + "artifactSha256"]
+    assert json.loads(model.values[key + "document"]) == document
     trace = trace_model(path, key + "document")
     assert trace["references"]["account"]["contextProperty"] == "executionAccountId"
-    assert trace_model(path, key + "artifactSha256")["derivedFrom"] == key + "document"
     assert project in source_inputs(path) and affected(root, ["project.json"]) == {
         ("preview", "team", "sqs")
     }
@@ -109,15 +103,14 @@ def check(root):
     changed = warning(path, "context value differs")
     assert (
         changed.authoritative == model.authoritative
-        and changed.values[key + "artifactSha256"]
-        == model.values[key + "artifactSha256"]
+        and changed.values[key + "document"] == model.values[key + "document"]
     )
     assert (
         design_source_digest(path) == digest and dependency_hashes(path) != dependencies
     )
     project.write_text(json.dumps(topology))
-    # Values and reference text change only in an explicit candidate; hashes remain derived.
-    hashes = []
+    # Values and reference text change only in an explicit candidate.
+    documents = []
     for account in ("222222222222", "333333333333"):
         candidate = dict(values)
         candidate[key + "document"] = values[key + "document"].replace(
@@ -127,16 +120,16 @@ def check(root):
         write_model(path, candidate)
         current = load_model(path)
         doc = json.loads(current.authoritative[key + "document"])
-        hashes.append(current.values[key + "artifactSha256"])
-        assert hashes[-1] == document_sha256(doc)
+        documents.append(doc)
+        assert json.loads(current.values[key + "document"]) == doc
         raw = path.read_bytes()
         assert (
             load_model(path).authoritative == current.authoritative
             and path.read_bytes() == raw
         )
-    assert hashes[0] != hashes[1]
+    assert documents[0] != documents[1]
     print(
-        "Context/document digest: PASS (project authority; explicit context meaning; types/order; derived hash; snapshot invalidation; no automatic changes)"
+        "Context/document digest: PASS (project authority; explicit context meaning; types/order; document contents; snapshot invalidation; no automatic changes)"
     )
 
 

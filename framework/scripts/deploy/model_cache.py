@@ -31,6 +31,7 @@ class SessionModels(FileReads):
         self.digests = {}
         self.stages = set()
         self.checks = {}
+        self.reference_revision = object()
         self.consumed = {}
         self.dependency_index = None
         self.index_checks = {}
@@ -197,6 +198,10 @@ class SessionModels(FileReads):
                         + str(path)
                     )
                 published[path] = before
+            if published:
+                # References may cross services; the full check includes those diagnostics.
+                self.reference_revision = object()
+                self.checks.clear()
             for key, snapshot in tuple(self.models.items()):
                 candidate = sources.observed_snapshot(snapshot, outputs)
                 dependencies = {
