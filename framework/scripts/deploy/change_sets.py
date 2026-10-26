@@ -6,6 +6,7 @@ import uuid
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
+from utils.cloudformation.export_resolution import resolve_exports, stack_exports
 from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
 from utils.json_format import fingerprint
@@ -115,7 +116,17 @@ def check_imports(target, templates, states, aws, unit, exports=None):
         },
     )
     if names:
-        exports = fetch_exports(aws, names) if exports is None else exports
+        exports = (
+            resolve_exports(
+                aws,
+                names,
+                hints=states.get(unit["name"], {})
+                .get("delivery", {})
+                .get("imports", {}),
+            )
+            if exports is None
+            else exports
+        )
         missing = names - exports.keys()
         if missing:
             raise Blocked(
@@ -436,24 +447,6 @@ def verify_execution(
     return current
 
 
-def fetch_exports(aws, names):
-    if not names:
-        return {}
-    entries = aws("list_exports").get("Exports", [])
-    result = {}
-    for entry in entries:
-        if entry.get("Name") in names:
-            if (
-                entry["Name"] in result
-                or not {"Value", "ExportingStackId"} <= entry.keys()
-            ):
-                raise Blocked(
-                    "required Export identity/value is incomplete or ambiguous"
-                )
-            result[entry["Name"]] = entry
-    return result
-
-
 def record_execution(aws, unit, state, current, input_digest):
     resources = change_summary(current)
     missing = [
@@ -532,16 +525,27 @@ def verify_outputs(aws, unit, state, expected):
     """Outputs-only changes are successful only when AWS exposes every required Output/Export."""
     if not expected:
         return
-    stack = aws("describe_stacks", StackName=state["stackId"])["Stacks"][0]
+    response = aws("describe_stacks", StackName=state["stackId"])
+    stacks = response.get("Stacks") if isinstance(response, dict) else None
+    if (
+        not isinstance(stacks, list)
+        or len(stacks) != 1
+        or response.get("NextToken") is not None
+    ):
+        raise Blocked("Output verification Stack evidence is incomplete")
+    stack = stacks[0]
     if (
         stack.get("StackId") != state["stackId"]
         or stack.get("StackStatus") not in SUCCESS
     ):
         raise Blocked("Output verification Stack identity/state changed")
-    values = stack.get("Outputs", [])
-    outputs = {item["OutputKey"]: item for item in values}
-    if len(outputs) != len(values):
-        raise Blocked("AWS Outputs are ambiguous")
+    try:
+        exports = stack_exports(stack, state["stackId"])
+    except Blocked as error:
+        raise OutputNotReflected(
+            "AWS Output/Export not reflected: " + str(error)
+        ) from None
+    outputs = {item["OutputKey"]: item for item in stack.get("Outputs", [])}
     deployed = aws("get_template", StackName=state["stackId"])["TemplateBody"]
     if isinstance(deployed, str):
         deployed, errors = decode(deployed)
@@ -549,14 +553,6 @@ def verify_outputs(aws, unit, state, expected):
             raise Blocked("AWS deployed Output definitions cannot be verified")
     if not isinstance(deployed, dict):
         raise Blocked("AWS deployed Output definitions unavailable")
-    exports = fetch_exports(
-        aws,
-        {
-            record["export"]
-            for record in expected.values()
-            if record["export"] is not None
-        },
-    )
     for key, record in expected.items():
         export = record["export"]
         if (

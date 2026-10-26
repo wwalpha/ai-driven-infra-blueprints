@@ -8,6 +8,11 @@ from functools import partial as _bind_framework_callback
 import model.adapters.observed as _imports_model_adapters_observed
 import utils.cloudformation.format as _imports_cfn_format
 from task_contract_core import task_snapshot
+from utils.cloudformation.export_resolution import (
+    describe_exports,
+    merge_hints,
+    resolve_exports,
+)
 from utils.cloudformation.inputs import (
     Blocked,
     condition_active,
@@ -198,10 +203,23 @@ def bootstrap_plan(
         ):
             raise Blocked("consumer resource ownership/scope unknown")
     names = import_names(document, parameters, pseudo)
-    entries = aws("list_exports").get("Exports", []) if names else []
-    exports = {e["Name"]: e["Value"] for e in entries}
-    if len(exports) != len(entries) or names - exports.keys():
-        raise Blocked("consumer Export resolution ambiguous/missing")
+    boundary = {}
+    for owner_state in states.values():
+        if owner_state.get("stackId") and any(
+            record.get("export") in names
+            for record in owner_state.get("expectedOutputs", {}).values()
+        ):
+            describe_exports(aws, owner_state["stackId"], boundary)
+    resolved = resolve_exports(
+        aws,
+        names,
+        boundary=boundary,
+        hints=merge_hints(
+            value.get("delivery", {}).get("imports", {}) for value in states.values()
+        ),
+    )
+    entries = list(resolved.values())
+    exports = {name: entry["Value"] for name, entry in resolved.items()}
     local_secrets = {
         logical
         for logical, definition in document.get("Resources", {}).items()
@@ -321,7 +339,9 @@ def bootstrap_plan(
         or name not in units
     ):
         raise Blocked("Secret is IMPORT or outside CREATE deployment ownership/scope")
-    current = aws("describe_stacks", StackName=name)["Stacks"][0]
+    current = boundary.get("exportStacks", {}).get(name)
+    if current is None:
+        current = aws("describe_stacks", StackName=name)["Stacks"][0]
     stack_id = current.get("StackId")
     if (
         stack_id != states[name].get("stackId")

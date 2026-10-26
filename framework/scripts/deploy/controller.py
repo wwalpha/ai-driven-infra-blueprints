@@ -17,6 +17,11 @@ from model.core import ARTIFACT_PROPERTIES, resource_link
 from model.projection import deployment_bucket
 from utils.aws.identity import execution_account, select_profile
 from utils.cloudformation.environment import validate_environment_inputs
+from utils.cloudformation.export_resolution import (
+    describe_exports,
+    merge_hints,
+    resolve_exports,
+)
 from utils.cloudformation.inputs import Blocked, load_template_inputs
 from utils.json_format import fingerprint
 from utils.type_contracts import JsonObject
@@ -284,8 +289,21 @@ def exports_for(
             }
             names[unit["name"]] = change_sets.import_names(document, parameters, pseudo)
         boundary["importNames"] = names
-        boundary["exports"] = change_sets.fetch_exports(
-            runtime.aws, set().union(*names.values()) if names else set()
+        required = set().union(*names.values()) if names else set()
+        for state in runtime.states.values():
+            if state.get("stackId") and any(
+                record.get("export") in required
+                for record in state.get("expectedOutputs", {}).values()
+            ):
+                describe_exports(runtime.aws, state["stackId"], boundary)
+        boundary["exports"] = resolve_exports(
+            runtime.aws,
+            required,
+            hints=merge_hints(
+                state.get("delivery", {}).get("imports", {})
+                for state in runtime.states.values()
+            ),
+            boundary=boundary,
         )
     return boundary["exports"]
 
@@ -311,7 +329,14 @@ def artifact_bindings(
                 ),
             },
         )
-        exports = change_sets.fetch_exports(runtime.aws, names)
+        exports = resolve_exports(
+            runtime.aws,
+            names,
+            hints=runtime.states.get(unit["name"], {})
+            .get("delivery", {})
+            .get("imports", {}),
+            boundary=boundary,
+        )
     else:
         exports = runtime.exports_for([unit], boundary)
     return delivery.artifact_bindings(

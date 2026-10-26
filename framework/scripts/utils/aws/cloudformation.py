@@ -32,7 +32,7 @@ def describe_change_set(context, **arguments):
 
 
 def list_exports(context, **arguments):
-    """Retry throttled pages within one budget; an in-flight SDK call is not canceled."""
+    """Complete pages share the reference API rate/retry deadline."""
     return pages(context, "cloudformation", "list_exports", "Exports", arguments)
 
 

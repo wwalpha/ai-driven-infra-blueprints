@@ -203,6 +203,29 @@ class StubAws(Runtime):
                 ]
             }
         if operation == "describe_stacks":
+            if (
+                arguments["StackName"]
+                == "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/External/id"
+            ):
+                values = getattr(self, "export_values", {}) or {
+                    name: "export-value" for name in self.exports
+                }
+                return {
+                    "Stacks": [
+                        {
+                            "StackId": arguments["StackName"],
+                            "StackStatus": "UPDATE_COMPLETE",
+                            "Outputs": [
+                                {
+                                    "OutputKey": name,
+                                    "ExportName": name,
+                                    "OutputValue": value,
+                                }
+                                for name, value in values.items()
+                            ],
+                        }
+                    ]
+                }
             AwsError = _imports_utils_aws_client.AwsError
             raise AwsError(
                 "cloudformation", operation, "ValidationError", stack_absent=True

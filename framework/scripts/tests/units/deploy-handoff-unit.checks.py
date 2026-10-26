@@ -847,13 +847,7 @@ def check_handoff_scopes_current_failure_and_preserves_journal(tmp_path, case):
     aws = Mock(
         side_effect=Blocked("read denied")
         if case == "aws-error"
-        else [
-            {"Exports": exports},
-            *[
-                {"Imports": ["S3" if export["Name"] == "MiddleExport" else "Middle"]}
-                for export in exports
-            ],
-        ]
+        else _bind_framework_callback(handoff_dependency_response, exports)
     )
     with (
         patch.object(handoff, "task_snapshot", return_value=task),
@@ -879,9 +873,40 @@ def check_handoff_scopes_current_failure_and_preserves_journal(tmp_path, case):
     assert journal.read_bytes() == before
     if case == "independent-many":
         assert [(call.args[0], call.kwargs) for call in aws.call_args_list] == [
-            ("list_exports", {}),
+            ("describe_stacks", {"StackName": "KMS"}),
+            ("describe_stacks", {"StackName": "S3"}),
             ("list_imports", {"ExportName": "KmsExport"}),
+            ("describe_stacks", {"StackName": "Middle"}),
         ]
+
+
+def handoff_dependency_response(exports, operation, **arguments):
+    if operation == "describe_stacks":
+        name = arguments["StackName"].split(":stack/")[-1].split("/")[0]
+        identity = STACK_ID.format(name)
+        return {
+            "Stacks": [
+                {
+                    "StackId": identity,
+                    "StackStatus": "UPDATE_COMPLETE",
+                    "Outputs": [
+                        {
+                            "OutputKey": e["Name"],
+                            "OutputValue": "value",
+                            "ExportName": e["Name"],
+                        }
+                        for e in exports
+                        if e["ExportingStackId"] == identity
+                    ],
+                }
+            ]
+        }
+    if operation == "list_exports":
+        return {"Exports": [dict(e, Value="value") for e in exports]}
+    assert operation == "list_imports"
+    return {
+        "Imports": ["S3" if arguments["ExportName"] == "MiddleExport" else "Middle"]
+    }
 
 
 @pytest.mark.parametrize("lock", ["journal", "repair"])

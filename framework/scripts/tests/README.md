@@ -321,3 +321,7 @@ helperは削除しました。共通 `document_sha256` / `fingerprint` の仕様
 既存の文書編集/環境間隔離ITはJSON内容と正本traceで検証し、新しいITは追加しません。
 
 共通配列表示は `units/array_display.checks.py` で全カタログの番号・ネスト・JSON/空配列・コメントを確認する。`model_design-unit::check_array_model_projection` はModelからの期待表示照合、元JSON表現/行順の維持、番号/所属/Value/Comment/欠落/追加の不一致とModelなしのエラーを確認する。IAM Policy、CodeBuildの型注釈、Resource linkは既存の関連UTを維持する。
+
+## CloudFormation Export/API reads
+
+`cloudformation-export-resolution` UT owns common Producer identity/status/Outputs, saved Value/Owner comparison, unknown-only discovery, same-boundary sharing and incomplete/ambiguous proof rejection. `aws-client` UT owns Account/Region/API rate budgets shared by eight Threads, single-attempt read transports, Throttling backoff/jitter, deadlines and complete pagination. Caller UTs retain Delivery/Create/Execute freshness, existing dependency graph (direct/transitive/planned/shared Producer/cycles/diamonds), Output/No Change/Recovery, Repair, Secrets ownership/idempotency and Destroy Resume/order/scope guards. Destroy preflight Outputs replace full list-exports; only scoped Exports receive list-imports. All fixtures are offline; local UT success does not prove live AWS throughput or deployment success.

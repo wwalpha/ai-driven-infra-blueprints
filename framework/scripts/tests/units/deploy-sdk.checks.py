@@ -130,7 +130,7 @@ def check_exports_and_boundary_freshness(tmp_path):
     assert runtime.prepare(selected[0], state) == "READY"
     state["clientToken"] = "token"
     runtime.execute(selected[0], state)
-    assert sum(op == "list_exports" for op, _ in runtime.calls) == 3
+    assert sum(op == "list_exports" for op, _ in runtime.calls) == 1
     runtime.export_values["Required"] = "changed"
     state = runtime.states["B"]
     with pytest.raises(ValueError if False else RuntimeError, match="Export"):
@@ -393,13 +393,24 @@ def check_key_policy_scope(tmp_path):
 def _callback_check_cleanup_refreshes_create_boundary_aws(
     cleaned, mutation, original, /, operation, **arguments
 ):
-    if operation == "describe_stacks" and not cleaned:
+    if (
+        operation == "describe_stacks"
+        and not cleaned
+        and ":stack/External/" not in arguments.get("StackName", "")
+    ):
         return {
             "Stacks": [{"StackStatus": "ROLLBACK_COMPLETE", "StackId": "failed-stack"}]
         }
     response = original(operation, **arguments)
-    if operation == "list_exports" and cleaned and mutation == "producer":
-        response["Exports"][0]["ExportingStackId"] = "changed-producer"
+    if (
+        operation == "describe_stacks"
+        and cleaned
+        and mutation == "producer"
+        and ":stack/External/" in arguments.get("StackName", "")
+    ):
+        response["Stacks"][0]["StackId"] = arguments["StackName"].replace(
+            "/id", "/changed"
+        )
     return response
 
 

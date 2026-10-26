@@ -14,6 +14,13 @@ from pathlib import Path
 import worktree_state
 from model.sources import model_session, session_reads
 from task_contract_core import paths_in, task_reads, task_snapshot
+from utils.aws.client import AwsError
+from utils.cloudformation.export_resolution import (
+    describe_exports,
+    merge_hints,
+    resolve_exports,
+    stack_name,
+)
 from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked
 from utils.file_operations import atomic_replace_file
@@ -813,13 +820,7 @@ def dependency_states(backend, unit):
 def export_stack(entry):
     if not isinstance(entry, dict):
         raise Blocked("unfinished Stack dependency evidence unavailable: Export")
-    identity = entry.get("ExportingStackId", "")
-    if not isinstance(identity, str) or ":stack/" not in identity:
-        raise Blocked("unfinished Stack dependency evidence unavailable: Export owner")
-    name = identity.split(":stack/")[-1].split("/")[0]
-    if not name:
-        raise Blocked("unfinished Stack dependency evidence unavailable: Stack name")
-    return name
+    return stack_name(entry.get("ExportingStackId"))
 
 
 def require_independent(pending, stacks, aws, *, imports=None):
@@ -839,29 +840,43 @@ def require_independent(pending, stacks, aws, *, imports=None):
             raise Blocked("unfinished Stack dependency evidence unavailable: " + name)
         for entry in delivered.values():
             consumers.setdefault(export_stack(entry), set()).add(name)
-    response = aws("list_exports")
-    exports = response.get("Exports") if isinstance(response, dict) else None
-    if not isinstance(exports, list) or response.get("NextToken") is not None:
-        raise Blocked("unfinished Stack Export inventory is incomplete")
-    owners, owned = {}, {}
-    for export in exports:
-        owner = export_stack(export)
-        name = export.get("Name")
-        if not isinstance(name, str) or not name:
-            raise Blocked(
-                "unfinished Stack dependency evidence unavailable: Export name"
+    boundary = {}
+    hints = merge_hints(state["delivery"]["imports"] for state in pending.values())
+    planned = set().union(*(imports or {}).values()) if imports else set()
+    identities = {
+        name: state["stackId"]
+        for name, state in pending.items()
+        if state.get("stackId")
+    }
+    for entry in hints.values():
+        identity = entry.get("ExportingStackId")
+        name = stack_name(identity)
+        if name in identities and identities[name] != identity:
+            raise Blocked("unfinished Stack Producer identity changed")
+        identities[name] = identity
+    for name in sorted(stacks | set(pending)):
+        try:
+            describe_exports(
+                aws, identities.get(name, name), boundary, successful=False
             )
-        if name in owners:
-            raise Blocked("unfinished Stack Export identity is ambiguous: " + name)
-        owners[name] = owner
-        owned.setdefault(owner, []).append(name)
+        except AwsError as error:
+            if not error.stack_absent or name in identities or name not in stacks:
+                raise
+            boundary.setdefault("absentExportStacks", set()).add(name)
+    owners = resolve_exports(
+        aws, planned | hints.keys(), hints=hints, boundary=boundary
+    )
     for stack, names in (imports or {}).items():
-        if names - owners.keys():
-            raise Blocked(
-                "unfinished Stack dependency evidence unavailable: missing Export"
-            )
         for name in names:
-            consumers.setdefault(owners[name], set()).add(stack)
+            consumers.setdefault(export_stack(owners[name]), set()).add(stack)
+    for entry in owners.values():
+        name, identity = (
+            stack_name(entry["ExportingStackId"]),
+            entry["ExportingStackId"],
+        )
+        if name in identities and identities[name] != identity:
+            raise Blocked("unfinished Stack Producer identity changed")
+        identities[name] = identity
     expanded = set()
     for start in sorted(stacks | set(pending)):
         reached, remaining = set(), [start]
@@ -879,7 +894,14 @@ def require_independent(pending, stacks, aws, *, imports=None):
                 continue
             reached.add(name)
             if name not in expanded:
-                for export in owned.get(name, ()):
+                owned = (
+                    {}
+                    if name in boundary.get("absentExportStacks", ())
+                    else describe_exports(
+                        aws, identities.get(name, name), boundary, successful=False
+                    )
+                )
+                for export in owned:
                     response = aws("list_imports", ExportName=export)
                     imported = (
                         response.get("Imports") if isinstance(response, dict) else None

@@ -178,7 +178,7 @@ def check_sdk_execution():
         == "STOPPED"
     )
     assert state["B"]["status"] == "BLOCKED"
-    assert "DeployOrder conflicts" in state["B"]["reason"]
+    assert "missing Export" in state["B"]["reason"]
     assert not any(
         op == "create_change_set"
         for op, _ in _state_check_sdk_execution_65.backend.calls
@@ -207,15 +207,33 @@ def check_sdk_execution():
         {},
     )
     _state_check_sdk_execution_65.backend.states = {"A": {"status": "RUNNING"}}
-    _state_check_sdk_execution_65.backend.aws = lambda *args: {
-        "Exports": [
-            {
-                "Name": "NetworkVpcId",
-                "Value": "vpc-fixture",
-                "ExportingStackId": "arn:aws:cloudformation:region:account:stack/A/id",
-            }
-        ]
-    }
+    _state_check_sdk_execution_65.backend.aws = (
+        lambda op, **kw: {
+            "Stacks": [
+                {
+                    "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/id",
+                    "StackStatus": "UPDATE_COMPLETE",
+                    "Outputs": [
+                        {
+                            "OutputKey": "VpcId",
+                            "ExportName": "NetworkVpcId",
+                            "OutputValue": "vpc-fixture",
+                        }
+                    ],
+                }
+            ]
+        }
+        if op == "describe_stacks"
+        else {
+            "Exports": [
+                {
+                    "Name": "NetworkVpcId",
+                    "Value": "vpc-fixture",
+                    "ExportingStackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/id",
+                }
+            ]
+        }
+    )
     rejects(
         lambda: _state_check_sdk_execution_65.backend.check_imports(scoped[1]),
         "producer A has not succeeded",
@@ -1995,6 +2013,15 @@ def _callback_check_secret_runtime_bootstrap_configure_aws(
                     "StackId": stack_ids[name],
                     "StackStatus": statuses[name],
                     "Parameters": [],
+                    "Outputs": [
+                        {
+                            "OutputKey": "SecretArn",
+                            "ExportName": "SecretExport",
+                            "OutputValue": arn,
+                        }
+                    ]
+                    if name == "SecretOwner"
+                    else [],
                 }
             ]
         }
@@ -3338,8 +3365,8 @@ def check_destroy_order_and_safety():
     )
     assert sum(
         (op == "list-exports" for op, _ in _state_check_order_and_safety_138.fake.calls)
-    ) == 1 and (not _state_check_order_and_safety_138.fake.deleted)
-    for operation in ("list-exports", "list-imports"):
+    ) == 0 and (not _state_check_order_and_safety_138.fake.deleted)
+    for operation in ("list-imports",):
         _state_check_order_and_safety_138.fake = destroy.Fake(
             ["A"], exports={"Vpc": ("A", [])}
         )
@@ -3503,7 +3530,7 @@ def check_destroy_unused_export():
         "run",
         return_value=SimpleNamespace(returncode=255, stdout="", stderr=diagnostic),
     ):
-        destroy.rejects(lambda: backend.aws("list-exports"), "list-exports:")
+        destroy.rejects(lambda: backend.aws("list-exports"), "outside standard destroy")
     with patch.object(
         destroy.M.subprocess,
         "run",

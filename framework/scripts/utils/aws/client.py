@@ -2,8 +2,12 @@
 
 import hashlib
 import os
+import random
+import re
+import subprocess
 import threading
 import time
+from functools import partial
 
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
@@ -12,6 +16,61 @@ _lock = threading.RLock()
 _sessions = {}
 _clients = {}
 API_BUDGET_SECONDS = 60
+READ_RATES = {
+    "describe_stacks": 5,
+    "get_template": 5,
+    "list_exports": 5,
+    "list_imports": 1,
+}
+_rate_locks, _rate_next = {}, {}
+THROTTLING = {
+    "Throttling",
+    "ThrottlingException",
+    "RequestLimitExceeded",
+    "TooManyRequestsException",
+}
+
+
+def read_api(account, region, operation, send, *, deadline=None):
+    """One-attempt transports only; pace every page/retry across profiles and Threads."""
+    deadline = time.monotonic() + API_BUDGET_SECONDS if deadline is None else deadline
+    key = account, region, operation
+    with _lock:
+        gate = _rate_locks.setdefault(key, threading.Lock())
+    for attempt in range(5):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not gate.acquire(timeout=remaining):
+            raise AwsError("cloudformation", operation, "OperationDeadlineExceeded")
+        try:
+            delay = max(0, _rate_next.get(key, 0) - time.monotonic())
+            if time.monotonic() + delay >= deadline:
+                raise AwsError("cloudformation", operation, "OperationDeadlineExceeded")
+            if delay:
+                time.sleep(delay)
+            if time.monotonic() >= deadline:
+                raise AwsError("cloudformation", operation, "OperationDeadlineExceeded")
+            try:
+                return send()
+            finally:
+                # Keep the slot through transport completion so delayed sends cannot bunch up.
+                _rate_next[key] = time.monotonic() + 1 / READ_RATES[operation]
+        except Exception as error:
+            code = (
+                error.code
+                if isinstance(error, AwsError)
+                else getattr(error, "response", {}).get("Error", {}).get("Code")
+            )
+            if isinstance(error, subprocess.CalledProcessError):
+                match = re.search(r"\(([^)]+)\) when calling", error.stderr or "")
+                code = match[1] if match else None
+            if code not in THROTTLING or attempt == 4:
+                raise
+        finally:
+            gate.release()
+        delay = random.uniform(0.5, 1.0) * 2**attempt
+        if time.monotonic() + delay >= deadline:
+            raise AwsError("cloudformation", operation, "OperationDeadlineExceeded")
+        time.sleep(delay)
 
 
 def connection_context(profile, region, account, authentication=None):
@@ -44,7 +103,7 @@ def connection_context(profile, region, account, authentication=None):
     return profile, region, account, authentication
 
 
-def client(context, service):
+def client(context, service, *, read=False):
     with _lock:
         if (
             isinstance(context[3], tuple)
@@ -54,7 +113,7 @@ def client(context, service):
             raise Blocked(
                 "AWS authentication context changed; recreate the connection context"
             )
-        key = (context, service)
+        key = (context, service, read)
         if key not in _clients:
             Config = aws_runtime().sdk_config
             if context not in _sessions:
@@ -65,7 +124,10 @@ def client(context, service):
             created = _sessions[context].client(
                 service,
                 config=Config(
-                    retries={"mode": "standard", "total_max_attempts": 2},
+                    retries={
+                        "mode": "standard",
+                        "total_max_attempts": 1 if read else 2,
+                    },
                     connect_timeout=5,
                     read_timeout=20,
                     max_pool_connections=20,
@@ -102,7 +164,21 @@ def request(context, service, operation, arguments, *, deadline=None):
     if time.monotonic() >= deadline:
         raise AwsError(service, operation, "OperationDeadlineExceeded")
     try:
-        response = getattr(client(context, service), operation)(**arguments)
+        controlled = service == "cloudformation" and operation in READ_RATES
+        send = partial(
+            getattr(
+                client(context, service, read=True)
+                if controlled
+                else client(context, service),
+                operation,
+            ),
+            **arguments,
+        )
+        response = (
+            read_api(context[2], context[1], operation, send, deadline=deadline)
+            if controlled
+            else send()
+        )
     except ClientError as error:
         details = error.response.get("Error", {})
         code = details.get("Code", "Unknown")
@@ -150,38 +226,12 @@ def request(context, service, operation, arguments, *, deadline=None):
 def pages(context, service, operation, field, arguments):
     """Return only a complete inventory; invalid/repeated continuation tokens fail closed."""
     deadline = time.monotonic() + API_BUDGET_SECONDS
-    retry_exports = service == "cloudformation" and operation == "list_exports"
     result, items, seen, token = {}, [], set(), None
     while True:
         page_arguments = arguments | ({"NextToken": token} if token else {})
-        # Five application calls can make ten HTTP attempts with the SDK's two attempts.
-        for attempt in range(5 if retry_exports else 1):
-            if time.monotonic() >= deadline:
-                raise AwsError(service, operation, "OperationDeadlineExceeded")
-            try:
-                response = request(
-                    context, service, operation, page_arguments, deadline=deadline
-                )
-                break
-            except AwsError as error:
-                if (
-                    not retry_exports
-                    or error.code
-                    not in {
-                        "Throttling",
-                        "ThrottlingException",
-                        "RequestLimitExceeded",
-                        "TooManyRequestsException",
-                    }
-                    or attempt == 4
-                ):
-                    raise
-                delay = 2**attempt
-                if time.monotonic() + delay >= deadline:
-                    raise AwsError(
-                        service, operation, "OperationDeadlineExceeded"
-                    ) from None
-                time.sleep(delay)
+        response = request(
+            context, service, operation, page_arguments, deadline=deadline
+        )
         values = response.get(field, [])
         if (
             service == "cloudformation"

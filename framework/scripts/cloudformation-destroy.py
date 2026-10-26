@@ -27,7 +27,15 @@ from task_contract_core import (
     task_read_scope,
 )
 from task_contract_core import task_snapshot as read_task_snapshot
+from utils.aws.client import (
+    API_BUDGET_SECONDS,
+    READ_RATES,
+    THROTTLING,
+    AwsError,
+    read_api,
+)
 from utils.aws.identity import execution_account, select_profile
+from utils.cloudformation.export_resolution import stack_exports
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from validation_scope import active_scope
@@ -106,7 +114,7 @@ def task_snapshot(root, environment, target, requested, plan):
 
 
 class AwsBackend:
-    READS = {"describe-stacks", "list-exports", "list-imports", "describe-stack-events"}
+    READS = {"describe-stacks", "list-imports", "describe-stack-events"}
 
     def __init__(
         self, root, environment, directory, target, profile=None, timing_log=None
@@ -126,6 +134,45 @@ class AwsBackend:
     def aws(self, operation, *arguments):
         if operation not in self.READS | {"delete-stack"}:
             raise Blocked(f"operation outside standard destroy: {operation}")
+        api = operation.replace("-", "_")
+        if api not in READ_RATES:
+            return self._aws_once(operation, arguments, controlled=False)
+        deadline = time.monotonic() + API_BUDGET_SECONDS
+        token, seen, items, result = None, set(), [], None
+        field = "Imports" if operation == "list-imports" else "Stacks"
+        while True:
+            page_arguments = (
+                *arguments,
+                "--no-paginate",
+                *(["--next-token", token] if token else []),
+            )
+            response = read_api(
+                execution_account(self.target),
+                self.target["awsRegion"],
+                api,
+                _bind_framework_callback(
+                    self._aws_once, operation, page_arguments, controlled=True
+                ),
+                deadline=deadline,
+            )
+            if response is None:
+                return None
+            if not isinstance(response, dict) or not isinstance(
+                response.get(field), list
+            ):
+                raise Blocked("incomplete destroy reference response: " + operation)
+            items.extend(response[field])
+            result = response if result is None else result
+            token = response.get("NextToken")
+            if token is None:
+                return {
+                    key: value for key, value in result.items() if key != "NextToken"
+                } | {field: items}
+            if not isinstance(token, str) or not token or token in seen:
+                raise Blocked("invalid destroy reference pagination: " + operation)
+            seen.add(token)
+
+    def _aws_once(self, operation, arguments, *, controlled):
         command = ["aws", "--region", self.target["awsRegion"]]
         if self.profile:
             command += ["--profile", self.profile]
@@ -140,7 +187,11 @@ class AwsBackend:
         started = time.perf_counter()
         try:
             result = subprocess.run(
-                command, capture_output=True, text=True, timeout=60, env=self.env
+                command,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=self.env | ({"AWS_MAX_ATTEMPTS": "1"} if controlled else {}),
             )
             if result.returncode:
                 # Only this exact CFN not-found diagnostic constitutes absence.
@@ -154,6 +205,12 @@ class AwsBackend:
                     result.stderr,
                 ):
                     return {"Imports": []}
+                if controlled:
+                    match = re.search(r"\(([^)]+)\) when calling", result.stderr)
+                    if match and match[1] in THROTTLING:
+                        raise AwsError(
+                            "cloudformation", operation.replace("-", "_"), match[1]
+                        )
                 raise Blocked(
                     f"{operation}: {result.stderr.strip() or 'AWS CLI failed'}"
                 )
@@ -299,9 +356,7 @@ def preflight(session, backend, limit, save):
                 state["status"] = "NOT_STARTED"
             protection(stack, name)
             state["exportNames"] = sorted(
-                output["ExportName"]
-                for output in stack.get("Outputs", [])
-                if output.get("ExportName")
+                stack_exports(stack, identity, successful=False)
             )
         except (ValueError, Blocked) as error:
             state["preflightError"] = str(error)
@@ -314,42 +369,47 @@ def preflight(session, backend, limit, save):
 def dependencies(session, backend, save):
     states = session["states"]
     if "exports" not in session:
-        # AWS CLI auto-pagination covers all pages in one logical list-exports call.
-        exports = backend.aws("list-exports").get("Exports")
-        if (
-            not isinstance(exports, list)
-            or any(
-                not isinstance(export, dict)
-                or not all(
-                    isinstance(export.get(key), str) and export[key]
-                    for key in ("Name", "ExportingStackId")
-                )
-                for export in exports
-            )
-            or len({export["Name"] for export in exports}) != len(exports)
-        ):
-            raise Blocked("invalid list-exports response; cannot prove dependencies")
-        session["exports"] = [
-            {key: export[key] for key in ("Name", "ExportingStackId")}
-            for export in exports
-            if export.get("ExportingStackId")
-            in {state.get("StackId") for state in states.values()}
+        exports = [
+            {"Name": export, "ExportingStackId": state["StackId"]}
+            for state in states.values()
+            if state["status"] not in {"DELETE_COMPLETE", "ALREADY_ABSENT"}
+            for export in state["exportNames"]
         ]
+        if len({export["Name"] for export in exports}) != len(exports):
+            raise Blocked("scoped Export identity is ambiguous")
+        session["exports"] = exports
         save()
-    else:
-        # Reuse the single export snapshot only when current scoped Outputs prove it unchanged.
-        for name, state in states.items():
-            if state["status"] in {"DELETE_COMPLETE", "ALREADY_ABSENT"}:
-                continue
-            expected = sorted(
-                export["Name"]
-                for export in session["exports"]
-                if export["ExportingStackId"] == state.get("StackId")
+    if (
+        not isinstance(session["exports"], list)
+        or any(
+            not isinstance(export, dict)
+            or not isinstance(export.get("Name"), str)
+            or not export["Name"]
+            or export.get("ExportingStackId")
+            not in {
+                state.get("StackId")
+                for state in states.values()
+                if state.get("StackId")
+            }
+            for export in session["exports"]
+        )
+        or len({export["Name"] for export in session["exports"]})
+        != len(session["exports"])
+    ):
+        raise Blocked("saved scoped Export snapshot is incomplete or ambiguous")
+    # Reuse the single export snapshot only when current scoped Outputs prove it unchanged.
+    for name, state in states.items():
+        if state["status"] in {"DELETE_COMPLETE", "ALREADY_ABSENT"}:
+            continue
+        expected = sorted(
+            export["Name"]
+            for export in session["exports"]
+            if export["ExportingStackId"] == state.get("StackId")
+        )
+        if expected != state.get("exportNames", []):
+            raise Blocked(
+                f"export snapshot changed on resume: {name}; require a new session"
             )
-            if expected != state.get("exportNames", []):
-                raise Blocked(
-                    f"export snapshot changed on resume: {name}; require a new session"
-                )
     owners = {
         state.get("StackId"): name
         for name, state in states.items()

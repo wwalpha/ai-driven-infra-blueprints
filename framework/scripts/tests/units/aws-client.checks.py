@@ -7,16 +7,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from types import SimpleNamespace
-from unittest.mock import Mock, call
+from unittest.mock import Mock
 
 import boto3
 import pytest
 from botocore.exceptions import ClientError
 from botocore.stub import Stubber
+from support.cloudformation_destroy_fixtures import M as destroy
 from utils.aws import client as sdk
 from utils.aws import cloudformation, secretsmanager
 
@@ -103,7 +105,7 @@ def check_initialization_failure(monkeypatch):
     context = ("a", "ap-northeast-1", "123456789012", "profile")
     with pytest.raises(RuntimeError):
         sdk.client(context, "s3")
-    assert (context, "s3") not in sdk._clients
+    assert (context, "s3", False) not in sdk._clients
     assert sdk.client(context, "s3") is sdk.client(context, "s3") and len(calls) == 2
     sdk._sessions.clear()
     sdk._clients.clear()
@@ -187,7 +189,7 @@ def check_structured_errors_and_secrets(monkeypatch):
         monkeypatch.setattr(
             sdk,
             "client",
-            lambda *a, code=code, status=status: SimpleNamespace(
+            lambda *a, code=code, status=status, **kw: SimpleNamespace(
                 describe_stacks=error(code, "private data", status)
             ),
         )
@@ -201,7 +203,7 @@ def check_structured_errors_and_secrets(monkeypatch):
     monkeypatch.setattr(
         sdk,
         "client",
-        lambda *a: SimpleNamespace(
+        lambda *a, **kw: SimpleNamespace(
             describe_stacks=error("ValidationError", "Stack with id x does not exist")
         ),
     )
@@ -255,6 +257,128 @@ def check_failed_continuation_returns_no_inventory(monkeypatch):
         cloudformation.describe_change_set(("context",), ChangeSetName="change")
 
 
+class Clock:
+    def __init__(self):
+        self.now, self.waits = 100.0, []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.waits.append(seconds)
+        self.now += seconds
+
+
+def check_read_sdk_attempts_do_not_change_mutation_clients(monkeypatch):
+    session = boto3.Session(
+        aws_access_key_id="synthetic",
+        aws_secret_access_key="synthetic",
+        region_name="us-east-1",
+    )
+    context = ("offline", "us-east-1", "123456789012", "fixture")
+    monkeypatch.setattr(sdk, "_clients", {})
+    monkeypatch.setattr(sdk, "_sessions", {context: session})
+    read = sdk.client(context, "cloudformation", read=True)
+    mutation = sdk.client(context, "cloudformation")
+    assert read is not mutation
+    assert read.meta.config.retries["total_max_attempts"] == 1
+    assert mutation.meta.config.retries["total_max_attempts"] == 2
+
+
+def check_destroy_cli_controls_every_page_and_retry(tmp_path, monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(sdk, "time", clock)
+    monkeypatch.setattr(sdk, "_rate_locks", {})
+    monkeypatch.setattr(sdk, "_rate_next", {})
+    monkeypatch.setattr(sdk.random, "uniform", lambda a, b: 1)
+    backend = destroy.AwsBackend(
+        tmp_path,
+        "dev",
+        "123456789012",
+        {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
+    )
+    process = Mock(
+        side_effect=[
+            SimpleNamespace(
+                returncode=0, stdout='{"Imports":["A"],"NextToken":"next"}', stderr=""
+            ),
+            SimpleNamespace(
+                returncode=255,
+                stdout="",
+                stderr="An error occurred (Throttling) when calling the ListImports operation: slow",
+            ),
+            SimpleNamespace(returncode=0, stdout='{"Imports":["B"]}', stderr=""),
+        ]
+    )
+    monkeypatch.setattr(destroy.subprocess, "run", process)
+    assert backend.aws("list-imports", "--export-name", "Export") == {
+        "Imports": ["A", "B"]
+    }
+    assert process.call_count == 3 and clock.waits == [1, 1]
+    for index, call_item in enumerate(process.call_args_list):
+        assert "--no-paginate" in call_item.args[0]
+        assert call_item.kwargs["env"]["AWS_MAX_ATTEMPTS"] == "1"
+        assert ("--next-token" in call_item.args[0]) == (index > 0)
+    process.reset_mock()
+    with pytest.raises(destroy.Blocked, match="outside standard destroy"):
+        backend.aws("list-exports")
+    process.assert_not_called()
+
+
+@pytest.mark.parametrize("token", ["same", "", 123])
+def check_destroy_incomplete_pagination_blocks(tmp_path, monkeypatch, token):
+    clock = Clock()
+    monkeypatch.setattr(sdk, "time", clock)
+    monkeypatch.setattr(sdk, "_rate_locks", {})
+    monkeypatch.setattr(sdk, "_rate_next", {})
+    backend = destroy.AwsBackend(
+        tmp_path,
+        "dev",
+        "123456789012",
+        {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
+    )
+    process = Mock(
+        return_value=SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"Imports": [], "NextToken": token}),
+            stderr="",
+        )
+    )
+    monkeypatch.setattr(destroy.subprocess, "run", process)
+    with pytest.raises(destroy.Blocked, match="pagination"):
+        backend.aws("list-imports", "--export-name", "Export")
+    assert process.call_count == (2 if token == "same" else 1)
+
+
+@pytest.mark.parametrize("operation", list(sdk.READ_RATES))
+def check_read_rates_shared_by_eight_threads(monkeypatch, operation):
+    clock, sent = Clock(), []
+    monkeypatch.setattr(sdk, "time", clock)
+    monkeypatch.setattr(sdk, "_rate_locks", {})
+    monkeypatch.setattr(sdk, "_rate_next", {})
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(
+            pool.map(
+                lambda _: sdk.read_api(
+                    "account",
+                    "region",
+                    operation,
+                    lambda: sent.append(clock.monotonic()),
+                ),
+                range(24),
+            )
+        )
+    spacing = 1 / sdk.READ_RATES[operation]
+    assert len(sent) == 24 and all(
+        b - a >= spacing - 1e-9 for a, b in zip(sent, sent[1:], strict=False)
+    )
+    for account, region in [("other", "region"), ("account", "other")]:
+        before = len(clock.waits)
+        sdk.read_api(account, region, operation, lambda: None)
+        assert len(clock.waits) == before
+
+
+@pytest.mark.parametrize("operation", list(sdk.READ_RATES))
 @pytest.mark.parametrize(
     "code",
     [
@@ -262,153 +386,62 @@ def check_failed_continuation_returns_no_inventory(monkeypatch):
         "ThrottlingException",
         "RequestLimitExceeded",
         "TooManyRequestsException",
+        "AccessDenied",
+        "ValidationError",
     ],
 )
-def check_export_throttling_retries_only_failed_page(monkeypatch, code):
-    request = Mock(
-        side_effect=[
-            {"Exports": ["first"], "NextToken": "second"},
-            sdk.AwsError("cloudformation", "list_exports", code),
-            {"Exports": ["second"]},
-        ]
-    )
-    clock = SimpleNamespace(monotonic=Mock(return_value=100), sleep=Mock())
-    monkeypatch.setattr(sdk, "request", request)
+def check_reference_retry_and_non_throttling_failure(monkeypatch, operation, code):
+    clock = Clock()
     monkeypatch.setattr(sdk, "time", clock)
-    arguments = {"MaxResults": 10}
-    assert cloudformation.list_exports(("context",), **arguments) == {
-        "Exports": ["first", "second"]
-    }
-    assert request.call_args_list == [
-        call(("context",), "cloudformation", "list_exports", arguments, deadline=160),
-        call(
-            ("context",),
-            "cloudformation",
-            "list_exports",
-            arguments | {"NextToken": "second"},
-            deadline=160,
-        ),
-        call(
-            ("context",),
-            "cloudformation",
-            "list_exports",
-            arguments | {"NextToken": "second"},
-            deadline=160,
-        ),
-    ]
-    clock.sleep.assert_called_once_with(1)
-    assert arguments == {"MaxResults": 10}
+    monkeypatch.setattr(sdk, "_rate_locks", {})
+    monkeypatch.setattr(sdk, "_rate_next", {})
+    monkeypatch.setattr(sdk.random, "uniform", lambda a, b: 1)
+    error = ClientError({"Error": {"Code": code}}, operation)
+    send = Mock(side_effect=[error, {"ok": True}])
+    if code in sdk.THROTTLING:
+        assert sdk.read_api("account", "region", operation, send) == {"ok": True}
+        assert send.call_count == 2 and clock.waits == [1]
+    else:
+        with pytest.raises(ClientError):
+            sdk.read_api("account", "region", operation, send)
+        assert send.call_count == 1 and not clock.waits
 
 
-def check_export_throttling_attempt_limit(monkeypatch):
+def check_reference_attempt_limit_and_deadline(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(sdk, "time", clock)
+    monkeypatch.setattr(sdk, "_rate_locks", {})
+    monkeypatch.setattr(sdk, "_rate_next", {})
+    monkeypatch.setattr(sdk.random, "uniform", lambda a, b: 1)
     error = sdk.AwsError("cloudformation", "list_exports", "Throttling", 400)
-    request = Mock(
-        side_effect=[{"Exports": ["first"], "NextToken": "second"}] + [error] * 5
-    )
-    clock = SimpleNamespace(monotonic=Mock(return_value=100), sleep=Mock())
-    monkeypatch.setattr(sdk, "request", request)
-    monkeypatch.setattr(sdk, "time", clock)
-    with pytest.raises(sdk.AwsError) as caught:
-        cloudformation.list_exports(("context",))
-    assert caught.value is error and caught.value.http_status == 400
-    assert request.call_count == 6
-    assert all(c.args[3] == {"NextToken": "second"} for c in request.call_args_list[1:])
-    assert all(c.kwargs == {"deadline": 160} for c in request.call_args_list)
-    assert clock.sleep.call_args_list == [call(1), call(2), call(4), call(8)]
-
-
-@pytest.mark.parametrize("boundary", ["before-wait", "before-retry", "next-page"])
-def check_export_retry_shares_deadline(monkeypatch, boundary):
-    # Include time spent on the first successful page, SDK calls and scheduler delay.
-    times = {
-        "before-wait": [100, 100, 158, 158, 159, 159],
-        "before-retry": [100, 100, 158, 158, 160],
-        "next-page": [100, 100, 160],
-    }
-    request = Mock(
-        side_effect=[
-            {"Exports": ["first"], "NextToken": "second"},
-            sdk.AwsError("cloudformation", "list_exports", "Throttling"),
-            sdk.AwsError("cloudformation", "list_exports", "Throttling"),
-        ]
-    )
-    clock = SimpleNamespace(monotonic=Mock(side_effect=times[boundary]), sleep=Mock())
-    monkeypatch.setattr(sdk, "request", request)
-    monkeypatch.setattr(sdk, "time", clock)
+    send = Mock(side_effect=error)
+    with pytest.raises(sdk.AwsError, match="Throttling"):
+        sdk.read_api("account", "region", "list_exports", send)
+    assert send.call_count == 5 and clock.waits == [1, 2, 4, 8]
+    send.reset_mock()
     with pytest.raises(sdk.AwsError, match="OperationDeadlineExceeded"):
-        cloudformation.list_exports(("context",))
-    assert (
-        request.call_count
-        == {"before-wait": 3, "before-retry": 2, "next-page": 1}[boundary]
-    )
-    assert all(c.kwargs == {"deadline": 160} for c in request.call_args_list)
-    assert clock.sleep.call_args_list == ([] if boundary == "next-page" else [call(1)])
+        sdk.read_api("other", "region", "list_exports", send, deadline=clock.now + 0.5)
+    assert send.call_count == 1
+    sdk._rate_next[("other", "region", "list_exports")] = clock.now + 10
+    send.reset_mock()
+    with pytest.raises(sdk.AwsError, match="OperationDeadlineExceeded"):
+        sdk.read_api("other", "region", "list_exports", send, deadline=clock.now + 1)
+    send.assert_not_called()
 
 
 @pytest.mark.parametrize(
-    "code", ["AccessDenied", "ValidationError", "InvalidContinuationToken"]
+    "operation", ["create_change_set", "execute_change_set", "delete_stack"]
 )
-def check_export_non_throttling_is_not_retried(monkeypatch, code):
-    error = sdk.AwsError("cloudformation", "list_exports", code)
-    request, sleep = Mock(side_effect=error), Mock()
-    monkeypatch.setattr(sdk, "request", request)
+def check_mutations_keep_single_application_call(monkeypatch, operation):
+    send = Mock(side_effect=ClientError({"Error": {"Code": "Throttling"}}, operation))
     monkeypatch.setattr(
-        sdk, "time", SimpleNamespace(monotonic=lambda: 100, sleep=sleep)
-    )
-    with pytest.raises(sdk.AwsError) as caught:
-        cloudformation.list_exports(("context",))
-    assert caught.value is error and request.call_count == 1
-    sleep.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "response,code",
-    [
-        ({"Exports": [], "NextToken": "second"}, "InvalidContinuationToken"),
-        ({"Exports": [], "NextToken": 123}, "InvalidContinuationToken"),
-        ({"Exports": [], "NextToken": ""}, "InvalidContinuationToken"),
-        ({"Exports": {}}, "InvalidPage"),
-    ],
-)
-def check_export_retry_retains_page_validation(monkeypatch, response, code):
-    request, sleep = (
-        Mock(
-            side_effect=[
-                {"Exports": ["first"], "NextToken": "second"},
-                sdk.AwsError("cloudformation", "list_exports", "Throttling"),
-                response,
-            ]
-        ),
-        Mock(),
-    )
-    monkeypatch.setattr(sdk, "request", request)
-    monkeypatch.setattr(
-        sdk, "time", SimpleNamespace(monotonic=lambda: 100, sleep=sleep)
-    )
-    with pytest.raises(sdk.AwsError, match=code):
-        cloudformation.list_exports(("context",))
-    assert request.call_count == 3
-    sleep.assert_called_once_with(1)
-
-
-@pytest.mark.parametrize(
-    "operation",
-    ["list_imports", "create_change_set", "execute_change_set", "delete_stack"],
-)
-def check_other_operations_do_not_retry_throttling(monkeypatch, operation):
-    request, sleep = (
-        Mock(side_effect=sdk.AwsError("cloudformation", operation, "Throttling")),
-        Mock(),
-    )
-    monkeypatch.setattr(sdk, "request", request)
-    monkeypatch.setattr(cloudformation, "request", request)
-    monkeypatch.setattr(
-        sdk, "time", SimpleNamespace(monotonic=lambda: 100, sleep=sleep)
+        sdk, "client", lambda *a, **kw: SimpleNamespace(**{operation: send})
     )
     with pytest.raises(sdk.AwsError, match="Throttling"):
-        getattr(cloudformation, operation)(("context",))
-    assert request.call_count == 1
-    sleep.assert_not_called()
+        sdk.request(
+            ("profile", "region", "account", "auth"), "cloudformation", operation, {}
+        )
+    send.assert_called_once_with()
 
 
 @pytest.mark.parametrize("missing_page", [0, 1])
@@ -491,7 +524,7 @@ def check_sdk_arguments_and_pages(tmp_path, monkeypatch):
         region_name="us-east-1",
     )
     cfn = session.client("cloudformation")
-    monkeypatch.setattr(sdk, "client", lambda context, service: cfn)
+    monkeypatch.setattr(sdk, "client", lambda context, service, **kw: cfn)
     sleep = Mock()
     monkeypatch.setattr(
         sdk, "time", SimpleNamespace(monotonic=lambda: 100, sleep=sleep)
@@ -517,8 +550,10 @@ def check_sdk_arguments_and_pages(tmp_path, monkeypatch):
             expected_params={"NextToken": "next"},
         )
         stub.add_response("list_exports", {"Exports": []}, {"NextToken": "next"})
-        assert cloudformation.list_exports(("offline",))["Exports"] == [export]
-        sleep.assert_called_once_with(1)
+        assert cloudformation.list_exports(
+            ("offline", "us-east-1", "123456789012", "auth")
+        )["Exports"] == [export]
+        assert sleep.called
         stub.add_response(
             "list_imports",
             {"Imports": ["Consumer"], "NextToken": "next"},
@@ -529,9 +564,9 @@ def check_sdk_arguments_and_pages(tmp_path, monkeypatch):
             {"Imports": []},
             {"ExportName": "Required", "NextToken": "next"},
         )
-        assert cloudformation.list_imports(("offline",), ExportName="Required")[
-            "Imports"
-        ] == ["Consumer"]
+        assert cloudformation.list_imports(
+            ("offline", "us-east-1", "123456789012", "auth"), ExportName="Required"
+        )["Imports"] == ["Consumer"]
         stub.assert_no_pending_responses()
 
 

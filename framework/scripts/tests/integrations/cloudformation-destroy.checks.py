@@ -275,10 +275,8 @@ def check_controller(tmp_path):
             assert state["states"]["A"]["observedSynced"]
             counts = Counter(op for op, _ in _state_check_controller_338.fake.calls)
             assert (
-                counts["get-caller-identity"]
-                == counts["delete-stack"]
-                == counts["list-exports"]
-                == 1
+                counts["get-caller-identity"] == counts["delete-stack"] == 1
+                and counts["list-exports"] == 0
             )
             assert not any(
                 counts[op]
@@ -299,7 +297,7 @@ def check_controller(tmp_path):
                     op == "list-exports"
                     for op, _ in _state_check_controller_338.fake.calls
                 )
-                == 1
+                == 0
             )
             assert _state_check_controller_338.fake.deleted == ["A"]
             previous_calls = len(_state_check_controller_338.fake.calls)
@@ -416,11 +414,12 @@ def check_controller(tmp_path):
         counts = Counter(op for op, _ in _state_check_controller_338.fake.calls)
         assert _state_check_controller_338.fake.deleted == ["A", "B", "C"]
         assert (
-            counts["get-caller-identity"] == counts["list-exports"] == 1
+            counts["get-caller-identity"] == 1
+            and counts["list-exports"] == 0
             and counts["delete-stack"] == 3
         )
         print(
-            "D14: PASS 3 real-guard deletes: STS=1, exports=1, full tree/body scans=0"
+            "D14: PASS 3 real-guard deletes: STS=1, exports=0, full tree/body scans=0"
         )
         # A Task change after the first delete blocks subsequent starts.
         task = _state_check_controller_338.root / "tasks/destroy.md"

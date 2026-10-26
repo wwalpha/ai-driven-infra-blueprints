@@ -44,6 +44,10 @@ Preparationはoffline。AIが契約候補と出力範囲を確認してから登
 
 原因不明・権限/Target不一致・第三者変更・曖昧な識別子では停止する。JournalやLockを手編集・削除して回避しない。PENDING_DEPLOYは依存待ちとして扱い、通常のIaC不具合と断定しない。AWS成功後のObserved/生成失敗では再Executeせず、原因を解決して既存のguard付き復旧を使う。GROUP_COMPLETEは全体完了ではない。updateで許可されたProducer/Consumer変更を確認後、現在入力から独立起動する。
 
+Exportは共通Resolverで対象名だけを解決する。delivery.imports・現在のOutput契約等でProducerが既知なら、そのStackIdへのDescribeStacksでValue/Owner/Statusを再確認し、ListExportsを呼ばない。未知Producerだけ同一検証境界のListExportsでまとめて発見し、DescribeStacksで再確認する。Delivery/Create/Executeの取得結果を境界間で再利用しない。Output反映はDescribeStacks/GetTemplateで検証し、ListExportsを追加しない。
+
+未完了Operationとの依存確認は既存のProducer→Consumer探索を維持し、起点/到達StackのOutputsと保存済み/予定Importを使う。ListImportsは到達StackのExportだけ。Repairの依存確認にも対象Stackを指定したDescribeStacksを許可する。参照APIはAccount/Region/API単位の共有頻度制御・期限・Throttling Retryを使い、変更系の再送設定や設計済み並列度を変更しない。
+
 ## External IaC repair handoff
 
 [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair)と[Worktree repair lifecycle](../../../.agents/skills/worktree/SKILL.md#explicit-cloudformation-repair-handoff)が権限・ライフサイクルの正本。CloudFormationの現在Taskに`External IaC repair: allowed`がある場合だけ、今回の署名付き失敗証拠、正確なIaCと承認済Modelから原因を診断する。`repairFailure`の存在は修復の証明ではない。

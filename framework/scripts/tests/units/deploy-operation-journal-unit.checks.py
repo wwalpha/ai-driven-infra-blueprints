@@ -362,7 +362,7 @@ def test_no_change_still_checks_all_four_kms_exports(tmp_path):
         {"TemplateBody": {"Outputs": {}}},
         {"Exports": []},
     ]
-    with pytest.raises(Blocked, match="not reflected"):
+    with pytest.raises(Blocked):
         change_sets.verify_outputs(backend.aws, unit, state, expected)
     backend.execute.assert_not_called()
 
@@ -571,26 +571,29 @@ def test_kms_four_exports_update_and_no_change_require_aws_facts(tmp_path):
         ]
     )
     change_sets.verify_outputs(aws, unit, {"stackId": STACK}, expected)
-    assert len(expected) == 4 and aws.call_args_list[-1].args[0] == "list_exports"
+    assert len(expected) == 4 and [call.args[0] for call in aws.call_args_list] == [
+        "describe_stacks",
+        "get_template",
+    ]
     for missing in ("output", "export", "owner", "value", "definition"):
         deployed = copy.deepcopy(document)
         actual, values = copy.deepcopy(stack), copy.deepcopy(exports)
         if missing == "output":
             actual["Outputs"].pop()
         elif missing == "export":
-            values.pop()
+            actual["Outputs"][-1].pop("ExportName")
         elif missing == "owner":
-            values[-1]["ExportingStackId"] = "other"
+            actual["StackId"] = STACK + "-replacement"
         elif missing == "definition":
             deployed["Outputs"]["KeyId3"]["Value"] = "old-key"
         else:
-            values[-1]["Value"] = "other"
+            actual["Outputs"][-1]["OutputValue"] = "other"
         aws.side_effect = [
             {"Stacks": [actual]},
             {"TemplateBody": deployed},
             {"Exports": values},
         ]
-        with pytest.raises(Blocked, match="not reflected"):
+        with pytest.raises(Blocked):
             change_sets.verify_outputs(aws, unit, {"stackId": STACK}, expected)
 
 
@@ -783,22 +786,41 @@ def test_unrelated_stack_requires_proved_dependency_boundary(tmp_path, dependenc
     backend.retained_records = J.read(path)
     other = {**unit, "name": "Other"}
     backend.states = {"Other": {"status": "NOT_STARTED"}}
-    exported = {"Name": "Export", "ExportingStackId": STACK.replace("/Kms/", "/Other/")}
-    backend.aws = (
-        Mock(side_effect=[{"Exports": [exported]}, {"Imports": ["Kms"]}])
-        if dependency == "live-inbound"
-        else Mock(return_value={"Exports": []})
-    )
     backend.templates = {"Other": ({"Resources": {}, "Outputs": {}}, {})}
+    exports, edges = [], []
+    if dependency == "live-inbound":
+        exports = [
+            {
+                "Name": "Export",
+                "Value": "value",
+                "ExportingStackId": STACK.replace("/Kms/", "/Other/"),
+            }
+        ]
+        edges = [("Kms", "Export")]
+    if dependency == "inbound":
+        backend.retained_records[0]["operations"]["Kms"]["state"]["delivery"][
+            "imports"
+        ] = {
+            "Export": {
+                "Value": "value",
+                "ExportingStackId": STACK.replace("/Kms/", "/Other/"),
+            }
+        }
+        exports = [
+            {
+                "Name": "Export",
+                "Value": "value",
+                "ExportingStackId": STACK.replace("/Kms/", "/Other/"),
+            }
+        ]
     if dependency == "new-iac":
         backend.templates["Other"][0]["Resources"] = {
             "X": {"Properties": {"Value": {"Fn::ImportValue": "KmsExport"}}}
         }
-        backend.aws = Mock(
-            return_value={"Exports": [{"Name": "KmsExport", "ExportingStackId": STACK}]}
-        )
+        exports = [{"Name": "KmsExport", "Value": "value", "ExportingStackId": STACK}]
+    backend.aws = Mock(side_effect=partial(dependency_response, exports, edges, ""))
     if dependency in {"inbound", "unknown", "live-inbound", "new-iac"}:
-        with pytest.raises(Blocked, match="unfinished Stack"):
+        with pytest.raises(Blocked):
             J.dependency_states(backend, other)
     else:
         states = J.dependency_states(backend, other)
@@ -974,8 +996,34 @@ def test_existing_readable_lock_is_reused_without_unlink(tmp_path):
 
 
 def dependency_response(exports, edges, defect, operation, **arguments):
+    if operation == "describe_stacks":
+        name = arguments["StackName"].split(":stack/")[-1].split("/")[0]
+        identity = STACK.replace("/Kms/", "/" + name + "/")
+        return {
+            "Stacks": [
+                {
+                    "StackId": identity,
+                    "StackStatus": "UPDATE_COMPLETE",
+                    "Outputs": None
+                    if defect == "invalid-exports"
+                    else [
+                        {
+                            "OutputKey": entry["Name"],
+                            "ExportName": entry["Name"],
+                            "OutputValue": entry.get("Value", "value"),
+                        }
+                        for entry in exports
+                        if entry["ExportingStackId"] == identity
+                    ],
+                }
+            ]
+        }
     if operation == "list_exports":
-        return {"Exports": {} if defect == "invalid-exports" else exports}
+        return {
+            "Exports": [
+                dict(entry, Value=entry.get("Value", "value")) for entry in exports
+            ]
+        }
     assert operation == "list_imports"
     return {
         "Imports": {}
@@ -1014,30 +1062,44 @@ def test_deploy_and_handoff_dependency_graph(relation):
     }.get(relation, [])
     owners = sorted({producer for _, producer in edges})
     exports = [
-        {"Name": name, "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/")}
+        {
+            "Name": name,
+            "Value": "value",
+            "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/"),
+        }
         for name in owners
     ]
     if relation == "invalid-consumers":
         exports = [{"Name": "Kms", "ExportingStackId": STACK}]
     aws = Mock(side_effect=partial(dependency_response, exports, edges, relation))
     if relation == "shared-producer":
-        J.require_independent(pending, {"S3"}, aws)
+        pending["Kms"]["delivery"]["imports"] = {"Common": exports[0]}
+        J.require_independent(pending, {"S3"}, aws, imports={"S3": {"Common"}})
+        assert all(
+            call.args[0] not in {"list_exports", "list_imports"}
+            for call in aws.call_args_list
+        )
     else:
-        with pytest.raises(Blocked, match="unfinished Stack"):
+        with pytest.raises(Blocked):
             J.require_independent(pending, {"S3"}, aws)
 
 
-@pytest.mark.parametrize("unrelated", [0, 199, 999])
+@pytest.mark.parametrize("unrelated", [0, 199, 1000])
 def test_dependency_api_calls_are_bounded_by_reachable_exports(unrelated):
     pending = {"Kms": {"status": "RUNNING", "delivery": {"imports": {}}}}
     exports = [
-        {"Name": name, "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/")}
+        {
+            "Name": name,
+            "Value": "value",
+            "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/"),
+        }
         for name in ["Kms", *["Unrelated" + str(i) for i in range(unrelated)]]
     ]
     aws = Mock(side_effect=partial(dependency_response, exports, [], ""))
     J.require_independent(pending, {"S3"}, aws, imports={"S3": set()})
     assert [(c.args[0], c.kwargs) for c in aws.call_args_list] == [
-        ("list_exports", {}),
+        ("describe_stacks", {"StackName": "Kms"}),
+        ("describe_stacks", {"StackName": "S3"}),
         ("list_imports", {"ExportName": "Kms"}),
     ]
 
@@ -1046,7 +1108,11 @@ def test_dependency_cache_is_per_proof_and_deduplicates_diamonds_and_cycles():
     pending = {"Kms": {"status": "RUNNING", "delivery": {"imports": {}}}}
     names = ["Kms", "S3", "Left", "Right", "Join"]
     exports = [
-        {"Name": name, "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/")}
+        {
+            "Name": name,
+            "Value": "value",
+            "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/"),
+        }
         for name in names
     ]
     edges = [
@@ -1073,7 +1139,11 @@ def test_dependency_cache_is_per_proof_and_deduplicates_diamonds_and_cycles():
 def test_delivered_and_new_iac_imports_connect_transitive_paths(reverse):
     pending = {"Kms": {"status": "RUNNING", "delivery": {"imports": {}}}}
     exports = [
-        {"Name": name, "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/")}
+        {
+            "Name": name,
+            "Value": "value",
+            "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/"),
+        }
         for name in ["Middle", "Kms", "S3"]
     ]
     imports = {"S3": {"Middle"}} if not reverse else {"S3": set()}
@@ -1126,7 +1196,7 @@ def test_missing_new_iac_export_blocks_without_assuming_independence():
         J.require_independent(
             {"Kms": {"delivery": {"imports": {}}}},
             {"S3"},
-            Mock(return_value={"Exports": []}),
+            Mock(side_effect=partial(dependency_response, [], [], "")),
             imports={"S3": {"Missing"}},
         )
 

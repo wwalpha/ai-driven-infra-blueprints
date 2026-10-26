@@ -64,13 +64,6 @@ class Fake(M.AwsBackend):
                         "awsExecutionAccountId", self.target["awsAccountId"]
                     )
                 }
-            if operation == "list-exports":
-                return {
-                    "Exports": [
-                        {"Name": export, "ExportingStackId": stack_id(producer)}
-                        for export, (producer, _) in self.export_imports.items()
-                    ]
-                }
             if operation == "list-imports":
                 return {"Imports": self.export_imports[arguments[1]][1]}
             identity = arguments[1]
@@ -98,7 +91,11 @@ class Fake(M.AwsBackend):
                     "ParentId": None,
                     "RootId": None,
                     "Outputs": [
-                        {"ExportName": export}
+                        {
+                            "OutputKey": export,
+                            "OutputValue": "value",
+                            "ExportName": export,
+                        }
                         for export, (producer, _) in self.export_imports.items()
                         if producer == name
                     ],

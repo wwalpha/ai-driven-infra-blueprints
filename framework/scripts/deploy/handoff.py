@@ -265,8 +265,10 @@ def verify_inputs(
 def dependency_read(
     connection: tuple, operation: str, **arguments: JsonValue
 ) -> JsonObject:
-    if operation not in {"list_exports", "list_imports"}:
+    if operation not in {"describe_stacks", "list_exports", "list_imports"}:
         raise Blocked("repair dependency proof permits only Import/Export reads")
+    if operation == "describe_stacks" and not arguments.get("StackName"):
+        raise Blocked("repair dependency proof requires a scoped StackName")
     return getattr(cloudformation, operation)(connection, **arguments)
 
 

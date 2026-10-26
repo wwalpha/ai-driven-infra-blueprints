@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 from copy import deepcopy
@@ -30,6 +31,7 @@ import utils.iac_values as _imports_iac_values
 import utils.project_targets as _imports_project_targets
 from design.catalog import DesignSchemaCatalog, selected_properties
 from design.policy_tables import literal
+from utils.aws.client import API_BUDGET_SECONDS, READ_RATES, read_api
 from utils.aws.identity import (
     IdentityError,
     execution_account,
@@ -38,6 +40,8 @@ from utils.aws.identity import (
 )
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
+from utils.cloudformation.export_resolution import resolve_exports
+from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import MISSING, Unresolved, put_row, select
 from utils.input_cache import input_scope
 from utils.json_format import policy_json
@@ -127,7 +131,7 @@ def sdk_error(api, error, request):
             if match
             else {"Code": "AwsCliError"}
         )
-    code = detail.get("Code", type(error).__name__)
+    code = detail.get("Code", getattr(error, "code", type(error).__name__))
     missing = code in {
         "ResourceNotFoundException",
         "ResourceNotFound",
@@ -306,7 +310,7 @@ def _callback_Context_client_create(self, service, /):
     Config = aws_runtime().sdk_config
     options = (
         {"config": Config(retries={"total_max_attempts": 1})}
-        if self.import_mode
+        if self.import_mode or service == "cloudformation"
         else {}
     )
     self.clients[service] = self.session.client(
@@ -342,12 +346,17 @@ class Context:
             {},
         )
         self.comparisons = {}
+        self.export_boundary = {}
         self.verified = False
         self.services = services
         self.allowed = {("sts", "get_caller_identity")}
         if services is None:
             self.allowed.update(
-                {("kms", "describe_key"), ("cloudformation", "list_exports")}
+                {
+                    ("kms", "describe_key"),
+                    ("cloudformation", "list_exports"),
+                    ("cloudformation", "describe_stacks"),
+                }
             )
         for service in SERVICES if services is None else services:
             if not import_mode or service in SERVICES:
@@ -393,7 +402,12 @@ class Context:
                 **os.environ,
                 "AWS_CLI_AUTO_PROMPT": "off",
                 "AWS_PAGER": "",
-                **({"AWS_MAX_ATTEMPTS": "1"} if self.import_mode else {}),
+                **(
+                    {"AWS_MAX_ATTEMPTS": "1"}
+                    if self.import_mode
+                    or (service == "cloudformation" and operation in READ_RATES)
+                    else {}
+                ),
             },
         )
         if result.returncode:
@@ -416,7 +430,7 @@ class Context:
             self.metrics["cache_hits" if key in self._flights else "cache_misses"] += 1
         return load_once(self._cache_lock, self._flights, key, load)
 
-    def call(self, service, operation, **inputs):
+    def call(self, service, operation, *, _deadline=None, **inputs):
         if (service, operation) not in self.allowed or operation in {
             "get_secret_value",
             "batch_get_secret_value",
@@ -430,11 +444,17 @@ class Context:
         return deepcopy(
             self.once(
                 ("call", service, operation, stable(inputs)),
-                lambda: self._call(service, operation, **inputs),
+                _bind_framework_callback(
+                    self._call,
+                    service,
+                    operation,
+                    **inputs,
+                    **({"_deadline": _deadline} if _deadline is not None else {}),
+                ),
             )
         )
 
-    def _call(self, service, operation, **inputs):
+    def _call(self, service, operation, *, _deadline=None, **inputs):
         if (service, operation) not in self.allowed or operation in {
             "get_secret_value",
             "batch_get_secret_value",
@@ -449,10 +469,23 @@ class Context:
                 with self._cache_lock:
                     self.metrics["api_calls"] += 1
                     self.metrics[api] += 1
-                self.cache[key] = (
-                    self.cli(service, operation, inputs)
+                send = (
+                    _bind_framework_callback(self.cli, service, operation, inputs)
                     if self.session is None
-                    else getattr(self.client(service), operation)(**inputs)
+                    else _bind_framework_callback(
+                        getattr(self.client(service), operation), **inputs
+                    )
+                )
+                self.cache[key] = (
+                    read_api(
+                        execution_account(self.target),
+                        self.target["awsRegion"],
+                        operation,
+                        send,
+                        deadline=_deadline,
+                    )
+                    if service == "cloudformation" and operation in READ_RATES
+                    else send()
                 )
             except Exception as error:
                 self.cache[key] = sdk_error(api, error, key)
@@ -485,14 +518,20 @@ class Context:
         api = service + "." + operation
         if key not in self.cache:
             try:
-                if self.session is None and not self.import_mode:
+                if (
+                    self.session is None
+                    and not self.import_mode
+                    and not (service == "cloudformation" and operation in READ_RATES)
+                ):
                     self.metrics["pagination_requests"] += 1
                     self.cache[key] = self.cli(
                         service, operation, inputs, paginate=True
                     )
-                elif not self.import_mode and (
-                    client := self.client(service)
-                ).can_paginate(operation):
+                elif (
+                    not self.import_mode
+                    and not (service == "cloudformation" and operation in READ_RATES)
+                    and (client := self.client(service)).can_paginate(operation)
+                ):
                     self.cache[key] = (
                         client.get_paginator(operation)
                         .paginate(**inputs)
@@ -500,8 +539,28 @@ class Context:
                     )
                 else:
                     result, params, seen = {}, dict(inputs), set()
+                    deadline = (
+                        time.monotonic() + API_BUDGET_SECONDS
+                        if service == "cloudformation" and operation in READ_RATES
+                        else None
+                    )
                     while True:
-                        page = self.call(service, operation, **params)
+                        page = self.call(
+                            service,
+                            operation,
+                            **params,
+                            **({"_deadline": deadline} if deadline is not None else {}),
+                        )
+                        if (
+                            service == "cloudformation"
+                            and operation in READ_RATES
+                            and page.get("NextToken") is not None
+                            and (
+                                not isinstance(page["NextToken"], str)
+                                or not page["NextToken"]
+                            )
+                        ):
+                            raise Unresolved("pagination continuation is invalid")
                         for name, value in page.items():
                             if isinstance(value, list):
                                 result.setdefault(name, []).extend(value)
@@ -531,6 +590,8 @@ class Context:
                         params[
                             "Marker" if token_name == "NextMarker" else token_name
                         ] = token
+                    if service == "cloudformation" and operation in READ_RATES:
+                        result.pop("NextToken", None)
                     self.cache[key] = result
             except AcquisitionError as error:
                 self.cache[key] = error
@@ -539,6 +600,11 @@ class Context:
         if isinstance(self.cache[key], AcquisitionError):
             raise self.cache[key]
         return self.cache[key]
+
+    def export_read(self, operation, **arguments):
+        if operation == "list_exports":
+            return self.pages("cloudformation", operation, **arguments)
+        return self.call("cloudformation", operation, **arguments)
 
     def verify(self) -> str:
         select_profile(self.target)
@@ -922,13 +988,20 @@ class Resource:
             return re.sub(r"\$\{([^}]+)\}", replace, expression)
         if "Fn::ImportValue" in value:
             name = self.resolve_json(value["Fn::ImportValue"], norm)
-            exports = self.ctx.pages("cloudformation", "list_exports").get(
-                "Exports", []
-            )
-            matches = [item["Value"] for item in exports if item["Name"] == name]
-            if len(matches) != 1:
-                raise Unresolved("confirmed design export is missing or ambiguous")
-            return matches[0]
+            if not isinstance(name, str) or not name:
+                raise Unresolved("Export name must be a nonempty string")
+            try:
+                return self.ctx.once(
+                    ("export", name),
+                    _bind_framework_callback(
+                        resolve_exports,
+                        self.ctx.export_read,
+                        {name},
+                        boundary=self.ctx.export_boundary,
+                    ),
+                )[name]["Value"]
+            except Blocked as error:
+                raise Unresolved(str(error)) from None
         if any(key.startswith("Fn::") for key in value):
             raise Unresolved("unsupported design expression")
         return {key: self.resolve_json(item, norm) for key, item in value.items()}

@@ -596,7 +596,7 @@ def check_deployment_input_conditions():
     backend.templates["A"] = (conditional, {"Environment": "dev"})
     assert backend.prepare(units(1)[0], {"clientToken": "dev-only"}) == "READY"
     backend.templates["A"] = (conditional, {"Environment": "stg"})
-    rejects(lambda: backend.check_imports(units(1)[0]), "missing export")
+    rejects(lambda: backend.check_imports(units(1)[0]), "missing Export")
     conditional["Conditions"]["Dev"] = {"Condition": "Dev"}
     rejects(
         lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}),
@@ -664,6 +664,7 @@ def check_deployment_input_conditions():
             }
         }
     }
+    backend.templates["A"] = (document, {})
     assert (
         backend.artifact_bindings({"name": "A", "artifacts": [artifact]}, document, {})[
             0
