@@ -57,9 +57,17 @@ def preserve_allocation(before, after):
     for kind, number in old.items():
         if new.get(kind, -1) < number:
             raise ValueError("lastAllocated cannot decrease or disappear: " + kind)
-    previous = dict(entries(before, "desired.resource."))
-    current = dict(entries(after, "desired.resource."))
-    resource_index(after)
+    previous = dict(structural_entries(before, "desired.resource."))
+    current = dict(structural_entries(after, "desired.resource."))
+    resource_index(
+        {
+            key: value
+            for key, value in after.items()
+            if key == COUNTERS
+            or key.startswith("desired.resource.")
+            and key.endswith((".resourceType", ".logicalId"))
+        }
+    )
     additions = {}
     for number, resource in current.items():
         if number in previous:

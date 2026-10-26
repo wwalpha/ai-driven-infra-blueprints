@@ -1048,9 +1048,18 @@ def check_change_inputs(path, authority, root, change, *, definitions_root=None)
         for rid, resource in resources.items()
         if resource.get("logicalId") in change.resources
     }
-    selected = {
+    # Existing metadata is context; validate only changed fields and required identities.
+    metadata = {
         key: value
         for key, value in authority.items()
+        if not key.startswith("desired.resource.")
+        or key.rsplit(".", 1)[-1] in {"resourceType", "logicalId"}
+        or resources[key.split(".")[2]].get("logicalId") in change.added
+        or key in change.keys
+    }
+    selected = {
+        key: value
+        for key, value in metadata.items()
         if (
             not key.startswith(
                 (
@@ -1090,10 +1099,18 @@ def check_change_inputs(path, authority, root, change, *, definitions_root=None)
         return findings
     quality_values = {
         key: value
-        for key, value in authority.items()
+        for key, value in metadata.items()
         if not key.startswith(("desired.resource.", "display.resource."))
         or key.split(".")[2] in selected_resources
     }
+    # Naming and reference rules still need the actual CREATE/IMPORT context.
+    quality_values.update(
+        (key, value)
+        for key, value in authority.items()
+        if key.startswith("desired.resource.")
+        and key.endswith((".resourceMode", ".anchor"))
+        and key.split(".")[2] in selected_resources
+    )
     values = _imports_model_sources.projected_values(quality_values)
     rows = {rid: row for rid, row in entries(values, "desired.row.")}
     catalog = DesignSchemaCatalog(definitions) if selected_resources else None

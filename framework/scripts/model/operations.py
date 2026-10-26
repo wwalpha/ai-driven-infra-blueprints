@@ -80,7 +80,7 @@ def preserve_fixed_fields(
     after: _dependency_model_sources.ModelSnapshot,
     operation: ModelOperation | _task_adapter.ObservedOperation,
 ) -> None:
-    entries = _imports_model_core.entries
+    entries = _imports_model_core.structural_entries
     preserve_allocation = _imports_model_identity.preserve_allocation
     old, new = before.authoritative, after.authoritative
     preserve_allocation(old, new)

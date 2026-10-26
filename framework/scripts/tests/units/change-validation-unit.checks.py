@@ -1,5 +1,6 @@
 """Changed rule selection and zero Full-validation calls on synthetic Models."""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from model.operations import prepare_edit, publish_edit
 from model.render import generate_files
 from support.import_model_fixtures import service_values
 from support.producer_identifier_reference_fixtures import resource, setup, write_model
+from support.pytest_cli import run
 from sync_files import save_files
 from task_contract_core import selected_task, start
 from validation import change
@@ -801,8 +803,6 @@ def check_generation_does_not_validate_unchanged_policy_quality(project_workspac
 
 
 if __name__ == "__main__":
-    from support.pytest_cli import run
-
     raise SystemExit(run(__file__))
 
 
@@ -867,7 +867,8 @@ def check_write_validator_checks_changes_before_generation(project_workspace):
         full.assert_not_called()
 
 
-def check_real_final_candidate_guard_never_calls_full(project_workspace):
+@pytest.mark.parametrize("workflow", ["update", "import"])
+def check_real_final_candidate_guard_never_calls_full(project_workspace, workflow):
     root = project_workspace
     setup(root, ["logs"], ["Logs.LogGroup"])
     path = root / "model/preview/team/logs.properties"
@@ -895,7 +896,9 @@ def check_real_final_candidate_guard_never_calls_full(project_workspace):
     start(
         root,
         name,
-        "## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `update`\n- AWS API execution: `forbidden`\n- AWS mutation: `forbidden`\n- Deploy/apply: `forbidden`\n## Validation scope\n- `preview/team/logs`\n## Modified files\n"
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `"
+        + workflow
+        + "`\n- AWS API execution: `forbidden`\n- AWS mutation: `forbidden`\n- Deploy/apply: `forbidden`\n## Validation scope\n- `preview/team/logs`\n## Modified files\n"
         + listing
         + "## Allowed paths\n"
         + listing,
@@ -904,8 +907,14 @@ def check_real_final_candidate_guard_never_calls_full(project_workspace):
     candidate = SimpleNamespace(
         base_commit=base, changed_paths={relative}, scope={("preview", "team", "logs")}
     )
+    proof = {
+        "sources": {relative: hashlib.sha256(path.read_bytes()).hexdigest()},
+        "model": "reflected",
+        "complete": True,
+    }
     with (
         selected_task(root, name),
+        patch.object(import_guard, "read_proof", return_value=proof),
         patch.object(
             validation, "check_model_inputs", side_effect=AssertionError("Full called")
         ) as full,
@@ -916,6 +925,10 @@ def check_real_final_candidate_guard_never_calls_full(project_workspace):
         ) as internal,
     ):
         import_guard.require_import_changes(root, final_candidate=candidate)
+        write_model(path, dict(before, **{"desired.row.001-002.value": "new-invalid"}))
+        proof["sources"][relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        with pytest.raises(ValueError, match="RetentionInDays"):
+            import_guard.require_import_changes(root, final_candidate=candidate)
         full.assert_not_called()
         internal.assert_not_called()
 
@@ -1185,3 +1198,179 @@ def check_unrelated_non_model_text_has_no_dependency_edges(project_workspace):
         change_plan.assemble(
             root, {("preview", "team", "logs")}, old, sources.FileReads()
         )
+
+
+def require_test_candidate(changes):
+    assert all(path.is_absolute() for path in changes)
+
+
+@pytest.mark.parametrize("action", ["edit", "import"])
+@pytest.mark.parametrize("valid", [True, False])
+@pytest.mark.parametrize(
+    "defect", ["retention", "cfn-logicalId", "deploymentEncryption"]
+)
+def check_save_preparation_uses_change_validation(
+    project_workspace, action, valid, defect
+):
+    root = project_workspace
+    setup(root, ["logs"], ["Logs.LogGroup"])
+    before = {**logs(), **logs("002", "old-invalid")}
+    if defect != "retention":
+        before["desired.resource.002." + defect] = "old-invalid!"
+    path = root / "model/preview/team/logs.properties"
+    write_model(path, before)
+    name = "tasks/save.md"
+    listed = "\n".join(
+        "- `" + value + "`" for value in (name, path.relative_to(root).as_posix())
+    )
+    start(
+        root,
+        name,
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+        "- Workflow: `" + ("import" if action == "import" else "update") + "`\n"
+        "## Required changes\n- [R1] 合成保存\n## Acceptance checks\n"
+        "- [R1] `exists:project.json`\n## Validation scope\n- `preview/team/logs`\n"
+        "## Modified files\n" + listed + "\n## Allowed paths\n" + listed + "\n",
+    )
+    with (
+        restrict(("preview", "team", "logs") if action == "import" else None),
+        read_consumers({("preview", "team", "logs")}),
+        selected_task(root, name),
+    ):
+        inputs = GenerationInputs(root, task_file=name)
+        # Unit capability fixture; Import's acquisition/approval issuer has separate IT.
+        context = sources.SourceWriteContext._authorized(
+            root,
+            inputs,
+            SimpleNamespace(action=action),
+            require_test_candidate,
+            frozenset({path}),
+        )
+        original = path.read_bytes()
+        candidate = dict(
+            before, **{"desired.row.001-002.value": "14" if valid else "bad"}
+        )
+        with (
+            patch.object(
+                validation,
+                "check_model_inputs",
+                side_effect=AssertionError("Full called"),
+            ) as full,
+            patch.object(
+                validation,
+                "_check_model_inputs",
+                side_effect=AssertionError("Full internal called"),
+            ) as internal,
+            patch.object(change, "validate_save", wraps=change.validate_save) as saving,
+        ):
+            if valid:
+                plan = prepare_edit(path, {path: serialize(candidate)}, context)
+                assert not plan.candidate.warnings
+                assert publish_edit(plan, context) == (path,)
+                assert path.read_text(encoding="utf-8") == serialize(candidate)
+            else:
+                with pytest.raises(ValueError, match="RetentionInDays"):
+                    prepare_edit(path, {path: serialize(candidate)}, context)
+                context.close()
+                assert path.read_bytes() == original
+            assert saving.call_count >= 1
+            full.assert_not_called()
+            internal.assert_not_called()
+
+
+@pytest.mark.parametrize("field", ["cfn-logicalId", "deploymentEncryption"])
+def check_same_resource_old_metadata_does_not_block_property(project_workspace, field):
+    root = project_workspace
+    setup(root, ["logs"], ["Logs.LogGroup"])
+    before = dict(logs(), **{"desired.resource.001." + field: "old-invalid!"})
+    path = root / "model/preview/team/logs.properties"
+    write_model(path, before)
+    candidate = dict(before, **{"desired.row.001-002.value": "14"})
+    reads = sources.CandidateReads(sources.FileReads(), {path: serialize(candidate)})
+    with patch.object(
+        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+    ):
+        change.validate_save(
+            sources.raw_model(path), sources.raw_model(path, reads), reads
+        )
+
+
+@pytest.mark.parametrize("index_state", ["missing", "stale"])
+def check_save_preparation_rejects_incoming_reference_break(
+    project_workspace, index_state
+):
+    root = project_workspace
+    setup(root, ["s3", "lambda"], ["S3.Bucket", "Lambda.Function"])
+    path = root / "model/preview/team/s3.properties"
+    before = resource("001", "S3.Bucket", "bucket", [("BucketName", "fixture-data")])
+    write_model(path, before)
+    if index_state == "stale":
+        dependency_index.rebuild(root)
+    consumer = path.with_name("lambda.properties")
+    write_model(
+        consumer,
+        resource(
+            "001",
+            "Lambda.Function",
+            "consumer",
+            [("Code.S3Bucket", "[bucket](s3.md#bucket)")],
+        ),
+    )
+    old = sources.raw_model(path)
+    candidate = {
+        key: value
+        for key, value in before.items()
+        if not key.startswith(
+            ("desired.resource.", "desired.row.", "display.resource.")
+        )
+    }
+    reads = sources.CandidateReads(sources.FileReads(), {path: serialize(candidate)})
+    with (
+        patch.object(
+            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        ),
+        pytest.raises(ValueError, match="producer Resource is absent"),
+    ):
+        change.validate_save(old, sources.raw_model(path, reads), reads)
+
+
+@pytest.mark.parametrize(
+    "value,valid", [('`["All"]`', True), ('`["bad"]`', False), ('`[["All"]]`', False)]
+)
+def check_wildcard_occurrence_keeps_scalar_constraints(project_workspace, value, valid):
+    before = resource(
+        "001",
+        "CloudTrail.Trail",
+        "trail",
+        [("EventSelectors[].ReadWriteType", '`["ReadOnly"]`')],
+    )
+    after = dict(before, **{"desired.row.001-001.value": value})
+    result = evaluate(project_workspace, before, after, "cloudtrail")
+    assert (not result.errors) == valid, result.errors
+
+
+def check_current_index_reuses_unaffected_metadata(project_workspace):
+    root = project_workspace
+    setup(root, ["logs"], ["Logs.LogGroup"])
+    path = root / "model/preview/team/logs.properties"
+    peer = root / "model/preview/team/peer.properties"
+    write_model(path, logs())
+    write_model(peer, logs("002"))
+    dependency_index.rebuild(root)
+    sealed = dependency_index.location(root).read_bytes()
+    old = sources.raw_model(path)
+    reads = sources.CandidateReads(
+        sources.FileReads(), {path: serialize(logs(retention="14"))}
+    )
+    after = sources.raw_model(path, reads)
+    with (
+        patch.object(sources, "raw_model", wraps=sources.raw_model) as raw,
+        patch.object(
+            dependency_index, "snapshot_record", wraps=dependency_index.snapshot_record
+        ) as record,
+    ):
+        change.validate_save(old, after, reads)
+        raw.assert_not_called()
+        assert record.call_count == 1
+        assert record.call_args.args[0] is after
+    assert dependency_index.location(root).read_bytes() == sealed

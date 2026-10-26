@@ -14,6 +14,7 @@ import subprocess
 from unittest.mock import patch
 
 import import_guard
+import model.dependency_index as dependency_index
 import model.sources
 import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
@@ -51,6 +52,7 @@ from support.model_v2_fixtures import import_publication_case
 from task_contract_core import selected_task, start
 from utils import sealed_evidence
 from utils.json_format import document_sha256
+from validation import change
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -454,7 +456,7 @@ def check_consumer_set_race(tmp_path):
     before = snapshot(root)
     with pytest.raises(
         ValueError,
-        match="changed|no acquired change plan|outside Modified files/Allowed paths",
+        match="changed|no acquired change plan|outside Modified files/Allowed paths|cannot read reference metadata",
     ):
         publish_fixture(root, acquired)
     assert snapshot(root) == before
@@ -506,8 +508,8 @@ def check_reflection_validation_boundary(tmp_path):
     with (
         patch(
             "import_guard.snapshots",
-            side_effect=AssertionError("no whole Git Model comparison"),
-        ),
+            wraps=import_guard.snapshots,
+        ) as snapshots,
         patch(
             "model.validation.check_model_inputs",
             side_effect=AssertionError("no whole design validation"),
@@ -521,9 +523,15 @@ def check_reflection_validation_boundary(tmp_path):
             "compare_resource",
             side_effect=AssertionError("no AWS comparison phase"),
         ),
+        patch.object(change, "validate_save", wraps=change.validate_save) as saving,
     ):
         result = publish_fixture(root, acquired)
     assert result["model"] == "reflected" and result["designValidation"] == "not-run"
+    assert saving.call_count == 1
+    assert snapshots.call_args_list
+    assert all(
+        "model" not in call.kwargs["source_paths"] for call in snapshots.call_args_list
+    )
 
 
 def check_dry_run_cleanup(tmp_path):
@@ -1257,6 +1265,62 @@ def check_approval_bound_save_guard(tmp_path):
     finally:
         file.write_bytes(raw)
     assert source_files(root) == original
+
+
+def check_import_rejects_acquired_schema_violation_before_save(tmp_path):
+    root = tmp_path / "case"
+    fixture(root, focused=True)
+    cli = aws(changed=True)
+    cli.logs[-1]["retentionInDays"] = 31
+    acquired = m.acquire(
+        root,
+        "dev",
+        "cloudwatch-logs",
+        TARGET,
+        cli_runner=cli,
+        resource_types=["Logs.LogGroup"],
+    )
+    logs_edit(root, acquired, 31)
+    before = source_files(root)
+    with (
+        patch.object(change, "validate_save", wraps=change.validate_save) as saving,
+        patch(
+            "model.validation.check_model_inputs",
+            side_effect=AssertionError("Full called"),
+        ),
+        patch(
+            "model.validation._check_model_inputs",
+            side_effect=AssertionError("Full internal called"),
+        ),
+        pytest.raises(ValueError, match="RetentionInDays"),
+    ):
+        publish_fixture(root, acquired)
+    assert saving.call_count == 1
+    assert source_files(root) == before
+    assert not import_guard.proof_path(root).exists()
+
+
+@pytest.mark.parametrize("index_state", ["missing", "stale"])
+def check_import_refreshes_reference_metadata_without_full(tmp_path, index_state):
+    root, acquired, _ = prepare(tmp_path, focused=False)
+    logs_edit(root, acquired)
+    if index_state == "missing":
+        dependency_index.location(root).unlink()
+    else:
+        path = input_file(root, env="stg")
+        path.touch()  # Stale revision with unchanged approved authoritative bytes.
+    with (
+        patch(
+            "model.validation.check_model_inputs",
+            side_effect=AssertionError("Full called"),
+        ),
+        patch(
+            "model.validation._check_model_inputs",
+            side_effect=AssertionError("Full internal called"),
+        ),
+    ):
+        result = publish_fixture(root, acquired)
+    assert result["model"] == "reflected"
 
 
 @pytest.mark.parametrize("failure", ["review", "receipt"])

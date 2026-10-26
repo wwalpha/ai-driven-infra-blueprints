@@ -366,9 +366,7 @@ def require_import_changes(
         warnings = []
     else:
         warnings = []
-    if sources and "- Workflow: `import`" not in section(
-        snapshot.text, "## Task contract"
-    ):
+    if sources:
         validate_candidates = _imports_model_operations.validate_candidates
         active_scope = _imports_validation_scope.active_scope
         scope = active_scope(root, contract_file=contract_file)
@@ -382,7 +380,7 @@ def require_import_changes(
                 scope,
                 base=final_candidate.base_commit
                 if final_candidate is not None
-                else None,
+                else base_revision(root, contract_file=contract_file),
                 contract_file=contract_file,
             )
         )

@@ -7,6 +7,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import import_guard
 import model.importing.repository as _imports_model_importing_repository
 from model.importing.scope import read_consumers
 from utils import sealed_evidence
@@ -71,6 +72,16 @@ def _callback_repositories_changed(root, *, task_file=None):
     }
 
 
+def archive_sources(root, base, paths, destination):
+    repository = state(root)
+    assert base == repository.base
+    for relative, raw in repository.baseline.items():
+        if any(relative == path or relative.startswith(path + "/") for path in paths):
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(raw)
+
+
 @contextmanager
 def repositories(monkeypatch):
     repository = _imports_model_importing_repository
@@ -78,6 +89,7 @@ def repositories(monkeypatch):
     token = _cases.set(cases)
     changed = _callback_repositories_changed
     with monkeypatch.context() as patch:
+        patch.setattr(import_guard, "archive_sources", archive_sources)
         patch.setattr(repository, "has_baseline", lambda root: root.resolve() in cases)
         patch.setattr(repository, "working_revision", lambda root: state(root).head)
         patch.setattr(repository, "task_head", lambda root: state(root).head)

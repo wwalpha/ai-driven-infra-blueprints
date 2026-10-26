@@ -3896,6 +3896,24 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | `deploy-scope::dependency-graph` | `test_deploy_and_handoff_dependency_graph` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 8 | 共通Import/Export判定の双方向・間接依存、共通Producerのみの独立、取得不備の安全停止 | Synthetic offline |
 | `deploy-scope::checkpoint` | `check_checkpoint_uses_scoped_barrier_under_ordered_locks` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 4 | Checkpointの実変更範囲・Publication衝突、Journal/Repair排他、Commit前停止 | Synthetic offline |
 
+## v1026v10 Change Validation residual regressions
+
+| Case | Function | Layer | Location | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `change-residual::metadata-scope` | `check_unrelated_resource_identity_defect` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 4 | 未変更Resourceのcfn/deploymentEncryption/欠落・重複identityを品質検証せず、Fullでは検出 | Synthetic Models |
+| `change-residual::changed-metadata` | `check_changed_resource_metadata_is_validated` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | 変更したResource metadataの不正は拒否 | Synthetic Models |
+| `change-residual::dependency-states` | `check_dependency_discovery_and_broken_consumer` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 6 | missing/current/stale × typed/Markdown参照、Consumer完全探索・参照破壊FAIL・再読込なし・Deploy sealed条件維持 | Synthetic Models |
+| `change-residual::dependency-empty` | `check_missing_index_without_consumer` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | indexなし・Consumerなしで正常更新 | Synthetic Models |
+| `change-residual::dependency-reuse` | `check_current_index_reuses_unaffected_metadata` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | 正常indexの未変更metadata再利用、変更Snapshotのみ解析、sealed index不変 | Synthetic Models |
+| `change-residual::save-preparation` | `check_save_preparation_uses_change_validation` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 12 | 実prepare_editとpublication、Import/EditのRetentionInDays型不正拒否・既存別Resourceエラー非阻害・Full呼出0 | Synthetic Models |
+| `change-residual::same-resource` | `check_same_resource_old_metadata_does_not_block_property` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | 同一Resource内の未変更metadata不正と変更Propertyの分離 | Synthetic Models |
+| `change-residual::incoming-save` | `check_save_preparation_rejects_incoming_reference_break` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | missing/stale indexから保存準備で既存Consumer破壊を拒否 | Synthetic Models |
+| `change-residual::final-candidate` | `check_real_final_candidate_guard_never_calls_full` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | 実Git baselineで通常更新とImportの最終候補共通検証、不正変更拒否、Full呼出0 | Synthetic Models |
+| `change-residual::occurrence-shape` | `check_wildcard_occurrence_keeps_scalar_constraints` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 3 | 既存column array処理を再利用しenum不正と余分な階層を拒否 | Synthetic Models |
+| `change-residual::issue-full` | `check_issue_scan_explicitly_keeps_full` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | Issue ScanでFull Validationを呼び既存エラーを検出 | Synthetic Models |
+| `change-residual::acquired-invalid` | `check_import_rejects_acquired_schema_violation_before_save` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 1 | 取得・Reviewを通過する不正RetentionInDays列挙値も共通Change Validationで実保存前に拒否、Model/Receipt不変、Full呼出0 | Offline acquired fixture |
+| `change-residual::import-index` | `check_import_refreshes_reference_metadata_without_full` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 2 | 実Importでmissing/stale indexのmetadataを取得し正常保存、別targetの品質検証なし、Full呼出0 | Offline acquired fixture |
+
 ## Framework validation / Export throttling regressions
 
 | Case | Function | Layer | Location | Execution | Contract | Inputs |
