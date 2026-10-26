@@ -1982,7 +1982,9 @@ def test_eventbridge_literal_requires_exact_lambda_identity(fault):
             )
         comparison.symbols.clear()
     assert comparison.reference_same(function, actual, "Events.Rule", "") is expected
-    assert comparison.redacted(arn) == "<masked ARN/secret>"
+    assert comparison.redacted(arn) == arn
+    comparison.sensitive_values.add(arn)
+    assert comparison.redacted(arn) == "<masked sensitive parameter>"
 
 
 @pytest.mark.parametrize(
@@ -4248,9 +4250,9 @@ def test_sqs_policy_proven_difference_is_sqs_specific(change):
         queue["evidence_type"] == "local_evaluation"
         and queue["current_aws_verified"] is False
     )
-    assert "123456789012" not in json.dumps(records) and "arn:aws:" not in json.dumps(
-        records
-    )
+    assert records[0]["desired"] == desired
+    assert statement["Resource"] in json.dumps(records)
+    assert statement["Condition"]["ArnEquals"]["aws:SourceArn"] in json.dumps(records)
 
 
 @pytest.mark.parametrize(

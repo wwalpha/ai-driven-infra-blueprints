@@ -176,10 +176,28 @@ ref = ResourceReference({"$resource": ["s3", "001"], "$attribute": "Arn"})
 assert same(ref, dict(ref)) is False and same(ref, ResourceReference(ref)) is True
 expression = Expression("Join", ["", [ref, "/*"]])
 assert same(expression, safe_value(expression)) is False
-assert safe_value({"Password": "one", "Arn": "arn:aws:s3:::private"}) == {
+assert safe_value(
+    {
+        "Password": "arn:aws:s3:::private",
+        "Token": "one",
+        "Arn": "arn:aws:s3:::private",
+    }
+) == {
     "Password": "<masked>",
-    "Arn": "<masked ARN/secret>",
+    "Token": "<masked>",
+    "Arn": "arn:aws:s3:::private",
 }
+for value in (
+    "arn:aws:iam::aws:policy/AdministratorAccess",
+    "arn:aws:iam::123456789012:role/example",
+    "arn:aws:s3:::example-bucket",
+    "arn:aws:kms:ap-northeast-1:123456789012:key/example",
+    "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:example",
+    "arn:aws-cn:iam::123456789012:role/example",
+    "arn:aws-us-gov:iam::123456789012:role/example",
+    "Resource arn:aws:s3:::example-bucket differs from the desired value",
+):
+    assert safe_value(value) == value
 
 
 # Schemas prove types/bounds, never DNS values or array elements.

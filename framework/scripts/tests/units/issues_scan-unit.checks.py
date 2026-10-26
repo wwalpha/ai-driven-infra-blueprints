@@ -32,7 +32,7 @@ from issues.aggregate import MAX_GROUPS, comparison_status, iac_actions
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.inputs import view_text
-from issues.records import iac_key
+from issues.records import brief, iac_key
 from issues.reports import ordinary_report
 from model.core import ReferenceResolutionError, resource_row_index
 from model.format import split
@@ -161,11 +161,17 @@ def check_mismatch_rendering():
         secret_tags[0]["model"] == '"<masked>"'
         and secret_tags[0]["iac"] == '"<masked>"'
     )
-    assert (
-        fields("arn:aws:iam::123456789012:role/a", "arn:aws:iam::123456789012:role/b")[
-            0
-        ]["model"]
-        == '"<masked ARN/secret>"'
+    assert fields(
+        "arn:aws:iam::123456789012:role/a", "arn:aws:iam::123456789012:role/b"
+    ) == [
+        {
+            "path": "Setting",
+            "model": "arn:aws:iam::123456789012:role/a",
+            "iac": "arn:aws:iam::123456789012:role/b",
+        }
+    ]
+    assert brief("Resource <arn:aws:s3:::example-bucket> | differs") == (
+        "Resource &lt;arn:aws:s3:::example-bucket&gt; ／ differs"
     )
     assert (
         fields("{{resolve:secretsmanager:first}}", "{{resolve:secretsmanager:second}}")[
@@ -492,7 +498,7 @@ def summary_scale_cases():
         iac_summary(records + extra, "dev", "cde", artifact["services"])["issue_count"]
         == 1194
     )
-    # Full fields stay masked in artifact, even when summary truncates compound values.
+    # Secret fields stay masked while ordinary ARNs remain visible.
     secret = dict(
         records[2000],
         property="Glue.Job.Settings",
@@ -523,10 +529,29 @@ def summary_scale_cases():
         )
     }
     secret_artifact = with_records([hidden], display=hidden_fields)
-    for word in ("first", "second", "confidential", "arn:aws:"):
-        assert word not in json.dumps(secret_artifact) + iac_report(
-            "dev", "cde", artifact["services"], [hidden], hidden_fields
-        ) + json.dumps(detail_payload(secret_artifact, "iac"))
+    for output in (
+        json.dumps(secret_artifact),
+        iac_report("dev", "cde", artifact["services"], [hidden], hidden_fields),
+        json.dumps(detail_payload(secret_artifact, "iac")),
+    ):
+        assert all(word not in output for word in ("first", "second", "confidential"))
+        assert "arn:aws:iam::123456789012:role/a" in output
+        assert "arn:aws:iam::123456789012:role/b" in output
+    message = "Resource arn:aws:iam::123456789012:role/a differs from IaC"
+    ordinary = ordinary_report(
+        Path("/synthetic"),
+        dict(
+            secret_artifact,
+            environment="dev",
+            target="cde",
+            ordinary=[dict(service=artifact["services"][0], message=message)],
+            unverified=[],
+            processing_errors=[],
+            information=[],
+            warnings=[],
+        ),
+    )
+    assert message in ordinary
     for category, expected in [
         ("matched", "complete match"),
         ("uncompared", "partial"),
@@ -1794,7 +1819,7 @@ def check_model_part_bytes_and_legacy_rows(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
     with (
-        input_context(),
+        input_context(read_only=True),
         patch.object(sources, "_read_model", wraps=sources._read_model) as parser,
     ):
         one, two = real_load(source), real_load(source)

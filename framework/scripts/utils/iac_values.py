@@ -46,7 +46,7 @@ class Expression:
 
 
 def safe_value(value, property_name=""):
-    """Do not publish secrets, dynamic secrets or current/generated ARN strings."""
+    """Mask secret properties and dynamic references; preserve ordinary ARN strings."""
     if re.search(
         r"password|secretstring|secretbinary|token|credential|privatekey",
         property_name,
@@ -61,7 +61,7 @@ def safe_value(value, property_name=""):
             "$operands": safe_value(value.operands, property_name),
         }
     if isinstance(value, str):
-        if "{{resolve:" in value or re.search(r"arn:aws[a-z-]*:", value, re.I):
+        if "{{resolve:" in value:
             return "<masked ARN/secret>"
         return value
     if isinstance(value, list):
