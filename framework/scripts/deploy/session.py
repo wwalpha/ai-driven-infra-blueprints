@@ -128,6 +128,7 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
         return True
     started = time.perf_counter()
     stage = "OBSERVED" if unsynced else "GENERATION"
+    backend._generation_finalized = False
     try:
         if unsynced and any(
             record["generated"]["outputs"] is not None
@@ -154,7 +155,10 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
     except Exception as error:
         backend.sync_failed = True
         if stage == "GENERATION":
-            session["generationError"] = str(error)
+            if backend._generation_finalized and not session.get("generationError"):
+                session["generationReportError"] = str(error)
+            else:
+                session["generationError"] = str(error)
             return False
         session.setdefault("observedError", str(error))
         session["observedRecoveryError"] = str(error)

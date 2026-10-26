@@ -331,8 +331,113 @@ def retry_published(record):
     record.update(candidateManifest=None, candidateSelections=[])
 
 
+def settle(
+    backend,
+    views=(),
+    *,
+    current=None,
+    saved=None,
+    failed=None,
+    unclassified=(),
+    error=None,
+    validated=False,
+):
+    """Commit Pending and Error together, retaining candidates on uncertain publication."""
+    root, session = backend.root, backend.session
+    previous = session["pendingGeneration"]
+    pending = copy.deepcopy(previous)
+    failed = failed or {}
+    for view in views:
+        record = pending[view]
+        if record["generated"]["outputs"] is None:
+            continue
+        try:
+            actual = (
+                current[view]
+                if current is not None
+                else observed.check_generated(root, record)
+            )
+            before, after = observed.generated_manifests(root, record)
+            published = actual == after and (saved is None or root / view in saved)
+            reasons = [*failed.get(view, ()), *unclassified]
+            if saved is None:
+                if published and record["reason"].startswith("FAILED:"):
+                    retry_published(record)
+                elif published:
+                    del pending[view]
+                continue
+            if published and not reasons:
+                del pending[view]
+                continue
+            if published:
+                retry_published(record)
+            elif actual == before and root / view not in saved:
+                record["generated"].update(outputs=None, stage="PREPARED")
+                record.update(candidateManifest=None, candidateSelections=[])
+            else:
+                raise Blocked(
+                    "publication result does not prove saved candidate or restored originals: "
+                    + view
+                )
+            record["reason"] = "FAILED: " + "; ".join(
+                reasons
+                or [
+                    str(error)
+                    if error is not None
+                    else "publication did not save candidate"
+                ]
+            )
+        except (Blocked, OSError, ValueError) as failure:
+            error = error or failure
+            record["reason"] = "FAILED: " + str(failure)
+    if error is not None and not any(view in pending for view in views):
+        # An exception after all saves still needs a retry owner; bytes alone cannot dismiss it.
+        for view in views or pending.keys():
+            pending.setdefault(view, copy.deepcopy(previous[view]))
+            record = pending[view]
+            record["reason"] = (
+                record["reason"] + "; "
+                if record["reason"].startswith("FAILED:")
+                else "FAILED: "
+            ) + str(error)
+    errors = [
+        view + ": " + record["reason"]
+        for view, record in pending.items()
+        if record["reason"].startswith("FAILED:")
+    ]
+    errors.extend(unclassified)
+    if error is not None:
+        errors.append(str(error))
+    prior_error = session.get("generationError")
+    if prior_error and not previous and not views and not errors:
+        raise Blocked(
+            "generation error has no retained candidate evidence; safe recovery cannot be proven: "
+            + prior_error
+        )
+    if prior_error and pending and not errors and not validated and saved is None:
+        # Pending records without a current result cannot disprove an unclassified error.
+        errors.append(prior_error)
+    backend.guard()
+    session["pendingGeneration"] = pending
+    if errors:
+        session["generationError"] = "pending design generation: " + "; ".join(errors)
+    else:
+        session.pop("generationError", None)
+    try:
+        backend.save()
+    except Exception:
+        session["pendingGeneration"] = previous
+        if prior_error is None:
+            session.pop("generationError", None)
+        else:
+            session["generationError"] = prior_error
+        raise
+    return error
+
+
 def run(backend):
     root, session = backend.root, backend.session
+    backend._generation_finalized = False
     backend.guard()
     pending = session["pendingGeneration"]
     if getattr(backend, "_generation_session", None) is not session:
@@ -346,6 +451,8 @@ def run(backend):
     }
     if not changed:
         if session.get("generationError"):
+            if not pending:
+                settle(backend)
             raise Blocked(session["generationError"])
         return
     recovered = getattr(backend, "generation_recovery", {})
@@ -365,24 +472,19 @@ def run(backend):
                 changed - current.keys(),
             )
         )
+    recovery_error = settle(backend, sorted(changed), current=current)
+    if recovery_error is not None:
+        raise recovery_error
+    pending = session["pendingGeneration"]
     selected = []
     for view in sorted(changed):
+        if view not in pending:
+            continue
         record = pending[view]
-        outputs = record["generated"]["outputs"]
-        if outputs is not None and current[view] == observed.manifest(
-            {p: text.encode("utf-8") for p, text in outputs.items()}
-        ):
-            if not session.get("generationError"):
-                # Exact saved candidates need no rendering unless failure recovery remains.
-                del pending[view]
-                continue
-            # Recheck failed batches from their proven published bytes after interruption.
-            retry_published(record)
         if ready(session, record) or record["reason"].startswith("FAILED:"):
             selected.append(view)
         else:
             checked[view] = copy.deepcopy(revision(session, record))
-    backend.save()
     if not selected:
         if session.get("generationError"):
             raise Blocked(session["generationError"])
@@ -447,14 +549,18 @@ def run(backend):
                 for view, reasons in failed.items():
                     pending[view]["reason"] = "FAILED: " + "; ".join(reasons)
                 if unclassified:
-                    session["generationError"] = (
-                        "unclassified generation errors: " + "; ".join(unclassified)
+                    message = "unclassified generation errors: " + "; ".join(
+                        unclassified
                     )
                     for view in selected:
                         pending[view]["reason"] = "FAILED: " + "; ".join(
-                            [*failed.get(view, []), session["generationError"]]
+                            [*failed.get(view, []), message]
                         )
                 for view, candidate in candidates.items():
+                    if not unclassified and view not in failed:
+                        pending[view]["reason"] = (
+                            "validated candidate; publication required"
+                        )
                     pending[view]["generated"].update(
                         outputs=candidate, stage="CANDIDATE"
                     )
@@ -481,7 +587,8 @@ def run(backend):
                             if p.is_relative_to(root / "model")
                         }
                     )
-                backend.save()
+                settle(backend, validated=True)
+                pending = session["pendingGeneration"]
                 backend.guard()
                 reconcile(
                     root,
@@ -497,87 +604,39 @@ def run(backend):
                 except Exception as error:
                     publication_error = error
                 failed, unclassified = failed_services(generation, selected)
-                if unclassified:
-                    session["generationError"] = (
-                        "unclassified generation errors: " + "; ".join(unclassified)
+                for view in selected:
+                    pending[view]["waitingModelManifest"] = retry_manifest(
+                        root, session, view
                     )
-                for view in candidates:
-                    if root / view not in generation.saved:
-                        continue
-                    candidate = candidates[view]
-                    try:
-                        if observed.check_generated(
-                            root, pending[view]
-                        ) != observed.manifest(
-                            {p: t.encode("utf-8") for p, t in candidate.items()}
-                        ):
-                            raise Blocked(
-                                "observed generated publication did not produce the saved candidate"
-                            )
-                    except (Blocked, OSError, ValueError) as error:
-                        publication_error = publication_error or error
-                        continue
-                    if not unclassified:
-                        del pending[view]
-                backend.save()
+                publication_error = settle(
+                    backend,
+                    candidates,
+                    saved=generation.saved,
+                    failed=failed,
+                    unclassified=unclassified,
+                    error=publication_error,
+                )
+                pending = session["pendingGeneration"]
                 if publication_error is not None:
                     raise publication_error
-                for view in candidates.keys() & pending.keys():
-                    record = pending[view]
-                    if unclassified and root / view in generation.saved:
-                        retry_published(record)
-                        record["reason"] = "FAILED: " + session["generationError"]
-                        continue
-                    current = observed.check_generated(root, record)
-                    before, _ = observed.generated_manifests(root, record)
-                    if current != before:
-                        raise Blocked(
-                            "failed publication did not restore originals: " + view
-                        )
-                    record["generated"].update(outputs=None, stage="PREPARED")
-                    record.update(candidateManifest=None, candidateSelections=[])
-                    record["reason"] = "FAILED: " + "; ".join(
-                        failed.get(view, ["publication did not save candidate"])
-                    )
                 for view in selected:
                     if view in pending:
-                        pending[view]["waitingModelManifest"] = retry_manifest(
-                            root, session, view
-                        )
                         checked[view] = copy.deepcopy(revision(session, pending[view]))
-                if unclassified or any(
-                    r["reason"].startswith("FAILED:") for r in pending.values()
-                ):
-                    session["generationError"] = (
-                        "pending design generation: "
-                        + "; ".join(
-                            key + ": " + record["reason"]
-                            for key, record in pending.items()
-                        )
-                        + (
-                            "; unclassified generation errors: "
-                            + "; ".join(unclassified)
-                            if unclassified
-                            else ""
-                        )
-                    )
-                else:
-                    session.pop("generationError", None)
-                backend.guard()
-                backend.save()
+                backend._generation_finalized = True
                 try:
                     sync_runtime.report_generation(generation)
-                except ReferenceResolutionError as error:
+                except Exception as error:
                     if (
-                        error.diagnostic["category"] != "REFERENCE_PENDING_DEPLOY"
-                        or generation.failures
-                        or not deferred
+                        isinstance(error, ReferenceResolutionError)
+                        and error.diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
+                        and not generation.failures
+                        and deferred
                     ):
-                        raise
-                except ValueError as error:
-                    if session.get("generationError"):
+                        pass
+                    elif session.get("generationError"):
                         raise Blocked(session["generationError"]) from error
-                    raise
+                    else:
+                        raise
                 if session.get("generationError"):
                     raise Blocked(session["generationError"])
             finally:
