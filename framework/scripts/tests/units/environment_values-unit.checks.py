@@ -452,6 +452,13 @@ def template(kind, properties):
         {"Fn::Join": ["", ["prefix-", {"Ref": "Key"}]]},
         {"Fn::Select": [0, {"Fn::Split": ["-", {"Ref": "Key"}]}]},
         {"Fn::Sub": ["${Resource.Arn}:${Key}", {}]},
+        {"Fn::Base64": {"Ref": "Key"}},
+        {"Fn::Base64": {"Fn::Join": ["_", ["PENDING", "DEPLOY"]]}},
+        {"Fn::Join": ["", [{"Fn::Base64": {"Ref": "Key"}}]]},
+        {"Fn::Sub": ["prefix-${Value}", {"Value": {"Fn::Base64": {"Ref": "Key"}}}]},
+        {"Fn::Select": [0, {"Fn::GetAZs": {"Ref": "Key"}}]},
+        {"Fn::ImportValue": {"Fn::Sub": "${Key}-export"}},
+        {"Fn::Select": [1, {"Fn::Split": [",", {"Fn::ImportValue": {"Ref": "Key"}}]}]},
     ],
 )
 def check_deploy_blocks_literals_and_parameters(value):
@@ -482,6 +489,11 @@ def check_deploy_blocks_literals_and_parameters(value):
         {"Ref": "AWS::StackId"},
         {"Ref": "AWS::URLSuffix"},
         {"Ref": "AWS::NoValue"},
+        {"Fn::Base64": "fixed"},
+        {"Fn::Join": ["-", ["prefix", {"Fn::Base64": "fixed"}]]},
+        {"Fn::Select": [1, {"Fn::GetAZs": ""}]},
+        {"Fn::Sub": ["prefix-${Value}", {"Value": {"Fn::Base64": "fixed"}}]},
+        {"Fn::Select": [1, {"Fn::Split": [",", {"Fn::ImportValue": "export"}]}]},
     ],
 )
 def check_deploy_accepts_cfn_references(value):
@@ -495,6 +507,27 @@ def check_deploy_accepts_cfn_references(value):
         "stack",
     )
     assert doc == before
+
+
+@pytest.mark.parametrize(
+    "value,exception,reason",
+    [
+        ({"Fn::Select": [1, ["fixed"]]}, ValueError, "invalid Select operands"),
+        ({"Fn::Select": [-1, {"Fn::GetAZs": ""}]}, ValueError, "invalid"),
+        ({"Fn::Select": [0, {"Fn::Base64": "fixed"}]}, ValueError, "not an array"),
+        ({"Fn::Base64": ["fixed"]}, ValueError, "invalid Fn::Base64"),
+        (
+            {"Fn::GetAZs": {"Ref": "Missing"}},
+            Blocked,
+            "undefined CloudFormation resource",
+        ),
+        ({"Fn::Base64": {"Fn::Unknown": "fixed"}}, Blocked, "unsupported"),
+    ],
+)
+def check_deploy_runtime_expressions_keep_static_errors(value, exception, reason):
+    doc = template("Lambda.Function", {"Environment": {"Variables": {"KEY": value}}})
+    with pytest.raises(exception, match=reason):
+        validate_environment_inputs(FRAMEWORK, doc, {}, TARGET, "stack")
 
 
 def check_deploy_selects_active_branch_and_only_environment():
@@ -547,9 +580,10 @@ def check_deploy_selects_active_branch_and_only_environment():
     validate_environment_inputs(FRAMEWORK, pipeline, {}, TARGET, "stack")
 
 
-def check_deploy_snapshot_guard_precedes_aws_and_is_per_stack(models):
+@pytest.mark.parametrize("value", ["PENDING_DEPLOY", {"Fn::Base64": {"Ref": "Key"}}])
+def check_deploy_snapshot_guard_precedes_aws_and_is_per_stack(models, value):
     pending = template(
-        "Lambda.Function", {"Environment": {"Variables": {"KEY": "PENDING_DEPLOY"}}}
+        "Lambda.Function", {"Environment": {"Variables": {"KEY": value}}}
     )
     target = {"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"}
     runtime = SimpleNamespace(
@@ -560,7 +594,10 @@ def check_deploy_snapshot_guard_precedes_aws_and_is_per_stack(models):
         file_digest=Mock(return_value="digest"),
         aws=Mock(side_effect=AssertionError("AWS forbidden")),
     )
-    with patch("deploy.controller.load_template_inputs", return_value=(pending, {})):
+    with patch(
+        "deploy.controller.load_template_inputs",
+        return_value=(pending, {"Key": "PENDING_DEPLOY"}),
+    ):
         with pytest.raises(Blocked, match="Stack=bad"):
             load_inputs(runtime, {"name": "bad"})
     assert not runtime.aws.called and "bad" not in getattr(runtime, "loaded_inputs", {})
