@@ -5,7 +5,7 @@
 [Service Model sources](model-templates.md) and [properties v2](../docs/model-format-2.md)
 define the environment-specific properties authority. Each stored entrance and its parts
 contain desired, display, observations and explicit reference meaning. project.json retains
-topology/target/Region/profile authority. Runtime Property/comment and document hashes are
+topology/target/Region/profile authority. Runtime Property/comment are
 derived and never editable source. Model is the single source of truth; Markdown and JSON
 are generated views. Validate Model inputs against the authoritative Model contract,
 Mapping, Catalog and Schema before rendering once. Validate generated views for
@@ -233,7 +233,7 @@ without Model changes. Never auto-run issues or repeat AWS acquisition for displ
 
 - Retain policy/configuration JSON bodies as compact JSON in each service model's `desired.row.*.document`. Generate service-owned JSON from JSON artifact links in `desired.row.*.value`, and generate policy tables from that JSON. Do not feed JSON artifacts or tables back as design inputs.
 - Do not duplicate in the model the generated ResourceName/Comment table in the resource listing or displays within `<!-- policy-tables:start -->`–`<!-- policy-tables:end -->` and IAM's `<!-- iam-policy-tables:start -->`–`<!-- iam-policy-tables:end -->`. Do not save policy anchors, headings, trust policy Version tables, Statement tables, or configuration tables as `desired.note.*` or additional resources.
-- Omit separate Property/JSON/Version/Id metadata rows from derived displays for all services. Continue retaining the original configuration row's property and JSON link, and the canonical hash of the entire JSON including Version/Id, in the model.
+- Omit separate Property/JSON/Version/Id metadata rows from derived displays for all services. Continue retaining the original configuration row's property and JSON link in the model, and Version/Id in the authoritative `desired.row.*.document`.
 - When changing policies, update model `document` first, then generate and validate JSON artifacts and policy tables with the integrated task loop (`--write`). Independent read-only validation still rejects mismatches among properties, JSON, and displays.
 
 ## CloudFormation deployment policy
@@ -317,7 +317,7 @@ with a unique same-scope Export. Missing selection, provenance or extraction pro
 uncompared. Structural equality retains runtime Select-bounds uncertainty and
 `current_aws_verified=false`; it never supplies an observed DNS value.
 
-Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Artifact hashes are derived values that can be checked during generation; do not make them authoritative design values.
+Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Validate generated JSON directly against the projected document; do not store derived JSON Artifact hashes in the Model or require `artifactSha256`.
 
 Model JSON retains typed `$modelRef` nodes as authority. `execution_document()` is the
 design projection and preserves them. Generated artifacts use `generated_document()` to
@@ -341,7 +341,7 @@ design structure and warning and do not certify AWS readiness. Unresolved Model 
 artifact generation for that service, reporting Model path, consumer/producer logicalId,
 attribute, Property, JSON Pointer, status and cause. Other services continue; failed services
 retain saved artifacts. Never guess missing values or persist generated ARNs.
-Generation, policy display and artifact hashes use the corresponding projected document;
+Generation and policy display use the corresponding projected document;
 validate candidates before publication. IAM Resource/NotResource must be strings or arrays
 of strings. Legitimate IAM variables such as `${aws:username}` remain literal strings.
 CloudFormation templates and their IaC comparison evaluator retain their own semantics.
@@ -456,8 +456,8 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 
 - Include `framework/materials/api/*.properties` in the same catalog loading. Generate registered API resource types, including `Macie.ClassificationJob` and `QuickSight.Group`, logical IDs, anchors, and all design rows into existing `desired.*`.
 - Determine API outputs from each catalog's `IDENTIFIER_OUTPUT`; retain logical references to self-anchors in desired and current non-ARN identifiers or `PENDING_DEPLOY` in observed. Ordinary Markdown links referencing API identifiers also use existing identifier reference processing. QuickSight Group `Arn` is hidden from persisted model rows; `PrincipalId` is a persisted non-ARN output.
-- Retain inline JSON object/array values as-is, and retain existing paths and canonical hashes for JSON artifacts. Do not add `clientToken`, `jobArn`, CFn mapping information, or creator information to models.
-- For `bucketDefinitions`-type Macie Jobs, `bucketDefinitions` within model `desired.row.*.document` is authoritative for Job/account/bucket mappings. Generate same-service `S3JobDefinition` JSON artifacts and bucket mapping tables from model `desired.row.*.document`; do not save tables themselves as `desired.note.*` or additional resources. Models retain existing JSON links and canonical hashes. Retain `scoping` as selected configuration within JSON; do not generate mapping tables for `bucketCriteria`-type Jobs.
+- Retain inline JSON object/array values as-is, and retain existing paths for JSON artifacts. Do not add `clientToken`, `jobArn`, CFn mapping information, or creator information to models.
+- For `bucketDefinitions`-type Macie Jobs, `bucketDefinitions` within model `desired.row.*.document` is authoritative for Job/account/bucket mappings. Generate same-service `S3JobDefinition` JSON artifacts and bucket mapping tables from model `desired.row.*.document`; do not save tables themselves as `desired.note.*` or additional resources. Models retain existing JSON links. Retain `scoping` as selected configuration within JSON; do not generate mapping tables for `bucketCriteria`-type Jobs.
 - Do not use API resources' presence in service models to determine whether they can be created with CFn or are implemented. Resolve implementation availability from resource types to corresponding catalogs/schemas. QuickSight `Permissions[].Principal` may reference a Group anchor; the link represents its ARN output without persisting the ARN.
 
 ## Grouping

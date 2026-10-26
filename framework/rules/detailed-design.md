@@ -270,7 +270,7 @@ docs/designs/<environment>/<target-directory>/<service-id>/<artifact-id>.json
 - JSON bodies must contain meaningful AWS configuration values, without Markdown Resource links, including `$resource` operands. Use external `desired.reference.*`, `format=identifier` and JSON Pointers for confirmed non-ARN identifiers; do not guess IDs, re-resolve confirmed literals, or automatically convert/overwrite existing Models. Keep ordinary URLs/non-Resource strings and Markdown Resource/artifact links outside JSON bodies. Legacy generated-ARN selectors require separate review when no existing representation suffices; do not save generated ARNs or discard tracking.
 - JSON must be syntactically valid objects; do not translate identifiers such as AWS policy keys, Actions, or Condition keys into Japanese.
 - Save JSON as UTF-8, LF, with trailing file newlines. Leave single/multiline array formatting to formatters; do not enforce it through repository rules.
-- Corresponding generated service models retain Markdown relative artifact links and JSON content SHA-256 without duplicating JSON bodies.
+- Service Models retain Markdown relative artifact links and authoritative JSON bodies in `desired.row.*.document`. Generate and validate JSON artifacts from those documents without storing derived JSON Artifact hashes in the Model.
 
 ### IAM Role policy artifact names
 
@@ -318,7 +318,7 @@ Scalars/references such as `SecurityPolicy`, `SslPolicy`, policy names, ARNs, an
 - Configuration tables use `Property | Type | Value`, with JSON Pointer for Property and `object`/`array`/`string`/`number`/`boolean`/`null` for Type. Root pointers are empty strings; object keys are in string order, arrays retain 0-based indexes and original order. Escape `~` and `/` as `~0` and `~1` within pointers. Containers with children have display-only `—` Values; empty objects/arrays use `{}`/`[]`. Display all elements without converting structures or types. Configuration-table Property columns and JSON Version/Id keys are not standalone metadata rows, so do not omit them.
 - `ECR.Repository.LifecyclePolicy` displays all wrapper settings; if `LifecyclePolicyText` exists, also display parsed JSON string contents in configuration tables. Stop for non-JSON strings or invalid JSON. Do not write displays back into JSON bodies.
 - Reject duplicate JSON keys, invalid JSON constants, non-JSON-object artifacts, and other-service-owned artifact references in all formats. FAIL local loops for missing/duplicate/misowned markers or mismatches between tables/listing links and authoritative sources.
-- Generation updates only derived policy tables of one specified Markdown. Do not duplicate derived displays in models; retain existing JSON links and canonical hashes.
+- Generation updates only derived policy tables of one specified Markdown. Do not duplicate derived displays in models; retain existing JSON links.
 
 For ordinary design saving, `sync-model.py --write` after model updates calls this display processing. The following are auxiliary commands checking only generated policy displays. Without `--write`, they perform read-only equality validation.
 
