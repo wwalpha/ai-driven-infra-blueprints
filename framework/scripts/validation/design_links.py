@@ -166,6 +166,9 @@ def check_local_links(
         findings.check(
             not Path(target_text).is_absolute(),
             f"design link must be relative: {findings.relative(source)}: {raw}",
+            source_path=source,
+            cause_kind="input_invalid",
+            location=raw,
         )
         if target in unavailable or outside_design(root, target):
             continue
@@ -245,6 +248,9 @@ def check_design_overviews(
         findings.check(
             len(overview_indices) == 1,
             f"resource overview must appear exactly once: {findings.relative(path)}",
+            source_path=path,
+            cause_kind="input_invalid",
+            location=OVERVIEW_HEADING,
         )
         details_indices = [
             index for index, line in enumerate(lines) if line == DETAILS_HEADING
@@ -252,6 +258,9 @@ def check_design_overviews(
         findings.check(
             len(details_indices) == 1,
             f"resource details heading must appear exactly once: {findings.relative(path)}",
+            source_path=path,
+            cause_kind="input_invalid",
+            location=DETAILS_HEADING,
         )
         resources: dict[str, tuple[str, str]] = {}
         resource_indices: list[int] = []
@@ -261,6 +270,9 @@ def check_design_overviews(
                 findings.check(
                     RESOURCE_HEADING_PATTERN.fullmatch(line) is not None,
                     f"resource detail heading must use H3: {findings.relative(path)}: {line}",
+                    source_path=path,
+                    cause_kind="input_invalid",
+                    location=f"line:{index + 1}",
                 )
             if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                 anchor = ANCHOR_PATTERN.fullmatch(previous)
@@ -287,6 +299,8 @@ def check_design_overviews(
                 for line in lines[details_index + 1 :]
             ),
             f"resource details must follow the overview and contain every resource: {findings.relative(path)}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         if not overview_index < details_index < first_resource_index:
             continue
@@ -296,6 +310,8 @@ def check_design_overviews(
                 for line in lines[overview_index:details_index]
             ),
             f"resource anchors must be inside resource details: {findings.relative(path)}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
 
         listed: list[str] = []
@@ -319,10 +335,16 @@ def check_design_overviews(
             findings.check(
                 bool(current_type),
                 f"resource overview table lacks a resource type heading: {findings.relative(path)}",
+                source_path=path,
+                cause_kind="input_invalid",
+                location=f"line:{index - len(table) + 1}",
             )
             findings.check(
                 len(table) >= 3,
                 f"resource overview table is incomplete: {findings.relative(path)}: {current_type}",
+                source_path=path,
+                cause_kind="input_invalid",
+                location=f"line:{index - len(table) + 1}",
             )
             if not current_type or len(table) < 3:
                 continue
@@ -331,27 +353,42 @@ def check_design_overviews(
             findings.check(
                 headers == ["No.", "ResourceName", "Comment"],
                 f"resource overview must use No., ResourceName, Comment: {findings.relative(path)}: {current_type}",
+                source_path=path,
+                cause_kind="input_invalid",
+                location=f"line:{index - len(table) + 1}",
             )
             findings.check(
                 len(alignment) == len(headers)
                 and all(re.fullmatch(r":?---+:?", cell) for cell in alignment),
                 f"invalid resource overview table alignment: {findings.relative(path)}: {current_type}",
+                source_path=path,
+                cause_kind="input_invalid",
+                location=f"line:{index - len(table) + 2}",
             )
             for number, row in enumerate(table[2:], 1):
                 cells = [cell.strip() for cell in row.strip("|").split("|")]
                 findings.check(
                     len(cells) == len(headers),
                     f"resource overview row width mismatch: {findings.relative(path)}: {current_type}",
+                    source_path=path,
+                    cause_kind="input_invalid",
+                    location=f"line:{index - len(table) + number + 2}",
                 )
                 if len(cells) != len(headers):
                     continue
                 findings.check(
                     cells[0] == str(number),
                     f"resource overview numbering error: {findings.relative(path)}: {current_type}",
+                    source_path=path,
+                    cause_kind="input_invalid",
+                    location=f"line:{index - len(table) + number + 2}",
                 )
                 findings.check(
                     JAPANESE_TEXT_PATTERN.search(cells[-1]) is not None,
                     f"resource overview Comment must describe the resource in Japanese: {findings.relative(path)}: {current_type}",
+                    source_path=path,
+                    cause_kind="input_invalid",
+                    location=f"line:{index - len(table) + number + 2}",
                 )
                 link = RESOURCE_LINK_PATTERN.fullmatch(cells[1])
                 findings.warn(
@@ -373,6 +410,9 @@ def check_design_overviews(
                         "セキュリティグループの設定",
                     },
                     f"resource overview Comment must state a distinct purpose or role: {findings.relative(path)}: {current_type}: {label}",
+                    source_path=path,
+                    cause_kind="input_invalid",
+                    location=f"line:{index - len(table) + number + 2}",
                 )
                 resource = resources.get(anchor)
                 findings.warn(
@@ -390,6 +430,8 @@ def check_design_overviews(
             len(overview_types) == len(set(overview_types))
             and set(overview_types) == set(detail_types),
             f"resource overview types must match detail resource types: {findings.relative(path)}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         findings.warn(
             len(listed) == len(set(listed)) and set(listed) == set(resources),
@@ -950,6 +992,9 @@ def check_design_links(
                     findings.check(
                         False,
                         f"invalid design Property: {findings.relative(source)}: {error}",
+                        source_path=source,
+                        cause_kind="input_invalid",
+                        location=f"{source_anchor}/{cells[1]}",
                     )
                     continue
                 if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Type":
@@ -1120,6 +1165,8 @@ def check_design_artifacts(
         findings.check(
             len(relative.parts) == 4,
             f"design JSON artifact must be <environment>/<target-directory>/<service-id>/<file>: {findings.relative(artifact)}",
+            source_path=artifact,
+            cause_kind="input_invalid",
         )
         if len(relative.parts) != 4:
             continue
@@ -1127,14 +1174,20 @@ def check_design_artifacts(
         findings.check(
             target in accounts,
             f"design JSON artifact target is not defined: {findings.relative(artifact)}",
+            source_path=artifact,
+            cause_kind="input_invalid",
         )
         findings.check(
             LOWER_KEBAB_PATTERN.fullmatch(relative.parts[2]) is not None,
             f"invalid design JSON service ID: {findings.relative(artifact)}",
+            source_path=artifact,
+            cause_kind="input_invalid",
         )
         findings.check(
             LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None,
             f"invalid design JSON artifact ID: {findings.relative(artifact)}",
+            source_path=artifact,
+            cause_kind="input_invalid",
         )
         owning_markdown = artifact.parent.with_suffix(".md")
         if not input_is_file(owning_markdown):
@@ -1152,13 +1205,18 @@ def check_design_artifacts(
         try:
             content = json.loads(input_text(artifact, encoding="utf-8"))
         except json.JSONDecodeError as error:
-            findings.errors.append(
-                f"invalid design JSON artifact: {findings.relative(artifact)}: {error}"
+            findings.input_check(
+                False,
+                artifact,
+                f"invalid design JSON artifact: {findings.relative(artifact)}: {error}",
+                location=f"line:{error.lineno}/column:{error.colno}",
             )
             continue
         findings.check(
             isinstance(content, dict),
             f"design JSON artifact root must be an object: {findings.relative(artifact)}",
+            source_path=artifact,
+            cause_kind="input_invalid",
         )
     references = markdown_design_artifacts.sources
     for artifact in sorted(references.keys() - artifacts):

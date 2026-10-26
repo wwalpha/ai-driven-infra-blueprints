@@ -55,17 +55,25 @@ def check_structure(findings, root, *, consumer=True, definitions_root=None):
     ):
         base = definitions_root if filename.startswith("framework/") else root
         findings.check(
-            input_is_file(base / filename), f"required file missing: {filename}"
+            input_is_file(base / filename),
+            f"required file missing: {filename}",
+            cause_kind="input_invalid",
+            source_path=base / filename,
         )
     for directory in REQUIRED_DIRECTORIES:
         findings.check(
-            input_is_dir(root / directory), f"required directory missing: {directory}"
+            input_is_dir(root / directory),
+            f"required directory missing: {directory}",
+            cause_kind="input_invalid",
+            source_path=root / directory,
         )
     if consumer:
         for directory in ("model",):
             findings.check(
                 input_is_dir(root / directory),
                 f"required directory missing: {directory}",
+                cause_kind="input_invalid",
+                source_path=root / directory,
             )
     codex_prompt_names = sorted(
         path.name
@@ -82,11 +90,15 @@ def check_structure(findings, root, *, consumer=True, definitions_root=None):
     findings.check(
         not invalid_prompt_names,
         f"invalid Codex prompt filenames: {invalid_prompt_names}",
+        cause_kind="input_invalid",
+        source_path=definitions_root / "framework/prompts/codex",
     )
     prompt_numbers = [name.split("_", 1)[0] for name in codex_prompt_names]
     findings.check(
         len(prompt_numbers) == len(set(prompt_numbers)),
         "Codex prompt numbers must be unique",
+        cause_kind="input_invalid",
+        source_path=definitions_root / "framework/prompts/codex",
     )
     actual_rules = {
         path.name
@@ -95,6 +107,8 @@ def check_structure(findings, root, *, consumer=True, definitions_root=None):
     findings.check(
         REQUIRED_RULES <= actual_rules,
         f"required rules missing: {sorted(REQUIRED_RULES - actual_rules)}",
+        cause_kind="input_invalid",
+        source_path=definitions_root / "framework/rules",
     )
 
 
@@ -102,14 +116,21 @@ def check_framework_active_task_transition(findings, root):
     agents = input_text(root / "AGENTS.md", encoding="utf-8")
     readme = input_text(root / "README.md", encoding="utf-8")
     findings.check(
-        "## Task transition" in agents, "AGENTS.md lacks Task transition rules"
+        "## Task transition" in agents,
+        "AGENTS.md lacks Task transition rules",
+        cause_kind="input_invalid",
+        source_path=root / "AGENTS.md",
     )
     findings.check(
-        "## Task transition" in readme, "README.md lacks Task transition workflow"
+        "## Task transition" in readme,
+        "README.md lacks Task transition workflow",
+        cause_kind="input_invalid",
+        source_path=root / "README.md",
     )
     findings.check(
         "chat-only" in agents and "chat-only" in readme,
         "chat-only task handling is not defined",
+        cause_kind="input_invalid",
     )
     required = {
         "AGENTS.md": "tasks/<task-name>.md",
@@ -123,12 +144,17 @@ def check_framework_active_task_transition(findings, root):
     for relative, literal in required.items():
         path = root / relative
         findings.check(
-            input_is_file(path), f"active task lifecycle file missing: {relative}"
+            input_is_file(path),
+            f"active task lifecycle file missing: {relative}",
+            cause_kind="input_invalid",
+            source_path=path,
         )
         if input_is_file(path):
             findings.check(
                 literal in input_text(path, encoding="utf-8"),
                 f"active task lifecycle rule missing: {relative}",
+                cause_kind="input_invalid",
+                source_path=path,
             )
 
 
@@ -174,7 +200,10 @@ def check_framework_rule_readings(findings, root):
                     continue
                 if heading not in sections:
                     findings.check(
-                        False, f"mandatory reading entry missing: {relative}#{heading}"
+                        False,
+                        f"mandatory reading entry missing: {relative}#{heading}",
+                        cause_kind="input_invalid",
+                        source_path=source,
                     )
                     continue
                 readings = rule_readings(root, source, sections[heading])
@@ -186,6 +215,8 @@ def check_framework_rule_readings(findings, root):
                     findings.check(
                         "" in covered or anchors <= covered,
                         f"mandatory rule readings missing: {relative}#{heading} -> {filename}",
+                        cause_kind="input_invalid",
+                        source_path=source,
                     )
             if source.parent == root / "framework/prompts/codex":
                 reading = sections.get(
@@ -215,9 +246,13 @@ def check_framework_rule_readings(findings, root):
                 findings.check(
                     required <= readings.keys(),
                     f"workflow lacks canonical rule readings: {source.relative_to(root)}",
+                    cause_kind="input_invalid",
+                    source_path=source,
                 )
         except (OSError, ValueError) as error:
-            findings.check(False, f"rule reading reference: {error}")
+            findings.check(
+                False, f"rule reading reference: {error}", source_path=source
+            )
 
 
 def check_framework_design_handoff(findings, root):
@@ -225,18 +260,27 @@ def check_framework_design_handoff(findings, root):
     markdown_sections = _imports_utils_markdown_format.markdown_sections
     rule_readings = _imports_utils_markdown_format.rule_readings
     path = root / "framework" / "prompts" / "chatbot" / "service-design.md"
-    findings.check(input_is_file(path), "service design prompt is missing")
+    findings.check(
+        input_is_file(path),
+        "service design prompt is missing",
+        cause_kind="input_invalid",
+        source_path=path,
+    )
     if not input_is_file(path):
         return
     prompt = input_text(path, encoding="utf-8")
     findings.check(
         "Task type is `design`" in prompt,
         "service design prompt lacks design task contract",
+        cause_kind="input_invalid",
+        source_path=path,
     )
     findings.check(
         "blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md"
         in prompt,
         "service design prompt lacks integrated Model generation/validation",
+        cause_kind="input_invalid",
+        source_path=path,
     )
     try:
         completion = markdown_sections(prompt).get("completion", "")
@@ -258,6 +302,8 @@ def check_framework_design_handoff(findings, root):
         findings.check(
             "validation-policy" in policy.get("sections", []),
             "service design handoff lacks canonical Validation policy reference",
+            cause_kind="input_invalid",
+            source_path=path,
         )
         for required in (
             ". Validate in-scope service designs/models, generated Markdown/JSON, schemas, naming, "
@@ -268,14 +314,20 @@ def check_framework_design_handoff(findings, root):
             findings.check(
                 required in validation,
                 f"service design handoff lacks required validation instruction: {required}",
+                cause_kind="input_invalid",
+                source_path=path,
             )
     except (OSError, ValueError) as error:
         findings.check(
-            False, f"service design handoff Validation policy reference: {error}"
+            False,
+            f"service design handoff Validation policy reference: {error}",
+            source_path=path,
         )
     findings.check(
         "03_apply-design.md" not in prompt,
         "service design prompt still depends on apply-design",
+        cause_kind="input_invalid",
+        source_path=path,
     )
     gate = "## Naming rule preflight (design start gate)"
     findings.check(
@@ -283,15 +335,21 @@ def check_framework_design_handoff(findings, root):
         and "## Determine what to ask" in prompt
         and prompt.index(gate) < prompt.index("## Determine what to ask"),
         "service design prompt lacks naming preflight before design questions",
+        cause_kind="input_invalid",
+        source_path=path,
     )
     findings.check(
         "check-design-naming.py --resource-type" in prompt,
         "service design prompt lacks executable naming preflight",
+        cause_kind="input_invalid",
+        source_path=path,
     )
     findings.check(
         "Before design contract registration, execute `check-design-naming.py`"
         in prompt,
         "service design handoff lacks naming preflight before task registration",
+        cause_kind="input_invalid",
+        source_path=path,
     )
     required_existing_resource_contract = {
         "--read-only": "service design prompt lacks read-only AWS context preflight",
@@ -309,7 +367,9 @@ def check_framework_design_handoff(findings, root):
         "Do not add resource creator, administrator, or externally created provenance to artifacts": "service design prompt persists or omits the no-provenance contract",
     }
     for literal, error in required_existing_resource_contract.items():
-        findings.check(literal in prompt, error)
+        findings.check(
+            literal in prompt, error, cause_kind="input_invalid", source_path=path
+        )
 
 
 def check_framework_task_completion_contract(findings, root):
@@ -321,16 +381,22 @@ def check_framework_task_completion_contract(findings, root):
     findings.check(
         "Requirement ID" in contract and "Acceptance checks" in contract,
         "task rules lack completion contract",
+        cause_kind="input_invalid",
+        source_path=root / "framework/rules/task-contract.md",
     )
     findings.check(
         "task-contract.md#acceptance-contract" in rules,
         "loop lacks canonical completion contract reference",
+        cause_kind="input_invalid",
+        source_path=root / "framework/rules/loop-engineering.md",
     )
     transition = markdown_sections(contract).get("task-transition", "")
     for boundary in ("Suspension reason", "--resume", "--complete", "running"):
         findings.check(
             boundary in transition,
             f"Task transition safety boundary missing: {boundary}",
+            cause_kind="input_invalid",
+            source_path=root / "framework/rules/task-contract.md",
         )
 
 
@@ -348,18 +414,25 @@ def check_framework_focused_check_runner(findings, root):
         root / "framework" / "scripts" / "validation" / "loop.py", encoding="utf-8"
     )
     findings.check(
-        'glob("*.checks.py")' in loop, "local loop does not discover focused checks"
+        'glob("*.checks.py")' in loop,
+        "local loop does not discover focused checks",
+        cause_kind="input_invalid",
+        source_path=root / "framework/scripts/validation/loop.py",
     )
     findings.check(
         "PYTHONDONTWRITEBYTECODE" in loop,
         "focused checks may write bytecode into the repository",
+        cause_kind="input_invalid",
+        source_path=root / "framework/scripts/validation/loop.py",
     )
 
 
 def check_framework_cloudformation_schema_catalog(findings, root):
     errors = snapshot_errors(root)
     findings.check(
-        not errors, "; ".join(errors) or "CloudFormation schema snapshot is invalid"
+        not errors,
+        "; ".join(errors) or "CloudFormation schema snapshot is invalid",
+        cause_kind="input_invalid",
     )
 
 
@@ -374,10 +447,14 @@ def check_framework_schema_backed_design_validation(findings, root):
     findings.check(
         "CloudFormation provider schema" in rules,
         "detailed design rules do not apply provider schemas",
+        cause_kind="input_invalid",
+        source_path=root / "framework/rules/detailed-design.md",
     )
     findings.check(
         "CloudFormation provider schema" in prompt,
         "initial design prompt does not apply provider schemas",
+        cause_kind="input_invalid",
+        source_path=root / "framework/prompts/chatbot/service-design.md",
     )
     catalog = CloudFormationSchemaCatalog(root)
     findings.check(

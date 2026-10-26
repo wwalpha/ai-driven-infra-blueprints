@@ -771,7 +771,7 @@ def _callback_check_model_inputs_literal_check(
         for error in catalog.literal_errors(kind, field, item):
             findings.input_check(
                 False,
-                _state_check_model_inputs_337.view,
+                findings.source_path,
                 f"provider schema violation: {prop}: {error}",
                 location=f"desired.resource.{_state_check_model_inputs_337.identity}/{prop}",
             )
@@ -846,7 +846,6 @@ def _check_model_inputs(
     runtime_values = _imports_model_sources.runtime_values
     values = runtime_values(values)
 
-    findings = Findings(root, source_path=path)
     definitions = definitions_root or definition_root(root)
     _state_check_model_inputs_337.view = (
         (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
@@ -860,6 +859,7 @@ def _check_model_inputs(
         if path.is_relative_to(root / "docs/designs")
         else path
     )
+    findings = Findings(root, source_path=model_path)
     structure = _bind_framework_callback(
         _callback_check_model_inputs_structure,
         resource_row_index,
@@ -875,7 +875,7 @@ def _check_model_inputs(
         _bind_framework_callback(
             _callback_check_model_inputs_json_settings,
             values,
-            path,
+            model_path,
             findings,
             prohibited,
         ),
@@ -899,7 +899,9 @@ def _check_model_inputs(
     try:
         catalog = DesignSchemaCatalog(definitions) if resources else None
     except (OSError, ValueError) as error:
-        findings.processing_failure("model.catalog", None, error, source_path=path)
+        findings.processing_failure(
+            "model.catalog", None, error, source_path=model_path
+        )
         return findings
     resource_values = None
     for (

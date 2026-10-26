@@ -24,6 +24,7 @@ from model.core import (
 )
 from model.format import parse
 from model.sources import load_model
+from model.validation import check_model_inputs as validate_model_inputs
 from model.validation import validate_required_properties
 from support.issues_scan_fixtures import (
     fixture,
@@ -38,6 +39,7 @@ from validation.design import check_model_files as validate_models
 from validation.design import check_service_file as validate_service
 from validation.diagnostics import Diagnostic, InputValidationError, stable_id
 from validation.findings import Findings, FindingsError
+from validation.framework_contracts import check_structure as validate_structure
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -125,6 +127,27 @@ def check_cause_does_not_change_existing_identity(tmp_path):
         assert classified.identity == original.identity
         assert stable_id(classified.identity) == stable_id(original.identity)
         assert classified.record()["cause_kind"] == cause
+    assert original.identity == (
+        original.code,
+        original.service,
+        original.source_path,
+        original.target_path,
+        original.location,
+        original.cause_key,
+    )
+    typed = Findings(tmp_path, source_path="model/dev/team/iam.properties")
+    typed.input_failure(InputValidationError("invalid syntax"))
+    typed.check_id = "another.caller"
+    typed.input_failure(InputValidationError("invalid syntax"))
+    assert len(typed.diagnostics) == 1
+    assert typed.diagnostics[0].identity == (
+        "validation.input",
+        ("dev", "team", "iam"),
+        "model/dev/team/iam.properties",
+        None,
+        None,
+        "invalid syntax",
+    )
 
 
 def check_proven_required_property_and_generic_exception(tmp_path):
@@ -192,11 +215,16 @@ def check_model_read_is_processing_with_proven_owner(tmp_path):
 )
 def check_reference_taxonomy(tmp_path, error, cause):
     findings = Findings(tmp_path)
-    findings.warn(error, model="model/dev/team/iam.properties")
+    findings.warn(error)
     records = [*findings.reference_errors, *findings.warnings]
     assert records and all(item["cause_kind"] == cause for item in records)
     assert bool(findings.processing_errors) == (cause == "check_failure")
     assert bool(findings.unverified) == (cause != "input_invalid")
+    if cause == "dependency_wait":
+        assert (
+            findings.warnings[0]["diagnostic_id"]
+            == findings.unverified[0]["diagnostic_id"]
+        )
 
 
 def check_source_path_and_unstructured_violation_retained(tmp_path):
@@ -408,6 +436,168 @@ def check_real_input_violations_are_never_processing_failures(tmp_path, fault):
             findings.diagnostics[0].source_path
             == "model/dev/123456789012/s3.properties"
         )
+
+
+def check_missing_markdown_headings_scan_to_review(tmp_path):
+    framework = Path(__file__).resolve().parents[4]
+    with mapping_alias(framework, tmp_path):
+        fixture(tmp_path, services=("s3", "sqs"))
+        view = tmp_path / "docs/designs/dev/123456789012/s3.md"
+        text = view.read_text(encoding="utf-8")
+        for heading in ("## リソース一覧", "## リソース詳細"):
+            assert heading in text
+            text = text.replace(heading, "")
+        view.write_text(text, encoding="utf-8")
+        validators = []
+        mechanical(
+            tmp_path,
+            {("dev", "123456789012", service) for service in ("s3", "sqs")},
+            jobs=1,
+            validator_out=validators,
+        )
+    findings = validators[0].findings
+    context = comparison(tmp_path)
+    context.directory = "123456789012"
+    ordinary, judgments = validation_issues(findings, context, ["s3", "sqs"])
+    headings = [
+        item
+        for item in ordinary
+        if item["diagnostic"]["location"] in {"## リソース一覧", "## リソース詳細"}
+    ]
+    assert len(headings) == 2, (ordinary, judgments, findings.unverified)
+    assert len({item["id"] for item in headings}) == 2
+    assert all(
+        item["cause_kind"] == "input_invalid"
+        and item["service"] == "s3"
+        and item["diagnostic"]["source_path"] == "docs/designs/dev/123456789012/s3.md"
+        and item["diagnostic"]["check_id"] == "design.service"
+        for item in headings
+    )
+    assert not judgments and not findings.processing_errors
+    data = snapshot_artifact(tmp_path, services=["s3", "sqs"], ordinary=ordinary)
+    validate_artifact(data)
+    result = json.loads(review_snapshot(data, review_for(data)).data)
+    assert {item["id"] for item in result["ordinary"]} == {
+        item["id"] for item in ordinary
+    }
+
+
+@pytest.mark.parametrize("cause", ["input_invalid", "unclassified"])
+def check_generic_check_identity_and_deduplication(tmp_path, cause):
+    findings = Findings(tmp_path)
+    path = tmp_path / "model/dev/team/iam.properties"
+    for check in ("rule.one", "rule.two", "rule.one"):
+        findings.check(
+            False,
+            "same prose",
+            cause_kind=cause,
+            source_path=path,
+            check_id=check,
+            location="desired.row.001-001.value",
+        )
+    assert len(findings.diagnostics) == len(findings.errors) == 2
+    ordinary, judgments = validation_issues(findings, comparison(tmp_path), ["iam"])
+    assert not judgments
+    assert len(ordinary) == (2 if cause == "input_invalid" else 0)
+    assert len(findings.unverified) == (2 if cause == "unclassified" else 0)
+    original = findings.diagnostics[0]
+    identities = {
+        stable_id(
+            replace(
+                original, details=dict(resourceLogicalId=resource, property=prop)
+            ).identity
+        )
+        for resource, prop in (("Role1", "Name"), ("Role2", "Name"), ("Role1", "Path"))
+    }
+    assert len(identities) == 3
+    assert (
+        replace(original, location="desired.row.002-001.value").identity
+        != original.identity
+    )
+
+
+@pytest.mark.parametrize(
+    "category", ["REFERENCE_UNRESOLVED", "REFERENCE_PENDING_DEPLOY"]
+)
+def check_waiting_reference_ids_in_both_channels(tmp_path, category):
+    findings = Findings(tmp_path)
+    for target, message in (
+        ("Key1", "pending"),
+        ("Key2", "pending"),
+        ("Key1", "translated"),
+    ):
+        findings.warn(
+            ReferenceResolutionError(
+                message,
+                category=category,
+                model="model/dev/team/iam.properties",
+                modelKey="desired.row.001-001.value",
+                resourceLogicalId="Role1",
+                targetLogicalId=target,
+                attribute="Arn",
+            )
+        )
+    assert len(findings.warnings) == len(findings.unverified) == 2
+    ids = [item["diagnostic_id"] for item in findings.warnings]
+    assert len(set(ids)) == 2
+    assert ids == [item["diagnostic_id"] for item in findings.unverified]
+    assert not findings.errors and not findings.processing_errors
+    assert all(item["category"] == category for item in findings.warnings)
+    ordinary, judgments = validation_issues(findings, comparison(tmp_path), ["iam"])
+    assert not ordinary and not judgments
+    data = snapshot_artifact(tmp_path, services=["iam"], target="team")
+    data.update(warnings=findings.warnings, unverified=findings.unverified)
+    validate_artifact(data)
+    result = json.loads(review_snapshot(data, review_for(data)).data)
+    assert ids == [item["diagnostic_id"] for item in result["unverified"]]
+
+
+@pytest.mark.parametrize("entrance", ["model", "view"])
+def check_model_literal_uses_authority_path(tmp_path, entrance):
+    framework = Path(__file__).resolve().parents[4]
+    with mapping_alias(framework, tmp_path):
+        fixture(tmp_path, services=("s3",))
+        path = tmp_path / "model/dev/123456789012/s3.properties"
+        values = dict(load_model(path).authoritative)
+        row = next(
+            key.removesuffix("property") + "value"
+            for key, value in values.items()
+            if key.endswith(".property")
+            and value == "S3.Bucket.VersioningConfiguration.Status"
+        )
+        values[row] = "`INVALID`"
+        source = (
+            path
+            if entrance == "model"
+            else tmp_path / "docs/designs/dev/123456789012/s3.md"
+        )
+        findings = validate_model_inputs(source, values, tmp_path)
+    diagnostics = [
+        d for d in findings.diagnostics if d.check_id.startswith("model.literal.")
+    ]
+    assert diagnostics
+    assert all(
+        d.source_path == "model/dev/123456789012/s3.properties" for d in diagnostics
+    )
+    assert all(d.cause_kind == "input_invalid" for d in diagnostics)
+    assert all(
+        resolve(tmp_path, d, {("dev", "123456789012", "s3")})["owner"]
+        == ("dev", "123456789012", "s3")
+        for d in diagnostics
+    )
+
+
+def check_shared_framework_input_has_no_guessed_owner(tmp_path):
+    findings = Findings(tmp_path)
+    validate_structure(findings, tmp_path, consumer=False, definitions_root=tmp_path)
+    assert findings.diagnostics
+    assert all(d.cause_kind == "input_invalid" for d in findings.diagnostics)
+    ordinary, judgments = validation_issues(
+        findings, comparison(tmp_path), ["iam", "kms"]
+    )
+    assert not ordinary and len(judgments) == len(findings.diagnostics)
+    assert all(item["ownership"]["status"] == "unresolved" for item in judgments)
+    assert all(item["diagnostic"]["source_path"] for item in judgments)
 
 
 if __name__ == "__main__":

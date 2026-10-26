@@ -162,7 +162,11 @@ class Diagnostic:
             self.location,
             self.cause_key,
         )
-        if self.code == "design.display.mismatch":
+        if self.code in {
+            "design.display.mismatch",
+            "validation.check",
+            "validation.unclassified",
+        }:
             return (
                 self.check_id,
                 *identity,

@@ -21,6 +21,37 @@ class FindingsError(ValueError):
         self.findings = findings
 
 
+def reference_identity(root, diagnostic):
+    return Diagnostic.create(
+        root,
+        code=diagnostic["code"],
+        check_id="model.references",
+        service=service_scope(root, diagnostic.get("model")),
+        source_path=diagnostic.get("model"),
+        location=diagnostic.get("modelKey"),
+        cause_key=json.dumps(
+            [
+                diagnostic.get(field)
+                for field in (
+                    "category",
+                    "resourceLogicalId",
+                    "pointer",
+                    "targetLogicalId",
+                    "attribute",
+                )
+            ]
+            if diagnostic.get("model") and diagnostic.get("modelKey")
+            else {
+                key: value
+                for key, value in diagnostic.items()
+                if key not in {"cause_kind", "diagnostic_id"}
+            },
+            sort_keys=True,
+        ),
+        message=diagnostic["message"],
+    ).identity
+
+
 def check_metadata(metadata):
     unavailable = metadata.get("unavailable_services", {})
     unverified = metadata.get("unverified", [])
@@ -353,34 +384,7 @@ class Findings:
             "FRAMEWORK_UNSUPPORTED",
         }:
             diagnostic = {**condition, **details}
-            identity = Diagnostic.create(
-                self.canonical_root,
-                code=diagnostic["code"],
-                check_id="model.references",
-                service=service_scope(self.canonical_root, diagnostic.get("model")),
-                source_path=diagnostic.get("model"),
-                location=diagnostic.get("modelKey"),
-                cause_key=json.dumps(
-                    [
-                        diagnostic.get(field)
-                        for field in (
-                            "category",
-                            "resourceLogicalId",
-                            "pointer",
-                            "targetLogicalId",
-                            "attribute",
-                        )
-                    ]
-                    if diagnostic.get("model") and diagnostic.get("modelKey")
-                    else {
-                        key: value
-                        for key, value in diagnostic.items()
-                        if key != "cause_kind"
-                    },
-                    sort_keys=True,
-                ),
-                message=diagnostic["message"],
-            ).identity
+            identity = reference_identity(self.canonical_root, diagnostic)
             if identity not in self.diagnostic_errors.values():
                 self.reference_errors.append(diagnostic)
                 self.reference_error_positions[len(self.errors)] = diagnostic
@@ -411,15 +415,28 @@ class Findings:
             warning = {"code": code, "message": message, **details}
         elif isinstance(condition, dict):
             warning = {**condition, **details}
-            if (
-                warning.get("category")
-                in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
-                and warning not in self.unverified
-            ):
-                self.unverified.append(warning)
+            if warning.get("category") in {
+                "REFERENCE_PENDING_DEPLOY",
+                "REFERENCE_UNRESOLVED",
+            }:
+                warning.setdefault(
+                    "diagnostic_id",
+                    stable_id(reference_identity(self.canonical_root, warning)),
+                )
+                if not any(
+                    item.get("diagnostic_id") == warning["diagnostic_id"]
+                    for item in self.unverified
+                ):
+                    self.unverified.append(warning)
         else:
             warning = {"code": code, "message": str(condition), **details}
-        if warning not in self.warnings:
+        if warning not in self.warnings and not (
+            warning.get("diagnostic_id")
+            and any(
+                item.get("diagnostic_id") == warning["diagnostic_id"]
+                for item in self.warnings
+            )
+        ):
             self.warnings.append(warning)
 
     def check(
@@ -437,7 +454,7 @@ class Findings:
             source_path = source_path or self.source_path
             diagnostic = Diagnostic.create(
                 self.canonical_root,
-                code="validation.input"
+                code="validation.check"
                 if cause_kind == "input_invalid"
                 else "validation.unclassified",
                 cause_kind=cause_kind or "unclassified",
