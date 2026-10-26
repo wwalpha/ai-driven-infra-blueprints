@@ -18,6 +18,9 @@ from deploy import required_readings as readings
 from support.deploy_preparation_fixtures import ROOT, STACKS, fixture
 from utils.markdown_format import markdown_sections, rule_readings
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 # Archived reading route, not the current prompt; explicitly preserves even redundant anchors.
 LEGACY_LINKS = """[task](../../rules/task-contract.md)
 [policy](../../rules/detailed-design.md#policy-account-selection)

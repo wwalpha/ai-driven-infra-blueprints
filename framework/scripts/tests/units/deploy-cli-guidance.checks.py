@@ -26,6 +26,9 @@ from model.core import ReferenceResolutionError
 from utils.aws.identity import IdentityError
 from utils.cloudformation.environment import EnvironmentValuePending
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 ROOT = Path(__file__).resolve().parents[4]
 ARGS = Namespace(
     environment="dev",

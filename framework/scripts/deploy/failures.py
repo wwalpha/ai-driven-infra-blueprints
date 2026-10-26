@@ -27,7 +27,7 @@ AUTH_CODES = {
 }
 
 
-def dependency_wait(error):
+def dependency_wait(error: Exception) -> bool:
     return isinstance(error, EnvironmentValuePending) or (
         isinstance(error, ReferenceDiagnosticError)
         and bool(error.diagnostics)
