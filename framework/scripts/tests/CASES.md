@@ -3847,7 +3847,7 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | `independent-deploy::test_no_change_still_checks_all_four_kms_exports` | `test_no_change_still_checks_all_four_kms_exports` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
 | `independent-deploy::test_kms_four_exports_update_and_no_change_require_aws_facts` | `test_kms_four_exports_update_and_no_change_require_aws_facts` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
 | `independent-deploy::check_one_shot_request_requires_current_authority` | `check_one_shot_request_requires_current_authority` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 6 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::check_delivered_request_evidence_is_discarded` | `check_delivered_request_evidence_is_discarded` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
+| `independent-deploy::check_delivered_request_evidence_is_discarded` | `check_delivered_request_evidence_is_discarded` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 5 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
 | `independent-deploy::recovery-guard` | `test_recovery_guard_preserves_current_task_target_and_model` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 4 | 復旧中のTask/target/Model変更を拒否 | 追加 |
 | `independent-deploy::adoption-interruption` | `test_adoption_claim_failure_keeps_every_unprocessed_changeset` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 引き継ぎ中断で未処理ChangeSetの証跡を失わない | 追加 |
 | `independent-deploy::terminal-output` | `test_terminal_output_failure_discards_execution_intent` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | AWS確定後のExport未反映は失敗報告しExecute意図を破棄 | 追加 |
@@ -3862,6 +3862,17 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 |---|---|---|---|---|---|---|
 | `array-projection` | `check_array_model_projection` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | 注釈なし生成、元JSON/コメント/順序不変、Model照合後の正式行、番号・要素・値・コメント・所属不正、Modelなしのエラー | 追加 |
 | `array-compact-diagnostics` | `check_indexed_compact_variable_diagnostics` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | Model JSON復元を伴わない番号付き変数の既存生Markdown診断、0/先頭ゼロ/欠番とPLAINTEXTリンク拒否 | 追加 |
+
+
+
+## Deploy repair discard interruption recovery
+
+| Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `repair-discard::interruptions` | `check_discard_retries_every_interruption` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 26 | 検証前・rename前後・各Log/Validation/Result/Request/Failure削除・rmdir前後・一時証跡削除前後の例外/強制終了、再実行と二重削除防止 | Synthetic offline |
+| `repair-discard::integrity` | `check_discard_rejects_unknown_or_changed_evidence` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 11 | 署名・残存内容・所有権・commit/requestId・不明ファイル・一時証跡欠落を安全停止 | Synthetic offline |
+| `repair-discard::shared` | `check_discard_retry_preserves_shared_failure` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | 無効化前/後に共有されたFailureと他Requestの保持 | Synthetic offline |
+| `repair-discard::templates` | `check_failure_survives_new_task_and_templates_live_until_consumed` | UT | [units/deploy-temporary-unit.checks.py](units/deploy-temporary-unit.checks.py) | pytest / 4 | 未消費Failure保護、Cleanup途中/不明証跡でTemplate保持、完了後の回収 | Synthetic offline |
 
 
 ## Deploy recovery, OS locks and temporary inputs

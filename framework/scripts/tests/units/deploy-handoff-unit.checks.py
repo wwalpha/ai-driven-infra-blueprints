@@ -326,44 +326,56 @@ def check_one_shot_request_requires_current_authority(tmp_path, defect):
                 handoff.issue_request(root, path, diagnosis, allowed)
 
 
-@pytest.mark.parametrize(
-    "case", ["completed", "unknown", "shared", "unknown-reference", "unverified"]
-)
-def check_delivered_request_evidence_is_discarded(tmp_path, case):
+def delivered_request(tmp_path):
     root = tmp_path / "project"
     root.mkdir()
     directory = evidence_store(root) / "deploy-repair-current"
-    directory.mkdir()
+    directory.mkdir(mode=0o700)
     path = directory / "request.json"
     failure = evidence_store(root) / "deploy-failure-current.json"
-    identity = {"taskFile": "tasks/deploy.md", "taskDigest": "task"}
+    identity = {
+        "repository": str(root),
+        "taskFile": "tasks/deploy.md",
+        "taskDigest": "task",
+    }
     write_sealed(root, failure, identity)
     write_sealed(
         root,
         path,
-        {
-            **identity,
-            "repository": str(root),
-            "requestId": "current",
-            "failureEvidence": str(failure),
-        },
+        {**identity, "requestId": "current", "failureEvidence": str(failure)},
     )
     write_sealed(
         root, directory / "result.json", {"requestId": "current", "commit": "commit"}
     )
     write_sealed(root, directory / "validation.json", {"requestId": "current"})
+    for number in (1, 2):
+        (directory / f"static-{number}.log").write_text("static PASS", encoding="utf-8")
+    return (
+        root,
+        path,
+        failure,
+        {
+            "deployRepair": str(path),
+            "verified": True,
+            "merged": "commit",
+            "commit": "commit",
+            "repairStaticRuns": 2,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "case", ["completed", "unknown", "shared", "unknown-reference", "unverified"]
+)
+def check_delivered_request_evidence_is_discarded(tmp_path, case):
+    root, path, failure, state = delivered_request(tmp_path)
+    directory = path.parent
     with handoff.locked(path):
         with pytest.raises(Blocked, match="lock busy"):
             with handoff.locked(path):
                 raise AssertionError("second repair owner acquired lock")
     assert not path.with_suffix(".lock").exists()
     assert (evidence_store(root) / "deploy-repair.lock").is_file()
-    state = {
-        "deployRepair": str(path),
-        "verified": True,
-        "merged": "commit",
-        "commit": "commit",
-    }
     if case in {"shared", "unknown-reference"}:
         other = evidence_store(root) / "deploy-repair-other/request.json"
         other.parent.mkdir(mode=0o700)
@@ -390,6 +402,180 @@ def check_delivered_request_evidence_is_discarded(tmp_path, case):
         handoff.discard_request(state)
         assert not directory.exists()
         assert failure.exists() == (case == "shared")
+
+
+def _callback_cleanup_interrupt(
+    original, selected, after, exception, path, *args, **kwargs
+):
+    if path == selected and not after:
+        raise exception("interrupted cleanup")
+    result = original(path, *args, **kwargs)
+    if path == selected and after:
+        raise exception("interrupted cleanup")
+    return result
+
+
+@pytest.mark.parametrize("exception", [OSError, SystemExit])
+@pytest.mark.parametrize(
+    "method,name,after",
+    [
+        ("read_text", "validation.json", False),
+        ("rename", "active", False),
+        ("rename", "active", True),
+        ("unlink", "static-1.log", True),
+        ("unlink", "static-2.log", True),
+        ("unlink", "validation.json", True),
+        ("unlink", "result.json", True),
+        ("unlink", "request.json", True),
+        ("unlink", "failure", True),
+        ("rmdir", "cleanup", False),
+        ("rmdir", "cleanup", True),
+        ("unlink", "receipt", False),
+        ("unlink", "receipt", True),
+    ],
+)
+def check_discard_retries_every_interruption(tmp_path, method, name, after, exception):
+    root, request, failure, state = delivered_request(tmp_path)
+    directory = request.parent.with_name("deploy-cleanup-current")
+    receipt = directory.with_suffix(".json")
+    unused = failure.with_name("deploy-failure-unconsumed.json")
+    write_sealed(root, unused, {"unconsumed": True})
+    original = {p: p.read_bytes() for p in request.parent.iterdir()}
+    selected = {
+        "active": request.parent,
+        "failure": failure,
+        "cleanup": directory,
+        "receipt": receipt,
+    }.get(name)
+    if selected is None:
+        selected = (request.parent if method == "read_text" else directory) / name
+    with (
+        patch.object(
+            Path,
+            method,
+            _bind_framework_callback(
+                _callback_cleanup_interrupt,
+                getattr(Path, method),
+                selected,
+                after,
+                exception,
+            ),
+        ),
+        pytest.raises(exception, match="interrupted cleanup"),
+    ):
+        handoff.discard_request(state)
+    if request.exists():
+        assert failure.exists()
+        assert handoff.referenced_failures(root) == {failure}
+        assert all(p.read_bytes() == content for p, content in original.items())
+    else:
+        assert handoff.referenced_failures(root) == set()
+    handoff.discard_request(state)
+    assert (
+        not request.parent.exists() and not directory.exists() and not receipt.exists()
+    )
+    assert not failure.exists() and unused.exists()
+    with patch.object(Path, "unlink", side_effect=AssertionError("double deletion")):
+        handoff.discard_request(state)
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "receipt-signature",
+        "file",
+        "failure-signature",
+        "unknown",
+        "missing-receipt",
+        "symlink",
+        "ownership",
+        "commit",
+        "request-id",
+        "result-signature",
+        "validation-signature",
+    ],
+)
+def check_discard_rejects_unknown_or_changed_evidence(tmp_path, defect):
+    root, request, failure, state = delivered_request(tmp_path)
+    if defect in {"result-signature", "validation-signature"}:
+        request.with_name(defect.removesuffix("-signature") + ".json").write_text(
+            "tampered", encoding="utf-8"
+        )
+    else:
+        with (
+            patch.object(
+                Path,
+                "rename",
+                _bind_framework_callback(
+                    _callback_cleanup_interrupt,
+                    Path.rename,
+                    request.parent,
+                    True,
+                    SystemExit,
+                ),
+            ),
+            pytest.raises(SystemExit),
+        ):
+            handoff.discard_request(state)
+        directory = request.parent.with_name("deploy-cleanup-current")
+        receipt = directory.with_suffix(".json")
+        if defect == "receipt-signature":
+            receipt.write_text("tampered", encoding="utf-8")
+        elif defect == "file":
+            (directory / "static-1.log").write_text("changed", encoding="utf-8")
+        elif defect == "failure-signature":
+            failure.write_text("tampered", encoding="utf-8")
+        elif defect == "unknown":
+            (directory / "user-note.txt").write_text("preserve", encoding="utf-8")
+        elif defect == "missing-receipt":
+            receipt.unlink()
+        elif defect == "symlink":
+            receipt.unlink()
+            receipt.symlink_to(failure)
+        elif defect == "ownership":
+            receipt.unlink()
+            receipt.mkdir()
+        elif defect == "commit":
+            state.update(commit="another", merged="another")
+        elif defect == "request-id":
+            state["deployRepair"] = str(
+                request.parent.with_name("deploy-repair-other") / "request.json"
+            )
+            # Even a validly signed receipt cannot move to another request's location.
+            receipt.rename(receipt.with_name("deploy-cleanup-other.json"))
+    with pytest.raises((Blocked, ValueError)):
+        handoff.discard_request(state)
+    assert failure.exists()
+
+
+@pytest.mark.parametrize("when", ["before", "after"])
+def check_discard_retry_preserves_shared_failure(tmp_path, when):
+    root, request, failure, state = delivered_request(tmp_path)
+    other = evidence_store(root) / "deploy-repair-other/request.json"
+    other.parent.mkdir(mode=0o700)
+    if when == "before":
+        write_sealed(root, other, {"failureEvidence": str(failure)})
+    with (
+        patch.object(
+            Path,
+            "rename",
+            _bind_framework_callback(
+                _callback_cleanup_interrupt,
+                Path.rename,
+                request.parent,
+                True,
+                SystemExit,
+            ),
+        ),
+        pytest.raises(SystemExit),
+    ):
+        handoff.discard_request(state)
+    if when == "after":
+        write_sealed(root, other, {"failureEvidence": str(failure)})
+    before = other.read_bytes()
+    handoff.discard_request(state)
+    assert other.read_bytes() == before and failure.exists()
+    assert handoff.referenced_failures(root) == {failure}
 
 
 @pytest.mark.parametrize(

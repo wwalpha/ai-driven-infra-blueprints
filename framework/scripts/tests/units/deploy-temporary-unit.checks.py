@@ -253,7 +253,9 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         pass
 
 
-@pytest.mark.parametrize("consume", ["discard", "request"])
+@pytest.mark.parametrize(
+    "consume", ["discard", "request", "interrupted", "unknown-cleanup"]
+)
 def check_failure_survives_new_task_and_templates_live_until_consumed(
     tmp_path, consume
 ):
@@ -316,14 +318,37 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
             write_sealed(
                 root, request.with_name("validation.json"), {"requestId": "current"}
             )
-            temporary.handoff.discard_request(
-                {
-                    "deployRepair": str(request),
-                    "verified": True,
-                    "merged": "commit",
-                    "commit": "commit",
-                }
-            )
+            state = {
+                "deployRepair": str(request),
+                "verified": True,
+                "merged": "commit",
+                "commit": "commit",
+            }
+            if consume in {"interrupted", "unknown-cleanup"}:
+                with (
+                    patch.object(
+                        temporary.handoff,
+                        "__finish_discard",
+                        side_effect=SystemExit("interrupted"),
+                    ),
+                    pytest.raises(SystemExit),
+                ):
+                    temporary.handoff.discard_request(state)
+                receipt = request.parent.with_name("deploy-cleanup-current.json")
+                original_receipt = receipt.read_bytes()
+                if consume == "unknown-cleanup":
+                    receipt.write_text("untrusted", encoding="utf-8")
+                    # Even if a Failure is absent, unknown cleanup evidence retains inputs.
+                    original_failure = failure.read_bytes()
+                    failure.unlink()
+                with J.locked(journal):
+                    temporary.reclaim(journal, root, TARGET)
+                assert template.exists()
+                if consume == "unknown-cleanup":
+                    receipt.write_bytes(original_receipt)
+                    failure.write_bytes(original_failure)
+                    failure.chmod(0o600)
+            temporary.handoff.discard_request(state)
     assert not failure.exists()
     with J.locked(journal):
         temporary.reclaim(journal, root, TARGET)

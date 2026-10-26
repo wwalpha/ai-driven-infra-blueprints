@@ -93,6 +93,10 @@ def referenced_failures(root: Path, *, excluding: Path | None = None) -> set[Pat
 
 def failure_templates(root: Path, target: dict[str, str]) -> set[Path]:
     """Caller holds Journal then Repair; uncertain evidence prevents reclamation."""
+    if any(evidence_store(root).glob("deploy-cleanup-*")):
+        raise Blocked(
+            "repair evidence cleanup is incomplete; retain temporary templates"
+        )
     paths = referenced_failures(root) | set(
         evidence_store(root).glob("deploy-failure-*.json")
     )
@@ -370,62 +374,152 @@ def require_settled(
 
 
 def discard_request(state: JsonObject) -> None:
-    """Delete only verified files owned by the delivered one-shot handoff."""
+    """Invalidate atomically, then retry only the sealed, verified deletion plan."""
     request_path = state.get("deployRepair")
     if not request_path:
         return
-    path = Path(request_path)
-    if not path.exists():
+    path = operation_journal.safe_path(request_path)
+    if (
+        path.name != "request.json"
+        or not re.fullmatch(r"deploy-repair-[a-zA-Z0-9-]+", path.parent.name)
+        or not state.get("verified")
+        or not state.get("commit")
+        or state.get("merged") != state["commit"]
+    ):
+        raise Blocked("cannot discard an unverified handoff")
+    request_id = path.parent.name.removeprefix("deploy-repair-")
+    directory = path.parent.with_name("deploy-cleanup-" + request_id)
+    receipt = directory.with_suffix(".json")
+    operation_journal.safe_path(directory)
+    operation_journal.safe_path(receipt)
+    owner = path if path.exists() else receipt
+    if not owner.exists():
+        if path.parent.exists() or directory.exists():
+            raise Blocked("handoff cleanup ownership evidence is missing")
         return
-    envelope = __read_request_owner(path)
-    parent = Path(envelope["repository"])
+    operation_journal.private_path(owner)
+    parent = Path(__read_request_owner(owner)["repository"])
     with repair_lock(parent):
-        expected = (
-            evidence_store(parent)
-            / ("deploy-repair-" + envelope["requestId"])
-            / "request.json"
-        )
-        if (
-            path != expected
-            or not state.get("verified")
-            or state.get("merged") != state.get("commit")
-        ):
-            raise Blocked("cannot discard an unverified handoff")
-        result_path, validation_path = (
+        if path != evidence_store(parent) / path.parent.name / "request.json":
+            raise Blocked("handoff cleanup ownership changed")
+        if path.exists():
+            if directory.exists():
+                raise Blocked("active and invalidated handoff both exist")
+            plan = __discard_plan(parent, path, state)
+            if receipt.exists():
+                operation_journal.private_path(receipt)
+                if read_sealed(parent, receipt) != plan:
+                    raise Blocked("handoff cleanup plan changed")
+            else:
+                write_sealed(parent, receipt, plan)
+            # The active request and all its references disappear in one rename.
+            path.parent.rename(directory)
+        elif path.parent.exists():
+            raise Blocked("active handoff ownership evidence is missing")
+        __finish_discard(parent, path, directory, receipt, state)
+
+
+def __discard_plan(parent: Path, path: Path, state: JsonObject) -> JsonObject:
+    operation_journal.private_path(path.parent, directory=True, permissions=0o022)
+    for file in (
+        path,
+        path.with_name("result.json"),
+        path.with_name("validation.json"),
+    ):
+        operation_journal.private_path(file)
+    request, result, validation = (
+        read_sealed(parent, file)
+        for file in (
+            path,
             path.with_name("result.json"),
             path.with_name("validation.json"),
         )
-        result, validation = (
-            read_sealed(parent, result_path),
-            read_sealed(parent, validation_path),
-        )
-        if result.get("commit") != state["commit"] or any(
-            value.get("requestId") != envelope["requestId"]
+    )
+    if (
+        request["repository"] != str(parent)
+        or path.parent.name != "deploy-repair-" + request["requestId"]
+        or result.get("commit") != state["commit"]
+        or any(
+            value.get("requestId") != request["requestId"]
             for value in (result, validation)
-        ):
-            raise Blocked("handoff discard commit/request evidence changed")
-        failure_path = external(parent, envelope["failureEvidence"])
-        failure = read_sealed(parent, failure_path)
-        if (
-            failure["taskFile"] != envelope["taskFile"]
-            or failure["taskDigest"] != envelope["taskDigest"]
-        ):
-            raise Blocked("handoff failure evidence changed")
-        logs = [
-            path.with_name(f"static-{number}.log")
+        )
+    ):
+        raise Blocked("handoff discard commit/request evidence changed")
+    failure_path = external(parent, request["failureEvidence"])
+    operation_journal.private_path(failure_path)
+    failure = read_sealed(parent, failure_path)
+    if (
+        failure_path.parent != evidence_store(parent)
+        or not re.fullmatch(r"deploy-failure-[a-zA-Z0-9-]+\.json", failure_path.name)
+        or failure.get("repository") != str(parent)
+        or failure["taskFile"] != request["taskFile"]
+        or failure["taskDigest"] != request["taskDigest"]
+    ):
+        raise Blocked("handoff failure evidence changed")
+    names = [
+        *(
+            f"static-{number}.log"
             for number in range(1, state.get("repairStaticRuns", 0) + 1)
-        ]
-        owned = {path, result_path, validation_path, *logs}
-        if set(path.parent.iterdir()) != owned or any(p.is_symlink() for p in owned):
-            raise Blocked("unknown files in one-shot handoff need preservation")
-        referenced = referenced_failures(parent, excluding=path)
-        files = [*logs, validation_path, result_path, path]
-        if failure_path not in referenced:
-            operation_journal.private_path(failure_path)
-            files.insert(0, failure_path)
+        ),
+        "validation.json",
+        "result.json",
+        "request.json",
+    ]
+    if {file.name for file in path.parent.iterdir()} != set(names):
+        raise Blocked("unknown files in one-shot handoff need preservation")
+    for name in names:
+        operation_journal.private_path(path.with_name(name), permissions=0o022)
+    referenced_failures(parent, excluding=path)
+    return {
+        "repository": str(parent),
+        "requestId": request["requestId"],
+        "requestPath": str(path),
+        "commit": state["commit"],
+        "files": {name: sha(path.with_name(name)) for name in names},
+        "failureEvidence": str(failure_path),
+        "failureDigest": sha(failure_path),
+    }
+
+
+def __finish_discard(
+    parent: Path, path: Path, directory: Path, receipt: Path, state: JsonObject
+) -> None:
+    operation_journal.private_path(receipt)
+    plan = read_sealed(parent, receipt)
+    if (
+        plan["repository"] != str(parent)
+        or plan["requestPath"] != str(path)
+        or directory.name != "deploy-cleanup-" + plan["requestId"]
+        or plan["commit"] != state["commit"]
+    ):
+        raise Blocked("handoff cleanup commit/request evidence changed")
+    failure = external(parent, plan["failureEvidence"])
+    if failure.parent != evidence_store(parent) or not re.fullmatch(
+        r"deploy-failure-[a-zA-Z0-9-]+\.json", failure.name
+    ):
+        raise Blocked("handoff cleanup failure ownership changed")
+    if failure.exists():
+        operation_journal.private_path(failure)
+        read_sealed(parent, failure)
+        if sha(failure) != plan["failureDigest"]:
+            raise Blocked("handoff cleanup failure evidence changed")
+    if directory.exists():
+        operation_journal.private_path(directory, directory=True, permissions=0o022)
+        files = list(directory.iterdir())
         for file in files:
-            file.unlink()
-        path.parent.rmdir()
+            operation_journal.private_path(file, permissions=0o022)
+            if file.name not in plan["files"] or sha(file) != plan["files"][file.name]:
+                raise Blocked("unknown files or changed handoff cleanup evidence")
+        referenced = referenced_failures(parent)
+        for name in plan["files"]:
+            file = directory / name
+            if file.exists():
+                file.unlink()
+        if failure.exists() and failure not in referenced:
+            failure.unlink()
+        directory.rmdir()
+    # Keep authentication through rmdir, including an interrupted empty-directory cleanup.
+    receipt.unlink()
 
 
 def __read_request_owner(path: Path) -> JsonObject:
