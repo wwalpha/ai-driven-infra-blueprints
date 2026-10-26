@@ -83,9 +83,9 @@ def check_api_record_classification():
         report = iac_report("dev", "123456789012", ["s3"], records)
         assert "今回の判定: partial" in report and "CFn非対応・比較対象外" in report
         assert (
-            "API側の実装状態は未確認" in report
-            and "完了" in report
-            and "実装scope" in report
+            "CloudFormation非対応" in report
+            and "実装scope" not in report
+            and "必要な操作" not in report
         )
         assert "complete match" not in report and "## 処理エラー" not in report
     for resource in ({"resourceType": "Macie.Unknown"}, {}, {"resourceType": []}):

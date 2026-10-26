@@ -127,8 +127,8 @@ def main_checks():
             ][2]["Resource"]["Fn::Sub"][0] = "${BucketArn}/other/*"
             comparison, result = record(changed)
             assert result["category"] == "difference", result
-            assert all(
-                "arn:aws:" not in json.dumps(field)
+            assert any(
+                arn in field["model"] and "other/*" in field["iac"]
                 for field in comparison.display_differences[identifier(result)]
             )
             changed = deepcopy(original)
@@ -337,26 +337,22 @@ def sqs_policy_artifact_checks():
                     ]
                     == category
                 )
-                assert (
-                    "参照field: SQS.QueuePolicy.PolicyDocument.Statement[].Resource"
-                    in report
-                )
-                assert (
-                    "- ローカル具体値比較: " + category in report
-                    and "未比較field" not in report
-                )
-                assert "静的形式適合性" in report and "参照同一性" in report
+                assert "| ISSUE-" in report and "参照field:" not in report
+                assert "静的形式適合性" not in report and "参照同一性" not in report
                 assert overview["iac_uncompared"] == int(category == "uncompared")
             elif category == "error":
                 assert (
                     overview["validation_status"] == "ERROR"
                     and "synthetic ARN I/O failure" in detail["reason"]
                 )
-            assert queue_arn not in json.dumps(artifact) and rule_arn not in report
-            assert "123456789012" not in json.dumps(
+            if category != "error":
+                assert {
+                    field["model"] for field in detail["reference_diagnostics"]
+                } == {desired["Statement"][0]["Resource"], rule_arn}
+            assert "arn:aws:" not in report
+            assert "<masked ARN/secret>" not in json.dumps(
                 detail.get("reference_diagnostics", [])
             )
-            assert "123456789012" not in json.dumps(artifact["overview"]["groups"])
     print(
         "SQS policy artifact: PASS (matched/difference/uncompared/error; SQS-only region difference; proof/report masking)"
     )

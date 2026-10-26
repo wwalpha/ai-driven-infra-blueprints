@@ -2,9 +2,10 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
 import sys
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout
 from copy import deepcopy
 from functools import partial
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -33,7 +34,7 @@ from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.inputs import view_text
 from issues.records import brief, iac_key
-from issues.reports import ordinary_report
+from issues.reports import issue_key, ordinary_report
 from model.core import ReferenceResolutionError, resource_row_index
 from model.format import split
 from model.sources import load_model as real_load
@@ -233,23 +234,12 @@ def check_mismatch_rendering():
             report, report_state = render_iac(
                 root, path, "dev", "cde", ["glue"], records, display
             )
-        assert "相違項目: $attribute\n- Model: RoleName\n- IaC: Arn" in report
-        assert (
-            "$resource" not in report
-            and "修正対象: IaC: infra/cloudformation/templates/shared.yaml" in report
-            and "根拠（代表例）:" not in report
-        )
-        assert "修正対象: 不足入力" not in report and "/ 要修正:" in report
-        assert (
-            "glue.properties" not in report
-            and "shared.yaml" in report
-            and ":999" not in report
-        )
-        assert long_value + "A" not in report and "全文はartifact" in report
-        assert (
-            "不一致の検出結果を保持" in report
-            and "first" not in report
-            and "second" not in report
+        assert "| 要修正 |" in report and "Glue.Job.Role" in report
+        assert "修正対象" not in report and "必要な操作" not in report
+        assert "相違項目" not in report and "shared.yaml" in report
+        assert "glue.properties" not in report and ":999" not in report
+        assert all(
+            value not in report for value in (long_value + "A", "first", "second")
         )
         entries = report_state["entries"]
         assert Counter(
@@ -299,10 +289,10 @@ def check_mismatch_rendering():
         limited, limited_data = render_iac(
             root, path, "dev", "cde", ["glue"], duplicates, duplicate_display
         )
-        assert limited.count("相違項目:") == 10 and len(limited_data["entries"]) == 12
-        assert "省略代表例: 2レコード" in limited
+        assert len(limited_data["entries"]) == 12
+        assert "相違項目:" not in limited and "省略代表例" not in limited
         no_fields, _ = render_iac(root, path, "dev", "cde", ["glue"], [secret])
-        assert "マスク済み値から相違項目を復元できない" in no_fields
+        assert "相違項目" not in no_fields and "| 要修正 |" in no_fields
 
 
 def _callback_summary_scale_cases_with_records_161(
@@ -455,13 +445,60 @@ def summary_scale_cases():
     assert stats["omitted_record_categories"] == dict(
         difference=1086, uncompared=0, error=92
     )
-    assert (
-        "表示16／全1194対応単位、未表示1178" in report and "処理エラー 93項目" in report
+    assert "表示20件／全1194件／省略1174件" in report and "error 93件" in report
+    assert len(re.findall(r"^\| ISSUE-", report, re.M)) == 20
+    assert "### ISSUE-" not in report and "必要な操作" not in report
+    ordered = sorted(
+        artifact["iac_issues"], key=lambda item: item["compact"]["report_order"]
     )
-    assert len(re.findall(r"^\| ISSUE-", report, re.M)) == 1194
-    assert len(re.findall(r"^### ISSUE-", report, re.M)) == 16
-    assert all("| " + action["id"] + " |" in report for action in actions)
-    assert "index" not in json.loads(stdout)["iac_summary"] and "stack0" not in report
+    assert re.findall(r"^\| (ISSUE-[^ ]+)", report, re.M) == [
+        item["id"] for item in ordered[:20]
+    ]
+    assert "index" not in json.loads(stdout)["iac_summary"]
+    assert report == iac_report(
+        "dev", "cde", artifact["services"], records, stamp="fixed", artifact=artifact
+    )
+    all_issues = [
+        item
+        for offset in range(0, 1194, 50)
+        for item in detail_payload(artifact, "iac_issues", offset, 50)["items"]
+    ]
+    assert {item["id"] for item in all_issues} == {item["id"] for item in actions}
+    omitted = ordered[20]
+    assert omitted["id"] not in report
+    assert detail_payload(artifact, "iac", issue_id=omitted["id"])["total"] == len(
+        omitted["members"]
+    )
+    # Exercise the actual detail CLI for every Issue and an omitted Issue's members.
+    with tempfile.TemporaryDirectory() as temporary:
+        artifact_path = Path(temporary) / "scan.json"
+        artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+        for section, extra, total in (
+            ("iac_issues", [], 1194),
+            ("iac", ["--issue-id", omitted["id"]], len(omitted["members"])),
+        ):
+            output = StringIO()
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "issues_scan.py",
+                        "detail",
+                        "--artifact",
+                        str(artifact_path),
+                        "--section",
+                        section,
+                        "--limit",
+                        "2000",
+                        *extra,
+                    ],
+                ),
+                redirect_stdout(output),
+            ):
+                assert issues_main() == 0
+            result = json.loads(output.getvalue())
+            assert result["total"] == len(result["items"]) == total
     # Rendering/order and IDs are deterministic; source lists are never mutated.
     reverse = iac_report(
         "dev",
@@ -498,7 +535,7 @@ def summary_scale_cases():
         iac_summary(records + extra, "dev", "cde", artifact["services"])["issue_count"]
         == 1194
     )
-    # Secret fields stay masked while ordinary ARNs remain visible.
+    # Secrets stay masked; ordinary ARNs remain in artifact/detail, not field-free Markdown.
     secret = dict(
         records[2000],
         property="Glue.Job.Settings",
@@ -531,12 +568,14 @@ def summary_scale_cases():
     secret_artifact = with_records([hidden], display=hidden_fields)
     for output in (
         json.dumps(secret_artifact),
-        iac_report("dev", "cde", artifact["services"], [hidden], hidden_fields),
         json.dumps(detail_payload(secret_artifact, "iac")),
     ):
         assert all(word not in output for word in ("first", "second", "confidential"))
         assert "arn:aws:iam::123456789012:role/a" in output
         assert "arn:aws:iam::123456789012:role/b" in output
+    report = iac_report("dev", "cde", artifact["services"], [hidden], hidden_fields)
+    assert all(word not in report for word in ("first", "second", "confidential"))
+    assert "arn:aws:" not in report
     message = "Resource arn:aws:iam::123456789012:role/a differs from IaC"
     ordinary = ordinary_report(
         Path("/synthetic"),
@@ -578,7 +617,7 @@ def summary_scale_cases():
     independent = [dict(base, resource=str(i)) for i in range(20)]
     report20 = iac_report("dev", "cde", ["glue"], independent)
     assert len(re.findall(r"^\| ISSUE-", report20, re.M)) == 20
-    assert len(re.findall(r"^### ISSUE-", report20, re.M)) == 16
+    assert "### ISSUE-" not in report20 and "／省略" not in report20
     common = [
         dict(
             base,
@@ -623,7 +662,7 @@ def summary_scale_cases():
     shown = {identifier(record): value_differences(left, right, "Setting")}
     twelve_fields = with_records([record], ["glue"], shown)
     report12 = iac_report("dev", "cde", ["glue"], [record], shown)
-    assert report12.count("相違項目:") == 10 and "省略相違フィールド: 2件" in report12
+    assert "相違項目:" not in report12 and "省略相違フィールド" not in report12
     assert (
         len(detail_payload(twelve_fields, "iac")["items"][0]["value_differences"]) == 12
     )
@@ -654,6 +693,153 @@ def summary_scale_cases():
     assert (
         example["omitted_deferred_children"] == example["omitted_reference_fields"] == 2
     )
+    # Empty/single/large ordinary lists and compact diagnostic channels use synthetic inputs.
+    empty = iac_report("dev", "cde", ["glue"], [], stamp="fixed")
+    assert len(empty.splitlines()) == 8 and "## " not in empty and "| ---" not in empty
+    assert "分類:" not in empty and "omitted" not in empty
+    single = iac_report("dev", "cde", ["glue"], [base], stamp="fixed")
+    assert len(re.findall(r"^\| ISSUE-", single, re.M)) == 1
+    assert "value mismatch" in single and "／省略" not in single
+    current = dict(
+        artifact,
+        environment="dev",
+        target="cde",
+        services=["glue"],
+        ordinary=[],
+        information=[{"code": "internal", "details": {"hidden_metadata": True}}],
+        warnings=[],
+        unverified=[],
+        processing_errors=[],
+    )
+    root = Path("/synthetic")
+    ordinary_empty = ordinary_report(root, current)
+    assert "未解決issueなし" in ordinary_empty and "### " not in ordinary_empty
+    assert "## 情報" not in ordinary_empty and "hidden_metadata" not in ordinary_empty
+    finding = dict(
+        service="glue",
+        key="formal-issue",
+        resource="001",
+        property="Glue.Job.Role",
+        message="参照先が不正",
+        source={"path": "model/dev/cde/glue.properties", "line": 12},
+    )
+    current["ordinary"] = [finding]
+    one = ordinary_report(root, current)
+    assert "### glue" in one and f"<!-- issue-id: {issue_key(root, finding)} -->" in one
+    assert "001 / Glue.Job.Role: 参照先が不正" in one
+    assert (
+        "[model/dev/cde/glue.properties:12](../../../model/dev/cde/glue.properties)"
+        in one
+    )
+    current["ordinary"] = [
+        dict(finding, key=str(i), message=f"問題{i}") for i in range(1001)
+    ]
+    many = ordinary_report(root, current)
+    assert many.count("<!-- issue-id:") == 1001
+    assert all(issue_key(root, item) in many for item in current["ordinary"])
+    failure = dict(
+        diagnostic_id="internal-failure-id",
+        service="glue",
+        resource="001",
+        phase="mechanical.models",
+        message="モデル読取失敗",
+        source_path="model/dev/cde/glue.properties",
+    )
+    current["ordinary"] = []
+    current["processing_errors"] = [failure]
+    current["unverified"] = [dict(failure, complete=False)]
+    current["warnings"] = [
+        dict(
+            service="glue",
+            resource="001",
+            property="Glue.Job.Role",
+            function="Fn::Sub",
+            pointer="/Role",
+            code="json.intrinsic.unresolved",
+            reason="参照値が未確定",
+            source={"path": "model/dev/cde/glue.properties", "line": 12},
+            metadata={"hidden_metadata": True},
+        )
+    ]
+    before_notices = deepcopy(current)
+    notices = ordinary_report(root, current)
+    assert "未完了" in notices and "AWS未検証" in notices
+    assert notices.count("モデル読取失敗") == 1 and "## 未検証範囲" not in notices
+    assert "## 処理エラー" in notices and "## 警告" in notices
+    assert all(
+        text in notices
+        for text in (
+            "glue",
+            "001",
+            "mechanical.models",
+            "Fn::Sub",
+            "/Role",
+            "参照値が未確定",
+            "glue.properties:12",
+        )
+    )
+    assert all(
+        text not in notices
+        for text in (
+            "internal-failure-id",
+            "hidden_metadata",
+            "<!-- issue-id:",
+            "{'",
+            '{"',
+        )
+    )
+    assert detail_payload(current, "unverified")["items"] == current["unverified"]
+    assert detail_payload(current, "processing_errors")["items"] == [failure]
+    assert detail_payload(current, "warnings")["items"] == current["warnings"]
+    lint_warning = dict(
+        code="cfn_lint.W3001",
+        service="glue",
+        message="警告の根拠",
+        diagnostic=dict(
+            Filename=str(root / "infra/job.yaml"),
+            Location=dict(
+                Start=dict(LineNumber=7),
+                Path=["Resources", "Job", "Properties", "Role"],
+            ),
+        ),
+    )
+    current["warnings"].append(lint_warning)
+    lint_report = ordinary_report(root, current)
+    assert "Resources/Job/Properties/Role" in lint_report
+    assert "[infra/job.yaml:7](../../../infra/job.yaml)" in lint_report
+    assert detail_payload(current, "warnings")["items"][-1] == lint_warning
+    current["warnings"].pop()
+    assert current == before_notices and notices == ordinary_report(root, current)
+    current["unverified"].append(
+        dict(service="glue", check="reference", reason="別検査は未実施")
+    )
+    assert "## 未検証範囲" in ordinary_report(root, current)
+    assert "別検査は未実施" in ordinary_report(root, current)
+    view_failure = dict(
+        code="mechanical.view_read",
+        service="glue",
+        path="docs/designs/dev/cde/glue.md",
+        phase="review-prose",
+        exception="UnicodeDecodeError",
+        message="saved View could not be read; dependent checks not run",
+    )
+    current["processing_errors"] = [view_failure]
+    current["unverified"] = [dict(view_failure, code="mechanical.view_unverified")]
+    view_report = ordinary_report(root, current)
+    assert view_report.count(view_failure["message"]) == 1
+    assert "## 未検証範囲" not in view_report and "未完了" in view_report
+    assert "[docs/designs/dev/cde/glue.md]" in view_report
+    assert (
+        detail_payload(current, "unverified")["items"][0]["code"]
+        == "mechanical.view_unverified"
+    )
+    coverage = dict(
+        artifact, service_results=[dict(service="glue", status="unverified")]
+    )
+    incomplete_report = iac_report(
+        "dev", "cde", ["glue"], [], stamp="fixed", artifact=coverage
+    )
+    assert "未検証Service: glue" in incomplete_report
     print(
         f"IaC bounded output: PASS ({len(report.splitlines())} lines; stdout {len(stdout)} characters; 2193 records / 1194 action units)"
     )
@@ -1853,8 +2039,11 @@ def check_missing_template_report():
         ),
     )
     report = iac_report("dev", "team", ["s3"], [record])
-    assert "差分 1件 / 未比較 0項目 / 処理エラー 0項目" in report
-    assert "修正対象: 不足入力: infra/cloudformation/templates/shared.yaml" in report
+    assert "difference 1件" in report and "uncompared 0" not in report
+    assert (
+        "infra/cloudformation/templates/shared.yaml" in report
+        and "修正対象" not in report
+    )
     assert "[infra/cloudformation/templates/shared.yaml]" not in report
 
 
@@ -1945,16 +2134,12 @@ def check_confirmed_difference_direction(reason, mapped):
     assert report == iac_report(
         "dev", "team", ["iam"], [record, record], display, stamp="fixed"
     )
-    assert "| 要修正 |" in report and "/ 要修正:" in report
-    assert "修正対象: 不足入力" not in report and "修正先は要判断" not in report
-    if reason == "value mismatch":
-        assert "相違項目: Statement[0].Condition" in report and "- IaC: 欠落" in report
-    if mapped:
-        assert "修正対象: IaC: infra/role.yaml" in report
-        assert "必要な対応: Modelの要求設定をIaCに反映する。" in report
-        assert "確認事項: Modelの要求設定が設計意図と一致すること。" in report
-    else:
-        assert "修正対象: Model／IaC（修正先要確認）" in report
+    assert "| 要修正 |" in report and record["property"] in report
+    assert action["id"] in report
+    assert all(
+        text not in report
+        for text in ("修正対象", "必要な対応", "確認事項", "相違項目")
+    )
 
 
 @pytest.mark.parametrize(
@@ -1995,11 +2180,8 @@ def check_format_violation_direction(model_format, iac_format, direction):
     )
     assert action["category"] == "要修正" and action["repair_direction"] == direction
     report = iac_report("dev", "team", ["cloudwatch-logs"], [record], artifact=data)
-    assert "/ 要修正:" in report and "修正対象: 不足入力" not in report
-    if direction == "Model修正":
-        assert "修正対象: Model: model/dev/team/cloudwatch-logs.properties" in report
-    elif direction == "IaC修正":
-        assert "修正対象: IaC: infra/log.yaml" in report
+    assert "| 要修正 |" in report and action["id"] in report
+    assert "修正対象" not in report and "必要な対応" not in report
 
 
 @pytest.mark.parametrize(
@@ -2205,18 +2387,18 @@ def check_deferred_artifact_summary_report_and_gate(tmp_path):
     report = iac_report(
         "dev", "team", ["codebuild"], artifact["iac"], artifact=artifact
     )
-    assert (
-        "問題: 0件" in report
-        and "想定内保留件数: 13件" in report
-        and "未比較 0項目" in report
+    assert "問題: 0件" in report and "deferred 13件" in report
+    assert "今回の判定: partial" in report
+    assert all(
+        text not in report
+        for text in (
+            "Producer Resource",
+            "保留解除条件",
+            "--record-category",
+            "## ",
+            "| ISSUE-",
+        )
     )
-    assert "Producer Resource: vpc/004" in report and "参照属性: SubnetId" in report
-    assert (
-        "保留解除条件" in report
-        and "保留表示省略: 3件" in report
-        and "--record-category deferred" in report
-    )
-    assert "要調査" not in report and "deferred" not in report.split("## 想定内保留")[0]
 
 
 @pytest.mark.parametrize("count", [1, 2])
@@ -2248,7 +2430,7 @@ def check_pending_deploy_is_count_only_exclusion(count):
         iac_report("dev", "team", ["codebuild"], artifact["iac"]),
     ):
         (classification,) = [
-            line for line in report.splitlines() if line.startswith("分類:")
+            line for line in report.splitlines() if line.startswith("PENDING_DEPLOY")
         ]
         assert classification.endswith(f"PENDING_DEPLOY（比較対象外） {count}件")
         assert report.count("PENDING_DEPLOY") == 1
@@ -2395,7 +2577,7 @@ def check_direct_pending_deploy_reports_and_dedup(count, tmp_path):
             "dev", "cde", ["route53", "codebuild"], records, artifact=saved_artifact
         )
         assert f"PENDING_DEPLOY（比較対象外） {count + 1}件" in report
-        assert "問題: 0件" in report and "未比較 0項目" in report
+        assert "問題: 0件" in report and "uncompared" not in report
         assert all(
             text not in report
             for text in ("DNSName", "HostedZoneId", "### ISSUE-", "| ISSUE-")

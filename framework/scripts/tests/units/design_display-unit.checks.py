@@ -1,13 +1,11 @@
 """Display cause identity, validation evidence and lossless reports; offline fixtures."""
 
 import json
-import re
 import sys
 from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import replace
 from functools import partial
-from html import unescape
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -577,34 +575,18 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
     assert artifact == before
     assert "build-project" not in json.dumps(artifact) and "build-project" not in report
     assert len(artifact["ordinary"]) == 16
-    assert "表示差分: 原因4件（表示4件" in report
-    assert report.count("対象件数: 1") == 4
-    for item in artifact["ordinary"]:
-        assert item["diagnostic"]["diagnosticId"] in report
+    assert report.count("<!-- issue-id:") == 4
+    assert "原因ID:" not in report and "原診断件数" not in report
     assert len({item["id"] for item in artifact["ordinary"]}) == 16
     assert (
         len({item["diagnostic"]["diagnosticId"] for item in artifact["ordinary"]}) == 16
     )
     assert len({item["diagnostic"]["cause_key"] for item in artifact["ordinary"]}) == 4
-    assert report.count("原診断件数: 4") == 4
     routes = {"tables", "links", "identity", "design.tables.CodePipeline_Pipeline_001"}
     for item in artifact["ordinary"]:
         assert "check_ids" not in item["diagnostic"]
         assert item["diagnostic"]["checkId"] == item["diagnostic"]["check_id"]
         assert item["diagnostic"]["check_id"] in routes
-    for line in report.splitlines():
-        if "原診断件数:" not in line:
-            continue
-        members = [
-            item
-            for item in artifact["ordinary"]
-            if item["diagnostic"]["cause_key"] in line
-        ]
-        assert len(members) == 4
-        assert {item["diagnostic"]["check_id"] for item in members} == routes
-        assert all(route in line for route in routes)
-        assert all(item["diagnostic"]["diagnosticId"] in line for item in members)
-        assert all(item["id"] in line for item in members)
     fields = {
         "cause_key",
         "service",
@@ -631,10 +613,7 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
         review_snapshot(artifact, partial)
     reviewed = review_snapshot(artifact, review)
     rendered = render_snapshot(root, reviewed)[0]
-    assert rendered.count("原診断件数: 4") == 4
-    assert all(
-        item["diagnostic"]["diagnosticId"] in rendered for item in artifact["ordinary"]
-    )
+    assert rendered == report and rendered.count("<!-- issue-id:") == 4
     snapshot = json.loads(reviewed.data)
     assert len(snapshot["ordinary"]) == 16
     assert snapshot["ordinary"] == json.loads(json.dumps(artifact["ordinary"]))
@@ -700,12 +679,22 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
 
 
 def report_ids(root, current):
+    report = ordinary_report(root, current)
     return {
-        re.search(r"原因ID: ([^。]+)", line)[1]: re.search(
-            r"<!-- issue-id: ([^ ]+) -->", line
-        )[1]
-        for line in ordinary_report(root, current).splitlines()
-        if "原因ID:" in line
+        item["diagnostic"]["cause_key"]: key
+        for item in current["ordinary"]
+        if (
+            key := identifier(
+                [
+                    current["environment"],
+                    current["target"],
+                    item["service"],
+                    "design.display.mismatch",
+                    item["diagnostic"]["cause_key"],
+                ]
+            )
+        )
+        in report
     }
 
 
@@ -809,22 +798,16 @@ def test_report_limit_keeps_all_artifact_members(pipeline):
         )
     before = deepcopy(artifact)
     report = ordinary_report(root, artifact)
-    assert report.count("対象件数: 1") == MAX_GROUPS
-    assert "表示差分: 原因19件（表示16件" in report
-    assert report.count(f"原診断件数: {MAX_EXAMPLES + 2}") == MAX_GROUPS
-    assert (
-        sum(
-            item["diagnostic"]["diagnosticId"] in report
-            for item in artifact["ordinary"]
-        )
-        == MAX_GROUPS * MAX_EXAMPLES
+    assert report.count("<!-- issue-id:") == MAX_GROUPS + 3
+    assert "原因ID:" not in report and "原診断件数" not in report
+    assert all(
+        item["diagnostic"]["diagnosticId"] not in report
+        for item in artifact["ordinary"]
     )
     section = report.split("## 未検証範囲\n\n", 1)[1].split("\n## ", 1)[0]
-    assert [
-        json.loads(unescape(line[2:]))
-        for line in section.splitlines()
-        if line.startswith("- ")
-    ] == artifact["unverified"]
+    assert len([line for line in section.splitlines() if line.startswith("- ")]) == len(
+        artifact["unverified"]
+    )
     assert len(artifact["unverified"]) == MAX_GROUPS + 4
     total = (MAX_GROUPS + 3) * (MAX_EXAMPLES + 2)
     pages = [
@@ -925,8 +908,8 @@ def test_distinct_display_causes_stay_independent(tmp_path, field):
     )
     artifact["environment"] = "qa"
     report = ordinary_report(tmp_path, artifact)
-    assert report.count("対象件数: 1") == (1 if field == "check_id" else 2)
-    assert all(item["diagnostic"]["diagnosticId"] in report for item in records)
+    assert report.count("<!-- issue-id:") == (1 if field == "check_id" else 2)
+    assert all(item["diagnostic"]["diagnosticId"] not in report for item in records)
 
 
 def test_generation_keeps_unrelated_markdown_and_json(pipeline):

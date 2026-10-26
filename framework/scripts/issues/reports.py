@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timedelta, timezone
 from html import escape
@@ -10,7 +9,7 @@ from pathlib import Path
 
 from task_contract_core import relative_path
 
-from .aggregate import MAX_EXAMPLES, MAX_GROUPS, comparison_status, iac_summary
+from .aggregate import aggregate, comparison_status
 from .records import brief, identifier, safe_text
 
 
@@ -32,45 +31,99 @@ def issue_key(root, record):
     return identifier([record["service"], record.get("key", message)])
 
 
-def issue_content(root, path, record):
+def report_source(root, record):
+    if record.get("source"):
+        return record["source"]
+    diagnostic = record.get("diagnostic", {})
+    source = (
+        record.get("source_path")
+        or diagnostic.get("source_path")
+        or diagnostic.get("Filename")
+        or record.get("model")
+    )
+    if record.get("code") in {"mechanical.view_read", "mechanical.view_unverified"}:
+        source = record.get("path")
+    if not isinstance(source, str):
+        return None
+    path = Path(source)
+    if path.is_absolute():
+        if not path.is_relative_to(root):
+            return None
+        source = path.relative_to(root).as_posix()
+    line = diagnostic.get("Location", {}).get("Start", {}).get("LineNumber")
+    return dict(path=source, **({"line": line} if line else {}))
+
+
+def issue_content(root, path, record, *, key=None):
     message = safe_text(record["message"]).replace(str(root) + "/", "")
-    message = escape(message, quote=False)
-    link = evidence(root, path, record.get("source"))
+    target = " / ".join(
+        str(value)
+        for key in ("resource", "property")
+        if (value := record.get(key)) and str(value) not in message
+    )
+    message = escape((target + ": " if target else "") + message, quote=False)
+    link = evidence(root, path, report_source(root, record))
     return (
         message
         + (f" 根拠: {link}。" if link else "")
-        + f" <!-- issue-id: {issue_key(root, record)} -->"
+        + f" <!-- issue-id: {key or issue_key(root, record)} -->"
     )
 
 
-def display_content(records, artifact):
-    diagnostics = [item["diagnostic"] for item in records]
-    first = diagnostics[0]
-    cause = first["cause_key"]
-    dependencies = [
-        item for item in artifact["unverified"] if cause in item.get("cause_keys", [])
-    ]
-    scopes = [
-        {
-            key: item[key]
-            for key in ("scope", "resource", "checks", "phase")
-            if key in item
-        }
-        for item in dependencies
-    ]
-    text = (
-        f"design.display.mismatch / 原因ID: {cause}。"
-        f"保存先: {brief(first['sourcePath'])}。"
-        f"対象: {brief(first['resourceLogicalId'])} / {brief(first['anchor'])} / {brief(first['property'])}。"
-        f"表示差分: {brief(first['savedDisplay'])} → {brief(first['expectedDisplay'])}。"
-        f"対象件数: 1。原診断件数: {len(records)}。"
-        f"原診断ID: {', '.join(item['diagnosticId'] for item in diagnostics[:MAX_EXAMPLES])}。"
-        f"Review ID: {', '.join(item['id'] for item in records[:MAX_EXAMPLES])}。"
-        f"関連検証経路: {brief(', '.join(sorted({item['check_id'] for item in diagnostics})))}。"
-        f"派生NOT_RUN: {len(dependencies)}件 / {brief(scopes[:MAX_EXAMPLES])}。"
-        "全対象・全原診断・未検証範囲は同じScan artifactのordinary／unverifiedを参照。"
+def notice_key(item):
+    if item.get("code") == "mechanical.view_unverified" and "path" in item:
+        item = dict(item, code="mechanical.view_read")
+    diagnostic = item.get("diagnostic", {})
+    return (
+        item.get("diagnostic_id")
+        or diagnostic.get("diagnosticId")
+        or item.get("id")
+        or identifier({key: value for key, value in item.items() if key != "complete"})
     )
-    return escape(safe_text(text), quote=False)
+
+
+def notice_content(root, path, item):
+    diagnostic = item.get("diagnostic", {})
+    details = item.get("details", {})
+    if not isinstance(details, dict):
+        details = {}
+    target = item.get("service") or item.get("scope") or diagnostic.get("service")
+    if isinstance(target, (list, tuple)):
+        target = ", ".join(str(value) for value in target)
+    fields = [target]
+    for key in ("resource", "property", "function", "pointer"):
+        fields.append(item.get(key) or diagnostic.get(key))
+    check = (
+        item.get("check")
+        or item.get("check_id")
+        or item.get("phase")
+        or diagnostic.get("check_id")
+        or item.get("code")
+        or item.get("rule")
+        or item.get("checks")
+    )
+    if isinstance(check, (list, tuple)):
+        check = ", ".join(check)
+    reason = (
+        item.get("reason")
+        or diagnostic.get("reason")
+        or details.get("reason")
+        or details.get("message")
+        or item.get("message")
+        or diagnostic.get("message")
+        or item.get("exception")
+        or item.get("status")
+        or "未実施"
+    )
+    location = diagnostic.get("Location", {}).get("Path", [])
+    if location:
+        fields.append("/".join(str(value) for value in location))
+    text = " / ".join(brief(value) for value in fields if value)
+    if check:
+        text += (" / " if text else "") + brief(check)
+    text += (": " + brief(str(reason).replace(str(root) + "/", ""))) if reason else ""
+    link = evidence(root, path, report_source(root, item))
+    return " ".join(text.splitlines()) + (f" 根拠: {link}。" if link else "")
 
 
 def ordinary_report(root, artifact):
@@ -88,8 +141,8 @@ def ordinary_report(root, artifact):
         "# 問題一覧",
         "",
         f"Scan実行日時: {stamp}",
-        f"今回確認した範囲: {environment}／{directory}／{', '.join(services)}",
-        "今回の検証: 未完了（未検証・処理エラーあり）"
+        f"対象Service: {', '.join(services)}",
+        "今回の検証: 未完了（AWS未検証）"
         if incomplete
         else "今回の検証: ローカルScanとLLM Review済み（AWS未検証）",
         "",
@@ -124,7 +177,7 @@ def ordinary_report(root, artifact):
                     display.setdefault(cause, []).append(item)
                 else:
                     items.append(issue_content(root, path, item))
-            for cause, group in list(display.items())[:MAX_GROUPS]:
+            for cause, group in display.items():
                 key = identifier(
                     [
                         environment,
@@ -134,44 +187,30 @@ def ordinary_report(root, artifact):
                         cause[0],
                     ]
                 )
-                items.append(
-                    display_content(group, artifact) + f" <!-- issue-id: {key} -->"
-                )
+                items.append(issue_content(root, path, group[0], key=key))
             lines.extend(f"{number}. {item}\n" for number, item in enumerate(items, 1))
-            if display:
-                lines.append(
-                    f"表示差分: 原因{len(display)}件（表示{min(MAX_GROUPS, len(display))}件、全件はartifact）。\n"
-                )
     if not artifact["ordinary"]:
         lines.extend(
             ["未解決issueなし（検証未完了）" if incomplete else "未解決issueなし", ""]
         )
+    processing = {notice_key(item) for item in artifact["processing_errors"]}
     for channel, heading in (
-        ("information", "情報"),
         ("unverified", "未検証範囲"),
         ("processing_errors", "処理エラー（未検証範囲あり）"),
         ("warnings", "警告（非ブロッキング）"),
     ):
-        if artifact[channel]:
+        notices = {}
+        for item in artifact[channel]:
+            key = notice_key(item)
+            if channel != "unverified" or key not in processing:
+                notices.setdefault(key, item)
+        if notices:
             lines.extend(["## " + heading, ""])
             lines.extend(
-                "- "
-                + escape(safe_text(json.dumps(value, ensure_ascii=False)), quote=False)
-                for value in artifact[channel]
+                "- " + notice_content(root, path, item) for item in notices.values()
             )
-    return "\n".join(lines) + "\n"
-
-
-def repair_target(group):
-    direction = group.get("repair_direction", "未確定")
-    label = {
-        "IaC修正": "IaC",
-        "Model修正": "Model",
-        "入力修正": "不足入力",
-        "修正先要確認": "Model／IaC（修正先要確認）",
-        "未確定": "未特定（修正方向は未確定）",
-    }[direction]
-    return label + (": " + brief(group["target"]) if group["target"] else "")
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def iac_report(
@@ -184,19 +223,19 @@ def iac_report(
     stamp=None,
     artifact=None,
 ):
-    summary = (
-        dict(
-            artifact["overview"],
-            index=sorted(
-                (group["compact"] for group in artifact["iac_issues"]),
-                key=lambda item: item["report_order"],
-            ),
-        )
+    data = (
+        artifact
         if artifact is not None
-        else iac_summary(
-            records, environment, directory, services, display, include_index=True
-        )
+        else aggregate(records, environment, directory, services, display)
     )
+    summary = dict(
+        data["overview"],
+        index=sorted(
+            (group["compact"] for group in data["iac_issues"]),
+            key=lambda item: item["report_order"],
+        ),
+    )
+    members = {group["id"]: group["members"] for group in data["iac_issues"]}
     counts = summary["records"]
     unverified_services = (
         [
@@ -220,203 +259,61 @@ def iac_report(
     lines = [
         "# model → IaC比較の非阻害結果",
         "",
-        f"実行日時: {stamp}",
-        f"今回指定した範囲: {environment}／{directory}／{', '.join(sorted(set(services)))}",
+        f"Scan実行日時: {stamp}",
+        f"対象: {environment}／{directory}／{', '.join(sorted(set(services)))}",
         f"今回の判定: {status}",
-        "未検証Service: "
-        + (
-            ", ".join(unverified_services)
-            if unverified_services
-            else "なし（IaC比較の未比較・保留・処理エラーは別集計）"
-        ),
-        "今回のTarget全Serviceの結果。未実施・失敗は未検証。",
-        f"問題: {summary['issue_count']}件（原因・必要対応単位）",
-        f"影響: 差分 {counts['difference']}件 / 未比較 {counts['uncompared']}項目 / 処理エラー {counts['error']}項目",
-        f"元レコード数: {summary['record_count']}（一致 {counts['matched']} / 想定内保留 {counts['deferred']} / 除外 {counts['excluded']}）",
-        "分類: "
-        + " / ".join(
-            f"{category} {count}件" for category, count in summary["categories"].items()
-        )
-        + f" / PENDING_DEPLOY（比較対象外） {summary['pending_deploy_excluded']}件",
-        f"表示{len(summary['groups'])}／全{summary['issue_count']}対応単位、未表示{summary['omitted_issues']}",
-        "未表示の分類: "
-        + " / ".join(
-            f"{category} {count}件"
-            for category, count in summary["omitted_categories"].items()
-        ),
-        "未表示の影響: "
-        + " / ".join(
-            f"{kind} {count}件"
-            for kind, count in summary["omitted_record_categories"].items()
-        ),
-        "",
+        f"問題: {summary['issue_count']}件",
+        "比較: "
+        + " / ".join(f"{kind} {count}件" for kind, count in counts.items() if count)
+        if any(counts.values())
+        else "比較: 0件",
+        f"PENDING_DEPLOY（比較対象外） {summary['pending_deploy_excluded']}件",
     ]
+    if unverified_services:
+        lines.append("未検証Service: " + ", ".join(unverified_services))
     if summary["comparison_incomplete"]:
-        lines.extend(
-            [
-                "比較途中終了: 収集済みレコードを保持。未実施範囲は未検証であり、一致・修正完了とは扱わない。",
-                "",
-            ]
-        )
-    lines.extend(
-        [
-            "## 全Issueの簡易一覧",
-            "",
-            "| Issue ID | 分類 | 原因・問題 | 修正対象 | 必要な操作 | 影響レコード数 | 影響Service |",
-            "| --- | --- | --- | --- | --- | ---: | --- |",
-        ]
-    )
-    for item in summary["index"]:
-        lines.append(
-            "| "
-            + " | ".join(
-                brief(value).replace("\n", " ").replace("\r", " ")
-                for value in (
-                    item["id"],
-                    item["category"],
-                    item["problem"] + "：" + item["cause"],
-                    repair_target(item),
-                    item["remedy"],
-                    item["records"],
-                    ", ".join(item["services"]),
-                )
-            )
-            + " |"
-        )
-    lines.extend(["", "## 詳細（最大16グループ）", ""])
-    for group in summary["groups"]:
-        lines.extend(
-            [
-                f"### {group['id']} / {group['category']}: {group['problem']}",
-                f"- 原因: {group['cause']}",
-                f"- 必要な対応: {group['remedy']}",
-                f"- 修正対象: {repair_target(group)}",
-                f"- 影響範囲: {', '.join(group['services'])}。{group['records']}レコード / 直接差分 {group['direct_resources']}リソース / 未比較 {group['uncompared']}項目 / 処理エラー {group['errors']}項目",
-            ]
-        )
-        if group.get("repair_direction") == "IaC修正":
-            lines.append("- 確認事項: Modelの要求設定が設計意図と一致すること。")
-        if group["cascading"]:
-            lines.append(
-                f"- 探索中断: {group['cascading']}項目。直接Import依存は未確定。"
-            )
-        for example in group["examples"]:
-            lines.append(
-                f"対象: {example['service']} / {example['resource']} / {example['property']}: {example['reason']}"
-            )
-            for child in example.get("deferred_children", []):
-                lines.append(
-                    f"保留原因の子項目: {child['property']} / {child['category']}: {child['reason']}"
-                )
-            if example.get("omitted_deferred_children"):
-                lines.append(
-                    f"省略保留原因: {example['omitted_deferred_children']}件（全文はartifact）"
-                )
-            for field in example.get("reference_diagnostics", []):
-                lines.extend(
-                    [
-                        "参照field: " + field["path"],
-                        "- Model参照: " + field["model"],
-                        "- IaC参照: " + field["iac"],
-                        "- 参照同一性: " + field["identity"],
-                        "- 許容形式: " + field["allowed_forms"],
-                        "- 静的形式適合性: " + field["format"],
-                        "- ローカル具体値比較: "
-                        + field.get("local_comparison", "未実施"),
-                        "- 証明／比較理由: " + field["reason"],
-                    ]
-                )
-            if example.get("omitted_reference_fields"):
-                lines.append(
-                    f"省略参照フィールド: {example['omitted_reference_fields']}件"
-                )
-            if "condition" in example:
-                condition = example["condition"]
-                lines.extend(
-                    [
-                        f"Condition: {condition['condition']} = false",
-                        f"Stack／論理ID: {condition['stack']}／{condition['logical']}",
-                        "テンプレート位置: " + condition["template"],
-                    ]
-                )
-                for value in condition["inputs"]:
-                    lines.append(
-                        f"原因入力: {value['name']} = {value['value']} / 取得元: {value['source']}"
-                    )
-                if condition["omitted_inputs"]:
-                    lines.append(
-                        f"省略原因入力: {condition['omitted_inputs']}件（全文はartifact）"
-                    )
-            if "fields" in example:
-                if example["field_status"]:
-                    lines.append("相違項目: " + example["field_status"])
-                for field in example["fields"]:
-                    lines.extend(
-                        [
-                            "相違項目: " + field["path"],
-                            "- Model: " + field["model"],
-                            "- IaC: " + field["iac"],
-                        ]
-                    )
-                    if field["model"] == field["iac"]:
-                        lines.append(
-                            "不一致の検出結果を保持（短縮・マスキングまたはキー重複）。"
-                        )
-                if example["omitted_fields"]:
-                    lines.append(f"省略相違フィールド: {example['omitted_fields']}件")
-        if group["omitted_examples"]:
-            lines.append(f"省略代表例: {group['omitted_examples']}レコード")
-        lines.append("")
-    waits = [item for item in records if item["category"] == "deferred"]
-    if waits:
-        lines.extend(
-            [
-                "## 想定内保留（Issue対象外）",
-                "",
-                f"想定内保留件数: {counts['deferred']}件。比較状態: {status}。保留は一致・比較完了には含めない。",
-                "",
-            ]
-        )
-        reasons = {
-            "unobserved": "識別子が未観測",
-            "awaiting_handoff": "識別子の形式は検証済み、承認済みhandoff待ち",
-        }
-        for item in waits[:MAX_EXAMPLES]:
-            cause = item["cause"]
-            producer = cause["producer"]
+        lines.append("比較途中終了（未実施範囲あり）")
+    categories = [
+        f"{category} {count}件"
+        for category, count in summary["categories"].items()
+        if count
+    ]
+    if categories:
+        lines.append("分類: " + " / ".join(categories))
+    if summary["index"]:
+        visible = summary["index"][:20]
+        lines.extend(["", "## Issue一覧", ""])
+        if summary["issue_count"] > len(visible):
             lines.extend(
                 [
-                    f"- Service: {brief(item['service'])} / Resource: {brief(item['resource'])} / Property: {brief(item['property'])}",
-                    f"  - Producer Resource: {brief(producer['service'])}/{brief(producer['resource'])} ({brief(producer['resourceType'])}) / 参照属性: {brief(producer['attribute'])}",
-                    "  - 保留理由: " + reasons[cause["phase"]],
-                    "  - 保留解除条件: 識別子の観測・形式検証と既存契約による承認済みhandoffの確認後に再比較する。",
-                    "  - 比較状態: deferred（比較保留）",
+                    f"表示{len(visible)}件／全{summary['issue_count']}件／省略{summary['issue_count'] - len(visible)}件",
+                    "",
                 ]
-            )
-        if len(waits) > MAX_EXAMPLES:
-            lines.append(
-                f"保留表示省略: {len(waits) - MAX_EXAMPLES}件（全レコードはArtifactに保存）"
             )
         lines.extend(
             [
-                "",
-                "保留の全レコード取得（offsetを50ずつ進める）:",
-                "```console",
-                "python3 framework/scripts/issues_scan.py detail --artifact <path> --section iac --record-category deferred --offset 0 --limit 50",
-                "```",
-                "",
+                "| Issue ID | 分類 | 対象 | 問題 |",
+                "| --- | --- | --- | --- |",
             ]
         )
-    lines.extend(
-        [
-            "## 全メンバー取得",
-            "",
-            "代表例は修正対象の上限ではない。同じscanの一時artifactから一覧のIssue IDで全メンバーを取得する。",
-            "```console",
-            "python3 framework/scripts/issues_scan.py detail --artifact <path> --section iac --issue-id ISSUE-<id> --offset 0 --limit 50",
-            "```",
-            "offsetを50ずつ進め、total件すべてを確認する。後続の修正タスクは全メンバーを調査・再比較し、未比較を修正完了と扱わない。",
-            "",
-        ]
-    )
-    return "\n".join(lines)
+        for item in visible:
+            record = data["iac"][members[item["id"]][0]]
+            lines.append(
+                "| "
+                + " | ".join(
+                    brief(value).replace("\n", " ").replace("\r", " ")
+                    for value in (
+                        item["id"],
+                        item["category"],
+                        ", ".join(item["services"])
+                        + (" / " + item["target"] if item["target"] else ""),
+                        item["problem"]
+                        + "："
+                        + item["cause"]
+                        + " / "
+                        + record["reason"],
+                    )
+                )
+                + " |"
+            )
+    return "\n".join(lines) + "\n"

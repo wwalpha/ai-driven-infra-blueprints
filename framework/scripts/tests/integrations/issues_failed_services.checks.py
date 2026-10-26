@@ -512,11 +512,11 @@ def check_incomplete_setting_artifact():
             report = iac_report(
                 "dev", "123456789012", ["codebuild"], data["iac"], artifact=artifact
             )
-            assert "差分 1件 / 未比較 1項目 / 処理エラー 1項目" in report
+            assert "difference 1件 / uncompared 1件 / error 1件" in report
             assert (
-                "相違項目:" in report
+                "相違項目:" not in report
                 and "Environment" in report
-                and "RELEASE_BUCKET_KMS_KEY_ID" in report
+                and "RELEASE_BUCKET_KMS_KEY_ID" not in report
             )
             serialized = json.dumps(artifact, ensure_ascii=False) + report
             assert (
@@ -633,12 +633,8 @@ def check_iac_partial_error_artifact():
                 item["model"]["path"] == "model/dev/123456789012/codebuild.properties"
             )
             assert item["iac"]["path"] == "infra/cloudformation/templates/shared.yaml"
-        assert "差分 1件 / 未比較 1項目 / 処理エラー 1項目" in report
-        assert (
-            "相違項目:" in report
-            and "Image" in report
-            and "EnvironmentVariables[0].Type" in report
-        )
+        assert "difference 1件 / uncompared 1件 / error 1件" in report
+        assert "相違項目:" not in report and "| ISSUE-" in report
 
 
 if __name__ == "__main__":

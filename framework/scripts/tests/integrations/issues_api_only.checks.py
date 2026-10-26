@@ -87,7 +87,7 @@ def main_checks():
                     "CFn非対応・比較対象外" in report
                     and "API側の実装状態は未確認" in report
                 )
-                assert "完了" in report and "実装scope" in report
+                assert "実装scope" not in report and "必要な操作" not in report
                 assert "complete match" not in report and "## 処理エラー" not in report
             result = subprocess.run(
                 [

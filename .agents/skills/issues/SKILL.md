@@ -75,11 +75,11 @@ For local investigation, read [aws-resource-naming](../../../framework/rules/aws
 
 ## Output
 
-- Do not record work/completion reports or execution history such as “調査しました”, “保存しました”, or “検証PASS” in issue-list Markdown; report them only in chat. Also remove existing work reports from the scope being updated. Retain update time, confirmed/unverified scope, and diagnostics necessary as problem evidence.
+- Do not record work/completion reports or execution history such as “調査しました”, “保存しました”, or “検証PASS” in issue-list Markdown; report them only in chat. Also remove existing work reports from the scope being updated. Retain Scan execution time, confirmed/unverified scope, and diagnostics necessary as problem evidence. Show notices as target/check/reason text, without JSON expansion or internal metadata. Show a processing failure recorded in both channels once under processing errors; retain incomplete status. Information details remain in the artifact.
 - For ordinary `issues.md`, use `環境／alias` as H2 and service names as H3, followed by numbered lists. Without an alias, use `環境／AWS account ID` as H2.
 - Start numbering at 1 for each service block and state one problem per item. Do not create empty blocks.
 - Briefly and specifically state the target resource/property and what is inconsistent/missing/unconfirmed for each problem. Attach its undecided point only when necessary judgments can be confirmed.
-- For ordinary `issues.md`, combine repeated diagnostics with the same cause within the same environment/target/service, stating counts and targets. Do not confuse diagnostic counts, resource counts, and derived errors.
+- Keep every ordinary Issue and its formal `<!-- issue-id: ... -->` under its Service heading; do not truncate the list. Internal diagnostic IDs remain available through artifact detail. Do not add special output for the disabled display synchronization check.
 - Use paths relative to the saved file for issue evidence links. Put line numbers in display text, such as `[athena.md:20](../../../docs/designs/dev/cde/athena.md)`, rather than in link targets. Retain Scan-time source paths and positive line numbers without rereading current input files; do not save absolute paths. Enclose link targets in `<...>` if paths contain spaces.
 - Add remedies/priorities when requested; limit output to the list when only an issue list is requested.
 
@@ -95,14 +95,15 @@ Output example (`issues/dev/cde/issues.md`):
 # 問題一覧
 
 Scan実行日時: 2026-09-30 12:00:00 Asia/Tokyo
-今回確認した範囲: dev／cdeのMacie
+対象Service: macie
+今回の検証: ローカルScanとLLM Review済み（AWS未検証）
 
 ## dev／cde
 
-### Macie
+### macie
 
-1. 個人情報用の旧bucket参照が切れており、現在のどの個人情報用bucketを対象にするか未確定。
-2. 部門データ用の旧bucket参照が切れており、現在のどの部門別bucketを対象にするか未確定。
+1. Macie Job / Bucket: 個人情報用bucketの参照先が未確定。 根拠: [macie.md:20](../../../docs/designs/dev/cde/macie.md)。 <!-- issue-id: 0123456789abcdef0123456789abcdef -->
+2. Macie Job / Bucket: 部門別bucketの参照先が未確定。 <!-- issue-id: fedcba9876543210fedcba9876543210 -->
 
 ```
 
@@ -114,7 +115,18 @@ Only for framework changes, additionally read [Framework regression](../../../fr
 
 ## IaC Issue handoff to repair tasks
 
-Use the complete compact Issue list independently of the 16 detailed groups. The 10 examples and 10 fields are display limits, never repair scope limits. For a subsequent explicitly authorized repair task, use each `ISSUE-<id>` with the same external artifact and `issues_scan.py detail --section iac --issue-id ISSUE-<id> --artifact <path> --offset 0 --limit 50`; advance offset until every `iac_issues[].members` record is inspected. Distinguish a common repair from member-specific decisions and recompare all members afterward. Interrupted/uncompared records remain unverified and cannot be called resolved. Do not start Model/IaC repair from this investigation skill.
+IaC Markdown shows nonzero classification counts and at most 20 Issues in existing report order;
+omission counts appear only when needed. Omission never means resolved or out of scope.
+It does not prescribe which side to repair. Retrieve every Issue with the existing
+`issues_scan.py detail --section iac_issues --artifact <path> --offset 0 --limit 50`.
+For a subsequent explicitly authorized repair task, use each `ISSUE-<id>` with the same
+external artifact and `detail --section iac --issue-id ISSUE-<id> --artifact <path> --offset 0 --limit 50`;
+advance offset until all Issues and members are inspected. Artifact overview examples
+are display limits, never repair scope limits. Confirm evidence before selecting Model/IaC
+changes and recompare all members afterward. Interrupted/uncompared records remain
+unverified. If the temporary artifact is gone, obtain a separately authorized new Scan
+and complete Review as needed; add no persistent sidecar. Ordinary `issues.md` retains
+all Issue IDs for issue-fix. Do not start Model/IaC repair from this investigation skill.
 
 ## Immutable Snapshot and local lint
 

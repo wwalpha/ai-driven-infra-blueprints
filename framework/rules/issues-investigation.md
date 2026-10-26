@@ -12,7 +12,7 @@ Do not compare Model/saved Markdown display synchronization or register display-
 differences as Issues, including string/link, link-label and JSON/policy presentation.
 Retain saved Markdown internal consistency, valid reference destinations and Resource
 identity checks independently of display synchronization. Preserve every actual
-diagnostic and its ID, and aggregate reports by scoped cause identity. Dependent checks that cannot execute
+diagnostic and its ID in the artifact; ordinary Markdown retains every Issue and its formal ID. Dependent checks that cannot execute
 retain their reason and scope as NOT_RUN. Validate Model inputs and typed references
 independently; retain existing Markdown link destination/anchor,
 resource identity/ownership/naming, schema, CodeBuild PLAINTEXT policy and Model/IaC
@@ -194,9 +194,11 @@ Ordinary Issue IDs are
 deterministic from the current service/diagnostic; service headings and numbered
 lists retain explicit service ownership and deterministic Issue IDs.
 
-Neither report is read as an input, merged or used for state decisions. All ordinary
-Issues, information, unverified scope, processing errors and warnings come from this
-Scan/Review only. A zero Issue count with incomplete coverage says検証未完了. Warning
+Neither report is read as an input, merged or used for state decisions. All ordinary Issues, unverified scope, processing errors and warnings come from this
+Scan/Review only. Keep information in the artifact rather than expanding it in Markdown.
+Render notices as concise target/check/reason text with necessary evidence; do not dump
+internal JSON or IDs. A processing failure also recorded as unverified appears once under
+processing errors, retaining incomplete status. Warnings remain non-numbered. A zero Issue count with incomplete coverage says検証未完了. Warning
 sections remain separate from ordinary numbered Issues.
 The generated reports hold no confirmed Human facts as authority and no old IDs,
 resolved history, service blocks or verification-target restoration metadata.
@@ -222,11 +224,21 @@ snapshot cache, nested parallelism or service subagents. Evidence paths and posi
 lines remain Scan-time data; publication does not reread Model/IaC/design sources.
 Keep 4-worker maximum and cfn-lint's isolated workers.
 
-IaC retains complete compact Issue IDs/category/cause/action/repair target/member
-counts and the existing 16 detail groups / 10 examples / 10 fields / 160 characters
-limits. Fetch every member from the same external artifact with `detail --section
-iac --issue-id ISSUE-<id> --offset 0 --limit 50`; page until total is covered. These
-limits constrain display, never classification, counts or subsequent repair scope.
+The v6 artifact retains complete compact Issue IDs/category/cause/action/repair target/member
+counts and its existing bounded overview (16 groups / 10 examples / 10 fields / 160 characters).
+Ordinary Markdown retains all Issues, formal Issue IDs, Service H3 headings and evidence;
+there is no count limit or display-synchronization-specific diagnostic expansion.
+IaC Markdown retains Scan time/scope/status, every nonzero Issue classification count,
+record category counts and the dedicated PENDING_DEPLOY exclusion count. Omit zero
+categories and empty sections/tables. Show at most 20 compact Issues in existing
+report_order, with ID/classification/target/problem only, and omission counts only when
+needed (表示20件／全1194件／省略1174件). Do not present repair direction, actions,
+field/Condition/value details, deferred examples or CLI instructions in normal Markdown.
+Omitted Issues remain unresolved; display limits never change counts or repair scope.
+Retrieve all Issues with `detail --section iac_issues --offset 0 --limit 50`, then fetch
+members with `detail --section iac --issue-id ISSUE-<id> --offset 0 --limit 50`; page
+until total is covered. If the temporary artifact is unavailable, a separately authorized
+new Scan and complete Review may be needed. Add no persistent sidecar.
 Do not reaggregate or paste the entire report into chat.
 
 ## Comparison coverage
@@ -302,4 +314,4 @@ Loop PASS before execution. Record the actual subsequent Local Loop PASS/FAIL se
 SAVED with Scan FAIL and post-save contract PASS is valid; SAVED with processing errors
 still exits 2. Save/CHECKED/exit 0 never means AWS equality or all-range PASS.
 
-warnings/information/unverified/processing_errors summaries expose total, at most five masked/brief previews, omitted counts and paged detail; code lists are bounded. Retain IaC 16 groups/10 examples/10 fields/160-character limits, the Markdown complete compact Issue list and external all-member retrieval. Metrics separate mechanical, IaC comparison, aggregation and lint. runner wall_seconds ends after aggregation and excludes CLI JSON/output and LLM time; outer process wall time is a separate measurement. No unmeasured project speedup or worker/default changes.
+warnings/information/unverified/processing_errors summaries expose total, at most five masked/brief previews, omitted counts and paged detail; code lists are bounded. Retain artifact overview limits and external all-Issue/all-member retrieval; normal IaC Markdown lists at most 20 Issues, while ordinary Markdown lists all Issues. Metrics separate mechanical, IaC comparison, aggregation and lint. runner wall_seconds ends after aggregation and excludes CLI JSON/output and LLM time; outer process wall time is a separate measurement. No unmeasured project speedup or worker/default changes.

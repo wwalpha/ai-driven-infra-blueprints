@@ -106,7 +106,8 @@ def check_scan_publish_mismatch(tmp_path):
         save_scan(root, artifact, review_for(artifact))
         assert paths[1].read_bytes() == before[paths[1]]
     report = paths[1].read_text(encoding="utf-8")
-    assert "changed-bucket" in report and "bucket-app-dev-data1" in report
+    assert "BucketName" in report and "| 要修正 |" in report
+    assert "changed-bucket" not in report and "bucket-app-dev-data1" not in report
     assert "<!-- iac-report-data:" not in report
     group = next(
         group for group in artifact["iac_issues"] if group["category"] == "要修正"
@@ -377,9 +378,10 @@ def check_condition_provenance(tmp_path):
     )
     report = iac_report("dev", "123456789012", ["s3"], records)
     assert (
-        "意図的な無効化か設計との不整合か" in report
-        and "parameter-file" in report
-        and "stack-1.json" in report
+        "Condition" in report
+        and "| 要判断 |" in report
+        and "parameter-file" not in report
+        and "stack-1.json" not in report
     )
     _, actions, _ = iac_dataset(records, "dev", "123456789012", ["s3"])
     assert actions[0]["classification"] == "ConditionによるCREATE無効化"

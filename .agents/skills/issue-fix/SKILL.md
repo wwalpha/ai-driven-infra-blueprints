@@ -14,6 +14,7 @@ Model 更新時は **Change Validation のみ**実行する。Full Validation �
 - Environment、Target は必須。Service と Issue ID は任意。省略時は指定 Target の全 Service、対象 Service の全 Issue を選ぶ。
 - [project-configuration](../../../framework/rules/project-configuration.md#topology) と `project.json` で Environment/Target を一意に確認する。Target directory は alias 優先、なければ awsAccountId。awsExecutionAccountId をパスに使わない。未登録・曖昧な対象は確認が済むまで停止し、別環境へ広げない。
 - 入力は `issues/<environment>/<target-directory>/issues.md`。存在しなければ報告して停止し、新規生成しない。`iac-issues.md` は読み込まない。
+- ordinary `issues.md` は全 Issue と正式 ID を Service H3 見出し配下に掲載する。IaC の最大20件という表示制限は ordinary Issue には適用しない。
 - 現在の Service 見出しと、既存 `issues/reports.py` が生成する正式な Issue ID を照合する。ID が存在しない、または一致しない場合は対象を確定できないと報告し、Service・項目位置・文章から推測して対応付けない。Issue ID を Resource の固定 ID や diagnostic_id と同一視しない。
 - Issue 一覧の読み取りだけなら契約不要。Skill 呼び出しだけで未確定の修正値、例外、識別子変更や次 Task を承認されたとは扱わない。
 
