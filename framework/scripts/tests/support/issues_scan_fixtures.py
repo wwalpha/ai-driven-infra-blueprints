@@ -404,7 +404,7 @@ def summary_fixture():
     ]
     context = dict(rules={}, target_context={}, review_policy="review all")
     artifact = dict(
-        version=5,
+        version=6,
         scan_id="a" * 32,
         naming_context=context,
         naming_context_id=identifier(context),
@@ -559,7 +559,7 @@ def snapshot_artifact(
     """A complete synthetic Scan boundary, with no validators or real Project reads."""
     services = sorted(services)
     return dict(
-        version=5,
+        version=6,
         root=str(root),
         scan_id="a" * 32,
         naming_context_id=identifier({}),

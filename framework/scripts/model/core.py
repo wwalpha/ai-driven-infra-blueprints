@@ -7,9 +7,9 @@ from pathlib import Path
 
 from utils.iac_values import cfn_resource_identity
 from utils.input_cache import memo_table
-from utils.json_format import strict_json
+from validation.diagnostics import InputValidationError
 
-from model.format import parse
+from model.format import input_json, parse
 
 
 class ReferenceDiagnosticError(ValueError):
@@ -106,7 +106,7 @@ LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
 
 def positive_integer(value: str, label: str) -> int:
     if not re.fullmatch(r"[0-9]+", value) or int(value) < 1:
-        raise ValueError(f"{label} must be an integer >= 1: {value}")
+        raise InputValidationError(f"{label} must be an integer >= 1: {value}")
     return int(value)
 
 
@@ -164,7 +164,9 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
                 fields.get("resourceType") != "S3.Bucket"
                 or fields["deploymentEncryption"] != "default"
             ):
-                raise ValueError("deploymentEncryption is only default on an S3.Bucket")
+                raise InputValidationError(
+                    "deploymentEncryption is only default on an S3.Bucket"
+                )
             if "cfn-logicalId" in fields:
                 cfn_resource_identity(fields["cfn-logicalId"])
     return result
@@ -184,7 +186,7 @@ def structural_entries(
         if key.startswith(prefix):
             identity, separator, field = key[len(prefix) :].partition(".")
             if not separator:
-                raise ValueError(f"invalid model entry: {key}")
+                raise InputValidationError(f"invalid model entry: {key}")
             groups.setdefault(identity, {})[field] = value
     result = sorted(groups.items())
     if memo is not None:
@@ -263,19 +265,19 @@ def validate_model_keys(values: dict[str, str]) -> None:
             and parts[2]
             and parts[3] in fields.get(tuple(parts[:2]), set())
         ):
-            raise ValueError("unknown Model field: " + key)
+            raise InputValidationError("unknown Model field: " + key)
 
 
 def validate_stack_field(field, value):
     if field == "deployOrder":
         positive_integer(value, "DeployOrder")
     elif field == "name" and not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", value):
-        raise ValueError(f"invalid stack name: {value}")
+        raise InputValidationError(f"invalid stack name: {value}")
     elif field in {"template", "parameters"}:
         path = Path(value)
         suffixes = {".yaml", ".yml"} if field == "template" else {".json"}
         if path.name != value or "\\" in value or path.suffix not in suffixes:
-            raise ValueError(f"invalid stack {field} filename: {value}")
+            raise InputValidationError(f"invalid stack {field} filename: {value}")
 
 
 def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, str]]]]:
@@ -285,18 +287,20 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
     )
     stacks = entries(values, "desired.stack.")
     if not stacks:
-        raise ValueError("stack model is empty")
+        raise InputValidationError("stack model is empty")
     names, parameters = set(), set()
     allowed = {"name", "template", "parameters", "deployOrder"}
     for identity, stack in stacks:
         if set(stack) not in (allowed, allowed | {"placementName"}):
-            raise ValueError(f"stack {identity} requires only {sorted(allowed)}")
+            raise InputValidationError(
+                f"stack {identity} requires only {sorted(allowed)}"
+            )
         for field in allowed:
             validate_stack_field(field, stack[field])
         if stack["name"] in names:
-            raise ValueError(f"duplicate stack name: {stack['name']}")
+            raise InputValidationError(f"duplicate stack name: {stack['name']}")
         if stack["parameters"] in parameters:
-            raise ValueError(
+            raise InputValidationError(
                 f"parameter file belongs to multiple stacks: {stack['parameters']}"
             )
         names.add(stack["name"])
@@ -322,7 +326,7 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
         }
     ]
     if unknown:
-        raise ValueError(f"unknown stack design fields: {unknown}")
+        raise InputValidationError(f"unknown stack design fields: {unknown}")
     return limit, sorted(
         [
             (identity, {k: v for k, v in stack.items() if k != "placementName"})
@@ -355,7 +359,7 @@ def deployment_settings(
         if "desired.deployment." + field in values
     }
     if settings and set(settings) != {"templateBucket", "templateKeyPrefix"}:
-        raise ValueError(
+        raise InputValidationError(
             "TemplateBucket and TemplateKeyPrefix must be specified together"
         )
     artifacts = entries(values, "desired.artifact.")
@@ -363,15 +367,17 @@ def deployment_settings(
     destinations = set()
     for identity, artifact in artifacts:
         if set(artifact) != set(ARTIFACT_FIELDS) or not all(artifact.values()):
-            raise ValueError(
+            raise InputValidationError(
                 f"artifact {identity} requires only {list(ARTIFACT_FIELDS)}"
             )
         if artifact["stack"] not in names or not re.fullmatch(
             r"[A-Z][A-Za-z0-9]*", artifact["resource"]
         ):
-            raise ValueError(f"invalid artifact stack/resource: {identity}")
+            raise InputValidationError(f"invalid artifact stack/resource: {identity}")
         if artifact["property"] not in {prop for _, prop in ARTIFACT_PROPERTIES}:
-            raise ValueError(f"unsupported artifact property: {artifact['property']}")
+            raise InputValidationError(
+                f"unsupported artifact property: {artifact['property']}"
+            )
         source = Path(artifact["source"])
         if (
             source.is_absolute()
@@ -379,14 +385,14 @@ def deployment_settings(
             or "\\" in artifact["source"]
             or not artifact["source"].startswith("infra/cloudformation/artifacts/")
         ):
-            raise ValueError(
+            raise InputValidationError(
                 "artifact source must be a file under infra/cloudformation/artifacts/"
             )
         destination = tuple(
             artifact[field] for field in ("stack", "resource", "property")
         )
         if destination in destinations:
-            raise ValueError(f"duplicate artifact destination: {destination}")
+            raise InputValidationError(f"duplicate artifact destination: {destination}")
         destinations.add(destination)
     if settings:
         validate_bucket_reference(settings["templateBucket"])
@@ -398,13 +404,15 @@ def deployment_settings(
             "|" in value or "\n" in value or "\r" in value
             for value in artifact.values()
         ):
-            raise ValueError("artifact fields must be single table cells")
+            raise InputValidationError("artifact fields must be single table cells")
     return settings, artifacts
 
 
 def validate_bucket_reference(value: str) -> None:
     if not resource_link(value):
-        raise ValueError("deployment bucket requires a Markdown Resource reference")
+        raise InputValidationError(
+            "deployment bucket requires a Markdown Resource reference"
+        )
 
 
 def validate_key_prefix(value: str) -> None:
@@ -412,7 +420,7 @@ def validate_key_prefix(value: str) -> None:
         not re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*/", value)
         or len(value) > 800
     ):
-        raise ValueError(
+        raise InputValidationError(
             "deployment keyPrefix must be an explicit relative prefix ending in /"
         )
 
@@ -432,14 +440,14 @@ def validate_stack_metadata(values):
             or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", placement)
             or placement in placements
         ):
-            raise ValueError(
+            raise InputValidationError(
                 "invalid, missing or duplicate fixed Stack placementName: " + identity
             )
         if any(
             other_id != identity and other.get("name") == placement
             for other_id, other in stacks
         ):
-            raise ValueError(
+            raise InputValidationError(
                 "fixed Stack placementName conflicts with another Stack name: "
                 + identity
             )
@@ -453,15 +461,21 @@ def validate_authority(values):
         if not re.fullmatch(
             r"[A-Za-z0-9_]+\.[A-Za-z0-9_]+", resource.get("resourceType", "")
         ):
-            raise ValueError("Resource requires a valid resourceType: " + identity)
+            raise InputValidationError(
+                "Resource requires a valid resourceType: " + identity
+            )
         if resource.get("resourceMode", "CREATE") not in {"CREATE", "IMPORT"}:
-            raise ValueError("resourceMode must be CREATE or IMPORT: " + identity)
+            raise InputValidationError(
+                "resourceMode must be CREATE or IMPORT: " + identity
+            )
     resource_index(values)
     for identity, row in entries(values, "desired.row."):
         if not {"property", "value", "comment"} <= row.keys():
-            raise ValueError("Row requires property, value and comment: " + identity)
+            raise InputValidationError(
+                "Row requires property, value and comment: " + identity
+            )
         if "document" in row:
-            strict_json(row["document"])
+            input_json(row["document"])
     if entries(values, "desired.stack."):
         validate_stack_metadata(values)
         stack_model(values)
@@ -476,7 +490,7 @@ def resource_row_index(
     for rid, row in entries(values, "desired.row."):
         owner = rid.rpartition("-")[0]
         if owner not in resources:
-            raise ValueError(f"orphan desired row: {rid}")
+            raise InputValidationError(f"orphan desired row: {rid}")
         index[owner].append((rid, row))
     return index
 
@@ -489,7 +503,7 @@ def prefix(kind):
         not isinstance(kind, str)
         or re.fullmatch(r"[A-Za-z0-9_]+\.[A-Za-z0-9_]+", kind) is None
     ):
-        raise ValueError("invalid ResourceType for logicalId: " + str(kind))
+        raise InputValidationError("invalid ResourceType for logicalId: " + str(kind))
     return kind.replace(".", "_")
 
 
@@ -503,23 +517,29 @@ def sequence(kind, logical):
         or int(suffix) < 1
         or suffix != f"{int(suffix):03d}"
     ):
-        raise ValueError(
+        raise InputValidationError(
             "logicalId requires ResourceType prefix and fixed sequence: " + str(logical)
         )
     return int(suffix)
 
 
 def counters(values):
-    state = strict_json(values.get(COUNTERS, "{}"))
+    state = input_json(values.get(COUNTERS, "{}"))
     if not isinstance(state, dict):
-        raise ValueError("lastAllocated must be a ResourceType to integer object")
+        raise InputValidationError(
+            "lastAllocated must be a ResourceType to integer object"
+        )
     prefixes = {}
     for kind, number in state.items():
         if type(number) is not int or number < 0:
-            raise ValueError("lastAllocated must contain nonnegative integers")
+            raise InputValidationError(
+                "lastAllocated must contain nonnegative integers"
+            )
         head = prefix(kind)
         if head in prefixes and prefixes[head] != kind:
-            raise ValueError("ResourceType logicalId prefix collision: " + head)
+            raise InputValidationError(
+                "ResourceType logicalId prefix collision: " + head
+            )
         prefixes[head] = kind
     return state
 
@@ -531,7 +551,9 @@ def resource_index(values):
         kind, logical = resource["resourceType"], resource.get("logicalId")
         head = prefix(kind)
         if head in prefixes and prefixes[head] != kind:
-            raise ValueError("ResourceType logicalId prefix collision: " + head)
+            raise InputValidationError(
+                "ResourceType logicalId prefix collision: " + head
+            )
         prefixes[head] = kind
         serial = sequence(kind, logical)
         if logical in result:
@@ -548,7 +570,9 @@ def resource_index(values):
                 ],
             )
         if state.get(kind, -1) < serial:
-            raise ValueError("lastAllocated is missing or behind logicalId: " + logical)
+            raise InputValidationError(
+                "lastAllocated is missing or behind logicalId: " + logical
+            )
         result[logical] = (number, resource)
     return result
 

@@ -279,7 +279,7 @@ def sqs_policy_artifact_checks():
             selected = [item for item in records if item["resource"] == "002"]
             assert len(selected) == 1 and selected[0]["category"] == category, records
             artifact = dict(
-                version=5,
+                version=6,
                 **aggregate(
                     selected,
                     "dev",

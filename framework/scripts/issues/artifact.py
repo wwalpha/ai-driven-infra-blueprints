@@ -4,6 +4,7 @@ import re
 from collections import Counter
 
 from comparison.deferral import CATEGORIES, validate_cause
+from validation.diagnostics import CAUSE_KINDS
 
 import issues.aggregate as _imports_issues_aggregate
 
@@ -25,7 +26,10 @@ def validation_status(artifact):
         return "ERROR"
     if artifact.get("ordinary") or (
         not artifact.get("reviewed")
-        and any("message" in item for item in artifact.get("judgments", []))
+        and any(
+            "message" in item and item.get("cause_kind") == "input_invalid"
+            for item in artifact.get("judgments", [])
+        )
     ):
         return "FAIL"
     if artifact.get("unverified"):
@@ -54,8 +58,8 @@ def channel_summary(values, section):
 
 
 def summary(artifact):
-    if artifact.get("version") != 5:
-        raise ValueError("unsupported scan artifact version; version 5 required")
+    if artifact.get("version") != 6:
+        raise ValueError("unsupported scan artifact version; version 6 required")
     comparison_status = _imports_issues_aggregate.comparison_status
     view = artifact["overview"]
     counts = view["records"]
@@ -144,7 +148,7 @@ def detail_payload(
     issue_id=None,
     record_category=None,
 ):
-    if artifact.get("version") != 5:
+    if artifact.get("version") != 6:
         raise ValueError("unsupported scan artifact version")
     if offset < 0 or limit < 1:
         raise ValueError("invalid detail range")
@@ -237,8 +241,47 @@ def detail_payload(
 
 def validate_artifact(artifact):
     """Validate the saved six-category index without reclassification or regrouping."""
-    if artifact.get("version") != 5:
+    if artifact.get("version") != 6:
         raise ValueError("unsupported scan artifact version")
+    causes = {}
+    for channel in (
+        "ordinary",
+        "judgments",
+        "unverified",
+        "processing_errors",
+        "information",
+    ):
+        seen_diagnostics = set()
+        for item in artifact.get(channel, []):
+            if "cause_kind" not in item:
+                continue
+            cause = item["cause_kind"]
+            if cause not in CAUSE_KINDS:
+                raise ValueError("invalid diagnostic cause_kind")
+            if channel == "ordinary" and cause != "input_invalid":
+                raise ValueError("ordinary diagnostic requires input_invalid")
+            if channel == "processing_errors" and cause != "check_failure":
+                raise ValueError("processing diagnostic requires check_failure")
+            diagnostic = item.get("diagnostic", {})
+            if "cause_kind" in diagnostic and diagnostic["cause_kind"] != cause:
+                raise ValueError("inconsistent diagnostic cause_kind")
+            key = item.get("diagnostic_id") or item.get("id")
+            if key is not None:
+                if key in causes and causes[key] != cause:
+                    raise ValueError("inconsistent cause_kind for diagnostic ID")
+                causes[key] = cause
+                if key in seen_diagnostics:
+                    raise ValueError("duplicate diagnostic ID in channel")
+                seen_diagnostics.add(key)
+            ownership = item.get("ownership", {})
+            if (
+                channel == "judgments"
+                and "message" in item
+                and ownership.get("status") in {"assigned", "outside"}
+            ):
+                raise ValueError("proven diagnostic owner cannot require assignment")
+            if channel == "ordinary" and ownership.get("status") == "outside":
+                raise ValueError("outside diagnostic cannot be an ordinary Issue")
     if not re.fullmatch(r"[0-9a-f]{32}", artifact.get("scan_id", "")):
         raise ValueError("invalid scan_id")
     if identifier(artifact["naming_context"]) != artifact["naming_context_id"]:

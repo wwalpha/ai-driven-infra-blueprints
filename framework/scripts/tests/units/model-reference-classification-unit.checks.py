@@ -210,7 +210,12 @@ def test_invalid_reference_has_origin_code_and_position(models, fault, code):
     assert not isinstance(caught.value, ReferenceResolutionError)
     findings = Findings(consumer.root)
     findings.warn(caught.value)
-    comparison = SimpleNamespace(root=consumer.root, redacted=lambda value: value)
+    comparison = SimpleNamespace(
+        root=consumer.root,
+        environment=consumer.environment,
+        directory=consumer.target,
+        redacted=lambda value: value,
+    )
     issues = reference_issues(findings, comparison, ["iam", "kms", "duplicate"])
     assert all(
         item["resource"] is None and item["property"] is None
@@ -266,7 +271,12 @@ def test_proven_type_mismatch_and_framework_gap_are_distinct(models):
     assert caught.value.diagnostic["code"] == "MODEL_REF_TYPE_MISMATCH"
     findings = Findings(consumer.root)
     findings.warn(caught.value)
-    comparison = SimpleNamespace(root=consumer.root, redacted=lambda value: value)
+    comparison = SimpleNamespace(
+        root=consumer.root,
+        environment=consumer.environment,
+        directory=consumer.target,
+        redacted=lambda value: value,
+    )
     assert reference_issues(findings, comparison, ["iam", "kms"])[0]["service"] == "iam"
     with pytest.raises(FrameworkUnsupportedError) as caught:
         resolver.validate_attribute("Future.Resource", "Arn")
@@ -274,7 +284,14 @@ def test_proven_type_mismatch_and_framework_gap_are_distinct(models):
     findings = Findings(consumer.root)
     findings.warn(caught.value)
     assert findings.processing_errors and not reference_issues(
-        findings, SimpleNamespace(root=consumer.root), ["iam"]
+        findings,
+        SimpleNamespace(
+            root=consumer.root,
+            environment=consumer.environment,
+            directory=consumer.target,
+            redacted=lambda value: value,
+        ),
+        ["iam"],
     )
 
 
@@ -304,7 +321,12 @@ def test_observed_identity_conflict_is_proven(models):
     assert caught.value.diagnostic["code"] == "MODEL_REF_VALUE_CONFLICT"
     findings = Findings(consumer.root)
     findings.warn(caught.value)
-    comparison = SimpleNamespace(root=consumer.root, redacted=lambda value: value)
+    comparison = SimpleNamespace(
+        root=consumer.root,
+        environment=consumer.environment,
+        directory=consumer.target,
+        redacted=lambda value: value,
+    )
     assert reference_issues(findings, comparison, ["iam", "s3"])[0]["service"] == "s3"
 
 
@@ -414,7 +436,12 @@ def test_issues_use_structured_codes_and_stable_identity(models):
         isolate=True,
     )
     assert result.status == "FAIL" and not findings.processing_errors
-    comparison = SimpleNamespace(root=consumer.root, redacted=lambda value: value)
+    comparison = SimpleNamespace(
+        root=consumer.root,
+        environment=consumer.environment,
+        directory=consumer.target,
+        redacted=lambda value: value,
+    )
     first = reference_issues(findings, comparison, ["iam"])
     assert len(first) == 1 and first[0]["severity"] == "ERROR"
     assert first[0]["diagnostic"]["code"] == "MODEL_REF_TARGET_MISSING"
@@ -694,13 +721,19 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, state
         patch("issues.cfn_lint.run_lint", return_value=lint),
     ):
         artifact = scan(consumer.root, "qa", "team", ["iam"], jobs=1)
-    assert artifact["version"] == 5
+    assert artifact["version"] == 6
     classified = [
         record
         for record in artifact["ordinary"]
         if record.get("diagnostic", {}).get("category") == "MODEL_NEEDS_FIX"
     ]
-    assert len(classified) == int(invalid), artifact["ordinary"]
+    assert len(classified) == int(state == "mixed"), artifact["ordinary"]
+    if state == "producer-invalid":
+        assert any(
+            item.get("diagnostic", {}).get("code") == "MODEL_REF_INVALID_VALUE"
+            and item["ownership"]["owner"][2] == "kms"
+            for item in artifact["information"]
+        )
     if classified:
         assert classified[0]["service"] == (
             "kms" if state == "producer-invalid" else "iam"
@@ -789,7 +822,14 @@ def test_unknown_validation_exception_is_fail(models):
     )
     assert result.status == "FAIL" and result.errors
     assert findings.processing_errors and not reference_issues(
-        findings, SimpleNamespace(root=consumer.root), ["iam"]
+        findings,
+        SimpleNamespace(
+            root=consumer.root,
+            environment=consumer.environment,
+            directory=consumer.target,
+            redacted=lambda value: value,
+        ),
+        ["iam"],
     )
     findings = Findings(consumer.root)
     findings.warn(
@@ -806,8 +846,21 @@ def test_unknown_validation_exception_is_fail(models):
             producerModel=str(consumer.path.with_name("kms.properties")),
         )
     )
-    assert len(findings.reference_errors) == 2 and not reference_issues(
-        findings, SimpleNamespace(root=consumer.root), ["iam", "kms"]
+    assert (
+        len(findings.reference_errors) == 2
+        and len(
+            reference_issues(
+                findings,
+                SimpleNamespace(
+                    root=consumer.root,
+                    environment=consumer.environment,
+                    directory=consumer.target,
+                    redacted=lambda value: value,
+                ),
+                ["iam", "kms"],
+            )
+        )
+        == 2
     )
 
 
@@ -840,7 +893,12 @@ def test_invalid_source_identity_is_structured_without_duplicate_failure(models)
         "model"
     ] == str(consumer.path)
     assert diagnostic["modelKey"] == "desired.resource.071.logicalId"
-    comparison = SimpleNamespace(root=consumer.root, redacted=lambda value: value)
+    comparison = SimpleNamespace(
+        root=consumer.root,
+        environment=consumer.environment,
+        directory=consumer.target,
+        redacted=lambda value: value,
+    )
     assert len(reference_issues(findings, comparison, ["iam"])) == 1
 
 

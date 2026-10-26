@@ -102,6 +102,27 @@ Current structured reference diagnostics retain their existing code as Rule, fix
 Resource number from `modelKey` and formal Property only when the Model position
 belongs to the diagnosed owner. Cross-Model positions and missing fields stay unknown.
 
+## Diagnostic cause and ownership
+
+Diagnostic.cause_kind is independent of ownership: input_invalid becomes an ordinary
+candidate only with a proven selected owner; check_failure remains processing_errors
+and unverified; dependency_wait and unclassified remain unverified. Only explicit
+InputValidationError and successful rule comparisons prove input violations. Generic
+ValueError does not. Model read failures never prove invalid Model contents.
+Reference categories retain MODEL_NEEDS_FIX → input_invalid,
+FRAMEWORK_UNSUPPORTED → check_failure and unresolved/pending validation → dependency_wait;
+validated IMPORT pending_deploy comparison exclusions are unchanged.
+
+Reuse validation.diagnostics.service_scope for canonical single Model/Markdown sources.
+Explicit owner/source conflicts, shared or multiple sources and insufficient evidence
+require Review; target_path and words in prose never establish ownership. Proven
+outside-scope diagnostics remain information and cannot be assigned into selected scope.
+Python-proven owners are not submitted for LLM reassignment. cfn-lint retains its
+resource-path/Stack-origin ownership proof. Keep ownership evidence and diagnostic IDs
+across channels. cause_kind is excluded from Diagnostic.identity; established structured
+IDs stay stable. Former string diagnostics gain structured source/check context and new
+IDs; old Human exceptions cannot match them by message, guessed Rule or missing identity.
+
 ## Commands and complete Review
 
 Apply AGENTS section-reading rules and the issues skill's mandatory naming/display
@@ -125,7 +146,7 @@ Keep the read-only Human file out of both path declarations. Complete
 final validation under [Validation policy](loop-engineering.md#validation-policy).
 Actual validation errors are FAIL, even when diagnostic reports were saved.
 
-Only artifact v5 is supported. Temporary Scan/Review files remain outside the
+Only artifact v6 is supported. Temporary Scan/Review files remain outside the
 repository. No old artifact conversion, aliases or alternative partial-result save
 API exists. External evidence belongs in the whole Scan's Review `issues`, within
 its authorized services; never append partial evidence directly to a target report.
@@ -139,7 +160,10 @@ The Review has exactly these keys:
   "reviewed_names": ["all naming IDs"],
   "reviewed_judgments": ["all judgment IDs"],
   "reviewed_confirmations": ["all Human confirmation IDs"],
-  "diagnostic_assignments": {"ambiguous diagnostic ID": "service-id"},
+  "diagnostic_assignments": {
+    "ambiguous diagnostic ID": {"status": "assigned", "service": "service-id", "evidence": "Verified source and Resource"},
+    "unresolved diagnostic ID": {"status": "unresolved", "reason": "Shared source has no proven owner"}
+  },
   "diagnostic_decisions": [
     {"id": "diagnostic ID", "outcome": "issue", "reason": "Current problem confirmed"}
   ],
@@ -149,8 +173,8 @@ The Review has exactly these keys:
 ```
 
 Review every naming/judgment/confirmation ID, with no duplicates or sampling. Submit
-one decision for each current ordinary or service-ambiguous Error diagnostic.
-Assignments cover exactly those ambiguous Error IDs, with a selected service.
+one decision for each current ordinary input violation or owner-assigned input violation.
+Assignments cover exactly the owner-ambiguous diagnostic IDs. Python-proven owners require no assignment. Assigned decisions require a selected service and nonempty evidence; unresolved decisions require a nonempty reason and retain their diagnostic ID in unverified. Only input_invalid diagnostics with a proven owner can become ordinary Issues. check_failure remains in processing_errors and unverified; dependency_wait and unclassified remain unverified even after owner assignment. Every ID still requires review. Decisions cover only ordinary input violations and owner-assigned input violations; unresolved diagnostics never become Issues.
 `issue` decisions require ID/outcome/reason. `excluded` and `conflict` additionally
 require `confirmation_id`, `target: {resource, property}` and current `evidence`.
 An exclusion requires the confirmed exception's Rule/diagnostic ID/condition and exact
@@ -236,7 +260,7 @@ Keep the comparison categories distinct: `deferred` means reference comparison i
 | Identifier observation is `PENDING_DEPLOY` | `pending_deploy` | `excluded` |
 | Identifier observation exists and passes identifier validation, but approved handoff is still required | `awaiting_handoff` | `deferred` |
 
-Invalid identifiers/contracts retain their existing uncompared/error classification; they are not normal waits. All six record categories (`matched`, `difference`, `deferred`, `uncompared`, `error`, `excluded`) remain in the v5 artifact and record counts. Only difference/uncompared/error records enter `iac_issues` and Issue category counts; deferred/excluded records have no Issue ID. `iac_status` priority is error → partial (uncompared or deferred) → differences → complete match → no compared records. Deferred is partial, never matched or complete. `pending_deploy` requires no comparison at present: it contributes neither uncompared/deferred nor partial/repair-required status; excluded-only scope is no compared records, not equality.
+Invalid identifiers/contracts retain their existing uncompared/error classification; they are not normal waits. All six record categories (`matched`, `difference`, `deferred`, `uncompared`, `error`, `excluded`) remain in the v6 artifact and record counts. Only difference/uncompared/error records enter `iac_issues` and Issue category counts; deferred/excluded records have no Issue ID. `iac_status` priority is error → partial (uncompared or deferred) → differences → complete match → no compared records. Deferred is partial, never matched or complete. `pending_deploy` requires no comparison at present: it contributes neither uncompared/deferred nor partial/repair-required status; excluded-only scope is no compared records, not equality.
 
 Normal Markdown shows `PENDING_DEPLOY（比較対象外）` as a dedicated count, separate from the Issue category `CFn非対応・比較対象外`; it omits these excluded records' causes and details. Deduplicate parent/child propagation by consumer service/resource and structured cause for this count; raw excluded record counts remain separate. Retrieve retained causes through `detail --section iac --record-category excluded`; use `--record-category deferred` for deferred records. These record filters cannot be combined with Issue category/ID filters. Deferred/excluded alone do not create ordinary issues or fail scan validation; retain independent ordinary diagnostics, unverified scope and processing errors.
 

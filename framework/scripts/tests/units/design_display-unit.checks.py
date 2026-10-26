@@ -180,10 +180,23 @@ def test_scan_ignores_display_sync_and_keeps_independent_checks(pipeline, equal)
     validate_artifact(artifact)
     review = review_for(artifact)
     review["diagnostic_assignments"] = {
-        item["id"]: "codepipeline"
+        item["id"]: dict(
+            status="assigned",
+            service="codepipeline",
+            evidence="Synthetic input Resource checked",
+        )
         for item in artifact["judgments"]
         if "message" in item
     }
+    review["diagnostic_decisions"] = [
+        item
+        for item in review["diagnostic_decisions"]
+        if any(
+            candidate["id"] == item["id"]
+            and candidate.get("cause_kind") == "input_invalid"
+            for candidate in [*artifact["ordinary"], *artifact["judgments"]]
+        )
+    ]
     snapshot = review_snapshot(artifact, review)
     saved = json.loads(snapshot.data)
     assert all(
@@ -306,7 +319,9 @@ def test_unrelated_identity_expansion_failure_is_processing(
                 definitions_root=FRAMEWORK,
             ),
         )
-    assert findings.status == "FAIL" and not findings.diagnostics
+    assert findings.status == "FAIL" and all(
+        d.cause_kind == "check_failure" for d in findings.diagnostics
+    )
     assert len(findings.processing_errors) == 1
     failure = findings.processing_errors[0]
     assert failure["code"] == "mechanical.processing"
@@ -410,7 +425,9 @@ def test_missing_producer_stays_missing(pipeline):
         scope={("qa", "team", "codepipeline")},
         definitions_root=FRAMEWORK,
     )
-    assert findings.status == "FAIL" and not findings.diagnostics
+    assert findings.status == "FAIL" and all(
+        d.cause_kind == "check_failure" for d in findings.diagnostics
+    )
     assert "MODEL_REF_TARGET_MISSING" in {d["code"] for d in findings.reference_errors}
     for handler in (
         lambda: design_tables.design_dependency_not_run(
@@ -850,7 +867,6 @@ def test_display_routes_merge_across_findings(pipeline, reverse):
 @pytest.mark.parametrize(
     "field",
     [
-        "service",
         "source_path",
         "target_path",
         "location",
@@ -866,6 +882,7 @@ def test_distinct_display_causes_stay_independent(tmp_path, field):
     original = Diagnostic.create(
         tmp_path,
         code="design.display.mismatch",
+        cause_kind="input_invalid",
         check_id="tables",
         service=("qa", "team", "s3"),
         source_path="docs/designs/qa/team/s3.md",

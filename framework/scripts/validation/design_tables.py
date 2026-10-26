@@ -67,10 +67,12 @@ from .design import (
     unquoted,
 )
 from .diagnostics import (
+    InputValidationError,
     display_diagnostics,
     json_reference,
     plaintext_diagnostics,
     service_scope,
+    stable_id,
 )
 from .findings import FindingsError
 
@@ -82,6 +84,8 @@ def check_cidr_value(path: Path, property_name: str, value: str, *, findings) ->
     findings.check(
         not ("cidr" in property_name.lower() and "PENDING_DEPLOY" in value.upper()),
         f"CIDR must not use PENDING_DEPLOY: {findings.relative(path)}: {property_name}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
 
 
@@ -129,6 +133,8 @@ def check_generated_identifier(
         findings.check(
             len(generated_rows) == 1,
             f"identifier output row must appear exactly once: {findings.relative(path)}: {property_name}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         if len(generated_rows) != 1:
             continue
@@ -136,26 +142,39 @@ def check_generated_identifier(
         findings.check(
             bool(value),
             f"identifier output value is empty: {findings.relative(path)}: {property_name}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         findings.check(
             value != "NOT_DEPLOYED",
             f"identifier output must use PENDING_DEPLOY after destroy: {findings.relative(path)}: {property_name}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         findings.check(
             value == "PENDING_DEPLOY" or value != logical_id,
             f"identifier output must use a physical value, not the logical ID: {findings.relative(path)}: {property_name}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         findings.check(
             re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None
             or (property_name, value) in acquired,
             f"generated ARN is forbidden in design: {findings.relative(path)}: {property_name}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
     if resource_type != "EC2.SecurityGroup" and resource_type not in {
         "EC2.SecurityGroupIngress",
         "EC2.SecurityGroupEgress",
     }:
         for error in catalog_order_errors(resource_type, rows):
-            findings.check(False, f"{findings.relative(path)}: {error}")
+            findings.check(
+                False,
+                f"{findings.relative(path)}: {error}",
+                source_path=path,
+                cause_kind="input_invalid",
+            )
 
 
 def check_required_name_tag(
@@ -183,6 +202,8 @@ def check_required_name_tag(
             findings.check(
                 logical_id == name,
                 f"resource heading identifier must match Name tag value: {findings.relative(path)}: {resource_type}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
         return
     property_name = REQUIRED_NAME_PROPERTIES.get(resource_type)
@@ -192,17 +213,23 @@ def check_required_name_tag(
     findings.check(
         len(name_rows) == 1 or (mode == "IMPORT" and not name_rows),
         f"required Name property must appear exactly once: {findings.relative(path)}: {property_name}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     if len(name_rows) != 1:
         return
     findings.check(
         rows[0] == name_rows[0],
         f"design-only Name must be the first row: {findings.relative(path)}: {property_name}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     value = unquoted(name_rows[0][2]).strip()
     findings.check(
         bool(value),
         f"required Name value must not be empty: {findings.relative(path)}: {property_name}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     if mode == "IMPORT" and schema_catalog is not None:
         for error in schema_catalog.literal_errors(
@@ -211,14 +238,20 @@ def check_required_name_tag(
             findings.check(
                 False,
                 f"provider schema violation: {findings.relative(path)}: {property_name}: {error}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
     findings.check(
         mode == "IMPORT" or LOWER_KEBAB_PATTERN.fullmatch(value) is not None,
         f"required Name value must be lower-kebab-case: {findings.relative(path)}: {property_name}: {value}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         logical_id == value,
         f"resource heading identifier must match Name value: {findings.relative(path)}: {resource_type}: {logical_id} != {value}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
 
 
@@ -249,11 +282,15 @@ def check_markdown_iam_policy_artifacts(
             findings.check(
                 artifact.name == expected,
                 f"invalid IAM trust policy artifact name: {findings.relative(path)}: expected {expected}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
             key = (*target, logical_id, "trust")
             findings.check(
                 key not in markdown_iam_policy_artifacts,
                 f"duplicate IAM trust policy artifact: {findings.relative(path)}: {logical_id}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
             markdown_iam_policy_artifacts.setdefault(key, artifact)
 
@@ -265,6 +302,8 @@ def check_markdown_iam_policy_artifacts(
             findings.check(
                 paired,
                 f"IAM inline PolicyName must immediately precede PolicyDocument: {findings.relative(path)}: {logical_id}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
         if property_name != "Policies[].PolicyDocument":
             continue
@@ -273,6 +312,8 @@ def check_markdown_iam_policy_artifacts(
         findings.check(
             paired,
             f"IAM inline PolicyDocument requires a preceding PolicyName: {findings.relative(path)}: {logical_id}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         if not paired or not link:
             continue
@@ -280,6 +321,8 @@ def check_markdown_iam_policy_artifacts(
         findings.check(
             policy_name not in {"", "UNSET", "PENDING_DEPLOY"},
             f"IAM inline PolicyName is required: {findings.relative(path)}: {logical_id}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         if policy_name in {"", "UNSET", "PENDING_DEPLOY"}:
             continue
@@ -290,11 +333,15 @@ def check_markdown_iam_policy_artifacts(
         findings.check(
             artifact.name == expected,
             f"invalid IAM inline policy artifact name: {findings.relative(path)}: expected {expected}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         key = (*target, logical_id, f"inline:{policy_name}")
         findings.check(
             key not in markdown_iam_policy_artifacts,
             f"duplicate IAM inline PolicyName: {findings.relative(path)}: {logical_id}: {policy_name}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         markdown_iam_policy_artifacts.setdefault(key, artifact)
 
@@ -313,6 +360,7 @@ SEMANTIC_CHECKS = (
 def design_dependency_not_run(
     path, target, stage, error, *, findings, checks=SEMANTIC_CHECKS
 ):
+    diagnostic = None
     scope = frozenset({(*path.parent.parts[-2:], path.stem)})
     reason = findings.result("design.tables.semantic", scope).metadata.get(
         "reason", "expansion"
@@ -337,8 +385,17 @@ def design_dependency_not_run(
                 findings.canonical_root, path, error
             ):
                 findings.add_diagnostic(diagnostic)
+        elif isinstance(error, InputValidationError):
+            diagnostic = findings.input_failure(error, source_path=path)
         else:
-            findings.check(False, f"{stage}: {findings.relative(path)}: {error}")
+            findings.check(
+                False,
+                f"{stage}: {findings.relative(path)}: {error}",
+                source_path=path,
+                cause_kind="check_failure"
+                if isinstance(error, OSError)
+                else "unclassified",
+            )
     entry = dict(
         code="design.tables.dependency",
         reason=reason,
@@ -351,6 +408,8 @@ def design_dependency_not_run(
         complete=False,
         status="NOT_RUN",
     )
+    if diagnostic is not None:
+        entry["diagnostic_id"] = stable_id(diagnostic.identity)
     if isinstance(error, _design_document.DisplayMismatchError):
         entry["cause_keys"] = [
             item.cause_key
@@ -370,15 +429,21 @@ def check_raw_design_tables(path, lines, *, findings):
     findings.check(
         len([line for line in lines if re.fullmatch(r"# [^#].+", line)]) == 1,
         f"design must contain exactly one H1 title: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     for line in lines:
         findings.check(
             FORBIDDEN_DESIGN_METADATA_PATTERN.match(line) is None,
             f"forbidden design file metadata: {findings.relative(path)}: {line}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         findings.check(
             FORBIDDEN_DESIGN_SECTION_PATTERN.fullmatch(line) is None,
             f"forbidden design section: {findings.relative(path)}: {line}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
     resource_type = ""
     for index, line in enumerate(lines):
@@ -388,6 +453,8 @@ def check_raw_design_tables(path, lines, *, findings):
                 (resource_type in SECURITY_GROUP_TYPES)
                 == (path.stem == "security-group"),
                 f"Security Group resources must belong only to security-group: {findings.relative(path)}: {resource_type}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
         elif line.startswith("#"):
             resource_type = ""
@@ -400,6 +467,8 @@ def check_raw_design_tables(path, lines, *, findings):
                 findings.check(
                     False,
                     f"resource table Property must omit heading resource type: {findings.relative(path)}:{cursor + 1}: {cells[1]}",
+                    source_path=path,
+                    cause_kind="input_invalid",
                 )
             cursor += 1
     table_count = 0
@@ -414,10 +483,14 @@ def check_raw_design_tables(path, lines, *, findings):
             findings.check(
                 current_resource_type not in GROUPED_CHILD_RESOURCE_TYPES,
                 f"grouped resource type must not have an independent heading: {findings.relative(path)}: {current_resource_type}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
             findings.check(
                 ANCHOR_PATTERN.fullmatch(previous) is not None,
                 f"resource heading lacks explicit anchor: {findings.relative(path)}: {line}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
         elif line.startswith("#"):
             current_resource_type = ""
@@ -447,34 +520,53 @@ def check_raw_design_tables(path, lines, *, findings):
                     f"invalid grouped design: {findings.relative(path)}: {error}",
                 )
             continue
-        findings.check(len(table) >= 2, f"incomplete table: {findings.relative(path)}")
+        findings.check(
+            len(table) >= 2,
+            f"incomplete table: {findings.relative(path)}",
+            source_path=path,
+            cause_kind="input_invalid",
+        )
         if len(table) < 2:
             continue
         findings.check(
-            table[0] == TABLE_HEADER, f"invalid table header: {findings.relative(path)}"
+            table[0] == TABLE_HEADER,
+            f"invalid table header: {findings.relative(path)}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         findings.check(
             table[1] == TABLE_ALIGNMENT,
             f"invalid table alignment: {findings.relative(path)}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         for number, row in enumerate(table[2:], 1):
             cells = [cell.strip() for cell in row.strip("|").split("|")]
             findings.check(
                 len(cells) == 4,
                 f"table row must have four cells: {findings.relative(path)}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
             findings.check(
                 len(cells) == 4 and cells[0] == str(number),
                 f"table numbering error: {findings.relative(path)}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
             if len(cells) == 4:
                 check_cidr_value(path, cells[1], cells[2], findings=findings)
                 findings.check(
                     JAPANESE_TEXT_PATTERN.search(cells[3]) is not None,
                     f"Source / Comment must be Japanese: {findings.relative(path)}: {cells[3]}",
+                    source_path=path,
+                    cause_kind="input_invalid",
                 )
     findings.check(
-        table_count > 0, f"resource design has no table: {findings.relative(path)}"
+        table_count > 0,
+        f"resource design has no table: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
 
 
@@ -752,6 +844,8 @@ def check_design_tables(
                             findings.check(
                                 required in present,
                                 f"required grouped property missing: {findings.relative(path)}: {child['logicalId']}: {required}",
+                                source_path=path,
+                                cause_kind="input_invalid",
                             )
                 check_generated_identifier(
                     path,
@@ -776,6 +870,8 @@ def check_design_tables(
                     findings.check(
                         current_resource_type in catalog_types,
                         f"unknown catalog resource type in heading: {findings.relative(path)}: {current_resource_type}",
+                        source_path=path,
+                        cause_kind="input_invalid",
                     )
                     if (
                         current_resource_type in catalog_types
@@ -784,6 +880,8 @@ def check_design_tables(
                         findings.check(
                             current_resource_type in service_metadata[path][1],
                             f"catalog resource type is outside declared service ownership: {findings.relative(path)}: {current_resource_type}",
+                            source_path=path,
+                            cause_kind="input_invalid",
                         )
                 elif lines[index].startswith("#"):
                     current_resource_type = ""
@@ -806,7 +904,10 @@ def check_design_tables(
                 ]
                 if not values:
                     findings.check(
-                        bool(shown), f"incomplete table: {findings.relative(path)}"
+                        bool(shown),
+                        f"incomplete table: {findings.relative(path)}",
+                        source_path=path,
+                        cause_kind="input_invalid",
                     )
                     if not shown:
                         continue
@@ -847,17 +948,23 @@ def check_design_tables(
                             findings.check(
                                 bool(row_types),
                                 f"resource table property is not selected by design catalog: {findings.relative(path)}: {current_resource_type}: {cells[1]}",
+                                source_path=path,
+                                cause_kind="input_invalid",
                             )
                         if property_owners and path in service_metadata:
                             owned_types = set(service_metadata[path][1])
                             findings.check(
                                 bool(property_owners & owned_types),
                                 f"catalog property is outside declared service ownership: {findings.relative(path)}: {cells[1]}",
+                                source_path=path,
+                                cause_kind="input_invalid",
                             )
                             if current_resource_type:
                                 findings.check(
                                     bool(row_types),
                                     f"catalog property does not belong to resource table: {findings.relative(path)}: {current_resource_type}: {cells[1]}",
+                                    source_path=path,
+                                    cause_kind="input_invalid",
                                 )
                         schema_type = (
                             current_resource_type
@@ -868,6 +975,8 @@ def check_design_tables(
                             findings.check(
                                 cells[1].startswith(schema_type + "."),
                                 f"grouped property must use its full catalog name: {findings.relative(path)}: {cells[1]}",
+                                source_path=path,
+                                cause_kind="input_invalid",
                             )
                         try:
                             import_expression = is_import_expression(
@@ -905,6 +1014,8 @@ def check_design_tables(
                                     )
                                     == "IMPORT",
                                     f"Config RoleARN literal requires IMPORT: {findings.relative(path)}: {cells[1]}",
+                                    source_path=path,
+                                    cause_kind="input_invalid",
                                 )
                             pending_reference = is_import_pending_reference(
                                 cells[1], cells[2]
@@ -917,6 +1028,8 @@ def check_design_tables(
                                     )
                                     == "IMPORT",
                                     f"Pending reference requires IMPORT: {findings.relative(path)}: {cells[1]}",
+                                    source_path=path,
+                                    cause_kind="input_invalid",
                                 )
                             errors = (
                                 []
@@ -935,6 +1048,8 @@ def check_design_tables(
                                 findings.check(
                                     False,
                                     f"provider schema violation: {findings.relative(path)}: {identities.get(current_anchor, current_logical_id)}: {schema_type}.{property_path}: {raw_value!r} {error}",
+                                    source_path=path,
+                                    cause_kind="input_invalid",
                                 )
                         link_match = VALUE_LINK_PATTERN.fullmatch(cells[2])
                         artifact_link = link_match.group(1) if link_match else ""
@@ -943,6 +1058,8 @@ def check_design_tables(
                             findings.check(
                                 is_json_link,
                                 f"policy property must link to a JSON artifact: {findings.relative(path)}: {cells[1]}",
+                                source_path=path,
+                                cause_kind="input_invalid",
                             )
                         if check_display and cells[1] == S3_KMS_MASTER_KEY_ID:
                             findings.warn(
@@ -964,6 +1081,8 @@ def check_design_tables(
                                 LOWER_KEBAB_PATTERN.fullmatch(artifact.stem)
                                 is not None,
                                 f"invalid design JSON artifact path: {findings.relative(path)}: {artifact_link}",
+                                source_path=path,
+                                cause_kind="input_invalid",
                             )
                             if LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None:
                                 if not any(
@@ -993,12 +1112,16 @@ def check_design_tables(
                             findings.check(
                                 len(selected) == 1,
                                 f"{property_name} must appear exactly once: {findings.relative(path)}: {current_logical_id}",
+                                source_path=path,
+                                cause_kind="input_invalid",
                             )
                             if len(selected) == 1:
                                 value = unquoted(selected[0][2]).strip()
                                 findings.check(
                                     value not in {"", "UNSET", "PENDING_DEPLOY"},
                                     f"{property_name} must have a confirmed value: {findings.relative(path)}: {current_logical_id}",
+                                    source_path=path,
+                                    cause_kind="input_invalid",
                                 )
                     if current_resource_type == "S3.Bucket":
                         bucket_name_rows = [
@@ -1008,11 +1131,15 @@ def check_design_tables(
                             len(bucket_name_rows) == 1
                             and rows[0][1] == "S3.Bucket.BucketName",
                             f"S3.Bucket.BucketName must be the first row: {findings.relative(path)}: {current_logical_id}",
+                            source_path=path,
+                            cause_kind="input_invalid",
                         )
                         if len(bucket_name_rows) == 1:
                             findings.check(
                                 current_logical_id == unquoted(bucket_name_rows[0][2]),
                                 f"S3.Bucket heading identifier must match BucketName: {findings.relative(path)}: {current_logical_id}",
+                                source_path=path,
+                                cause_kind="input_invalid",
                             )
                         region_rows = [
                             row for row in rows if row[1] == "S3.Bucket.Region"
@@ -1022,6 +1149,8 @@ def check_design_tables(
                             and len(rows) > 1
                             and rows[1][1] == "S3.Bucket.Region",
                             f"S3.Bucket.Region must be the second row: {findings.relative(path)}: {current_logical_id}",
+                            source_path=path,
+                            cause_kind="input_invalid",
                         )
                         if len(region_rows) == 1:
                             region = unquoted(region_rows[0][2])
@@ -1029,6 +1158,8 @@ def check_design_tables(
                                 LOWER_KEBAB_PATTERN.fullmatch(region) is not None
                                 and region != "UNSET",
                                 f"S3.Bucket.Region must be a confirmed AWS region ID: {findings.relative(path)}: {current_logical_id}",
+                                source_path=path,
+                                cause_kind="input_invalid",
                             )
                     if schema_catalog is not None:
                         schema_types = {current_resource_type} | {
@@ -1063,6 +1194,8 @@ def check_design_tables(
                                 findings.check(
                                     False,
                                     f"required provider schema property missing: {findings.relative(path)}: {resource_type}.{property_name}",
+                                    source_path=path,
+                                    cause_kind="input_invalid",
                                 )
                     check_generated_identifier(
                         path,
@@ -1118,6 +1251,8 @@ def check_api_design_rows(
         findings.check(
             prop not in values,
             f"duplicate API design property: {findings.relative(path)}: {prop}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
         raw = unquoted(row[2])
         node = catalog.property_schema(resource_type, prop)
@@ -1141,7 +1276,10 @@ def check_api_design_rows(
                 continue
             for error in catalog.api_value_errors(resource_type, node, value, prop):
                 findings.check(
-                    False, f"API schema violation: {findings.relative(path)}: {error}"
+                    False,
+                    f"API schema violation: {findings.relative(path)}: {error}",
+                    source_path=path,
+                    cause_kind="input_invalid",
                 )
         except ReferenceResolutionError as error:
             findings.warn(error)
@@ -1153,7 +1291,10 @@ def check_api_design_rows(
     if len(findings.errors) == before:
         for error in catalog.job_errors(values):
             findings.check(
-                False, f"API design constraint: {findings.relative(path)}: {error}"
+                False,
+                f"API design constraint: {findings.relative(path)}: {error}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
     if resource_type == "Macie.ClassificationJob":
         try:
@@ -1171,14 +1312,20 @@ def check_api_design_rows(
             findings.check(
                 logical_id in tables,
                 f"Macie bucketDefinitions requires a Markdown mapping table and JSON artifact: {findings.relative(path)}: {logical_id}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
             if logical_id in tables:
                 findings.check(
                     scope["bucketDefinitions"] == tables[logical_id][1],
                     f"Macie bucket mapping differs from JSON artifact: {findings.relative(path)}: {logical_id}",
+                    source_path=path,
+                    cause_kind="input_invalid",
                 )
         else:
             findings.check(
                 logical_id not in tables,
                 f"Macie bucket table requires bucketDefinitions, not bucketCriteria: {findings.relative(path)}: {logical_id}",
+                source_path=path,
+                cause_kind="input_invalid",
             )

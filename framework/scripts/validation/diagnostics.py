@@ -5,6 +5,18 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+CAUSE_KINDS = frozenset(
+    {"input_invalid", "check_failure", "dependency_wait", "unclassified"}
+)
+
+
+class InputValidationError(ValueError):
+    """An input violation proven by an explicit validation rule."""
+
+    def __init__(self, message, *, source_path=None):
+        super().__init__(message)
+        self.source_path = source_path
+
 
 def service_scope(root, path):
     if path is None:
@@ -21,11 +33,19 @@ def service_scope(root, path):
     return None
 
 
-def relative_path(root, path):
+def relative_path(root, path, *, canonical=True):
     if path is None:
         return None
     path = Path(path)
-    path = (root / path).resolve() if not path.is_absolute() else path.resolve()
+    path = root / path if not path.is_absolute() else path
+    path = path.resolve() if canonical else path.absolute()
+    if not canonical and not path.is_relative_to(root.resolve()):
+        alias = next(
+            (parent for parent in path.parents if parent.resolve() == root.resolve()),
+            None,
+        )
+        if alias is not None:
+            path = root.resolve() / path.relative_to(alias)
     return (
         path.relative_to(root.resolve()).as_posix()
         if path.is_relative_to(root.resolve())
@@ -54,6 +74,7 @@ def json_reference(root, source, raw, findings):
         Diagnostic.create(
             root,
             code="design.artifact.placement",
+            cause_kind="input_invalid",
             check_id="design.artifacts",
             service=service_scope(root, source),
             source_path=source,
@@ -70,6 +91,7 @@ def plaintext_diagnostics(root, path, error):
         Diagnostic.create(
             root,
             code="codebuild.plaintext-reference",
+            cause_kind="input_invalid",
             check_id="design.tables",
             service=service_scope(root, path),
             source_path=path,
@@ -87,6 +109,7 @@ def display_diagnostics(root, path, error, check_id):
         yield Diagnostic.create(
             root,
             code="design.display.mismatch",
+            cause_kind="input_invalid",
             check_id=check_id,
             service=service_scope(root, path),
             source_path=path,
@@ -115,11 +138,16 @@ class Diagnostic:
     affected_services: tuple = ()
     location: str | None = None
     details: dict = field(default_factory=dict)
+    cause_kind: str = "unclassified"
+
+    def __post_init__(self):
+        if self.cause_kind not in CAUSE_KINDS:
+            raise ValueError("invalid diagnostic cause_kind")
 
     @classmethod
     def create(cls, root, *, source_path=None, target_path=None, **details):
         return cls(
-            source_path=relative_path(root, source_path),
+            source_path=relative_path(root, source_path, canonical=False),
             target_path=relative_path(root, target_path),
             **details,
         )

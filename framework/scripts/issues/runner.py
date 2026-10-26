@@ -13,6 +13,7 @@ from task_contract_core import task_read_scope
 from utils.input_cache import input_scope
 from utils.reference_contracts import reference_error
 from utils.script_loader import module
+from validation.diagnostics import Diagnostic
 from validation.findings import Findings, check_metadata, finish_result
 
 import issues.artifact as _imports_issues_artifact
@@ -22,6 +23,7 @@ from .aggregate import aggregate
 from .inputs import Comparison, view_text
 from .integrity import selected_scope, target_services
 from .materials import naming_materials
+from .ownership import resolve
 from .records import identifier, safe_text
 from .review import human_confirmations
 
@@ -186,41 +188,80 @@ def codebuild_plaintext_diagnostics(message, comparison):
 
 def validation_issues(findings, comparison, services):
     ordinary, judgments = {}, {}
-    for diagnostic in findings.diagnostics:
-        identity = diagnostic.identity
-        if diagnostic.code == "codebuild.plaintext-reference":
-            identity = (
-                diagnostic.code,
-                diagnostic.service,
-                *codebuild_plaintext_diagnostics(diagnostic.message, comparison),
+    scope = selected_scope(comparison.environment, comparison.directory, services)
+    diagnostics = [
+        *findings.diagnostics,
+        *(
+            findings.error_contexts.get(index)
+            or Diagnostic.create(
+                comparison.root,
+                code="validation.unclassified",
+                check_id="validation.input",
+                service=None,
+                message=message,
+                cause_key=message,
             )
-        key = identifier(identity)
-        owner = diagnostic.service
-        service = (
-            owner[2]
-            if owner is not None
-            and owner[:2] == (comparison.environment, comparison.directory)
-            and owner[2] in services
-            else None
-        )
-        candidate = dict(
-            id=key,
-            key=key,
-            service=service,
-            message=safe_text(comparison.redacted(diagnostic.message)),
-            diagnostic=comparison.redacted(diagnostic.record()),
-        )
-        if diagnostic.code == "design.display.mismatch":
-            candidate.update(
-                resource=diagnostic.details["resourceLogicalId"],
-                property=diagnostic.details["property"],
-                rule=diagnostic.code,
+            for index, message in enumerate(findings.errors)
+            if index not in findings.diagnostic_errors
+        ),
+    ]
+    for diagnostic in diagnostics:
+        with scan_stage(findings, "diagnostics.issue-candidates", scope):
+            identity = diagnostic.identity
+            if diagnostic.code == "codebuild.plaintext-reference":
+                identity = (
+                    diagnostic.code,
+                    diagnostic.service,
+                    *codebuild_plaintext_diagnostics(diagnostic.message, comparison),
+                )
+            key = identifier(identity)
+            ownership = resolve(comparison.root, diagnostic, scope)
+            service = (
+                ownership["owner"][2] if ownership["status"] == "assigned" else None
             )
-        (ordinary if service else judgments).setdefault(key, candidate)
+            candidate = dict(
+                id=key,
+                key=key,
+                service=service,
+                message=safe_text(comparison.redacted(diagnostic.message)),
+                diagnostic=comparison.redacted(diagnostic.record()),
+                cause_kind=diagnostic.cause_kind,
+                ownership=ownership,
+            )
+            if ownership["status"] == "outside":
+                findings.information.append(
+                    dict(candidate, kind="out_of_scope_diagnostic")
+                )
+                continue
+            if diagnostic.code == "design.display.mismatch":
+                candidate.update(
+                    resource=diagnostic.details["resourceLogicalId"],
+                    property=diagnostic.details["property"],
+                    rule=diagnostic.code,
+                )
+            if diagnostic.cause_kind == "input_invalid":
+                (ordinary if service else judgments).setdefault(key, candidate)
+            else:
+                notice = dict(candidate, diagnostic_id=key, complete=False)
+                for channel in (
+                    [findings.processing_errors, findings.unverified]
+                    if diagnostic.cause_kind == "check_failure"
+                    else [findings.unverified]
+                ):
+                    existing = next(
+                        (item for item in channel if item.get("diagnostic_id") == key),
+                        None,
+                    )
+                    if existing is None:
+                        channel.append(dict(notice))
+                    else:
+                        existing.update(notice)
+                if service is None:
+                    judgments.setdefault(key, candidate)
     return list(ordinary.values()), list(judgments.values())
 
 
-def reference_issues(findings, comparison, services, *, scope=None):
+def reference_issues(findings, comparison, services, *, scope=None, judgments=None):
     """Use the existing stable identifier on Model position/code, independent of prose."""
     records = {}
     for diagnostic in findings.reference_errors:
@@ -228,11 +269,7 @@ def reference_issues(findings, comparison, services, *, scope=None):
             if diagnostic["category"] != "MODEL_NEEDS_FIX":
                 continue
             fix_models = diagnostic.get("fixModels", ())
-            if not fix_models and (
-                diagnostic["code"] == "MODEL_REF_INVALID_SYNTAX"
-                or diagnostic["code"] == "MODEL_REF_TARGET_AMBIGUOUS"
-                and diagnostic.get("modelKey", "").startswith("desired.resource.")
-            ):
+            if not fix_models:
                 fix_models = [diagnostic.get("model")]
             identity = [
                 diagnostic.get(field)
@@ -246,17 +283,33 @@ def reference_issues(findings, comparison, services, *, scope=None):
                     "attribute",
                 )
             ]
-            for model in fix_models:
-                owner = next(
-                    (
-                        service
-                        for service in services
-                        if model and model.endswith("/" + service + ".properties")
-                    ),
-                    None,
+            if not diagnostic.get("fixModels") and not diagnostic.get("modelKey"):
+                identity.append(
+                    {
+                        key: value
+                        for key, value in diagnostic.items()
+                        if key != "cause_kind"
+                    }
                 )
-                if owner is None:
-                    continue
+            for model in fix_models:
+                ownership = resolve(
+                    comparison.root,
+                    Diagnostic.create(
+                        comparison.root,
+                        code=diagnostic["code"],
+                        check_id="model.references",
+                        service=None,
+                        source_path=model,
+                        message=diagnostic["message"],
+                        cause_kind="input_invalid",
+                    ),
+                    selected_scope(
+                        comparison.environment, comparison.directory, services
+                    ),
+                )
+                owner = (
+                    ownership["owner"][2] if ownership["status"] == "assigned" else None
+                )
                 key = identifier(
                     [
                         value.replace(str(comparison.root) + "/", "")
@@ -265,11 +318,13 @@ def reference_issues(findings, comparison, services, *, scope=None):
                         for value in [model, *identity]
                     ]
                 )
-                records[key] = dict(
+                candidate = dict(
                     id=key,
                     key=key,
                     service=owner,
                     severity="ERROR",
+                    cause_kind="input_invalid",
+                    ownership=ownership,
                     message=safe_text(
                         comparison.redacted(json.dumps(diagnostic, ensure_ascii=False))
                     ),
@@ -290,6 +345,19 @@ def reference_issues(findings, comparison, services, *, scope=None):
                     else None,
                     rule=diagnostic["code"],
                 )
+                if ownership["status"] == "outside":
+                    findings.information.append(
+                        dict(candidate, kind="out_of_scope_diagnostic")
+                    )
+                elif owner is None:
+                    if judgments is not None:
+                        judgments.append(candidate)
+                    else:
+                        findings.unverified.append(
+                            dict(candidate, diagnostic_id=key, complete=False)
+                        )
+                else:
+                    records[key] = candidate
     return list(records.values())
 
 
@@ -335,44 +403,19 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
     validator = validators[0]
-    reference_messages = set()
     with scan_stage(stages, "diagnostics.references", scope):
         ordinary.extend(
-            reference_issues(validator.findings, comparison, all_services, scope=scope)
+            reference_issues(
+                validator.findings,
+                comparison,
+                services,
+                scope=scope,
+                judgments=judgments,
+            )
         )
-        reference_messages = {
-            json.dumps(d, ensure_ascii=False)
-            for d in validator.findings.reference_errors
-        }
-    structured, unknown = validation_issues(
-        validator.findings, comparison, all_services
-    )
+    structured, unknown = validation_issues(validator.findings, comparison, services)
     ordinary.extend(structured)
     judgments.extend(unknown)
-    seen = {item["id"] for item in [*ordinary, *judgments]}
-    for message in dict.fromkeys(validator.findings.unstructured_errors):
-        if message in reference_messages or any(
-            message == item["message"] for item in validator.findings.processing_errors
-        ):
-            continue
-        diagnostic_messages = []
-        with scan_stage(stages, "diagnostics.codebuild-plaintext", scope):
-            diagnostic_messages = codebuild_plaintext_diagnostics(message, comparison)
-        for diagnostic in diagnostic_messages:
-            with scan_stage(stages, "diagnostics.issue-candidates", scope):
-                # Legacy strings contain no authoritative ownership evidence.
-                owner = None
-                key = identifier(diagnostic)
-                if key in seen:
-                    continue
-                candidate = {
-                    "id": key,
-                    "service": owner,
-                    "message": safe_text(comparison.redacted(diagnostic)),
-                    "key": key,
-                }
-                (ordinary if owner else judgments).append(candidate)
-                seen.add(key)
     if any(
         item.get("phase", "").startswith("diagnostics.")
         for item in [*stages.processing_errors, *validator.findings.processing_errors]
@@ -555,7 +598,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     )
     aggregation_seconds = time.perf_counter() - begin
     artifact = dict(
-        version=5,
+        version=6,
         target_services=all_services,
         service_results=[
             dict(service=service, status="scanned") for service in sorted(set(services))
@@ -573,7 +616,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         judgments=judgments,
         warnings=warnings,
         human_confirmations=human,
-        information=lint.pop("information"),
+        information=lint.pop("information") + validator.findings.information,
         unverified=unverified,
         processing_errors=processing,
         cfn_lint=lint,

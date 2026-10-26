@@ -73,7 +73,7 @@ def main_checks():
             )
             assert stats["proven_causes"] == 1
             artifact = dict(
-                version=5,
+                version=6,
                 ordinary=[],
                 judgments=[],
                 naming={"names": []},
@@ -123,7 +123,7 @@ def main_checks():
                 == 1
             )
             artifact = dict(
-                version=5,
+                version=6,
                 ordinary=[],
                 judgments=[],
                 naming={"names": []},
@@ -142,7 +142,7 @@ def main_checks():
         records = Comparison(root, "dev", "123456789012", ["s3"]).run()
         assert sum(item["category"] == "difference" for item in records) == 1, records
         artifact = dict(
-            version=5,
+            version=6,
             ordinary=[],
             judgments=[],
             naming={"names": []},
@@ -160,7 +160,7 @@ def main_checks():
             records = comparison.run()
         assert records and all(item["category"] == "error" for item in records), records
         artifact = dict(
-            version=5,
+            version=6,
             ordinary=[],
             judgments=[],
             naming={"names": []},
@@ -177,12 +177,12 @@ def main_checks():
         assert records and all(item["category"] == "error" for item in records), records
         assert (
             summary(
-                dict(version=5, **aggregate(records, "dev", "123456789012", ["s3"]))
+                dict(version=6, **aggregate(records, "dev", "123456789012", ["s3"]))
             )["iac_status"]
             == "error"
         )
         artifact = dict(
-            version=5,
+            version=6,
             ordinary=[],
             judgments=[],
             naming={"names": []},

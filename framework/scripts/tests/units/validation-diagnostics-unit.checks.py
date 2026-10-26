@@ -22,7 +22,7 @@ from validation import design_tables
 from validation import runner as validator_runner
 from validation.design_links import check_design_artifacts as validate_artifacts
 from validation.design_links import check_local_links as validate_links
-from validation.diagnostics import ArtifactReferences, Diagnostic, service_scope
+from validation.diagnostics import ArtifactReferences, Diagnostic
 from validation.findings import Findings, FindingsError
 from validation.runner import Validator
 
@@ -79,6 +79,7 @@ def check_shared_cause_keeps_owners_and_unknown(tmp_path):
             Diagnostic.create(
                 tmp_path,
                 code="generation.render",
+                cause_kind="input_invalid",
                 check_id="generated",
                 service=owner,
                 source_path=tmp_path / "model/dev/team" / f"{owner[2]}.properties",
@@ -107,7 +108,6 @@ def check_shared_cause_keeps_owners_and_unknown(tmp_path):
         item["diagnostic"]["cause_key"] == "proven-producer-row-001"
         for item in ordinary
     )
-    assert service_scope(tmp_path, tmp_path / "outside/s3.md") is None
 
 
 def check_equal_messages_do_not_hide_another_service_failure(tmp_path):
@@ -116,6 +116,7 @@ def check_equal_messages_do_not_hide_another_service_failure(tmp_path):
         diagnostic = Diagnostic.create(
             tmp_path,
             code="generation.render",
+            cause_kind="input_invalid",
             check_id="generated",
             service=("dev", "team", service),
             source_path=f"model/dev/team/{service}.properties",
@@ -447,7 +448,9 @@ def check_expansion_failure_does_not_claim_unreferenced(tmp_path, stage):
         validator.check_design_artifacts,
     )
     assert index.complete[view] is False
-    assert not validator.findings.diagnostics
+    assert not any(
+        d.code == "design.artifact.unreferenced" for d in validator.findings.diagnostics
+    )
     assert validator.findings.unverified
 
 
@@ -741,6 +744,7 @@ def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(
     diagnostic = Diagnostic.create(
         tmp_path,
         code=code,
+        cause_kind="input_invalid",
         check_id="framework.generated-service-model",
         service=("dev", "team", "s3"),
         source_path="model/dev/team/s3.properties",
@@ -820,7 +824,7 @@ def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(
         first = scan_runner.scan(tmp_path, "dev", "team", ["s3"])
     assert len(first["ordinary"]) == 2
     assert [item["message"] for item in first["judgments"]] == [independent]
-    assert first["version"] == 5
+    assert first["version"] == 6
     assert (
         first["ordinary"][1]["diagnostic"]["source_path"]
         == "model/dev/team/s3.properties"

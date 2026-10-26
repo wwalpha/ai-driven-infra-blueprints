@@ -936,6 +936,7 @@ def codebuild_reference_errors(path, values, *, findings=None, context_values=No
                 Diagnostic.create(
                     findings.canonical_root,
                     code="codebuild.plaintext-reference",
+                    cause_kind="input_invalid",
                     check_id="model.reference-policy",
                     service=service_scope(findings.canonical_root, path),
                     source_path=path,

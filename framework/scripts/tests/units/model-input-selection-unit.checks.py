@@ -154,7 +154,9 @@ def check_catalog_failure_precedes_owner(selection, monkeypatch):
     fail = _check_catalog_failure_precedes_owner_fail
     monkeypatch.setattr(validation, "DesignSchemaCatalog", fail)
     with patch.object(format, "owner", side_effect=AssertionError("too early")):
-        assert run().errors == ["catalog first"]
+        findings = run()
+        assert findings.errors == ["model.catalog: catalog first"]
+        assert findings.processing_errors[0]["cause_kind"] == "check_failure"
     assert not selected
 
 

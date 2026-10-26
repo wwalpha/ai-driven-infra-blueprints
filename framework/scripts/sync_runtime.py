@@ -106,6 +106,7 @@ def generation_failure(
     diagnostic = Diagnostic.create(
         root,
         code=code,
+        cause_kind="input_invalid" if code == "generation.mismatch" else "unclassified",
         check_id="framework.generated-service-model",
         service=service_scope(root, path),
         source_path=path,

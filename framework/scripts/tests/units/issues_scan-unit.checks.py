@@ -330,7 +330,7 @@ def summary_scale_cases():
 
     records = artifact["iac"]
     original = json.dumps(artifact, sort_keys=True)
-    assert artifact["version"] == 5
+    assert artifact["version"] == 6
     entries, actions, fields = iac_dataset(
         records, "dev", "cde", artifact["services"], artifact["iac_display"]
     )
@@ -732,15 +732,7 @@ def check_scan_accepts_input_changes(tmp_path, input_name):
     )
     validator = SimpleNamespace(
         checks=1,
-        findings=SimpleNamespace(
-            unstructured_errors=[],
-            reference_errors=[],
-            diagnostics=[],
-            processing_errors=[],
-            unverified=[],
-            results={},
-            result=Mock(return_value=SimpleNamespace(metadata={})),
-        ),
+        findings=Findings(tmp_path),
     )
     lint = dict(
         jobs=[],
@@ -843,6 +835,10 @@ def check_view_read_failure_policy(tmp_path):
             reference_errors=[],
             diagnostics=[],
             diagnostic_errors={},
+            error_contexts={},
+            processing_errors=[],
+            unverified=[],
+            information=[],
             checks=7,
         )
     )
@@ -973,15 +969,7 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
         check=Mock(),
         cache=cache,
         service_cache_pending=[("pending", 3)] if dependent else [],
-        findings=SimpleNamespace(
-            unstructured_errors=[],
-            reference_errors=[],
-            diagnostics=[],
-            processing_errors=[],
-            unverified=[],
-            results={},
-            result=Mock(return_value=SimpleNamespace(metadata={})),
-        ),
+        findings=Findings(tmp_path),
     )
     validator.finalize_service_cache = partial(
         Validator.finalize_service_cache, validator
@@ -1207,8 +1195,6 @@ def fail_diagnostic(original, failed, value, *args, **kwargs):
     [
         "references",
         "reference-message",
-        "plaintext",
-        "plaintext-message",
         "candidate-message",
         "normal",
     ],
@@ -1241,8 +1227,14 @@ def check_reference_diagnostic_isolation(tmp_path, stage):
     report = tmp_path / "issues/dev/123456789012/issues.md"
     write(report, "# Issues\n\n### s3\n\n1. Keep existing Issue\n")
     report_before = report.read_bytes()
-    expected_references = scan_runner.reference_issues(
-        validator.findings, Comparison(tmp_path, "dev", "123456789012", ["s3"]), ["s3"]
+    expected_references = json.loads(
+        json.dumps(
+            scan_runner.reference_issues(
+                validator.findings,
+                Comparison(tmp_path, "dev", "123456789012", ["s3"]),
+                ["s3"],
+            )
+        )
     )
     artifact_path = tmp_path.parent / "reference-failure.json"
     order = Mock()
@@ -1267,18 +1259,13 @@ def check_reference_diagnostic_isolation(tmp_path, stage):
         ) as references,
         patch.object(
             scan_runner,
-            "codebuild_plaintext_diagnostics",
-            wraps=scan_runner.codebuild_plaintext_diagnostics,
-        ) as plaintext,
-        patch.object(
-            scan_runner,
             "identifier",
             side_effect=partial(
                 fail_diagnostic,
                 identifier,
                 "reference-message"
                 if stage == "reference-message"
-                else messages[1]
+                else validator.findings.error_contexts[4].identity
                 if stage == "candidate-message"
                 else None,
             ),
@@ -1322,7 +1309,6 @@ def check_reference_diagnostic_isolation(tmp_path, stage):
     ):
         for name, mock in (
             ("references", references),
-            ("plaintext", plaintext),
             ("naming", naming),
             ("review", review),
             ("compare", compare),
@@ -1331,22 +1317,14 @@ def check_reference_diagnostic_isolation(tmp_path, stage):
             order.attach_mock(mock, name)
         if stage == "references":
             references.side_effect = ValueError("injected reference failure")
-        if stage == "plaintext":
-            plaintext.side_effect = ValueError("injected PLAINTEXT failure")
-        elif stage == "plaintext-message":
-            plaintext.side_effect = partial(
-                fail_diagnostic, plaintext._mock_wraps, messages[1]
-            )
         assert issues_main() == (1 if stage == "normal" else 2)
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
     validate_artifact(artifact)
-    assert artifact["version"] == 5
+    assert artifact["version"] == 6
     assert artifact["validation_status"] == ("FAIL" if stage == "normal" else "ERROR")
     phases = {
         "references": "diagnostics.references",
         "reference-message": "diagnostics.references",
-        "plaintext": "diagnostics.codebuild-plaintext",
-        "plaintext-message": "diagnostics.codebuild-plaintext",
         "candidate-message": "diagnostics.issue-candidates",
     }
     if stage != "normal":
@@ -1377,16 +1355,16 @@ def check_reference_diagnostic_isolation(tmp_path, stage):
         *(item for item in artifact["judgments"] if "message" in item),
     ]
     assert len({item["id"] for item in candidates}) == len(candidates)
-    for message in () if stage == "plaintext" else (messages[0], messages[-1]):
+    for message in (messages[0], messages[-1]):
         assert (
             sum(
-                item["id"] == identifier(message) and item["service"] is None
+                item["message"] == message and item["service"] is None
                 for item in candidates
             )
             == 1
         )
-    if stage in {"plaintext", "plaintext-message", "candidate-message"}:
-        assert all(item["id"] != identifier(messages[1]) for item in candidates)
+    if stage == "candidate-message":
+        assert all(item["message"] != messages[1] for item in candidates)
     if stage != "references":
         assert all(
             item in candidates
@@ -1408,9 +1386,9 @@ def check_reference_diagnostic_isolation(tmp_path, stage):
         item.get("message") == "retained lint warning" for item in artifact["warnings"]
     )
     names = [call[0] for call in order.mock_calls]
-    assert names[0] == "references" and names.index("plaintext") < names.index(
-        "naming"
-    ) < names.index("review") < names.index("compare") < names.index("lint")
+    assert names[0] == "references" and names.index("naming") < names.index(
+        "review"
+    ) < names.index("compare") < names.index("lint")
     assert report.read_bytes() == report_before
 
 
@@ -1590,6 +1568,10 @@ def check_service_worker_isolation(tmp_path, failure):
             reference_errors=[],
             diagnostics=[],
             diagnostic_errors={},
+            error_contexts={},
+            processing_errors=[],
+            unverified=[],
+            information=[],
             checks=3,
         )
     )
@@ -1926,7 +1908,7 @@ def check_confirmed_difference_direction(reason, mapped):
     assert (
         data["overview"]["issue_count"] == 1 and data["overview"]["record_count"] == 2
     )
-    artifact = dict(version=5, ordinary=[], judgments=[], naming={"names": []}, **data)
+    artifact = dict(version=6, ordinary=[], judgments=[], naming={"names": []}, **data)
     assert scan_exit_code(artifact) == 0
     assert detail_payload(artifact, "iac_issues", category="要修正")["items"] == [
         action
@@ -2096,7 +2078,7 @@ def check_cli_repair_category(tmp_path, capsys, section):
         )
     ]
     artifact = dict(
-        version=5,
+        version=6,
         scan_id="a" * 32,
         naming_context={},
         naming_context_id=identifier({}),
@@ -2157,7 +2139,7 @@ def deferred_artifact(count=13, phase="unobserved"):
         for i in range(count)
     ]
     return dict(
-        version=5,
+        version=6,
         scan_id="a" * 32,
         naming_context={},
         naming_context_id=identifier({}),
@@ -2371,7 +2353,7 @@ def check_direct_pending_deploy_reports_and_dedup(count, tmp_path):
     artifact.update(aggregate(records, "dev", "cde", ["route53", "codebuild"]))
     validate_artifact(artifact)
     view = summary(artifact)
-    assert artifact["version"] == 5
+    assert artifact["version"] == 6
     assert view["iac_pending_deploy_excluded"] == count + 1
     assert view["iac_excluded"] == count + 2
     assert view["iac_uncompared"] == view["iac_deferred"] == 0
@@ -2464,10 +2446,10 @@ def check_direct_pending_deploy_artifact_rejects_invalid_causes(fault):
         "cause-category",
     ],
 )
-def check_artifact_v5_rejects_invalid_indexes(fault, phase):
+def check_artifact_v6_rejects_invalid_indexes(fault, phase):
     artifact = deferred_artifact(1, phase)
     if fault == "old_version":
-        artifact["version"] = 4
+        artifact["version"] = 5
     elif fault == "category":
         artifact["iac"][0]["category"] = "unknown"
     elif fault == "counts":
@@ -2496,7 +2478,7 @@ def check_artifact_v5_rejects_invalid_indexes(fault, phase):
         artifact["overview"]["issue_count"] = 1
     elif fault == "missing-membership":
         artifact = dict(
-            version=5,
+            version=6,
             scan_id="a" * 32,
             naming_context={},
             naming_context_id=identifier({}),

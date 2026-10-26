@@ -45,6 +45,7 @@ from utils.project_targets import LOWER_KEBAB_PATTERN
 
 from .diagnostics import (
     Diagnostic,
+    InputValidationError,
     display_diagnostics,
     plaintext_diagnostics,
     service_scope,
@@ -98,14 +99,16 @@ def check_model_files(findings, root, scope) -> None:
             load_model = _imports_model_sources.load_model
             analysis = load_model(path)
             if analysis is None:
-                raise ValueError("missing service model")
+                raise InputValidationError("missing service model")
             for warning in analysis.warnings:
                 findings.warn(warning)
         except ReferenceDiagnosticError as error:
             findings.warn(error, model=str(path))
+        except InputValidationError as error:
+            findings.input_failure(error, source_path=path)
         except (OSError, ValueError) as error:
-            findings.check(
-                False, f"invalid service model: {findings.relative(path)}: {error}"
+            findings.processing_failure(
+                "model.read", {service_scope(root, path)}, error, source_path=path
             )
 
 
@@ -137,15 +140,21 @@ def check_service_file(
     findings.check(
         LOWER_KEBAB_PATTERN.fullmatch(service_id) is not None,
         f"invalid service ID: {findings.relative(path)}: {service_id}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         service_id == path.stem,
         f"service ID does not match file stem: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     for resource_type in owned_types:
         findings.check(
             (resource_type in SECURITY_GROUP_TYPES) == (service_id == "security-group"),
             f"Security Group resources must belong only to security-group: {findings.relative(path)}: {resource_type}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
 
 
@@ -160,10 +169,14 @@ def markdown_service_metadata(
     findings.check(
         len(service_lines) == 1,
         f"Design service ID must appear exactly once: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         len(owned_lines) == 1,
         f"Owned catalog resource types must appear exactly once: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     if len(service_lines) != 1 or len(owned_lines) != 1:
         return None
@@ -173,10 +186,14 @@ def markdown_service_metadata(
     findings.check(
         service_match is not None,
         f"invalid Design service ID metadata: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         owned_match is not None,
         f"invalid Owned catalog resource types metadata: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     if service_match is None or owned_match is None:
         return None
@@ -187,15 +204,21 @@ def markdown_service_metadata(
     findings.check(
         bool(owned_types),
         f"Owned catalog resource types must not be empty: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         len(owned_types) == len(set(owned_types)),
         f"duplicate owned catalog resource type: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     for resource_type in owned_types:
         findings.check(
             resource_type in catalog_types,
             f"unknown owned catalog resource type: {findings.relative(path)}: {resource_type}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
     return service_id, owned_types
 
@@ -212,9 +235,15 @@ def model_service_metadata(
     except ReferenceResolutionError as error:
         findings.warn(error)
         return None
+    except InputValidationError as error:
+        findings.input_failure(error, source_path=path)
+        return None
     except (OSError, ValueError) as error:
-        findings.check(
-            False, f"invalid service model: {findings.relative(path)}: {error}"
+        findings.processing_failure(
+            "model.read",
+            {service_scope(findings.canonical_root, path)},
+            error,
+            source_path=path,
         )
         return None
     service_matches = [
@@ -226,10 +255,14 @@ def model_service_metadata(
     findings.check(
         len(service_matches) == 1,
         f"model service ID must appear exactly once: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         len(owned_matches) == 1,
         f"model owned catalog resource types must appear exactly once: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     if len(service_matches) != 1 or len(owned_matches) != 1:
         return None
@@ -241,19 +274,27 @@ def model_service_metadata(
     findings.check(
         service_key == service_id == owned_key,
         f"inconsistent model service metadata key: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         bool(owned_types),
         f"model owned catalog resource types must not be empty: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         len(owned_types) == len(set(owned_types)),
         f"duplicate model owned catalog resource type: {findings.relative(path)}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     for resource_type in owned_types:
         findings.check(
             resource_type in catalog_types,
             f"unknown model owned catalog resource type: {findings.relative(path)}: {resource_type}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
     return service_id, owned_types
 
@@ -300,6 +341,8 @@ def check_design_service_ownership(
         findings.check(
             markdown_metadata == model_metadata,
             f"Markdown/model service metadata mismatch: {findings.relative(markdown_path)}",
+            source_path=markdown_path,
+            cause_kind="input_invalid",
         )
         metadata[markdown_path] = markdown_metadata
 
@@ -312,6 +355,8 @@ def check_design_service_ownership(
             findings.check(
                 previous is None,
                 f"duplicate catalog resource type ownership: {resource_type}: {findings.relative(previous) if previous else findings.relative(markdown_path)} and {findings.relative(markdown_path)}",
+                source_path=markdown_path,
+                cause_kind="input_invalid",
             )
             owners.setdefault(owner_key, markdown_path)
 
@@ -385,6 +430,7 @@ def _callback_check_resource_names_check_name(
                 Diagnostic.create(
                     root,
                     code="design.identity.invalid",
+                    cause_kind="input_invalid",
                     check_id="design.identity",
                     service=service_scope(root, path),
                     source_path=path,
@@ -409,6 +455,7 @@ def _callback_check_resource_names_check_name(
                 Diagnostic.create(
                     root,
                     code="design.identity.invalid",
+                    cause_kind="input_invalid",
                     check_id="design.identity",
                     service=service_scope(root, path),
                     source_path=path,
@@ -495,12 +542,17 @@ def _callback_check_resource_names_check_name(
                 definitions_root,
                 modes=modes,
             )
+        except InputValidationError as error:
+            findings.input_failure(error, source_path=path)
+            return
         except ValueError as error:
             if str(error) not in {
                 "indexed array display requires Model source rows",
                 "array display differs from Model source rows",
             }:
-                findings.check(False, f"{findings.relative(path)}: {error}")
+                findings.check(
+                    False, f"{findings.relative(path)}: {error}", source_path=path
+                )
                 return
             name_unavailable = str(error)
         if (
@@ -582,30 +634,43 @@ def _callback_check_resource_names_check_name(
     except ReferenceResolutionError as error:
         findings.warn(error)
         return
+    except InputValidationError as error:
+        findings.input_failure(error, source_path=path)
+        return
     except ValueError as error:
-        findings.check(False, f"{findings.relative(path)}: {error}")
+        findings.check(False, f"{findings.relative(path)}: {error}", source_path=path)
         return
     findings.check(
         name is None or name not in {"", "UNSET", "PENDING_DEPLOY"},
         f"resource display name must be confirmed: {findings.relative(path)}: {resource_type}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         not check_display or name is None or display == name,
         f"resource heading must display {'resource name' if configured is not None else 'authoritative display label'}: {findings.relative(path)}: {resource_type}: {display} != {name}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     findings.check(
         saved_name is None or display == saved_name,
         f"resource heading must display saved resource name: {findings.relative(path)}: {resource_type}: {display} != {saved_name}",
+        source_path=path,
+        cause_kind="input_invalid",
     )
     if name is None:
         findings.check(
             False,
             f"resource type display requires a single nameless independent resource or confirmed display label: {findings.relative(path)}: {resource_type}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
     elif configured is None and not values:
         findings.check(
             anchor in identities and display != identities[anchor],
             f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}",
+            source_path=path,
+            cause_kind="input_invalid",
         )
 
 
@@ -710,6 +775,7 @@ def check_resource_names(
                 Diagnostic.create(
                     root,
                     code="design.identity.invalid",
+                    cause_kind="input_invalid",
                     check_id="design.identity",
                     service=service_scope(root, path),
                     source_path=path,
@@ -717,9 +783,15 @@ def check_resource_names(
                 )
             )
             continue
+        except InputValidationError as error:
+            findings.input_failure(error, source_path=path)
+            continue
         except (OSError, ValueError) as error:
             findings.processing_failure(
-                "design.identity", {(*path.parent.parts[-2:], path.stem)}, error
+                "design.identity",
+                {(*path.parent.parts[-2:], path.stem)},
+                error,
+                source_path=path,
             )
             continue
         anchor = ""
@@ -812,6 +884,8 @@ def check_resource_names(
                         findings.check(
                             bool(marker and marker.group(1) == expected),
                             f"KMS Alias anchor must match saved Model anchor: {findings.relative(path)}: expected {expected}",
+                            source_path=path,
+                            cause_kind="input_invalid",
                         )
 
 
@@ -824,12 +898,19 @@ def check_policy_view_integrity(paths, findings, *, definitions_root=None) -> No
                 )
                 == input_text(path, encoding="utf-8"),
                 f"Policy tables or overview differ from design JSON/properties: {findings.relative(path)}",
+                source_path=path,
+                cause_kind="input_invalid",
             )
         except ReferenceResolutionError as error:
             findings.warn(error)
+        except InputValidationError as error:
+            findings.input_failure(error, source_path=path)
         except (OSError, ValueError) as error:
-            findings.check(
-                False, f"invalid policy tables: {findings.relative(path)}: {error}"
+            findings.processing_failure(
+                "design.policy-quality",
+                {service_scope(findings.canonical_root, path)},
+                error,
+                source_path=path,
             )
 
 
@@ -865,9 +946,12 @@ def check_observed_values(
         except ReferenceResolutionError as error:
             findings.warn(error)
             continue
+        except InputValidationError as error:
+            findings.input_failure(error, source_path=path)
+            continue
         except (OSError, ValueError) as error:
-            findings.check(
-                False, f"invalid service model: {findings.relative(path)}: {error}"
+            findings.processing_failure(
+                "model.read", {service_scope(root, path)}, error, source_path=path
             )
             continue
         for key, value in values.items():
@@ -877,6 +961,8 @@ def check_observed_values(
                     values.get(f"desired.resource.{owner}.resourceMode") == "IMPORT"
                     or re.search(r"\barn:aws[a-z-]*:", value, re.IGNORECASE) is None,
                     f"generated ARN persisted in observed model value: {findings.relative(path)}",
+                    source_path=path,
+                    cause_kind="input_invalid",
                 )
 
 

@@ -31,6 +31,7 @@ from utils.input_cache import (
     recording_inputs,
 )
 from utils.json_format import policy_json
+from validation.diagnostics import InputValidationError
 
 import model.display as _dependency_model_display
 import model.files as _imports_model_files
@@ -175,15 +176,20 @@ def resource_presentation(values, identity, resource, root, *, scope=None):
         kind,
         root,
     )
-    name, configured = display_name(
-        values,
-        identity,
-        resource,
-        _dependency_model_projection.resource_display_rows(
-            values, identity, resource, root, scope=scope
-        ),
-        root,
-    )
+    try:
+        name, configured = display_name(
+            values,
+            identity,
+            resource,
+            _dependency_model_projection.resource_display_rows(
+                values, identity, resource, root, scope=scope
+            ),
+            root,
+        )
+    except InputValidationError as error:
+        if scope is not None:
+            error.source_path = error.source_path or scope.path
+        raise
     return name, configured, rows
 
 
@@ -202,7 +208,7 @@ def _callback_resource_details_inspect(
     pass
     kind = _state_resource_details_122.resource["resourceType"]
     if kind not in owned:
-        raise ValueError(f"resource is outside service ownership: {kind}")
+        raise InputValidationError(f"resource is outside service ownership: {kind}")
     name, configured_name, rows = resource_presentation(
         values,
         _state_resource_details_122.identity,
@@ -211,11 +217,11 @@ def _callback_resource_details_inspect(
         scope=scope,
     )
     if configured_name is None and name is None:
-        raise ValueError(
+        raise InputValidationError(
             f"resource type display requires a single nameless independent resource: {kind}"
         )
     if not name or name in {"UNSET", "PENDING_DEPLOY"}:
-        raise ValueError(
+        raise InputValidationError(
             f"confirmed resource display label is missing: {kind}: {_state_resource_details_122.identity}"
         )
     anchor = display_anchor(_state_resource_details_122.resource)
@@ -278,7 +284,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
         rule = GROUPED[kind]
         for field in ("parentReference", "parentProperty"):
             if not resource.get(field):
-                raise ValueError(
+                raise InputValidationError(
                     f"{kind}: {resource['logicalId']}: required metadata missing: desired.resource.{identity}.{field} ({kind}.{rule['parentProperty']})"
                 )
         link = LINK.fullmatch(resource["parentReference"])
@@ -291,7 +297,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
         )
         parent = by_anchor.get(link[3]) if local else None
         if resource["parentProperty"] != kind + "." + rule["parentProperty"]:
-            raise ValueError("invalid grouped parentProperty: " + identity)
+            raise InputValidationError("invalid grouped parentProperty: " + identity)
         if not parent or parent[1]["resourceType"] != rule["parent"]:
             raise ReferenceResolutionError(
                 f"{kind}: {resource['logicalId']}: invalid grouped parent: parentReference / parentProperty ({kind}.{rule['parentProperty']})"
@@ -304,7 +310,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
                 and row.get("property") == resource["parentProperty"]
             ]
             if len(parent_rows) != 1:
-                raise ValueError(
+                raise InputValidationError(
                     f"{kind}: {resource['logicalId']}: {resource['parentProperty']} requires exactly one formal row matching parentReference"
                 )
             row_link = LINK.fullmatch(parent_rows[0].get("value", ""))
@@ -327,7 +333,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
             if kind + ".Id" not in HIDDEN_PROPERTIES and (
                 not rows or rows[0][1] != kind + ".Id"
             ):
-                raise ValueError(
+                raise InputValidationError(
                     f"{kind}: {resource['logicalId']}: required first property: {kind}.Id"
                 )
         grouped.setdefault(parent[0], []).append(item)
@@ -337,7 +343,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
             and sum(child[1]["resourceType"] == kind for child in grouped[parent[0]])
             > maximum
         ):
-            raise ValueError(
+            raise InputValidationError(
                 f"{kind}: {resource['logicalId']}: too many grouped children for {parent[1]['logicalId']}: {resource['parentProperty']}"
             )
     return grouped
@@ -531,11 +537,11 @@ def render_validated_model(
     values = reference_display(values, path, root)
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
-        raise ValueError(f"service ID must equal file stem: {path.name}")
+        raise InputValidationError(f"service ID must equal file stem: {path.name}")
     owned = values[f"desired.service.{service}.ownedCatalogResourceTypes"].split(",")
     resources = entries(values, "desired.resource.")
     if not resources:
-        raise ValueError(f"service model has no resources: {path.name}")
+        raise InputValidationError(f"service model has no resources: {path.name}")
     scope = scope_for(
         (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
             ".properties"

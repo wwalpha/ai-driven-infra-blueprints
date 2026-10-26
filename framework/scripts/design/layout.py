@@ -19,6 +19,7 @@ from utils.input_cache import input_scope as input_scope
 from utils.input_cache import input_text
 from utils.reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROPERTIES
 from utils.reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
+from validation.diagnostics import InputValidationError
 
 import design.catalog as _imports_design_catalog
 import design.services.codebuild
@@ -336,7 +337,7 @@ def resource_display_selection(
             or value.startswith("[")
             or "{{" in value
         ):
-            raise ValueError(
+            raise InputValidationError(
                 f"resource display name must be confirmed and non-empty: {resource_type}.{field}"
             )
     configured = resource_display_name(resource_type, rows, label, mode, root=root)
@@ -345,7 +346,7 @@ def resource_display_selection(
     has_name = resource_has_name_property(root, resource_type, mode)
     if has_name:
         if mode != "IMPORT" or resource_type in {"IAM.Role", "CodeBuild.Project"}:
-            raise ValueError(
+            raise InputValidationError(
                 f"required Name is not selected; display label substitution is not allowed: {resource_type}"
             )
         missing = set()
@@ -360,20 +361,20 @@ def resource_display_selection(
             if leaf in schema.get("required", []):
                 missing.add(field)
         if missing:
-            raise ValueError(
+            raise InputValidationError(
                 f"required provider schema property missing: {resource_type}."
                 + ", ".join(sorted(missing))
             )
     if label is not None and label != resource_type:
         if not label.strip() or label in {"UNSET", "PENDING_DEPLOY"}:
-            raise ValueError(
+            raise InputValidationError(
                 f"confirmed resource display label is missing: {resource_type}"
             )
         return label, None
     if not has_name and count == 1 and resource_type not in GROUPED:
         return resource_type, None
     if has_name:
-        raise ValueError(
+        raise InputValidationError(
             f"confirmed resource display label is missing: {resource_type}"
         )
     return None, None

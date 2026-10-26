@@ -6,7 +6,13 @@ from pathlib import Path
 
 from model.core import ReferenceDiagnosticError
 
-from .diagnostics import Diagnostic, relative_path, service_scope
+from .diagnostics import (
+    Diagnostic,
+    InputValidationError,
+    relative_path,
+    service_scope,
+    stable_id,
+)
 
 
 class FindingsError(ValueError):
@@ -81,13 +87,14 @@ class CheckResult:
 
 
 class Findings:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, source_path=None):
         self.canonical_root = root.resolve()
         self.relative_paths = {}
         self.errors = []
         self.warnings = []
         self.unverified = []
         self.processing_errors = []
+        self.information = []
         self.reference_errors = []
         self.reference_error_positions = {}
         self.diagnostics = []
@@ -97,6 +104,10 @@ class Findings:
         self.checks = 0
         self.results = {}
         self.candidate = object()
+        self.source_path = source_path
+        self.check_id = "validation.input"
+        self.check_scope = None
+        self.error_contexts = {}
 
     @property
     def status(self):
@@ -141,7 +152,7 @@ class Findings:
             key, CheckResult(check_id, scope, self.candidate)
         )
 
-    def evaluate(self, check_id, scope, handler, *, isolate=False):
+    def evaluate(self, check_id, scope, handler, *, isolate=False, source_path=None):
         scope = None if scope is None else frozenset(scope)
         key = (check_id, scope, self.candidate)
         result = self.result(check_id, scope)
@@ -157,6 +168,9 @@ class Findings:
             len(self.warnings),
         )
         try:
+            previous = self.check_id, self.check_scope, self.source_path
+            self.check_id, self.check_scope = check_id, scope
+            self.source_path = source_path or self.source_path
             metadata = handler()
             if isinstance(metadata, CheckResult):
                 metadata = dict(metadata.metadata, status=metadata.status)
@@ -167,6 +181,10 @@ class Findings:
         except ReferenceDiagnosticError as error:
             self.warn(error)
             result.metadata.update(complete=False, reason="reference")
+        except InputValidationError as error:
+            self.input_failure(error)
+        except FindingsError as error:
+            self.include_diagnostics(error.findings)
         except Exception as error:
             if not isolate and not isinstance(
                 error, (OSError, ValueError, KeyError, TypeError)
@@ -174,6 +192,8 @@ class Findings:
                 raise
             self.processing_failure(check_id, scope, error)
             result.metadata.update(complete=False, reason="processing")
+        finally:
+            self.check_id, self.check_scope, self.source_path = previous
         # Repeated diagnostics still fail their check without adding duplicate ERRORs.
         if self.diagnostic_failures > diagnostic_failures:
             result.status = "FAIL"
@@ -223,8 +243,9 @@ class Findings:
         if not self._retain_diagnostic(diagnostic):
             return
         self.diagnostic_errors[len(self.errors)] = diagnostic.identity
-        self.check(
-            False, diagnostic.message if display_error is None else display_error
+        self.checks += 1
+        self.errors.append(
+            diagnostic.message if display_error is None else display_error
         )
 
     def include_diagnostics(self, findings):
@@ -242,29 +263,91 @@ class Findings:
                 known.add(identity)
                 self.diagnostic_errors[len(self.errors)] = identity
             self.errors.append(error)
+            if index in findings.error_contexts:
+                self.error_contexts[len(self.errors) - 1] = findings.error_contexts[
+                    index
+                ]
         for diagnostic in findings.diagnostics:
             self._retain_diagnostic(diagnostic)
+        for channel in ("processing_errors", "unverified", "information"):
+            retained = getattr(self, channel)
+            retained.extend(
+                item for item in getattr(findings, channel) if item not in retained
+            )
 
-    def processing_failure(self, check_id, scope, error):
+    def processing_failure(self, check_id, scope, error, *, source_path=None):
+        source_path = source_path or self.source_path
+        diagnostic = Diagnostic.create(
+            self.canonical_root,
+            code="mechanical.processing",
+            cause_kind="check_failure",
+            check_id=check_id,
+            source_path=source_path,
+            service=service_scope(self.canonical_root, source_path),
+            cause_key=json.dumps([check_id, str(error)])
+            if source_path is not None
+            else json.dumps([check_id, sorted(scope or []), str(error)]),
+            affected_services=tuple(sorted(scope or [])),
+            location=type(error).__name__,
+            message=f"{check_id}: {error}",
+        )
         failure = dict(
+            diagnostic_id=stable_id(diagnostic.identity),
+            cause_kind="check_failure",
+            source_path=diagnostic.source_path,
             code="mechanical.processing",
             phase=check_id,
             scope=["/".join(entry) for entry in sorted(scope or [])],
             exception=type(error).__name__,
             message=f"{check_id}: {error}",
         )
-        self.processing_errors.append(failure)
-        self.unverified.append(dict(failure, complete=False))
-        self.check(False, failure["message"])
+        if failure not in self.processing_errors:
+            self.processing_errors.append(failure)
+            self.unverified.append(dict(failure, complete=False))
+        self.add_diagnostic(diagnostic)
         result = self.result(check_id, scope)
         result.status = "FAIL"
         result.metadata = dict(complete=False, reason="processing")
+
+    def input_failure(self, error, *, source_path=None, display_error=None):
+        source_path = error.source_path or source_path or self.source_path
+        diagnostic = Diagnostic.create(
+            self.canonical_root,
+            code="validation.input",
+            cause_kind="input_invalid",
+            check_id=self.check_id,
+            service=service_scope(self.canonical_root, source_path),
+            source_path=source_path,
+            cause_key=str(error)
+            if source_path is not None
+            else json.dumps(
+                [self.check_id, sorted(self.check_scope or []), str(error)]
+            ),
+            message=str(error),
+        )
+        self.add_diagnostic(diagnostic, display_error=display_error)
+        return diagnostic
 
     def warn(self, condition, message=None, *, code="reference.validation", **details):
         if isinstance(condition, ReferenceDiagnosticError):
             for diagnostic in condition.diagnostics:
                 self.warn(diagnostic, **details)
             return
+        if isinstance(condition, dict) and condition.get("category") in {
+            "MODEL_NEEDS_FIX",
+            "FRAMEWORK_UNSUPPORTED",
+            "REFERENCE_UNRESOLVED",
+            "REFERENCE_PENDING_DEPLOY",
+        }:
+            condition = dict(
+                condition,
+                cause_kind={
+                    "MODEL_NEEDS_FIX": "input_invalid",
+                    "FRAMEWORK_UNSUPPORTED": "check_failure",
+                    "REFERENCE_UNRESOLVED": "dependency_wait",
+                    "REFERENCE_PENDING_DEPLOY": "dependency_wait",
+                }[condition["category"]],
+            )
         if isinstance(condition, dict) and condition.get("category") in {
             "MODEL_NEEDS_FIX",
             "FRAMEWORK_UNSUPPORTED",
@@ -289,7 +372,11 @@ class Findings:
                         )
                     ]
                     if diagnostic.get("model") and diagnostic.get("modelKey")
-                    else diagnostic,
+                    else {
+                        key: value
+                        for key, value in diagnostic.items()
+                        if key != "cause_kind"
+                    },
                     sort_keys=True,
                 ),
                 message=diagnostic["message"],
@@ -301,7 +388,19 @@ class Findings:
                 message = json.dumps(diagnostic, ensure_ascii=False)
                 if diagnostic["category"] == "FRAMEWORK_UNSUPPORTED":
                     self.processing_errors.append(
-                        dict(diagnostic, phase="reference", message=message)
+                        dict(
+                            diagnostic,
+                            diagnostic_id=stable_id(identity),
+                            phase="reference",
+                            message=message,
+                        )
+                    )
+                    self.unverified.append(
+                        dict(
+                            diagnostic,
+                            diagnostic_id=stable_id(identity),
+                            complete=False,
+                        )
                     )
                 self.check(False, message)
             return
@@ -323,15 +422,65 @@ class Findings:
         if warning not in self.warnings:
             self.warnings.append(warning)
 
-    def check(self, condition: bool, message: str) -> None:
+    def check(
+        self,
+        condition: bool,
+        message: str,
+        *,
+        source_path=None,
+        cause_kind=None,
+        check_id=None,
+        location=None,
+    ) -> None:
         self.checks += 1
         if not condition:
+            source_path = source_path or self.source_path
+            diagnostic = Diagnostic.create(
+                self.canonical_root,
+                code="validation.input"
+                if cause_kind == "input_invalid"
+                else "validation.unclassified",
+                cause_kind=cause_kind or "unclassified",
+                check_id=check_id or self.check_id,
+                source_path=source_path,
+                service=service_scope(self.canonical_root, source_path),
+                cause_key=message
+                if source_path is not None
+                else json.dumps(
+                    [check_id or self.check_id, sorted(self.check_scope or []), message]
+                ),
+                message=message,
+                affected_services=tuple(sorted(self.check_scope or [])),
+                location=location,
+            )
+            if cause_kind is not None:
+                self.checks -= 1
+                self.add_diagnostic(diagnostic)
+                return
+            self.error_contexts[len(self.errors)] = diagnostic
             self.errors.append(message)
 
-    def check_file(self, condition: bool, path: Path, message: str) -> None:
-        self.checks += 1
-        if not condition:
-            self.errors.append(message)
+    def check_file(
+        self,
+        condition: bool,
+        path: Path,
+        message: str,
+        *,
+        cause_kind=None,
+        location=None,
+    ) -> None:
+        self.check(
+            condition,
+            message,
+            source_path=path,
+            cause_kind=cause_kind,
+            location=location,
+        )
+
+    def input_check(self, condition, path, message, *, location=None):
+        self.check_file(
+            condition, path, message, cause_kind="input_invalid", location=location
+        )
 
     def relative(self, path: Path) -> str:
         if path not in self.relative_paths:

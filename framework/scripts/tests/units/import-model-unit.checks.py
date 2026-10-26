@@ -3361,7 +3361,15 @@ def check_refactor_json_value_structure(tmp_path, field, document, allowed):
 @patch(
     "model.validation.check_change_inputs",
     return_value=SimpleNamespace(
-        errors=[], warnings=[], checks=0, diagnostics=[], diagnostic_errors={}
+        errors=[],
+        warnings=[],
+        checks=0,
+        diagnostics=[],
+        diagnostic_errors={},
+        error_contexts={},
+        processing_errors=[],
+        unverified=[],
+        information=[],
     ),
 )
 @patch("validation.change.validate_producer_inputs")
@@ -3454,7 +3462,15 @@ def _callback_check_repair_invalid_model_final_only(
 @patch(
     "model.validation.check_change_inputs",
     return_value=SimpleNamespace(
-        errors=[], warnings=[], checks=0, diagnostics=[], diagnostic_errors={}
+        errors=[],
+        warnings=[],
+        checks=0,
+        diagnostics=[],
+        diagnostic_errors={},
+        error_contexts={},
+        processing_errors=[],
+        unverified=[],
+        information=[],
     ),
 )
 @patch("validation.change.validate_producer_inputs")

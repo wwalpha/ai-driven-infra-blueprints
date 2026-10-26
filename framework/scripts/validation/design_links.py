@@ -60,10 +60,12 @@ from .design import (
 )
 from .diagnostics import (
     Diagnostic,
+    InputValidationError,
     display_diagnostics,
     json_reference,
     plaintext_diagnostics,
     service_scope,
+    stable_id,
 )
 from .findings import FindingsError
 
@@ -114,6 +116,9 @@ def unavailable_semantics(
     elif isinstance(error, PlaintextReferenceError):
         for diagnostic in plaintext_diagnostics(findings.canonical_root, path, error):
             findings.add_diagnostic(diagnostic)
+    elif isinstance(error, InputValidationError):
+        diagnostic = findings.input_failure(error, source_path=path)
+        entry["diagnostic_id"] = stable_id(diagnostic.identity)
     elif saved_reference:
         findings.warn(
             False,
@@ -122,7 +127,9 @@ def unavailable_semantics(
             path=relative,
         )
     else:
-        findings.check(False, f"invalid grouped design: {relative}: {error}")
+        findings.check(
+            False, f"invalid grouped design: {relative}: {error}", source_path=path
+        )
 
 
 def check_local_links(
@@ -168,6 +175,7 @@ def check_local_links(
                 Diagnostic.create(
                     root,
                     code="design.artifact.missing",
+                    cause_kind="input_invalid",
                     check_id="design.artifacts",
                     service=service_scope(root, source),
                     source_path=source,
@@ -421,10 +429,15 @@ def check_design_links(
             except ReferenceResolutionError as error:
                 findings.warn(error, source=str(source))
                 del source_values[source]
+            except InputValidationError as error:
+                findings.input_failure(error, source_path=source)
+                source_values[source] = {}
             except (OSError, ValueError, KeyError, TypeError) as error:
-                findings.check(
-                    False,
-                    f"invalid reference observations: {findings.relative(source)}: {error}",
+                findings.processing_failure(
+                    "design.reference-observations",
+                    {service_scope(root, source)},
+                    error,
+                    source_path=source,
                 )
                 source_values[source] = {}
     for source, values in source_values.items():
@@ -1093,6 +1106,7 @@ def check_design_artifacts(
                     Diagnostic.create(
                         root,
                         code="design.artifact.placement",
+                        cause_kind="input_invalid",
                         check_id="design.artifacts",
                         service=None,
                         source_path=path,
@@ -1128,6 +1142,7 @@ def check_design_artifacts(
                 Diagnostic.create(
                     root,
                     code="design.artifact.owner-missing",
+                    cause_kind="input_invalid",
                     check_id="design.artifacts",
                     service=None,
                     target_path=artifact,
@@ -1154,6 +1169,7 @@ def check_design_artifacts(
                 Diagnostic.create(
                     root,
                     code="design.artifact.missing",
+                    cause_kind="input_invalid",
                     check_id="design.artifacts",
                     service=owner,
                     source_path=source,
@@ -1189,6 +1205,7 @@ def check_design_artifacts(
             Diagnostic.create(
                 root,
                 code="design.artifact.unreferenced",
+                cause_kind="input_invalid",
                 check_id="design.artifacts",
                 service=owner,
                 target_path=artifact,

@@ -139,6 +139,8 @@ def reviewed_ids(values, expected, channel):
 
 
 def review_snapshot(artifact, review):
+    if artifact.get("version") != 6:
+        raise ValueError("unsupported scan artifact version; version 6 required")
     required = {
         "scan_id",
         "reviewed_naming_context_id",
@@ -176,16 +178,48 @@ def review_snapshot(artifact, review):
     )
     reviewed_ids(review["reviewed_confirmations"], confirmations, "Human confirmation")
     ordinary = deepcopy(artifact["ordinary"])
+    unresolved = []
     assignments = review["diagnostic_assignments"]
     unknown = {item["id"] for item in artifact["judgments"] if "message" in item}
     if not isinstance(assignments, dict) or set(assignments) != unknown:
         raise ValueError("diagnostic requires exact scoped service assignments")
     for item in artifact["judgments"]:
         if "message" in item:
-            owner = assignments[item["id"]]
-            if owner not in services:
-                raise ValueError("diagnostic requires scoped service assignment")
-            ordinary.append(dict(item, service=owner))
+            assignment = assignments[item["id"]]
+            if not isinstance(assignment, dict):
+                raise ValueError(
+                    "diagnostic assignment requires status and evidence/reason"
+                )
+            status = assignment.get("status")
+            if status == "unresolved" and set(assignment) == {"status", "reason"}:
+                required_text(assignment, "reason")
+                unresolved.append(
+                    dict(
+                        item,
+                        diagnostic_id=item["id"],
+                        assignment=deepcopy(assignment),
+                        complete=False,
+                    )
+                )
+                continue
+            if (
+                status != "assigned"
+                or set(assignment) != {"status", "service", "evidence"}
+                or assignment["service"] not in services
+            ):
+                raise ValueError(
+                    "diagnostic requires scoped service assignment with evidence"
+                )
+            required_text(assignment, "evidence")
+            assigned = dict(
+                item, service=assignment["service"], assignment=deepcopy(assignment)
+            )
+            if item["cause_kind"] == "input_invalid":
+                ordinary.append(assigned)
+            else:
+                unresolved.append(
+                    dict(assigned, diagnostic_id=item["id"], complete=False)
+                )
     decisions = review["diagnostic_decisions"]
     if not isinstance(decisions, list):
         raise ValueError("diagnostic_decisions must be a list")
@@ -298,6 +332,22 @@ def review_snapshot(artifact, review):
     data["reviewed"] = True
     data["notice_overview"] = {}
     data["unverified"].extend(deepcopy(unverified))
+    for item in unresolved:
+        retained = next(
+            (
+                value
+                for value in data["unverified"]
+                if value.get("diagnostic_id") == item["diagnostic_id"]
+            ),
+            None,
+        )
+        if retained is None:
+            data["unverified"].append(deepcopy(item))
+        else:
+            retained.update(deepcopy(item))
+        for failure in data["processing_errors"]:
+            if failure.get("diagnostic_id") == item["diagnostic_id"]:
+                failure.update(deepcopy(item))
     data["ordinary"] = [
         item for item in ordinary if item["id"] not in excluded
     ] + deepcopy(additions)

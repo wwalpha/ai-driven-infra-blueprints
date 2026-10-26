@@ -896,14 +896,25 @@ def test_scan_save_owns_codebuild_and_deduplicates(
             unowned = [item for item in artifact["judgments"] if "message" in item]
             diagnostics = [
                 *artifact["ordinary"],
-                *(dict(item, service="codebuild") for item in unowned),
+                *(
+                    dict(item, service="codebuild")
+                    for item in unowned
+                    if item["cause_kind"] == "input_invalid"
+                ),
             ]
             review = dict(
                 scan_id=artifact["scan_id"],
                 reviewed_naming_context_id=artifact["naming_context_id"],
                 reviewed_names=[item["id"] for item in artifact["naming"]["names"]],
                 reviewed_judgments=[item["id"] for item in artifact["judgments"]],
-                diagnostic_assignments={item["id"]: "codebuild" for item in unowned},
+                diagnostic_assignments={
+                    item["id"]: dict(
+                        status="assigned",
+                        service="codebuild",
+                        evidence="Synthetic input Resource checked",
+                    )
+                    for item in unowned
+                },
                 issues=[],
                 reviewed_confirmations=[],
                 diagnostic_decisions=[

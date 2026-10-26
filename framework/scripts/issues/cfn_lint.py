@@ -265,6 +265,20 @@ def run_lint(comparison, *, result=None):
                     code="cfn_lint." + str(match.get("Rule", {}).get("Id", "unknown")),
                     job_id=job["id"],
                     service=service,
+                    cause_kind="check_failure"
+                    if channel == "processing_errors"
+                    else "input_invalid",
+                    ownership=dict(
+                        status="outside"
+                        if outside
+                        else "assigned"
+                        if service
+                        else "unresolved",
+                        owner=(comparison.environment, comparison.directory, service)
+                        if service
+                        else None,
+                        evidence="cfn-lint resource path and explicit Stack origins",
+                    ),
                     diagnostic=comparison.redacted(match),
                     scope="outside" if outside else "selected",
                 )

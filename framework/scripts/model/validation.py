@@ -30,7 +30,7 @@ from utils.aws_mappings import definition_root
 from utils.input_cache import input_is_file, memo_table, memoized
 from utils.input_cache import input_scope as input_scope
 from utils.json_format import policy_json
-from validation.diagnostics import Diagnostic, service_scope
+from validation.diagnostics import Diagnostic, InputValidationError, service_scope
 
 import model.core as _imports_model_core
 import model.environment_values as environment_values
@@ -224,7 +224,7 @@ def naming_coverage_errors(
 ) -> list[str]:
     """Check rule existence without requiring any design values."""
     if mode not in {"CREATE", "IMPORT"}:
-        raise ValueError(f"resourceMode must be CREATE or IMPORT: {mode!r}")
+        raise InputValidationError(f"resourceMode must be CREATE or IMPORT: {mode!r}")
     if mode == "IMPORT":
         return []
     targets = naming_targets(root, kind.partition(".")[0])
@@ -262,7 +262,7 @@ def design_naming_errors(
     if name_tag and not selected.intersection(
         {"Tags", "Tags[].Key", "HostedZoneTags", "HostedZoneTags[].Key"}
     ):
-        raise ValueError(f"Name tag is not selectable: {kind}")
+        raise InputValidationError(f"Name tag is not selectable: {kind}")
     if kind in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}:
         selected.add("Name")
     if kind in {"EC2.VPCEndpoint", "EC2.Instance"}:
@@ -342,7 +342,7 @@ def validate_required_properties(
                 "CloudFormation.Stack",
                 [["1", "StackName", stack["name"], "名前"]],
             ):
-                raise ValueError("; ".join(errors))
+                raise InputValidationError("; ".join(errors))
         return []
     catalog = DesignSchemaCatalog(root)
     errors = []
@@ -367,12 +367,12 @@ def validate_required_properties(
         for rid, prop, value, _ in rows:
             if properties_scope is not None and prop not in properties_scope:
                 continue
-            rule(prop, root)
             owner = ".".join(prop.split(".")[:2])
             if owner not in {kind, *GROUPED_RESOURCE_TYPES.get(kind, set())}:
-                raise ValueError(
+                raise InputValidationError(
                     f"property does not belong to resource: {identity}: {prop}"
                 )
+            rule(prop, root)
             if prop in RESOURCE_REFERENCE_PROPERTIES and not (
                 rid in references
                 or (
@@ -452,7 +452,7 @@ def validate_required_properties(
                 for prop in sorted(missing)
             )
     if errors:
-        raise ValueError("\n- ".join(errors))
+        raise InputValidationError("\n- ".join(errors))
     return warnings
 
 
@@ -482,7 +482,7 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
         )
         document = policy_json(row["document"])
         if not isinstance(document, dict):
-            raise ValueError(
+            raise InputValidationError(
                 f"KMS.Key.KeyPolicy {identity}: document must be an object"
             )
         statements = document.get("Statement", [])
@@ -490,7 +490,7 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
             statements if isinstance(statements, list) else [statements], 1
         ):
             if not isinstance(statement, dict):
-                raise ValueError(
+                raise InputValidationError(
                     f"KMS.Key.KeyPolicy {identity} Statement[{number}]: must be an object"
                 )
             if statement.get("Effect") != "Allow":
@@ -503,7 +503,7 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
                     str(arn),
                 )
                 if match and match[1] != execution and arn not in external:
-                    raise ValueError(
+                    raise InputValidationError(
                         f"KMS.Key.KeyPolicy {identity} Statement[{number}] Principal.AWS: {arn}: "
                         f"must use AWS execution account {execution}; explicit cross-account grant requires "
                         f"cross-account:{arn} in the policy row comment"
@@ -562,14 +562,16 @@ def validate_resource_identities(
                 except ValueError:
                     cfn_type = None  # API-only design resources have no CFn identity.
                 if cfn_type:
-                    raise ValueError(
+                    raise InputValidationError(
                         f"{identity}: cfn-logicalId required for CloudFormation CREATE resource"
                     )
             continue
         if target.get("iacEngine") == "terraform":
-            raise ValueError(f"{identity}: cfn-logicalId is forbidden for Terraform")
+            raise InputValidationError(
+                f"{identity}: cfn-logicalId is forbidden for Terraform"
+            )
         if _dependency_design_layout.resource_mode(resource) != "CREATE":
-            raise ValueError(
+            raise InputValidationError(
                 f"{identity}: cfn-logicalId requires CREATE with a formal CFn type"
             )
         identity_catalog.cloudformation_type(resource["resourceType"])
@@ -596,7 +598,7 @@ def validate_resource_identities(
         if target.get("iacEngine") == "cloudformation" and (
             stack_source is None or not input_is_file(stack_source)
         ):
-            raise ValueError(
+            raise InputValidationError(
                 f"{identity}: cfn-logicalId requires authoritative cloudformation-stacks.properties"
             )
         if stack_source is not None and input_is_file(stack_source):
@@ -699,7 +701,12 @@ def _callback_check_model_inputs_names(
         rows,
         _dependency_design_layout.resource_mode(_state_check_model_inputs_337.resource),
     ):
-        findings.check(False, error)
+        findings.input_check(
+            False,
+            findings.source_path,
+            error,
+            location="desired.resource." + _state_check_model_inputs_337.identity,
+        )
 
 
 def _callback_check_model_inputs_literal_check(
@@ -762,7 +769,12 @@ def _callback_check_model_inputs_literal_check(
         return
     for item in row_literal_values(catalog, kind, field, value):
         for error in catalog.literal_errors(kind, field, item):
-            findings.check(False, f"provider schema violation: {prop}: {error}")
+            findings.input_check(
+                False,
+                _state_check_model_inputs_337.view,
+                f"provider schema violation: {prop}: {error}",
+                location=f"desired.resource.{_state_check_model_inputs_337.identity}/{prop}",
+            )
 
 
 def row_literal_values(catalog, kind, field, value):
@@ -834,7 +846,7 @@ def _check_model_inputs(
     runtime_values = _imports_model_sources.runtime_values
     values = runtime_values(values)
 
-    findings = Findings(root)
+    findings = Findings(root, source_path=path)
     definitions = definitions_root or definition_root(root)
     _state_check_model_inputs_337.view = (
         (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
@@ -887,7 +899,7 @@ def _check_model_inputs(
     try:
         catalog = DesignSchemaCatalog(definitions) if resources else None
     except (OSError, ValueError) as error:
-        findings.check(False, str(error))
+        findings.processing_failure("model.catalog", None, error, source_path=path)
         return findings
     resource_values = None
     for (
@@ -1039,7 +1051,7 @@ def catalog_outputs(root: Path, kind: str):
 def check_change_inputs(path, authority, root, change, *, definitions_root=None):
     """Run only rules selected by semantic Resource/Property changes."""
     definitions = definitions_root or definition_root(root)
-    findings = _imports_validation_findings.Findings(root)
+    findings = _imports_validation_findings.Findings(root, source_path=path)
     resources = dict(
         _imports_model_core.structural_entries(authority, "desired.resource.")
     )
@@ -1301,7 +1313,7 @@ def validate_changed_stacks(values, change):
             field in required and field not in stack for field in selected
         ):
             if not required <= stack.keys():
-                raise ValueError("Stack required fields missing: " + identity)
+                raise InputValidationError("Stack required fields missing: " + identity)
         if "placementName" in selected:
             _imports_model_core.validate_stack_metadata(
                 {
@@ -1315,7 +1327,9 @@ def validate_changed_stacks(values, change):
                 other != identity and spec.get(field) == stack[field]
                 for other, spec in current.items()
             ):
-                raise ValueError("duplicate Stack " + field + ": " + stack[field])
+                raise InputValidationError(
+                    "duplicate Stack " + field + ": " + stack[field]
+                )
 
 
 def validate_api_constraints(values, kind, catalog, *, changed=None):
@@ -1335,7 +1349,7 @@ def validate_api_constraints(values, kind, catalog, *, changed=None):
             else policy_json(raw)
         )
     if errors := catalog.job_errors(inputs, changed=changed):
-        raise ValueError("; ".join(errors))
+        raise InputValidationError("; ".join(errors))
 
 
 def row_rule_inputs(values, properties_scope):
@@ -1363,6 +1377,7 @@ def _check_policy_setting(row, rid, policy, findings, path):
             Diagnostic.create(
                 findings.canonical_root,
                 code="model.policy.invalid",
+                cause_kind="input_invalid",
                 check_id="model.policy." + rid,
                 service=service_scope(findings.canonical_root, path),
                 source_path=path,

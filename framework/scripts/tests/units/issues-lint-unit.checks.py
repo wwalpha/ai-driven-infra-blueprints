@@ -148,7 +148,7 @@ def artifact_fixture(count=150):
         for i in range(count)
     ]
     artifact = dict(
-        version=5,
+        version=6,
         root="/fixture",
         scan_id="a" * 32,
         naming_context_id=identifier({}),
@@ -493,7 +493,7 @@ def check_scan_changes_without_cache():
                         "team",
                         ["codepipeline"],
                     )
-                    assert result["version"] == 5 and result["checks"] == 20
+                    assert result["version"] == 6 and result["checks"] == 20
                     assert bool(result["processing_errors"]) == (
                         _state_check_scan_cache_guard_order_256.failure == "exception"
                     )
@@ -571,7 +571,11 @@ def check_processing_coverage_keeps_matches(with_matches, interrupted):
         status="planned",
     )
     comparison = SimpleNamespace(
-        root=Path("/fixture"), sensitive_values=set(), redacted=lambda value: value
+        root=Path("/fixture"),
+        environment="dev",
+        directory="team",
+        sensitive_values=set(),
+        redacted=lambda value: value,
     )
     with (
         patch("issues.cfn_lint.plan", return_value=([job], [])),
@@ -989,7 +993,11 @@ def check_lint_jobs_accept_changed_dependencies(dependency):
         for i in range(2)
     ]
     comparison = SimpleNamespace(
-        root=Path("/fixture"), sensitive_values=set(), redacted=lambda value: value
+        root=Path("/fixture"),
+        environment="dev",
+        directory="team",
+        sensitive_values=set(),
+        redacted=lambda value: value,
     )
     with (
         patch("issues.cfn_lint.plan", return_value=(jobs, [])),

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from utils.json_format import strict_json
+from validation.diagnostics import InputValidationError
 
 LINKS = re.compile(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)")
 
@@ -15,14 +16,14 @@ def link_scope(environment, target, service, filename):
     if not filename:
         return "/".join((environment, target, service))
     if filename.startswith("/") or "\\" in filename:
-        raise ValueError(
+        raise InputValidationError(
             "direct Model reference is outside the Model tree: " + filename
         )
     relative = PurePosixPath(
         posixpath.normpath("/".join((environment, target, filename)))
     )
     if len(relative.parts) != 3 or ".." in relative.parts or relative.suffix != ".md":
-        raise ValueError(
+        raise InputValidationError(
             "direct Model reference is outside the Model tree: " + filename
         )
     return "/".join((*relative.parts[:2], relative.stem))
@@ -86,17 +87,27 @@ def _outside_string(value):
     return not quoted
 
 
+def input_json(text):
+    """Parse a known authoritative JSON field, preserving proven syntax violations."""
+    try:
+        return strict_json(text)
+    except ValueError as error:
+        raise InputValidationError(str(error)) from error
+
+
 def parse(text, *, require_header=True):
     if not isinstance(text, str):
         raise TypeError("properties must be UTF-8 text")
     lines = text.splitlines(keepends=True)
     if require_header and (not lines or lines[0].rstrip("\r\n") != FORMAT):
-        raise ValueError("Model requires " + FORMAT)
+        raise InputValidationError("Model requires " + FORMAT)
     if any(
         line.startswith(("# model-format:", "# model-index:", PART))
         for line in lines[1:]
     ):
-        raise ValueError("unexpected Model format/index/part directive in data file")
+        raise InputValidationError(
+            "unexpected Model format/index/part directive in data file"
+        )
     result, seen, offset, index = [], set(), 0, 0
     while index < len(lines):
         raw = lines[index]
@@ -108,7 +119,7 @@ def parse(text, *, require_header=True):
             continue
         key, separator, value = line.partition("=")
         if not separator or KEY.fullmatch(key) is None or key in seen:
-            raise ValueError(
+            raise InputValidationError(
                 f"invalid or duplicate model property at line {number}: {key}"
             )
         seen.add(key)
@@ -118,27 +129,29 @@ def parse(text, *, require_header=True):
             current = body
             while current.endswith("\\"):
                 if not _outside_string(current[:-1]):
-                    raise ValueError(
+                    raise InputValidationError(
                         f"JSON continuation inside a string: {key}:{number}"
                     )
                 fragments.append(current[:-1])
                 if index >= len(lines):
-                    raise ValueError("JSON continuation at EOF: " + key)
+                    raise InputValidationError("JSON continuation at EOF: " + key)
                 raw = lines[index]
                 current = raw.rstrip("\r\n")
                 offset += len(raw)
                 index += 1
                 if not current.strip() or current.lstrip().startswith("#"):
-                    raise ValueError("empty/comment JSON continuation: " + key)
+                    raise InputValidationError(
+                        "empty/comment JSON continuation: " + key
+                    )
             fragments.append(current)
             body = " ".join(fragments)
             if ticked:
                 if not body.endswith("`"):
-                    raise ValueError("missing closing JSON backtick: " + key)
+                    raise InputValidationError("missing closing JSON backtick: " + key)
                 body = body[:-1]
-            parsed = strict_json(body)
+            parsed = input_json(body)
             if ticked and not isinstance(parsed, (dict, list)):
-                raise ValueError(
+                raise InputValidationError(
                     "backtick JSON value must be an object or array: " + key
                 )
             value = ("`" if ticked else "") + body + ("`" if ticked else "")
@@ -150,19 +163,21 @@ def owner(key, values):
     """One indivisible owning block; reference metadata belongs to its consumer."""
     fields = key.split(".")
     if len(fields) < 3:
-        raise ValueError("invalid Model key: " + key)
+        raise InputValidationError("invalid Model key: " + key)
     namespace, kind, identity = fields[:3]
     if namespace == "desired" and kind == "reference":
         consumer = values.get(f"desired.reference.{identity}.consumerKey")
         if consumer is None or consumer.startswith(("observed.", "desired.reference.")):
-            raise ValueError("reference has no valid consumerKey: " + identity)
+            raise InputValidationError(
+                "reference has no valid consumerKey: " + identity
+            )
         return owner(consumer, values)
     if kind in {"service", "deployment"}:
         return kind, "service"
     if kind == "row":
         resource, separator, _ = identity.rpartition("-")
         if not separator or f"desired.resource.{resource}.resourceType" not in values:
-            raise ValueError("orphan row: " + identity)
+            raise InputValidationError("orphan row: " + identity)
         return "resource", resource
     return kind, identity
 
@@ -172,14 +187,16 @@ def validate_blocks(documents):
     for path, document in documents.items():
         for record in document.records:
             if record.key in values:
-                raise ValueError("duplicate Model key across parts: " + record.key)
+                raise InputValidationError(
+                    "duplicate Model key across parts: " + record.key
+                )
             values[record.key] = record.value
             locations[record.key] = (path, record.line)
     for path, document in documents.items():
         for record in document.records:
             block = owner(record.key, values)
             if ownership.setdefault(block, path) != path:
-                raise ValueError(
+                raise InputValidationError(
                     "Model block is split across parts: " + "/".join(block)
                 )
     return values, locations

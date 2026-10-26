@@ -73,7 +73,7 @@ def check_scan_publish_mismatch(tmp_path):
     mismatch = next(
         item for item in artifact["iac"] if item["reason"] == "value mismatch"
     )
-    assert artifact["version"] == 5 and artifact["checks"] > 0
+    assert artifact["version"] == 6 and artifact["checks"] > 0
     assert artifact["cfn_lint"]["status"] == "checked"
     assert (
         len(artifact["cfn_lint"]["jobs"]) == 1
@@ -179,7 +179,7 @@ def check_detail_cli(tmp_path):
         for i in range(3)
     ]
     artifact = dict(
-        version=5,
+        version=6,
         environment="dev",
         target="team",
         services=["s3"],
@@ -384,7 +384,7 @@ def check_condition_provenance(tmp_path):
     _, actions, _ = iac_dataset(records, "dev", "123456789012", ["s3"])
     assert actions[0]["classification"] == "ConditionによるCREATE無効化"
     artifact = dict(
-        version=5,
+        version=6,
         environment="dev",
         target="123456789012",
         services=["s3"],

@@ -1,5 +1,29 @@
 # UT / IT 全ケース台帳
 
+## Issue cause classification and proven Service ownership
+
+16 UT entrypoints / 47 collected pytest cases. Synthetic inputs only. Ownership proof combinations live in this suite; caller suites verify routing, Reference/Human/PLAINTEXT/cfn-lint integration and v6 publication.
+
+| Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `issues-cause-owner::owner_evidence` | `check_owner_evidence` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 11 | owner evidence | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::shared_multiple_and_redirected_sources` | `check_shared_multiple_and_redirected_sources` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | shared multiple and redirected sources | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::cause_does_not_change_existing_identity` | `check_cause_does_not_change_existing_identity` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | cause does not change existing identity | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::proven_required_property_and_generic_exception` | `check_proven_required_property_and_generic_exception` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | proven required property and generic exception | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::model_read_is_processing_with_proven_owner` | `check_model_read_is_processing_with_proven_owner` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | model read is processing with proven owner | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::reference_taxonomy` | `check_reference_taxonomy` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 3 | reference taxonomy | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::source_path_and_unstructured_violation_retained` | `check_source_path_and_unstructured_violation_retained` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | source path and unstructured violation retained | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::model_syntax_is_explicit_input_error` | `check_model_syntax_is_explicit_input_error` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | model syntax is explicit input error | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::v6_owner_assignment_and_unresolved_snapshot` | `check_v6_owner_assignment_and_unresolved_snapshot` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 8 | v6 owner assignment and unresolved snapshot | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::review_rejects_unproven_assignment` | `check_review_rejects_unproven_assignment` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 4 | review rejects unproven assignment | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::python_owner_needs_no_llm_assignment` | `check_python_owner_needs_no_llm_assignment` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | python owner needs no llm assignment | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::outside_diagnostics_do_not_require_assignment` | `check_outside_diagnostics_do_not_require_assignment` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | outside diagnostics do not require assignment | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::wrapped_findings_keep_classification_and_ids` | `check_wrapped_findings_keep_classification_and_ids` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | wrapped findings keep classification and ids | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::identical_service_failures_keep_independent_ids` | `check_identical_service_failures_keep_independent_ids` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 1 | identical service failures keep independent ids | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::v6_diagnostic_contract_rejects_misrouting` | `check_v6_diagnostic_contract_rejects_misrouting` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 6 | v6 diagnostic contract rejects misrouting | Synthetic source/Model/Scan/Review |
+| `issues-cause-owner::real_input_violations_are_never_processing_failures` | `check_real_input_violations_are_never_processing_failures` | UT | [units/issues-ownership-unit.checks.py](units/issues-ownership-unit.checks.py) | pytest / 5 | real input violations are never processing failures | Synthetic source/Model/Scan/Review |
+
+
 ## Mapping-defined pending environment Values
 
 28 UT entrypoints / 83 collected pytest cases; synthetic data only, no local IT or AWS.

@@ -42,6 +42,7 @@ from utils.comparison_rows import MISSING, Unresolved, put_row, select
 from utils.input_cache import input_scope
 from utils.json_format import policy_json
 from utils.lazy_definitions import load_once
+from validation.diagnostics import InputValidationError
 
 import model.importing.inventory as _imports_model_importing_inventory
 from model.core import ReferenceResolutionError
@@ -1496,7 +1497,7 @@ def main(argv=None):
             {
                 "status": "incomplete",
                 "reason": str(error)
-                if type(error) in (ValueError, IdentityError)
+                if type(error) in (ValueError, InputValidationError, IdentityError)
                 else type(error).__name__,
             },
             2,

@@ -319,6 +319,9 @@ def generate(root, environment, selector, service):
         scripts / "model/identity.py",
         ["parse_reference", "anchor_index", "select_anchor"],
     ).replace("    from model.references import link_scope\n", "")
+    engine += definitions(
+        scripts / "validation/diagnostics.py", ["InputValidationError"]
+    )
     engine += definitions(scripts / "model/format.py", ["link_scope"])
     engine += definitions(
         scripts / "utils/aws/identity.py",

@@ -37,6 +37,7 @@ from utils.source_reads import CandidateReads as CandidateReads
 from utils.source_reads import FileReads as FileReads
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
+from validation.diagnostics import InputValidationError
 
 import model.change_scope as change_scope
 import model.core as _imports_model_core
@@ -501,7 +502,7 @@ def model_parts(path: Path, *, read_context: ReadContext | None = None) -> list[
         raise FileNotFoundError(path)
     lines = raw.decode("utf-8").splitlines()
     if not lines or lines[0] != FORMAT:
-        raise ValueError("unsupported Model format: " + str(path))
+        raise InputValidationError("unsupported Model format: " + str(path))
     parts = []
     if len(lines) > 1 and lines[1] == INDEX:
         for line in lines[2:]:
@@ -513,26 +514,26 @@ def model_parts(path: Path, *, read_context: ReadContext | None = None) -> list[
                     )
                     is None
                 ):
-                    raise ValueError("unsafe Model part: " + name)
+                    raise InputValidationError("unsafe Model part: " + name)
                 part = path.parent / name
                 if part in parts:
-                    raise ValueError("duplicate Model part: " + name)
+                    raise InputValidationError("duplicate Model part: " + name)
                 _safe(scope.root, part, reads)
                 if reads.kind(part) != "file":
-                    raise ValueError("missing Model part: " + name)
+                    raise InputValidationError("missing Model part: " + name)
                 parts.append(part)
             elif line.strip() and (
                 not line.startswith("#")
                 or line.startswith(("# model-index:", "# model-format:"))
             ):
-                raise ValueError("invalid Model index line: " + line)
+                raise InputValidationError("invalid Model index line: " + line)
         if not parts:
-            raise ValueError("Model index has no parts")
+            raise InputValidationError("Model index has no parts")
     else:
         parse(raw.decode("utf-8"))
     extras = set(selected_parts) - set(parts)
     if extras:
-        raise ValueError(
+        raise InputValidationError(
             "unregistered Model parts: " + ", ".join(str(p) for p in sorted(extras))
         )
     return parts or [path]
@@ -686,9 +687,13 @@ def load_model(
 ) -> ModelSnapshot:
     scope = scope if isinstance(scope, Scope) else scope_for(scope)
     shared = session_reads(scope.root)
-    if shared is not None and not isinstance(read_context, CandidateReads):
-        return shared.load(scope, read_context or shared)
-    return _load_model(scope, read_context)
+    try:
+        if shared is not None and not isinstance(read_context, CandidateReads):
+            return shared.load(scope, read_context or shared)
+        return _load_model(scope, read_context)
+    except InputValidationError as error:
+        error.source_path = error.source_path or scope.path
+        raise
 
 
 def _load_model(scope, read_context=None):

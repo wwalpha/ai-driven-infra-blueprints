@@ -441,7 +441,7 @@ def check_review_rejects_incomplete_and_old_inputs(tmp_path, fault):
     elif fault == "cleanup_field":
         review["confirmation_cleanup"] = []
     else:
-        data["version"] = 4
+        data["version"] = 5
     with pytest.raises(ValueError):
         save_scan(tmp_path, data, review)
 

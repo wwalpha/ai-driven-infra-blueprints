@@ -732,6 +732,11 @@ class Validator:
                 self,
             ),
             isolate=True,
+            source_path=self.root
+            / "model"
+            / entry[0]
+            / entry[1]
+            / (entry[2] + ".properties"),
         )
 
     def check_scoped_designs(self, *, view_errors=None, view_reader=None) -> None:
@@ -806,16 +811,6 @@ class Validator:
             self.findings.include_diagnostics(generator.findings)
             for warning in generator.warnings:
                 self.findings.warn(warning)
-            self.findings.processing_errors.extend(
-                item
-                for item in generator.findings.processing_errors
-                if item not in self.findings.processing_errors
-            )
-            self.findings.unverified.extend(
-                item
-                for item in generator.findings.unverified
-                if item not in self.findings.unverified
-            )
         # Generated equality is covered by each service record; keep target counts stable.
         if self.check_display:
             self.checks += len({entry[:2] for entry in generation_scope})
@@ -896,16 +891,6 @@ class Validator:
                 self.findings.include_diagnostics(validator.findings)
                 for warning in validator.warnings:
                     self.findings.warn(warning)
-                self.findings.unverified.extend(
-                    item
-                    for item in validator.findings.unverified
-                    if item not in self.findings.unverified
-                )
-                self.findings.processing_errors.extend(
-                    item
-                    for item in validator.findings.processing_errors
-                    if item not in self.findings.processing_errors
-                )
                 for result in validator.findings.results.values():
                     self.findings.results[
                         result.check_id, result.scope, self.findings.candidate
@@ -1222,8 +1207,6 @@ class Validator:
         self.checks += generator.checks
         for warning in generator.warnings:
             self.findings.warn(warning)
-        self.findings.unverified.extend(generator.findings.unverified)
-        self.findings.processing_errors.extend(generator.findings.processing_errors)
         for result in generator.findings.results.values():
             self.findings.results[
                 result.check_id, result.scope, self.findings.candidate
