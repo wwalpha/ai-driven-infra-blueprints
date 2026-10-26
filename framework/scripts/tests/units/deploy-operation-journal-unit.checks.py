@@ -1046,7 +1046,9 @@ def dependency_response(exports, edges, defect, operation, **arguments):
     }
 
 
-@pytest.mark.parametrize("source", ["delivery", "outputs", "pending", "unknown"])
+@pytest.mark.parametrize(
+    "source", ["delivery", "outputs", "pending", "both", "unknown"]
+)
 def test_controller_passes_current_import_proof_to_independence(tmp_path, source):
     backend = create_runtime(tmp_path, "dev", TARGET["awsAccountId"], TARGET)
     entry = {
@@ -1070,8 +1072,9 @@ def test_controller_passes_current_import_proof_to_independence(tmp_path, source
         )
     }
     backend.states = {"S3": {"status": "NOT_STARTED"}}
-    if source == "delivery":
-        backend.states["S3"]["delivery"] = {"imports": {"Common": dict(entry)}}
+    saved = {key: entry[key] for key in ("Value", "ExportingStackId")}
+    if source in {"delivery", "both"}:
+        backend.states["S3"]["delivery"] = {"imports": {"Common": dict(saved)}}
     elif source == "outputs":
         backend.states["Common"] = {
             "status": "SUCCESS",
@@ -1081,10 +1084,10 @@ def test_controller_passes_current_import_proof_to_independence(tmp_path, source
     backend.retained_records = [
         {"operations": {"Kms": {"state": {"delivery": {"imports": {}}}}}}
     ]
-    if source == "pending":
+    if source in {"pending", "both"}:
         backend.retained_records[0]["operations"]["Kms"]["state"]["delivery"][
             "imports"
-        ] = {"Common": dict(entry)}
+        ] = {"Common": dict(saved)}
     backend.aws = Mock(side_effect=partial(dependency_response, [entry], [], ""))
     backend.check_imports({"name": "S3"})
     operations = [c.args[0] for c in backend.aws.call_args_list]
@@ -1099,12 +1102,15 @@ def test_controller_passes_current_import_proof_to_independence(tmp_path, source
         )
         == 1
     )
-    if source in {"delivery", "pending"}:
-        entry["Value"] = "changed"
-        backend.aws.reset_mock()
-        with pytest.raises(Blocked, match="Producer/value changed"):
-            backend.check_imports({"name": "S3"})
-        assert all(c.args[0] != "list_exports" for c in backend.aws.call_args_list)
+    if source in {"delivery", "pending", "both"}:
+        for field in ("Value", "ExportingStackId"):
+            original = entry[field]
+            entry[field] += "-changed"
+            backend.aws.reset_mock()
+            with pytest.raises(Blocked, match="Producer/value changed"):
+                backend.check_imports({"name": "S3"})
+            assert all(c.args[0] != "list_exports" for c in backend.aws.call_args_list)
+            entry[field] = original
 
 
 @pytest.mark.parametrize("defect", ["producer", "value"])
@@ -1114,7 +1120,8 @@ def test_planned_hints_cannot_override_unfinished_operation_evidence(defect):
         "Value": "value",
         "ExportingStackId": STACK.replace("/Kms/", "/Common/"),
     }
-    pending = {"Kms": {"delivery": {"imports": {"Common": entry}}}}
+    saved = {key: entry[key] for key in ("Value", "ExportingStackId")}
+    pending = {"Kms": {"delivery": {"imports": {"Common": saved}}}}
     changed = dict(entry)
     changed["ExportingStackId" if defect == "producer" else "Value"] += "-changed"
     aws = Mock(side_effect=AssertionError("conflicts must block before AWS"))
@@ -1129,18 +1136,44 @@ def test_planned_hints_cannot_override_unfinished_operation_evidence(defect):
     aws.assert_not_called()
 
 
+@pytest.mark.parametrize("defect", ["producer", "value"])
+def test_controller_without_imports_ignores_unrelated_saved_hint_conflicts(
+    tmp_path, defect
+):
+    backend = create_runtime(tmp_path, "dev", TARGET["awsAccountId"], TARGET)
+    saved = {
+        "Value": "value",
+        "ExportingStackId": STACK.replace("/Kms/", "/Common/"),
+    }
+    changed = dict(saved)
+    changed["ExportingStackId" if defect == "producer" else "Value"] += "-changed"
+    backend.templates = {"S3": ({}, {})}
+    backend.states = {
+        "S3": {"status": "NOT_STARTED"},
+        "One": {"delivery": {"imports": {"Common": saved}}},
+        "Two": {"delivery": {"imports": {"Common": changed}}},
+    }
+    backend.retained_records = [
+        {"operations": {"Kms": {"state": {"delivery": {"imports": {}}}}}}
+    ]
+    backend.aws = Mock(side_effect=partial(dependency_response, [], [], ""))
+    backend.check_imports({"name": "S3"})
+    assert all(c.args[0] != "list_exports" for c in backend.aws.call_args_list)
+
+
 def test_no_planned_imports_keep_unfinished_operation_export_proof():
     entry = {
         "Name": "Common",
         "Value": "stale",
         "ExportingStackId": STACK.replace("/Kms/", "/Common/"),
     }
+    saved = {key: entry[key] for key in ("Value", "ExportingStackId")}
     aws = Mock(
         side_effect=partial(dependency_response, [dict(entry, Value="current")], [], "")
     )
     with pytest.raises(Blocked, match="Producer/value changed"):
         J.require_independent(
-            {"Kms": {"delivery": {"imports": {"Common": entry}}}},
+            {"Kms": {"delivery": {"imports": {"Common": saved}}}},
             {"S3"},
             aws,
             imports={"S3": set()},
@@ -1185,7 +1218,9 @@ def test_deploy_and_handoff_dependency_graph(relation):
         exports = [{"Name": "Kms", "ExportingStackId": STACK}]
     aws = Mock(side_effect=partial(dependency_response, exports, edges, relation))
     if relation == "shared-producer":
-        pending["Kms"]["delivery"]["imports"] = {"Common": exports[0]}
+        pending["Kms"]["delivery"]["imports"] = {
+            "Common": {key: exports[0][key] for key in ("Value", "ExportingStackId")}
+        }
         J.require_independent(pending, {"S3"}, aws, imports={"S3": {"Common"}})
         assert all(
             call.args[0] not in {"list_exports", "list_imports"}
@@ -1260,7 +1295,9 @@ def test_delivered_and_new_iac_imports_connect_transitive_paths(reverse):
     ]
     imports = {"S3": {"Middle"}} if not reverse else {"S3": set()}
     if reverse:
-        pending["Kms"]["delivery"]["imports"] = {"Middle": exports[0]}
+        pending["Kms"]["delivery"]["imports"] = {
+            "Middle": {key: exports[0][key] for key in ("Value", "ExportingStackId")}
+        }
     edges = [("Middle", "S3" if reverse else "Kms")]
     aws = Mock(side_effect=partial(dependency_response, exports, edges, ""))
     with pytest.raises(Blocked, match="unfinished Stack dependency conflicts"):

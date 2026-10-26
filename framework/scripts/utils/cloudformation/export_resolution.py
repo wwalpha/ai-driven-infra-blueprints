@@ -110,6 +110,21 @@ def merge_hints(records):
         if not isinstance(record, dict):
             raise Blocked("saved Export evidence is incomplete")
         for name, entry in record.items():
+            if not isinstance(name, str) or not name:
+                raise Blocked("required Export name is invalid")
+            if (
+                not isinstance(entry, dict)
+                or not isinstance(entry.get("Value"), str)
+                or entry.get("Name", name) != name
+            ):
+                raise Blocked("required Export identity/value is incomplete")
+            identity = entry.get("ExportingStackId")
+            stack_name(identity)
+            entry = {
+                "Name": name,
+                "Value": entry["Value"],
+                "ExportingStackId": identity,
+            }
             if name in hints and hints[name] != entry:
                 raise Blocked("saved Export Producer/value is ambiguous: " + name)
             hints[name] = entry
@@ -155,15 +170,8 @@ def resolve_exports(aws, names, *, hints=None, boundary=None):
     if names - known.keys():
         raise Blocked("missing Export: " + ", ".join(sorted(names - known.keys())))
     result = {}
-    for name, saved in known.items():
-        if (
-            not isinstance(saved, dict)
-            or not isinstance(saved.get("Value"), str)
-            or saved.get("Name", name) != name
-        ):
-            raise Blocked("required Export identity/value is incomplete")
-        identity = saved.get("ExportingStackId")
-        stack_name(identity)
+    for name, saved in merge_hints([known]).items():
+        identity = saved["ExportingStackId"]
         actual = describe_exports(aws, identity, boundary).get(name)
         if actual is None or any(
             actual[key] != saved.get(key) for key in ("Value", "ExportingStackId")

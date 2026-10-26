@@ -51,6 +51,71 @@ class ExportAws:
         return {"Exports": copy.deepcopy(self.inventory)}
 
 
+@pytest.mark.parametrize("named", [(True, False), (False, True), (False, False)])
+def check_merge_hints_normalizes_optional_name_without_mutating_inputs(named):
+    records = [
+        {
+            "A": {
+                **{key: ENTRIES["A"][key] for key in ("Value", "ExportingStackId")},
+                **({"Name": "A"} if present else {}),
+                "Metadata": {"source": index},
+            }
+        }
+        for index, present in enumerate(named)
+    ]
+    before = copy.deepcopy(records)
+    merged = exports.merge_hints(records)
+    assert merged == {"A": ENTRIES["A"]}
+    assert records == before
+    assert all(merged["A"] is not record["A"] for record in records)
+    aws = ExportAws()
+    assert exports.resolve_exports(aws, {"A"}, hints=merged) == merged
+    assert [op for op, _ in aws.calls] == ["describe_stacks"]
+
+
+@pytest.mark.parametrize("field", ["Value", "ExportingStackId"])
+def check_merge_hints_blocks_producer_or_value_conflicts(field):
+    saved = {key: ENTRIES["A"][key] for key in ("Value", "ExportingStackId")}
+    changed = dict(ENTRIES["A"])
+    changed[field] += "-changed"
+    with pytest.raises(Blocked, match="saved Export Producer/value is ambiguous: A"):
+        exports.merge_hints([{"A": saved}, {"A": changed}])
+
+
+@pytest.mark.parametrize(
+    "name,entry",
+    [
+        ("", ENTRIES["A"]),
+        (None, ENTRIES["A"]),
+        (1, ENTRIES["A"]),
+        ("A", None),
+        ("A", []),
+        ("A", dict(ENTRIES["A"], Name="B")),
+        ("A", dict(ENTRIES["A"], Name=None)),
+        ("A", dict(ENTRIES["A"], Name=1)),
+        ("A", {"ExportingStackId": STACK}),
+        *[("A", dict(ENTRIES["A"], Value=value)) for value in (None, 1, [], {})],
+        ("A", {"Value": "value-A"}),
+        *[
+            ("A", dict(ENTRIES["A"], ExportingStackId=identity))
+            for identity in (None, 1, [], "", "Producer", "arn:aws:s3:::bucket")
+        ],
+    ],
+)
+def check_merge_hints_rejects_invalid_evidence(name, entry):
+    records = [{name: entry}]
+    before = copy.deepcopy(records)
+    with pytest.raises(Blocked):
+        exports.merge_hints(records)
+    assert records == before
+
+
+@pytest.mark.parametrize("record", [None, [], "invalid"])
+def check_merge_hints_requires_mapping_records(record):
+    with pytest.raises(Blocked, match="saved Export evidence is incomplete"):
+        exports.merge_hints([record])
+
+
 @pytest.mark.parametrize("known", [False, True])
 def check_scoped_resolution_and_boundary(known):
     aws, boundary = ExportAws(), {}
@@ -190,7 +255,8 @@ def check_controller_uses_current_producer_output_contract():
 def check_controller_scopes_saved_hint_conflicts(scope, defect):
     aws = ExportAws()
     name = "A" if scope == "required" else "B"
-    changed = dict(ENTRIES[name])
+    saved = {key: ENTRIES[name][key] for key in ("Value", "ExportingStackId")}
+    changed = dict(saved)
     changed["ExportingStackId" if defect == "producer" else "Value"] += "-changed"
     runtime = SimpleNamespace(
         aws=aws,
@@ -204,7 +270,7 @@ def check_controller_scopes_saved_hint_conflicts(scope, defect):
             )
         },
         states={
-            "One": {"delivery": {"imports": {name: ENTRIES[name]}}},
+            "One": {"delivery": {"imports": {name: saved}}},
             "Two": {"delivery": {"imports": {name: changed}}},
             "Producer": {"stackId": STACK, "expectedOutputs": {"B": {"export": "B"}}},
         },
