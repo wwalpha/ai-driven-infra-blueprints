@@ -39,8 +39,8 @@ def validated_rows(kind, rows):
     for rid, row in rows:
         short = row["property"].removeprefix(kind + ".")
         setting = re.sub(r"\[(?:\d*)\]", "", short.split(".", 1)[0])
-        if setting in conflicts:
-            unresolved.setdefault(setting, (rid, conflicts[setting]))
+        if row["property"] in conflicts:
+            unresolved.setdefault(short, (rid, conflicts[row["property"]]))
             continue
         if value_shape(row) == "projection":
             continue
@@ -52,7 +52,8 @@ def validated_rows(kind, rows):
         [
             (rid, row)
             for rid, row in rows
-            if re.sub(
+            if row["property"].removeprefix(kind + ".") not in unresolved
+            and re.sub(
                 r"\[(?:\d*)\]",
                 "",
                 row["property"].removeprefix(kind + ".").split(".", 1)[0],

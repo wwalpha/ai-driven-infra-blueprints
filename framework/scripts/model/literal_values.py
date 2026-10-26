@@ -19,21 +19,34 @@ def array_paths(prop):
 
 
 def projection_conflicts(rows):
-    """Whole columns cannot establish membership for mixed or repeated row groups."""
-    groups = {}
+    """Reject overlapping values and mixed membership on a shared array axis."""
+    members = []
     for _, row in rows:
         prop = row["property"]
-        setting = re.sub(r"\[\d*\]", "", prop.split(".", 2)[-1].split(".", 1)[0])
-        groups.setdefault(setting, []).append((prop, value_shape(row)))
-    return {
-        setting: "ambiguous leaf/projection array membership: " + setting
-        for setting, members in groups.items()
-        if any(shape == "projection" for _, shape in members)
-        and (
-            any(shape == "leaf" for _, shape in members)
-            or len({prop for prop, _ in members}) != len(members)
-        )
-    }
+        parts = re.findall(r"[^.\[\]]+|\[\d*\]", prop)
+        members.append((prop, value_shape(row), parts))
+    conflicts = {}
+    for index, (prop, shape, parts) in enumerate(members):
+        for other, other_shape, other_parts in members[index + 1 :]:
+            if "projection" not in (shape, other_shape):
+                continue
+            shared_array, overlaps = False, True
+            for part, other_part in zip(parts, other_parts, strict=False):
+                if part != other_part and not (
+                    part.startswith("[")
+                    and other_part.startswith("[")
+                    and "[]" in (part, other_part)
+                ):
+                    overlaps = False
+                    break
+                shared_array |= "[]" in (part, other_part)
+            if overlaps or (shape != other_shape and shared_array):
+                reason = (
+                    "ambiguous leaf/projection array membership: " + prop + ", " + other
+                )
+                conflicts[prop] = reason
+                conflicts[other] = reason
+    return conflicts
 
 
 @dataclass(frozen=True)

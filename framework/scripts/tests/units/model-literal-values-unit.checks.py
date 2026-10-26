@@ -20,7 +20,7 @@ from model.literal_values import (
 )
 from support.pytest_cli import run
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
-from utils.comparison_rows import Unresolved, project, select
+from utils.comparison_rows import Unresolved, project, put_row, select
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -341,19 +341,138 @@ def test_projection_tree_retains_membership():
         project(tree, "Groups[].Name", ["one"])
 
 
-def test_projection_row_conflicts():
-    row = {"property": "Test.Resource.Groups[].Value", "valueShape": "projection"}
-    assert not projection_conflicts([("001-001", row)])
-    assert projection_conflicts([("001-001", row), ("001-002", row)])
-    assert projection_conflicts(
-        [
-            ("001-001", row),
+@pytest.mark.parametrize(
+    "first,shape,second,other_shape,conflict",
+    [
+        ("VpcConfig.VpcId", "leaf", "VpcConfig.Subnets[]", "projection", False),
+        (
+            "VpcConfig.Subnets[]",
+            "projection",
+            "VpcConfig.SecurityGroupIds[]",
+            "leaf",
+            False,
+        ),
+        ("Groups[].Name", "leaf", "Groups[].Value", "projection", True),
+        ("Groups[].Value", "projection", "Groups[].Value", "projection", True),
+        ("Groups[].Name", "leaf", "Groups[].Members[].Values", "projection", True),
+        ("VpcConfig", "leaf", "VpcConfig.Subnets[]", "projection", True),
+        ("Groups[].Value", "projection", None, None, False),
+        ("Groups[1].Name", "leaf", "Groups[].Value", "projection", True),
+        ("Groups[].Name", "leaf", "Groups[1].Values[]", "projection", True),
+        ("Groups[1].Name", "leaf", "Groups[2].Values[]", "projection", False),
+        ("Groups[1].Name", "leaf", "Groups[1].Values[]", "projection", False),
+        ("VpcConfig.Subnets", "leaf", "VpcConfig.Subnets[]", "projection", True),
+        ("Groups[].Members", "leaf", "Groups[].Members[].Values", "projection", True),
+        ("Groups[]", "leaf", "Groups[].Value", "projection", True),
+        ("Groups[].Name", "projection", "Groups[].Value", "projection", False),
+        ("Groups[].Value", "projection", "Groups[].Values", "leaf", True),
+        ("VpcConfig.Subnets[]", "projection", "VpcConfig.SubnetsExtra", "leaf", False),
+        ("Groups[].Name", "leaf", "Groups[].Name", "leaf", False),
+        (
+            "Groups[].Members[]",
+            "projection",
+            "Groups[].Members[].Value",
+            "projection",
+            True,
+        ),
+        ("Groups[1].Values[]", "projection", "Groups[2].Values[]", "projection", False),
+        ("Groups[1].Values[]", "projection", "Groups[1].Values[]", "projection", True),
+        ("Groups[1].Values[]", "projection", "Groups[].Values[]", "projection", True),
+    ],
+)
+def test_projection_row_conflicts(first, shape, second, other_shape, conflict):
+    rows = [("001-001", {"property": "Test.Resource." + first, "valueShape": shape})]
+    if second is not None:
+        rows.append(
             (
                 "001-002",
-                dict(row, property="Test.Resource.Groups[].Other", valueShape="leaf"),
-            ),
-        ]
+                {"property": "Test.Resource." + second, "valueShape": other_shape},
+            )
+        )
+    expected = {row["property"] for _, row in rows} if conflict else set()
+    rows.append(
+        ("001-003", {"property": "Test.Resource.Independent", "valueShape": "leaf"})
     )
+    assert set(projection_conflicts(rows)) == expected
+    assert set(projection_conflicts(list(reversed(rows)))) == expected
+
+
+@pytest.mark.parametrize(
+    "values,expected",
+    [
+        (
+            [
+                ("VpcConfig.VpcId", "leaf", "vpc-123"),
+                ("VpcConfig.Subnets[]", "projection", ["subnet-2", "subnet-1"]),
+            ],
+            {"VpcConfig": {"VpcId": "vpc-123", "Subnets": ["subnet-2", "subnet-1"]}},
+        ),
+        (
+            [
+                ("VpcConfig.Subnets[]", "projection", ["subnet-2", "subnet-1"]),
+                ("VpcConfig.SecurityGroupIds[]", "leaf", "sg-1"),
+            ],
+            {
+                "VpcConfig": {
+                    "Subnets": ["subnet-2", "subnet-1"],
+                    "SecurityGroupIds": ["sg-1"],
+                }
+            },
+        ),
+        (
+            [
+                ("EventSelectors[].ReadWriteType", "projection", ["All", "ReadOnly"]),
+                (
+                    "EventSelectors[].DataResources[].Type",
+                    "projection",
+                    [["AWS::S3::Object"], ["AWS::S3::Object", "AWS::Lambda::Function"]],
+                ),
+                (
+                    "EventSelectors[].DataResources[].Values",
+                    "projection",
+                    [[["bucket-2", "bucket-1"]], [["bucket-3"], ["function-1"]]],
+                ),
+            ],
+            {
+                "EventSelectors": [
+                    {
+                        "ReadWriteType": "All",
+                        "DataResources": [
+                            {
+                                "Type": "AWS::S3::Object",
+                                "Values": ["bucket-2", "bucket-1"],
+                            }
+                        ],
+                    },
+                    {
+                        "ReadWriteType": "ReadOnly",
+                        "DataResources": [
+                            {"Type": "AWS::S3::Object", "Values": ["bucket-3"]},
+                            {"Type": "AWS::Lambda::Function", "Values": ["function-1"]},
+                        ],
+                    },
+                ]
+            },
+        ),
+    ],
+)
+def test_projection_siblings_reconstruct(values, expected):
+    rows = [
+        (str(index), {"property": "Test.Resource." + prop, "valueShape": shape})
+        for index, (prop, shape, _) in enumerate(values)
+    ]
+    assert not projection_conflicts(rows)
+    tree = {}
+    for prop, shape, value in values:
+        if shape == "projection":
+            project(tree, prop, value)
+        else:
+            put_row(tree, prop, value)
+    assert tree == expected
+    for prop, _, value in values:
+        assert select(tree, prop) == (
+            value if "[]" not in prop or isinstance(value, list) else [value]
+        )
 
 
 if __name__ == "__main__":

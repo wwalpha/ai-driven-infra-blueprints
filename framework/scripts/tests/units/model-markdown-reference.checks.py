@@ -450,6 +450,10 @@ def main():
             "assert m._imports_iac_values is m; "
             'assert m.typed_value({"property":"Parents[].Values","valueShape":"projection"}, "`[[1,2]]`", {"type":"array"}) == [[1,2]]; '
             'assert m.normalize_literals("Parents[].Values", [[1,2]], "projection").values == ([1,2],); '
+            'rows=[("1", {"property":"CodeBuild.Project.VpcConfig.VpcId"}), ("2", {"property":"CodeBuild.Project.VpcConfig.Subnets[]", "valueShape":"projection"})]; '
+            "assert not m.projection_conflicts(rows); "
+            'rows.append(("3", dict(rows[1][1]))); '
+            'assert set(m.projection_conflicts(rows)) == {rows[1][1]["property"]}; '
             'assert n["masked"]({"Password": "secret"}) == {"Password": "[REDACTED]"}; '
             'ctx=m.Context(m.ROOT, n["SNAPSHOT"]["target"], None); '
             'model=m.Model(ctx,m.ROOT/"model/dev/cde/lambda.properties"); '

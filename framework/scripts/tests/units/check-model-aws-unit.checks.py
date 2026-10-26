@@ -95,6 +95,63 @@ def check_explicit_array_shape_comparison(tmp_path, shape):
     assert len(records) == 1 and records[0]["status"] == "match", records
 
 
+@pytest.mark.parametrize("conflicting", [False, True])
+def check_projection_sibling_comparison(tmp_path, conflicting):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    kind = "CodeBuild.Project"
+    mapping, properties = ctx.comparison("codebuild")
+    # The pinned catalog spells this terminal array without []; isolate row construction.
+    ctx.comparisons["codebuild"] = (
+        mapping,
+        {
+            **properties,
+            kind + ".VpcConfig.Subnets[]": properties[kind + ".VpcConfig.Subnets"],
+        },
+    )
+    rows = [
+        ("001-001", {"property": kind + ".VpcConfig.VpcId", "value": "`vpc-123`"}),
+        (
+            "001-002",
+            {
+                "property": kind + ".VpcConfig.Subnets[]",
+                "value": '`["subnet-2","subnet-1"]`',
+                "valueShape": "projection",
+            },
+        ),
+    ]
+    if conflicting:
+        rows.append(
+            (
+                "001-003",
+                {"property": kind + ".VpcConfig.Subnets[]", "value": "`subnet-3`"},
+            )
+        )
+    model = SimpleNamespace(
+        ctx=ctx,
+        service="codebuild",
+        values={},
+        locations={},
+        path=tmp_path / "model/dev" / ACCOUNT / "codebuild.properties",
+    )
+    selected = m.Resource(
+        model,
+        "001",
+        {"resourceType": kind, "logicalId": "CodeBuild_Project_001"},
+        rows,
+    )
+    with patch.object(
+        m._imports_aws_mapping_compare,
+        "value",
+        side_effect=[({}, "vpc-123"), ({}, ["subnet-2", "subnet-1"])],
+    ):
+        records = m.compare_resource(ctx, selected)
+    assert {item["propertiesKey"]: item["status"] for item in records} == {
+        kind + ".VpcConfig.VpcId": "match",
+        kind + ".VpcConfig.Subnets[]": "design_unresolved" if conflicting else "match",
+    }, records
+
+
 def check_value_normalization():
     tags = {"Tags": [{"Key": "b", "Value": "2"}, {"Key": "a", "Value": "1"}]}
     check(

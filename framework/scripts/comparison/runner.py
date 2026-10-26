@@ -411,7 +411,10 @@ class Comparison(Inputs):
                     ]
             rows, unresolved = row_rules.validated_rows(rowkind, rows)
             for setting, (rid, reason) in unresolved.items():
-                if properties is None or setting in properties:
+                if properties is None or any(
+                    setting == prop or setting.startswith((prop + ".", prop + "["))
+                    for prop in properties
+                ):
                     result.records.append(
                         self.make_record(
                             "uncompared",

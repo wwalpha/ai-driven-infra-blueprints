@@ -1163,13 +1163,14 @@ def compare_resource(ctx, resource):
             )
     # Restore catalog row order; grouping by property above must never reorder arrays.
     parsed.sort(key=lambda row: row[0])
-    unresolved = projection_conflicts(resource.rows)
+    conflicts = projection_conflicts(resource.rows)
+    unresolved = {}
     for _rid, prop, value, _, shape in parsed:
         setting = re.sub(
             r"\[(?:\d*)\]", "", prop.removeprefix(resource.kind + ".").split(".", 1)[0]
         )
         try:
-            if setting in unresolved:
+            if prop in conflicts or setting in unresolved:
                 continue
             if shape == "projection":
                 project(expected, prop, value)
@@ -1182,9 +1183,13 @@ def compare_resource(ctx, resource):
         setting = re.sub(
             r"\[(?:\d*)\]", "", prop.removeprefix(resource.kind + ".").split(".", 1)[0]
         )
-        if setting in unresolved:
+        if prop in conflicts or setting in unresolved:
             results.append(
-                {**item, "status": "design_unresolved", "reason": unresolved[setting]}
+                {
+                    **item,
+                    "status": "design_unresolved",
+                    "reason": conflicts.get(prop, unresolved.get(setting)),
+                }
             )
             continue
         desired, aws = select(expected, prop), select(actual, prop)

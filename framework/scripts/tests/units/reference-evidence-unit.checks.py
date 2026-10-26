@@ -15,6 +15,7 @@ from comparison.deferral import ImportReferenceDeferred, failure_category
 from comparison.evaluation import project_actual
 from comparison.reference_evidence import Evidence
 from comparison.resource import inactive_evidence, inline_owner
+from comparison.rows import validated_rows
 from comparison.services.iam import managed_policy_roles
 from comparison.values import PreparedValue, compare_values
 from design.catalog import DesignSchemaCatalog
@@ -345,6 +346,62 @@ def test_terminal_string_array_is_not_service_specific():
         "CodeBuild.Project",
     )
     assert value.require_value() == ["subnet-first", "subnet-second"]
+
+
+@pytest.mark.parametrize("conflicting", [False, True])
+@pytest.mark.parametrize("selected", [None, ["VpcConfig"], ["VpcConfig.VpcId"]])
+def test_projection_sibling_comparison(conflicting, selected):
+    comparison = fixture()
+    kind = "CodeBuild.Project"
+    values = [
+        ("VpcConfig.VpcId", "vpc-123", None),
+        ("VpcConfig.Subnets[]", '["subnet-2","subnet-1"]', None),
+    ]
+    if conflicting:
+        values.append(("VpcConfig.Subnets[]", "subnet-3", None))
+    rows = resource(
+        comparison,
+        "codebuild",
+        "001",
+        kind,
+        "Build",
+        values,
+        properties={
+            "VpcConfig": {"VpcId": "vpc-123", "Subnets": ["subnet-2", "subnet-1"]}
+        },
+    )
+    rows[1][1]["valueShape"] = "projection"
+    comparison.models["codebuild"].authoritative["desired.row.001-002.valueShape"] = (
+        "projection"
+    )
+    valid, unresolved = validated_rows(kind, rows)
+    assert valid == (rows[:1] if conflicting else rows)
+    assert set(unresolved) == ({"VpcConfig.Subnets[]"} if conflicting else set())
+    document = comparison.stack_inputs["producer"][0]
+    batch = comparison.compare_rows(
+        "codebuild",
+        "001",
+        comparison.resources["codebuild"]["001"],
+        "producer",
+        "Build",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Build"],
+        document,
+        properties=selected,
+    )
+    assert batch.failure is None, batch.failure
+    uncompared = [item for item in batch.records if item["category"] == "uncompared"]
+    assert bool(uncompared) == (conflicting and selected != ["VpcConfig.VpcId"]), (
+        batch.records
+    )
+    if uncompared:
+        assert all(
+            item["property"] == kind + ".VpcConfig.Subnets[]" for item in uncompared
+        )
+    else:
+        assert batch.records and all(
+            item["category"] == "matched" for item in batch.records
+        ), batch.records
 
 
 @pytest.mark.parametrize(
