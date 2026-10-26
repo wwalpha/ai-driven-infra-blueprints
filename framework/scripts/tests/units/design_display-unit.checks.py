@@ -1,6 +1,7 @@
 """Display cause identity, validation evidence and lossless reports; offline fixtures."""
 
 import json
+import re
 import sys
 from contextlib import ExitStack
 from copy import deepcopy
@@ -27,8 +28,7 @@ from design.document import (
 from issues.aggregate import MAX_EXAMPLES, MAX_GROUPS
 from issues.artifact import detail_payload, validate_artifact
 from issues.publication import render_snapshot
-from issues.records import identifier
-from issues.reports import issue_key, ordinary_report
+from issues.reports import ordinary_report
 from issues.review import review_snapshot
 from issues.runner import validation_issues
 from model.core import ReferenceDiagnosticError
@@ -575,7 +575,7 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
     assert artifact == before
     assert "build-project" not in json.dumps(artifact) and "build-project" not in report
     assert len(artifact["ordinary"]) == 16
-    assert report.count("<!-- issue-id:") == 4
+    assert report.count("<!-- issue-id:") == 16
     assert "原因ID:" not in report and "原診断件数" not in report
     assert len({item["id"] for item in artifact["ordinary"]}) == 16
     assert (
@@ -613,7 +613,7 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
         review_snapshot(artifact, partial)
     reviewed = review_snapshot(artifact, review)
     rendered = render_snapshot(root, reviewed)[0]
-    assert rendered == report and rendered.count("<!-- issue-id:") == 4
+    assert rendered == report and rendered.count("<!-- issue-id:") == 16
     snapshot = json.loads(reviewed.data)
     assert len(snapshot["ordinary"]) == 16
     assert snapshot["ordinary"] == json.loads(json.dumps(artifact["ordinary"]))
@@ -678,97 +678,23 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
     )
 
 
-def report_ids(root, current):
-    report = ordinary_report(root, current)
-    return {
-        item["diagnostic"]["cause_key"]: key
-        for item in current["ordinary"]
-        if (
-            key := identifier(
-                [
-                    current["environment"],
-                    current["target"],
-                    item["service"],
-                    "design.display.mismatch",
-                    item["diagnostic"]["cause_key"],
-                ]
-            )
-        )
-        in report
-    }
-
-
-def test_aggregate_issue_id_uses_scoped_cause_not_routes(pipeline):
+def test_report_keeps_formal_ids_for_same_cause(pipeline):
     root, _, _, _, _ = pipeline
-    findings, artifact = collected(pipeline)
-    original = deepcopy(artifact)
-    expected = report_ids(root, artifact)
-    assert len(expected) == len(set(expected.values())) == 4
-    artifact["ordinary"].reverse()
-    assert report_ids(root, artifact) == expected
+    _, artifact = collected(pipeline)
+    template = artifact["ordinary"][0]
     artifact["ordinary"] = [
-        item
-        for item in artifact["ordinary"]
-        if item["diagnostic"]["check_id"] == "links"
+        dict(deepcopy(template), id=key, key="same-display-key")
+        for key in ("ISSUE-b", "ISSUE-a")
     ]
-    assert len(artifact["ordinary"]) == 4
-    assert report_ids(root, artifact) == expected
-    comparison = SimpleNamespace(
-        root=root, environment="qa", directory="team", redacted=lambda value: value
-    )
-    extra = Findings(root)
-    for diagnostic in findings.diagnostics:
-        if diagnostic.check_id == "links":
-            extra.add_diagnostic(replace(diagnostic, check_id="route-6"))
-    records = validation_issues(extra, comparison, ["codepipeline"])[0]
-    artifact["ordinary"].extend(records)
-    assert report_ids(root, artifact) == expected
-    assert all(item["id"] == item["diagnostic"]["diagnosticId"] for item in records)
-    selected = next(
-        item
-        for item in artifact["ordinary"][:4]
-        if item["property"] == "Stages[2].Actions[1].Configuration.ProjectName"
-    )
-    for current in (deepcopy(original), deepcopy(artifact)):
-        current["human_confirmations"]["confirmations"][0]["exceptions"] = [
-            dict(
-                rule=selected["rule"],
-                diagnostic_id=selected["id"],
-                condition="Human exception",
-            )
-        ]
-        review = review_for(current)
-        decision = next(
-            item
-            for item in review["diagnostic_decisions"]
-            if item["id"] == selected["id"]
-        )
-        decision.update(
-            outcome="excluded",
-            confirmation_id="human",
-            target=dict(resource=selected["resource"], property=selected["property"]),
-            evidence="Human confirmed this original diagnostic",
-        )
-        snapshot = json.loads(review_snapshot(current, review).data)
-        assert {item["id"] for item in snapshot["ordinary"]} == {
-            item["id"] for item in current["ordinary"] if item["id"] != selected["id"]
-        }
-    for field in ("environment", "target"):
-        scoped = deepcopy(artifact)
-        scoped[field] = "another"
-        assert set(report_ids(root, scoped).values()).isdisjoint(expected.values())
-    scoped = deepcopy(artifact)
-    scoped["services"] = ["another"]
-    for item in scoped["ordinary"]:
-        item["service"] = "another"
-    assert set(report_ids(root, scoped).values()).isdisjoint(expected.values())
-    assert all(item in original["ordinary"] for item in artifact["ordinary"][:4])
-    plain = dict(service="codepipeline", key="existing-key", message="ordinary")
-    assert issue_key(root, plain) == identifier(["codepipeline", "existing-key"])
-    artifact["ordinary"] = [plain]
-    assert f"<!-- issue-id: {issue_key(root, plain)} -->" in ordinary_report(
-        root, artifact
-    )
+    before = deepcopy(artifact)
+    report = ordinary_report(root, artifact)
+    assert report.count("<!-- issue-id:") == 2
+    assert re.findall(r"<!-- issue-id: (.*?) -->", report) == ["ISSUE-a", "ISSUE-b"]
+    artifact["ordinary"].reverse()
+    assert ordinary_report(root, artifact) == report
+    artifact["ordinary"].reverse()
+    assert artifact == before
+    assert detail_payload(artifact, "ordinary")["items"] == before["ordinary"]
 
 
 def test_report_limit_keeps_all_artifact_members(pipeline):
@@ -798,11 +724,10 @@ def test_report_limit_keeps_all_artifact_members(pipeline):
         )
     before = deepcopy(artifact)
     report = ordinary_report(root, artifact)
-    assert report.count("<!-- issue-id:") == MAX_GROUPS + 3
+    assert report.count("<!-- issue-id:") == (MAX_GROUPS + 3) * (MAX_EXAMPLES + 2)
     assert "原因ID:" not in report and "原診断件数" not in report
     assert all(
-        item["diagnostic"]["diagnosticId"] not in report
-        for item in artifact["ordinary"]
+        f"<!-- issue-id: {item['id']} -->" in report for item in artifact["ordinary"]
     )
     section = report.split("## 未検証範囲\n\n", 1)[1].split("\n## ", 1)[0]
     assert len([line for line in section.splitlines() if line.startswith("- ")]) == len(
@@ -908,8 +833,8 @@ def test_distinct_display_causes_stay_independent(tmp_path, field):
     )
     artifact["environment"] = "qa"
     report = ordinary_report(tmp_path, artifact)
-    assert report.count("<!-- issue-id:") == (1 if field == "check_id" else 2)
-    assert all(item["diagnostic"]["diagnosticId"] not in report for item in records)
+    assert report.count("<!-- issue-id:") == 2
+    assert all(f"<!-- issue-id: {item['id']} -->" in report for item in records)
 
 
 def test_generation_keeps_unrelated_markdown_and_json(pipeline):

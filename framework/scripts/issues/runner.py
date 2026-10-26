@@ -1,5 +1,4 @@
 import io
-import json
 import os
 import re
 import time
@@ -325,9 +324,7 @@ def reference_issues(findings, comparison, services, *, scope=None, judgments=No
                     severity="ERROR",
                     cause_kind="input_invalid",
                     ownership=ownership,
-                    message=safe_text(
-                        comparison.redacted(json.dumps(diagnostic, ensure_ascii=False))
-                    ),
+                    message=safe_text(comparison.redacted(diagnostic["message"])),
                     diagnostic=comparison.redacted(diagnostic),
                     resource=(
                         match[1]

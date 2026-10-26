@@ -16,6 +16,7 @@ import pytest
 import sync_runtime
 from design.policy_tables import rendered_design
 from issues.artifact import validation_status
+from issues.reports import ordinary_report
 from issues.runner import reference_issues, scan
 from model.core import (
     FrameworkUnsupportedError,
@@ -450,6 +451,28 @@ def test_issues_use_structured_codes_and_stable_identity(models):
         "IAM.Role.Policies[].PolicyDocument",
         "MODEL_REF_TARGET_MISSING",
     )
+    assert first[0]["message"] == findings.reference_errors[0]["message"]
+    assert first[0]["diagnostic"] == findings.reference_errors[0]
+    report = ordinary_report(
+        consumer.root,
+        dict(
+            environment=consumer.environment,
+            target=consumer.target,
+            services=["iam"],
+            executed_at="2026-10-27T00:00:00Z",
+            ordinary=first,
+            unverified=[],
+            processing_errors=[],
+            warnings=[],
+        ),
+    )
+    assert first[0]["message"] in report and '{"code"' not in report
+    assert "070 / IAM.Role.Policies[].PolicyDocument" in report
+    assert (
+        "[model/qa/team/iam.properties](../../../model/qa/team/iam.properties)"
+        in report
+    )
+    assert f"<!-- issue-id: {first[0]['id']} -->" in report
     findings.reference_errors[0]["message"] = "reworded explanation"
     assert reference_issues(findings, comparison, ["iam"])[0]["id"] == first[0]["id"]
     assert (

@@ -34,7 +34,7 @@ from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.inputs import view_text
 from issues.records import brief, iac_key
-from issues.reports import issue_key, ordinary_report
+from issues.reports import notice_content, ordinary_report
 from model.core import ReferenceResolutionError, resource_row_index
 from model.format import split
 from model.sources import load_model as real_load
@@ -583,7 +583,11 @@ def summary_scale_cases():
             secret_artifact,
             environment="dev",
             target="cde",
-            ordinary=[dict(service=artifact["services"][0], message=message)],
+            ordinary=[
+                dict(
+                    id="formal-issue", service=artifact["services"][0], message=message
+                )
+            ],
             unverified=[],
             processing_errors=[],
             information=[],
@@ -716,6 +720,7 @@ def summary_scale_cases():
     assert "未解決issueなし" in ordinary_empty and "### " not in ordinary_empty
     assert "## 情報" not in ordinary_empty and "hidden_metadata" not in ordinary_empty
     finding = dict(
+        id="formal-issue",
         service="glue",
         key="formal-issue",
         resource="001",
@@ -725,7 +730,7 @@ def summary_scale_cases():
     )
     current["ordinary"] = [finding]
     one = ordinary_report(root, current)
-    assert "### glue" in one and f"<!-- issue-id: {issue_key(root, finding)} -->" in one
+    assert "### glue" in one and f"<!-- issue-id: {finding['id']} -->" in one
     assert "001 / Glue.Job.Role: 参照先が不正" in one
     assert (
         "[model/dev/cde/glue.properties:12](../../../model/dev/cde/glue.properties)"
@@ -743,11 +748,13 @@ def summary_scale_cases():
     current["ordinary"] = [dict(finding, source="/outside/glue.properties")]
     assert "根拠:" not in ordinary_report(root, current)
     current["ordinary"] = [
-        dict(finding, key=str(i), message=f"問題{i}") for i in range(1001)
+        dict(finding, id=str(i), key=str(i), message=f"問題{i}") for i in range(1001)
     ]
     many = ordinary_report(root, current)
     assert many.count("<!-- issue-id:") == 1001
-    assert all(issue_key(root, item) in many for item in current["ordinary"])
+    assert all(
+        f"<!-- issue-id: {item['id']} -->" in many for item in current["ordinary"]
+    )
     failure = dict(
         diagnostic_id="internal-failure-id",
         service="glue",
@@ -896,6 +903,120 @@ def check_mechanical_accepts_contract_catalog_changes(tmp_path):
         assert scan_runner.mechanical(tmp_path, {("dev", "123456789012", "s3")})[
             :2
         ] == ([], 0)
+
+
+@pytest.mark.parametrize("structured", [False, True])
+@pytest.mark.parametrize("source", [None, "relative", "absolute", "outside"])
+@pytest.mark.parametrize("position", [False, True])
+def check_reference_report_message_and_source(structured, source, position):
+    root = Path("/synthetic")
+    model = "model/dev/cde/s3.properties"
+    diagnostic = dict(
+        code="MODEL_REF_TYPE_MISMATCH",
+        message="参照先のResource型が一致しない token=private-value",
+        internal_metadata="private-metadata" * 100,
+    )
+    if source:
+        diagnostic["model"] = (
+            model
+            if source == "relative"
+            else str(root / model)
+            if source == "absolute"
+            else "/outside/s3.properties"
+        )
+    record = dict(
+        id="ISSUE-formal-reference",
+        service="s3",
+        message=json.dumps(diagnostic) if structured else diagnostic["message"],
+        diagnostic=diagnostic,
+    )
+    if position:
+        record.update(resource="010", property="S3.Bucket.KmsMasterKeyID")
+    current = dict(
+        version=6,
+        environment="dev",
+        target="cde",
+        services=["s3"],
+        executed_at="2026-10-27T00:00:00Z",
+        ordinary=[record],
+        unverified=[],
+        processing_errors=[],
+        warnings=[],
+    )
+    before = deepcopy(current)
+    report = ordinary_report(root, current)
+    assert "参照先のResource型が一致しない" in report
+    assert "private-value" not in report and "private-metadata" not in report
+    assert '{"' not in report and "internal_metadata" not in report
+    assert ("010 / S3.Bucket.KmsMasterKeyID" in report) == position
+    assert ("根拠:" in report) == (source in {"relative", "absolute"})
+    if source in {"relative", "absolute"}:
+        assert f"[{model}](../../../{model})" in report
+    assert current == before
+    assert detail_payload(current, "ordinary")["items"] == [record]
+
+
+@pytest.mark.parametrize("holder", ["item", "diagnostic", "details"])
+@pytest.mark.parametrize("structured", [False, True])
+@pytest.mark.parametrize("has_message", [False, True])
+@pytest.mark.parametrize("has_id", [False, True])
+def check_notice_specific_message_and_dedup(holder, structured, has_message, has_id):
+    root = Path("/synthetic")
+    item = dict(service="s3", check="saved", reason="reference")
+    if has_id:
+        item["diagnostic_id"] = "same-failure"
+    if has_message:
+        message = "リンク先が見つからない: s3.md:38 token=private-value"
+        value = (
+            json.dumps(dict(message=message, internal_metadata="hidden"))
+            if structured
+            else message
+        )
+        (item if holder == "item" else item.setdefault(holder, {}))["message"] = value
+    current = dict(
+        version=6,
+        environment="dev",
+        target="cde",
+        services=["s3"],
+        executed_at="2026-10-27T00:00:00Z",
+        ordinary=[],
+        unverified=[dict(item, complete=False)],
+        processing_errors=[item],
+        warnings=[],
+    )
+    before = deepcopy(current)
+    report = ordinary_report(root, current)
+    expected = "リンク先が見つからない: s3.md:38" if has_message else "reference"
+    assert report.count("s3 / saved: " + expected) == 1
+    assert "未完了" in report and "## 未検証範囲" not in report
+    assert (
+        "private-value" not in report and "hidden" not in report and '{"' not in report
+    )
+    assert current == before
+    assert detail_payload(current, "unverified")["items"] == before["unverified"]
+    assert detail_payload(current, "processing_errors")["items"] == [item]
+
+
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        (
+            '{"code":"MODEL_REF_TYPE_MISMATCH","internal_metadata":"hidden"}',
+            "MODEL_REF_TYPE_MISMATCH",
+        ),
+        ('{"internal_metadata":"hidden"}', "詳細はartifact"),
+        ('[{"internal_metadata":"hidden"}]', "詳細はartifact"),
+        ('{"message":{"message":"具体的失敗"}}', "具体的失敗"),
+    ],
+)
+def check_notice_internal_json_fields(message, expected):
+    root = Path("/synthetic")
+    report = notice_content(
+        root,
+        root / "issues/dev/cde/issues.md",
+        dict(service="s3", check="saved", reason="reference", message=message),
+    )
+    assert report == "s3 / saved: " + expected
 
 
 def check_comparison_input_tracking_is_report_only(tmp_path):

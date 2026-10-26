@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timedelta, timezone
 from html import escape
@@ -26,9 +27,24 @@ def evidence(root, report, source):
     return f"[{label}]({target})"
 
 
-def issue_key(root, record):
-    message = safe_text(record["message"]).replace(str(root) + "/", "")
-    return identifier([record["service"], record.get("key", message)])
+def report_message(value):
+    if isinstance(value, str):
+        try:
+            structured = json.loads(value)
+        except ValueError:
+            return value
+        if not isinstance(structured, (dict, list)):
+            return value
+        value = structured
+    if isinstance(value, dict):
+        return report_message(
+            value.get("message")
+            or value.get("Message")
+            or value.get("reason")
+            or value.get("code")
+            or "詳細はartifact"
+        )
+    return "詳細はartifact" if isinstance(value, list) else str(value)
 
 
 def report_source(root, record):
@@ -41,6 +57,7 @@ def report_source(root, record):
         or diagnostic.get("source_path")
         or diagnostic.get("Filename")
         or record.get("model")
+        or diagnostic.get("model")
     )
     if record.get("code") in {"mechanical.view_read", "mechanical.view_unverified"}:
         source = record.get("path")
@@ -55,8 +72,8 @@ def report_source(root, record):
     return dict(path=source, **({"line": line} if line else {}))
 
 
-def issue_content(root, path, record, *, key=None):
-    message = safe_text(record["message"]).replace(str(root) + "/", "")
+def issue_content(root, path, record):
+    message = safe_text(report_message(record["message"])).replace(str(root) + "/", "")
     target = " / ".join(
         str(value)
         for key in ("resource", "property")
@@ -67,7 +84,7 @@ def issue_content(root, path, record, *, key=None):
     return (
         message
         + (f" 根拠: {link}。" if link else "")
-        + f" <!-- issue-id: {key or issue_key(root, record)} -->"
+        + f" <!-- issue-id: {record['id']} -->"
     )
 
 
@@ -106,12 +123,12 @@ def notice_content(root, path, item):
     if isinstance(check, (list, tuple)):
         check = ", ".join(check)
     reason = (
-        item.get("reason")
+        item.get("message")
+        or diagnostic.get("message")
+        or details.get("message")
+        or item.get("reason")
         or diagnostic.get("reason")
         or details.get("reason")
-        or details.get("message")
-        or item.get("message")
-        or diagnostic.get("message")
         or item.get("exception")
         or item.get("status")
         or "未実施"
@@ -122,7 +139,11 @@ def notice_content(root, path, item):
     text = " / ".join(brief(value) for value in fields if value)
     if check:
         text += (" / " if text else "") + brief(check)
-    text += (": " + brief(str(reason).replace(str(root) + "/", ""))) if reason else ""
+    text += (
+        ": " + brief(report_message(reason).replace(str(root) + "/", ""))
+        if reason
+        else ""
+    )
     link = evidence(root, path, report_source(root, item))
     return " ".join(text.splitlines()) + (f" 根拠: {link}。" if link else "")
 
@@ -151,45 +172,15 @@ def ordinary_report(root, artifact):
         "",
     ]
     for service in services:
-        records = {
-            issue_key(root, item): item
-            for item in artifact["ordinary"]
-            if item["service"] == service
-        }
+        records = [item for item in artifact["ordinary"] if item["service"] == service]
         if records:
             lines.extend([f"### {service}", ""])
-            items, display = [], {}
-            for _, item in sorted(records.items()):
-                if item.get("diagnostic", {}).get("code") == "design.display.mismatch":
-                    diagnostic = item["diagnostic"]
-                    cause = tuple(
-                        diagnostic.get(field)
-                        for field in (
-                            "cause_key",
-                            "sourcePath",
-                            "target_path",
-                            "location",
-                            "resourceLogicalId",
-                            "anchor",
-                            "property",
-                            "occurrence",
-                        )
-                    )
-                    display.setdefault(cause, []).append(item)
-                else:
-                    items.append(issue_content(root, path, item))
-            for cause, group in display.items():
-                key = identifier(
-                    [
-                        environment,
-                        directory,
-                        service,
-                        "design.display.mismatch",
-                        cause[0],
-                    ]
+            lines.extend(
+                f"{number}. {issue_content(root, path, item)}\n"
+                for number, item in enumerate(
+                    sorted(records, key=lambda item: item["id"]), 1
                 )
-                items.append(issue_content(root, path, group[0], key=key))
-            lines.extend(f"{number}. {item}\n" for number, item in enumerate(items, 1))
+            )
     if not artifact["ordinary"]:
         lines.extend(
             ["未解決issueなし（検証未完了）" if incomplete else "未解決issueなし", ""]
