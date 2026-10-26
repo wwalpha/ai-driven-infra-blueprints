@@ -1,7 +1,9 @@
 ---
 name: update
-description: Use for explicitly authorized CREATE/IMPORT Model corrections, Model-only merge/delete or reference retarget, value-preserving refactors, or reflecting approved design into IaC and AWS through the separate 05_update branches.
+description: Use for explicit Model changes, Model-only operations, or reflecting requested Model changes into IaC and AWS through the existing update branches.
 ---
+
+Select the workflow using [Workflow selection](../../../framework/rules/task-contract.md#workflow-selection).
 
 [Service Model source authority](../../../framework/rules/model-templates.md) applies.
 Inspect environment-specific properties; use `model.sources.edit_base` for an invalid repair baseline and validate the corrected candidate through `model.sources.load_model`. Use

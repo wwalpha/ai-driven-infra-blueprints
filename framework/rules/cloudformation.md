@@ -2,13 +2,19 @@
 
 - Follow [Credentials and account](project-configuration.md#credentials-and-account) for account/profile/target selection.
 
+## Common rules
 
 - Create, change, and execute CloudFormation only in `infrastructure` tasks.
 - Infrastructure task design inputs are approved authoritative model properties entries and required parts/referenced models. Obtain design values from `desired.row.*`, JSON bodies from `desired.row.*.document`, identity/references from metadata such as `desired.resource.*`, and current non-ARN identifiers from `observed.*`. In ordinary deploy, do not additionally read generated service Markdown/service-owned JSON bodies. Resolve saved Markdown Resource links using the common Model resolver and consumer scope; stop for unknown, unmatched, or ambiguous mappings, without generated Markdown body fallback.
 - Retain generated artifact existence verification, existing hash monitoring, generated artifact validation by sync-model/local loop, and stop conditions. For explicit display defect/mismatch investigation, only necessary corresponding portions may be read. Classify mismatches under Controlled deploy repair below. Do not change intended design.
 - If intended design changes are needed, stop without filling values and report that a separate `design` task is required.
 - Use only when the active project and target environment/target directory select CloudFormation.
-- Preflight and controllers automatically use target `awsProfile` if present. Pass the same `--profile` and target region to direct AWS CLI too (including validate-template, list/get/describe, and observed value retrieval). Reject explicit profiles differing from settings before execution; do not fall back to another profile after authentication failure.
+- Do not interpret disappeared/renamed StackNames in design as existing stack deletion/rename. Decide ending management/deletion under a separate authorized scope with explicit targets/impacts; do not implicitly include it in current deploy/update.
+- Manage 1 environment/AWS account with only 1 IaC engine, consistent across aliases sharing an AWS account ID. Also keep engines consistent across targets sharing environment/execution account.
+- `AWS::AccountId` used to evaluate local/deploy Conditions, ImportValue, artifact references, and Outputs uses the execution account. Use independent explicit parameters when passing `awsAccountId` into resource names, etc.; do not substitute native pseudo parameters. Actual stack/resource owning accounts are determined by AWS execution destinations.
+
+## Template implementation
+
 - In YAML CloudFormation templates, use `!` form for every intrinsic function with AWS shorthand; corresponding long-form `Ref:` and `Fn::...:` are prohibited except for the following combinations. Permit `Fn::ImportValue: !Sub 'VpcId${Suffix}'`, with `!Sub` on the same line or an indented following line, and `!ImportValue {Fn::Sub: 'VpcId${Suffix}'}` (including flow-form variable maps); Export bases and parameter names are not fixed. Import names must not depend on resource values, and final Export names must satisfy the existing naming rules. Also permit `!ImportValue {Fn::Join: ['', ['ExportBase', !Ref ParameterName]]}` joining a fixed PascalCase Export name base with a parameter value using an empty delimiter. Select the parameter whose value preserves the confirmed Export name. YAML cannot directly nest shorthand tags, so only the outer `Fn::ImportValue` with `!Sub`, the inner `Fn::Sub` with `!ImportValue`, and this expression's inner `Fn::Join` may use long form. Array arguments also use shorthand flow form such as `JobId: !Select [0, !Split ['|', !Ref GlueJobDefinition075]]`.
 - For `!If` array arguments, place true and false values after the condition name on separate lines at the same indentation for comparison. Retain flow form; for example:
 
@@ -17,21 +23,14 @@
     TrueValue,
     FalseValue]
   ```
-
 - Do not use YAML anchors/aliases or hash merge (`<<:`) in CloudFormation YAML. Explicitly state original values for identical trust policies, IAM/KMS permission Policies, and other setting blocks in each resource. Do not require sharing merely because content is identical; retain per-Role design JSON artifacts and references.
 - Under `Resources` in CloudFormation YAML, insert at least 1 blank line between consecutive resources.
 - Do not use nested stacks.
 - Determine stack/template boundaries by change units, rollback units, dependency direction, and deploy responsibility, not AWS services.
 - Default to `1 template = 1 deploy responsibility`, but the same template may serve multiple stack instances. Deploy/update execution units are StackNames in authoritative `cloudformation-stacks.properties`, not template paths.
 - CloudFormation target stack creation/update requires stack detailed design from `framework/rules/detailed-design.md`. Resolve each stack instance's StackName, template filename, individual parameter filename, DeployOrder, and target MaxConcurrentStacks from authoritative `cloudformation-stacks.properties`. During deploy, existing `load_units()` confirms equality with generated stack Markdown; AI manual duplicate comparison of the same values is not required. Retain existing sync-model/local loop timing for ordinary service generated artifact validation. Template/parameter locations follow this rule's path conventions. Do not infer StackNames from template/parameter filenames alone.
-- Before deploy, match target account/region stacks read-only and confirm designed stack existence, states, parameters, and resource ownership. Distinguish undesigned stacks, same-named stacks differing from design, and designed stacks absent from AWS; do not automatically adopt/change/delete undesigned stacks. Retrieve current stack status from AWS each time; do not save status snapshots in Git.
-- Do not interpret disappeared/renamed StackNames in design as existing stack deletion/rename. Decide ending management/deletion under a separate authorized scope with explicit targets/impacts; do not implicitly include it in current deploy/update.
 - Do not create standalone templates/stacks owning only CloudWatch Logs resources (`AWS::Logs::*`) and Security Group bodies (`AWS::EC2::SecurityGroup`); include them in templates of using resources. Include IAM Roles in templates of directly using resources in the same target when present. For Roles without directly using resources (such as cross-account switch roles), confirm no same-target design resource directly references the Role and confirm its trust policy Principal; record purpose and AssumeRole sources in design before placing only the Role and associated IAM Policy/ManagedPolicy in a dedicated template/stack. Declare `RolePlacement: standalone` directly under `Metadata` in this template. This declaration expresses design decisions, not proof of nonuse in AWS. A template with InstanceProfile added is not Role-only.
 - If part of a confirmed Security Group rule set creates mutual references that would cause resource or cross-stack dependency cycles, do not embed that rule set in the original owning templates. Keep Security Group bodies with their using resources, and permit a dedicated template/stack containing only `AWS::EC2::SecurityGroupIngress` and/or `AWS::EC2::SecurityGroupEgress`. Document the dependency reason in stack design, deploy it after all referenced Security Groups, and use confirmed GroupId exports through `!ImportValue` for cross-stack references. Security Group producer stacks must not depend on the rule stack.
-- Cross-stack references expose only stable values needed downstream, avoiding unnecessary coupling.
-- When using resources outside templates through `!Ref`, `!GetAtt`, `!Sub`, policy/setting strings, etc., identify actual resources and owning stacks. String equality alone does not establish resource references. If another CloudFormation stack in the same AWS account/region owns them, match producer template Outputs against deployed stack exports and confirm necessary values are exported. Stop without guessing unless owning stacks, referenced values, and export names are uniquely confirmed.
-- If necessary exports are absent and producers are managed CREATE targets in this framework, add Output/Export for only necessary values to producer templates and deploy producer stacks first in authorized infrastructure tasks. Do not change/deploy consumer templates until terminal success and actual export names/values are confirmed read-only. Do not change export names/values used by existing imports merely for naming format. If producer/consumer cannot be handled in the same task, execute in order within task boundaries.
-- After producer export confirmation, consumer templates reference that export name with `!ImportValue`. For references used within strings, pass `!ImportValue` into `!Sub` variable maps or `!Join`; do not leave physical IDs/generated ARNs as literals. Import destinations must be the same AWS account/region; create consumer change sets after producer success. Even when cross-stack ARN exports are needed, do not save generated ARNs as observed values.
 - Template `Resources` keys (resource logical IDs) and final `Outputs.*.Export.Name` values must be PascalCase. Start with ASCII uppercase and use only ASCII alphanumeric characters afterward; no hyphens, underscores, or spaces. This rule does not apply to non-exported Output keys or AWS-generated physical IDs.
 - For detailed design identifier references to CREATE, resolve Model Resource links and their explicit cfn-logicalId and generate `!Ref`. Do not hardcode link display text `PENDING_DEPLOY` or physical IDs into templates.
 - Uniquely map models to stack resources with resource `cfn-logicalId=<StackName>-<Resources key>`; use only the trailing CFn resource ID in template `!Ref`, `!GetAtt`, and Outputs. Do not use composite IDs as template keys. Do not change anchors, confirmed resource names, or existing CFn IDs. Stop without guessing for invalid/duplicate mappings or unconfirmed final Export Name values including target-specific parameters. Existing stack logical ID/Export Name changes may delete/recreate resources or disconnect cross-stack references; do not automatically change them merely for naming format.
@@ -43,8 +42,18 @@
 - If formal resource name properties or `Name` tags include Environment ID, declare independent `Environment` in template `Parameters` and set `Environment` to the target Environment ID from `project.json` in target-specific parameter files. Compose names in resource properties/tag values using `!Sub`, `!Join`, `!Ref`, etc., treating it like independent components such as AWS account IDs. Do not change confirmed complete names in detailed designs.
 - Use `Environment` only for identity, naming, and value composition, including resource names, tags, and Export names. Do not use it for control-flow or selection: Conditions (including nested expressions), resource/property/Output existence, or environment-specific value selection. This includes Environment-dependent `Fn::FindInMap` map/key selectors, `Fn::Select` indexes, and `Fn::ForEach` collections, even through composed expressions. Pass differences between dev/stg/prod through explicit deployment parameters/inputs instead. Conditions and `Fn::If` controlled by independent feature/configuration parameters such as `Suffix` or `EnableVpcEndpoint` remain permitted; Condition names do not determine compliance.
 - Do not include target Environment ID as a name component in parameter values other than `Environment` (resource names, prefixes, suffixes, etc.) in target-specific parameter files. For example, compose `app-dev-role` inside templates from `Environment=dev` and `NamePrefix=app`. `NamePrefix=app-dev` is a violation regardless of `Environment` parameter presence. Do not hardcode complete names in templates or embed Environment in other parameters to append it twice.
-- Manage 1 environment/AWS account with only 1 IaC engine, consistent across aliases sharing an AWS account ID. Also keep engines consistent across targets sharing environment/execution account.
-- `AWS::AccountId` used to evaluate local/deploy Conditions, ImportValue, artifact references, and Outputs uses the execution account. Use independent explicit parameters when passing `awsAccountId` into resource names, etc.; do not substitute native pseudo parameters. Actual stack/resource owning accounts are determined by AWS execution destinations.
+
+## Cross-stack references
+
+- Cross-stack references expose only stable values needed downstream, avoiding unnecessary coupling.
+- When using resources outside templates through `!Ref`, `!GetAtt`, `!Sub`, policy/setting strings, etc., identify actual resources and owning stacks. String equality alone does not establish resource references. If another CloudFormation stack in the same AWS account/region owns them, match producer template Outputs against deployed stack exports and confirm necessary values are exported. Stop without guessing unless owning stacks, referenced values, and export names are uniquely confirmed.
+- If necessary exports are absent and producers are managed CREATE targets in this framework, add Output/Export for only necessary values to producer templates and deploy producer stacks first in authorized infrastructure tasks. Do not change/deploy consumer templates until terminal success and actual export names/values are confirmed read-only. Do not change export names/values used by existing imports merely for naming format. If producer/consumer cannot be handled in the same task, execute in order within task boundaries.
+- After producer export confirmation, consumer templates reference that export name with `!ImportValue`. For references used within strings, pass `!ImportValue` into `!Sub` variable maps or `!Join`; do not leave physical IDs/generated ARNs as literals. Import destinations must be the same AWS account/region; create consumer change sets after producer success. Even when cross-stack ARN exports are needed, do not save generated ARNs as observed values.
+
+## AWS execution context
+
+- Preflight and controllers automatically use target `awsProfile` if present. Pass the same `--profile` and target region to direct AWS CLI too (including validate-template, list/get/describe, and observed value retrieval). Reject explicit profiles differing from settings before execution; do not fall back to another profile after authentication failure.
+- Before deploy, match target account/region stacks read-only and confirm designed stack existence, states, parameters, and resource ownership. Distinguish undesigned stacks, same-named stacks differing from design, and designed stacks absent from AWS; do not automatically adopt/change/delete undesigned stacks. Retrieve current stack status from AWS each time; do not save status snapshots in Git.
 - Perform authorized operations with AWS CLI.
 
 ## Design coverage and CloudFormation support
@@ -64,11 +73,15 @@
 
 ## Validation and execution
 
+### Local implementation validation
+
 `implement` phase:
 
 1. Before implementing existing templates and before finishing generated templates, perform local read-only mapping validation with `python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py observed --environment <environment> --target-directory <target-directory> --stack <StackName>` (repeat `--stack` for each stack). Deployment resolves only resources needed for repair/bootstrap/post-success synchronization. Directly match StackNames/template resource IDs with each resource's `cfn-logicalId`; do not use separate mapping tables. Resource correspondence uses explicit cfn-logicalId and Stack identity. Evaluate Conditions with stack-specific parameters/defaults and account/region/StackName; validate CREATE, formal types, unique mappings, identifier rows, necessary GetAtt Outputs, and duplicate ownership only for active resources. Stop on unresolved, cyclic, or non-boolean Conditions; do not include inactive resources in identifier validation/ownership decisions. Do not automatically add identifier rows; aggregate deficiencies per stack. Absent new templates are not pre-implementation deficiencies; confirm model/placement inputs and always run this common validation after generation.
 2. Retain local Model/provider-schema and selected template consistency checks. No template lint engine is required.
 3. Do not execute AWS APIs, `aws cloudformation validate-template`, change sets, or deploy/update.
+
+### Deployment validation and execution
 
 `deploy` phase:
 
@@ -84,6 +97,8 @@
 Immediately before consumer change set creation, interpret `!ImportValue` with the shared CloudFormation decoder, resolve referenced Export names using stack-specific parameters/defaults and account/region, and resolve them through the shared Export resolver. A known Producer is revalidated with scoped `DescribeStacks(StackName=StackId)` Outputs, StackId/status and saved Export value/owner; this path never calls ListExports. Only required names whose Producer remains unknown may share one complete ListExports discovery within that verification boundary; DescribeStacks must then reconfirm each discovered Producer. Missing, ambiguous or changed evidence blocks. Evaluate Conditions; scan only selected `!If` branches and active resources/Outputs. Stop for unresolved, cyclic, or non-boolean conditions; do not require ImportValue in unused branches. Unresolved expressions, absent Exports, and unsuccessful in-scope producers are BLOCKED. Explain incorrect DeployOrder and Import/Export contradictions; do not add out-of-scope producers, change order, or automatically repair IaC/intended design. Consumer-only deploy is permitted if out-of-scope producer Exports already exist. Stop for Transform-dynamically-generated imports that cannot be resolved in advance.
 
 On failure/rollback, blockers, or unapproved delete/replacement, do not start new units; confirm only running stacks through terminal states. Distinguish SUCCESS, FAILED, BLOCKED, and NOT_STARTED per StackName. Status API errors are not terminal failures: stop queues and retry only running stack retrieval. Do not automatically rollback, delete, or redeploy successful stacks. Rollback/delete is permitted only under the failed CREATE cleanup exceptions below.
+
+### Infrastructure update execution
 
 `update` phase:
 
@@ -122,9 +137,13 @@ Follow [observed-values](observed-values.md) for identifier collection/synchroni
 
 ## S3 deployment artifacts
 
+### Artifact declarations
+
 `deploy/delivery.py`が実行用copy・object配置を、`deploy/s3_delivery.py`が取得とkey別条件判定を担当する。正本は同targetのcloudformation-stacks.properties。templateBucketは同target S3 ModelのBucketName link、templateKeyPrefixは確定prefixで両方指定または両方省略する。project設定への重複保存は禁止。
 
 artifactはstack/resource/property/source/bucket/keyPrefixを明示する。StackName・template LogicalId・同target S3 linkを使い、file名から推測しない。sourceはinfra/cloudformation/artifacts内の既存fileのみ。directory、外部path、外へ逃げるsymlinkは禁止。複数Resourceの同source共有は可。対応はLambda Function.Code/LayerVersion.Contentの構築済ZIP、Glue Job.Command.ScriptLocation、StepFunctions StateMachine.DefinitionS3Location、ApiGateway RestApi.BodyS3Location。container/nested/Transform/未知propertyへ拡張しない。未宣言S3参照は配置済み参照として維持する。
+
+### Artifact execution
 
 元templateのType/property/bucket/keyPrefixを照合し、parameters/default/Ref/Sub/Join/確定ImportValueで解けない値は停止する。実行copyは宣言propertyのkey/version/URIだけcontent hashへ置換できる。bucket式・他設定・元IaC/parameters/Modelは変更しない。実行byte数でinline<=51,200、S3<=1 MiBを決定し、超過は停止。同じ内容/URLをValidateTemplateとCreateへ渡す。copyは今回runの外部一時directoryへ置く。
 

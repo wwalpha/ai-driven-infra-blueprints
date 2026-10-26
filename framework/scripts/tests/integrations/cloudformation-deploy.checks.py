@@ -60,7 +60,7 @@ from support.model_v2_fixtures import deploy_properties_fixture
 from support.repository_fixtures import fixture, git, start
 from task_contract_core import paths_in, selected_task
 from utils.aws_catalogs import catalog_outputs
-from utils.input_cache import input_scope, memo_table
+from utils.input_cache import input_context, input_scope, memo_table
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -596,7 +596,9 @@ def _callback_check_shared_stack_mapping_measured(entry, *args):
     body = _bind_framework_callback(
         _callback_check_shared_stack_mapping_measured_body, bodies, original, readers
     )
+    # Measure reuse only within an explicitly read-only input lifetime.
     with (
+        input_context(read_only=True),
         patch.object(
             model_files, "load_model", wraps=model_sources.load_model
         ) as lookups,
@@ -757,7 +759,7 @@ def check_shared_stack_mapping(publication_workspace):
             (
                 preflight,
                 (root, "dev", "123456789012", [u["name"] for u in scoped]),
-                6,
+                5,
                 5,
             ),
         ):

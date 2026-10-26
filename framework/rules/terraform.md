@@ -3,6 +3,8 @@
 - Follow [Credentials and account](project-configuration.md#credentials-and-account) for account/profile/target selection.
 
 
+## Common rules
+
 - Create, change, and execute Terraform only in `infrastructure` tasks.
 - Infrastructure task design inputs are approved authoritative model properties entries and required parts/referenced models. Obtain design values from `desired.row.*`, JSON bodies from `desired.row.*.document`, identity/references from metadata such as `desired.resource.*`, and current non-ARN identifiers from `observed.*`. In ordinary deploy, do not additionally read generated service Markdown/service-owned JSON bodies. Resolve saved Markdown Resource links using the common Model resolver and consumer scope; stop for unknown, unmatched, or ambiguous mappings, without generated Markdown body fallback.
 - Retain generated artifact existence verification, existing hash monitoring, generated artifact validation by sync-model/local loop, and stop conditions. For explicit display defect/mismatch investigation, only necessary corresponding portions may be read. Do not continue deploy after mismatch or automatically repair IaC/intended design.
@@ -41,22 +43,27 @@
 
 ## Validation and execution
 
+### Local static validation
+
 - If the target has `awsProfile`, use the same profile for Terraform init/plan/apply and AWS value retrieval. Pass `AWS_PROFILE` only to target processes and children; do not rewrite global shells or AWS configuration files. Retain profiles for both AWS providers and AWS backends; stop before execution on conflicting settings overriding selection such as explicit profiles/direct credentials. Specify the same `--profile` for AWS CLI and profile for SDK. When unset, retain existing explicit profiles/default credential chains without omitting account/region validation.
 - Match provider and AWS backend account restrictions/connection validation against their approved settings and execution account. Pass `awsAccountId` for explicit account ID values such as resource names; do not replace it with the execution account obtained from caller identity.
 - The `implement` phase runs `terraform fmt -check`, `terraform init -backend=false` with fresh `TF_DATA_DIR`, and `terraform validate`; do not run plan, apply, or AWS APIs.
-- The `deploy` phase leaves IaC unchanged and runs `terraform fmt -check`, `terraform validate`, and `terraform plan` saved outside the repository.
-- The `update` phase generates Markdown without changing model properties manually edited by the human before task start; after implement-phase local validation, confirm plans saved outside the repository and apply. Permit only target IaC uncommitted diffs generated in this phase as apply targets.
-- If IaC repair is needed in the deploy phase, stop without changing it.
-- Do not introduce human review uniformly stopping all plans. Wait for human confirmation with an explanation according to `framework/prompts/codex/04_deploy.md` only when saved plans contain unapproved destroy/replacement.
-- Execute saved plans for apply only when explicitly authorized by deploy/update phase active prompts and plan scope matches the prompt.
 - When the active prompt limits targets, the implement phase may change only specified environments/modules/resources, and the deploy/update phase may apply only specified targets and finish.
-- Saved plan resource change actions containing delete are subject to destroy/replacement confirmation. If unapproved, do not treat as deployment failure or task completion; wait for human confirmation without applying.
-- After human approval, reconfirm the same saved plan in the same task and apply that plan binary only when approved resource addresses, resource types, and actions match. If the plan binary is lost, recreated, or changed, reconfirm without using prior approval.
-- Do not apply saved plans when only a subset of changes is approved. If configuration repair or resource retention is needed, stop without changing IaC in the current deploy/update phase.
 - Stop for wrong workspace/account/region, missing input, sensitive output, plan failure, deficient intended design, or inability to determine destroy/replacement actions.
 - Do not commit state files or plan binaries.
 - Record remote state in project design as a configuration with access control, locking, encryption, and backup.
 - Do not output secrets or save generated ARNs as observed values.
 - Switching existing environments between CloudFormation/Terraform is a dedicated migration/import task, not normal update.
+
+### Deployment validation and execution
+
+- The `deploy` phase leaves IaC unchanged and runs `terraform fmt -check`, `terraform validate`, and `terraform plan` saved outside the repository.
+- The `update` phase generates Markdown without changing model properties manually edited by the human before task start; after implement-phase local validation, confirm plans saved outside the repository and apply. Permit only target IaC uncommitted diffs generated in this phase as apply targets.
+- If IaC repair is needed in the deploy phase, stop without changing it.
+- Do not introduce human review uniformly stopping all plans. Wait for human confirmation with an explanation according to `framework/prompts/codex/04_deploy.md` only when saved plans contain unapproved destroy/replacement.
+- Execute saved plans for apply only when explicitly authorized by deploy/update phase active prompts and plan scope matches the prompt.
+- Saved plan resource change actions containing delete are subject to destroy/replacement confirmation. If unapproved, do not treat as deployment failure or task completion; wait for human confirmation without applying.
+- After human approval, reconfirm the same saved plan in the same task and apply that plan binary only when approved resource addresses, resource types, and actions match. If the plan binary is lost, recreated, or changed, reconfirm without using prior approval.
+- Do not apply saved plans when only a subset of changes is approved. If configuration repair or resource retention is needed, stop without changing IaC in the current deploy/update phase.
 
 Follow [observed-values](observed-values.md) for identifier collection/synchronization after success, and [task-contract](task-contract.md) and [loop-engineering](loop-engineering.md) for task finish.

@@ -2403,6 +2403,23 @@ Humanが明示許可した例外として `integrations/sync-existing-files.chec
 
 import-references のSubnet配列とCodePipeline Configuration生成fixtureは確認済みliteralを使用する。ConfigurationのProjectNameは既存外部name参照とJSON Pointerで追跡し、IMPORTがリンク要求warningを出さず取得値の相違は拒否することを確認。入口/展開数は維持。
 
+## Read-only implement preflight boundaries
+
+| ID | Check | Layer | Source | Execution / cases | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `implement-preflight::authority` | `check_preflight_without_write_authority` | UT | [units/task-operation-scope-unit.checks.py](units/task-operation-scope-unit.checks.py) | pytest / 4 | No Task or restricted Task; one/multiple explicit Stacks; CLI PASS/FAIL; ordinary mapping, observation writes and destroy stay strict; no writes or extra template reads | Synthetic Model/IaC |
+| `implement-preflight::mapping` | `check_preflight_uses_shared_selected_mapping` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py) | pytest / 5 | Selected-Stack validation without scope lookup; formal type, duplicate ownership, IMPORT mapping and unresolved Condition failures; unselected Stack inputs not read | Existing mapping fixture |
+
+Existing `check_command_io_budget` retains one Task catalog read and one read per contract,
+and now checks the deliberate unowned resource diagnostic rather than a Validation scope
+failure. Existing `check_implementation_preflight_prompt` covers section-based readings,
+no-diff/no-contract sequencing, centralized Skill routing and operation-limited Sandbox
+approval instructions. The existing Markdown reference/anchor audit checks all new links.
+
+Mapping I/O measurements use the existing read-only input context explicitly.
+Both public and unwrapped paths retain the five-expansion budget and nested reuse
+limit; changed-input and changed-authority checks remain outside that context.
+
 ## Static Parameter Export scaffold mapping
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |

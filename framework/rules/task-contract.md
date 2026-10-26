@@ -30,6 +30,19 @@ external edits. Even unchanged outputs require this comparison. This boundary an
 operating rule do not guarantee continuous detection of every concurrent edit.
 IMPORT and other authority writers retain their dedicated publication checks and callbacks.
 
+### Workflow selection
+
+Select from the Human's requested change using this table before loading a workflow prompt. IaC-only work loads implement without reading `05_update.md`. Model design changes cannot be performed by implement. Existing update branches and the one-shot repair/AWS authority boundaries remain unchanged.
+
+| Request | Skill |
+| --- | --- |
+| Implement IaC from approved Model | implement |
+| Correct IaC without changing Model, including Model/IaC mismatches on the IaC side | implement |
+| Change Model design values | applicable update branch |
+| Reflect an explicitly requested Model change into IaC and AWS | update infrastructure branch |
+| Deploy only | deploy |
+| Approved IaC repair after Deploy failure | implement through the existing repair handoff |
+
 ### Task registration
 
 - Task typeはinitialization/design/infrastructure/scenario-test/governance/catalog-maintenance/migrationのみ。active promptが今回の変更契約であり永続設計正本ではない。

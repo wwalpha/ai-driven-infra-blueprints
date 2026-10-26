@@ -161,6 +161,73 @@ def check_lazy_whole_model_parse_and_error_order(mapping_inputs):
         invoke({"First": definition()})
 
 
+@pytest.mark.parametrize("fault", ["none", "type", "duplicate", "import", "condition"])
+def check_preflight_uses_shared_selected_mapping(mapping_inputs, monkeypatch, fault):
+    root, loaded, _ = mapping_inputs
+    values = loaded[root / "model/dev/test/vpc.properties"] = {}
+    resource(values, "001", "Vpc")
+    # Ownership metadata for a different Stack must not trigger its validation.
+    resource(values, "002", "Other")
+    values["desired.resource.002.cfn-logicalId"] = "Undeclared-Other"
+    document = {"Resources": {"Vpc": definition()}}
+    if fault == "type":
+        document["Resources"]["Vpc"]["Type"] = "AWS::EC2::Subnet"
+    elif fault == "duplicate":
+        resource(values, "003", "Vpc")
+    elif fault == "import":
+        values["desired.resource.001.resourceMode"] = "IMPORT"
+    elif fault == "condition":
+        document["Resources"]["Vpc"]["Condition"] = "Unknown"
+    monkeypatch.setattr(
+        observed, "load_target", lambda *args: {"iacEngine": "cloudformation"}
+    )
+    monkeypatch.setattr(observed, "read_model", lambda *args: "")
+    monkeypatch.setattr(
+        observed,
+        "stack_model",
+        lambda *args: (
+            {},
+            [
+                (
+                    "001",
+                    {
+                        "name": "Stack",
+                        "template": "selected.yaml",
+                        "parameters": "selected.json",
+                    },
+                ),
+                (
+                    "002",
+                    {
+                        "name": "Other",
+                        "template": "unselected.yaml",
+                        "parameters": "unselected.json",
+                    },
+                ),
+            ],
+        ),
+    )
+    with (
+        patch.object(
+            observed,
+            "active_scope",
+            side_effect=AssertionError("preflight must not request scope"),
+        ),
+        patch.object(
+            observed, "load_template_inputs", return_value=(document, {})
+        ) as reads,
+    ):
+        if fault == "none":
+            assert set(
+                observed.preflight(root, "dev", "test", ["Stack"])[1]["Stack"]
+            ) == {"Vpc"}
+        else:
+            with pytest.raises(observed.MappingError):
+                observed.preflight(root, "dev", "test", ["Stack"])
+        assert reads.call_count == 1
+        assert reads.call_args.args[0].name == "selected.yaml"
+
+
 def check_explicit_mapping_uniqueness_and_no_name_inference(mapping_inputs):
     root, loaded, invoke = mapping_inputs
     values = loaded[root / "model/dev/test/vpc.properties"] = {}

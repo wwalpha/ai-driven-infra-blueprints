@@ -1,7 +1,9 @@
 ---
 name: implement
-description: Use when implementing approved AWS detailed design as IaC and performing local static validation according to the existing 03_implement workflow.
+description: Use for approved-Model IaC implementation or IaC-only corrections and local static validation, including authorized deploy repair handoffs.
 ---
+
+Select the workflow using [Workflow selection](../../../framework/rules/task-contract.md#workflow-selection).
 
 [Service Model source authority](../../../framework/rules/model-templates.md) applies.
 Read the environment-specific properties through `model.sources.load_model` and

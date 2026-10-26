@@ -1,5 +1,6 @@
 """Public operation Task I/O budgets, Project ownership and snapshot lifetime."""
 
+import json
 import shutil
 import sys
 from contextlib import contextmanager, nullcontext
@@ -11,6 +12,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import model.cli as model_cli
 import pytest
 import task_contract_core as tasks
 from comparison import Comparison
@@ -322,8 +324,12 @@ def check_command_io_budget(project, operation):
             ):
                 assert aws.run(root, items)["results"]
         elif operation == "observed":
-            with pytest.raises(observed.MappingError, match="task scope violation"):
+            # This fixture deliberately contains an unowned active resource.
+            with pytest.raises(
+                observed.MappingError, match="explicit mapping required"
+            ) as failure:
                 observed.preflight(root, ENV, TARGET, stacks)
+            assert "task scope violation" not in str(failure.value)
         elif operation == "destroy":
             assert destroy.local_plan(root, ENV, TARGET, stacks, check_scope=False)[
                 "units"
@@ -338,6 +344,63 @@ def check_command_io_budget(project, operation):
         # Live validation is intentionally counted separately by existing snapshot UTs.
         once(io, root)
     assert tasks._read_contracts.get() is None
+
+
+@pytest.mark.parametrize("registered", [False, True])
+@pytest.mark.parametrize("stack_count", [1, 2])
+def check_preflight_without_write_authority(
+    project, monkeypatch, capsys, registered, stack_count
+):
+    root, _ = project
+    if not registered:
+        for path in (root / "tasks").glob("*.md"):
+            path.unlink()
+    template = root / "infra/cloudformation/templates/shared.yaml"
+    document, _ = observed.load_template_inputs(
+        template, root / f"infra/cloudformation/parameters/{ENV}/{TARGET}/stack-1.json"
+    )
+    del document["Resources"]["OtherService"]
+    # SQS requires its non-primary identifier through GetAtt, even in read-only mode.
+    document["Outputs"] = {"QueueUrl": {"Value": {"Fn::GetAtt": ["Queue", "QueueUrl"]}}}
+    template.write_text(json.dumps(document), encoding="utf-8")
+    stacks = [f"cfn-stack-app-dev-data{i}" for i in range(1, stack_count + 1)]
+    before = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    with patch.object(
+        observed, "load_template_inputs", wraps=observed.load_template_inputs
+    ) as reads:
+        loaded, mapped = observed.preflight(root, ENV, TARGET, stacks)
+    assert set(mapped) == set(stacks)
+    assert all(
+        set(resources) == {"Bucket", "Log", "Queue"} for resources in mapped.values()
+    )
+    assert reads.call_count == stack_count
+    assert {call.args[1].name for call in reads.call_args_list} == {
+        f"stack-{i}.json" for i in range(1, stack_count + 1)
+    }
+    templates = {
+        name: (document, {"Name": f"app-dev-data{i}"})
+        for i, name in enumerate(stacks, 1)
+    }
+    units = [{"name": name} for name in stacks]
+    message = "task scope violation" if registered else "validation scope missing"
+    with pytest.raises(ValueError, match=message):
+        observed.mappings(root, ENV, TARGET, templates, units)
+    path = root / f"model/{ENV}/{TARGET}/sqs.properties"
+    with pytest.raises(ValueError, match=message):
+        observed.observed_destinations(root, ENV, TARGET, loaded, {path: {}})
+    with pytest.raises(ValueError, match=message):
+        observed.destroy_plan(root, ENV, TARGET, stacks)
+    monkeypatch.chdir(root)
+    args = ["observed", "--environment", ENV, "--target-directory", TARGET]
+    for name in stacks:
+        args.extend(["--stack", name])
+    assert model_cli.main(args) == 0
+    assert f"PASS ({stack_count} stacks)" in capsys.readouterr().out
+    assert model_cli.main(args + ["--stack", "missing"]) == 1
+    assert "unique designed StackName" in capsys.readouterr().out
+    assert {
+        path: path.read_bytes() for path in root.rglob("*") if path.is_file()
+    } == before
 
 
 def check_preparation_io_budget(tmp_path):

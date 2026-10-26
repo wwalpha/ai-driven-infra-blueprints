@@ -127,6 +127,105 @@ def check_implementation_preflight_prompt() -> None:
     ):
         assert required in finish and required not in preflight, required
 
+    # Assert the reading boundary, not a copy of each engine's rule prose.
+    for engine, anchors in {
+        "cloudformation": (
+            "common-rules",
+            "template-implementation",
+            "design-coverage-and-cloudformation-support",
+            "resource-mode-boundary",
+            "local-implementation-validation",
+        ),
+        "terraform": (
+            "common-rules",
+            "module-and-environment-inputs",
+            "resource-mode-boundary",
+            "local-static-validation",
+        ),
+        "observed-values": (
+            "dedicated-import-boundary",
+            "identifier-lifecycle",
+            "compact-observation-persistence",
+            "local-mapping-validation",
+        ),
+    }.items():
+        assert f"../../rules/{engine}.md)" not in reading
+        for anchor in anchors:
+            assert f"../../rules/{engine}.md#{anchor}" in reading
+    assert "introductory text before the first `##`" in reading
+    numbered = reading.split("For naming rules", 1)[0]
+    assert "#controlled-deploy-repair" not in numbered
+    assert "#collection-and-propagation" not in numbered
+    assert "#explicit-stack-destroy" not in numbered
+    assert "For the selected engine only" in numbered
+    assert "before this preflight" in preflight and "inside that Worktree" in preflight
+    assert "first repository change only after" in preflight
+    comparison = text.split(
+        "## Compare existing IaC before creating the contract\n", 1
+    )[1].split("\n## ", 1)[0]
+    assert (
+        "If all portions match" in comparison
+        and "does not create a new active contract" in comparison
+    )
+    assert "create it first under Create active task contract" not in reading
+
+    root = SCRIPT.parents[2]
+    transition = (root / "framework/rules/task-contract.md").read_text(encoding="utf-8")
+    routing = transition.split("### Workflow selection\n", 1)[1].split("\n### ", 1)[0]
+    assert "IaC-only work loads implement without reading `05_update.md`" in routing
+    for request, skill in (
+        ("Implement IaC from approved Model", "implement"),
+        (
+            "Correct IaC without changing Model, including Model/IaC mismatches on the IaC side",
+            "implement",
+        ),
+        ("Change Model design values", "applicable update branch"),
+        (
+            "Reflect an explicitly requested Model change into IaC and AWS",
+            "update infrastructure branch",
+        ),
+        ("Deploy only", "deploy"),
+        (
+            "Approved IaC repair after Deploy failure",
+            "implement through the existing repair handoff",
+        ),
+    ):
+        assert f"| {request} | {skill} |" in routing
+    for relative in (
+        "AGENTS.md",
+        ".agents/skills/implement/SKILL.md",
+        ".agents/skills/update/SKILL.md",
+    ):
+        assert "task-contract.md#workflow-selection" in (root / relative).read_text(
+            encoding="utf-8"
+        )
+
+    sandbox = (
+        (root / ".agents/skills/worktree/SKILL.md")
+        .read_text(encoding="utf-8")
+        .split("## Sandbox permission approval and continuation\n", 1)[1]
+        .split("\n## ", 1)[0]
+    )
+    for required in (
+        "create, setup (when needed), finalize and cleanup",
+        "confirmed prior Sandbox write denial",
+        "same Task, repository and execution environment",
+        "first invocation",
+        "Before each operation, including a different operation",
+        "read-only Git/Task/lock inspection in step 2",
+        "safe continuation in step 3",
+        "native operation-limited approval in step 4",
+        "does not assume approval",
+        "add no persistent permission-state file",
+        "If the environment changes or the cause is unknown",
+        'sandbox_permissions: "require_escalated"',
+        "Never use escalation to bypass them",
+        "one escalated reexecution per denied invocation",
+        "Never delete a lock",
+        "Finalize/cleanup guards and the Python helper remain unchanged",
+    ):
+        assert required in sandbox, required
+
 
 def _check_update_flow_prompt_validate_engine(body, heading):
     return body.split(f"### {heading}\n", 1)[1].split("\n### ", 1)[0]

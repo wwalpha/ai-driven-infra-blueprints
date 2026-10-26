@@ -288,6 +288,7 @@ def _mappings(
     loaded=None,
     selection=None,
     identifiers=True,
+    check_scope=True,
 ):
     """Shared read-only implement/deploy validation; resource-owned IDs never fall back."""
     loaded = models(root, environment, directory) if loaded is None else loaded
@@ -343,7 +344,7 @@ def _mappings(
                 errors.setdefault(name, []).append(
                     f"{name}/{logical}: cfn-logicalId references an undeclared stack"
                 )
-    scope = active_scope(root)
+    scope = active_scope(root) if check_scope else None
     for unit in units:
         name = unit["name"]
         document, parameters = templates[name]
@@ -1046,7 +1047,7 @@ def preflight(root, environment, directory, stack_names):
                 f"{unit['name']}: input unavailable: {error}"
             )
     try:
-        plan = mappings(
+        plan = _mappings(
             root,
             environment,
             directory,
@@ -1054,6 +1055,11 @@ def preflight(root, environment, directory, stack_names):
             [u for u in units if u["name"] in templates],
             target=target,
             implementation=True,
+            selection={
+                name: set(document.get("Resources", {}))
+                for name, (document, _) in templates.items()
+            },
+            check_scope=False,
         )
     except MappingError as error:
         errors.update(error.errors)
