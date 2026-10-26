@@ -21,9 +21,12 @@ def revision(path):
     return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
 
 
-def inventory(root):
+def inventory(root, environment=None, directory=None):
     result = {}
-    for path in sorted((root / "model").rglob("*.properties")):
+    base = root / "model"
+    if environment is not None:
+        base = base / environment / directory
+    for path in sorted(base.rglob("*.properties")):
         sources.safe(root, path)
         result[path.relative_to(root).as_posix()] = revision(path)
     return result

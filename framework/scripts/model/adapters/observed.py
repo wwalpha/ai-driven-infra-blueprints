@@ -6,6 +6,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import sync_runtime as _imports_sync_runtime
+from deploy.model_cache import RunModels
 from design.catalog import DesignSchemaCatalog
 from design.layout_schema import GROUPED
 from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
@@ -516,12 +517,14 @@ def resolve_resources(
     target=None,
     *,
     identifiers=True,
+    implementation=False,
+    check_scope=True,
 ):
     """Discover explicit ownership from raw metadata, validate only requested identities.
 
     Unrelated authorities are not expanded or diagnosed. No naming inference is used.
     """
-    wanted = set()
+    wanted, required_types = set(), set()
     target = target or (
         load_target(root, environment, directory)
         if (root / "project.json").is_file()
@@ -547,6 +550,10 @@ def resolve_resources(
                 document, parameters, pseudo, definition
             ):
                 continue
+            if implementation and not static_export_handle(
+                document, logical, parameters, pseudo
+            ):
+                required_types.add(definition["Type"])
             wanted.add((unit["name"], logical))
             rules = [
                 rule
@@ -606,7 +613,19 @@ def resolve_resources(
             for key, value in raw.authoritative.items()
         )
         if owners:
-            loaded[path] = properties(read_model(path))
+            loaded[path] = (
+                raw.values
+                if implementation and source_models.session_reads(root) is not None
+                else properties(read_model(path))
+            )
+    if implementation:
+        direct = resource_index(loaded, catalog)
+        mapped_types = {
+            entry[3] for candidates in direct.values() for entry in candidates
+        }
+        # The index has no type/mode metadata to prove IMPORT-only for other types.
+        if required_types - mapped_types:
+            loaded = models(root, environment, directory)
     return _mappings(
         root,
         environment,
@@ -618,6 +637,8 @@ def resolve_resources(
         loaded=loaded,
         selection=selected,
         identifiers=identifiers,
+        implementation=implementation,
+        check_scope=check_scope,
     )
 
 
@@ -1004,6 +1025,13 @@ def sync_destroyed(backend, states, plan):
 @input_scope
 def preflight(root, environment, directory, stack_names):
     """Local inputs only: same mapping validator as the deploy controller."""
+    with source_models.model_session(
+        source_models.session_reads(root) or RunModels(root, {})
+    ):
+        return _preflight(root, environment, directory, stack_names)
+
+
+def _preflight(root, environment, directory, stack_names):
     target = load_target(root, environment, directory)
     if target["iacEngine"] != "cloudformation":
         raise ValueError("mapping preflight requires CloudFormation target")
@@ -1047,20 +1075,48 @@ def preflight(root, environment, directory, stack_names):
                 f"{unit['name']}: input unavailable: {error}"
             )
     try:
-        plan = _mappings(
+        index = (
+            dependency_index.load(root)
+            if dependency_index.location(root).is_file()
+            else None
+        )
+        if index is not None:
+            prefix = f"model/{environment}/{directory}/"
+            indexed_files = {
+                path: revision
+                for path, revision in index["files"].items()
+                if path.startswith(prefix)
+            }
+            if (
+                dependency_index.inventory(root, environment, directory)
+                != indexed_files
+            ):
+                raise ValueError("Model dependency index differs from target inputs")
+        selection = {
+            name: set(document.get("Resources", {}))
+            for name, (document, _) in templates.items()
+        }
+        plan = (resolve_resources if index is not None else _mappings)(
             root,
             environment,
             directory,
             templates,
             [u for u in units if u["name"] in templates],
+            **(
+                {"selected": selection}
+                if index is not None
+                else {"selection": selection}
+            ),
             target=target,
             implementation=True,
-            selection={
-                name: set(document.get("Resources", {}))
-                for name, (document, _) in templates.items()
-            },
             check_scope=False,
         )
+        if (
+            index is not None
+            and dependency_index.inventory(root, environment, directory)
+            != indexed_files
+        ):
+            raise ValueError("Model dependency index differs from target inputs")
     except MappingError as error:
         errors.update(error.errors)
     if errors:

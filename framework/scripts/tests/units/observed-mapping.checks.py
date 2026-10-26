@@ -1,6 +1,8 @@
 """Observed mappings preserves ownership and narrowly permits static Export scaffolds."""
 
+import json
 import sys
+from collections import Counter
 from copy import deepcopy
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -14,6 +16,10 @@ import pytest
 from deploy import observed as deploy_observed
 from model.adapters import observed
 from model.core import entries as entries
+from support.model_sources import allocate_fixture, write_model
+from utils.sealed_evidence import read_sealed, write_sealed
+
+from model import dependency_index, sources
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -226,6 +232,312 @@ def check_preflight_uses_shared_selected_mapping(mapping_inputs, monkeypatch, fa
                 observed.preflight(root, "dev", "test", ["Stack"])
         assert reads.call_count == 1
         assert reads.call_args.args[0].name == "selected.yaml"
+
+
+@pytest.fixture
+def preflight_files(project_workspace, monkeypatch):
+    root = project_workspace
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    target = {
+        "environment": "dev",
+        "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+        "iacEngine": "cloudformation",
+    }
+    (root / "project.json").write_text(
+        json.dumps({"targets": [target]}), encoding="utf-8"
+    )
+    stacks, templates, paths = {}, {}, []
+    for number, name in enumerate(("First", "Second"), 1):
+        path = root / f"model/dev/123456789012/bucket-{number}.properties"
+        values = {
+            "desired.resource.001.resourceType": "EC2.VPC",
+            "desired.resource.001.cfn-logicalId": name + "-Bucket",
+            "desired.row.001-001.property": "EC2.VPC.VpcId",
+            "desired.row.001-001.value": "[self](#resource-EC2_VPC_001)",
+            "desired.row.001-001.comment": "識別子",
+        }
+        values.update(allocate_fixture(values, ["001"]))
+        write_model(path, values)
+        paths.append(path)
+        unit = {
+            "name": name,
+            "template": name + ".yaml",
+            "parameters": name + ".json",
+            "deployOrder": str(number),
+        }
+        stacks.update(
+            {f"desired.stack.{number:03d}.{key}": value for key, value in unit.items()}
+        )
+        template = root / "infra/cloudformation/templates" / unit["template"]
+        template.parent.mkdir(parents=True, exist_ok=True)
+        document = {"Resources": {"Bucket": {"Type": "AWS::EC2::VPC"}}}
+        template.write_text(json.dumps(document), encoding="utf-8")
+        parameters = (
+            root
+            / "infra/cloudformation/parameters/dev/123456789012"
+            / unit["parameters"]
+        )
+        parameters.parent.mkdir(parents=True, exist_ok=True)
+        parameters.write_text("[]", encoding="utf-8")
+        templates[name] = document
+    write_model(paths[0].with_name("cloudformation-stacks.properties"), stacks)
+    return root, paths, templates
+
+
+@pytest.mark.parametrize("unrelated_count", [1, 40])
+def check_preflight_indexed_read_budget(preflight_files, unrelated_count):
+    root, paths, documents = preflight_files
+    for number in range(unrelated_count):
+        write_model(paths[0].with_name(f"unrelated-{number}.properties"), {})
+    dependency_index.rebuild(root)
+    with (
+        sources.model_session(observed.RunModels(root, {})),
+        patch.object(sources, "_read_model", wraps=sources._read_model) as before,
+    ):
+        observed._mappings(
+            root,
+            "dev",
+            "123456789012",
+            {"First": (documents["First"], {})},
+            [{"name": "First"}],
+            implementation=True,
+            check_scope=False,
+        )
+    baseline = Counter(call.args[0].path for call in before.call_args_list)
+    with (
+        patch.object(sources, "_read_model", wraps=sources._read_model) as loads,
+        patch.object(
+            sources._imports_model_references,
+            "diagnose",
+            wraps=sources._imports_model_references.diagnose,
+        ) as checks,
+        patch.object(
+            dependency_index, "read_sealed", wraps=dependency_index.read_sealed
+        ) as index_reads,
+        patch.object(
+            dependency_index,
+            "rebuild",
+            side_effect=AssertionError("preflight rebuilt index"),
+        ),
+        patch.object(
+            dependency_index,
+            "record",
+            side_effect=AssertionError("preflight rebuilt record"),
+        ),
+    ):
+        loaded, mapped = observed.preflight(root, "dev", "123456789012", ["First"])
+    assert set(loaded) == {paths[0]}
+    assert set(mapped["First"]) == {"Bucket"}
+    assert Counter(call.args[0].path for call in loads.call_args_list) == Counter(
+        {paths[0]: 1, paths[0].with_name("cloudformation-stacks.properties"): 1}
+    )
+    assert Counter(
+        call.args[0].scope.path for call in checks.call_args_list
+    ) == Counter(
+        {paths[0]: 1, paths[0].with_name("cloudformation-stacks.properties"): 1}
+    )
+    assert index_reads.call_count == 1
+    assert len(baseline) == unrelated_count + 3
+    print(
+        f"preflight services: before={unrelated_count + 2}, after=1; unrelated parse=0; index reads=1, rebuild=0"
+    )
+
+
+@pytest.mark.parametrize("selected", [False, True])
+def check_preflight_indexed_invalid_model(preflight_files, selected):
+    root, paths, _ = preflight_files
+    path = paths[0] if selected else paths[1]
+    # Raw index metadata is readable; full Model loading rejects this declaration.
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "desired.reference.001.producerKind=unknown\n",
+        encoding="utf-8",
+    )
+    dependency_index.rebuild(root)
+    with pytest.raises(ValueError):
+        sources.load_model(path)
+    if selected:
+        with pytest.raises(ValueError):
+            observed.preflight(root, "dev", "123456789012", ["First"])
+    else:
+        assert set(observed.preflight(root, "dev", "123456789012", ["First"])[0]) == {
+            paths[0]
+        }
+
+
+@pytest.mark.parametrize(
+    "fault", ["duplicate", "type", "import", "identifier", "condition", "output"]
+)
+def check_preflight_indexed_mapping_errors(preflight_files, fault):
+    root, paths, documents = preflight_files
+    text = paths[0].read_text(encoding="utf-8")
+    if fault == "duplicate":
+        write_model(paths[0].with_name("duplicate.properties"), text)
+    elif fault == "type":
+        documents["First"]["Resources"]["Bucket"]["Type"] = "AWS::S3::Bucket"
+    elif fault == "import":
+        write_model(paths[0], text + "desired.resource.001.resourceMode=IMPORT\n")
+    elif fault == "identifier":
+        write_model(
+            paths[0], text.replace("[self](#resource-EC2_VPC_001)", "`literal`")
+        )
+    elif fault == "condition":
+        documents["First"]["Resources"]["Bucket"]["Condition"] = "Missing"
+    else:
+        documents["First"]["Outputs"] = {
+            "Bad": {"Condition": "Missing", "Value": {"Ref": "Bucket"}}
+        }
+    (root / "infra/cloudformation/templates/First.yaml").write_text(
+        json.dumps(documents["First"]), encoding="utf-8"
+    )
+    dependency_index.rebuild(root)
+    with pytest.raises((ValueError, observed.Blocked)):
+        observed.preflight(root, "dev", "123456789012", ["First"])
+
+
+def check_preflight_indexed_multiple_stacks(preflight_files):
+    root, paths, _ = preflight_files
+    paths[0].with_name("unrelated.properties").write_text(
+        "# model-format: 2\ndesired.reference.001.producerKind=unknown\n",
+        encoding="utf-8",
+    )
+    dependency_index.rebuild(root)
+    with patch.object(sources, "_read_model", wraps=sources._read_model) as loads:
+        loaded, mapped = observed.preflight(
+            root, "dev", "123456789012", ["First", "Second"]
+        )
+    assert set(loaded) == set(paths)
+    assert set(mapped) == {"First", "Second"}
+    assert len(loads.call_args_list) == 3
+
+
+@pytest.mark.parametrize(
+    "fault", ["missing", "stale", "new-owner", "removed", "metadata", "invalid"]
+)
+def check_preflight_index_integrity(preflight_files, fault):
+    root, paths, _ = preflight_files
+    dependency_index.rebuild(root)
+    index_path = dependency_index.location(root)
+    if fault == "missing":
+        index_path.unlink()
+        assert set(
+            observed.preflight(root, "dev", "123456789012", ["First"])[0]
+        ) == set(paths)
+        assert not index_path.exists()
+        paths[1].write_text("broken syntax", encoding="utf-8")
+    elif fault == "stale":
+        paths[1].write_text(paths[0].read_text(encoding="utf-8"), encoding="utf-8")
+    elif fault == "new-owner":
+        write_model(
+            paths[0].with_name("new-owner.properties"),
+            paths[0].read_text(encoding="utf-8"),
+        )
+    elif fault == "removed":
+        paths[1].unlink()
+    elif fault == "metadata":
+        index = read_sealed(root, index_path)
+        index["models"][paths[0].relative_to(root).as_posix()]["owners"].append(
+            "Other-Resource"
+        )
+        write_sealed(root, index_path, index)
+    else:
+        index_path.write_text("invalid sealed index", encoding="utf-8")
+    with pytest.raises(ValueError):
+        observed.preflight(root, "dev", "123456789012", ["First"])
+
+
+@pytest.mark.parametrize("mode", ["IMPORT", "CREATE", "mapped"])
+def check_preflight_import_only_fallback(preflight_files, mode):
+    root, paths, documents = preflight_files
+    text = (
+        paths[0]
+        .read_text(encoding="utf-8")
+        .replace("desired.resource.001.cfn-logicalId=First-Bucket\n", "")
+    )
+    write_model(paths[0], text + "desired.resource.001.resourceMode=IMPORT\n")
+    second = paths[1].read_text(encoding="utf-8")
+    if mode != "mapped":
+        second = second.replace(
+            "desired.resource.001.cfn-logicalId=Second-Bucket\n", ""
+        )
+        write_model(paths[1], second + f"desired.resource.001.resourceMode={mode}\n")
+    dependency_index.rebuild(root)
+    with patch.object(observed, "models", wraps=observed.models) as fallback:
+        if mode == "IMPORT":
+            assert observed.preflight(root, "dev", "123456789012", ["First"])[1] == {
+                "First": {}
+            }
+        else:
+            with pytest.raises(
+                observed.MappingError, match="explicit mapping required"
+            ):
+                observed.preflight(root, "dev", "123456789012", ["First"])
+    assert fallback.call_count == 1
+
+
+@pytest.mark.parametrize("missing_settings", [False, True])
+def check_preflight_integrated_child(preflight_files, missing_settings):
+    root, paths, documents = preflight_files
+    text = (
+        paths[0]
+        .read_text(encoding="utf-8")
+        .replace("EC2.VPC", "S3.Bucket")
+        .replace("EC2_VPC", "S3_Bucket")
+        .replace("S3.Bucket.VpcId", "S3.Bucket.BucketName")
+    )
+    if not missing_settings:
+        text += 'desired.row.001-002.property=S3.BucketPolicy.PolicyDocument\ndesired.row.001-002.value=`{"Statement":[]}`\ndesired.row.001-002.comment=子設定\n'
+    write_model(paths[0], text)
+    documents["First"]["Resources"]["Bucket"]["Type"] = "AWS::S3::Bucket"
+    documents["First"]["Resources"]["Policy"] = {
+        "Type": "AWS::S3::BucketPolicy",
+        "Properties": {"Bucket": {"Ref": "Bucket"}},
+    }
+    (root / "infra/cloudformation/templates/First.yaml").write_text(
+        json.dumps(documents["First"]), encoding="utf-8"
+    )
+    dependency_index.rebuild(root)
+    if missing_settings:
+        with pytest.raises(
+            observed.MappingError, match="integrated child settings missing"
+        ):
+            observed.preflight(root, "dev", "123456789012", ["First"])
+    else:
+        with patch.object(sources, "_read_model", wraps=sources._read_model) as loads:
+            _, mapped = observed.preflight(root, "dev", "123456789012", ["First"])
+        assert set(mapped["First"]) == {"Bucket", "Policy"}
+        assert all(item[0] == paths[0] for item in mapped["First"].values())
+        assert (
+            Counter(call.args[0].path for call in loads.call_args_list)[paths[0]] == 1
+        )
+
+
+def check_preflight_indexed_task_scope_and_other_targets(preflight_files):
+    root, paths, documents = preflight_files
+    tasks = root / "tasks"
+    tasks.mkdir()
+    (tasks / "selected.md").write_text(
+        "## Task contract\n- Task status: `running`\n## Validation scope\n- `dev/123456789012/bucket-1`\n## Modified files\n- `tasks/selected.md`\n## Allowed paths\n- `tasks/selected.md`\n",
+        encoding="utf-8",
+    )
+    dependency_index.rebuild(root)
+    # A new malformed authority in another environment is outside this read scope.
+    outside = root / "model/stg/123456789012/broken.properties"
+    outside.parent.mkdir(parents=True)
+    outside.write_text("broken syntax", encoding="utf-8")
+    assert set(observed.preflight(root, "dev", "123456789012", ["Second"])[0]) == {
+        paths[1]
+    }
+    outside.unlink()
+    with pytest.raises(observed.MappingError, match="task scope violation"):
+        observed.mappings(
+            root,
+            "dev",
+            "123456789012",
+            {"Second": (documents["Second"], {})},
+            [{"name": "Second"}],
+        )
 
 
 def check_explicit_mapping_uniqueness_and_no_name_inference(mapping_inputs):
