@@ -283,11 +283,12 @@ def check_observed_failure_drains_peers_and_resumes(tmp_path, monkeypatch):
     saved = json.loads(session.read_text())
     assert "pendingObserved" not in saved
     assert saved["pendingGeneration"]
-    assert all(
-        state["status"] == "SUCCESS" and state["observedSynced"]
-        for state in saved["states"].values()
-    )
-    assert THIRD in json.loads(aws.read_text())["changes"]
+    assert saved["states"][FIRST]["status"] == "SUCCESS"
+    assert saved["states"][FIRST]["observedSynced"]
+    assert saved["states"][SECOND]["status"] == "SUCCESS"
+    assert not saved["states"][SECOND].get("observedSynced")
+    assert saved["states"][THIRD]["status"] == "NOT_STARTED"
+    assert THIRD not in json.loads(aws.read_text())["changes"]
     evidence = {
         name: saved["states"][name]["executionEvidence"] for name in (FIRST, SECOND)
     }

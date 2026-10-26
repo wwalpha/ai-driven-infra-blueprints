@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from design.policy_tables import rendered_design
+from model.core import ReferenceResolutionError
 from model.projection import json_sha256
 from model.render import generate_files, generate_markdown
 from model.sources import load_model
@@ -33,35 +34,51 @@ def main():
             original = consumer.path.read_bytes()
             for observed, expected in [
                 (None, "unresolved"),
-                ("PENDING_DEPLOY", "pending_deploy"),
+                ("PENDING_DEPLOY", "PENDING_DEPLOY"),
                 (
                     "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
                     "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
                 ),
             ]:
                 if observed is not None:
+                    values["desired.row.001-001.property"] = (
+                        "KMS.Key.KeyId" if observed == "PENDING_DEPLOY" else "KMS.Key.Arn"
+                    )
                     values["observed.row.001-001.value"] = "`" + observed + "`"
                     save(producer, values)
                 snapshot = load_model(consumer)
-                markdown = generate_markdown(view, snapshot.values, root)
-                expected_display = (
-                    expected
-                    if observed in (None, "PENDING_DEPLOY")
-                    else "[KMS.Key](kms.md#saved-001)"
-                )
-                assert "$modelRef" not in markdown and expected_display in markdown
+                if observed is None:
+                    try:
+                        generate_markdown(view, snapshot.values, root)
+                    except ReferenceResolutionError as error:
+                        assert error.diagnostic["category"] == "REFERENCE_UNRESOLVED"
+                        assert error.diagnostic["pointer"] == "/Statement/0/Resource"
+                    else:
+                        raise AssertionError("unresolved reference rendered Markdown")
+                else:
+                    markdown = generate_markdown(view, snapshot.values, root)
+                    expected_display = (
+                        expected
+                        if observed == "PENDING_DEPLOY"
+                        else "[KMS.Key](kms.md#saved-001)"
+                    )
+                    assert "$modelRef" not in markdown and expected_display in markdown
                 if observed in (None, "PENDING_DEPLOY"):
                     try:
                         generate_files(view, snapshot.values, root)
-                    except ValueError as error:
-                        assert expected in str(
-                            error
-                        ).lower() and "/Statement/0/Resource" in str(error)
+                    except ReferenceResolutionError as error:
+                        assert error.diagnostic["category"] == (
+                            "REFERENCE_UNRESOLVED"
+                            if observed is None
+                            else "REFERENCE_PENDING_DEPLOY"
+                        )
+                        assert error.diagnostic["pointer"] == "/Statement/0/Resource"
                     else:
                         raise AssertionError(
                             "unresolved reference generated an artifact"
                         )
                     assert not artifact.exists() and not view.exists()
+                    assert consumer.path.read_bytes() == original
                     continue
                 files = generate_files(view, snapshot.values, root)
                 save_files(files)
