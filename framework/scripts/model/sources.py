@@ -662,6 +662,7 @@ def _read_model(scope, read_context=None):
                 }
             ),
             parts,
+            provenance=MappingProxyType({}),
         )
 
 
@@ -716,7 +717,18 @@ def _read_source_snapshot(scope, reads):
     models = _model_snapshots(reads)
     key = "source", scope, read_context(scope.root)
     if key not in models:
-        models[key] = _read_model(scope, reads)
+        models[key] = (
+            reads.snapshot(
+                (*key, getattr(reads, "reference_revision", None)),
+                _read_model,
+                scope,
+                reads,
+            )
+            if isinstance(reads, FileReads)
+            and read_only_inputs()
+            and session_reads(scope.root) is None
+            else _read_model(scope, reads)
+        )
     return models[key]
 
 
@@ -753,16 +765,41 @@ def _load_model(scope, read_context=None):
     reads = read_context or _invocation_reads(scope.root)
     key = scope, permission_context(scope.root)
     models = _model_snapshots(reads)
-    if key in models:
+    # Change Plan reads must collect their own producer metadata and candidate overrides.
+    if key in models and not change_scope.active():
         return models[key]
     snapshot = _source_snapshot(scope, reads)
-    diagnose = _imports_model_references.diagnose
-    warnings, dependencies = diagnose(snapshot, reads)
+    if (
+        isinstance(reads, FileReads)
+        and read_only_inputs()
+        and session_reads(scope.root) is None
+        and not change_scope.active()
+    ):
+        warnings, dependencies = reads.snapshot(
+            (
+                "diagnosed",
+                *key,
+                id(snapshot),
+                getattr(reads, "reference_revision", None),
+            ),
+            _read_diagnostics,
+            snapshot,
+            reads,
+        )
+        warnings = tuple(json.loads(warnings))
+    else:
+        warnings, dependencies = _imports_model_references.diagnose(snapshot, reads)
     result = snapshot._replace(
         warnings=warnings, dependencies=MappingProxyType(dependencies)
     )
-    models[key] = result
+    if not change_scope.active():
+        models[key] = result
     return result
+
+
+def _read_diagnostics(snapshot, reads):
+    warnings, dependencies = _imports_model_references.diagnose(snapshot, reads)
+    return json.dumps(warnings, ensure_ascii=False), MappingProxyType(dependencies)
 
 
 def fork_model_inputs(

@@ -1,5 +1,8 @@
 """Recorded source reads and candidate overlays, independent of Model operations."""
 
+from concurrent.futures import Future
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from threading import RLock
 
@@ -78,6 +81,7 @@ class FileReads:
         self.cache_identity = object()
         self.contents = {}
         self.models = {}
+        self.snapshots = {}
         self.documents = {}
         self.selections = {}
         self.kinds = {}
@@ -89,7 +93,12 @@ class FileReads:
         reads = FileReads()
         reads.cache_identity = self.cache_identity
         reads.lock = self.lock
-        reads.models = dict(self.models)
+        reads.models = {
+            key: replace(snapshot, warnings=deepcopy(snapshot.warnings))
+            if snapshot is not None and snapshot.warnings
+            else snapshot
+            for key, snapshot in self.models.items()
+        }
         for name in (
             "contents",
             "documents",
@@ -97,9 +106,28 @@ class FileReads:
             "kinds",
             "read_failures",
             "indexes",
+            "snapshots",
         ):
             setattr(reads, name, getattr(self, name))
         return reads
+
+    def snapshot(self, key, build, *args):
+        """Single-flight immutable results; never hold the read lock during construction/wait."""
+        with self.lock:
+            pending = self.snapshots.get(key)
+            owner = pending is None
+            if owner:
+                pending = self.snapshots[key] = Future()
+        if owner:
+            try:
+                result = build(*args)
+            except BaseException as error:
+                with self.lock:
+                    del self.snapshots[key]
+                    pending.set_exception(error)
+                raise
+            pending.set_result(result)
+        return pending.result()
 
     def read(self, path):
         with self.lock:

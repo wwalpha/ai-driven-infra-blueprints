@@ -4,7 +4,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -199,10 +199,11 @@ def check_index_checked_once_per_root_permission_and_execution(tmp_path):
 
 
 class ColdWorker:
-    def __init__(self, inputs, path, *, inventory=False):
+    def __init__(self, inputs, path, *, inventory=False, checked=False):
         self.inputs, self.path = inputs, path
         self.barrier = Barrier(4)
         self.inventory, self.diagnostics = inventory, []
+        self.checked = checked
 
     def __call__(self, number):
         with input_context(
@@ -219,13 +220,16 @@ class ColdWorker:
                 self.diagnostics.append(metadata)
             else:
                 index = dependency_index.load(self.path.parents[3])
-            snapshot = sources.raw_model(self.path)
+            snapshot = (sources.load_model if self.checked else sources.raw_model)(
+                self.path
+            )
             reads.models[number] = None
             return snapshot, reads, index
 
 
 @pytest.mark.parametrize("recorded", [False, True])
-def check_cold_workers_share_one_read_parse_and_index(tmp_path, recorded):
+@pytest.mark.parametrize("checked", [False, True])
+def check_cold_workers_share_one_read_parse_and_index(tmp_path, recorded, checked):
     path, values = model_input(tmp_path)
     dependency_index.rebuild(tmp_path)
     with ExitStack() as lifetime:
@@ -237,8 +241,20 @@ def check_cold_workers_share_one_read_parse_and_index(tmp_path, recorded):
         reads = sources._invocation_reads(tmp_path)
         assert path not in reads.contents and not reads.documents
         inputs = dict(memo_table())
-        worker = ColdWorker(inputs, path)
+        worker = ColdWorker(inputs, path, checked=checked)
         with (
+            patch.object(sources, "_read_model", wraps=sources._read_model) as model,
+            patch.object(
+                sources, "validate_blocks", wraps=sources.validate_blocks
+            ) as blocks,
+            patch.object(
+                sources, "runtime_values", wraps=sources.runtime_values
+            ) as runtime,
+            patch.object(
+                sources._imports_model_references,
+                "diagnose",
+                wraps=sources._imports_model_references.diagnose,
+            ) as diagnose,
             patch.object(sources, "parse", wraps=sources.parse) as parse,
             patch.object(
                 source_reads, "input_bytes", wraps=source_reads.input_bytes
@@ -255,6 +271,10 @@ def check_cold_workers_share_one_read_parse_and_index(tmp_path, recorded):
             )
             second = list(executor.map(worker, range(4)))
         assert parse.call_count == 1
+        assert (
+            model.call_count == blocks.call_count == runtime.call_count == int(checked)
+        )
+        assert diagnose.call_count == int(checked)
         assert sum(call.args == (path,) for call in read.call_args_list) == 1
         assert index.call_count == 1
         assert all(
@@ -267,8 +287,210 @@ def check_cold_workers_share_one_read_parse_and_index(tmp_path, recorded):
         assert len({id(fork.models) for _, fork, _ in first}) == 4
         assert not any(number in reads.models for number in range(4))
         assert all(loaded is first[0][2] for _, _, loaded in first + second)
+        if checked:
+            assert all(
+                snapshot.authoritative is first[0][0].authoritative
+                and snapshot.values is first[0][0].values
+                for snapshot, _, _ in first + second
+            )
     with input_context(fresh=True, read_only=True):
         assert sources.raw_model(path).authoritative != values
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def check_diagnosis_keeps_worker_warnings_private(tmp_path, warm):
+    path, values = model_input(tmp_path)
+    values["desired.row.001-001.value"] = "[Absent](missing.md#absent)"
+    write_model(path, values)
+    with input_context(fresh=True, read_only=True):
+        single = sources.load_model(path)
+    assert single.warnings
+    with (
+        input_context(fresh=True, read_only=True),
+        patch.object(
+            sources._imports_model_references,
+            "diagnose",
+            wraps=sources._imports_model_references.diagnose,
+        ) as diagnose,
+    ):
+        reads = sources._invocation_reads(tmp_path)
+        original = sources.load_model(path) if warm else None
+        if warm:
+            direct = sources.load_model(path, reads.fork())
+            direct.warnings[0]["message"] = "private direct fork"
+            assert original.warnings == single.warnings
+        inputs = dict(memo_table())
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            results = list(executor.map(worker_read, [(inputs, path)] * 4))
+        assert diagnose.call_count == 1
+        snapshots = [snapshot for snapshot, _ in results]
+        for snapshot in snapshots:
+            assert snapshot == single
+        assert len({id(s.warnings[0]) for s in snapshots}) == 4
+        snapshots[0].warnings[0]["message"] = "private"
+        assert all(s.warnings == single.warnings for s in snapshots[1:])
+        if original is not None:
+            assert original.warnings == single.warnings
+        assert "private" not in reads.models
+
+
+def check_diagnosis_respects_change_context_and_candidate_producers(tmp_path):
+    path, values = model_input(tmp_path)
+    producer = path.with_name("producer.properties")
+    write_model(producer, values)
+    values = dict(values)
+    values["desired.row.001-001.value"] = "[Producer](producer.md#logs-group)"
+    write_model(path, values)
+    with (
+        input_context(fresh=True, read_only=True),
+        patch.object(
+            sources._imports_model_references,
+            "diagnose",
+            wraps=sources._imports_model_references.diagnose,
+        ) as diagnose,
+    ):
+        original = sources.load_model(path)
+        assert not original.warnings
+        reads = sources._invocation_reads(tmp_path)
+        candidate_values = dict(sources.raw_model(producer).authoritative)
+        candidate_values["desired.resource.001.anchor"] = "candidate-anchor"
+        candidate = sources.raw_model(
+            producer,
+            sources.CandidateReads(reads, {producer: serialize(candidate_values)}),
+        )
+        metadata = {"snapshots": {producer: candidate}}
+        with change_scope.change_reads(tmp_path, reads, metadata=metadata):
+            changed = sources.load_model(path)
+            assert changed.warnings
+            assert any(
+                "candidate-anchor" in raw.decode()
+                for raw in changed.dependencies.values()
+                if raw
+            )
+        with change_scope.change_reads(tmp_path, reads, metadata={}):
+            unchanged = sources.load_model(path)
+            assert not unchanged.warnings
+        assert sources.load_model(path) is original
+        assert diagnose.call_count == 3
+
+
+def check_shared_sources_respect_permission_and_candidate_boundaries(tmp_path):
+    path, values = model_input(tmp_path)
+    with (
+        input_context(fresh=True, read_only=True),
+        patch.object(sources, "_read_model", wraps=sources._read_model) as read,
+    ):
+        original = sources.load_model(path)
+        reads = sources._invocation_reads(tmp_path)
+        with permissions.restrict(("dev", "team", "logs")):
+            restricted = sources.load_model(path, reads.fork())
+            assert restricted.authoritative == original.authoritative
+            assert restricted.authoritative is not original.authoritative
+            with permissions.read_consumers({("dev", "team", "other")}):
+                with pytest.raises(ValueError, match="outside selected"):
+                    sources.load_model(path, reads.fork())
+                with permissions.reference_reader(path):
+                    reference = sources.load_model(path, reads.fork())
+                    assert reference.authoritative is not restricted.authoritative
+        for value in ("`candidate-a`", "`candidate-b`"):
+            candidate = sources.load_model(
+                path,
+                sources.CandidateReads(
+                    reads,
+                    {
+                        path: serialize(
+                            dict(values, **{"desired.row.001-001.value": value})
+                        )
+                    },
+                ),
+            )
+            assert candidate.authoritative["desired.row.001-001.value"] == value
+        assert sources.load_model(path) is original
+        assert read.call_count == 5
+
+
+class SourceBuildProbe:
+    def __init__(self, original, *, barrier=None, release=None):
+        self.original, self.barrier, self.release = original, barrier, release
+        self.started = Event()
+
+    def __call__(self, scope, reads):
+        self.started.set()
+        if self.barrier is not None:
+            self.barrier.wait(timeout=10)
+        if self.release is not None:
+            assert self.release.wait(timeout=10)
+            raise ValueError("fixture source build failed")
+        return self.original(scope, reads)
+
+
+def check_distinct_source_builds_do_not_hold_shared_lock(tmp_path):
+    path, values = model_input(tmp_path)
+    other = path.with_name("other.properties")
+    write_model(other, values)
+    probe = SourceBuildProbe(sources._read_model, barrier=Barrier(2))
+    with (
+        input_context(fresh=True, read_only=True),
+        patch.object(sources, "_read_model", probe),
+    ):
+        sources._invocation_reads(tmp_path)
+        inputs = dict(memo_table())
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(worker_read, [(inputs, p) for p in (path, other)])
+            )
+        assert {snapshot.scope.path for snapshot, _ in results} == {path, other}
+
+
+def check_source_waiting_for_publication_does_not_hold_read_lock(tmp_path):
+    path, _ = model_input(tmp_path)
+    probe = SourceBuildProbe(sources._read_model)
+    with (
+        input_context(fresh=True, read_only=True),
+        patch.object(sources, "_read_model", probe),
+        ThreadPoolExecutor(max_workers=1) as executor,
+    ):
+        reads = sources._invocation_reads(tmp_path)
+        inputs = dict(memo_table())
+        with sources.publication_lock(tmp_path, read_only=True):
+            future = executor.submit(worker_read, (inputs, path))
+            assert probe.started.wait(timeout=10)
+            assert reads.lock.acquire(timeout=2)
+            reads.lock.release()
+        assert future.result(timeout=10)[0].scope.path == path
+
+
+class WaitingFuture(source_reads.Future):
+    barrier = None
+
+    def result(self, timeout=None):
+        self.barrier.wait(timeout=10)
+        return super().result(timeout=timeout)
+
+
+def check_failed_source_build_reaches_all_waiters_and_can_retry(tmp_path):
+    path, _ = model_input(tmp_path)
+    release = Event()
+    probe = SourceBuildProbe(sources._read_model, release=release)
+    with input_context(fresh=True, read_only=True):
+        reads = sources._invocation_reads(tmp_path)
+        inputs = dict(memo_table())
+        with (
+            patch.object(sources, "_read_model", probe),
+            patch.object(source_reads, "Future", WaitingFuture),
+            patch.object(WaitingFuture, "barrier", Barrier(4)),
+            ThreadPoolExecutor(max_workers=4) as executor,
+        ):
+            futures = [executor.submit(worker_read, (inputs, path)) for _ in range(4)]
+            try:
+                WaitingFuture.barrier.wait(timeout=10)
+            finally:
+                release.set()
+            for future in futures:
+                with pytest.raises(ValueError, match="fixture source build failed"):
+                    future.result(timeout=10)
+        assert not reads.snapshots
+        assert sources.load_model(path).scope.path == path
 
 
 def check_workers_share_inventory_and_retain_diagnostics(tmp_path):
