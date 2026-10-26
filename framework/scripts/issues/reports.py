@@ -9,8 +9,10 @@ from html import escape
 from pathlib import Path
 
 from task_contract_core import relative_path
+from validation.diagnostics import Diagnostic
 
 from .aggregate import aggregate, comparison_status
+from .ownership import resolve
 from .records import brief, identifier, safe_text
 
 
@@ -80,7 +82,41 @@ def issue_content(root, path, record):
         if (value := record.get(key)) and str(value) not in message
     )
     message = escape((target + ": " if target else "") + message, quote=False)
-    link = evidence(root, path, report_source(root, record))
+    source = report_source(root, record)
+    diagnostic = record.get("diagnostic", {})
+    if diagnostic.get("fixModels"):
+        owner = record.get("ownership", {}).get("owner")
+        owner = tuple(owner) if isinstance(owner, (list, tuple)) else None
+        matches = []
+        for model in diagnostic["fixModels"]:
+            if not isinstance(model, str):
+                continue
+            result = resolve(
+                root,
+                Diagnostic.create(
+                    root,
+                    code="reference",
+                    check_id="model.references",
+                    service=None,
+                    source_path=model,
+                    message="",
+                    cause_kind="input_invalid",
+                ),
+                {owner},
+            )
+            if owner is not None and result["status"] == "assigned":
+                matches.append(model)
+        source = (
+            report_source(
+                root,
+                record
+                if matches[0] == diagnostic.get("model")
+                else {"source_path": matches[0]},
+            )
+            if len(matches) == 1
+            else None
+        )
+    link = evidence(root, path, source)
     return (
         message
         + (f" 根拠: {link}。" if link else "")

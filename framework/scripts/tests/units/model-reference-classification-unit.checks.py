@@ -16,7 +16,7 @@ import pytest
 import sync_runtime
 from design.policy_tables import rendered_design
 from issues.artifact import validation_status
-from issues.reports import ordinary_report
+from issues.reports import issue_content, ordinary_report
 from issues.runner import reference_issues, scan
 from model.core import (
     FrameworkUnsupportedError,
@@ -223,6 +223,35 @@ def test_invalid_reference_has_origin_code_and_position(models, fault, code):
         for item in issues
         if item["service"] != "iam"
     )
+    original = copy.deepcopy(issues)
+    report_path = consumer.root / "issues/qa/team/issues.md"
+    for issue in issues:
+        content = issue_content(consumer.root, report_path, issue)
+        expected = f"model/qa/team/{issue['service']}.properties"
+        assert f"根拠: [{expected}]" in content
+        assert issue["diagnostic"]["model"] == str(consumer.path)
+        assert f"<!-- issue-id: {issue['id']} -->" in content
+    assert issues == original
+    unknown = copy.deepcopy(issues[0])
+    unknown["ownership"]["owner"] = None
+    unknown["diagnostic"]["fixModels"] = [str(producer.path)]
+    assert "根拠:" not in issue_content(consumer.root, report_path, unknown)
+    unknown["ownership"] = copy.deepcopy(issues[0]["ownership"])
+    owned_model = next(
+        model
+        for model in diagnostic.get("fixModels", [str(consumer.path)])
+        if Path(model).stem == issues[0]["service"]
+    )
+    link = consumer.root / "model/qa/team/alias.properties"
+    link.symlink_to(owned_model)
+    for candidates in (
+        [owned_model, owned_model],
+        [str(link)],
+        [str(consumer.root.parent / "outside.properties")],
+        [str(consumer.root / "model/qa/team/../team" / Path(owned_model).name)],
+    ):
+        unknown["diagnostic"]["fixModels"] = candidates
+        assert "根拠:" not in issue_content(consumer.root, report_path, unknown)
     owners = {issue["service"] for issue in issues}
     if fault == "ambiguous":
         assert owners == {"kms", "duplicate"}
