@@ -275,6 +275,28 @@ def signature(values, logical, attribute=None):
     )
 
 
+def incomplete_reference_affected(snapshot, error, changes):
+    """Use partial target/attribute evidence; unknown relationships are not empty edges."""
+    for identity, change in changes.items():
+        if error.get("kind") != "link" and identity[:2] != (
+            snapshot.scope.environment,
+            snapshot.scope.target,
+        ):
+            continue
+        old = {} if change.before is None else change.before.authoritative
+        new = {} if change.after is None else change.after.authoritative
+        logical = error.get("targetLogicalId")
+        attribute = error.get("attribute")
+        for target in change.resources | change.deleted:
+            if logical and logical != target:
+                continue
+            if not attribute or signature(old, target, attribute) != signature(
+                new, target, attribute
+            ):
+                return True
+    return False
+
+
 def incoming_keys(snapshot, changes):
     """Select references whose actual producer inputs changed, before rule execution."""
     values, result = snapshot.authoritative, set()
@@ -298,6 +320,13 @@ def incoming_keys(snapshot, changes):
             for k in change.keys
         ):
             result.add(spec["consumerKey"])
+    _, _, errors = dependency_index.reference_metadata(snapshot)
+    for key, diagnostics in errors.items():
+        for error in diagnostics:
+            if incomplete_reference_affected(snapshot, error, changes):
+                raise ValueError(
+                    f"cannot determine affected reference metadata: {snapshot.scope.path}: {key}: {error['message']}"
+                )
     for key, raw in values.items():
         if not (
             key.startswith("desired.row.")
@@ -305,11 +334,7 @@ def incoming_keys(snapshot, changes):
             or key.endswith(".parentReference")
         ):
             continue
-        # Raw strings without links/nodes need no JSON parse.
-        if "$modelRef" not in raw and "](" not in raw:
-            continue
-        value, _ = references._json(key, raw)
-        for node in nodes(value):
+        for node in nodes(raw.strip("`"), errors=[]):
             for identity, change in changes.items():
                 if (
                     identity[:2] != (snapshot.scope.environment, snapshot.scope.target)
@@ -323,7 +348,10 @@ def incoming_keys(snapshot, changes):
                 ):
                     result.add(key)
         for token in model_identity.reference_tokens(raw):
-            address = model_identity.parse_reference(token[0], snapshot.scope)
+            try:
+                address = model_identity.parse_reference(token[0], snapshot.scope)
+            except ValueError:
+                continue  # Incomplete link metadata was checked above.
             change = changes.get(address[:3])
             if change is None:
                 continue

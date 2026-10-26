@@ -116,7 +116,9 @@ Validation, including when their caller requests regression.
 Reference discovery reuses verified, current entries from the signed dependency index.
 Missing or stale entries are discovered structurally into invocation-local metadata using
 shared raw Model snapshots, without Full quality validation or persistent index writes.
-Unidentifiable reference inputs stop with their source and reason. Deploy retains its
+Incomplete reference metadata retains its source, reason and identifiable target/attribute;
+stop only when its relationship to a changed producer cannot be ruled out. Unrelated
+existing reference quality errors do not block saves. Deploy retains its
 sealed-index and Snapshot checks; missing metadata needs no manual update preparation.
 Producer reads validate
 only the required attributes/context. Read-only producers need no additional write rights

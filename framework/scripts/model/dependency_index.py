@@ -2,7 +2,6 @@
 
 from contextlib import nullcontext
 
-from utils.json_format import strict_json
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.change_scope as change_scope
@@ -35,7 +34,35 @@ def record(path, reads, *, quality=True):
     return snapshot_record(snapshot, quality=quality)
 
 
-def snapshot_record(snapshot, *, quality=True):
+def reference_metadata(snapshot, *, strict=False):
+    """Extract edges and retain incomplete references without running quality rules."""
+    links, logical, errors = set(), set(), {}
+    for key, value in snapshot.authoritative.items():
+        if key.startswith(("desired.row.", "desired.resource.")):
+            diagnostics = []
+            for token in identity.reference_tokens(value):
+                try:
+                    links.add(
+                        "/".join(identity.parse_reference(token[0], snapshot.scope)[:3])
+                    )
+                except ValueError as error:
+                    if strict:
+                        raise
+                    diagnostics.append({"message": str(error), "kind": "link"})
+            # Raw snapshots already check declared JSON syntax; nodes distinguishes prose.
+            logical.update(
+                node.logical_id for node in nodes(value.strip("`"), errors=diagnostics)
+            )
+            if diagnostics and key.endswith(
+                (".value", ".document", ".parentReference")
+            ):
+                errors[key] = diagnostics
+        elif key.startswith("desired.reference.") and key.endswith(".producerScope"):
+            links.add(value)
+    return links, logical, errors
+
+
+def snapshot_record(snapshot, *, quality=True, errors=None):
     values, scope = snapshot.authoritative, snapshot.scope
     resources = [
         resource
@@ -43,31 +70,9 @@ def snapshot_record(snapshot, *, quality=True):
             values, "desired.resource."
         )
     ]
-    links, logical = set(), set()
-    for key, value in values.items():
-        if key.startswith(("desired.row.", "desired.resource.")):
-            for token in identity.reference_tokens(value):
-                links.add("/".join(identity.parse_reference(token[0], scope)[:3]))
-            if (
-                not quality
-                and key.endswith((".value", ".document", ".parentReference"))
-                and "$modelRef" in value
-            ):
-                try:
-                    parsed = strict_json(value.strip("`"))
-                    references = list(nodes(parsed))
-                    if not references:
-                        raise ValueError("cannot identify typed reference")
-                except ValueError as error:
-                    raise ValueError(
-                        f"cannot determine reference metadata: {scope.path}: {key}: {error}"
-                    ) from error
-            else:
-                references = nodes(value.strip("`"), errors=[])
-            for node in references:
-                logical.add(node.logical_id)
-        elif key.startswith("desired.reference.") and key.endswith(".producerScope"):
-            links.add(value)
+    links, logical, diagnostics = reference_metadata(snapshot, strict=quality)
+    if errors is not None:
+        errors.update(diagnostics)
     return {
         "files": sorted(p.relative_to(scope.root).as_posix() for p in snapshot.files),
         "owners": [r["cfn-logicalId"] for r in resources if "cfn-logicalId" in r],
@@ -274,9 +279,8 @@ def change_snapshot(path, reads, metadata=None):
                 base = sources.edit_base(path, reads)
                 # Text with no Model fields or reference tokens cannot declare an edge or owner.
                 empty = not any(
-                    marker in text
+                    "desired." in text or any(identity.reference_tokens(text))
                     for text in base.files.values()
-                    for marker in ("desired.", "$modelRef", "](")
                 )
                 snapshots[path] = base if empty else sources.raw_model(path, reads)
         except ValueError as error:
@@ -312,6 +316,7 @@ def check_change_inventory(root, changed, *, reads=None):
             for p in current
             if p == relative or p.startswith(relative.removesuffix(".properties") + "/")
         }
+        errors = {}
         if (
             entry is None
             or (scope.environment, scope.target, scope.service) in changed
@@ -319,7 +324,13 @@ def check_change_inventory(root, changed, *, reads=None):
             or any(current[p] != previous["files"].get(p) for p in files)
         ):
             snapshot = change_snapshot(path, reads, metadata)
-            entry = snapshot_record(snapshot, quality=False)
+            entry = snapshot_record(snapshot, quality=False, errors=errors)
+        else:
+            # The sealed format has no diagnostics; current edges alone cannot prove absence.
+            snapshot = change_snapshot(path, reads, metadata)
+            _, _, errors = reference_metadata(snapshot)
+        if metadata is not None:
+            metadata.setdefault("reference_errors", {})[path] = errors
         index["models"][relative] = entry
     if metadata is not None:
         metadata.setdefault("indexes", {})[root] = index
@@ -327,5 +338,31 @@ def check_change_inventory(root, changed, *, reads=None):
 
 
 def change_consumers(root, scopes, identifiers, changed, *, reads=None):
-    index = check_change_inventory(root, changed, reads=reads)
-    return consumers(root, scopes, identifiers, index=index)
+    metadata = change_scope.metadata()
+    metadata = metadata if metadata is not None else {}
+    with change_scope.change_reads(root, reads, metadata=metadata):
+        index = check_change_inventory(root, changed, reads=reads)
+    selected = set(consumers(root, scopes, identifiers, index=index))
+    for path, fields in metadata.get("reference_errors", {}).items():
+        scope = sources.scope_for(path)
+        if any(
+            error.get("kind") == "link"
+            and scopes
+            or not identifiers
+            and any(
+                tuple(producer.split("/")[:2]) == (scope.environment, scope.target)
+                for producer in scopes
+            )
+            or any(
+                identity[:2] == (scope.environment, scope.target)
+                and (
+                    not error.get("targetLogicalId")
+                    or error["targetLogicalId"] == identity[-1]
+                )
+                for identity in identifiers
+            )
+            for errors in fields.values()
+            for error in errors
+        ):
+            selected.add(path)
+    return sorted(selected)
