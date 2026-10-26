@@ -90,6 +90,93 @@ if not __debug__:
 text = _exports_support_model_design_fixtures.text
 
 
+def check_array_model_projection(tmp_path):
+    kind = "QuickSight.DataSource"
+    raw = '`[ "quicksight:DescribeDataSource", "quicksight:PassDataSource" ]`'
+    values = model(
+        "quicksight",
+        kind,
+        "source",
+        [
+            ("Name", "`source`", "データソース名"),
+            ("Permissions[].Actions", raw, "権限を付与"),
+            ("Permissions[].Principal", "[first](iam.md#first)", "対象ユーザー"),
+            ("Permissions[].Actions", "`[]`", "空の権限"),
+            ("Permissions[].Principal", "[second](iam.md#second)", "次のユーザー"),
+        ],
+    )
+    before = dict(values)
+    path = tmp_path / "docs/designs/dev/team/quicksight.md"
+    markdown = model_design.generate_markdown(path, values, ROOT)
+    assert "<!-- array-source:" not in markdown
+    assert "Permissions[1].Actions[2]" in markdown
+    assert "Permissions[2].Actions | `[]` | 空の権限" in markdown
+    document = DesignIndex(ROOT).get(path, text=markdown, values=values)
+    semantic = "\n".join(document.raw.display_lines)
+    assert (
+        "QuickSight.DataSource.Permissions[].Actions | " + raw + " | 権限を付与"
+        in semantic
+    )
+    assert values == before
+    assert model_design.generate_markdown(path, values, ROOT) == markdown
+    first = next(
+        line for line in markdown.splitlines() if "Permissions[1].Actions[1] |" in line
+    )
+    second = next(
+        line for line in markdown.splitlines() if "Permissions[1].Actions[2] |" in line
+    )
+    changes = [
+        markdown.replace("Permissions[1]", "Permissions" + token, 1)
+        for token in ("[0]", "[01]", "[2]", "[]")
+    ]
+    changes += [
+        markdown.replace(second, ""),
+        markdown.replace(second, second + "\n" + second),
+        markdown.replace(first + "\n" + second, second + "\n" + first),
+        markdown.replace("Permissions[1].Actions[2]", "Permissions[1].Actions[1]"),
+        markdown.replace("Permissions[1].Actions[2]", "Permissions[1].Actions[3]"),
+        markdown.replace("Permissions[1].Actions[2]", "Permissions[2].Actions[2]"),
+        markdown.replace("`quicksight:PassDataSource`", "`changed`"),
+        markdown.replace("権限を付与", "改変コメント", 1),
+        markdown.replace("### QuickSight.DataSource:", "### QuickSight.Analysis:"),
+    ]
+    for changed in changes:
+        assert changed != markdown
+        with pytest.raises(ValueError):
+            _ = (
+                DesignIndex(ROOT)
+                .get(path, text=changed, values=values)
+                .raw.display_lines
+            )
+    with pytest.raises(ValueError, match="requires Model source rows"):
+        _ = (
+            DesignIndex(ROOT)
+            .get(tmp_path / "standalone.md", text=markdown)
+            .raw.display_lines
+        )
+    assert values == before
+
+
+def check_indexed_compact_variable_diagnostics():
+    rows = [
+        ["1", "Environment.Variables.ONE", "`first`", "設定"],
+        ["2", "Environment.Variables.TWO", "`second`", "設定"],
+    ]
+    shown = indexed_rows(rows, "CodeBuild.Project")
+    document = ["### CodeBuild.Project: raw", *row_table(shown)]
+    semantic = "\n".join(expanded_display_rows(document))
+    assert semantic.count("Environment.EnvironmentVariables[].Name") == 2
+    assert "`ONE`" in semantic and "`first`" in semantic and "`TWO`" in semantic
+    for token in ("[0]", "[01]", "[2]"):
+        with pytest.raises(ValueError, match="indexes"):
+            expanded_display_rows(
+                [line.replace("Variables[1]", "Variables" + token) for line in document]
+            )
+    bad = [line.replace("`first`", "[bucket](s3.md#bucket)") for line in document]
+    with pytest.raises(ValueError, match="PLAINTEXT"):
+        expanded_display_rows(bad)
+
+
 def check_design_naming_rules():
     for kind in (
         "S3.Bucket",

@@ -943,7 +943,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `support/validation_checks/cloudformation.py:373` | `check_stack_mapping_targets` | UT | [units/validation_checks/cloudformation.py](units/validation_checks/cloudformation.py#L394) | module / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `support/validation_checks/design.py:130` | `check_description_design_constraints` | UT | [units/validation_checks/design.py](units/validation_checks/design.py#L299) | module / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `support/validation_checks/references.py:19` | `check_identifier_propagation` | UT | [units/validation_checks/references.py](units/validation_checks/references.py#L45) | module / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `support/validation_checks/references.py:88` | `check_array_source_role_links` | UT | [units/validation_checks/references.py](units/validation_checks/references.py#L129) | module / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `support/validation_checks/references.py:88` | `check_array_role_links` | UT | [units/validation_checks/references.py](units/validation_checks/references.py#L129) | module / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `support/validation_checks/references.py:125` | `check_s3_bucket_policy_grouping` | UT | [units/validation_checks/references.py](units/validation_checks/references.py#L164) | module / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `support/validation_checks/references.py:228` | `check_subnet_association_overview` | UT | [units/validation_checks/references.py](units/validation_checks/references.py#L267) | module / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `support/validation_checks/references.py:330` | `check_resource_overview` | UT | [units/validation_checks/references.py](units/validation_checks/references.py#L370) | module / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
@@ -1129,7 +1129,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `integrations/validation_checks/cloudformation.py::check_stack_mapping_targets` | L?: 動的 (errors())<br>L?: 動的 (errors())<br>L?: 動的 (values.items()) |
 | `integrations/validation_checks/design.py::check_description_design_constraints` | L87: 3 ((('RoleOne', 'IAM.Role.Description', 'iam.md', iam_text.replace('Application role', '日本語の説明'), sg_text), ('GroupOne', 'EC2.SecurityGroup.GroupDescription', 'security-group.md', iam_text, sg_text.replace('Application access', '日本語の説明')), ('GroupOne', 'EC2.SecurityGroup.GroupDescription', 'security-group.md', iam_text, sg_text.replace('Application access', 'Why?'))))<br>L?: 動的 (validator.errors)<br>L?: 動的 (validator.errors)<br>L?: 動的 (validator.errors)<br>L?: 動的 (validator.errors)<br>L?: 4 ((filename, resource, prop, 'must match')) |
 | `integrations/validation_checks/references.py::check_identifier_propagation` | L?: 動的 (validator.errors)<br>L?: 動的 (validator.errors) |
-| `integrations/validation_checks/references.py::check_array_source_role_links` | L?: 動的 (errors('wrong-role'))<br>L?: 動的 (rows) |
+| `integrations/validation_checks/references.py::check_array_role_links` | L?: 動的 (errors('wrong-role'))<br>L?: 動的 (rows) |
 | `integrations/validation_checks/references.py::check_s3_bucket_policy_grouping` | L?: 動的 (errors(wrong_order))<br>L?: 動的 (errors(unset_region))<br>L?: 動的 (errors(literal_alias))<br>L?: 動的 (errors(wrong_alias))<br>L?: 動的 (errors(wrong_heading))<br>L?: 動的 (errors(explicit_bucket))<br>L?: 動的 (errors(separate_heading)) |
 | `integrations/validation_checks/references.py::check_subnet_association_overview` | L238: 3 (range(1, 4))<br>L266: 動的 (subnet_rows)<br>L310: 2 (('rtb-00000001', *(f'subnet-{number:08d}' for number in range(1, 4))))<br>L319: 動的 (bad_designs)<br>L?: 3 (range(1, 4))<br>L?: 動的 (validator.errors)<br>L?: 3 (range(1, 4))<br>L?: 動的 (failures) |
 | `integrations/validation_checks/references.py::check_resource_overview` | L380: 動的 (invalid_sections)<br>L?: 動的 (errors(valid.replace('\| 1 \| [app-dev-data', '\| 2 \| [app-dev-data', 1)))<br>L?: 動的 (errors(valid.replace('アプリケーションのデータを保管するbucket \|', 'resource \|', 1)))<br>L?: 動的 (errors(valid.replace('アプリケーションのデータを保管するbucket \|', 'バケット（app-dev-data-123456789012）の設定 \|', 1)))<br>L?: 動的 (errors(sg))<br>L?: 動的 (errors(valid.replace('\| No. \| ResourceName \|', '\| ResourceName \|', 1)))<br>L?: 動的 (errors(extra))<br>L?: 動的 (errors(valid.replace('\| ResourceName \|', '\| BucketName \|', 1)))<br>L?: 動的 (errors(missing_row))<br>L?: 動的 (failures) |
@@ -1220,24 +1220,24 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `units/script_loader.checks.py:52` / `main` | UT | `units/script_loader.checks.py:52` | `assert locate.call_count == 1` |
 | `units/script_loader.checks.py:47` / `main` | UT | `units/script_loader.checks.py:47` | `assert entered.wait(5)` |
 | `units/script_loader.checks.py:48` / `main` | UT | `units/script_loader.checks.py:48` | `assert not returned.wait(0.1), 'partially initialized module escaped'` |
-| `unknown/array_display.checks.py:50` / `main` | UT | `units/array_display.checks.py:50` | `assert restored_rows(shown, 'S3.Bucket') == source` |
+| `unknown/array_display.checks.py:50` / `main` | UT | `units/array_display.checks.py:50` | `assert verified_rows(shown, source, 'S3.Bucket') == source` |
 | `unknown/array_display.checks.py:52` / `main` | UT | `units/array_display.checks.py:52` | `assert fields[1:5] == ['LifecycleConfiguration.Rules[1].Transitions[1].StorageClass', 'LifecycleConfiguration.Rules[1].Transitions[1].TransitionInDays', 'LifecycleConfiguration.Rules[1].Transitions[2].StorageClass', 'LifecycleConfiguration.Rules[1].Transitions[2].TransitionInDays']` |
 | `unknown/array_display.checks.py:53` / `main` | UT | `units/array_display.checks.py:53` | `assert fields[7] == 'LifecycleConfiguration.Rules[2].Transitions[1].StorageClass'` |
 | `unknown/array_display.checks.py:54` / `main` | UT | `units/array_display.checks.py:54` | `assert fields[-4:] == ['Tags[1].Key', 'Tags[1].Value', 'Tags[2].Key', 'Tags[2].Value']` |
 | `unknown/array_display.checks.py:71` / `main` | UT | `units/array_display.checks.py:71` | `assert [row[1] for row in output] == ['Stages[1].Actions[1].InputArtifacts[1].Name', 'Stages[1].Actions[1].InputArtifacts[2].Name', 'Stages[2].Actions[1].Name']` |
-| `unknown/array_display.checks.py:72` / `main` | UT | `units/array_display.checks.py:72` | `assert restored_rows(output, 'CodePipeline.Pipeline') == original` |
+| `unknown/array_display.checks.py:72` / `main` | UT | `units/array_display.checks.py:72` | `assert verified_rows(output, original, 'CodePipeline.Pipeline') == original` |
 | `unknown/array_display.checks.py:75` / `main` | UT | `units/array_display.checks.py:75` | `assert [row[1] for row in output] == ['Tasks[1].Name', 'Tasks[1].Subnets[1]', 'Tasks[1].Subnets[2]', 'Tasks[2].Name', 'Tasks[2].Subnets[1]']` |
-| `unknown/array_display.checks.py:76` / `main` | UT | `units/array_display.checks.py:76` | `assert restored_rows(output, 'Example.Resource') == original` |
-| `unknown/array_display.checks.py:65` / `main` | UT | `units/array_display.checks.py:65` | `assert len(output) == count and restored_rows(output, 'EC2.Instance') == original` |
+| `unknown/array_display.checks.py:76` / `main` | UT | `units/array_display.checks.py:76` | `assert verified_rows(output, original, 'Example.Resource') == original` |
+| `unknown/array_display.checks.py:65` / `main` | UT | `units/array_display.checks.py:65` | `assert len(output) == count and verified_rows(output, original, 'EC2.Instance') == original` |
 | `unknown/array_display.checks.py:83` / `main` | UT | `units/array_display.checks.py:83` | `assert [row[1] for row in output] == expected` |
-| `unknown/array_display.checks.py:84` / `main` | UT | `units/array_display.checks.py:84` | `assert restored_rows(output, kind) == original` |
+| `unknown/array_display.checks.py:84` / `main` | UT | `units/array_display.checks.py:84` | `assert verified_rows(output, original, kind) == original` |
 | `unknown/array_display.checks.py:89` / `main` | UT | `units/array_display.checks.py:89` | `assert output[0][1] == expected` |
-| `unknown/array_display.checks.py:90` / `main` | UT | `units/array_display.checks.py:84` | `assert restored_rows(output, kind) == original` |
+| `unknown/array_display.checks.py:90` / `main` | UT | `units/array_display.checks.py:84` | `assert verified_rows(output, original, kind) == original` |
 | `unknown/array_display.checks.py:67` / `main` | UT | `units/array_display.checks.py:67` | `assert output[0][1] == 'SecurityGroupIds[1]'` |
 | `unknown/array_display.checks.py:107` / `main` | UT | `units/array_display.checks.py:107` | `assert '[]' not in output[0][1] and '[1]' in output[0][1], (kind, prop)` |
-| `unknown/array_display.checks.py:108` / `main` | UT | `units/array_display.checks.py:108` | `assert restored_rows(output, kind) == original, (kind, prop)` |
+| `unknown/array_display.checks.py:108` / `main` | UT | `units/array_display.checks.py:108` | `assert verified_rows(output, original, kind) == original, (kind, prop)` |
 | `unknown/array_display.checks.py:101` / `main` | UT | `units/array_display.checks.py:101` | `assert len(output) == 2 and output[0][1].endswith('[1]') and output[1][1].endswith('[2]'), (kind, prop)` |
-| `unknown/array_display.checks.py:102` / `main` | UT | `units/array_display.checks.py:84` | `assert restored_rows(output, kind) == original` |
+| `unknown/array_display.checks.py:102` / `main` | UT | `units/array_display.checks.py:84` | `assert verified_rows(output, original, kind) == original` |
 | `aws-context::main:70` / `main` | UT | `units/check-deploy-context.checks.py:70` | `assert target == {'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'terraform'}` |
 | `aws-context::main:76` / `main` | UT | `units/check-deploy-context.checks.py:76` | `assert run.call_args.args[0][:3] == ['/mock/aws', '--profile', 'deploy']` |
 | `aws-context::main:77` / `main` | UT | `units/check-deploy-context.checks.py:77` | `assert run.call_args.args[0][3:5] == ['--region', 'ap-northeast-1']` |
@@ -3834,3 +3834,10 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | `independent-deploy::bootstrap-input-guard` | `test_recovery_mutation_guard_fixes_bootstrap_inputs` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 3 | 復旧mutation直前のconsumer/owner入力固定 | 追加 |
 | `independent-deploy::observed-run-context` | `check_run_context_owns_observed_publication` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 2 | RunContextの新規/未完了Observed publication経路 | 追加 |
 | `independent-deploy::waiting-generation` | `test_waiting_generation_recovers_scope_without_inheriting_completed_stacks` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 未公開の生成待ちを新実行へ再結合、過去Stack成功や未確定候補は引き継がない | 追加 |
+
+## Modelを正本とする配列表示
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `array-projection` | `check_array_model_projection` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | 注釈なし生成、元JSON/コメント/順序不変、Model照合後の正式行、番号・要素・値・コメント・所属不正、Modelなしのエラー | 追加 |
+| `array-compact-diagnostics` | `check_indexed_compact_variable_diagnostics` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | Model JSON復元を伴わない番号付き変数の既存生Markdown診断、0/先頭ゼロ/欠番とPLAINTEXTリンク拒否 | 追加 |

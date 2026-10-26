@@ -2646,13 +2646,19 @@ def check_issues_checks_saved_display_without_generation(
             validator_out=validators,
             warnings=warnings,
         )
-    assert checks > 0 and not errors and not warnings, (errors, warnings)
-    assert not validators[0].findings.unverified
+    assert checks > 0 and not warnings, (errors, warnings)
+    if display in {"plain", "label"}:
+        assert errors and validators[0].findings.unverified
+        assert any("Model expected display" in error for error in errors)
+    else:
+        assert not errors and not validators[0].findings.unverified, errors
     assert not any(
         item.code == "design.display.mismatch"
         for item in validators[0].findings.diagnostics
     )
-    assert not validators[0].findings.processing_errors
+    assert bool(validators[0].findings.processing_errors) == (
+        display in {"plain", "label"}
+    )
     assert not any(
         check_id == "framework.generated-service-model"
         for check_id, _, _ in validators[0].findings.results

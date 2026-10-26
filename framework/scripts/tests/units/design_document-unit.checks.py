@@ -241,9 +241,10 @@ def check_snapshot():
         rendered = model_design.markdown_for(
             source, values, project_root, definitions_root=repository
         )
+        assert "<!-- array-source:" not in rendered
         assert (
             hashlib.sha256(rendered.encode()).hexdigest()
-            == "28a9c8d82fc0b72d82245953c5ccc5d13303d707f7907c6128769844c629a1ea"
+            == "47deca7d8d574bda87a53ee1898a883d3b4e626aa5d14edcef861b9816aab8ae"
         ), hashlib.sha256(rendered.encode()).hexdigest()
         # Alias links also retain an explicit consumer observation, without inventing Alias identifiers.
         observed = "1234abcd-12ab-34cd-56ef-1234567890ab"

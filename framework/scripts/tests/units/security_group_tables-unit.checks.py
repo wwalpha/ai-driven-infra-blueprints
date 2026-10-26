@@ -130,7 +130,7 @@ def check_tag_scalars():
                 desired_reference=None,
                 evaluate=None,
                 model_path=None,
-            ).value
+            ).require_value()
             assert same(value, literal(row[2])) is True
         with patch(
             "aws_mapping_display.show",

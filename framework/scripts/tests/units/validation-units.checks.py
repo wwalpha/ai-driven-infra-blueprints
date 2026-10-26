@@ -50,7 +50,7 @@ def main():
     cloudformation.check_stack_mapping_targets()
     design.check_description_design_constraints()
     references.check_identifier_propagation()
-    references.check_array_source_role_links()
+    references.check_array_role_links()
     references.check_s3_bucket_policy_grouping()
     references.check_subnet_association_overview()
     references.check_resource_overview()

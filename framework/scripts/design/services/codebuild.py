@@ -81,7 +81,17 @@ def codebuild_display_row(rows, index, comment, *, mode="CREATE", typed=False):
 
 
 def codebuild_formal_rows(cells, names, *, mode="CREATE", typed=False):
-    name = cells[1].removeprefix(CODEBUILD_VARIABLE)
+    prop = cells[1]
+    prefix = CODEBUILD_VARIABLE.removesuffix(".")
+    if prop.startswith(prefix + "["):
+        indexed = re.fullmatch(re.escape(prefix) + r"\[([1-9]\d*)\]\.(.+)", prop)
+        if indexed is None or int(indexed[1]) != len(names) + 1:
+            raise ValueError(
+                "CodeBuild variable indexes must start at 1 and be sequential"
+            )
+        name = indexed[2]
+    else:
+        name = prop.removeprefix(CODEBUILD_VARIABLE)
     if not re.fullmatch(r"[^.\s|]+", name) or name in names:
         raise ValueError(
             f"invalid or duplicate CodeBuild environment variable name: {name}"

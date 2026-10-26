@@ -117,7 +117,6 @@ def pipeline(tmp_path):
         expected = generate_markdown(path, values, FRAMEWORK)
         link = "[build-project](codebuild.md#saved-001)"
         saved = expected.replace(link, "`build-project`")
-        # Include the renderer's generated array-source markers in the same cause.
         path.write_text(saved, encoding="utf-8")
         yield tmp_path, values, path, saved, expected
 
@@ -160,7 +159,9 @@ def test_scan_ignores_display_sync_and_keeps_independent_checks(pipeline, equal)
     ):
         artifact = scan_runner.scan(root, "qa", "team", ["codepipeline"], jobs=1)
     assert names.call_count == tables.call_count == links.call_count == 1
-    assert not artifact["processing_errors"], artifact["processing_errors"]
+    assert bool(artifact["processing_errors"]) == (not equal), artifact[
+        "processing_errors"
+    ]
     display = [
         item
         for item in artifact["ordinary"]
@@ -1086,13 +1087,16 @@ def test_saved_name_evidence_excludes_model_fallback(tmp_path, case, different):
         )
         findings = Findings(tmp_path)
         with ExitStack() as stack:
-            stack.enter_context(
-                patch.object(
-                    design._imports_model_render,
-                    "resource_presentation",
-                    side_effect=AssertionError("Scan must not derive Model display"),
+            if case != "tag":
+                stack.enter_context(
+                    patch.object(
+                        design._imports_model_render,
+                        "resource_presentation",
+                        side_effect=AssertionError(
+                            "Scan must not derive non-array Model display"
+                        ),
+                    )
                 )
-            )
             if case == "hidden":
                 stack.enter_context(
                     patch.object(
@@ -1115,10 +1119,12 @@ def test_saved_name_evidence_excludes_model_fallback(tmp_path, case, different):
                 definitions_root=FRAMEWORK,
                 check_display=False,
             )
-        assert not findings.processing_errors
-        assert any("heading must display" in error for error in findings.errors) == (
-            case == "tag" and different
-        ), findings.errors
+        if case == "tag":
+            assert findings.processing_errors
+            assert any("Model expected display" in error for error in findings.errors)
+        else:
+            assert not findings.processing_errors
+            assert not any("heading must display" in error for error in findings.errors)
         if case == "hidden":
             assert not findings.errors, findings.errors
 

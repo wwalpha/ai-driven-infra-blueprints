@@ -319,3 +319,5 @@ Desired差分、可変入力と別検証呼出しの分離を確認します。
 helperは削除しました。共通 `document_sha256` / `fingerprint` の仕様は既存
 `json-format` UT、Import承認/封印・Deploy入力固定は各専用UTで維持します。
 既存の文書編集/環境間隔離ITはJSON内容と正本traceで検証し、新しいITは追加しません。
+
+共通配列表示は `units/array_display.checks.py` で全カタログの番号・ネスト・JSON/空配列・コメントを確認する。`model_design-unit::check_array_model_projection` はModelからの期待表示照合、元JSON表現/行順の維持、番号/所属/Value/Comment/欠落/追加の不一致とModelなしのエラーを確認する。IAM Policy、CodeBuildの型注釈、Resource linkは既存の関連UTを維持する。

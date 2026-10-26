@@ -1,4 +1,4 @@
-"""Shared one-based array display and lossless verification of source rows."""
+"""Shared one-based array display and verification against explicit source rows."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from design.catalog import DesignSchemaCatalog
 from design.services import cloudtrail, codebuild, codepipeline, guardduty
 
 ROOT = Path(__file__).resolve().parents[3]
-SOURCE = re.compile(r"^<!-- array-source: (.+?) --> ")
 ARRAY = re.compile(r"\[\]")
 ARRAY_TEMPLATES = {
     "CodePipeline.Pipeline": codepipeline.array_template,
@@ -155,58 +154,20 @@ def indexed_rows(rows, kind, root=ROOT):
                     template = (
                         numbered_property(template.removesuffix("[]"), states) + "[]"
                     )
-        metadata = json.dumps([prop, value, max(1, len(items))], ensure_ascii=True)
-        for char in "|<>":
-            metadata = metadata.replace(char, f"\\u{ord(char):04x}")
-        for offset, item in enumerate(items or [value]):
+        for item in items or [value]:
             field = (
                 numbered_property(template, states, compact)
                 if items
                 else template.removesuffix("[]")
             )
-            result.append(
-                [
-                    identity,
-                    field,
-                    item,
-                    (f"<!-- array-source: {metadata} --> " if offset == 0 else "")
-                    + comment,
-                ]
-            )
+            result.append([identity, field, item, comment])
     return result
 
 
 @input_scope
-def restored_rows(rows, kind, root=ROOT):
-    """Restore sources, then regenerate to reject wrong indexes, values or comments."""
-    result = []
-    index = 0
-    marked = False
-    while index < len(rows):
-        identity, prop, value, comment = rows[index]
-        marker = SOURCE.match(comment)
-        if "<!-- array-source:" in comment and not marker:
-            raise ValueError("invalid array source marker")
-        if not marker:
-            result.append(rows[index])
-            index += 1
-            continue
-        source = json.loads(marker[1])
-        if (
-            not isinstance(source, list)
-            or len(source) != 3
-            or not all(isinstance(item, str) for item in source[:2])
-            or type(source[2]) is not int
-            or not 1 <= source[2] <= len(rows) - index
-        ):
-            raise ValueError("invalid array source row or element count")
-        marked = True
-        result.append([identity, *source[:2], comment[marker.end() :]])
-        index += source[2]
-    if marked:
-        expected = indexed_rows(result, kind, root)
-        if [row[1:] for row in expected] != [row[1:] for row in rows]:
-            raise ValueError(
-                "array indexes, elements or comments differ from their source rows"
-            )
-    return result
+def verified_rows(rows, source, kind, root=ROOT):
+    """Verify the display, then return the exact supplied source, never inferred JSON."""
+    expected = indexed_rows(source, kind, root)
+    if [row[1:] for row in expected] != [row[1:] for row in rows]:
+        raise ValueError("array display differs from Model source rows")
+    return [list(row) for row in source]

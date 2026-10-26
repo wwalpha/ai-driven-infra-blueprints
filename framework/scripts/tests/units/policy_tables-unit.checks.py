@@ -13,8 +13,9 @@ from pathlib import Path
 
 import design.policy_tables as _imports_policy_tables
 import support.policy_tables_fixtures as _retained_fixture_policy_mapping_cache
-from design.layout import expanded_design
+from design.layout import expanded_design, formal_property
 from design.policy_tables import Policy, policy_document_lines, validate_policy_document
+from model.display import ReferenceTable
 from support import design_layout_fixtures as layout_fixture
 from support.policy_tables_fixtures import (
     ALIGNMENT,
@@ -225,6 +226,7 @@ def check_iam(tmp_path):
 
     # Generated one-based rows retain both inline policies for every Role.
     indexed_lines = text.splitlines()
+    projections = []
     for resource in reversed(resources_in(indexed_lines)):
         start = resource.table_end
         while indexed_lines[start - 1].startswith("|") and indexed_lines[
@@ -236,6 +238,37 @@ def check_iam(tmp_path):
             for line in indexed_lines[start : resource.table_end]
         ]
         shown = indexed_rows(rows, resource.resource_type)
+        semantic = [
+            [row[0], formal_property(row[1], resource.resource_type), *row[2:]]
+            for row in rows
+        ]
+        projections.append(
+            ReferenceTable(
+                resource.anchor,
+                (),
+                tuple(
+                    [
+                        HEADER,
+                        ALIGNMENT,
+                        *("| " + " | ".join(row) + " |" for row in shown),
+                    ]
+                ),
+                tuple(
+                    [
+                        HEADER,
+                        ALIGNMENT,
+                        *("| " + " | ".join(row) + " |" for row in semantic),
+                    ]
+                ),
+                tuple(
+                    [
+                        HEADER,
+                        ALIGNMENT,
+                        *("| " + " | ".join(row) + " |" for row in rows),
+                    ]
+                ),
+            )
+        )
         indexed_lines[start : resource.table_end] = [
             "| " + " | ".join(row) + " |" for row in shown
         ]
@@ -245,7 +278,9 @@ def check_iam(tmp_path):
         and "Policies[2].PolicyDocument" in indexed
     )
     path.write_text(indexed, encoding="utf-8")
-    indexed_rendered = rendered_design(path)
+    with pytest.raises(ValueError, match="requires Model source rows"):
+        rendered_design(path)
+    indexed_rendered = rendered_design(path, reference_tables=projections)
     assert indexed_rendered.count("#### インラインポリシー：Logging") == 2
     assert indexed_rendered.count("#### インラインポリシー：Extra") == 2
     assert indexed_rendered.count("\n#### ") == 6
@@ -253,13 +288,14 @@ def check_iam(tmp_path):
         "\n".join(without_policy_tables(indexed_rendered.splitlines())) + "\n"
         == indexed
     )
-    assert not errors(indexed_rendered), errors(indexed_rendered)
-    assert rendered_design(path) == indexed_rendered, (
+    assert errors(indexed_rendered), "standalone validation must require Model rows"
+    assert rendered_design(path, reference_tables=projections) == indexed_rendered, (
         "indexed policy generation must be idempotent"
     )
     assert (
         expanded_design(
-            without_policy_tables(path.read_text(encoding="utf-8").splitlines())
+            without_policy_tables(path.read_text(encoding="utf-8").splitlines()),
+            reference_tables=projections,
         )[0]
         == baseline_model
     ), "array display and policy views must preserve the model"

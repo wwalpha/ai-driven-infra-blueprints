@@ -5,7 +5,6 @@ parents. An index must be discarded or explicitly invalidated after writes;
 it never stores validation results or survives an invocation.
 """
 
-import json
 import re
 from collections import Counter
 from collections.abc import Mapping
@@ -25,7 +24,6 @@ import model.render as _model_render
 import model.sources as _imports_model_sources
 import model.validation as _model_validation
 import validation_scope as _dependency_validation_scope
-from model.core import ReferenceResolutionError
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
 from validation.diagnostics import stable_id
@@ -42,6 +40,7 @@ from design.layout_schema import (
     RESOURCE,
     SavedIdentityError,
 )
+from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
 
 
 class DisplayMismatchError(ValueError):
@@ -95,24 +94,6 @@ def display_differences(text, expected):
         normalized[number] = normalized[number].replace(
             "| " + saved[2] + " |", "| " + wanted[2] + " |", 1
         )
-        markers = [_array_display.SOURCE.match(row[3]) for row in (saved, wanted)]
-        if all(markers):
-            try:
-                before, after = [json.loads(marker[1]) for marker in markers]
-            except ValueError:
-                continue
-            if (
-                isinstance(before, list)
-                and isinstance(after, list)
-                and len(before) == len(after) == 3
-                and before[0] == after[0]
-                and before[2] == after[2]
-                and before[1] == saved[2]
-                and after[1] == wanted[2]
-            ):
-                normalized[number] = normalized[number].replace(
-                    markers[0][0], markers[1][0], 1
-                )
     other = normalized != expected.splitlines()
     if other:
         wanted = expected.splitlines()
@@ -178,10 +159,28 @@ def require_saved_identity(text, expected):
 
 
 @memoized
-def model_reference_tables(path, text, values, root):
-    """Bind original typed rows only after the actual document matches its Model."""
+def model_reference_tables(path, text, values, root, *, check_document=True):
+    """Prepare Model expectations; parsers bind formal rows after table equality."""
     source = dict(values)
     if not source:
+        return ()
+    snapshots = _model_display.reference_rows(source).values()
+    if not any(
+        (check_document and item.references)
+        or item.kind != "EC2.SecurityGroup"
+        and any(
+            "[]" in _array_display.array_template(row[1], item.kind, root)
+            and (
+                check_document
+                or not (
+                    row[1].startswith(CODEBUILD_FORMAL_VARIABLE)
+                    or row[1] in _dependency_design_layout.LINKED_LIST_PROPERTIES
+                )
+            )
+            for row in item.rows
+        )
+        for item in snapshots
+    ):
         return ()
     model_path = (
         path.parents[4] / "model" / path.relative_to(path.parents[4] / "docs/designs")
@@ -192,28 +191,14 @@ def model_reference_tables(path, text, values, root):
     )
     if prohibited:
         raise FindingsError(findings)
-    if not any(
-        item.references for item in _model_display.reference_rows(source).values()
-    ):
-        return ()
-    if path.stem == "codebuild":
-        try:
-            _dependency_design_layout.expanded_display_rows(
-                text.splitlines(),
-                root,
-                modes=_dependency_design_layout.resource_modes(
-                    text.splitlines(), source
-                ),
-            )
-        except ReferenceResolutionError:
-            pass  # Only a Model-matched table may validate unavailable typed values below.
     tables = []
     expected = _model_render.generate_markdown(
         path, source, root, reference_tables=tables
     )
     if text.splitlines() != expected.splitlines():
         require_saved_identity(text, expected)
-        raise DisplayMismatchError(path, text, expected)
+        if check_document:
+            raise DisplayMismatchError(path, text, expected)
     tables = [
         _security_group_reference_table(table, expected, root)
         if table.resources[0].kind == "EC2.SecurityGroup"
@@ -569,13 +554,12 @@ class DesignDocument:
 
     @cached_property
     def reference_tables(self):
-        if not self.check_display:
-            return ()
         return model_reference_tables(
             self.path,
             self.text,
             tuple((self.model_values or {}).items()),
             self.root or definition_root(self.path.parent),
+            check_document=self.check_display,
         )
 
     @property

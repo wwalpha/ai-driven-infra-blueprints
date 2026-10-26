@@ -362,7 +362,9 @@ def test_codebuild_variable_connection(models, variable_type, logical, attribute
         return
     markdown = generate_markdown(path, values, FRAMEWORK)
     line = next(
-        line for line in markdown.splitlines() if "Environment.Variables.TOKEN" in line
+        line
+        for line in markdown.splitlines()
+        if "Environment.Variables[1].TOKEN" in line
     )
     assert "](" in line and "codebuild-variable-type:" in line
     assert "$modelRef" in restore(path, markdown, values)

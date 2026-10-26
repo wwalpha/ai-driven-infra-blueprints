@@ -14,6 +14,7 @@ from pathlib import Path
 import json_intrinsics as _imports_json_intrinsics
 import model.projection as _model_projection
 import model.reference_presentation as _reference_presentation
+import model.render as _model_render
 import utils.aws_mappings as _imports_utils_aws_mappings
 from model.core import entries, literal
 from model.format import JSON_LINK as MODEL_JSON_LINK
@@ -33,7 +34,7 @@ from utils.json_format import (
     unique_object as unique_object,
 )
 
-import design.array_display as _dependency_array_display
+import design.document as _design_document
 import design.layout as _module_design_layout
 from design.common import cell as cell
 from design.common import code as code
@@ -128,7 +129,11 @@ class Resource:
 
 @input_scope
 def resources_in(
-    lines: list[str], root: Path | None = None, *, pending_links=None
+    lines: list[str],
+    root: Path | None = None,
+    *,
+    pending_links=None,
+    reference_tables=(),
 ) -> list[Resource]:
     lines = resource_heading_lines(lines)
     resources = []
@@ -148,6 +153,7 @@ def resources_in(
             continue
         if not anchor:
             raise ValueError(f"resource lacks an anchor: {logical_id}")
+        table_start = index
         index += 2
         rows = []
         while index < len(lines) and lines[index].startswith("|"):
@@ -156,11 +162,29 @@ def resources_in(
                 raise ValueError(f"invalid resource property row: {logical_id}")
             rows.append(cells)
             index += 1
-        rows = (
-            _dependency_array_display.restored_rows(rows, current_type, root)
-            if root
-            else _dependency_array_display.restored_rows(rows, current_type)
+        projection = next(
+            (item for item in reference_tables if item.anchor == anchor), None
         )
+        if projection is not None:
+            if tuple(lines[table_start:index]) != projection.expected:
+                raise ValueError(
+                    "Markdown table differs from Model expected display: " + anchor
+                )
+            rows = [
+                [part.strip() for part in line.strip("|").split("|")]
+                for line in projection.semantic[2:]
+            ]
+        elif any(
+            re.search(r"\[\d+\]", row[1])
+            and re.sub(
+                r"\[\d+\]",
+                "[]",
+                _module_design_layout.formal_property(row[1], current_type, root),
+            )
+            in POLICY_FORMATS
+            for row in rows
+        ):
+            raise ValueError("indexed array display requires Model source rows")
         for row in rows:
             row[1] = _module_design_layout.formal_property(row[1], current_type, root)
         rows = _model_projection.restore_pending_artifact_links(
@@ -574,13 +598,16 @@ def policy_document_lines(document, policy):
 
 
 @input_scope
-def rendered_design(path: Path, *, definitions_root: Path | None = None) -> str:
+def rendered_design(
+    path: Path, *, definitions_root: Path | None = None, reference_tables=()
+) -> str:
     definition_root = _imports_utils_aws_mappings.definition_root
     original = path.read_text(encoding="utf-8")
     lines = without_policy_tables(original.splitlines())
     root = definitions_root or definition_root(path.resolve().parent)
     presentation = None
     pending_links = {}
+    reference_tables = list(reference_tables)
     if (
         len(path.parents) > 4
         and path.parents[2].name == "designs"
@@ -588,13 +615,20 @@ def rendered_design(path: Path, *, definitions_root: Path | None = None) -> str:
     ):
         values = _module_design_layout.design_model_values(path, path.parents[4])
         if values is not None:
+            reference_tables = []
+            expected = _model_render.generate_markdown(
+                path, values, root, reference_tables=reference_tables
+            )
+            _design_document.require_saved_identity(original, expected)
             presentation = _reference_presentation.Presentation(
                 values, path, path.parents[4]
             )
             pending_links = _model_projection.pending_artifact_links(
                 values, presentation.scope, presentation.root
             )
-    resources = resources_in(lines, root, pending_links=pending_links)
+    resources = resources_in(
+        lines, root, pending_links=pending_links, reference_tables=reference_tables
+    )
     if not resources:
         if START in original or IAM_START in original:
             raise ValueError("policy tables have no owning resource")

@@ -387,6 +387,7 @@ def check_comparison_preserves_confirmed_siblings(models, kind, prop, value, poi
         property_schema=catalog.property_schema,
         evaluate=Mock(side_effect=AssertionError("not an intrinsic")),
         model_path=scope.path,
+        environment_mapping=mapping_for(models, kind),
     )
     assert prepared.error is None and len(prepared.failures) == 1
     assert prepared.failures[0][1] == pointer

@@ -16,7 +16,7 @@ import model.importing.references as _imports_model_importing_references
 import model.render as _imports_model_render
 import model.sources as _imports_model_sources
 import model.validation as _imports_model_validation
-from design.array_display import indexed_rows, restored_rows
+from design.array_display import indexed_rows, verified_rows
 from design.document import DesignIndex
 from model.core import (
     ReferenceResolutionError,
@@ -229,8 +229,8 @@ def check_receiving_contracts(root):
     expanded, _ = DesignIndex().get(view).view().expanded
     assert any(prop in line and values[key] in line for line in expanded), markdown
     row = ["009-004", prop, values[key], "合成配列"]
-    assert restored_rows(
-        indexed_rows([row], "Glue.Job", definitions), "Glue.Job", definitions
+    assert verified_rows(
+        indexed_rows([row], "Glue.Job", definitions), [row], "Glue.Job", definitions
     ) == [row]
     assert parse(serialize(values)).values[key] == values[key]
     assert json.loads(load_model(scope).authoritative[key]) == links

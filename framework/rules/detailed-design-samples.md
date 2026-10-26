@@ -141,8 +141,8 @@ The name components below are example values; actual designs use human-confirmed
 | ---: | --- | --- | --- |
 | 1 | Id | `PENDING_DEPLOY` | Endpointを識別するID |
 | 2 | ServiceName | `com.amazonaws.ap-northeast-1.s3` | 接続先のS3 service |
-| 3 | Tags[1].Key | `Name` | <!-- array-source: ["Tags[].Key", "`Name`", 1] --> 名前を識別するタグのキー |
-| 4 | Tags[1].Value | `vpce-app-dev-s3` | <!-- array-source: ["Tags[].Value", "`vpce-app-dev-s3`", 1] --> Endpointを識別する名前 |
+| 3 | Tags[1].Key | `Name` | 名前を識別するタグのキー |
+| 4 | Tags[1].Value | `vpce-app-dev-s3` | Endpointを識別する名前 |
 | 5 | VpcEndpointType | `Gateway` | Endpointの接続方式 |
 | 6 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Endpointが所属するVPC |
 ```

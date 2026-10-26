@@ -3,7 +3,6 @@
 import re
 from dataclasses import dataclass
 from functools import partial as _bind_framework_callback
-from pathlib import Path
 
 import json_intrinsics as _imports_json_intrinsics
 import model.environment_values as environment_values
@@ -63,6 +62,7 @@ def desired_value(
     stack=None,
     context=None,
     normalize=None,
+    environment_mapping=None,
 ):
     warnings, failures = [], []
     try:
@@ -81,6 +81,17 @@ def desired_value(
             failures=failures,
             normalize=normalize,
         )
+        if environment_mapping is not None:
+            value = environment_values.project(
+                kind,
+                row["property"],
+                value,
+                environment_mapping,
+                _bind_framework_callback(
+                    _pending_environment, failures, kind, row["property"]
+                ),
+                context=context,
+            )
     except (Blocked, KeyError, ValueError, TypeError) as error:
         return PreparedValue(None, warnings, error, tuple(failures))
     return PreparedValue(value, warnings, failures=tuple(failures))
@@ -354,15 +365,7 @@ def _desired_value(
         "",
     )
     path = row["property"].removeprefix(kind + ".")
-    prepared = references(value, path=path)
-    return environment_values.project(
-        kind,
-        row["property"],
-        prepared,
-        environment_values.mapping_for(Path(model_path).parents[3], kind),
-        _bind_framework_callback(_pending_environment, failures, kind, row["property"]),
-        context=context,
-    )
+    return references(value, path=path)
 
 
 def _pending_environment(failures, kind, prop, item):

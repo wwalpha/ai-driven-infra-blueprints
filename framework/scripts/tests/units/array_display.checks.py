@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-from design.array_display import SOURCE, array_template, indexed_rows, restored_rows
+from design.array_display import array_template, indexed_rows, verified_rows
 from design.catalog import DesignSchemaCatalog, design_material_files
 from utils.input_cache import input_scope
 
@@ -26,9 +26,9 @@ def rows(fields):
     ]
 
 
-def rejected(shown, kind):
+def rejected(shown, source, kind):
     try:
-        restored_rows(shown, kind)
+        verified_rows(shown, source, kind)
     except ValueError:
         pass
     else:
@@ -56,25 +56,24 @@ def nested_scalar_arrays():
         "Permissions[2].Actions[3]",
         "Permissions[2].Principal",
     ]
-    assert restored_rows(shown, "QuickSight.DataSource") == source
+    assert verified_rows(shown, source, "QuickSight.DataSource") == source
     # The old display must fail regeneration-based verification.
     bad = [row.copy() for row in shown]
     for offset in range(3):
         bad[4 + offset][1] = f"Permissions[1].Actions[{4 + offset}]"
-    rejected(bad, "QuickSight.DataSource")
+    rejected(bad, source, "QuickSight.DataSource")
     for index, column, value in (
         (4, 1, "Permissions[1].Actions[1]"),
         (4, 1, "Permissions[2].Actions[4]"),
         (5, 2, "`changed`"),
         (5, 3, "別のコメント"),
-        (4, 3, "<!-- array-source: invalid --> 設定値"),
-        (4, 3, '<!-- array-source: ["Permissions[].Actions", "`[]`", 3] --> 設定値'),
-        (4, 3, '<!-- array-source: ["Permissions[].Actions", "`[]`", 0] --> 設定値'),
-        (4, 3, '<!-- array-source: ["Permissions[].Actions", "`[]`", true] --> 設定値'),
     ):
         bad = [row.copy() for row in shown]
         bad[index][column] = value
-        rejected(bad, "QuickSight.DataSource")
+        rejected(bad, source, "QuickSight.DataSource")
+
+    for bad in (shown[:-1], shown + [shown[-1]], [shown[1], shown[0], *shown[2:]]):
+        rejected(bad, source, "QuickSight.DataSource")
 
     # Explicit templates need no catalog edits; values never determine ownership.
     for scalar_first in (True, False):
@@ -104,16 +103,13 @@ def nested_scalar_arrays():
                 row[0], row[3] = str(index + 1), f"元行 {index + 1}"
             output = indexed_rows(original, "Example.Resource")
             assert [row[1] for row in output] == expected
-            assert restored_rows(output, "Example.Resource") == original
-            markers = [
-                json.loads(match[1])
-                for row in output
-                if (match := SOURCE.match(row[3]))
-            ]
-            assert markers == [
-                [row[1], row[2], max(1, count) if row[1].endswith("[]") else 1]
+            assert verified_rows(output, original, "Example.Resource") == original
+            assert [row[3] for row in output] == [
+                row[3]
                 for row in original
+                for _ in range(max(1, count) if row[1].endswith("[]") else 1)
             ]
+            assert all("<!-- array-source:" not in row[3] for row in output)
 
     for fields, expected in (
         # Two completed child arrays belong to the same parent; both restart for the next.
@@ -164,7 +160,7 @@ def nested_scalar_arrays():
         original = rows(fields)
         output = indexed_rows(original, "Example.Resource")
         assert [row[1] for row in output] == expected
-        assert restored_rows(output, "Example.Resource") == original
+        assert verified_rows(output, original, "Example.Resource") == original
 
 
 @input_scope
@@ -229,7 +225,7 @@ def main():
         ]
     )
     shown = indexed_rows(source, "S3.Bucket")
-    assert restored_rows(shown, "S3.Bucket") == source
+    assert verified_rows(shown, source, "S3.Bucket") == source
     fields = [row[1] for row in shown]
     assert fields[1:5] == [
         "LifecycleConfiguration.Rules[1].Transitions[1].StorageClass",
@@ -247,10 +243,10 @@ def main():
     for token in ("[0]", "[2]", "[01]", "[]", "[x]"):
         bad = [row.copy() for row in shown]
         bad[0][1] = bad[0][1].replace("[1]", token)
-        rejected(bad, "S3.Bucket")
+        rejected(bad, source, "S3.Bucket")
     bad = [row.copy() for row in shown]
     bad[2][2] = "`999`"
-    rejected(bad, "S3.Bucket")
+    rejected(bad, source, "S3.Bucket")
     for value, count in (
         ('`[ "sg-one", "sg-two" ]`', 2),
         ('`["sg-one"]`', 1),
@@ -259,7 +255,8 @@ def main():
         original = rows([("SecurityGroupIds", value)])
         output = indexed_rows(original, "EC2.Instance")
         assert (
-            len(output) == count and restored_rows(output, "EC2.Instance") == original
+            len(output) == count
+            and verified_rows(output, original, "EC2.Instance") == original
         )
         if value != "`[]`":
             assert output[0][1] == "SecurityGroupIds[1]"
@@ -277,7 +274,7 @@ def main():
         "Stages[1].Actions[1].InputArtifacts[2].Name",
         "Stages[2].Actions[1].Name",
     ]
-    assert restored_rows(output, "CodePipeline.Pipeline") == original
+    assert verified_rows(output, original, "CodePipeline.Pipeline") == original
     original = rows(
         [
             ("Tasks[].Name", "`first`"),
@@ -295,7 +292,7 @@ def main():
         "Tasks[2].Name",
         "Tasks[2].Subnets[1]",
     ]
-    assert restored_rows(output, "Example.Resource") == original
+    assert verified_rows(output, original, "Example.Resource") == original
     for kind, fields, expected in (
         (
             "CodeBuild.Project",
@@ -361,7 +358,7 @@ def main():
         original = rows(fields)
         output = indexed_rows(original, kind)
         assert [row[1] for row in output] == expected
-        assert restored_rows(output, kind) == original
+        assert verified_rows(output, original, kind) == original
     # Aliases retain the array index even when they hide a formal ancestor.
     for kind, prop, expected in (
         (
@@ -378,7 +375,7 @@ def main():
         original = rows([(prop, "`true`")])
         output = indexed_rows(original, kind)
         assert output[0][1] == expected
-        assert restored_rows(output, kind) == original
+        assert verified_rows(output, original, kind) == original
     covered = scalar_covered = 0
     catalog = DesignSchemaCatalog(ROOT)
     for path in design_material_files(ROOT):
@@ -394,13 +391,13 @@ def main():
                         and output[0][1].endswith("[1]")
                         and output[1][1].endswith("[2]")
                     ), (kind, prop)
-                    assert restored_rows(output, kind) == original
+                    assert verified_rows(output, original, kind) == original
                     scalar_covered += 1
                 continue
             original = rows([(prop, "`selected`")])
             output = indexed_rows(original, kind)
             assert "[]" not in output[0][1] and "[1]" in output[0][1], (kind, prop)
-            assert restored_rows(output, kind) == original, (kind, prop)
+            assert verified_rows(output, original, kind) == original, (kind, prop)
             covered += 1
     print(
         f"Array display: PASS ({covered} catalog paths, {scalar_covered} schema array containers; nested, scalar, aliases, single actions, invalid displays)"

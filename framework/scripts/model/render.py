@@ -346,7 +346,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
 
 
 def resource_table_lines(
-    resource, name, rows, children, root, *, references=None, formal=False
+    resource, name, rows, children, root, *, references=None, formal=False, indexed=True
 ):
     sources = references or {}
     source = sources.get(resource.get("logicalId"))
@@ -486,7 +486,7 @@ def resource_table_lines(
                 + (comment[source.end() :] if source else comment)
             )
             display += child_display
-        if not formal:
+        if not formal and indexed:
             display = _dependency_array_display.indexed_rows(display, kind, root)
         output += _dependency_model_display.row_table(display)
     if Counter(consumed) != expected:
@@ -741,9 +741,7 @@ def render_markdown(
             if references
             else ()
         )
-        if reference_tables is not None and any(
-            source.references for source in sources
-        ):
+        if reference_tables is not None:
             semantic = resource_table_lines(
                 resource, name, rows, children, root, references=references, formal=True
             )
@@ -753,7 +751,17 @@ def render_markdown(
                     sources,
                     tuple(table),
                     tuple(semantic),
-                    tuple(baseline),
+                    tuple(
+                        resource_table_lines(
+                            resource,
+                            name,
+                            rows,
+                            children,
+                            root,
+                            references=references,
+                            indexed=False,
+                        )
+                    ),
                 )
             )
         output += (policy_views or {}).get(identity, [])

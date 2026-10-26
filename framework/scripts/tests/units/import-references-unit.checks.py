@@ -973,8 +973,13 @@ def check_packed_pipeline_configuration_roundtrip(tmp_path):
     assert (
         "audit-build" in first and "[audit-build](codebuild.md#producer)" not in first
     )
+    projections = []
+    assert generate_markdown(path, source, ROOT, reference_tables=projections) == first
     normalized = expanded_display_rows(
-        first.splitlines(), ROOT, modes={"codepipeline-audit": "IMPORT"}
+        first.splitlines(),
+        ROOT,
+        modes={"codepipeline-audit": "IMPORT"},
+        reference_tables=projections,
     )
     assert any("literal-json" in line and "audit-build" in line for line in normalized)
     assert json.loads(source["desired.row.009-003.value"].strip("`")) == actual

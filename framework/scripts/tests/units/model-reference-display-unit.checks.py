@@ -121,9 +121,7 @@ def pipeline(tmp_path):
         for number, row in enumerate(golden, 1):
             row[0] = str(number)
             if row[1].startswith("Stages[1].Actions."):
-                source = json.dumps([row[1], row[2], 1], ensure_ascii=True)
                 row[1] = row[1].replace("Actions.", "Actions[1].")
-                row[3] = "<!-- array-source: " + source + " --> " + row[3]
         save(scope, values)
         path = tmp_path / "docs/designs/qa/team/codepipeline.md"
         yield tmp_path, scope, path, values, row_table(golden)
@@ -159,11 +157,8 @@ def check_pipeline_visible_baseline(pipeline):
     ordinary_markdown = generate_markdown(path, ordinary, FRAMEWORK)
     assert "\n".join(golden) in ordinary_markdown
     assert "[build-project]" not in ordinary_markdown
-    assert (
-        model_reference_tables(
-            path, ordinary_markdown, tuple(ordinary.items()), FRAMEWORK
-        )
-        == ()
+    assert model_reference_tables(
+        path, ordinary_markdown, tuple(ordinary.items()), FRAMEWORK
     )
 
 
@@ -311,7 +306,8 @@ def check_no_model_does_not_recover_typed_references(pipeline):
     unrelated = root / "standalone.md"
     document = DesignIndex(FRAMEWORK).get(unrelated, text=markdown)
     assert not document.reference_tables and document.model_values is None
-    assert "$modelRef" not in "\n".join(document.raw.display_lines)
+    with pytest.raises(ValueError):
+        _ = document.raw.display_lines
     build = [
         "### CodeBuild.Project: build",
         "",

@@ -532,15 +532,12 @@ def check_resource_names(
                 }
             )
             modes = _dependency_design_layout.resource_modes(lines, values)
-            reference_tables = (
-                _design_document.model_reference_tables(
-                    path,
-                    input_text(path, encoding="utf-8"),
-                    tuple((values or {}).items()),
-                    definitions_root,
-                )
-                if check_display
-                else ()
+            reference_tables = _design_document.model_reference_tables(
+                path,
+                input_text(path, encoding="utf-8"),
+                tuple((values or {}).items()),
+                definitions_root,
+                check_document=check_display,
             )
             lines = _dependency_security_group_tables.security_group_table_lines(
                 lines, definitions_root

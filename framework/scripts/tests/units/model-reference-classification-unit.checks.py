@@ -580,7 +580,7 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     document["Statement"][6]["Resource"] = "*"
     role["desired.row.070-004.document"] = json.dumps(document)
     save(consumer, role)
-    with pytest.raises(ValueError, match="policy requires a JSON artifact link"):
+    with pytest.raises(ValueError, match="Model expected display"):
         rendered_design(path, definitions_root=FRAMEWORK)
 
 

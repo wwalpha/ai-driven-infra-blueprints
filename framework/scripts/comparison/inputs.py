@@ -7,6 +7,7 @@ import re
 from functools import partial
 
 import design.array_display as _imports_array_display
+import model.environment_values as environment_values
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 import utils.cloudformation.format as _imports_cfn_format
@@ -1054,6 +1055,7 @@ class Inputs:
             / self.directory
             / (service + ".properties"),
             normalize=normalize,
+            environment_mapping=environment_values.mapping_for(self.root, kind),
         )
 
     def project_rows(self, kind, rows):

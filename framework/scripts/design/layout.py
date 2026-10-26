@@ -21,7 +21,6 @@ from utils.input_cache import input_text
 from utils.reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROPERTIES
 from utils.reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
 
-import design.array_display as _dependency_array_display
 import design.catalog as _imports_design_catalog
 import design.services.codebuild
 import design.services.codepipeline
@@ -633,7 +632,7 @@ def expanded_display_rows(
         changed = False
         normalized = False
         kind = ""
-        # Generic array markers are removed before service-specific compact rows.
+        # Model projections supply exact rows before service-specific parsing.
         stop = index
         source_rows = []
         while stop < len(lines) and lines[stop].startswith("|"):
@@ -651,7 +650,6 @@ def expanded_display_rows(
                 raise ValueError(
                     "Markdown table differs from Model expected display: " + anchor
                 )
-            # Validate the unlinked source display before exposing Model semantic rows.
             expanded_display_rows(
                 [
                     f'<a id="{anchor}"></a>',
@@ -665,11 +663,8 @@ def expanded_display_rows(
             result.extend(table.semantic)
             index = stop
             continue
-        restored = _dependency_array_display.restored_rows(
-            source_rows, resource_type, root
-        )
         restored = design.services.glue.restored_glue_argument_rows(
-            restored, resource_type
+            source_rows, resource_type
         )
         if restored != source_rows:
             if [row[0] for row in source_rows] != [
@@ -685,7 +680,7 @@ def expanded_display_rows(
                 *lines[stop:],
             ]
             changed = True
-            kind = "Array"
+            kind = "Glue arguments"
         while index < len(lines) and lines[index].startswith("|"):
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
             if len(cells) != 4:
@@ -827,7 +822,9 @@ def expanded_display_rows(
                 raise ValueError(
                     "CloudTrail DataResources Type/Values must use one target per display row"
                 )
-            if prop.startswith(CODEBUILD_VARIABLE):
+            if prop.startswith(CODEBUILD_VARIABLE) or prop.startswith(
+                CODEBUILD_VARIABLE.removesuffix(".") + "["
+            ):
                 changed = True
                 kind = "CodeBuild environment variable"
                 try:
@@ -967,6 +964,8 @@ def expanded_display_rows(
             changed = True
             kind = resource_type
         for row in rows:
+            if re.search(r"\[\d+\]", row[1]):
+                raise ValueError("indexed array display requires Model source rows")
             owner = ".".join(row[1].split(".")[:2])
             if (
                 row[1] in rules(root, owner)

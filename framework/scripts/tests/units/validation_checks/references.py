@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from functools import partial as _bind_framework_callback
 
-import design.array_display as _imports_array_display
 import design.document as _imports_design_document
+from model.render import generate_markdown
+from support.model_sources import write_model
 from support.validator import (
     MODULE,
     SCRIPT,
@@ -158,53 +160,78 @@ def check_identifier_propagation() -> None:
         )
 
 
-def _callback_check_array_source_role_links_errors(
-    indexed_rows, path, role, root, /, label
-):
-    rows = indexed_rows(
-        [
-            ["1", "InstanceProfileName", "`app-profile`", "Profile name"],
-            ["2", "Roles", f"[{label}](#iam-role)", "Selected role"],
-        ],
-        "IAM.InstanceProfile",
-    )
-    content = role + "\n".join("| " + " | ".join(row) + " |" for row in rows) + "\n"
-    # Hidden links must not enter reference discovery or broken-link checks.
-    content += "<!--\n[hidden](missing.md#missing)\n-->\n"
-    assert "<!-- array-source:" in content
+def _callback_check_array_role_links_errors(path, root, /, label):
+    values = {
+        "display.service.title": "# IAM 詳細設計",
+        "desired.service.iam.serviceId": "iam",
+        "desired.service.iam.ownedCatalogResourceTypes": "IAM.Role,IAM.InstanceProfile",
+        "desired.service.identity.lastAllocated": json.dumps(
+            {"IAM.Role": 1, "IAM.InstanceProfile": 1}
+        ),
+        "desired.note.001.text": "<!-- [hidden](missing.md#missing) -->",
+    }
+    for number, kind, anchor, fields in (
+        ("001", "IAM.Role", "iam-role", [("RoleName", "`app-role`")]),
+        (
+            "002",
+            "IAM.InstanceProfile",
+            "iam-profile",
+            [
+                ("InstanceProfileName", "`app-profile`"),
+                ("Roles", f"[{label}](#iam-role)"),
+            ],
+        ),
+    ):
+        values.update(
+            {
+                f"desired.resource.{number}.resourceType": kind,
+                f"desired.resource.{number}.logicalId": kind.replace(".", "_") + "_001",
+                f"desired.resource.{number}.resourceMode": "CREATE",
+                f"desired.resource.{number}.anchor": anchor,
+                f"display.resource.{number}.comment": "合成リソース",
+            }
+        )
+        for index, (prop, value) in enumerate(fields, 1):
+            prefix = f"desired.row.{number}-{index:03d}."
+            values.update(
+                {
+                    prefix + "property": kind + "." + prop,
+                    prefix + "value": value,
+                    prefix + "comment": "合成設定",
+                }
+            )
+    write_model(root / "model/dev/123456789012/iam.properties", values)
+    content = generate_markdown(path, values, SCRIPT.parents[2])
+    assert "<!-- array-source:" not in content and "Roles[1]" in content
     write(path, content)
     validator = MODULE.Validator(root)
     validator.check_design_links({}, paths=[path])
     return diagnostics(validator)
 
 
-def check_array_source_role_links() -> None:
-    indexed_rows = _imports_array_display.indexed_rows
-
+def check_array_role_links() -> None:
     with project() as root:
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "synthetic",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
         path = root / "docs/designs/dev/123456789012/iam.md"
         path.parent.mkdir(parents=True)
-        role = """<a id="iam-role"></a>
-### IAM.Role: Role
-
-| No. | Property | Value | Source / Comment |
-| ---: | --- | --- | --- |
-| 1 | RoleName | `app-role` | Role name |
-
-<a id="iam-profile"></a>
-### IAM.InstanceProfile: Profile
-
-| No. | Property | Value | Source / Comment |
-| ---: | --- | --- | --- |
-"""
         errors = _bind_framework_callback(
-            _callback_check_array_source_role_links_errors,
-            indexed_rows,
-            path,
-            role,
-            root,
+            _callback_check_array_role_links_errors, path, root
         )
-
         assert not errors("app-role"), errors("app-role")
         assert any(
             "IAM Role link must display RoleName" in error

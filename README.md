@@ -57,7 +57,7 @@ Do not use aliases when an environment has only one target. For multiple logical
 - `framework/scripts/model/`: Model schema, format, source snapshots/publication, references, operations, observation changes and projections. See [format and API](framework/docs/model-format-2.md).
 - `framework/scripts/model/cli.py`: Single Model entrypoint for read/trace/resource/find/render/import/observed/AWS comparison/audit/migration; launch with `python3 -B framework/scripts/run-python.py -B`.
 - `framework/scripts/generation_inputs.py`: Shared recorded input bytes, existence and file-set snapshots.
-- `framework/scripts/design/`: Common Design catalog, document, layout, array and policy processing; `services/` owns AWS-specific display/restoration.
+- `framework/scripts/design/`: Common Design catalog, document, layout, array and policy processing; `services/` owns AWS-specific displays. Array validation compares Model-generated display projections, then uses original formal rows in memory; Markdown contains no array restoration metadata. Standalone parsers needing original arrays require explicit Model/source rows.
 - `framework/scripts/design/services/definitions/registry.py`: Explicit fixed-data registry; service modules own all 31 Policy formats, references and visibility definitions. Public CLIs remain `framework/scripts/design_catalog.py` and `framework/scripts/policy_tables.py`.
 - `framework/scripts/design/services/{codebuild,codepipeline,glue}.py` / `framework/scripts/design/compact_rows.py`: Paired Glue/CodeBuild/CodePipeline row display and restoration
 - `framework/scripts/utils/iac_values.py`: Authoritative CFn identity parsing and symbolic comparison values
