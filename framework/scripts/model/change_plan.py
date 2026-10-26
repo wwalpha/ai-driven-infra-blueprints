@@ -18,13 +18,13 @@ from utils.reference_contracts import (
 )
 
 import model.identity as model_identity
+import model.impact_changes as impact_changes
 import model.references as references
 import model.validation as model_validation
 from model import dependency_index, environment_values, sources
 from model.change_scope import change_reads
 from model.core import entries
 from model.format import KEY, owner, parse
-import model.impact_changes as impact_changes
 from model.reference_nodes import nodes
 
 

@@ -1590,24 +1590,23 @@ class Validator:
     def candidate_stacks(self, plan):
         findings = plan.validation.get(None)
         if findings is None:
-            return {}
-        result = findings.result("design.stacks", plan.generated_scope)
+            return None
+        result = findings.get_result("design.stacks", plan.generated_scope)
+        if result is None or result.status != "PASS":
+            return None
+        definitions = result.metadata.get("stack_definitions")
+        if definitions is None:
+            return None
         return {
             self.root / path.relative_to(plan.stage): stacks
-            for path, stacks in result.metadata.get("stack_definitions", {}).items()
+            for path, stacks in definitions.items()
         }
 
     def check_cloudformation_environment_parameters(
         self, stack_definitions=None
     ) -> None:
         if stack_definitions is None:
-            result = self.findings.results.get(
-                (
-                    "design.stacks",
-                    None if self.scope is None else frozenset(self.scope),
-                    self.findings.candidate,
-                )
-            )
+            result = self.findings.get_result("design.stacks", self.scope)
             if result is not None and result.status == "PASS":
                 stack_definitions = result.metadata.get("stack_definitions")
         cloudformation.check_cloudformation_environment_parameters(

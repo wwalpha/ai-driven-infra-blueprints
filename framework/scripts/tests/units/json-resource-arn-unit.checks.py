@@ -21,7 +21,6 @@ from model.format import serialize
 from model.identity import COUNTERS
 from model.operations import prepare_edit, publish_edit, validate_candidates
 from model.projection import execution_document, reference_display
-from model import dependency_index
 from model.render import generate_files
 from model.sources import Scope, SourceWriteContext, load_model, runtime_values
 from model.validation import validate_json_settings
@@ -30,6 +29,8 @@ from utils.aws_mappings import mapping_alias
 from utils.cloudformation.format import decode_file as decode
 from utils.cloudformation.inputs import resolve_value
 from utils.json_format import policy_json, validate_aws_document
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

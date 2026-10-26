@@ -17,7 +17,7 @@ from deploy import contracts, failures, handoff
 from deploy import operation_journal as J
 from deploy.recovery import cleanup_unexecuted
 from support.pytest_cli import run
-from task_contract_core import set_status, task_digest
+from task_contract_core import relative_path, safe_path, set_status, task_digest
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 from utils.file_operations import sha
@@ -192,14 +192,22 @@ def check_unexecuted_shell_recovery(defect):
     assert saves or defect not in {"none", "interrupted"}
 
 
-def check_validation_snapshot_project_paths(tmp_path):
-    paths = {"README.md", "infra/new.json", "missing.md"}
+@pytest.mark.parametrize("lock_path", [".lock", ".lock/registration"])
+def check_validation_snapshot_project_paths(tmp_path, lock_path):
+    paths = {"README.md", "infra/new.json", "missing.md", "model/.lock", ".lockfile"}
+    contracts.output(tmp_path, "init", "-q")
     for relative in paths - {"missing.md"}:
         file = tmp_path / relative
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(relative)
+    for relative in (lock_path, "framework/ignored.py", "missing.md"):
+        file = tmp_path / relative
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text("synthetic")
+    contracts.output(tmp_path, "add", "README.md", "missing.md", lock_path, "framework")
+    (tmp_path / "missing.md").unlink()
     with (
-        patch.object(contracts, "paths", return_value=paths) as listing,
+        patch.object(contracts, "paths", wraps=contracts.paths) as listing,
         patch.object(contracts, "sha", wraps=sha) as hashes,
     ):
         snapshot = contracts.validation_snapshot(tmp_path)
@@ -213,11 +221,22 @@ def check_validation_snapshot_project_paths(tmp_path):
         "--",
         ".",
         ":(top,exclude)framework",
+        ":(top,exclude).lock",
     )
     assert set(snapshot) == paths and snapshot["missing.md"] is None
     assert {call.args[0] for call in hashes.call_args_list} == {
         tmp_path / p for p in paths - {"missing.md"}
     }
+    assert snapshot["README.md"] == sha(tmp_path / "README.md")
+    (tmp_path / "README.md").write_text("changed")
+    changed = contracts.validation_snapshot(tmp_path)
+    assert changed != snapshot
+    assert changed | {"README.md": snapshot["README.md"]} == snapshot
+    for forbidden in (".lock", ".lock/registration", ".git/config", "../outside"):
+        with pytest.raises(ValueError, match="exact repository-relative path"):
+            relative_path(forbidden)
+        with pytest.raises(ValueError, match="exact repository-relative path"):
+            safe_path(tmp_path, forbidden)
 
 
 @pytest.mark.parametrize(

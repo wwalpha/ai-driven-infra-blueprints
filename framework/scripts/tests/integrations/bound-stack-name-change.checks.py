@@ -18,7 +18,6 @@ from model.core import entries, stack_model
 from model.format import serialize
 from model.operations import CandidateReads
 from model.projection import bound_stack_names
-from model.render import markdown_for
 from model.sources import design_source_digest, load_model
 from model.validation import validate_resource_identities as validate_identities
 from support.it_case_receipt import it_case

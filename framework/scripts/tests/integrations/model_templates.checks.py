@@ -12,8 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import support.model_sources as _imports_support_model_sources
 import support.model_templates_fixtures as _exports_support_model_templates_fixtures
 from generation_inputs import GenerationInputs
-from model import dependency_index
-from validation.project import check_validation_scope as validate_scope
 from model.files import service_model_path
 from model.importing.scope import read_consumers, restrict
 from model.operations import _verify_published_inputs
@@ -52,6 +50,9 @@ from support.producer_identifier_reference_fixtures import reference, resource
 from support.validator import MODULE
 from sync_files import changed_files
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
+from validation.project import check_validation_scope as validate_scope
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

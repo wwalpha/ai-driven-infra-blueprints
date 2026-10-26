@@ -129,6 +129,11 @@ class Findings:
                 retained = replace(result, candidate=candidate)
                 self.results[(retained.check_id, retained.scope, candidate)] = retained
 
+    def get_result(self, check_id, scope):
+        """Read this candidate's result without registering an unexecuted check."""
+        scope = None if scope is None else frozenset(scope)
+        return self.results.get((check_id, scope, self.candidate))
+
     def result(self, check_id, scope):
         scope = None if scope is None else frozenset(scope)
         key = (check_id, scope, self.candidate)

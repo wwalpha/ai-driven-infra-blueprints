@@ -7,8 +7,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from model import dependency_index
 from task_contract_core import selected_task
+
+from model import dependency_index
 
 
 def git(root, *args):

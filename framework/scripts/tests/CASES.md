@@ -2871,7 +2871,7 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 | --- | --- | --- | --- | --- | --- | --- |
 | `project-cache::lifetime` | `check_cache_lifetime` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py#L106) | pytest / 1 | Framework全件探索禁止、実行内共有、実行を跨ぐPASS失効、実行終了後のPASS失効 | Validation Cache |
 | `project-generation::common` | `check_snapshot_project_common_inputs` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L262) | pytest / 2 | common選択の再利用、Framework/配布README非登録、Project変更/削除の最終照合・sealed bytesと外部変更保持 | Generation |
-| `repair-snapshot::paths` | `check_validation_snapshot_project_paths` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py#L687) | pytest / 1 | Git tracked/untracked取得のFramework pathspec除外、Project hash対象維持 | Repair Snapshot |
+| `repair-snapshot::paths` | `check_validation_snapshot_project_paths` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py#L687) | pytest / 2 | Git管理されたルート.lockファイル/配下とFrameworkを除外し、tracked/untracked・欠落・通常Hash変更検知と禁止パス拒否を維持 | Repair Snapshot |
 | `project-validation::common` | `check_common_cache_guard` | UT | [units/validation_checks/runner.py](units/validation_checks/runner.py#L120) | direct / 1 | 実Validatorのcommon初回/最終各1回、同一input_contextのCatalog PASS再利用 | Runner |
 
 ## Issue 19: Issues Scan responsibility boundaries
@@ -3875,3 +3875,16 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | `deploy-scope::authentication` | `check_dependency_reader_uses_current_authentication` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 3 | alias/Account選択、現Target/STS認証、読取API限定 | Synthetic offline |
 | `deploy-scope::dependency-graph` | `test_deploy_and_handoff_dependency_graph` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 8 | 共通Import/Export判定の双方向・間接依存、共通Producerのみの独立、取得不備の安全停止 | Synthetic offline |
 | `deploy-scope::checkpoint` | `check_checkpoint_uses_scoped_barrier_under_ordered_locks` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 4 | Checkpointの実変更範囲・Publication衝突、Journal/Repair排他、Commit前停止 | Synthetic offline |
+
+## Framework validation / Export throttling regressions
+
+| Case | Function | Layer | Location | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `validation-result::lookup` | `check_result_lookup_is_candidate_and_scope_specific` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | 未登録参照は無変更、scope/candidate分離、result生成動作維持 | Synthetic Findings |
+| `validation-result::iac-stacks` | `check_iac_stack_lookup_and_file_fallback` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 8 | IaCのみのStack参照でPASS維持、保存設計fallback、必要なNOT_RUN/FAILと入力不正FAILを保持 | Synthetic IaC/design |
+| `exports-retry::continuation` | `check_export_throttling_retries_only_failed_page` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 4 | 明示4コードのみ同一NextToken/引数で再試行、成功ページ重複なし | Mock request/clock |
+| `exports-retry::attempt-limit` | `check_export_throttling_attempt_limit` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 1 | 失敗ページ最大5request、指数バックオフ1/2/4/8秒、部分結果非返却 | Mock request/clock |
+| `exports-retry::deadline` | `check_export_retry_shares_deadline` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 3 | 全ページ/試行共通60秒、待機前/再試行前/次ページの期限確認 | Mock request/clock |
+| `exports-retry::non-throttling` | `check_export_non_throttling_is_not_retried` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 3 | AccessDenied/ValidationError/InvalidContinuationToken非再試行 | Mock AWS errors |
+| `exports-retry::invalid-page` | `check_export_retry_retains_page_validation` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 4 | 再試行後も重複/数値/空Tokenと不正ページを拒否 | Mock pages |
+| `exports-retry::operation-boundary` | `check_other_operations_do_not_retry_throttling` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 4 | list_importsと更新create/execute/delete非再試行 | Mock request |

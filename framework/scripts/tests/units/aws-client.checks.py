@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from types import SimpleNamespace
+from unittest.mock import Mock, call
 
 import boto3
 import pytest
@@ -32,6 +33,7 @@ def _callback_check_client_concurrency_Session___init__(self, calls, /, **kwargs
 def _callback_check_client_concurrency_Session_client(
     self, busy, calls, gate, /, service, **kwargs
 ):
+    assert kwargs["config"].retries == {"mode": "standard", "total_max_attempts": 2}
     assert gate.acquire(blocking=False), (
         "shared Session clients constructed concurrently"
     )
@@ -253,6 +255,162 @@ def check_failed_continuation_returns_no_inventory(monkeypatch):
         cloudformation.describe_change_set(("context",), ChangeSetName="change")
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "Throttling",
+        "ThrottlingException",
+        "RequestLimitExceeded",
+        "TooManyRequestsException",
+    ],
+)
+def check_export_throttling_retries_only_failed_page(monkeypatch, code):
+    request = Mock(
+        side_effect=[
+            {"Exports": ["first"], "NextToken": "second"},
+            sdk.AwsError("cloudformation", "list_exports", code),
+            {"Exports": ["second"]},
+        ]
+    )
+    clock = SimpleNamespace(monotonic=Mock(return_value=100), sleep=Mock())
+    monkeypatch.setattr(sdk, "request", request)
+    monkeypatch.setattr(sdk, "time", clock)
+    arguments = {"MaxResults": 10}
+    assert cloudformation.list_exports(("context",), **arguments) == {
+        "Exports": ["first", "second"]
+    }
+    assert request.call_args_list == [
+        call(("context",), "cloudformation", "list_exports", arguments, deadline=160),
+        call(
+            ("context",),
+            "cloudformation",
+            "list_exports",
+            arguments | {"NextToken": "second"},
+            deadline=160,
+        ),
+        call(
+            ("context",),
+            "cloudformation",
+            "list_exports",
+            arguments | {"NextToken": "second"},
+            deadline=160,
+        ),
+    ]
+    clock.sleep.assert_called_once_with(1)
+    assert arguments == {"MaxResults": 10}
+
+
+def check_export_throttling_attempt_limit(monkeypatch):
+    error = sdk.AwsError("cloudformation", "list_exports", "Throttling", 400)
+    request = Mock(
+        side_effect=[{"Exports": ["first"], "NextToken": "second"}] + [error] * 5
+    )
+    clock = SimpleNamespace(monotonic=Mock(return_value=100), sleep=Mock())
+    monkeypatch.setattr(sdk, "request", request)
+    monkeypatch.setattr(sdk, "time", clock)
+    with pytest.raises(sdk.AwsError) as caught:
+        cloudformation.list_exports(("context",))
+    assert caught.value is error and caught.value.http_status == 400
+    assert request.call_count == 6
+    assert all(c.args[3] == {"NextToken": "second"} for c in request.call_args_list[1:])
+    assert all(c.kwargs == {"deadline": 160} for c in request.call_args_list)
+    assert clock.sleep.call_args_list == [call(1), call(2), call(4), call(8)]
+
+
+@pytest.mark.parametrize("boundary", ["before-wait", "before-retry", "next-page"])
+def check_export_retry_shares_deadline(monkeypatch, boundary):
+    # Include time spent on the first successful page, SDK calls and scheduler delay.
+    times = {
+        "before-wait": [100, 100, 158, 158, 159, 159],
+        "before-retry": [100, 100, 158, 158, 160],
+        "next-page": [100, 100, 160],
+    }
+    request = Mock(
+        side_effect=[
+            {"Exports": ["first"], "NextToken": "second"},
+            sdk.AwsError("cloudformation", "list_exports", "Throttling"),
+            sdk.AwsError("cloudformation", "list_exports", "Throttling"),
+        ]
+    )
+    clock = SimpleNamespace(monotonic=Mock(side_effect=times[boundary]), sleep=Mock())
+    monkeypatch.setattr(sdk, "request", request)
+    monkeypatch.setattr(sdk, "time", clock)
+    with pytest.raises(sdk.AwsError, match="OperationDeadlineExceeded"):
+        cloudformation.list_exports(("context",))
+    assert (
+        request.call_count
+        == {"before-wait": 3, "before-retry": 2, "next-page": 1}[boundary]
+    )
+    assert all(c.kwargs == {"deadline": 160} for c in request.call_args_list)
+    assert clock.sleep.call_args_list == ([] if boundary == "next-page" else [call(1)])
+
+
+@pytest.mark.parametrize(
+    "code", ["AccessDenied", "ValidationError", "InvalidContinuationToken"]
+)
+def check_export_non_throttling_is_not_retried(monkeypatch, code):
+    error = sdk.AwsError("cloudformation", "list_exports", code)
+    request, sleep = Mock(side_effect=error), Mock()
+    monkeypatch.setattr(sdk, "request", request)
+    monkeypatch.setattr(
+        sdk, "time", SimpleNamespace(monotonic=lambda: 100, sleep=sleep)
+    )
+    with pytest.raises(sdk.AwsError) as caught:
+        cloudformation.list_exports(("context",))
+    assert caught.value is error and request.call_count == 1
+    sleep.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "response,code",
+    [
+        ({"Exports": [], "NextToken": "second"}, "InvalidContinuationToken"),
+        ({"Exports": [], "NextToken": 123}, "InvalidContinuationToken"),
+        ({"Exports": [], "NextToken": ""}, "InvalidContinuationToken"),
+        ({"Exports": {}}, "InvalidPage"),
+    ],
+)
+def check_export_retry_retains_page_validation(monkeypatch, response, code):
+    request, sleep = (
+        Mock(
+            side_effect=[
+                {"Exports": ["first"], "NextToken": "second"},
+                sdk.AwsError("cloudformation", "list_exports", "Throttling"),
+                response,
+            ]
+        ),
+        Mock(),
+    )
+    monkeypatch.setattr(sdk, "request", request)
+    monkeypatch.setattr(
+        sdk, "time", SimpleNamespace(monotonic=lambda: 100, sleep=sleep)
+    )
+    with pytest.raises(sdk.AwsError, match=code):
+        cloudformation.list_exports(("context",))
+    assert request.call_count == 3
+    sleep.assert_called_once_with(1)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["list_imports", "create_change_set", "execute_change_set", "delete_stack"],
+)
+def check_other_operations_do_not_retry_throttling(monkeypatch, operation):
+    request, sleep = (
+        Mock(side_effect=sdk.AwsError("cloudformation", operation, "Throttling")),
+        Mock(),
+    )
+    monkeypatch.setattr(sdk, "request", request)
+    monkeypatch.setattr(cloudformation, "request", request)
+    monkeypatch.setattr(
+        sdk, "time", SimpleNamespace(monotonic=lambda: 100, sleep=sleep)
+    )
+    with pytest.raises(sdk.AwsError, match="Throttling"):
+        getattr(cloudformation, operation)(("context",))
+    assert request.call_count == 1
+    sleep.assert_not_called()
+
+
 @pytest.mark.parametrize("missing_page", [0, 1])
 def check_failed_changeset_missing_changes_is_not_empty(monkeypatch, missing_page):
     replies = [
@@ -334,6 +492,10 @@ def check_sdk_arguments_and_pages(tmp_path, monkeypatch):
     )
     cfn = session.client("cloudformation")
     monkeypatch.setattr(sdk, "client", lambda context, service: cfn)
+    sleep = Mock()
+    monkeypatch.setattr(
+        sdk, "time", SimpleNamespace(monotonic=lambda: 100, sleep=sleep)
+    )
     monkeypatch.setattr(
         "socket.socket.connect", lambda *a, **k: pytest.fail("network forbidden")
     )
@@ -348,8 +510,15 @@ def check_sdk_arguments_and_pages(tmp_path, monkeypatch):
         stub.add_response(
             "list_exports", {"Exports": [export], "NextToken": "next"}, {}
         )
+        stub.add_client_error(
+            "list_exports",
+            service_error_code="Throttling",
+            service_message="private",
+            expected_params={"NextToken": "next"},
+        )
         stub.add_response("list_exports", {"Exports": []}, {"NextToken": "next"})
         assert cloudformation.list_exports(("offline",))["Exports"] == [export]
+        sleep.assert_called_once_with(1)
         stub.add_response(
             "list_imports",
             {"Imports": ["Consumer"], "NextToken": "next"},

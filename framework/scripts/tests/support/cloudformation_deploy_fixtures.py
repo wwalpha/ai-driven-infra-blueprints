@@ -23,7 +23,6 @@ from threading import Barrier, get_ident
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from model import dependency_index
 import model.format as _imports_model_format
 import model.projection as model_projection
 import pytest
@@ -45,6 +44,8 @@ from support.model_sources import snapshot_model, write_fixture_files, write_mod
 from support.pytest_cli import run
 from support.validator import load
 from utils.aws.client import AwsError
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

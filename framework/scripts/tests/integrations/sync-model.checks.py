@@ -21,10 +21,9 @@ from unittest.mock import patch
 import import_guard
 import model.impact as model_impact
 import model.render as model_design
-import model.validation as model_validation
-from model import dependency_index
 import model.sources as _imports_model_sources
 import model.sources as model_sources
+import model.validation as model_validation
 import pytest
 import support.sync_model_fixtures as _fixture_generated_policy
 import sync_files as _imports_sync_files
@@ -49,6 +48,8 @@ from utils.input_cache import input_scope, memo_table
 from utils.script_loader import module
 from validation import cloudformation, design_links, design_tables
 from validation import design as design_checks
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

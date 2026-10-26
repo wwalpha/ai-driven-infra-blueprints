@@ -17,7 +17,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch as mock_patch
 
-from model import dependency_index
 import model.core as _imports_model_core
 import model.identity as _imports_model_identity
 import model.importing.approval as _imports_model_importing_approval
@@ -68,6 +67,7 @@ from utils.script_loader import module
 from utils.source_reads import CandidateReads, FileReads
 
 import model as _imports_model
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

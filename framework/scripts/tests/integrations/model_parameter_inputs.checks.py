@@ -15,7 +15,6 @@ import sync_runtime
 from model.files import trace_model
 from model.format import serialize
 from model.operations import CandidateReads
-from model import dependency_index
 from model.references import incoming
 from model.references import usages as usages
 from model.sources import design_source_digest, load_model
@@ -28,6 +27,8 @@ from support.model_parameter_inputs_fixtures import fixture as fixture
 from support.model_sources import write_model
 from support.service_fixtures import authored_service, topology
 from utils.source_reads import FileReads
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

@@ -40,6 +40,7 @@ import model.projection as _imports_model_projection
 import model.reference_presentation as _reference_presentation
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
+import model.validation as _model_validation
 from model.change_scope import change_reads
 from model.core import (
     ARTIFACT_FIELDS,
@@ -53,7 +54,6 @@ from model.core import (
     properties as properties,
 )
 from model.format import JSON_LINK
-import model.validation as _model_validation
 
 
 def stack_markdown(

@@ -16,10 +16,11 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
-from model import dependency_index
 import task_contract as tasks
 import worktree_task as wt
 from support.repository_fixtures import contract as contract
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

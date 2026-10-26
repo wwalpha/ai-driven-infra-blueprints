@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from model import dependency_index
 import model.validation as _imports_model_validation
 from comparison import Comparison
 from design.catalog import DesignSchemaCatalog
@@ -30,6 +29,8 @@ from validation.design_links import check_design_links as validate_links
 from validation.design_tables import check_design_tables as validate_tables
 from validation.diagnostics import ArtifactReferences
 from validation.findings import Findings
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

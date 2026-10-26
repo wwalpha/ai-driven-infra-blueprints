@@ -7,10 +7,11 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from model import dependency_index
-from model.importing.scope import read_consumers
 import model.importing.repository as _imports_model_importing_repository
+from model.importing.scope import read_consumers
 from utils import sealed_evidence
+
+from model import dependency_index
 
 _cases = ContextVar("import_it_repositories", default=None)
 

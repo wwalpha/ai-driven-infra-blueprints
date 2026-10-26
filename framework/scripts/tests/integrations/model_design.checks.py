@@ -7,10 +7,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import model.validation as model_validation
 import support.model_design_fixtures as fixtures
 from design.document import DesignIndex
-import model.validation as model_validation
-from model import dependency_index
 from model.format import FORMAT
 from model.format import INDEX as INDEX_HEADER
 from model.format import PART as PART_PREFIX
@@ -41,6 +40,8 @@ from support.model_design_fixtures import pytestmark as pytestmark
 from support.validator import diagnostics
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.iac_values import cfn_resource_identity
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -320,7 +321,7 @@ def check_kms_policy_execution_account(root):
         generate_markdown(path, load_model(source).values, ROOT), encoding="utf-8"
     )
     saved = path.read_bytes(), artifact.read_bytes()
-    for write in (False, True):
+    for _write in (False, True):
         with pytest.raises(ValueError) as error:
             model_validation.validate_kms_policy_accounts(invalid, target)
         assert "Principal.AWS" in str(error.value) and execution in str(error.value), (

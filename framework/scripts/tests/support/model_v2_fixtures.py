@@ -13,7 +13,6 @@ from types import SimpleNamespace as _CallbackState
 
 import generation_inputs as _imports_generation_inputs
 import import_guard as _imports_import_guard
-from model import dependency_index
 import model.format as _imports_model_format
 import model.importing.cli as _imports_model_importing_cli
 import model.operations as _imports_model_operations
@@ -25,6 +24,8 @@ from model.format import parse, serialize
 from model.sources import Scope, load_model
 from task_contract_core import selected_task
 from utils.json_format import document_sha256
+
+from model import dependency_index
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 

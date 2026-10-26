@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from model import dependency_index
 import model.adapters.observed as _imports_model_adapters_observed
 import model.audit as _imports_model_audit
 import model.identity as _imports_model_identity
@@ -42,6 +41,8 @@ from support.import_model_fixtures import resource_values, service_values
 from support.model_sources import write_model
 from utils.reference_contracts import contract
 from utils.source_reads import FileReads
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

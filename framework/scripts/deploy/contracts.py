@@ -83,6 +83,7 @@ def validation_snapshot(root):
             "--",
             ".",
             ":(top,exclude)framework",
+            ":(top,exclude).lock",
         )
     ):
         path = safe_path(root, relative)

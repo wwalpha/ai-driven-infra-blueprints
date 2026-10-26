@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
 
-from model import dependency_index
 from model.format import owner, serialize
 from model.operations import prepare_edit, publish_edit
 from model.sources import load_model, scope_for
@@ -19,6 +18,8 @@ from support.import_model_fixtures import (
     service_values,
 )
 from support.model_sources import write_model
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

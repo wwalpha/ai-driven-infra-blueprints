@@ -24,7 +24,6 @@ import support.validator as _imports_support_validator
 import sync_files as _imports_sync_files
 from import_guard import require_import_changes, snapshots
 from model.format import serialize, split
-from model import dependency_index
 from model.impact import affected, analyze, dependencies, task_impact
 from model.importing.scope import read_consumers, restrict
 from model.operations import validate_candidates
@@ -43,6 +42,8 @@ from support.validator import MODULE
 from task_contract_core import selected_task
 from utils.input_cache import input_context
 from utils.source_reads import FileReads
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

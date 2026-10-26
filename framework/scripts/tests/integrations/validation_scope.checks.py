@@ -7,7 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from model import dependency_index
 import sync_runtime as _imports_sync_runtime
 from support import model_templates_fixtures as source_checks
 from support.it_case_receipt import it_case
@@ -33,6 +32,8 @@ from support.validation_scope_fixtures import (
 )
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_context
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

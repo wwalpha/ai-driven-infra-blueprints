@@ -15,11 +15,12 @@ import worktree_task as wt
 from import_guard import require_import_changes
 from model.adapters.task import source_write_context
 from model.sources import load_model
-from model import dependency_index
 from support.model_sources import write_model
 from support.worktree_task_fixtures import fixture as git_fixture
 from support.worktree_task_fixtures import git
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

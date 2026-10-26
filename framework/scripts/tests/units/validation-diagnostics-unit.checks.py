@@ -150,7 +150,6 @@ def check_artifact_differences(tmp_path, missing, extra):
     present.parent.mkdir()
     present.write_text("{}", encoding="utf-8")
     text = "[JSON](iam/present.json)\n"
-    absent = view.with_suffix("") / "missing.json"
     orphan = view.with_suffix("") / "extra.json"
     if missing:
         text += "[Missing](iam/missing.json)\n"
@@ -467,10 +466,103 @@ def check_metadata_completion(tmp_path, metadata, expected):
     findings = Findings(tmp_path)
     result = findings.evaluate("test", set(), Mock(return_value=metadata))
     assert result.status == expected and findings.status == expected
+    before = dict(findings.results)
+    assert findings.get_result("test", frozenset()) is result
+    assert findings.results == before and findings.status == expected
     assert isinstance(result.metadata["unverified"], list)
     assert isinstance(result.metadata["unavailable_services"], dict)
     if expected == "NOT_RUN":
         assert result.metadata["complete"] is False
+
+
+def check_result_lookup_is_candidate_and_scope_specific(tmp_path):
+    findings = Findings(tmp_path)
+    scope = {("dev", "team", "s3")}
+    assert findings.get_result("design.stacks", scope) is None
+    assert not findings.results and findings.status == "PASS"
+    result = findings.result("design.stacks", scope)
+    assert result.status == "NOT_RUN"
+    assert findings.get_result("design.stacks", list(scope)) is result
+    before = dict(findings.results)
+    for other in (None, set(), {("stg", "team", "s3")}):
+        assert findings.get_result("design.stacks", other) is None
+    assert findings.results == before and findings.status == "NOT_RUN"
+    findings.bind_candidate(object(), set())
+    assert findings.get_result("design.stacks", scope) is None
+    assert findings.results == before and findings.status == "PASS"
+    assert findings.result("design.stacks", scope) is not result
+    assert findings.status == "NOT_RUN"
+
+
+@pytest.mark.parametrize("stack_status", [None, "PASS", "NOT_RUN", "FAIL"])
+@pytest.mark.parametrize("environment", ["dev", "stg"])
+def check_iac_stack_lookup_and_file_fallback(tmp_path, stack_status, environment):
+    design = tmp_path / "docs/designs/dev/team/cloudformation-stacks.md"
+    template = tmp_path / "infra/cloudformation/templates/role.yaml"
+    parameters = tmp_path / "infra/cloudformation/parameters/dev/team/role.json"
+    for path, text in (
+        (
+            design,
+            "# CloudFormation\n\n## Stack一覧\n"
+            "| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |\n"
+            "| ---: | ---: | --- | --- | --- | --- |\n"
+            "| 1 | 10 | app-role | role.yaml | role.json | ロール |\n",
+        ),
+        (
+            template,
+            "Parameters:\n  Environment:\n    Type: String\nResources:\n"
+            "  Role:\n    Type: AWS::IAM::Role\n    Properties:\n"
+            "      RoleName: !Ref Environment\n",
+        ),
+        (
+            parameters,
+            '[{"ParameterKey":"Environment","ParameterValue":"' + environment + '"}]',
+        ),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    validator = Validator(
+        tmp_path, iac_paths={template, parameters}, model_validation="change"
+    )
+    findings = validator.findings
+    plan = SimpleNamespace(
+        stage=tmp_path / "stage", generated_scope=None, validation={None: findings}
+    )
+    if stack_status is not None:
+        result = findings.result("design.stacks", None)
+        result.status = stack_status
+        if stack_status == "PASS":
+            result.metadata["stack_definitions"] = {
+                plan.stage / design.relative_to(tmp_path): [
+                    {"template": "role.yaml", "parameters": "role.json"}
+                ]
+            }
+    before = dict(findings.results)
+    definitions = validator.candidate_stacks(plan)
+    assert findings.results == before
+    with patch.object(
+        validator_runner.cloudformation,
+        "stack_design",
+        wraps=validator_runner.cloudformation.stack_design,
+    ) as read_design:
+        checked = findings.evaluate(
+            "iac.environment",
+            None,
+            partial(
+                validator.check_cloudformation_environment_parameters,
+                stack_definitions=definitions,
+            ),
+        )
+    assert checked.status == ("PASS" if environment == "dev" else "FAIL")
+    assert findings.status == (
+        "FAIL" if environment != "dev" else stack_status or "PASS"
+    )
+    assert read_design.call_count == (0 if stack_status == "PASS" else 1)
+    assert findings.get_result("design.stacks", None) is before.get(
+        ("design.stacks", None, findings.candidate)
+    )
+    plan.validation = {}
+    assert validator.candidate_stacks(plan) is None
 
 
 @pytest.mark.parametrize(

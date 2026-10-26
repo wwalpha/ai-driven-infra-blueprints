@@ -18,7 +18,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from model import dependency_index
 import task_contract as tasks
 from design.policy_tables import rendered_design
 from model.files import read_model
@@ -29,6 +28,8 @@ from support.model_sources import snapshot_model, write_fixture_files, write_mod
 from support.pytest_cli import run
 from utils.script_loader import module
 from validation import loop as MODULE
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

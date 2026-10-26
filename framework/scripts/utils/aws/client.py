@@ -150,15 +150,38 @@ def request(context, service, operation, arguments, *, deadline=None):
 def pages(context, service, operation, field, arguments):
     """Return only a complete inventory; invalid/repeated continuation tokens fail closed."""
     deadline = time.monotonic() + API_BUDGET_SECONDS
+    retry_exports = service == "cloudformation" and operation == "list_exports"
     result, items, seen, token = {}, [], set(), None
     while True:
-        response = request(
-            context,
-            service,
-            operation,
-            arguments | ({"NextToken": token} if token else {}),
-            deadline=deadline,
-        )
+        page_arguments = arguments | ({"NextToken": token} if token else {})
+        # Five application calls can make ten HTTP attempts with the SDK's two attempts.
+        for attempt in range(5 if retry_exports else 1):
+            if time.monotonic() >= deadline:
+                raise AwsError(service, operation, "OperationDeadlineExceeded")
+            try:
+                response = request(
+                    context, service, operation, page_arguments, deadline=deadline
+                )
+                break
+            except AwsError as error:
+                if (
+                    not retry_exports
+                    or error.code
+                    not in {
+                        "Throttling",
+                        "ThrottlingException",
+                        "RequestLimitExceeded",
+                        "TooManyRequestsException",
+                    }
+                    or attempt == 4
+                ):
+                    raise
+                delay = 2**attempt
+                if time.monotonic() + delay >= deadline:
+                    raise AwsError(
+                        service, operation, "OperationDeadlineExceeded"
+                    ) from None
+                time.sleep(delay)
         values = response.get(field, [])
         if (
             service == "cloudformation"
