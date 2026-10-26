@@ -193,6 +193,7 @@ def test_current_changeset_approval_is_not_restored(tmp_path):
     J.adopt_prepared(backend, path, ["change"])
     assert backend.states["Kms"]["status"] == "BLOCKED"
     assert "approvedChangeDigest" not in backend.states["Kms"]
+    J.recover(backend, path, task, ["Kms"])
     backend.input_digest.return_value = "latest"
     with pytest.raises(Blocked, match="inputs changed"):
         J.adopt_prepared(backend, path, ["change"])
@@ -342,6 +343,125 @@ def test_no_change_still_checks_all_four_kms_exports(tmp_path):
     backend.execute.assert_not_called()
 
 
+def test_adoption_claim_failure_keeps_every_unprocessed_changeset(tmp_path):
+    backend, task, unit, path = backend_for(tmp_path)
+    units = [unit, {**unit, "name": "Other"}]
+    backend.units = units
+    backend.states.clear()
+    backend.states.update(
+        {
+            u["name"]: {
+                "status": "BLOCKED",
+                "stackId": u["name"],
+                "changeSetId": "change-" + u["name"],
+            }
+            for u in units
+        }
+    )
+    backend.run_context["inputDigests"] = {u["name"]: "input" for u in units}
+    J.save(path, backend)
+    backend.describe_change_set.side_effect = [
+        {
+            "StackId": u["name"],
+            "ChangeSetId": "change-" + u["name"],
+            "ExecutionStatus": "AVAILABLE",
+        }
+        for u in units
+    ]
+    J.recover(backend, path, task, [u["name"] for u in units])
+    backend.states = {u["name"]: {"status": "NOT_STARTED"} for u in units}
+    backend.run_context["states"] = backend.states
+    backend.save = J.JournalSave(path, backend)
+    backend.input_digest = Mock(return_value="input")
+    backend.describe_change_set.side_effect = OSError("read interrupted")
+    backend.claim_inputs = SaveThenFail(backend.save)
+    with pytest.raises(OSError, match="read interrupted"):
+        J.adopt_prepared(backend, path, [])
+    assert set(J.read(path)["operations"]) == {"Kms", "Other"}
+    backend.execute.assert_not_called()
+
+
+class SaveThenFail:
+    def __init__(self, save):
+        self.save = save
+
+    def __call__(self, unit):
+        self.save()
+        raise OSError("read interrupted")
+
+
+def test_terminal_output_failure_discards_execution_intent(tmp_path):
+    backend, task, _, path = backend_for(tmp_path)
+    J.save(path, backend)
+    backend.poll.side_effect = TerminalOutputFailure()
+    with pytest.raises(change_sets.OutputNotReflected, match="Export missing"):
+        J.recover(backend, path, task, ["Kms"])
+    assert not path.exists()
+    backend.execute.assert_not_called()
+
+
+class TerminalOutputFailure:
+    def __call__(self, unit, state):
+        state.update(status="FAILED", stackStatus="UPDATE_COMPLETE")
+        raise change_sets.OutputNotReflected("Export missing")
+
+
+def test_bootstrap_restart_restores_failure_and_only_current_owner(tmp_path):
+    backend, task, unit, path = backend_for(tmp_path)
+    owner_unit = {**unit, "name": "Owner"}
+    entry = {
+        "clientRequestToken": "original-secret-token",
+        "owner": {
+            "stack": "Owner",
+            "stackId": "owner-stack",
+            "unit": owner_unit,
+            "inputDigest": "owner-input",
+        },
+    }
+    backend.states["Kms"].update(
+        status="FAILED", stackStatus="UPDATE_ROLLBACK_COMPLETE", bootstrap=entry
+    )
+    backend.input_digest = Mock(side_effect=["input", "owner-input"])
+    backend.poll.side_effect = ConfirmBootstrapFailure()
+    backend.aws = Mock(
+        return_value={
+            "Stacks": [{"StackId": "owner-stack", "StackStatus": "CREATE_COMPLETE"}]
+        }
+    )
+    backend.bootstrap = Mock(side_effect=FinishBootstrap())
+    J.save(path, backend)
+    with (
+        patch.object(J, "require_authorized"),
+        patch.object(J, "_recovery_guard"),
+    ):
+        J.recover(backend, path, task, ["Kms"])
+    assert (
+        backend.bootstrap.call_args.args[2]["clientRequestToken"]
+        == "original-secret-token"
+    )
+    assert backend.states["Owner"]["stackId"] == "owner-stack"
+    assert not path.exists()
+    backend.execute.assert_not_called()
+
+
+class ConfirmBootstrapFailure:
+    def __call__(self, unit, state):
+        state["failureEvents"] = [
+            {"ResourceStatusReason": "SECRET_CURRENT_VALUE_MISSING"}
+        ]
+        return "UPDATE_ROLLBACK_COMPLETE"
+
+
+class FinishBootstrap:
+    def __call__(self, unit, state, entry):
+        assert (
+            state["failureEvents"][0]["ResourceStatusReason"]
+            == "SECRET_CURRENT_VALUE_MISSING"
+        )
+        state.pop("bootstrap")
+        state["status"] = "NOT_STARTED"
+
+
 @pytest.mark.parametrize("changed", ["none", "target", "task", "model"])
 def test_recovery_guard_preserves_current_task_target_and_model(tmp_path, changed):
     backend, task, _, _ = backend_for(tmp_path)
@@ -366,6 +486,31 @@ def test_recovery_guard_preserves_current_task_target_and_model(tmp_path, change
             J._recovery_guard(backend, task)
         else:
             with pytest.raises(Blocked, match="changed"):
+                J._recovery_guard(backend, task)
+
+
+@pytest.mark.parametrize("changed", ["none", "consumer", "owner"])
+def test_recovery_mutation_guard_fixes_bootstrap_inputs(tmp_path, changed):
+    backend, task, unit, _ = backend_for(tmp_path)
+    owner_unit = {**unit, "name": "Owner"}
+    backend.states["Kms"]["bootstrap"] = {
+        "owner": {"unit": owner_unit, "inputDigest": "owner-input"}
+    }
+    backend.expected_digests = {"Kms": "input"}
+    backend.input_digest = Mock(
+        side_effect=[
+            "changed" if changed == "consumer" else "input",
+            "changed" if changed == "owner" else "owner-input",
+        ]
+    )
+    with (
+        patch.object(J.deploy_context, "load_target", return_value=TARGET),
+        patch.object(J, "task_snapshot", return_value=task),
+    ):
+        if changed == "none":
+            J._recovery_guard(backend, task)
+        else:
+            with pytest.raises(Blocked, match="inputs changed"):
                 J._recovery_guard(backend, task)
 
 
@@ -423,6 +568,54 @@ def test_kms_four_exports_update_and_no_change_require_aws_facts(tmp_path):
         ]
         with pytest.raises(Blocked, match="not reflected"):
             change_sets.verify_outputs(aws, unit, {"stackId": "stack"}, expected)
+
+
+def test_waiting_generation_recovers_scope_without_inheriting_completed_stacks(
+    tmp_path,
+):
+    backend, task, _, path = backend_for(tmp_path)
+    backend.states["Kms"].update(status="SUCCESS", observedSynced=True)
+    view = "docs/designs/dev/123456789012/kms.md"
+    backend.run_context["pendingGeneration"] = {
+        view: {
+            "identity": {"inputDigest": "previous-run"},
+            "generated": {"outputs": None},
+            "producers": [{"stack": "Later"}],
+        }
+    }
+    J.save(path, backend)
+    with (
+        patch.object(J, "_recovery_guard"),
+        patch.object(J.generation_resume, "reconcile"),
+        patch.object(J.generation_resume, "run"),
+    ):
+        J.recover(backend, path, task, ["Kms", "Later"])
+    assert backend.states == {
+        "Kms": {"status": "NOT_STARTED"},
+        "Later": {"status": "NOT_STARTED"},
+    }
+    assert not J.read(path)["operations"]
+    fresh = run_context.new_context(
+        backend.root, task, TARGET, "dev", "account", [], backend
+    )
+    assert (
+        fresh["pendingGeneration"][view]["identity"]["inputDigest"]
+        == fresh["inputDigest"]
+    )
+    assert (
+        backend.pending_publication["pendingGeneration"][view]["identity"][
+            "inputDigest"
+        ]
+        == "previous-run"
+    )
+    backend.pending_publication["pendingGeneration"][view]["generated"]["outputs"] = {
+        view: "unfinished"
+    }
+    with pytest.raises(Blocked, match="settle unfinished generated candidates"):
+        run_context.new_context(
+            backend.root, task, TARGET, "dev", "account", [], backend
+        )
+    backend.execute.assert_not_called()
 
 
 if __name__ == "__main__":

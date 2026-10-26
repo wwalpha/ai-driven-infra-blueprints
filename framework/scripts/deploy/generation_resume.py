@@ -175,7 +175,6 @@ def producers(backend, view, info, stage, resolver):
         / (view.stem + ".properties")
     )
     result = {}
-    names = {u["name"] for u in backend.units}
     for diagnostic in diagnostics:
         logical = diagnostic.get("targetLogicalId")
         model = diagnostic.get("producerModel")
@@ -193,8 +192,8 @@ def producers(backend, view, info, stage, resolver):
         stack, template_logical = cfn_resource_identity(
             resource.get("cfn-logicalId", "")
         )
-        if stack not in names or stack not in run_context["states"]:
-            raise Blocked("pending Producer is outside Deploy session: " + stack)
+        if stack not in run_context["states"]:
+            raise Blocked("pending Producer is outside Deploy run: " + stack)
         if producer_state(run_context, stack).get("observedSynced"):
             raise Blocked("pending Producer is already synchronized: " + stack)
         result[(str(producer_path), logical)] = {
@@ -293,7 +292,7 @@ def retry_producers(run_context, record):
 
 
 def revision(run_context, record):
-    """In-process invalidation only; a fresh backend/session always recovers evidence."""
+    """In-process invalidation only; a fresh backend always recovers evidence."""
     return (
         record,
         {p: run_context["modelInputs"].get(p) for p in record["waitingModelManifest"]},
@@ -440,8 +439,8 @@ def run(backend):
     backend._generation_finalized = False
     backend.guard()
     pending = run_context["pendingGeneration"]
-    if getattr(backend, "_generation_session", None) is not run_context:
-        backend._generation_session = run_context
+    if getattr(backend, "_generation_context", None) is not run_context:
+        backend._generation_context = run_context
         backend._generation_checks = {}
     checked = backend._generation_checks
     changed = {
@@ -536,7 +535,7 @@ def run(backend):
                         and candidate != generated["outputs"]
                     ):
                         raise Blocked(
-                            "observed generated candidate differs from saved session"
+                            "observed generated candidate differs from pending publication"
                         )
                     observed.check_generated(root, pending[view])
                 for view, dependencies in deferred.items():

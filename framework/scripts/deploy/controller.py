@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import sys
 import time
 from collections.abc import Iterable, Sequence
@@ -412,7 +413,7 @@ def review_prepared(
 
 
 def prepare(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
-    """Compatibility entry point; the controller uses nonblocking preparation."""
+    """Synchronous preparation; the controller uses the nonblocking path."""
     runtime.begin_prepare(unit, state)
     while True:
         result = runtime.review_prepared(unit, state)
@@ -466,7 +467,7 @@ def execute(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> Non
 def bootstrap_plan(
     runtime: SimpleNamespace, unit: StackUnit, state: StackState
 ) -> JsonObject:
-    return secret_bootstrap.bootstrap_plan(
+    plan = secret_bootstrap.bootstrap_plan(
         runtime.root,
         runtime.environment,
         runtime.directory,
@@ -479,6 +480,11 @@ def bootstrap_plan(
         unit,
         state,
     )
+    owner = next(u for u in runtime.units if u["name"] == plan["owner"]["stack"])
+    plan["owner"].update(
+        unit=copy.deepcopy(owner), inputDigest=runtime.input_digest(owner, fresh=True)
+    )
+    return plan
 
 
 def check_secret_arn(runtime: SimpleNamespace, arn: str) -> None:

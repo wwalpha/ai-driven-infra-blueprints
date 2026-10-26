@@ -553,7 +553,7 @@ def check_cache_permission_and_input_revision(tmp_path, monkeypatch):
                 sources.load_model(scope.path)
     with sources.model_session(RunModels(tmp_path, cache.run_context)):
         for _ in range(2):
-            with pytest.raises(ValueError, match="differs from saved session"):
+            with pytest.raises(ValueError, match="differs from fixed run input"):
                 sources.load_model(scope.path)
 
 

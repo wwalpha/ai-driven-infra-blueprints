@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Production controller -> guards/SDK -> durable session and observed publication."""
+"""Production controller -> one-shot Implement -> independent Deploy and publication."""
 
 import sys
 from functools import partial as _bind_framework_callback
@@ -256,7 +256,7 @@ def managed_delivery(parent, request, relative, boundary, tmp_path):
         and git(parent, "rev-parse", "HEAD").strip() == result["tip"]
     )
     wt.cleanup(parent, "repair-one")
-    assert not child.exists()  # Parent seal and archived contract survive cleanup.
+    assert not child.exists()
     resume(parent, "tasks/deploy.md")
     return {**request, "commit": result["commit"]}, result_path
 

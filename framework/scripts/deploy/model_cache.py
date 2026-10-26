@@ -79,7 +79,7 @@ class RunModels(FileReads):
                 self.revisions.pop(path, None)
                 self.digests.pop(path, None)
                 raise ValueError(
-                    "consumed Model revision differs from saved session: " + relative
+                    "consumed Model revision differs from fixed run input: " + relative
                 )
             expected[relative] = digest
             return raw

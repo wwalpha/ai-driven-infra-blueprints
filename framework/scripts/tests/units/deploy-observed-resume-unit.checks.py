@@ -851,6 +851,31 @@ def failing_session_sync(backend, units, states):
     raise OSError("design publication failed")
 
 
+@pytest.mark.parametrize("pending", [False, True])
+def check_run_context_owns_observed_publication(proposal, pending):
+    root, context, source, _, new = proposal
+    if not pending:
+        context.pop("pendingObserved")
+    backend = SimpleNamespace(root=root, run_context=context)
+    units = [{"name": "A"}]
+    with (
+        patch.object(
+            observed,
+            "collect_successful",
+            return_value=({source: new}, ["service"], None),
+        ) as collect,
+        patch.object(M, "prepare") as prepare,
+        patch.object(M, "finish", return_value={source: new}) as finish,
+        patch.object(observed, "publish_observed") as direct_publish,
+    ):
+        assert observed.sync_successful(backend, units, context["states"]) == {
+            source: new
+        }
+    finish.assert_called_once_with(backend, units)
+    direct_publish.assert_not_called()
+    assert collect.call_count == prepare.call_count == int(not pending)
+
+
 def check_session_sync_failure_drains_and_resumes():
     units = [
         {

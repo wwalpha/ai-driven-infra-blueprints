@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import subprocess
@@ -349,7 +350,7 @@ def new_context(
     units: Sequence[StackUnit],
     backend: SimpleNamespace,
 ) -> DeployRunContext:
-    return DeployRunContext(
+    context = DeployRunContext(
         repository=str(root),
         taskFile=task.name,
         taskDigest=task.task_digest,
@@ -366,6 +367,14 @@ def new_context(
         },
         metrics={"observedSyncSeconds": 0, "inputLoadSeconds": 0},
     )
+    pending = getattr(backend, "pending_publication", {}).get("pendingGeneration", {})
+    if pending:
+        context["pendingGeneration"] = copy.deepcopy(pending)
+        for record in context["pendingGeneration"].values():
+            if record["generated"]["outputs"] is not None:
+                raise Blocked("settle unfinished generated candidates before a new run")
+            record["identity"]["inputDigest"] = context["inputDigest"]
+    return context
 
 
 def _save(backend, journal):

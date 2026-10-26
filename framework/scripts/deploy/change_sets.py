@@ -575,7 +575,9 @@ def verify_outputs(aws, unit, state, expected):
             record["valueDigest"] is not None
             and fingerprint(actual["OutputValue"]) != record["valueDigest"]
         ):
-            raise Blocked("AWS output value not reflected: " + unit["name"] + "/" + key)
+            raise OutputNotReflected(
+                "AWS output value not reflected: " + unit["name"] + "/" + key
+            )
         if export is not None:
             entry = exports.get(export)
             if (

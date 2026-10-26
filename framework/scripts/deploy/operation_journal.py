@@ -145,19 +145,22 @@ def unfinished(state):
 
 def save(path, backend):
     context = backend.run_context
-    operations = {
-        unit["name"]: {
-            "unit": copy.deepcopy(unit),
-            "inputDigest": context["inputDigests"].get(unit["name"]),
-            "state": {
-                k: copy.deepcopy(v)
-                for k, v in backend.states[unit["name"]].items()
-                if k in OPERATION_FIELDS
-            },
+    operations = copy.deepcopy(getattr(backend, "prepared_operations", {}))
+    operations.update(
+        {
+            unit["name"]: {
+                "unit": copy.deepcopy(unit),
+                "inputDigest": context["inputDigests"].get(unit["name"]),
+                "state": {
+                    k: copy.deepcopy(v)
+                    for k, v in backend.states[unit["name"]].items()
+                    if k in OPERATION_FIELDS
+                },
+            }
+            for unit in backend.units
+            if unfinished(backend.states[unit["name"]])
         }
-        for unit in backend.units
-        if unfinished(backend.states[unit["name"]])
-    }
+    )
     publication = {}
     if operations or context.get("pendingObserved") or context.get("pendingGeneration"):
         publication = {
@@ -236,6 +239,21 @@ def _recovery_guard(backend, task, /):
             raise Blocked(
                 "Model changed before unfinished observation recovery: " + relative
             )
+    for unit in backend.units:
+        state = backend.states[unit["name"]]
+        if not state.get("bootstrap") and state.get("cleanupStatus") != "DELETE_INTENT":
+            continue
+        if (
+            backend.input_digest(unit, fresh=True)
+            != backend.expected_digests[unit["name"]]
+        ):
+            raise Blocked("unfinished runtime operation inputs changed")
+        owner = state.get("bootstrap", {}).get("owner")
+        if (
+            owner
+            and backend.input_digest(owner["unit"], fresh=True) != owner["inputDigest"]
+        ):
+            raise Blocked("unfinished bootstrap owner inputs changed")
 
 
 def recover(backend, path, task, scope):
@@ -294,7 +312,10 @@ def recover(backend, path, task, scope):
         raise Blocked(
             "unfinished publication/operation belongs to another Task; recover its owner before new work"
         )
-    context["states"] = {name: op["state"] for name, op in record["operations"].items()}
+    context["states"] = {name: {"status": "NOT_STARTED"} for name in scope}
+    context["states"].update(
+        {name: op["state"] for name, op in record["operations"].items()}
+    )
     context["metrics"] = {"observedSyncSeconds": 0}
     context.setdefault("inputDigests", {})
     backend.run_context, backend.states = context, context["states"]
@@ -330,7 +351,11 @@ def recover(backend, path, task, scope):
             if state.get("status") == "RUNNING":
                 # Original poll verifies ChangeSet, StackId, terminal event and token.
                 for _ in range(120):
-                    status = backend.poll(unit, state)
+                    try:
+                        status = backend.poll(unit, state)
+                    except change_sets.OutputNotReflected:
+                        backend.save()
+                        raise
                     if status == "RECHECK":
                         state["status"] = "NOT_STARTED"
                         break
@@ -435,6 +460,40 @@ def recover_runtime(backend, unit, state, operation):
         )
     backend.load_inputs(unit)
     if state.get("bootstrap"):
+        status = backend.poll(unit, state)
+        if status != state.get("stackStatus") or status not in {
+            "ROLLBACK_COMPLETE",
+            "UPDATE_ROLLBACK_COMPLETE",
+        }:
+            raise Blocked("unfinished bootstrap failure evidence changed")
+        owner = state["bootstrap"]["owner"]
+        owner_unit = owner["unit"]
+        if (
+            owner_unit["name"] != owner["stack"]
+            or backend.input_digest(owner_unit, fresh=True) != owner["inputDigest"]
+        ):
+            raise Blocked("unfinished bootstrap owner inputs changed")
+        if owner["stack"] != unit["name"]:
+            current = backend.aws("describe_stacks", StackName=owner["stackId"])[
+                "Stacks"
+            ][0]
+            if (
+                current.get("StackId") != owner["stackId"]
+                or current.get("StackStatus") not in SUCCESS
+            ):
+                raise Blocked("unfinished bootstrap owner identity/state changed")
+            backend.load_inputs(owner_unit)
+            if (
+                backend.states.get(owner["stack"], {}).get("status", "NOT_STARTED")
+                == "NOT_STARTED"
+            ):
+                backend.states[owner["stack"]] = {
+                    "status": "SUCCESS",
+                    "stackId": owner["stackId"],
+                    "observedSynced": True,
+                }
+            if not any(u["name"] == owner["stack"] for u in backend.units):
+                backend.units.append(owner_unit)
         backend.bootstrap(unit, state, state["bootstrap"])
     elif state.get("cleanupStatus") == "DELETE_INTENT":
         backend.wait_cleanup(state)
@@ -481,13 +540,16 @@ def adopt_prepared(backend, path, approvals):
             active.update(stackId=state["stackId"], preExecutionRecovery=shell)
             cleanup_unexecuted(backend.aws, backend.save, backend.wait_cleanup, active)
             backend.reset_after_cleanup(active)
+            backend.prepared_operations.pop(unit["name"])
             continue
         if not unchanged:
+            backend.prepared_operations.pop(unit["name"])
             continue
         backend.load_inputs(unit)
         if state.get("operationType") == "UPDATE":
             backend.verify_stack_ownership(unit)
         backend.states[unit["name"]] = {**state, "status": "BLOCKED"}
+        backend.prepared_operations.pop(unit["name"])
         if change_id in approvals:
             matched.add(change_id)
     if set(approvals) != matched:
