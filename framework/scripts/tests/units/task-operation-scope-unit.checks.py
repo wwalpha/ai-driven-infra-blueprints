@@ -2,7 +2,7 @@
 
 import shutil
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -78,8 +78,8 @@ def task_io():
 
 
 def once(io, root):
-    assert io.catalog.call_count == 1
-    assert io.read.call_count == 3
+    assert io.catalog.call_count == 1, io.catalog.call_args_list
+    assert io.read.call_count == 3, io.read.call_args_list
     assert all(call.args[0] == root for call in io.catalog.call_args_list)
     assert all(call.args[0] == root for call in io.read.call_args_list)
 
@@ -359,6 +359,35 @@ def check_preparation_io_budget(tmp_path):
     with patch.object(preparation, "environment", return_value={}), task_io() as io:
         assert preparation.prepare(root, args, output, timing)["scope"]
         once(io, root)
+    assert tasks._read_contracts.get() is None
+
+
+@pytest.mark.parametrize("operation", ["init", "run"])
+@pytest.mark.parametrize("outer_scope", [False, True])
+def check_comparison_stage_reuses_project_snapshot(
+    project, tmp_path_factory, operation, outer_scope
+):
+    root, _ = project
+    stage = tmp_path_factory.mktemp("comparison-stage") / "project"
+    shutil.copytree(root, stage)
+    make_tasks(stage, workflow="import", service="cloudwatch-logs")
+    expected = Comparison(root, ENV, TARGET, ["s3", "sqs"]).run()
+    with change_scope.index_stage(root, stage):
+        comparison = Comparison(stage, ENV, TARGET, ["s3", "sqs"])
+        with (
+            task_io() as io,
+            tasks.task_reads(root) if outer_scope else nullcontext() as parent,
+        ):
+            if outer_scope:
+                tasks.contract_snapshot(root)
+            if operation == "init":
+                comparison = Comparison(stage, ENV, TARGET, ["s3", "sqs"])
+                assert not comparison.load_errors
+                assert set(comparison.models) == {"s3", "sqs"}
+            else:
+                assert comparison.run() == expected
+            once(io, root)
+            assert tasks._read_contracts.get() is parent
     assert tasks._read_contracts.get() is None
 
 

@@ -57,7 +57,7 @@ from .result import redacted
 
 class Inputs:
     def __init__(self, root, environment, directory, services, *, catalog=None):
-        with task_reads(root):
+        with task_reads(_imports_model_sources.project_root(root)):
             self._initialize(root, environment, directory, services, catalog=catalog)
 
     def _initialize(self, root, environment, directory, services, *, catalog=None):

@@ -14,6 +14,7 @@ from design.layout import resource_mode
 from design.layout_schema import GROUPED
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from model.core import ReferenceResolutionError
+from model.sources import project_root
 from task_contract_core import task_reads
 from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import Blocked, condition_active
@@ -151,7 +152,7 @@ class Comparison(Inputs):
         self.results.append(self.inactive_record(*args))
 
     def run(self) -> list[JsonObject]:
-        with task_reads(self.root):
+        with task_reads(project_root(self.root)):
             return self._run()
 
     def _run(self) -> list[JsonObject]:
