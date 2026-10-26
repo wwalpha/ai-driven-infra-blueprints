@@ -430,7 +430,7 @@ class Validator:
                 if (env, directory) == (environment, target)
             ]
             try:
-                paths = save_authority(
+                paths, _ = save_authority(
                     self.root,
                     environment,
                     target,

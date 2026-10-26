@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 from comparison.deferral import CATEGORIES
-from task_contract_core import task_reads, task_snapshot
 
 import issues.artifact as _imports_issues_artifact
 import issues.publication as _imports_issues_publication
@@ -136,9 +135,7 @@ def main():
                 outside(root, args.artifact).read_text(encoding="utf-8")
             )
             review = json.loads(outside(root, args.review).read_text(encoding="utf-8"))
-            with task_reads(root):
-                task = task_snapshot(root)
-                paths, snapshot = save_scan(root, artifact, review)
+            paths, snapshot, task_name = save_scan(root, artifact, review)
             artifact = json.loads(snapshot.data)
         saved_summary = summary(artifact)
         print(
@@ -151,7 +148,7 @@ def main():
                     "post_save_validation": "NOT_RUN",
                     "post_save_validation_command": (
                         "blueprint-loop.py --mode local --task-file "
-                        + shlex.quote(task.name)
+                        + shlex.quote(task_name)
                     ),
                 },
                 ensure_ascii=False,

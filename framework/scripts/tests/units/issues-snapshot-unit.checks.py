@@ -13,6 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import issues.publication as publication
 import pytest
 from issues.artifact import summary
 from issues.integrity import target_services
@@ -27,6 +28,7 @@ from support.issues_scan_fixtures import (
     write,
 )
 from support.pytest_cli import run
+from task_contract_core import active_scope, selected_task, task_reads, task_snapshot
 from utils.function_wrapper import BoundCallback
 
 if not __debug__:
@@ -100,7 +102,7 @@ def check_snapshot_replaces_inventory(tmp_path):
             Path, "read_text", BoundCallback(forbid_report_text, Path.read_text)
         ),
     ):
-        outputs, snapshot = save_scan(tmp_path, data, review_for(data))
+        outputs, snapshot, _ = save_scan(tmp_path, data, review_for(data))
     text = outputs[0].read_text()
     assert (
         "old issue" not in text
@@ -120,6 +122,85 @@ def check_snapshot_replaces_inventory(tmp_path):
     assert original["ordinary"][0]["message"] == "latest finding"
 
 
+@pytest.mark.parametrize(
+    "change",
+    ["unchanged", "completed", "allowed", "modified", "scope", "type", "grant"],
+)
+def check_save_authority_ignores_cached_task(tmp_path, change):
+    data = snapshot_artifact(tmp_path)
+    reports = [
+        tmp_path / "issues/dev/123456789012" / name
+        for name in ("issues.md", "iac-issues.md")
+    ]
+    for report in reports:
+        write(report, "existing report\n")
+    before = {report: report.read_bytes() for report in reports}
+    with task(tmp_path, ["sqs" if change == "grant" else "s3"]), task_reads(tmp_path):
+        cached = task_snapshot(tmp_path)
+        assert active_scope(tmp_path) == {
+            ("dev", "123456789012", "sqs" if change == "grant" else "s3")
+        }
+        text = cached.text
+        if change == "completed":
+            text = text.replace("`running`", "`completed`")
+        elif change in {"allowed", "modified"}:
+            heading = "## " + (
+                "Allowed paths" if change == "allowed" else "Modified files"
+            )
+            head, tail = text.split(heading, 1)
+            text = (
+                head
+                + heading
+                + tail.replace("- `issues/dev/123456789012/issues.md`\n", "", 1)
+            )
+        elif change in {"scope", "grant"}:
+            text = text.replace(
+                "/sqs`" if change == "grant" else "/s3`",
+                "/s3`" if change == "grant" else "/sqs`",
+            )
+        elif change == "type":
+            text = text.replace("`migration`", "`governance`")
+        cached.path.write_text(text, encoding="utf-8")
+        with patch.object(
+            publication, "atomic_files", wraps=publication.atomic_files
+        ) as saved:
+            if change in {"unchanged", "grant"}:
+                paths, _, task_name = save_scan(tmp_path, data, review_for(data))
+                assert paths == reports and task_name == cached.name
+                saved.assert_called_once()
+                assert all(report.read_bytes() != before[report] for report in reports)
+            else:
+                with pytest.raises(ValueError):
+                    save_scan(tmp_path, data, review_for(data))
+                saved.assert_not_called()
+                assert {report: report.read_bytes() for report in reports} == before
+        assert task_snapshot(tmp_path) is cached
+
+
+@pytest.mark.parametrize("selection", ["environment", "api", "implicit"])
+def check_save_authority_reselects_live_task(tmp_path, monkeypatch, selection):
+    data = snapshot_artifact(tmp_path)
+    with (
+        task(tmp_path, ["s3"]),
+        task_reads(tmp_path),
+        monkeypatch.context() as selection_env,
+    ):
+        cached = task_snapshot(tmp_path)
+        name = "tasks/authorized.md"
+        write(tmp_path / name, cached.text.replace(cached.name, name))
+        if selection == "environment":
+            selection_env.setenv("BLUEPRINT_TASK_FILE", name)
+        else:
+            selection_env.setenv("BLUEPRINT_TASK_FILE", "")
+        if selection == "implicit":
+            cached.path.write_text(
+                cached.text.replace("`running`", "`completed`"), encoding="utf-8"
+            )
+        with selected_task(tmp_path, name if selection == "api" else None):
+            _, _, task_name = save_scan(tmp_path, data, review_for(data))
+        assert task_name == name
+
+
 def check_human_exception_and_conflict(tmp_path):
     data = reviewed_artifact(tmp_path)
     path = tmp_path / "issues/dev/123456789012/human-confirmations.yaml"
@@ -132,13 +213,15 @@ def check_human_exception_and_conflict(tmp_path):
     )
     original = path.read_bytes()
     with task(tmp_path, ["s3"]):
-        outputs, snapshot = save_scan(tmp_path, data, human_decision(data))
+        outputs, snapshot, _ = save_scan(tmp_path, data, human_decision(data))
         assert [output.name for output in outputs] == ["issues.md", "iac-issues.md"]
         assert "latest naming diagnostic" not in outputs[0].read_text()
         assert "未解決issueなし" in outputs[0].read_text()
         assert summary(json.loads(snapshot.data))["validation_status"] == "CHECKED"
         assert summary(json.loads(snapshot.data))["review_required"] is False
-        outputs, snapshot = save_scan(tmp_path, data, human_decision(data, "conflict"))
+        outputs, snapshot, _ = save_scan(
+            tmp_path, data, human_decision(data, "conflict")
+        )
     assert "human.confirmation_conflict" in outputs[0].read_text()
     assert "latest naming diagnostic" in outputs[0].read_text()
     assert "検証: 未完了" in outputs[0].read_text()
@@ -256,7 +339,7 @@ def check_incomplete_is_not_pass(tmp_path, kind):
             dict(service="s3", check="naming", reason="Human component unknown")
         ]
     with task(tmp_path, ["s3"]):
-        outputs, snapshot = save_scan(tmp_path, data, review)
+        outputs, snapshot, _ = save_scan(tmp_path, data, review)
     text = outputs[0].read_text()
     assert "未完了" in text and "未解決issueなし（検証未完了）" in text
     if kind == "service":
@@ -399,7 +482,7 @@ def check_reviewed_sources_are_not_reread(tmp_path):
             "subprocess.run", side_effect=AssertionError("saving must not inspect Git")
         ),
     ):
-        outputs, snapshot = save_scan(tmp_path, data, review_for(data))
+        outputs, snapshot, _ = save_scan(tmp_path, data, review_for(data))
     assert "s3.properties:20" in outputs[0].read_text()
     assert source.read_text() == "changed after Scan"
 

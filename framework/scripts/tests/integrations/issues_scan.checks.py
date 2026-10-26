@@ -97,7 +97,7 @@ def check_scan_publish_mismatch(tmp_path):
                 side_effect=AssertionError("save must not aggregate"),
             ),
         ):
-            paths, snapshot = save_scan(root, artifact, review_for(artifact))
+            paths, snapshot, _ = save_scan(root, artifact, review_for(artifact))
         assert all(path.is_file() for path in paths)
         assert (root / "tasks/save.md").read_bytes() == contract
         before = {path: path.read_bytes() for path in paths}
@@ -141,7 +141,7 @@ def check_save_scope_and_rollback(tmp_path):
     root = tmp_path / "project"
     artifact = snapshot_artifact(root, services=["s3", "sqs"])
     with task(root, ["s3", "sqs"]):
-        outputs, snapshot = save_scan(root, artifact, review_for(artifact))
+        outputs, snapshot, _ = save_scan(root, artifact, review_for(artifact))
         before = {path: path.read_bytes() for path in outputs}
         partial_scan = dict(
             artifact,

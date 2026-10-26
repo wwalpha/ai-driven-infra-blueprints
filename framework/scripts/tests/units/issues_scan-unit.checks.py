@@ -63,7 +63,7 @@ from support.issues_scan_fixtures import (
     write,
 )
 from support.issues_scan_fixtures import pytestmark as pytestmark
-from task_contract_core import contract_snapshot
+from task_contract_core import contract_snapshot, task_reads, task_snapshot
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_context
 from validation.findings import Findings
@@ -1552,7 +1552,7 @@ def check_material_service_isolation(tmp_path, stage):
             for item in material["names"]
         ]
         with _exports_support_issues_scan_fixtures.task(tmp_path, services):
-            outputs, _ = publication.save_scan(
+            outputs, _, _ = publication.save_scan(
                 tmp_path,
                 artifact,
                 _exports_support_issues_scan_fixtures.review_for(artifact),
@@ -1672,10 +1672,11 @@ def check_save_authority_limits_real_destinations(tmp_path, filename):
             publication.save_authority(
                 tmp_path, "dev", "123456789012", ["s3"], [filename]
             )
-        allowed = publication.save_authority(
+        allowed, task_name = publication.save_authority(
             tmp_path, "dev", "123456789012", ["s3"], ["issues.md", "iac-issues.md"]
         )
         assert [path.name for path in allowed] == ["issues.md", "iac-issues.md"]
+        assert task_name == "tasks/save.md"
     with _exports_support_issues_scan_fixtures.task(
         tmp_path,
         ["s3"],
@@ -2726,9 +2727,16 @@ def check_issues_keeps_independent_validation(tmp_path, reference_design, fault)
         assert "required" in messages
 
 
+def save_with_changed_selection(save, monkeypatch, root, artifact, review):
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/authorized.md")
+    result = save(root, artifact, review)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/missing.md")
+    return result
+
+
 @pytest.mark.parametrize("processing", [False, True])
 @pytest.mark.parametrize(
-    "selection", ["cli", "environment", "implicit", "space", "missing"]
+    "selection", ["cli", "environment", "implicit", "space", "missing", "changed"]
 )
 def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
     tmp_path, capsys, monkeypatch, processing, selection
@@ -2736,28 +2744,36 @@ def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
     root = tmp_path / ("repository space" if selection == "space" else "repository")
     root.mkdir()
     artifact, review = tmp_path / "scan.json", tmp_path / "review.json"
-    artifact.write_text("{}", encoding="utf-8")
-    review.write_text("{}", encoding="utf-8")
+    data = _exports_support_issues_scan_fixtures.snapshot_artifact(root)
+    artifact.write_text(json.dumps(data), encoding="utf-8")
+    review.write_text(
+        json.dumps(_exports_support_issues_scan_fixtures.review_for(data)),
+        encoding="utf-8",
+    )
     name = "save"
     task_name = f"tasks/{name}.md"
     with _exports_support_issues_scan_fixtures.task(root, ["s3"], name=name):
         text = (root / task_name).read_text(encoding="utf-8")
     if selection != "missing":
         write(root / task_name, text)
+    if selection == "changed":
+        write(
+            root / "tasks/authorized.md", text.replace(task_name, "tasks/authorized.md")
+        )
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "")
-    if selection == "environment":
+    if selection in {"environment", "changed"}:
         monkeypatch.setenv("BLUEPRINT_TASK_FILE", task_name)
     options = ["--task-file", task_name] if selection in {"cli", "space"} else []
     with (
+        task_reads(root),
         patch(
             "issues.publication.save_scan",
-            return_value=(
-                [
-                    root / "issues/dev/cde/issues.md",
-                    root / "issues/dev/cde/iac-issues.md",
-                ],
-                SimpleNamespace(data="{}"),
-            ),
+            wraps=publication.save_scan,
+            side_effect=partial(
+                save_with_changed_selection, publication.save_scan, monkeypatch
+            )
+            if selection == "changed"
+            else None,
         ) as saved,
         patch(
             "issues.artifact.summary",
@@ -2780,9 +2796,11 @@ def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
             ],
         ),
     ):
+        if selection == "changed":
+            assert task_snapshot(root).name == task_name
         assert issues_main() == (2 if processing or selection == "missing" else 0)
     if selection == "missing":
-        saved.assert_not_called()
+        saved.assert_called_once()
         captured = capsys.readouterr()
         assert not captured.out and "selected task contract required" in captured.err
         return
@@ -2791,7 +2809,8 @@ def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
     assert result["validation_status"] == ("ERROR" if processing else "FAIL")
     assert result["post_save_validation"] == "NOT_RUN"
     assert result["post_save_validation_command"] == (
-        "blueprint-loop.py --mode local --task-file " + task_name
+        "blueprint-loop.py --mode local --task-file "
+        + ("tasks/authorized.md" if selection == "changed" else task_name)
     )
 
 

@@ -914,7 +914,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                 unverified=[],
             )
             with task(tmp_path, services):
-                paths, snapshot = save_scan(tmp_path, artifact, review)
+                paths, snapshot, _ = save_scan(tmp_path, artifact, review)
             report = paths[0].read_text(encoding="utf-8")
             markers = set(re.findall(r"<!-- issue-id: (\S+) -->", report))
             if _iteration:
