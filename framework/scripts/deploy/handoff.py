@@ -3,7 +3,6 @@
 import copy
 import json
 import re
-import sys
 import uuid
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
@@ -55,32 +54,34 @@ def record_failure(backend: SimpleNamespace) -> str | None:
         state.pop("approvedChangeDigest", None)
     if not selected:
         return None
-    discard_unused_failures(backend.root, backend.target)
     path = evidence_store(backend.root) / (
         "deploy-failure-" + uuid.uuid4().hex + ".json"
     )
     context = backend.run_context
-    write_sealed(
-        backend.root,
-        path,
-        {
-            "repository": str(backend.root),
-            "taskFile": context["taskFile"],
-            "taskDigest": context["taskDigest"],
-            "target": backend.target,
-            "environment": backend.environment,
-            "directory": backend.directory,
-            "states": selected,
-            "inputs": {**context["consumedInputs"], **context["modelInputs"]},
-        },
-    )
+    with repair_lock(backend.root):
+        write_sealed(
+            backend.root,
+            path,
+            {
+                "repository": str(backend.root),
+                "taskFile": context["taskFile"],
+                "taskDigest": context["taskDigest"],
+                "target": backend.target,
+                "environment": backend.environment,
+                "directory": backend.directory,
+                "states": selected,
+                "inputs": {**context["consumedInputs"], **context["modelInputs"]},
+            },
+        )
     return str(path)
 
 
-def referenced_failures(root: Path) -> set[Path]:
+def referenced_failures(root: Path, *, excluding: Path | None = None) -> set[Path]:
     """Caller holds Repair lock; an unreadable request cannot prove any orphan safe."""
     result = set()
     for path in evidence_store(root).glob("deploy-repair-*/request.json"):
+        if path == excluding:
+            continue
         operation_journal.private_path(external(root, path))
         request = read_sealed(root, path)
         failure = external(root, request["failureEvidence"])
@@ -90,32 +91,59 @@ def referenced_failures(root: Path) -> set[Path]:
     return result
 
 
-def discard_unused_failures(root: Path, target: dict[str, str]) -> None:
-    # Controller holds this target's Journal lock before acquiring Repair.
-    with repair_lock(root):
-        store = evidence_store(root)
-        try:
-            referenced = referenced_failures(root)
-        except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
-            print(f"Deploy failure evidence retained: {error}", file=sys.stderr)
-            return
-        for path in store.glob("deploy-failure-*.json"):
-            if path in referenced:
-                continue
-            try:
-                operation_journal.private_path(external(root, path))
-                failure = read_sealed(root, path)
-                if failure["repository"] == str(
-                    root
-                ) and operation_journal.target_identity(
-                    failure["target"]
-                ) == operation_journal.target_identity(target):
-                    path.unlink()
-            except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
-                print(
-                    f"Deploy failure evidence retained: {path}: {error}",
-                    file=sys.stderr,
+def failure_templates(root: Path, target: dict[str, str]) -> set[Path]:
+    """Caller holds Journal then Repair; uncertain evidence prevents reclamation."""
+    paths = referenced_failures(root) | set(
+        evidence_store(root).glob("deploy-failure-*.json")
+    )
+    needed = set()
+    for path in paths:
+        operation_journal.private_path(external(root, path))
+        failure = read_sealed(root, path)
+        if failure["repository"] != str(root):
+            raise Blocked("failure evidence repository is unknown")
+        if operation_journal.target_identity(
+            failure["target"]
+        ) != operation_journal.target_identity(target):
+            continue
+        if not isinstance(failure["states"], dict):
+            raise Blocked("failure Stack evidence is unknown")
+        for state in failure["states"].values():
+            if not isinstance(state, dict) or not isinstance(
+                state.get("delivery", {}), dict
+            ):
+                raise Blocked("failure delivery evidence is unknown")
+            delivery = state.get("delivery", {})
+            if delivery:
+                template = Path(delivery["path"])
+                operation_journal.private_path(
+                    external(root, template), permissions=0o022
                 )
+                needed.add(template)
+    return needed
+
+
+def discard_failure(root: Path, path: Path) -> None:
+    """Explicit abandonment of an unconsumed proof grants no old Task authority."""
+    path = external(root, path)
+    operation_journal.private_path(path)
+    failure = read_sealed(root, path)
+    if (
+        failure["repository"] != str(root)
+        or path.parent != evidence_store(root)
+        or not re.fullmatch(r"deploy-failure-[a-zA-Z0-9-]+\.json", path.name)
+    ):
+        raise Blocked("failure evidence ownership is unknown")
+    with (
+        operation_journal.locked(operation_journal.location(failure["target"])),
+        repair_lock(root),
+    ):
+        operation_journal.private_path(path)
+        if read_sealed(root, path) != failure:
+            raise Blocked("failure evidence changed before discard")
+        if path in referenced_failures(root):
+            raise Blocked("failure evidence is referenced by a repair request")
+        path.unlink()
 
 
 def issue_request(
@@ -390,7 +418,12 @@ def discard_request(state: JsonObject) -> None:
         owned = {path, result_path, validation_path, *logs}
         if set(path.parent.iterdir()) != owned or any(p.is_symlink() for p in owned):
             raise Blocked("unknown files in one-shot handoff need preservation")
-        for file in [*logs, validation_path, result_path, failure_path, path]:
+        referenced = referenced_failures(parent, excluding=path)
+        files = [*logs, validation_path, result_path, path]
+        if failure_path not in referenced:
+            operation_journal.private_path(failure_path)
+            files.insert(0, failure_path)
+        for file in files:
             file.unlink()
         path.parent.rmdir()
 

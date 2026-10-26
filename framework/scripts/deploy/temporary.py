@@ -62,14 +62,8 @@ def reclaim(journal, root, target):
             if not operation_journal.same_repository(root, owner["repository"]):
                 continue
             with handoff.repair_lock(Path(owner["repository"])):
-                failures = handoff.referenced_failures(Path(owner["repository"]))
                 needed.update(
-                    Path(state["delivery"]["path"])
-                    for path in failures
-                    for state in read_sealed(Path(owner["repository"]), path)[
-                        "states"
-                    ].values()
-                    if state.get("delivery", {}).get("path")
+                    handoff.failure_templates(Path(owner["repository"]), target)
                 )
                 if any(p.is_relative_to(directory) for p in needed):
                     continue

@@ -4,6 +4,7 @@ import copy
 import json
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -767,7 +768,7 @@ def test_signed_operation_must_match_execution_target(tmp_path, change):
 
 
 @pytest.mark.parametrize(
-    "dependency", ["none", "inbound", "outbound", "live-inbound", "unknown"]
+    "dependency", ["none", "inbound", "outbound", "live-inbound", "new-iac", "unknown"]
 )
 def test_unrelated_stack_requires_proved_dependency_boundary(tmp_path, dependency):
     backend, _, unit, path = backend_for(tmp_path)
@@ -789,7 +790,14 @@ def test_unrelated_stack_requires_proved_dependency_boundary(tmp_path, dependenc
         else Mock(return_value={"Exports": []})
     )
     backend.templates = {"Other": ({"Resources": {}, "Outputs": {}}, {})}
-    if dependency in {"inbound", "unknown", "live-inbound"}:
+    if dependency == "new-iac":
+        backend.templates["Other"][0]["Resources"] = {
+            "X": {"Properties": {"Value": {"Fn::ImportValue": "KmsExport"}}}
+        }
+        backend.aws = Mock(
+            return_value={"Exports": [{"Name": "KmsExport", "ExportingStackId": STACK}]}
+        )
+    if dependency in {"inbound", "unknown", "live-inbound", "new-iac"}:
         with pytest.raises(Blocked, match="unfinished Stack"):
             J.dependency_states(backend, other)
     else:
@@ -965,6 +973,21 @@ def test_existing_readable_lock_is_reused_without_unlink(tmp_path):
     assert lock.stat().st_ino == inode
 
 
+def dependency_response(exports, edges, defect, operation, **arguments):
+    if operation == "list_exports":
+        return {"Exports": {} if defect == "invalid-exports" else exports}
+    assert operation == "list_imports"
+    return {
+        "Imports": {}
+        if defect == "invalid-consumers"
+        else [
+            consumer
+            for consumer, producer in edges
+            if producer == arguments["ExportName"]
+        ]
+    }
+
+
 @pytest.mark.parametrize(
     "relation",
     [
@@ -996,28 +1019,116 @@ def test_deploy_and_handoff_dependency_graph(relation):
     ]
     if relation == "invalid-consumers":
         exports = [{"Name": "Kms", "ExportingStackId": STACK}]
-    aws = Mock(
-        side_effect=[
-            {"Exports": {} if relation == "invalid-exports" else exports},
-            *[
-                {
-                    "Imports": {}
-                    if relation == "invalid-consumers"
-                    else [
-                        consumer
-                        for consumer, producer in edges
-                        if producer == export["Name"]
-                    ]
-                }
-                for export in exports
-            ],
-        ]
-    )
+    aws = Mock(side_effect=partial(dependency_response, exports, edges, relation))
     if relation == "shared-producer":
         J.require_independent(pending, {"S3"}, aws)
     else:
         with pytest.raises(Blocked, match="unfinished Stack"):
             J.require_independent(pending, {"S3"}, aws)
+
+
+@pytest.mark.parametrize("unrelated", [0, 199, 999])
+def test_dependency_api_calls_are_bounded_by_reachable_exports(unrelated):
+    pending = {"Kms": {"status": "RUNNING", "delivery": {"imports": {}}}}
+    exports = [
+        {"Name": name, "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/")}
+        for name in ["Kms", *["Unrelated" + str(i) for i in range(unrelated)]]
+    ]
+    aws = Mock(side_effect=partial(dependency_response, exports, [], ""))
+    J.require_independent(pending, {"S3"}, aws, imports={"S3": set()})
+    assert [(c.args[0], c.kwargs) for c in aws.call_args_list] == [
+        ("list_exports", {}),
+        ("list_imports", {"ExportName": "Kms"}),
+    ]
+
+
+def test_dependency_cache_is_per_proof_and_deduplicates_diamonds_and_cycles():
+    pending = {"Kms": {"status": "RUNNING", "delivery": {"imports": {}}}}
+    names = ["Kms", "S3", "Left", "Right", "Join"]
+    exports = [
+        {"Name": name, "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/")}
+        for name in names
+    ]
+    edges = [
+        ("Left", "Kms"),
+        ("Right", "Kms"),
+        ("Join", "Left"),
+        ("Join", "Right"),
+        ("Left", "Join"),
+        ("Join", "S3"),
+    ]
+    aws = Mock(side_effect=partial(dependency_response, exports, edges, ""))
+    for _ in range(2):
+        aws.reset_mock()
+        J.require_independent(pending, {"S3"}, aws)
+        called = [
+            c.kwargs["ExportName"]
+            for c in aws.call_args_list
+            if c.args[0] == "list_imports"
+        ]
+        assert len(called) == len(set(called)) == len(names)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_delivered_and_new_iac_imports_connect_transitive_paths(reverse):
+    pending = {"Kms": {"status": "RUNNING", "delivery": {"imports": {}}}}
+    exports = [
+        {"Name": name, "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/")}
+        for name in ["Middle", "Kms", "S3"]
+    ]
+    imports = {"S3": {"Middle"}} if not reverse else {"S3": set()}
+    if reverse:
+        pending["Kms"]["delivery"]["imports"] = {"Middle": exports[0]}
+    edges = [("Middle", "S3" if reverse else "Kms")]
+    aws = Mock(side_effect=partial(dependency_response, exports, edges, ""))
+    with pytest.raises(Blocked, match="unfinished Stack dependency conflicts"):
+        J.require_independent(pending, {"S3"}, aws, imports=imports)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {},
+        None,
+        {"Exports": None},
+        {"Exports": [], "NextToken": "unfinished"},
+        {"Exports": [{"Name": "x"}]},
+        {"Exports": [{"Name": "x", "ExportingStackId": STACK}] * 2},
+    ],
+)
+def test_incomplete_dependency_inventory_blocks(response):
+    with pytest.raises(Blocked):
+        J.require_independent(
+            {"Kms": {"delivery": {"imports": {}}}}, {"S3"}, Mock(return_value=response)
+        )
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        None,
+        {},
+        {"Imports": [], "NextToken": "unfinished"},
+        {"Imports": [None]},
+        {"Imports": [""]},
+    ],
+)
+def test_incomplete_or_failed_required_import_reads_block(response):
+    exports = [{"Name": "Kms", "ExportingStackId": STACK}]
+    for failure in [response, Blocked("read denied")]:
+        aws = Mock(side_effect=[{"Exports": exports}, failure])
+        with pytest.raises(Blocked):
+            J.require_independent({"Kms": {"delivery": {"imports": {}}}}, {"S3"}, aws)
+
+
+def test_missing_new_iac_export_blocks_without_assuming_independence():
+    with pytest.raises(Blocked, match="missing Export"):
+        J.require_independent(
+            {"Kms": {"delivery": {"imports": {}}}},
+            {"S3"},
+            Mock(return_value={"Exports": []}),
+            imports={"S3": {"Missing"}},
+        )
 
 
 if __name__ == "__main__":

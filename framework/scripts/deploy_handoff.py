@@ -16,11 +16,21 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
     parser.add_argument("--failure", type=Path, required=True)
-    parser.add_argument("--diagnosis", type=Path, required=True)
-    parser.add_argument("--path", action="append", required=True)
+    parser.add_argument("--discard-failure", action="store_true")
+    parser.add_argument("--diagnosis", type=Path)
+    parser.add_argument("--path", action="append")
     args = parser.parse_args(argv)
+    if args.discard_failure:
+        if args.diagnosis or args.path:
+            parser.error("--discard-failure cannot issue a repair request")
+    elif not args.diagnosis or not args.path:
+        parser.error("request creation requires --diagnosis and --path")
     root = args.repository_root.resolve()
     try:
+        if args.discard_failure:
+            handoff.discard_failure(root, args.failure)
+            print(json.dumps({"discardedFailure": str(args.failure)}))
+            return 0
         failure = read_sealed(root, handoff.external(root, args.failure))
         with (
             handoff.operation_journal.locked(

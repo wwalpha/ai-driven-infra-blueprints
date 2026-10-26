@@ -417,7 +417,6 @@ def run(
             journal = operation_journal.location(target)
             resources.enter_context(operation_journal.locked(journal))
             temporary.reclaim(journal, root, target)
-            handoff.discard_unused_failures(root, target)
             backend = backend_type(
                 root,
                 args.environment,

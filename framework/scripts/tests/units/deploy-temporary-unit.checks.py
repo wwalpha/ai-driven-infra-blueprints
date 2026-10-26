@@ -16,7 +16,7 @@ from deploy import run_context, temporary
 from deploy.timing import Timing
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
-from utils.sealed_evidence import evidence_store, write_sealed
+from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -66,6 +66,10 @@ def pin_template(journal, path, root):
         "other-task",
         "other-root",
         "same-repository",
+        "failure",
+        "tampered-failure",
+        "foreign-failure",
+        "missing-template",
         "request",
         "unknown-request",
         "peer-journal",
@@ -108,17 +112,35 @@ def check_owned_directory_cleanup(tmp_path, state):
         template.symlink_to(root)
     elif state == "tampered-marker":
         (directory / "owner.json").write_text("unreadable", encoding="utf-8")
-    if state in {"request", "unknown-request"}:
+    if state in {
+        "failure",
+        "tampered-failure",
+        "foreign-failure",
+        "missing-template",
+        "request",
+        "unknown-request",
+    }:
         store = evidence_store(root)
         failure = store / "deploy-failure-old.json"
         write_sealed(
-            root, failure, {"states": {"App": {"delivery": {"path": str(template)}}}}
+            root,
+            failure,
+            {
+                "repository": str(root) if state != "foreign-failure" else "unknown",
+                "target": TARGET,
+                "states": {"App": {"delivery": {"path": str(template)}}},
+            },
         )
-        request = store / "deploy-repair-active/request.json"
-        request.parent.mkdir(mode=0o700)
-        write_sealed(root, request, {"failureEvidence": str(failure)})
-        if state == "unknown-request":
-            request.write_text("unreadable")
+        if state == "tampered-failure":
+            failure.write_text("unreadable")
+        elif state == "missing-template":
+            template.unlink()
+        if state in {"request", "unknown-request"}:
+            request = store / "deploy-repair-active/request.json"
+            request.parent.mkdir(mode=0o700)
+            write_sealed(root, request, {"failureEvidence": str(failure)})
+            if state == "unknown-request":
+                request.write_text("unreadable")
     elif state in {"peer-journal", "generation-producer"}:
         pin_template(journal, template, root)
         records = J.read(journal)
@@ -154,6 +176,10 @@ def check_owned_directory_cleanup(tmp_path, state):
             "journal",
             "recovered",
             "other-root",
+            "failure",
+            "tampered-failure",
+            "foreign-failure",
+            "missing-template",
             "request",
             "unknown-request",
             "peer-journal",
@@ -189,6 +215,21 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         recover_operations=True,
         pause_after_group=False,
     )
+    prior_directory = temporary.create(journal, root, task, TARGET, ["App"])
+    prior_template = prior_directory / "App.json"
+    prior_template.write_text("{}", encoding="utf-8")
+    failure = evidence_store(root) / "deploy-failure-prior.json"
+    write_sealed(
+        root,
+        failure,
+        {
+            "repository": str(root),
+            "target": TARGET,
+            "taskFile": "tasks/prior.md",
+            "taskDigest": "prior",
+            "states": {"App": {"delivery": {"path": str(prior_template)}}},
+        },
+    )
     backend = SimpleNamespace(root=root, workdir=None, pending_publication={})
     recovery = (
         Mock(side_effect=Blocked("unconfirmed AWS operation")) if blocked else Mock()
@@ -202,14 +243,91 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         patch.object(J, "location", return_value=journal),
         patch.object(J, "recover", recovery),
         patch.object(J, "publication_conflicts"),
-        patch.object(run_context.handoff, "discard_unused_failures"),
     ):
         assert run_context.run(
             args, root, Timing(root), root, Mock(return_value=backend), Mock()
         ) == (2 if blocked else 0)
     assert not backend.workdir.exists()
+    assert failure.exists() and prior_template.exists()
     with J.locked(journal):
         pass
+
+
+@pytest.mark.parametrize("consume", ["discard", "request"])
+def check_failure_survives_new_task_and_templates_live_until_consumed(
+    tmp_path, consume
+):
+    root, journal, task = workspace(tmp_path)
+    directory = temporary.create(journal, root, task, TARGET, ["App"])
+    template = directory / "App.json"
+    template.write_text("{}", encoding="utf-8")
+    backend = SimpleNamespace(
+        root=root,
+        target=TARGET,
+        environment="dev",
+        directory="team",
+        states={
+            "App": {
+                "status": "BLOCKED",
+                "delivery": {"path": str(template)},
+                "approvedChangeDigest": "never-retain",
+            }
+        },
+        run_context={
+            "taskFile": task.name,
+            "taskDigest": task.task_digest,
+            "consumedInputs": {},
+            "modelInputs": {},
+        },
+    )
+    with J.locked(journal):
+        failure = Path(temporary.handoff.record_failure(backend))
+        original = failure.read_bytes()
+        assert "approvedChangeDigest" not in read_sealed(root, failure)["states"]["App"]
+        backend.run_context.update(taskFile="tasks/another.md", taskDigest="another")
+        second = Path(temporary.handoff.record_failure(backend))
+        temporary.reclaim(journal, root, TARGET)
+        assert (
+            failure.read_bytes() == original and second.exists() and template.exists()
+        )
+    with patch.object(J, "location", return_value=journal):
+        temporary.handoff.discard_failure(root, second)
+        if consume == "discard":
+            temporary.handoff.discard_failure(root, failure)
+        else:
+            request = evidence_store(root) / "deploy-repair-current/request.json"
+            request.parent.mkdir(mode=0o700)
+            identity = {
+                "repository": str(root),
+                "requestId": "current",
+                "taskFile": task.name,
+                "taskDigest": task.task_digest,
+                "failureEvidence": str(failure),
+            }
+            write_sealed(root, request, identity)
+            with J.locked(journal):
+                temporary.reclaim(journal, root, TARGET)
+            assert template.exists() and failure.exists()
+            write_sealed(
+                root,
+                request.with_name("result.json"),
+                {"requestId": "current", "commit": "commit"},
+            )
+            write_sealed(
+                root, request.with_name("validation.json"), {"requestId": "current"}
+            )
+            temporary.handoff.discard_request(
+                {
+                    "deployRepair": str(request),
+                    "verified": True,
+                    "merged": "commit",
+                    "commit": "commit",
+                }
+            )
+    assert not failure.exists()
+    with J.locked(journal):
+        temporary.reclaim(journal, root, TARGET)
+    assert not directory.exists()
 
 
 if __name__ == "__main__":

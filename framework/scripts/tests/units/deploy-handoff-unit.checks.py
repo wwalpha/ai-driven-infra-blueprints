@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from types import SimpleNamespace
 
+import deploy_handoff
 import pytest
 from deploy import contracts, failures, handoff
 from deploy import operation_journal as J
@@ -325,8 +326,10 @@ def check_one_shot_request_requires_current_authority(tmp_path, defect):
                 handoff.issue_request(root, path, diagnosis, allowed)
 
 
-@pytest.mark.parametrize("unknown", [False, True])
-def check_delivered_request_evidence_is_discarded(tmp_path, unknown):
+@pytest.mark.parametrize(
+    "case", ["completed", "unknown", "shared", "unknown-reference", "unverified"]
+)
+def check_delivered_request_evidence_is_discarded(tmp_path, case):
     root = tmp_path / "project"
     root.mkdir()
     directory = evidence_store(root) / "deploy-repair-current"
@@ -361,7 +364,19 @@ def check_delivered_request_evidence_is_discarded(tmp_path, unknown):
         "merged": "commit",
         "commit": "commit",
     }
-    if unknown:
+    if case in {"shared", "unknown-reference"}:
+        other = evidence_store(root) / "deploy-repair-other/request.json"
+        other.parent.mkdir(mode=0o700)
+        write_sealed(root, other, {"failureEvidence": str(failure)})
+        if case == "unknown-reference":
+            other.write_text("unreadable")
+    if case == "unverified":
+        state["verified"] = False
+    if case in {"unknown-reference", "unverified"}:
+        with pytest.raises((Blocked, ValueError)):
+            handoff.discard_request(state)
+        assert path.exists() and failure.exists()
+    elif case == "unknown":
         extra = directory / "user-note.txt"
         extra.write_text("preserve user evidence")
         with pytest.raises(Blocked, match="unknown files"):
@@ -373,7 +388,8 @@ def check_delivered_request_evidence_is_discarded(tmp_path, unknown):
         )
     else:
         handoff.discard_request(state)
-        assert not directory.exists() and not failure.exists()
+        assert not directory.exists()
+        assert failure.exists() == (case == "shared")
 
 
 @pytest.mark.parametrize(
@@ -391,7 +407,7 @@ def check_delivered_request_evidence_is_discarded(tmp_path, unknown):
         "writable",
     ],
 )
-def check_unused_failure_cleanup_preserves_active_or_unknown_evidence(
+def check_explicit_failure_discard_preserves_referenced_or_unknown_evidence(
     tmp_path, reference
 ):
     root = tmp_path / "repo"
@@ -404,7 +420,6 @@ def check_unused_failure_cleanup_preserves_active_or_unknown_evidence(
         "taskDigest": "task",
         "target": {"awsAccountId": "123456789012", "awsRegion": "region"},
     }
-    target = dict(failure["target"])
     if reference == "other-task":
         failure["taskFile"] = "tasks/other.md"
     elif reference == "other-digest":
@@ -428,9 +443,50 @@ def check_unused_failure_cleanup_preserves_active_or_unknown_evidence(
         path.symlink_to(saved)
     elif reference == "writable":
         path.chmod(0o666)
-    with J.locked(tmp_path / "journal/journal.json"):
-        handoff.discard_unused_failures(root, target)
-    assert path.exists() == (reference not in {"unused", "other-task", "other-digest"})
+    with patch.object(J, "location", return_value=tmp_path / "journal/journal.json"):
+        if reference in {"unused", "other-task", "other-digest", "other-target"}:
+            handoff.discard_failure(root, path)
+            assert not path.exists()
+        else:
+            with pytest.raises((Blocked, ValueError, KeyError)):
+                handoff.discard_failure(root, path)
+            assert path.exists()
+
+
+@pytest.mark.parametrize("held", ["journal", "repair"])
+def check_explicit_discard_lock_contention_preserves_evidence(tmp_path, held):
+    root = tmp_path / "repo"
+    root.mkdir()
+    path = evidence_store(root) / "deploy-failure-current.json"
+    target = {"awsAccountId": "123456789012", "awsRegion": "region"}
+    write_sealed(root, path, {"repository": str(root), "target": target})
+    journal = tmp_path / "journal/journal.json"
+    with patch.object(J, "location", return_value=journal):
+        with J.locked(journal) if held == "journal" else handoff.repair_lock(root):
+            with pytest.raises(Blocked, match="lock busy"):
+                handoff.discard_failure(root, path)
+            assert path.exists()
+        handoff.discard_failure(root, path)
+    assert not path.exists()
+
+
+def check_failure_discard_cli_uses_explicit_mode_only(tmp_path):
+    arguments = [
+        "--repository-root",
+        str(tmp_path),
+        "--failure",
+        str(tmp_path / "failure.json"),
+    ]
+    with (
+        patch.object(handoff, "discard_failure") as discard,
+        patch.object(handoff, "issue_request") as issue,
+    ):
+        assert deploy_handoff.main([*arguments, "--discard-failure"]) == 0
+        discard.assert_called_once_with(tmp_path, tmp_path / "failure.json")
+        issue.assert_not_called()
+    for options in [[], ["--discard-failure", "--path", "unwanted"]]:
+        with pytest.raises(SystemExit):
+            deploy_handoff.main([*arguments, *options])
 
 
 STACK_ID = "arn:aws:cloudformation:region:123456789012:stack/{}/token"
@@ -440,6 +496,7 @@ STACK_ID = "arn:aws:cloudformation:region:123456789012:stack/{}/token"
     "case",
     [
         "independent",
+        "independent-many",
         "same",
         "inbound",
         "outbound",
@@ -579,6 +636,17 @@ def check_handoff_scopes_current_failure_and_preserves_journal(tmp_path, case):
         if case in {"outbound", "transitive"}
         else []
     )
+    if case == "independent-many":
+        exports = [
+            {"Name": "KmsExport", "ExportingStackId": STACK_ID.format("KMS")},
+            *[
+                {
+                    "Name": "Other" + str(i),
+                    "ExportingStackId": STACK_ID.format("Other" + str(i)),
+                }
+                for i in range(199)
+            ],
+        ]
     if case == "outbound":
         template.write_text(
             "Resources: {X: {Type: X, Properties: {Value: {Fn::ImportValue: KmsExport}}}}"
@@ -610,6 +678,7 @@ def check_handoff_scopes_current_failure_and_preserves_journal(tmp_path, case):
         with J.locked(journal), handoff.repair_lock(root):
             if case in {
                 "independent",
+                "independent-many",
                 "disjoint-publication",
                 "waiting-publication",
                 "observed-disjoint",
@@ -622,6 +691,11 @@ def check_handoff_scopes_current_failure_and_preserves_journal(tmp_path, case):
                 with pytest.raises((Blocked, KeyError)):
                     handoff.issue_request(root, failure_path, diagnosis, [relative])
     assert journal.read_bytes() == before
+    if case == "independent-many":
+        assert [(call.args[0], call.kwargs) for call in aws.call_args_list] == [
+            ("list_exports", {}),
+            ("list_imports", {"ExportName": "KmsExport"}),
+        ]
 
 
 @pytest.mark.parametrize("lock", ["journal", "repair"])

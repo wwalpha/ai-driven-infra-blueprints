@@ -84,11 +84,11 @@ AWS成功・Observed未同期は元Tokenの成功、AWS template/parameters・Re
 <fixed-python> framework/scripts/cloudformation-deploy.py <target-and-stack-arguments> --recover-operations
 ```
 
-この入口は未完了操作の確定/同期だけを行い、新規Deployを開始しない。残った待機生成は完了と報告しない。通常起動は安全に確定後、新しいRunContextで最新IaCからChangeSetを作る。完了済み操作の旧IaC Digestで新規UPDATEを拘束せず、無変更ChangeSetはExecuteしない。別Stackの未完了操作は保持し、Import/Export双方向の依存とpublication出力の非競合を確認できる場合だけ新規Deployを許可する。依存証拠がなければ対象Stackを示してBLOCKEDにする。旧SessionがあってJournalがなくてもAWS実行中状態を直接観測する。
+この入口は未完了操作の確定/同期だけを行い、新規Deployを開始しない。残った待機生成は完了と報告しない。通常起動は安全に確定後、新しいRunContextで最新IaCからChangeSetを作る。完了済み操作の旧IaC Digestで新規UPDATEを拘束せず、無変更ChangeSetはExecuteしない。別Stackの未完了操作は保持し、Import/Export双方向の依存とpublication出力の非競合を確認できる場合だけ新規Deployを許可する。依存判定はDeployとImplement Handoffで共通処理を使う。ListExportsを所有Stack別に索引化し、未完了操作のdelivery.importsと今回IaCのimportsを加え、両scopeからProducer→Consumerの向きに到達可能なStackのExportだけListImportsする。双方向の推移依存を検出し、共通Producerを参照するだけなら競合にしない。同じ判定内だけで取得済みExport/Importを再利用し、AWS変更後や別Deployには持ち越さない。不完全応答・所有不明・必要な取得失敗・依存証拠不足は対象Stackを示してBLOCKEDにする。旧SessionがあってJournalがなくてもAWS実行中状態を直接観測する。
 
 排他はmacOS/Linuxのflock（Windowsは標準のbyte-range lock）を使う。競合ControllerはBLOCKEDとなり、正常終了・強制終了時ともOSが解放する。lockファイルは安定したinodeとして残し、存在だけで停止せず、PID推測やunlinkで解除しない。所有者・権限・symlink/hardlinkを検証し、例外・途中returnでもdescriptorをcloseする。
 
-Deploy入力一時directoryはaccount/Regionのprivate領域に作り、署名済みのrepository/Task/target/生成予定ファイルで所有を識別する。終了時は正常・BLOCKEDを問わずJournalが参照しない所有ファイルを回収する。後続実行では同じTaskの孤児入力と、署名済みJournalから復旧済みと証明できる入力を回収する。他Task/target・所有不明・追加ファイル・symlinkは保持し、判断不能な対象と理由を報告する。所有記録のない旧一時directoryを一括走査・削除しない。
+Deploy入力一時directoryはaccount/Regionのprivate領域に作り、署名済みのrepository/Task/target/生成予定ファイルで所有を識別する。終了時と後続実行では、未完了Journal（Observed/生成待ちを含む）、修復Request、未消費の署名済み失敗証跡のdelivery.pathをJournal lock→Repair lockの順で取得し、参照されない所有ファイルだけを回収する。通常成功・修復統合完了・明示破棄後の不要Templateは次の安全な回収で削除する。Task変更・新規Deploy開始は証跡や参照Templateの失効条件ではない。他repository/target・所有不明・破損証拠・確認不能な参照・追加ファイル・symlinkは保持し、判断不能な対象と理由を報告する。所有記録のない旧一時directoryを一括走査・削除しない。
 
 復旧中の生成依存は現在Taskの明示Stack scopeで確認する。過去の完了Stack状態は復元せず、未公開の生成待ちだけを新しいRunContextへ再結合する。書込み候補が残っている場合は元のpublicationを確定するまで新規実行へ進めない。
 
@@ -100,7 +100,7 @@ Secrets初期化はAWSのVersion/Stage、未完了ClientRequestToken、現在段
 
 CloudFormationのみ。元Taskの`External IaC repair: allowed`が必要。Runtime recoveryは独立した`Runtime recovery: allowed`で制御する。失敗後は新規開始を止めpeerをdrainし、未完了AWS操作とpublicationを先に確定する。LLMが今回の失敗Stack/AWS error、正確なIaCと承認済Modelを調査する。承認待ち、認証/権限、未知の送信、設計不足はIaC修復権限を与えない。
 
-controllerが表示する`repairFailure`は今回の失敗だけの一時署名証拠で、新規Deployの入力にはしない。現在Task自身の参照されない旧失敗証拠だけ、修復依頼の作成と同じrepository排他の下で回収する。使用中の依頼は失敗証拠を保持し、統合後は既存discard_requestで削除する。読めない依頼・所有不明の証拠は保持して理由を報告する。修復用OS lockもrequest directoryの外で安定したファイルを共有する。外部diagnosis JSONは失敗Stack名をkeyとし、各値に具体的な`reason`、`inputRefs: [{path, sha256}]`、`modelRefs: [{path, sha256, key}]`を記す。Model keyは実在するdesired entry。秘密値、過去比較、ダミー原因は記録しない。原因が確認できなければHumanへ報告し修復を依頼しない。
+controllerが表示する`repairFailure`は今回の失敗だけの一時署名証拠で、新規Deployの入力にはしない。未消費の証拠は新規失敗の発行、Task変更、新規Deploy開始では削除しない。Request作成前からImplement実行中まで証拠と参照Templateを保持する。統合・検証完了後は既存discard_requestでRequestを削除し、他Requestの参照がない失敗証拠も削除する。修復しないと明示決定した未消費証拠は`deploy_handoff.py --failure <failure.json> --discard-failure`で破棄できる。Journal lock→Repair lockの順で署名・repository/target・所有・参照を再確認し、参照中や確認不能なら破棄を拒否する。保持された旧Taskの証拠は新Taskへの権限継承を意味せず、issue_requestは現在Task/Digest/入力一致を引き続き要求する。読めない依頼・所有不明の証拠は保持して理由を報告する。修復用OS lockもrequest directoryの外で安定したファイルを共有する。外部diagnosis JSONは失敗Stack名をkeyとし、各値に具体的な`reason`、`inputRefs: [{path, sha256}]`、`modelRefs: [{path, sha256, key}]`を記す。Model keyは実在するdesired entry。秘密値、過去比較、ダミー原因は記録しない。原因が確認できなければHumanへ報告し修復を依頼しない。
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_handoff.py --failure <current-failure.json> --diagnosis <external-diagnosis.json> --path <exact-IaC-path> [--path <exact-IaC-path>]

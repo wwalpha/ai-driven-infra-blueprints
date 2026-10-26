@@ -790,7 +790,23 @@ def dependency_states(backend, unit):
         for record in getattr(backend, "retained_records", [])
         for name, operation in record["operations"].items()
     }
-    require_independent(pending, {unit["name"]}, backend.aws)
+    imports = None
+    if pending:
+        document, parameters = backend.templates[unit["name"]]
+        imports = {
+            unit["name"]: change_sets.import_names(
+                document,
+                parameters,
+                {
+                    "AWS::StackName": unit["name"],
+                    "AWS::Region": backend.target["awsRegion"],
+                    "AWS::AccountId": backend.target.get(
+                        "awsExecutionAccountId", backend.target["awsAccountId"]
+                    ),
+                },
+            )
+        }
+    require_independent(pending, {unit["name"]}, backend.aws, imports=imports)
     return {**{name: {"status": "RUNNING"} for name in pending}, **backend.states}
 
 
@@ -815,28 +831,19 @@ def require_independent(pending, stacks, aws, *, imports=None):
             "unfinished operation conflicts with current Stack: "
             + ", ".join(sorted(set(pending) & stacks))
         )
-    dependencies = {}
+    # Follow Producer -> Consumer from both scopes, never through shared ancestors.
+    consumers = {}
     for name, state in pending.items():
-        if not (
-            state.get("status") == "RUNNING"
-            or state.get("status") == "SUCCESS"
-            and not state.get("observedSynced")
-            or state.get("executionEvidence")
-            or state.get("externalOperation")
-            or state.get("bootstrap")
-            or state.get("cleanupStatus") == "DELETE_INTENT"
-        ):
-            continue
         delivered = state.get("delivery", {}).get("imports")
         if not isinstance(delivered, dict):
             raise Blocked("unfinished Stack dependency evidence unavailable: " + name)
-        dependencies.setdefault(name, set()).update(
-            export_stack(entry) for entry in delivered.values()
-        )
-    exports = aws("list_exports")["Exports"]
-    if not isinstance(exports, list):
+        for entry in delivered.values():
+            consumers.setdefault(export_stack(entry), set()).add(name)
+    response = aws("list_exports")
+    exports = response.get("Exports") if isinstance(response, dict) else None
+    if not isinstance(exports, list) or response.get("NextToken") is not None:
         raise Blocked("unfinished Stack Export inventory is incomplete")
-    owners = {}
+    owners, owned = {}, {}
     for export in exports:
         owner = export_stack(export)
         name = export.get("Name")
@@ -847,36 +854,48 @@ def require_independent(pending, stacks, aws, *, imports=None):
         if name in owners:
             raise Blocked("unfinished Stack Export identity is ambiguous: " + name)
         owners[name] = owner
-        consumers = aws("list_imports", ExportName=name)["Imports"]
-        if not isinstance(consumers, list):
-            raise Blocked("unfinished Stack Import inventory is incomplete")
-        for consumer in consumers:
-            if not isinstance(consumer, str) or not consumer:
-                raise Blocked(
-                    "unfinished Stack dependency evidence unavailable: consumer"
-                )
-            dependencies.setdefault(consumer, set()).add(owner)
+        owned.setdefault(owner, []).append(name)
     for stack, names in (imports or {}).items():
         if names - owners.keys():
             raise Blocked(
                 "unfinished Stack dependency evidence unavailable: missing Export"
             )
-        dependencies.setdefault(stack, set()).update(owners[name] for name in names)
-    for start in stacks | set(pending):
-        reached, remaining = set(), list(dependencies.get(start, ()))
+        for name in names:
+            consumers.setdefault(owners[name], set()).add(stack)
+    expanded = set()
+    for start in sorted(stacks | set(pending)):
+        reached, remaining = set(), [start]
+        conflicts = set(pending) if start in stacks else stacks
         while remaining:
             name = remaining.pop()
-            if name not in reached:
-                reached.add(name)
-                remaining.extend(dependencies.get(name, ()))
-        conflicts = reached & (set(pending) if start in stacks else stacks)
-        if conflicts:
-            raise Blocked(
-                "unfinished Stack dependency conflicts with repair/deploy: "
-                + start
-                + " -> "
-                + ", ".join(sorted(conflicts))
-            )
+            if name in conflicts:
+                raise Blocked(
+                    "unfinished Stack dependency conflicts with repair/deploy: "
+                    + start
+                    + " -> "
+                    + name
+                )
+            if name in reached:
+                continue
+            reached.add(name)
+            if name not in expanded:
+                for export in owned.get(name, ()):
+                    response = aws("list_imports", ExportName=export)
+                    imported = (
+                        response.get("Imports") if isinstance(response, dict) else None
+                    )
+                    if (
+                        not isinstance(imported, list)
+                        or response.get("NextToken") is not None
+                        or any(
+                            not isinstance(consumer, str) or not consumer
+                            for consumer in imported
+                        )
+                    ):
+                        raise Blocked("unfinished Stack Import inventory is incomplete")
+                    consumers.setdefault(name, set()).update(imported)
+                expanded.add(name)
+            remaining.extend(consumers.get(name, ()))
 
 
 def adopt_recovered(backend):
