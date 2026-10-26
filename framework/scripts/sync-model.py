@@ -8,6 +8,7 @@ import os
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from contextvars import Context, copy_context
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -19,6 +20,7 @@ import model.importing.scope as _imports_model_importing_scope
 from model.core import ReferenceResolutionError
 from sync_progress import consumers, diagnostics, output_file, phase, reported_main
 from sync_runtime import generation_context, run_generation, sync
+from utils.input_cache import input_context, recording_inputs
 from validation_scope import active_scope
 
 
@@ -51,15 +53,20 @@ def run(argv, *, repository_root, definitions_root=None):
 def _callback_main_generate(args, definitions_root, groups, root, /, item):
     (environment, target), services = item
     try:
-        sync(
-            root,
-            args.write,
-            environment,
-            target,
-            services,
-            jobs=args.jobs if len(groups) == 1 else 1,
-            definitions_root=definitions_root,
-        )
+        # Concurrent read-only targets must not share a mutable generation stage.
+        with (
+            input_context(fresh=True) if not args.write else nullcontext(),
+            recording_inputs(None) if not args.write else nullcontext(),
+        ):
+            sync(
+                root,
+                args.write,
+                environment,
+                target,
+                services,
+                jobs=args.jobs if len(groups) == 1 else 1,
+                definitions_root=definitions_root,
+            )
     except (OSError, ValueError, KeyError, TypeError) as error:
         return error
     return None

@@ -83,13 +83,18 @@ def project_root(root: Path) -> Path:
     return shared.root if shared is not None else root
 
 
-def model_project_root(scope=None, *args, path=None, **kwargs):
+def model_project_root(
+    scope: Scope | str | Path | None = None,
+    *args: ReadContext | None,
+    path: str | Path | None = None,
+    **kwargs: ReadContext | None,
+) -> Path:
     scope = path if scope is None else scope
     scope = scope if isinstance(scope, Scope) else scope_for(scope)
     return project_root(scope.root)
 
 
-def design_project_root(path):
+def design_project_root(path: Path) -> Path:
     return project_root(path.parents[4])
 
 
@@ -758,7 +763,9 @@ def _load_model(scope, read_context=None):
     return result
 
 
-def fork_model_inputs(inputs):
+def fork_model_inputs(
+    inputs: Mapping[object, object],
+) -> dict[tuple[object, ...], FileReads]:
     """Only byte readers and immutable source snapshots cross worker boundaries."""
     return {
         key: value.fork()

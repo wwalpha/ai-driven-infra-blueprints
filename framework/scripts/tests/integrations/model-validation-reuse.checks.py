@@ -26,7 +26,7 @@ from support.model_sources import write_model
 from support.pytest_cli import run
 from support.sync_model_fixtures import MODULE
 from support.validator import MODULE as validator_module
-from support.validator import diagnostics
+from support.validator import commit, diagnostics
 from utils.aws_mappings import definition_root, mappings_for
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from validation.findings import Findings
@@ -62,7 +62,7 @@ def _callback_trace_validation_init(
 
 
 def _callback_trace_validation_record_call(
-    current, original, records, root, /, findings, condition, *args
+    current, original, records, root, /, findings, condition, *args, **kwargs
 ):
     key = current.get()
     if key is None and findings.canonical_root == root.resolve():
@@ -75,7 +75,7 @@ def _callback_trace_validation_record_call(
             for arg in args
         )
         records[key].append((bool(condition), normalized))
-    return original(findings, condition, *args)
+    return original(findings, condition, *args, **kwargs)
 
 
 def _callback_trace_validation_record(current, records, root, /, original):
@@ -221,13 +221,14 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
         ):
             result = after.findings.result(check_id, {ENTRY})
             assert result.status == "FAIL", (check_id, result)
-            assert any(
-                (
-                    "generated ARN persisted in observed model value" in error
-                    or "observed value requires a desired logical reference" in error
-                )
-                for error in result.errors
-            ), (check_id, result.errors)
+            assert not result.model_completion_allowed, (check_id, result)
+        assert any(
+            (
+                "generated ARN persisted in observed model value" in error
+                or "observed value requires a desired logical reference" in error
+            )
+            for error in after.errors
+        ), after.errors
         for check_id in (
             "design.tables.semantic",
             "framework.policy-tables",
@@ -248,7 +249,9 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
             "json": COMMON[4],
             "observed": COMMON[5],
         }[fault]
-        assert any(not condition for condition, _ in new["saved", name]), (
+        assert fault == "observed" or any(
+            not condition for condition, _ in new["saved", name]
+        ), (
             fault,
             new["saved", name],
         )
@@ -345,9 +348,12 @@ def _callback_check_generation_failures_never_pass_generate(
 
 @pytest.mark.parametrize("fault", ["projection", "input", "stale", "exception"])
 def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
-    root, model, _, design, _, register = generated_policy
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", register([])["BLUEPRINT_TASK_FILE"])
+    root, model, _, design, artifact, register = generated_policy
+    monkeypatch.setenv(
+        "BLUEPRINT_TASK_FILE", register([design, artifact])["BLUEPRINT_TASK_FILE"]
+    )
     subprocess.run(["git", "init", "-q", str(root)], check=True)
+    commit(root, ["."], "synthetic generation baseline")
     original = sync_runtime.generate_views
     generate = _bind_framework_callback(
         _callback_check_generation_failures_never_pass_generate,
@@ -360,11 +366,17 @@ def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
     if fault == "stale":
         design.write_bytes(design.read_bytes() + b"\nold Markdown\n")
     with patch.object(sync_runtime, "generate_views", side_effect=generate):
-        validator = validator_module.Validator(root, {ENTRY})
         argv = sys.argv[:]
-        validator.check_generated_service_models()
+        if fault == "input":
+            before = {path: path.read_bytes() for path in (design, artifact)}
+            with pytest.raises(ValueError, match="inputs changed before publication"):
+                MODULE.sync(root, True, *ENTRY[:2], ["iam"])
+            assert {path: path.read_bytes() for path in before} == before
+        else:
+            validator = validator_module.Validator(root, {ENTRY})
+            validator.check_generated_service_models()
+            assert validator.errors
         assert sys.argv == argv
-    assert validator.errors
     assert sync_views._saved_design_validation.get() is None
     assert input_cache.memo_table() is None
 

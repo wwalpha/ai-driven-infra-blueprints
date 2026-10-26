@@ -4,6 +4,7 @@
 import sys
 from collections import Counter
 from functools import partial as _bind_framework_callback
+from inspect import unwrap
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
@@ -689,7 +690,9 @@ def check_shared_stack_mapping(publication_workspace):
     )
     task = root / "tasks/observation-fixture.md"
     task.parent.mkdir(exist_ok=True)
-    task.write_text(observation_contract(root, ("ec2", "cloudformation-stacks")))
+    with selected_task(root, None):
+        contract = observation_contract(root, ("ec2", "cloudformation-stacks"))
+    task.write_text(contract)
     document = {
         "Parameters": {"Enabled": {"Type": "String", "Default": "yes"}},
         "Conditions": {
@@ -760,7 +763,7 @@ def check_shared_stack_mapping(publication_workspace):
         ):
             with patch.object(observed, "mappings", mappings.__wrapped__):
                 before, hits_before, bodies_before, expansions_before = measured(
-                    _state_check_shared_stack_mapping_395.entry.__wrapped__,
+                    unwrap(_state_check_shared_stack_mapping_395.entry),
                     *_state_check_shared_stack_mapping_395.args,
                 )
             after, hits_after, bodies_after, expansions_after = measured(
@@ -844,7 +847,7 @@ def check_shared_stack_mapping(publication_workspace):
         for name in (scoped[0]["name"], "missing"):
             results = []
             for _state_check_shared_stack_mapping_395.entry, mapping in (
-                (preflight.__wrapped__, mappings.__wrapped__),
+                (unwrap(preflight), mappings.__wrapped__),
                 (preflight, mappings),
             ):
                 stdout = io.StringIO()

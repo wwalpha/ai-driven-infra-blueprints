@@ -60,9 +60,10 @@ pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 
 def _callback_check_stage_definition_sources_read(
-    original_reader, references, stage, /, scope, reads
+    original_reader, references, stage, /, scope, reads=None
 ):
     result = original_reader(scope, reads)
+    scope = result.scope
     if scope.service == "kms":
         assert scope.path.is_relative_to(stage)
         assert result.authoritative["observed.row.001-001.value"] == "`stage-key`"
@@ -277,7 +278,7 @@ def check_stage_definition_sources(generated_policy, tmp_path):
     (root / "project.json").write_text(json_text(project) + "\n", encoding="utf-8")
     results = []
     original_validate = sync_views.validate_views
-    original_reader = model_sources._read_model
+    original_reader = model_sources.raw_model
     for jobs in (1, 4):
         stage = tmp_path / ("identifier-stage-" + str(jobs))
         with mapping_alias(root, stage):
@@ -333,7 +334,7 @@ def check_stage_definition_sources(generated_policy, tmp_path):
                     "validate_views",
                     side_effect=_state_check_stage_definition_sources_90.validate,
                 ),
-                patch.object(model_sources, "_read_model", side_effect=read),
+                patch.object(model_sources, "raw_model", side_effect=read),
             ):
                 sync_runtime.validate_candidates(
                     stage, root, generated, candidates, failures, jobs, False
@@ -1266,6 +1267,12 @@ def check_publication_lock_wait(tmp_path):
     assert "lock-wait" in output.getvalue()
 
 
+def _callback_check_two_consumer_cli_prepare(stages, original, /, *args, **kwargs):
+    plan = original(*args, **kwargs)
+    stages.append((plan.stage, plan.snapshot))
+    return plan
+
+
 def check_two_consumer_cli(generated_policy):
     root, _, _, design, artifact, register = generated_policy
     shutil.copytree(root / "model/dev", root / "model/stg")
@@ -1343,8 +1350,20 @@ def check_two_consumer_cli(generated_policy):
         with patch.object(sys, "argv", [*arguments, "--write"]):
             assert cli.main() == 0, stdout.getvalue() + stderr.getvalue()
         written = {file: file.read_bytes() for file in outputs}
-        with patch.object(sys, "argv", arguments):
+        stages = []
+        prepare = _bind_framework_callback(
+            _callback_check_two_consumer_cli_prepare,
+            stages,
+            sync_runtime.prepare_generation,
+        )
+        with (
+            patch.object(sys, "argv", arguments),
+            patch.object(sync_runtime, "prepare_generation", side_effect=prepare),
+        ):
             assert cli.main() == 0, stdout.getvalue() + stderr.getvalue()
+        assert len(stages) == 2
+        assert len({stage for stage, _ in stages}) == 2
+        assert len({id(snapshot) for _, snapshot in stages}) == 2
         assert written == {file: file.read_bytes() for file in outputs}
         with patch.object(
             sys,

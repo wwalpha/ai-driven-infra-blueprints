@@ -13,8 +13,8 @@ _baselines = ContextVar("import_baselines", default=None)
 
 
 @contextmanager
-def baseline_scope():
-    if _baselines.get() is not None:
+def baseline_scope(*, fresh=False):
+    if _baselines.get() is not None and not fresh:
         yield
         return
     with tempfile.TemporaryDirectory(prefix="blueprint-import-baselines-") as directory:
@@ -115,7 +115,7 @@ def input_context(*, fresh=False, inputs=None):
         return
     token = _inputs.set({} if inputs is None else inputs)
     try:
-        with baseline_scope():
+        with baseline_scope(fresh=fresh):
             yield
     finally:
         _inputs.reset(token)

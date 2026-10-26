@@ -4,6 +4,7 @@
 import hashlib
 import os
 import sys
+import tempfile
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
@@ -98,13 +99,20 @@ def make_tasks(root):
 
 def check_fresh_input_context_restores_parent():
     assert memo_table() is None
-    with input_context():
+    with (
+        patch(
+            "utils.input_cache.tempfile.TemporaryDirectory",
+            wraps=tempfile.TemporaryDirectory,
+        ) as directories,
+        input_context(),
+    ):
         parent = memo_table()
         parent["sentinel"] = "parent"
         with input_context(fresh=True):
             assert memo_table() == {} and memo_table() is not parent
             memo_table()["sentinel"] = "candidate"
         assert memo_table() is parent and parent == {"sentinel": "parent"}
+        assert directories.call_count == 2
     assert memo_table() is None
 
 

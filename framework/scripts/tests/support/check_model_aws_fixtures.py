@@ -245,10 +245,19 @@ PATCHES = {
         "FlowLogs.Tags.Key": "Name",
     },
     ("cloudformation", "describe_stacks"): {
+        "Stacks.StackId": "arn:aws:cloudformation:ap-northeast-1:"
+        + ACCOUNT
+        + ":stack/fixture/id",
         "Stacks.StackName": "fixture",
         "Stacks.StackStatus": "CREATE_COMPLETE",
+        "Stacks.Outputs.OutputKey": "FixtureExport",
+        "Stacks.Outputs.OutputValue": "confirmed-export-value",
+        "Stacks.Outputs.ExportName": "fixture-export",
     },
     ("cloudformation", "list_exports"): {
+        "Exports.ExportingStackId": "arn:aws:cloudformation:ap-northeast-1:"
+        + ACCOUNT
+        + ":stack/fixture/id",
         "Exports.Name": "fixture-export",
         "Exports.Value": "confirmed-export-value",
     },
@@ -382,20 +391,24 @@ class Offline(m.Context):
             stub.add_response(operation, response, expected_params=inputs)
         self.request_count += 1
 
-    def call(self, service, operation, **inputs):
+    def call(self, service, operation, *, _deadline=None, **inputs):
         if (service, operation) not in self.allowed or (
             not self.verified and service != "sts"
         ):
-            return super().call(service, operation, **inputs)
+            return super().call(service, operation, _deadline=_deadline, **inputs)
         key = (service, operation, m.stable(inputs))
         if key not in self.cache:
             self.queue(service, operation, inputs)
-        return super().call(service, operation, **inputs)
+        return super().call(service, operation, _deadline=_deadline, **inputs)
 
     def pages(self, service, operation, **inputs):
         client = self.client(service)
         key = (service, operation, "pages", m.stable(inputs))
-        if key not in self.cache and client.can_paginate(operation):
+        if (
+            key not in self.cache
+            and client.can_paginate(operation)
+            and not (service == "cloudformation" and operation in m.READ_RATES)
+        ):
             self.queue(service, operation, inputs)
         return super().pages(service, operation, **inputs)
 

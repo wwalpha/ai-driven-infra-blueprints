@@ -1200,7 +1200,9 @@ class ImportValueResolutionTests(unittest.TestCase):
         )
         comparison.templates = lambda: []
 
-        results = comparison.run()
+        with tempfile.TemporaryDirectory() as directory:
+            comparison.root = Path(directory)
+            results = comparison.run()
 
         self.assertEqual(
             results[0][0][:5],
