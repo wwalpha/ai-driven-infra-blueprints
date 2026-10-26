@@ -50,8 +50,8 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-@pytest.fixture
-def models(tmp_path):
+@pytest.fixture(params=["CREATE", "IMPORT"])
+def models(tmp_path, request):
     with (
         mapping_alias(FRAMEWORK, tmp_path),
         patch("socket.socket", side_effect=AssertionError("network forbidden")),
@@ -82,6 +82,10 @@ def models(tmp_path):
             attribute="KeyId",
             observed="PENDING_DEPLOY",
         )
+        key["desired.resource.004.resourceMode"] = request.param
+        if request.param == "IMPORT":
+            key.pop("desired.resource.004.cfn-logicalId")
+        save(producer, key)
         consumer, role = resource(
             tmp_path, "iam", "IAM.Role", number="070", attribute="RoleName"
         )
@@ -149,7 +153,6 @@ def materialize(consumer, role, document):
         ("missing", "MODEL_REF_TARGET_MISSING"),
         ("ambiguous", "MODEL_REF_TARGET_AMBIGUOUS"),
         ("attribute", "MODEL_REF_INVALID_ATTRIBUTE"),
-        ("pending-import", "MODEL_REF_INVALID_PENDING_STATE"),
         ("pending-desired", "MODEL_REF_INVALID_PENDING_STATE"),
         ("invalid-arn", "MODEL_REF_INVALID_VALUE"),
         ("local-ambiguous", "MODEL_REF_TARGET_AMBIGUOUS"),
@@ -186,11 +189,7 @@ def test_invalid_reference_has_origin_code_and_position(models, fault, code):
         )
         save(producer, key)
     else:
-        if fault == "pending-import":
-            key["desired.resource.004.resourceMode"] = "IMPORT"
-            key.pop("desired.resource.004.cfn-logicalId")
-        else:
-            key["desired.row.004-001.value"] = "`PENDING_DEPLOY`"
+        key["desired.row.004-001.value"] = "`PENDING_DEPLOY`"
         save(producer, key)
     with pytest.raises(ModelNeedsFixError) as caught:
         materialize(consumer, role, document)
@@ -225,7 +224,6 @@ def test_invalid_reference_has_origin_code_and_position(models, fault, code):
             str(producer.path.with_name("duplicate.properties")),
         }
     elif fault in {
-        "pending-import",
         "pending-desired",
         "invalid-arn",
         "local-ambiguous",

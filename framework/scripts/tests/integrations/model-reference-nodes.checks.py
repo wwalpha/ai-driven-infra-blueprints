@@ -42,7 +42,9 @@ def main():
             ]:
                 if observed is not None:
                     values["desired.row.001-001.property"] = (
-                        "KMS.Key.KeyId" if observed == "PENDING_DEPLOY" else "KMS.Key.Arn"
+                        "KMS.Key.KeyId"
+                        if observed == "PENDING_DEPLOY"
+                        else "KMS.Key.Arn"
                     )
                     values["observed.row.001-001.value"] = "`" + observed + "`"
                     save(producer, values)

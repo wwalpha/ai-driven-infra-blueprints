@@ -26,7 +26,7 @@ from design.policy_tables import (
 from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from json_intrinsics import project_document
 from model.adapters.observed import observed_destinations, propagate_references
-from model.core import ModelNeedsFixError, ReferenceResolutionError, entries
+from model.core import ReferenceResolutionError, entries
 from model.identity import Resolver
 from model.impact_graph import Graph
 from model.importing.sources import has_reference
@@ -607,8 +607,12 @@ def check_string_reference_cannot_replace_policy_objects(container):
         validate_policy_document(container, policy, design=True)
 
 
-def check_scalar_value_and_json_are_stable(tmp_path, models):
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+def check_scalar_value_and_json_are_stable(tmp_path, models, mode):
     producer, values, consumer, policy = models
+    values["desired.resource.001.resourceMode"] = mode
+    if mode == "IMPORT":
+        values.pop("desired.resource.001.cfn-logicalId")
     values["observed.row.001-001.value"] = (
         "`arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012`"
     )
@@ -642,12 +646,23 @@ def check_scalar_value_and_json_are_stable(tmp_path, models):
         == design_json
     )
     assert policy[key] == "`" + json.dumps(reference("EC2_VPC_001", "VpcId")) + "`"
-    # IMPORT cannot use a CREATE deployment marker as an acquired value.
-    values["desired.resource.001.resourceMode"] = "IMPORT"
-    values.pop("desired.resource.001.cfn-logicalId")
+    values["desired.row.001-001.property"] = "KMS.Key.KeyId"
     save(producer, values)
-    with pytest.raises(ModelNeedsFixError, match="MODEL_REF_INVALID_PENDING_STATE"):
-        reference_display(policy, consumer.path, tmp_path)
+    validate_json_settings(policy, consumer.path)
+    assert (
+        json.loads(
+            reference_display(policy, consumer.path, tmp_path)[
+                "desired.row.001-002.document"
+            ]
+        )["Statement"][0]["Resource"]
+        == "PENDING_DEPLOY"
+    )
+    validate_candidates(
+        tmp_path,
+        {consumer.path.relative_to(tmp_path)},
+        {},
+        {("qa", "team", "iam")},
+    )
 
 
 def check_other_target_only_never_resolves(tmp_path, models):

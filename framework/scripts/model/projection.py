@@ -470,7 +470,7 @@ def display_document(document, root, *, pending=None, **contract):
 
 
 def pending_documents(values, scope, root):
-    """Return exact artifact rows whose only unresolved values are CREATE waits."""
+    """Return exact artifact rows whose only unresolved values are CREATE/IMPORT waits."""
     resolver = reference_resolver(values, scope, root)
     pending = {}
     for rid, row in entries(values, "desired.row."):

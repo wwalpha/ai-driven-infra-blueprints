@@ -147,7 +147,7 @@ class ProducerValues:
         desired_raw = literal(row["value"])
         if desired_raw == "PENDING_DEPLOY":
             raise ModelNeedsFixError(
-                "PENDING_DEPLOY belongs only to CREATE observations: " + field,
+                "PENDING_DEPLOY belongs only to observations: " + field,
                 code="MODEL_REF_INVALID_PENDING_STATE",
             )
         desired = confirmed(desired_raw)
@@ -155,11 +155,6 @@ class ProducerValues:
         if observed is not None:
             observed = literal(observed)
             if observed == "PENDING_DEPLOY":
-                if self.resource.get("resourceMode", "CREATE") != "CREATE":
-                    raise ModelNeedsFixError(
-                        "PENDING_DEPLOY is not a confirmed IMPORT value: " + field,
-                        code="MODEL_REF_INVALID_PENDING_STATE",
-                    )
                 self.pending_fields.add(field)
                 observed = None
             else:
@@ -219,20 +214,12 @@ class ProducerValues:
     def validate_pending(self):
         for rid, row in self.rows:
             desired = literal(row["value"])
-            observed = literal(
-                self.snapshot.authoritative.get(f"observed.row.{rid}.value", "")
-            )
-            if desired == "PENDING_DEPLOY" or (
-                observed == "PENDING_DEPLOY"
-                and self.resource.get("resourceMode", "CREATE") != "CREATE"
-            ):
+            if desired == "PENDING_DEPLOY":
                 raise ModelNeedsFixError(
                     "invalid Producer PENDING_DEPLOY state",
                     code="MODEL_REF_INVALID_PENDING_STATE",
                     model=str(self.snapshot.scope.path),
-                    modelKey=f"desired.row.{rid}.value"
-                    if desired == "PENDING_DEPLOY"
-                    else f"observed.row.{rid}.value",
+                    modelKey=f"desired.row.{rid}.value",
                 )
 
     def waiting(self, fields):
@@ -385,7 +372,7 @@ def reference_value(resolver, scope, node, **contract):
             )
             pending = producer.waiting([field])
             raise ReferenceResolutionError(
-                "explicit CREATE Producer output PENDING_DEPLOY"
+                "explicit Producer output PENDING_DEPLOY"
                 if pending
                 else "no confirmed desired or observed value",
                 category="REFERENCE_PENDING_DEPLOY"

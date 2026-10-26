@@ -97,10 +97,8 @@ def test_missing_generated_kms_value(fixture):
     assert value.status == "unresolved" and value.value is None and value.reason
 
 
-@pytest.mark.parametrize(
-    "mode,expected", [("CREATE", "resolved"), ("IMPORT", "unresolved")]
-)
-def test_explicit_pending(fixture, mode, expected):
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+def test_explicit_pending(fixture, mode):
     producer, values, consumer, _ = fixture
     values["desired.resource.001.resourceMode"] = mode
     values["desired.row.001-002.property"] = "S3.Bucket.Arn"
@@ -108,15 +106,34 @@ def test_explicit_pending(fixture, mode, expected):
     values["desired.row.001-002.comment"] = "合成"
     values["observed.row.001-002.value"] = "`PENDING_DEPLOY`"
     save(producer, values)
-    if mode == "IMPORT":
-        with pytest.raises(ModelNeedsFixError) as error:
-            result(consumer)
-        assert error.value.diagnostic["code"] == "MODEL_REF_INVALID_PENDING_STATE"
-    else:
-        value = result(consumer)
-        assert (
-            value.status == expected and value.value == "arn:aws:s3:::fixture-materials"
+    value = result(consumer)
+    assert (value.status, value.value) == ("resolved", "arn:aws:s3:::fixture-materials")
+
+
+def test_generated_vpc_identity_modes_match(fixture):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root, "vpc", "EC2.VPC", attribute="VpcId", observed="PENDING_DEPLOY"
+    )
+    outcomes = []
+    for mode in ("CREATE", "IMPORT"):
+        values["desired.resource.001.resourceMode"] = mode
+        save(scope, values)
+        value = result(consumer, "EC2_VPC_001", "VpcId")
+        outcomes.append(
+            (value.status, value.value, value.category, value.diagnostic["code"])
         )
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0] == (
+        "pending_deploy",
+        None,
+        "REFERENCE_PENDING_DEPLOY",
+        "REFERENCE_PENDING_DEPLOY",
+    )
+    values["observed.row.001-001.value"] = "`vpc-0123456789abcdef0`"
+    save(scope, values)
+    value = result(consumer, "EC2_VPC_001", "VpcId")
+    assert (value.status, value.value) == ("resolved", "vpc-0123456789abcdef0")
 
 
 @pytest.mark.parametrize(
@@ -158,11 +175,13 @@ def test_explicit_pending(fixture, mode, expected):
         ),
     ],
 )
-def test_named_arn_with_pending_output(fixture, kind, fields, pending, expected):
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+def test_named_arn_with_pending_output(fixture, kind, fields, pending, expected, mode):
     _, _, consumer, _ = fixture
     scope, values = resource(
         consumer.root, "named", kind, attribute=pending, observed="PENDING_DEPLOY"
     )
+    values["desired.resource.001.resourceMode"] = mode
     for index, (field, value) in enumerate(fields.items(), 2):
         prefix = f"desired.row.001-{index:03d}."
         values.update(
@@ -185,11 +204,13 @@ def test_named_arn_with_pending_output(fixture, kind, fields, pending, expected)
         ("SecretsManager.Secret", "Id"),
     ],
 )
-def test_only_generated_identity_waits(fixture, kind, field):
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+def test_only_generated_identity_waits(fixture, kind, field, mode):
     _, _, consumer, _ = fixture
     scope, values = resource(
         consumer.root, "waiting", kind, attribute=field, observed="PENDING_DEPLOY"
     )
+    values["desired.resource.001.resourceMode"] = mode
     logical = kind.replace(".", "_") + "_001"
     if kind == "KMS.Key":
         logical = "KMS_Key_002"
@@ -197,7 +218,17 @@ def test_only_generated_identity_waits(fixture, kind, field):
         values["desired.service.identity.lastAllocated"] = json.dumps({kind: 2})
     save(scope, values)
     resolved = result(consumer, logical)
-    assert resolved.status == "pending_deploy" and resolved.value is None
+    assert (
+        resolved.status,
+        resolved.value,
+        resolved.category,
+        resolved.diagnostic["code"],
+    ) == (
+        "pending_deploy",
+        None,
+        "REFERENCE_PENDING_DEPLOY",
+        "REFERENCE_PENDING_DEPLOY",
+    )
     assert (
         display_value(Resolver(consumer.root), consumer, parse(reference(logical)))
         == "PENDING_DEPLOY"

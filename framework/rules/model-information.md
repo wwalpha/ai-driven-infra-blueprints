@@ -324,7 +324,11 @@ design projection and preserves them. Generated artifacts use `generated_documen
 resolve them through the common Reference Value Resolver; Markdown uses the same resolver.
 Confirmed desired attributes can derive ARNs without observed values, including CREATE S3
 BucketName. CREATE does not imply undeployed. AWS-generated identifiers require measured
-values; never infer them. Explicit PENDING_DEPLOY retains its existing CREATE semantics.
+values; never infer them. Observed PENDING_DEPLOY means the physical identifier is
+unconfirmed, with identical reference resolution for CREATE and IMPORT: generated IDs
+and ARNs requiring them are pending_deploy; ARNs derivable from confirmed attributes
+remain resolved. PENDING_DEPLOY is invalid in desired values. This does not change
+resourceMode ownership, IaC/deploy eligibility or the approved Import acquisition flow.
 Reject desired/observed conflicts rather than selecting one silently. Resolution reports
 resolved/pending_deploy/unresolved with its cause and never writes values back to authority.
 ARN assembly is shared with comparison, with ARN_SHAPES as the sole format definition.
