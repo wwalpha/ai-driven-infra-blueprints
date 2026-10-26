@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,8 +15,11 @@ import design.policy_tables as policy_tables
 import import_guard
 import pytest
 import sync_runtime
+from generation_inputs import GenerationInputs
 from issues.runner import mechanical
 from model.format import serialize
+from model.importing.scope import read_consumers, restrict
+from model.operations import prepare_edit, publish_edit
 from model.render import generate_files
 from support.import_model_fixtures import service_values
 from support.producer_identifier_reference_fixtures import resource, setup, write_model
@@ -144,6 +148,204 @@ def check_save_delegates_without_full(project_workspace):
     ) as full:
         change.validate_save(old, new, sources.FileReads())
         full.assert_not_called()
+
+
+@pytest.mark.parametrize("action", ["import", "edit"])
+@pytest.mark.parametrize(
+    "case,error",
+    [
+        ("name-pending", "Name"),
+        ("plaintext-link", "PLAINTEXT"),
+        ("dependent-plaintext", "PLAINTEXT"),
+        ("json-reference", "modelRef"),
+        ("missing-producer", "producer"),
+        ("name", None),
+        ("environment-pending", None),
+        ("unrelated-error", None),
+        ("unrelated-reference", None),
+        ("comment", None),
+        ("warning", None),
+    ],
+)
+def check_prepare_save_change_validation(project_workspace, action, case, error):
+    root = project_workspace
+    setup(root, ["codebuild"], ["CodeBuild.Project"])
+    before = resource(
+        "001",
+        "CodeBuild.Project",
+        "build",
+        [
+            ("Name", "fixture-build"),
+            ("Description", "before"),
+            ("Environment.EnvironmentVariables[].Name", "SETTING"),
+            ("Environment.EnvironmentVariables[].Type", "PLAINTEXT"),
+            ("Environment.EnvironmentVariables[].Value", "fixed"),
+            ("ServiceRole", "arn:aws:iam::111111111111:role/build"),
+        ],
+    )
+    if case == "unrelated-error":
+        before.update(
+            resource("002", "CodeBuild.Project", "old", [("Name", "PENDING_DEPLOY")])
+        )
+    if case == "unrelated-reference":
+        before["desired.row.001-006.value"] = "[absent](iam.md#absent)"
+    if case == "dependent-plaintext":
+        before["desired.row.001-004.value"] = "PARAMETER_STORE"
+        before["desired.row.001-005.value"] = "[absent](ssm.md#absent)"
+    after = dict(before)
+    if case == "name-pending":
+        after["desired.row.001-001.value"] = "PENDING_DEPLOY"
+    elif case == "plaintext-link":
+        after["desired.row.001-005.value"] = "[absent](ssm.md#absent)"
+    elif case == "dependent-plaintext":
+        after["desired.row.001-004.value"] = "PLAINTEXT"
+    elif case == "json-reference":
+        after["desired.row.001-006.value"] = '`{"$modelRef":{"attribute":"Arn"}}`'
+    elif case == "missing-producer":
+        after["desired.row.001-006.value"] = "[absent](iam.md#absent)"
+    elif case == "environment-pending":
+        after["desired.row.001-005.value"] = "PENDING_DEPLOY"
+    elif case == "warning":
+        after["desired.row.001-006.value"] = '`{"Fn::ImportValue":"UnknownRole"}`'
+    elif case == "comment":
+        after["desired.row.001-001.comment"] = "説明のみ変更"
+    else:
+        after["desired.row.001-001.value"] = "updated-build"
+    path = root / "model/preview/team/codebuild.properties"
+    write_model(path, before)
+    original = path.read_bytes()
+    with (
+        restrict(("preview", "team", "codebuild") if action == "import" else None),
+        read_consumers({("preview", "team", "codebuild")}),
+        closing(GenerationInputs(root)) as reads,
+        patch.object(
+            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        ),
+        patch.object(
+            validation,
+            "_check_model_inputs",
+            side_effect=AssertionError("Full internal called"),
+        ),
+        patch.object(change, "validate_save", wraps=change.validate_save) as shared,
+        patch.object(import_guard, "require_import_changes"),
+    ):
+        context = sources.SourceWriteContext._authorized(
+            root,
+            reads,
+            SimpleNamespace(action=action),
+            lambda changes: None,
+            frozenset({path}),
+        )
+        try:
+            if error:
+                with pytest.raises(ValueError, match=error):
+                    prepare_edit(path, {path: serialize(after)}, context)
+                assert path.read_bytes() == original
+            else:
+                plan = prepare_edit(path, {path: serialize(after)}, context)
+                assert publish_edit(plan, context) == (path,)
+                assert sources.raw_model(path).authoritative == after
+                if case == "warning":
+                    assert any(
+                        w["code"] == "json.intrinsic.unresolved"
+                        for w in plan.candidate.warnings
+                    )
+            shared.assert_called_once()
+        finally:
+            context.close()
+
+
+@pytest.mark.parametrize("action", ["import", "edit"])
+@pytest.mark.parametrize("case", ["add", "broken-contract"])
+def check_prepare_save_resource_contracts(project_workspace, action, case):
+    root = project_workspace
+    setup(
+        root,
+        ["s3", "lambda", "logs"],
+        ["S3.Bucket", "Lambda.Function", "Logs.LogGroup"],
+    )
+    path = root / "model/preview/team/s3.properties"
+    before = resource("001", "S3.Bucket", "bucket", [("BucketName", "fixture-bucket")])
+    write_model(path, before)
+    write_model(
+        path.with_name("lambda.properties"),
+        resource(
+            "001",
+            "Lambda.Function",
+            "consumer",
+            [("Code.S3Bucket", "[bucket](s3.md#bucket)")],
+        ),
+    )
+    after = dict(before)
+    if case == "add":
+        path = path.with_name("logs.properties")
+        before = {}
+        after = logs()
+        write_model(path, before)
+    else:
+        after = {
+            key: value
+            for key, value in before.items()
+            if key.startswith("desired.service.")
+        }
+    original = path.read_bytes()
+    identity = "preview", "team", path.stem
+    with (
+        restrict(identity if action == "import" else None),
+        read_consumers({identity}),
+        closing(GenerationInputs(root)) as reads,
+        patch.object(
+            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        ),
+        patch.object(
+            validation,
+            "_check_model_inputs",
+            side_effect=AssertionError("Full internal called"),
+        ),
+        patch.object(import_guard, "require_import_changes"),
+    ):
+        context = sources.SourceWriteContext._authorized(
+            root,
+            reads,
+            SimpleNamespace(action=action),
+            lambda changes: None,
+            frozenset({path}),
+        )
+        try:
+            if case == "broken-contract":
+                with pytest.raises(ValueError, match="BucketName|producer"):
+                    prepare_edit(path, {path: serialize(after)}, context)
+                assert path.read_bytes() == original
+            else:
+                plan = prepare_edit(path, {path: serialize(after)}, context)
+                assert publish_edit(plan, context) == (path,)
+        finally:
+            context.close()
+
+
+@pytest.mark.parametrize(
+    "prop,value,valid",
+    [
+        ("EventSelectors[].IncludeManagementEvents", "`[true,false]`", True),
+        ("EventSelectors[].IncludeManagementEvents", '`[true,"false"]`', False),
+        ("EventSelectors[].ReadWriteType", '`["All","ReadOnly"]`', True),
+        ("EventSelectors[].ReadWriteType", '`["All","bad"]`', False),
+        ("EventSelectors[].DataResources[].Type", '`[["AWS::S3::Object"]]`', True),
+        ("EventSelectors[].DataResources[].Values", '`[[["arn:aws:s3"]]]`', True),
+    ],
+)
+def check_changed_column_array(project_workspace, prop, value, valid):
+    before = resource("001", "CloudTrail.Trail", "trail", [("Name", "fixture-trail")])
+    after = dict(before)
+    after.update(
+        {
+            "desired.row.001-002.property": "CloudTrail.Trail." + prop,
+            "desired.row.001-002.value": value,
+            "desired.row.001-002.comment": "取得した配列",
+        }
+    )
+    result = evaluate(project_workspace, before, after, "cloudtrail")
+    assert (not result.errors) == valid, result.errors
 
 
 @pytest.mark.parametrize(

@@ -404,6 +404,13 @@ def assemble(root, changed, before, reads, *, context=False):
     if context:
         with change_reads(root, reads, metadata=plan.metadata):
             context_contracts(root, before, reads, plan)
+    collect_contracts(root, plan)
+    return plan
+
+
+def collect_contracts(root, plan):
+    """Share affected incoming-reference selection between Task and prepared saves."""
+    reads = plan.reads
     # No reference discovery for comment-only changes.
     semantic = {
         identity: change
@@ -411,7 +418,7 @@ def assemble(root, changed, before, reads, *, context=False):
         if change.resources or any(k.startswith("desired.stack.") for k in change.keys)
     }
     if not semantic:
-        return plan
+        return
     scopes = {"/".join(identity) for identity in semantic}
     identifiers = {
         (*identity[:2], logical)
@@ -420,7 +427,7 @@ def assemble(root, changed, before, reads, *, context=False):
     }
     with change_reads(root, reads, metadata=plan.metadata):
         consumers = dependency_index.change_consumers(
-            root, scopes, identifiers, set(changed), reads=reads
+            root, scopes, identifiers, set(plan.changes), reads=reads
         )
     for path in consumers:
         scope = sources.scope_for(path)
@@ -441,7 +448,6 @@ def assemble(root, changed, before, reads, *, context=False):
             )
             plan.views.add(identity)
             plan.dependencies.add(path)
-    return plan
 
 
 def task_plan(

@@ -32,7 +32,6 @@ import model.observed as _imports_model_observed
 import model.references as _dependency_model_references
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
-import model.validation as model_validation
 from model.change_scope import change_reads, index_stage
 from model.configuration import ConfigurationIndex as ConfigurationIndex
 from model.configuration import _observed_index
@@ -329,23 +328,8 @@ def prepare_edit(
         after = after._replace(
             values=_imports_model_sources.projected_values(after.authoritative)
         )
-        if policy.operation.action == "import":
-            keys = {
-                key
-                for key, value in after.authoritative.items()
-                if key.startswith("desired.row.")
-                and key.endswith((".value", ".document"))
-                and snapshot.authoritative.get(key) != value
-            }
-            selected = change_validation.reference_inputs(after, keys)
-            model_validation.validate_json_documents(
-                selected.authoritative,
-                after.scope.path,
-                reference_values=after.authoritative,
-            )
-        else:
-            warnings = change_validation.validate_save(snapshot, after, reads)
-            after = after._replace(warnings=tuple(warnings))
+        warnings = change_validation.validate_save(snapshot, after, reads)
+        after = after._replace(warnings=tuple(warnings))
     if policy.operation.action == "observed":
         verify_observed_outputs = _imports_model_observed.verify_observed_outputs
         verify_observed_outputs(

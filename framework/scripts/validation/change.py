@@ -162,6 +162,8 @@ def validate_save(before, after, reads):
     change = change_plan.compare(before if before.files else None, after)
     identity = after.scope.environment, after.scope.target, after.scope.service
     plan = change_plan.ChangePlan(changes={identity: change}, reads=reads)
+    plan.metadata["snapshots"] = {after.scope.path: after}
+    change_plan.collect_contracts(after.scope.root, plan)
     findings = validate_plan(after.scope.root, plan)
     if findings.errors:
         raise ValueError("\n".join(findings.errors))

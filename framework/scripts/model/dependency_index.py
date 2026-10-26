@@ -7,6 +7,7 @@ from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.change_scope as change_scope
 import model.identity as identity
+import model.importing.scope as import_scope
 import model.sources as sources
 from model.core import entries, structural_entries
 from model.reference_nodes import nodes
@@ -266,14 +267,18 @@ def change_snapshot(path, reads, metadata=None):
     snapshots = metadata.setdefault("snapshots", {}) if metadata is not None else {}
     if path not in snapshots:
         try:
-            base = sources.edit_base(path, reads)
-            # Text with no Model fields or reference tokens cannot declare an edge or owner.
-            empty = not any(
-                marker in text
-                for text in base.files.values()
-                for marker in ("desired.", "$modelRef", "](")
-            )
-            snapshots[path] = base if empty else sources.raw_model(path, reads)
+            scope = sources.scope_for(path)
+            with import_scope.read_consumers(
+                {(scope.environment, scope.target, scope.service)}
+            ):
+                base = sources.edit_base(path, reads)
+                # Text with no Model fields or reference tokens cannot declare an edge or owner.
+                empty = not any(
+                    marker in text
+                    for text in base.files.values()
+                    for marker in ("desired.", "$modelRef", "](")
+                )
+                snapshots[path] = base if empty else sources.raw_model(path, reads)
         except ValueError as error:
             raise ValueError(
                 f"cannot read reference metadata: {path}: {error}"

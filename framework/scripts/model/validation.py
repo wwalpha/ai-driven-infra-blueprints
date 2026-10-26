@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import re
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -759,8 +760,28 @@ def _callback_check_model_inputs_literal_check(
         "EC2.FlowLog",
     }:
         return
-    for error in catalog.literal_errors(kind, field, value):
-        findings.check(False, f"provider schema violation: {prop}: {error}")
+    for item in row_literal_values(catalog, kind, field, value):
+        for error in catalog.literal_errors(kind, field, item):
+            findings.check(False, f"provider schema violation: {prop}: {error}")
+
+
+def row_literal_values(catalog, kind, field, value):
+    """Acquired column arrays wrap the schema leaf once per parent array."""
+    if "[]" not in field or not value.lstrip().startswith("["):
+        return [value]
+    values = [json.loads(value)]
+    for _ in range(field.count("[]")):
+        values = [
+            item
+            for current in values
+            for item in (current if isinstance(current, list) else [current])
+        ]
+    expected = catalog.property_schema(kind, field).get("type")
+    string = expected == "string" or isinstance(expected, list) and "string" in expected
+    return [
+        item if isinstance(item, str) and string else json.dumps(item)
+        for item in values
+    ]
 
 
 def check_model_inputs(path, values, root, *, definitions_root=None):

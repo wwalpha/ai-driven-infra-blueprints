@@ -890,7 +890,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `import-agent-sources::check_empty_inventory_preserves_sources` | `check_empty_inventory_preserves_sources` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L288) | pytest / 1 | 空Inventory→Review→除外Publishで全正本不変 | Append-only Import |
 | `import-agent-sources::check_consumer_set_race` | `check_consumer_set_race` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L301) | pytest / 1 | 取得後のconsumerファイル追加をPublishで検出、正本不変 | Append-only Import |
 | `import-agent-sources::check_source_transaction_rollback` | `check_source_transaction_rollback` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L324) | pytest / 1 | 部分書込失敗の実Rollback・Receipt除去・同証跡から再Publish成功 | Append-only Import |
-| `import-agent-sources::check_reflection_validation_boundary` | `check_reflection_validation_boundary` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L340) | pytest / 1 | 実Import保存が全Model比較・全設計検証・AWS比較を起動しない | Append-only Import |
+| `import-agent-sources::check_reflection_validation_boundary` | `check_reflection_validation_boundary` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L340) | pytest / 1 | 実Import保存でChange Validationを通し、全Model比較・Full Validation・AWS比較を起動しない | Append-only Import |
 | `import-agent-sources::check_cross_process_evidence` | `check_cross_process_evidence` | IT | [integrations/import-cli.checks.py](integrations/import-cli.checks.py#L42) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_dry_run_cleanup` | `check_dry_run_cleanup` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L350) | pytest / 1 | Reviewとdry-run Publishのファイル不変・Task不要・証跡保持 | Append-only Import |
 | `import-agent-sources::check_evidence_and_display_recovery` | `check_evidence_and_display_recovery` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L375) | pytest / 1 | 改ざん取得拒否・表示生成エラーの保存前拒否・表示保存失敗後のModel/Receipt保持、再取得/取得読込なしの実復旧 | Append-only Import |
@@ -3888,3 +3888,11 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | `exports-retry::non-throttling` | `check_export_non_throttling_is_not_retried` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 3 | AccessDenied/ValidationError/InvalidContinuationToken非再試行 | Mock AWS errors |
 | `exports-retry::invalid-page` | `check_export_retry_retains_page_validation` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 4 | 再試行後も重複/数値/空Tokenと不正ページを拒否 | Mock pages |
 | `exports-retry::operation-boundary` | `check_other_operations_do_not_retry_throttling` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 4 | list_importsと更新create/execute/delete非再試行 | Mock request |
+
+## IMPORT共通Change Validation
+
+| Case | Function | Layer | Location | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `change-save::prepare` | `check_prepare_save_change_validation` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 22 | 実prepare_editでIMPORT/EDIT共通検証、Name/PENDING_DEPLOY・PLAINTEXTリンク・依存Type変更・JSON参照・不在Producerを拒否して旧bytes維持。正常更新・環境変数PENDING_DEPLOY・未変更既存ERROR/参照・コメント・Warning保持と保存、Full呼出禁止 | Synthetic Models / exact IMPORT read scope |
+| `change-save::resource-contracts` | `check_prepare_save_resource_contracts` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 4 | IMPORT/EDITの正常Resource追加を保存、Producer削除で既存Consumerの参照契約を壊す変更を保存前に拒否。IMPORTのConsumer依存読取は権限を拡大せず共通差分抽出を使用 | Synthetic producer/consumer Models |
+| `change-save::column-arrays` | `check_changed_column_array` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 6 | 取得配列の親階層を解いて既存schema検証を再利用、boolean/enum不正要素を拒否し正常な入れ子・配列leafを保持 | Synthetic CloudTrail rows |

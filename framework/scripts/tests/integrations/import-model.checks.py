@@ -509,8 +509,12 @@ def check_reflection_validation_boundary(tmp_path):
             side_effect=AssertionError("no whole Git Model comparison"),
         ),
         patch(
-            "model.validation.validate_required_properties",
+            "model.validation.check_model_inputs",
             side_effect=AssertionError("no whole design validation"),
+        ),
+        patch(
+            "model.validation._check_model_inputs",
+            side_effect=AssertionError("no internal whole design validation"),
         ),
         patch.object(
             m.comparator(),
