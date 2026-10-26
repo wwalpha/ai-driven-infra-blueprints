@@ -1,4 +1,7 @@
 # Manual Design Update and Deployment Prompt
+
+## Common update authority
+
 Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
 [Service Model sources](../../rules/model-templates.md) define environment-specific
@@ -13,7 +16,7 @@ or AWS permission.
 
 Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
-Use this prompt to receive diffs manually edited by the human in existing authoritative service Model inputs and not yet committed as confirmed design, then perform Markdown generation, reflection into selected IaC, deploy/apply, and completion confirmation in one `infrastructure` task. Do not use it to create new detailed designs.
+Model-only branches require an explicit request and forbid AWS API execution and deploy/apply. Infrastructure update requires explicit authority to reflect the requested Model change into IaC and AWS; an ambiguous request or an Issue does not grant it. Read only the selected branch and its required references.
 
 Model 更新時は **Change Validation のみ**実行する。Full Validation は Issue Scan や独立した明示的全量検証で使用し、更新の停止判定へ混入させない。変更した Resource / Property / Link と、それらが使用・破壊する参照契約を検証し、無関係な既存エラーを更新の停止理由にしない。読み取り依存先、検証対象、生成対象、Task の書き込み権限を区別する。
 
@@ -140,6 +143,8 @@ over sources to perform edits or chooses repair methods. No new execution engine
 Do not enter the infrastructure branch below. /import separately permits acquired add/refresh/replace after its own Human selection; it does not authorize these Model-only operations.
 
 ## Check applicability and finish point first
+
+This infrastructure branch receives uncommitted diffs manually edited by the Human in existing authoritative service Model inputs as confirmed design, then generates Markdown, reflects them into selected IaC, deploys/applies and confirms completion in one `infrastructure` Task. Do not use it to create new detailed designs.
 
 First determine the requested environment/target/services and properties. Model/view
 corrections use a design/update contract with exact source/view paths, service Validation

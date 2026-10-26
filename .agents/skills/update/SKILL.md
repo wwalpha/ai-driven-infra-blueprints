@@ -13,9 +13,15 @@ only within the selected Task; authorized observations change only the selected
 consumers and generated paths in the Task. Read dependencies grant no write scope.
 Retain this skill's deployment target and AWS permission boundary.
 
-Read `framework/prompts/codex/05_update.md` at the repository root in full and execute only its contents as the authoritative text. Treat input following the Skill invocation as human input to the workflow. Do not duplicate, reinterpret, or extend the prompt body. If the prompt file does not exist, stop without changing the repository.
+Read [Common update authority](../../../framework/prompts/codex/05_update.md#common-update-authority) for every branch, then select only the requested branch and its child headings and required references under AGENTS.md's section-reading rule:
 
-The corresponding prompt's Read section is authoritative for reading scope, conditional rules, and validation scope.
+- Ordinary Model correction: [Ordinary Model correction](../../../framework/prompts/codex/05_update.md#ordinary-model-correction).
+- Value-preserving refactor: [Dependency analysis and value-preserving refactoring](../../../framework/prompts/codex/05_update.md#dependency-analysis-and-value-preserving-refactoring) and its related contract.
+- Reference-only change: [Standalone Model reference retarget](../../../framework/prompts/codex/05_update.md#standalone-model-reference-retarget).
+- Model-only IMPORT merge/deletion: [Model-only IMPORT merge or deletion](../../../framework/prompts/codex/05_update.md#model-only-import-merge-or-deletion) and the required leaf skills.
+- Explicit infrastructure update: every section from [Check applicability and finish point first](../../../framework/prompts/codex/05_update.md#check-applicability-and-finish-point-first) through [Verify and finish](../../../framework/prompts/codex/05_update.md#verify-and-finish), including conditional references and AWS safety, approval, preflight, deploy/apply and completion requirements.
+
+Treat input following the Skill invocation as human input; do not infer infrastructure authority from an ambiguous request. Model-only branches do not read infrastructure AWS Deploy procedures. If the prompt or a required reference is missing, stop. Within one Task do not unconditionally reread unchanged confirmed material; check additional portions when the classification, inputs or dependencies change or evidence is insufficient.
 
 Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 

@@ -20,13 +20,29 @@ Model 更新時は **Change Validation のみ**実行する。Full Validation �
 
 ## 読み込む規約
 
-最初に `AGENTS.md`、[Model sources](../../../framework/rules/model-templates.md)、[Task transition](../../../framework/rules/task-contract.md#task-transition)、[Task boundary](../../../framework/rules/task-contract.md#task-boundary)、[Acceptance contract](../../../framework/rules/task-contract.md#acceptance-contract)、[Retry and stop](../../../framework/rules/task-contract.md#retry-and-stop)、[Issue responsibilities](../../../framework/rules/issues-investigation.md#scope-and-responsibilities)、[Human confirmations](../../../framework/rules/issues-investigation.md#independent-human-confirmations) を読む。
+### Stage 1: 初期調査
 
-変更前に [Local loop / Validation policy](../../../framework/rules/loop-engineering.md#local-loop)、[Validation scope](../../../framework/rules/loop-engineering.md#validation-scope) と、選択した委譲先 Skill の mandatory/conditional Read および完了条件を読む。Model 修正には [update](../update/SKILL.md) とその正本 [05_update](../../../framework/prompts/codex/05_update.md) の Ordinary Model correction を使う。参照限定操作時だけ [model-retarget](../model-retarget/SKILL.md) と [Standalone reference contract](../../../framework/rules/task-contract.md#standalone-model-reference-retarget) を追加する。
+`AGENTS.md`、対象特定に必要な [project-configuration](../../../framework/rules/project-configuration.md#topology)、対象 `issues.md`、[Issue responsibilities](../../../framework/rules/issues-investigation.md#scope-and-responsibilities)、原因調査に必要な [Model sources](../../../framework/rules/model-templates.md) と対象 Model を読む。Phase 1 の Issue ID 照合、参照・Consumer 調査と `compare_generation()` は維持する。変更経路が確定するまで update、worktree、AWS Deploy の規約を先読みしない。
 
-View 同期時は [Properties-first generation](../../../framework/rules/model-information.md#properties-first-updates-and-display-generation)、[Model helper API](../../../framework/docs/model-helper-integration.md)、既存 [sync_runtime.py](../../../framework/scripts/sync_runtime.py) の `compare_generation` と内部の Task 依存・副作用・実行コンテキスト、[sync-model.py](../../../framework/scripts/sync-model.py) の現在の引数・保存ガード、[task_contract_core.py](../../../framework/scripts/task_contract_core.py) の Task 選択・scope、および [Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion) を確認する。Human ファイル保存にも同完了条件を使う。命名問題では [Naming rules](../../../framework/rules/aws-resource-naming.md) と該当 namespace の規則、観測値の問題では [observed-values](../../../framework/rules/observed-values.md) を追加する。
+### Stage 2: 原因を分類
 
-変更 Task の作成・検証・統合は [worktree](../worktree/SKILL.md) に従う。[issues](../issues/SKILL.md) は再報告が明示依頼された別 Task のみで使う。独自 Python/CLI、重複する読み込み・参照解決・修正・保存処理を追加しない。
+Phase 1 の分類に必要なコードだけを読む。Framework 起因の疑いは該当関数と必要な呼出元を優先し、無関係な内部全体は読まない。命名問題では [Naming rules](../../../framework/rules/aws-resource-naming.md) と該当 namespace、観測値の問題では [observed-values](../../../framework/rules/observed-values.md) の必要箇所を追加する。
+
+### Stage 3: 選択経路
+
+| 経路 | 追加読込 |
+| --- | --- |
+| Human 判断待ち | Phase 2 の判断・選択肢と [Diagnostic cause and ownership](../../../framework/rules/issues-investigation.md#diagnostic-cause-and-ownership) |
+| Human 確定情報保存 | [Human confirmations](../../../framework/rules/issues-investigation.md#independent-human-confirmations)、既存 strict YAML reader の保存・検証、[Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion) |
+| View-only | [Properties-first generation](../../../framework/rules/model-information.md#properties-first-updates-and-display-generation)、[Model helper API](../../../framework/docs/model-helper-integration.md)、[sync_runtime.py](../../../framework/scripts/sync_runtime.py) の `compare_generation` と Task 依存・副作用・実行コンテキスト、[sync-model.py](../../../framework/scripts/sync-model.py) の引数・保存ガード、[task_contract_core.py](../../../framework/scripts/task_contract_core.py) の Task 選択・scope、[Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion) |
+| Model 修正 | [update](../update/SKILL.md) の Ordinary Model correction と [Change Validation](../../../framework/rules/loop-engineering.md#change-validation-and-full-model-validation) |
+| 明示的な参照限定操作 | [model-retarget](../model-retarget/SKILL.md) と [Standalone reference contract](../../../framework/rules/task-contract.md#standalone-model-reference-retarget) |
+| Framework 原因調査 | 該当する実装・検証箇所 |
+| IaC/AWS 更新 | Human の明示的な別権限がある場合のみ関連規約。issue-fix は自動実行しない |
+
+変更に進む場合は [worktree](../worktree/SKILL.md)、選択した委譲先の mandatory/conditional Read と完了条件、および適用される [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) と [Validation scope](../../../framework/rules/loop-engineering.md#validation-scope) を読む。View-only の生成 Markdown/JSON は文書のみの変更と扱わず、Model 整合性、生成、保存ガード、同期と migration 必須検証を維持する。[issues](../issues/SKILL.md) は再報告が明示依頼された別 Task のみで使う。
+
+同一 Task 内で確認済みの Framework・規約・関連コードが変更されていなければ無条件に再読込しない。分類変更、新たな依存、入力変更や情報不足があれば必要箇所を追加確認する。独自 Python/CLI や重複する読込・参照解決・修正・保存処理を追加しない。
 
 ## Phase 1: 現在の原因を調査・分類する
 
