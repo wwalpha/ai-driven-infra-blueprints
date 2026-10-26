@@ -13,7 +13,6 @@ from difflib import SequenceMatcher
 from functools import cached_property
 from pathlib import Path
 from threading import RLock
-from types import MappingProxyType
 
 import model.display as _model_display
 import model.files as _model_files
@@ -24,6 +23,7 @@ import model.references as _model_references
 import model.render as _model_render
 import model.sources as _imports_model_sources
 import validation_scope as _dependency_validation_scope
+from model.core import SnapshotValues
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
 from validation.diagnostics import stable_id
@@ -72,7 +72,8 @@ def _display_rows(document):
 
 def display_differences(text, expected):
     saved_rows, expected_rows = _display_rows(text), _display_rows(expected)
-    normalized = text.splitlines()
+    saved_lines, expected_lines = text.splitlines(), expected.splitlines()
+    normalized = list(saved_lines)
     positions = []
     for key in sorted(saved_rows.keys() & expected_rows.keys()):
         number, saved = saved_rows[key]
@@ -94,30 +95,28 @@ def display_differences(text, expected):
         normalized[number] = normalized[number].replace(
             "| " + saved[2] + " |", "| " + wanted[2] + " |", 1
         )
-    other = normalized != expected.splitlines()
+    other = normalized != expected_lines
     if other:
-        wanted = expected.splitlines()
-        identities = _dependency_design_layout.resource_logical_ids(wanted)
+        identities = _dependency_design_layout.resource_logical_ids(expected_lines)
+        anchors, anchor = [], ""
+        for line in expected_lines:
+            anchors.append(anchor)
+            if (match := ANCHOR.fullmatch(line)) and match[1] in identities:
+                anchor = match[1]
+        anchors.append(anchor)
         counts = Counter()
         for tag, start, end, first, last in SequenceMatcher(
-            a=normalized, b=wanted, autojunk=False
+            a=normalized, b=expected_lines, autojunk=False
         ).get_opcodes():
             if tag == "equal":
                 continue
             # Adjacent changed lines are not evidence of a shared root cause.
             for offset in range(max(end - start, last - first)):
-                anchor = next(
-                    (
-                        match[1]
-                        for line in reversed(wanted[: first + offset])
-                        if (match := ANCHOR.fullmatch(line)) and match[1] in identities
-                    ),
-                    "",
+                anchor = anchors[min(first + offset, len(expected_lines))]
+                saved = saved_lines[start + offset] if start + offset < end else ""
+                display = (
+                    expected_lines[first + offset] if first + offset < last else ""
                 )
-                saved = (
-                    text.splitlines()[start + offset] if start + offset < end else ""
-                )
-                display = wanted[first + offset] if first + offset < last else ""
                 token = stable_id([anchor, saved, display])
                 counts[token] += 1
                 positions.append(
@@ -161,7 +160,7 @@ def require_saved_identity(text, expected):
 @memoized
 def model_reference_tables(path, text, values, root, *, check_document=True):
     """Prepare Model expectations; parsers bind formal rows after table equality."""
-    source = dict(values)
+    source = values if isinstance(values, SnapshotValues) else SnapshotValues(values)
     if not source:
         return ()
     snapshots = _model_display.reference_rows(source).values()
@@ -316,7 +315,7 @@ def model_resource_groups(path, source):
 
 def model_resource_reference_tables(path, text, values, root):
     """Recover complete Resource displays after separating a proven service suffix."""
-    source = dict(values)
+    source = values if isinstance(values, SnapshotValues) else SnapshotValues(values)
     resources, groups = model_resource_groups(path, source)
     lines = resource_lines(text, source)
     notes = _model_render.service_note_markdown(source)
@@ -336,16 +335,25 @@ def model_resource_reference_tables(path, text, values, root):
             raise ValueError("duplicate saved Resource anchor: " + anchor)
         saved[anchor] = (logical_id, block)
     owned = {key: _model_format.owner(key, source) for key in source}
+    parents = {
+        member: parent for parent, members in groups.items() for member in members
+    }
+    selections = {parent: {} for parent in groups}
+    for key, value in source.items():
+        if key.startswith("desired.note."):
+            continue
+        if owned[key][0] == "resource":
+            parent = parents.get(owned[key][1])
+            targets = () if parent is None else (parent,)
+        else:
+            targets = groups
+        for parent in targets:
+            selections[parent][key] = value
     results = []
-    for parent, members in groups.items():
+    for parent in groups:
         resource = resources[parent]
         anchor = _model_identity.display_anchor(resource)
-        selected = {
-            key: value
-            for key, value in source.items()
-            if not key.startswith("desired.note.")
-            and (owned[key][0] != "resource" or owned[key][1] in members)
-        }
+        selected = SnapshotValues(selections[parent])
         try:
             model_path = (
                 path.parents[4]
@@ -571,7 +579,11 @@ class DesignDocument:
             ).with_suffix(".properties")
             if model_exists(model):
                 values = load_model(model).values
-        return MappingProxyType(dict(values)) if values is not None else None
+        return (
+            (values if isinstance(values, SnapshotValues) else SnapshotValues(values))
+            if values is not None
+            else None
+        )
 
     @cached_property
     def modes(self):
@@ -634,7 +646,11 @@ class DesignIndex:
                     input_text(path, encoding="utf-8") if text is None else text,
                     self.root or definition_root(path.parent),
                     check_display=self.check_display,
-                    source=MappingProxyType(dict(values))
+                    source=(
+                        values
+                        if isinstance(values, SnapshotValues)
+                        else SnapshotValues(values)
+                    )
                     if values is not None
                     else None,
                 )
@@ -642,7 +658,7 @@ class DesignIndex:
                 _ = document.lines, document.anchors, document.visible_text
                 self._documents[path] = document
             document = self._documents[path]
-            if values is not None and dict(document.model_values or {}) != dict(values):
+            if values is not None and (document.model_values or {}) != values:
                 raise ValueError("DesignIndex cannot mix Model snapshots: " + str(path))
             return document
 

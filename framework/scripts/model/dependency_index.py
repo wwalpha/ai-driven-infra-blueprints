@@ -2,6 +2,7 @@
 
 from contextlib import nullcontext
 
+from utils.input_cache import memoized
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.change_scope as change_scope
@@ -100,7 +101,12 @@ def load(root, *, publication=False):
     with shared.lock if shared is not None else nullcontext():
         if shared is not None and shared.dependency_index is not None:
             return shared.dependency_index
-        index = _load(root, publication=publication)
+        index = _checked_index(
+            root,
+            publication,
+            sources._invocation_reads(root),
+            import_scope.read_context(root),
+        )
         if shared is not None:
             for key, snapshot in shared.models.items():
                 if key[0] == "source":
@@ -108,6 +114,11 @@ def load(root, *, publication=False):
                     shared.index_checks[key] = snapshot.dependencies
             shared.dependency_index = index
         return index
+
+
+@memoized
+def _checked_index(root, publication, reads, permission):
+    return _load(root, publication=publication)
 
 
 def _load(root, *, publication=False):
@@ -313,34 +324,46 @@ def consumers(root, scopes, identifiers, *, index=None):
 
 def change_snapshot(path, reads, metadata=None):
     metadata = metadata if metadata is not None else change_scope.metadata()
-    snapshots = metadata.setdefault("snapshots", {}) if metadata is not None else {}
-    if path not in snapshots:
-        try:
-            scope = sources.scope_for(path)
-            with import_scope.read_consumers(
-                {(scope.environment, scope.target, scope.service)}
-            ):
-                base = sources.edit_base(path, reads)
+    snapshots = (
+        metadata.setdefault("read_snapshots", {}) if metadata is not None else {}
+    )
+    try:
+        scope = sources.scope_for(path)
+        with import_scope.read_consumers(
+            {(scope.environment, scope.target, scope.service)}
+        ):
+            import_scope.require_readable(scope.root, path)
+            if path in (metadata or {}).get("snapshots", {}):
+                return metadata["snapshots"][path]
+            key = (
+                path,
+                getattr(reads, "cache_identity", reads),
+                import_scope.read_context(scope.root),
+            )
+            if key not in snapshots:
                 try:
-                    snapshots[path] = sources.raw_model(path, reads)
+                    snapshots[key] = sources.raw_model(path, reads)
                 except ValueError:
-                    snapshots[path], errors = metadata_rules.recover(base)
+                    base = sources.edit_base(path, reads)
+                    snapshots[key], errors = metadata_rules.recover(base)
                     if metadata is not None:
                         metadata.setdefault("recovery_errors", {})[path] = errors
-
-        except ValueError as error:
-            raise ValueError(
-                f"cannot read reference metadata: {path}: {error}"
-            ) from error
-    return snapshots[path]
+    except ValueError as error:
+        raise ValueError(f"cannot read reference metadata: {path}: {error}") from error
+    return snapshots[key]
 
 
 def check_change_inventory(root, changed, *, reads=None):
     """Refresh only missing/stale reference metadata in this immutable read scope."""
     metadata = change_scope.metadata()
-    if metadata is not None and root in metadata.get("indexes", {}):
-        return metadata["indexes"][root]
-    reads = reads or change_scope.inputs_for(root)[1] or sources.FileReads()
+    reads = reads or sources._invocation_reads(root)
+    key = (
+        root,
+        getattr(reads, "cache_identity", reads),
+        import_scope.read_context(root),
+    )
+    if metadata is not None and key in metadata.get("indexes", {}):
+        return metadata["indexes"][key]
     primary = change_scope.index_root(root)
     previous = (
         read_sealed(primary, location(primary))
@@ -375,7 +398,7 @@ def check_change_inventory(root, changed, *, reads=None):
             metadata.setdefault("reference_errors", {})[path] = entry["errors"]
         index["models"][relative] = entry
     if metadata is not None:
-        metadata.setdefault("indexes", {})[root] = index
+        metadata.setdefault("indexes", {})[key] = index
     return index
 
 

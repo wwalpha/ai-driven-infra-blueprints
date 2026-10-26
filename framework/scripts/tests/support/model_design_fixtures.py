@@ -33,6 +33,7 @@ from design.layout import (
 from design.layout_schema import ALIGNMENT, HEADER, resource_anchor
 from design.services.definitions.codebuild import CODEBUILD_VPC_PROPERTIES
 from design.services.ec2.security_groups import COMMENTS, GROUP_COMMENTS
+from generation_inputs import GenerationInputs
 from model.core import properties, stack_model
 from model.display import catalog_display_rows, display_rows, row_table
 from model.files import load_model, read_model
@@ -166,7 +167,7 @@ def roundtrip(path, values, root):
     path.write_text(expected, encoding="utf-8")
     plan = SimpleNamespace(
         root=project_root,
-        read_inputs={},
+        snapshot=GenerationInputs(project_root, read_only=True),
         expected_outputs={path: {path: expected}},
         failure_records=[],
         saved={},

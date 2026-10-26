@@ -25,6 +25,7 @@ from sync_progress import phase, thread_lock
 from utils.file_operations import atomic_replace_file
 from utils.input_cache import (
     input_is_symlink,
+    input_recorder,
     memo_table,
     memoized,
 )
@@ -410,7 +411,7 @@ def source_inputs(path: Path, read_context: ReadContext | None = None) -> set[Pa
 
 def model_exists(path: Path, read_context: ReadContext | None = None) -> bool:
     scope = scope_for(path)
-    reads = read_context or FileReads()
+    reads = read_context or _invocation_reads(scope.root)
     _safe(scope.root, scope.path, reads)
     kind = reads.kind(scope.path)
     if kind not in {"file", "missing"}:
@@ -491,8 +492,8 @@ def target_for(scope: Scope, reads: ReadContext) -> tuple[dict[str, str], bytes]
 
 
 def model_parts(path: Path, *, read_context: ReadContext | None = None) -> list[Path]:
-    reads = read_context or FileReads()
     scope = scope_for(path)
+    reads = read_context or _invocation_reads(scope.root)
     _safe(scope.root, path, reads)
     directory = path.with_suffix("")
     _safe(scope.root, directory, reads)
@@ -530,7 +531,7 @@ def model_parts(path: Path, *, read_context: ReadContext | None = None) -> list[
         if not parts:
             raise InputValidationError("Model index has no parts")
     else:
-        parse(raw.decode("utf-8"))
+        _model_document(scope, reads, path)
     extras = set(selected_parts) - set(parts)
     if extras:
         raise InputValidationError(
@@ -618,7 +619,7 @@ def _read_model(scope, read_context=None):
             part: reads.read(part).decode("utf-8")
             for part in dict.fromkeys((path, *parts))
         }
-        documents = {part: parse(files[part]) for part in parts}
+        documents = _model_documents(scope, reads, parts)
         authoritative, locations = validate_blocks(documents)
         authoritative = SnapshotValues(authoritative)
         declarations = _imports_model_references.declarations
@@ -651,6 +652,29 @@ def _model_snapshots(reads):
             if memo is not None
             else {}
         )
+    )
+
+
+def _model_document(scope, reads, path):
+    permission_context = _imports_model_importing_scope.read_context
+    memo = memo_table()
+    documents = (
+        reads.documents
+        if isinstance(reads, FileReads)
+        else memo.setdefault((parse, id(reads)), (reads, {}))[1]
+        if memo is not None
+        else {}
+    )
+    key = scope, permission_context(scope.root), path
+    revision = getattr(reads, "reference_revision", None)
+    if key not in documents or documents[key][0] is not revision:
+        documents[key] = revision, parse(reads.read(path).decode("utf-8"))
+    return documents[key][1]
+
+
+def _model_documents(scope, reads, parts):
+    return MappingProxyType(
+        {part: _model_document(scope, reads, part) for part in parts}
     )
 
 
@@ -715,6 +739,15 @@ def _load_model(scope, read_context=None):
     return result
 
 
+def fork_model_inputs(inputs):
+    """Only byte readers and immutable source snapshots cross worker boundaries."""
+    return {
+        key: value.fork()
+        for key, value in inputs.items()
+        if isinstance(key, tuple) and key[0] is FileReads
+    }
+
+
 def _invocation_reads(root):
     selected = change_scope.inputs_for(root)[1]
     if selected is not None:
@@ -726,7 +759,15 @@ def _invocation_reads(root):
     if memo is None:
         return FileReads()
     read_context = _imports_model_importing_scope.read_context
-    return memo.setdefault((FileReads, root, read_context(root)), FileReads())
+    key = FileReads, root, read_context(root)
+    if key not in memo:
+        reads = FileReads()
+        recorder = input_recorder(root)
+        if recorder is not None:
+            reads.models = _model_snapshots(recorder)
+            reads.documents = memo.setdefault((parse, id(recorder)), (recorder, {}))[1]
+        memo[key] = reads
+    return memo[key]
 
 
 def list_models(
@@ -884,10 +925,21 @@ def raw_model(
 ) -> ModelSnapshot:
     """Read preservation/dependency fields without imposing full Model validity."""
     scope = scope if isinstance(scope, Scope) else scope_for(scope)
-    reads = read_context or FileReads()
+    reads = read_context or _invocation_reads(scope.root)
+    require_readable = _imports_model_importing_scope.require_readable
+    permission_context = _imports_model_importing_scope.read_context
+    require_readable(scope.root, scope.path)
+    models = _model_snapshots(reads)
+    key = "raw", scope, permission_context(scope.root)
+    if key in models:
+        return models[key]
+    source = models.get(("source", scope, permission_context(scope.root)))
+    if source is not None:
+        models[key] = source._replace(values=source.authoritative)
+        return models[key]
     base = edit_base(scope.path, reads)
     parts = tuple(model_parts(scope.path, read_context=reads))
-    documents = {part: parse(base.files[part]) for part in parts}
+    documents = _model_documents(scope, reads, parts)
     values, locations = {}, {}
     for path, document in documents.items():
         for record in document.records:
@@ -895,13 +947,15 @@ def raw_model(
                 raise ValueError("ambiguous raw Model key: " + record.key)
             values[record.key] = record.value
             locations[record.key] = (path, record.line)
-    return base._replace(
+    result = base._replace(
         authoritative=MappingProxyType(values),
         values=MappingProxyType(values),
         documents=MappingProxyType(documents),
         locations=MappingProxyType(locations),
         parts=parts,
     )
+    models[key] = result
+    return result
 
 
 def candidate_base(path: Path, reads: ReadContext) -> ModelSnapshot:

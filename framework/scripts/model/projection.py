@@ -237,12 +237,19 @@ def resource_row_scope():
         _resource_row_cache.reset(token)
 
 
-def _resource_row_entries(values):
+def _resource_row_entries(values, identity=None):
     cache = _resource_row_cache.get()
     if cache is None:
         cache = memo_table()
     if cache is None or not isinstance(values, SnapshotValues):
-        return entries(values, "desired.row.")
+        rows = entries(values, "desired.row.")
+        return (
+            rows
+            if identity is None
+            else tuple(
+                (rid, row) for rid, row in rows if rid.startswith(identity + "-")
+            )
+        )
     key = (_resource_row_entries, id(values))
     if key not in cache:
         cache[key] = (
@@ -252,7 +259,11 @@ def _resource_row_entries(values):
                 for identity, row in entries(values, "desired.row.")
             ),
         )
-    return cache[key][1]
+        groups = {}
+        for rid, row in cache[key][1]:
+            groups.setdefault(rid.rpartition("-")[0], []).append((rid, row))
+        cache[key] = (*cache[key], groups)
+    return cache[key][1] if identity is None else cache[key][2].get(identity, ())
 
 
 def resource_rows(
@@ -260,9 +271,7 @@ def resource_rows(
 ) -> list[list[str]]:
     outputs = catalog_outputs(root, kind)
     rows = []
-    for row_id, row in _resource_row_entries(values):
-        if not row_id.startswith(identity + "-"):
-            continue
+    for row_id, row in _resource_row_entries(values, identity):
         if (
             set(row) - {"property", "value", "comment", "document"}
             or not {"property", "value", "comment"} <= row.keys()
@@ -407,7 +416,9 @@ def reference_resolver(values, scope, root):
         root, _imports_model_sources._invocation_reads(root)
     )
     resolver.overrides[scope.path] = SimpleNamespace(
-        scope=scope, authoritative=values, dependencies={}
+        scope=scope,
+        authoritative=values,
+        dependencies={},
     )
     resolver.models.update(resolver.overrides)
     return resolver
@@ -472,8 +483,9 @@ def pending_documents(values, scope, root):
     return pending
 
 
-def pending_artifact_links(values, scope, root):
-    pending = pending_documents(values, scope, root)
+def pending_artifact_links(values, scope, root, *, pending=None):
+    if pending is None:
+        pending = pending_documents(values, scope, root)
     counts, links = Counter(), {}
     for rid, row in entries(values, "desired.row."):
         anchor = values.get(f"desired.resource.{rid.rpartition('-')[0]}.anchor")

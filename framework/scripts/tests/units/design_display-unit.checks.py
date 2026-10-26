@@ -932,7 +932,13 @@ def test_distinct_display_causes_stay_independent(tmp_path, field):
 def test_generation_keeps_unrelated_markdown_and_json(pipeline):
     root, _, path, saved, expected = pipeline
     plan = sync_runtime.Generation(
-        root, root / "stage", set(), [], [], None, ExitStack()
+        root,
+        root / "stage",
+        set(),
+        [],
+        [],
+        sync_runtime.GenerationInputs(root, read_only=True),
+        ExitStack(),
     )
     plan.expected_outputs[path] = {path: expected}
     sync_runtime._compare_generation(plan)
@@ -945,6 +951,7 @@ def test_generation_keeps_unrelated_markdown_and_json(pipeline):
     artifact.parent.mkdir()
     artifact.write_text("{}", encoding="utf-8")
     plan.expected_outputs[path][artifact] = '{"required":true}'
+    plan.snapshot = sync_runtime.GenerationInputs(root, read_only=True)
     sync_runtime._compare_generation(plan)
     assert sum(d.code == "generation.mismatch" for d in plan.failure_records) == 2
     assert sum(d.code == "design.display.mismatch" for d in plan.failure_records) == 4
@@ -972,7 +979,13 @@ def test_generation_retains_byte_and_encoding_mismatches(tmp_path, saved):
     path.parent.mkdir(parents=True)
     path.write_bytes(saved)
     plan = sync_runtime.Generation(
-        tmp_path, tmp_path / "stage", set(), [], [], None, ExitStack()
+        tmp_path,
+        tmp_path / "stage",
+        set(),
+        [],
+        [],
+        sync_runtime.GenerationInputs(tmp_path, read_only=True),
+        ExitStack(),
     )
     plan.expected_outputs[path] = {path: "same\n"}
     sync_runtime._compare_generation(plan)

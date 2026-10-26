@@ -73,11 +73,28 @@ class FileReads:
     """Use the existing invocation recorder/cache for file and discovery dependencies."""
 
     def __init__(self):
+        self.cache_identity = object()
         self.contents = {}
         self.models = {}
+        self.documents = {}
         self.selections = {}
         self.kinds = {}
         self.read_failures = {}
+
+    def fork(self):
+        """Private worker tables over the same fixed bytes and immutable Models."""
+        reads = FileReads()
+        reads.cache_identity = self.cache_identity
+        for name in (
+            "contents",
+            "models",
+            "documents",
+            "selections",
+            "kinds",
+            "read_failures",
+        ):
+            setattr(reads, name, dict(getattr(self, name)))
+        return reads
 
     def read(self, path):
         if path not in self.contents:

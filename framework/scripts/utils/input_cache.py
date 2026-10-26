@@ -109,11 +109,11 @@ def input_select(base, pattern="*", *, recursive=False, kinds=None):
 
 
 @contextmanager
-def input_context(*, fresh=False):
+def input_context(*, fresh=False, inputs=None):
     if _inputs.get() is not None and not fresh:
         yield
         return
-    token = _inputs.set({})
+    token = _inputs.set({} if inputs is None else inputs)
     try:
         with baseline_scope():
             yield

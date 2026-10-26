@@ -9,12 +9,11 @@ from types import SimpleNamespace as _CallbackState
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-
 import deploy.s3_delivery as _imports_deploy_s3_delivery
 from botocore.exceptions import ReadTimeoutError
 from deploy import failures
 from deploy.timing import Timing
+from generation_inputs import GenerationInputs
 from model.adapters.observed import mappings
 from model.core import entries
 from support import cloudformation_destroy_fixtures as destroy
@@ -1031,7 +1030,7 @@ def check_delivery(tmp_path):
     )
     plan = SimpleNamespace(
         root=root,
-        read_inputs={},
+        snapshot=GenerationInputs(root, read_only=True),
         expected_outputs={design: {design: template_view}},
         failure_records=[],
         saved={},

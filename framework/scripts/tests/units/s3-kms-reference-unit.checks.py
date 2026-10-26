@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import model.validation as _imports_model_validation
 from comparison import Comparison
 from design.catalog import DesignSchemaCatalog
+from generation_inputs import GenerationInputs
 from model.core import entries
 from model.format import parse, serialize
 from model.format import patch as patch_model
@@ -225,7 +226,7 @@ def check_authority_display_and_references(project_workspace):
 
     plan = SimpleNamespace(
         root=scope.root,
-        read_inputs=before,
+        snapshot=GenerationInputs(scope.root, read_only=True),
         expected_outputs={view: {view: files[view]}},
         failure_records=[],
         saved={},

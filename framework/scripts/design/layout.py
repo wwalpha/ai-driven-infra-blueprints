@@ -9,7 +9,6 @@ from pathlib import Path
 import aws_mapping_display as _imports_aws_mapping_display
 import model.core as _imports_model_core
 import model.display as _imports_model_display
-import model.files as _imports_model_files
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 import utils.aws_mappings as _imports_utils_aws_mappings
@@ -175,15 +174,14 @@ def resource_mode(resource: dict[str, str]) -> str:
 
 def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
     """Read the authoritative service model, including indexed parts, if present."""
-    properties = _imports_model_core.properties
-    read_model = _imports_model_files.read_model
+    load_model = _imports_model_sources.load_model
     model_exists = _imports_model_sources.model_exists
     try:
         relative = path.relative_to(root / "docs/designs")
     except ValueError:
         return None
     source = (root / "model" / relative).with_suffix(".properties")
-    return properties(read_model(source)) if model_exists(source) else None
+    return load_model(source).values if model_exists(source) else None
 
 
 def resource_modes(

@@ -5,13 +5,14 @@ import re
 import shutil
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack, contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import import_guard as _imports_import_guard
+import model.change_scope as _change_scope
 import model.importing.cli as _imports_model_importing_cli
 import model.importing.scope as _imports_model_importing_scope
 import model.projection as _imports_model_projection
@@ -525,7 +526,23 @@ def _callback_validate_candidates_validate(
     /,
     path,
 ):
-    with input_context(fresh=True), task_reads(root, snapshot=task_inputs):
+    with (
+        input_context(
+            fresh=True,
+            inputs=_imports_model_sources.fork_model_inputs(
+                _state_validate_candidates_260.model_inputs
+            ),
+        ),
+        change_reads(
+            metadata={
+                key: dict(value)
+                for key, value in _state_validate_candidates_260.metadata.items()
+            }
+        ),
+        index_stage(root, stage),
+        recording_inputs(_state_validate_candidates_260.recorder),
+        task_reads(root, snapshot=task_inputs),
+    ):
         try:
             view_scope = _imports_model_importing_scope.view_scope
             identities = {
@@ -634,6 +651,14 @@ def validate_candidates(
                         del generated[path]
                         restore_view(stage, root, path)
                     continue
+            _state_validate_candidates_260.recorder = (
+                input_recorder(root) if write else None
+            )
+            _state_validate_candidates_260.model_inputs = dict(memo_table() or {})
+            _state_validate_candidates_260.metadata = {
+                key: dict(value)
+                for key, value in (_change_scope.metadata() or {}).items()
+            }
             # All candidate views are fixed during this read-only phase.
             with ThreadPoolExecutor(
                 max_workers=1 if write else min(jobs, len(generated))
@@ -777,20 +802,23 @@ def generation_context(root, write, definitions_root=None):
     with task_reads(root):
         definitions_root = definitions_root or definition_root(root)
         with ExitStack() as lifetime:
-            lifetime.enter_context(input_context() if write else nullcontext())
+            lifetime.enter_context(input_context())
             lifetime.enter_context(change_reads())
             if definitions_root != root and definition_root(root) != definitions_root:
                 lifetime.enter_context(mapping_alias(definitions_root, root))
             snapshot = input_recorder(root)
-            if write and snapshot is None and import_selection(root) is None:
-                with publication_lock(root):
-                    snapshot = GenerationInputs(root, definitions_root)
+            if snapshot is None and (not write or import_selection(root) is None):
+                with publication_lock(root, read_only=not write):
+                    snapshot = GenerationInputs(
+                        root, definitions_root, read_only=not write
+                    )
                 lifetime.callback(snapshot.close)
                 lifetime.enter_context(recording_inputs(snapshot))
-                PassCache = _imports_validation_cache.PassCache
-                PassCache(root, definitions_root=definitions_root).common_inputs(
-                    snapshot
-                )
+                if write:
+                    PassCache = _imports_validation_cache.PassCache
+                    PassCache(root, definitions_root=definitions_root).common_inputs(
+                        snapshot
+                    )
             yield snapshot
 
 
@@ -833,7 +861,6 @@ class Generation:
     generated: dict = field(default_factory=dict)
     failure_records: list = field(default_factory=list)
     validation: dict = field(default_factory=dict)
-    read_inputs: dict = field(default_factory=dict)
     saved: dict = field(default_factory=dict)
     expected_outputs: dict = field(default_factory=dict)
     warnings: dict = field(default_factory=dict)
@@ -884,14 +911,17 @@ def prepare_generation(
         snapshot = snapshot or input_recorder(root)
         if snapshot is not None and input_recorder(root) is not snapshot:
             lifetime.enter_context(recording_inputs(snapshot))
-        if snapshot is None and write:
-            with publication_lock(root):
-                snapshot = GenerationInputs(root, definitions_root)
+        if snapshot is None:
+            with publication_lock(root, read_only=not write):
+                snapshot = GenerationInputs(root, definitions_root, read_only=not write)
             lifetime.callback(snapshot.close)
             lifetime.enter_context(recording_inputs(snapshot))
             # Common fingerprints are guarded even when the standalone writer has no cache.
-            PassCache = _imports_validation_cache.PassCache
-            PassCache(root, definitions_root=definitions_root).common_inputs(snapshot)
+            if write:
+                PassCache = _imports_validation_cache.PassCache
+                PassCache(root, definitions_root=definitions_root).common_inputs(
+                    snapshot
+                )
         if definitions_root != root and definition_root(root) != definitions_root:
             lifetime.enter_context(mapping_alias(definitions_root, root))
         docs, models = root / "docs/designs", root / "model"
@@ -934,8 +964,6 @@ def prepare_generation(
                     advance()
                 plan.reference_warnings.extend(getattr(loaded, "warnings", ()))
                 plan.destinations[destination] = loaded.values
-                if not write:
-                    plan.read_inputs.update(loaded.dependencies)
             except (OSError, ValueError, KeyError, TypeError) as error:
                 message = f"{path.relative_to(root)}: {error}"
                 if isinstance(error, ReferenceDiagnosticError):
@@ -974,16 +1002,6 @@ def prepare_generation(
             snapshot,
             definitions_root,
         )
-        if not write:
-            for base in ("model", "docs/designs"):
-                for file in (stage / base).rglob("*"):
-                    if file.is_file():
-                        path, data = root / file.relative_to(stage), file.read_bytes()
-                        if path in plan.read_inputs and plan.read_inputs[path] != data:
-                            raise ValueError(
-                                f"generation inputs changed while reading: {path}"
-                            )
-                        plan.read_inputs[path] = data
         plan.generated = generate_views(
             stage,
             root,
@@ -1379,30 +1397,27 @@ def run_generation(
 
 def _compare_generation(plan):
     root = plan.root
-    changed = [
-        p
-        for p, data in plan.read_inputs.items()
-        if (p.read_bytes() if p.is_file() else None) != data
-    ]
-    if changed:
-        raise ValueError(
-            "generation inputs changed before comparison: "
-            + ", ".join(str(p) for p in changed)
-        )
     for path, expected in plan.expected_outputs.items():
         stale = False
         source = (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
             ".properties"
         )
         for target, text in expected.items():
-            if (target.read_bytes() if target.is_file() else None) != (
-                None if text is None else text.encode("utf-8")
-            ):
+            saved_bytes = plan.snapshot.read(target)
+            if saved_bytes != (None if text is None else text.encode("utf-8")):
                 stale = True
                 kind = "Markdown" if target.suffix == ".md" else "JSON"
-                if target == path and target.is_file() and target.suffix == ".md":
+                if (
+                    target == path
+                    and saved_bytes is not None
+                    and target.suffix == ".md"
+                ):
                     try:
-                        saved = target.read_text(encoding="utf-8")
+                        saved = (
+                            saved_bytes.decode("utf-8")
+                            .replace("\r\n", "\n")
+                            .replace("\r", "\n")
+                        )
                         require_saved_identity(saved, text)
                     except ValueError:
                         pass  # Identity validation owns the structural failure.
@@ -1432,11 +1447,19 @@ def _compare_generation(plan):
             plan.saved[path] = {}
 
 
-@task_read_scope
 def compare_generation(
     root: Path, scope, *, jobs=4, definitions_root=None, findings=None
 ) -> tuple[str, ...]:
-    """Read-only source/view comparison using the existing generation candidates."""
+    """Own fresh caches for one independent read-only comparison."""
+    with input_context(fresh=True), generation_context(root, False, definitions_root):
+        return _comparison(
+            root, scope, jobs=jobs, definitions_root=definitions_root, findings=findings
+        )
+
+
+@task_read_scope
+def _comparison(root, scope, *, jobs, definitions_root, findings):
+    """Compare saved bytes with the existing validated generation candidates."""
     if import_selection(root) is not None:
         require_import_changes = _imports_import_guard.require_import_changes
         require_import_changes(root, generation=True)

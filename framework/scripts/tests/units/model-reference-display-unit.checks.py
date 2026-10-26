@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from generation_inputs import GenerationInputs
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import model.sources as sources
@@ -228,7 +230,7 @@ def check_obsolete_metadata_requires_regeneration(pipeline, marker):
     path.write_text(legacy, encoding="utf-8")
     plan = SimpleNamespace(
         root=root,
-        read_inputs={},
+        snapshot=GenerationInputs(root, read_only=True),
         expected_outputs={path: {path: current}},
         failure_records=[],
         saved={},
@@ -239,6 +241,7 @@ def check_obsolete_metadata_requires_regeneration(pipeline, marker):
         expanded_display_rows(legacy.splitlines(), FRAMEWORK)
     path.write_text(current, encoding="utf-8")
     plan.failure_records.clear()
+    plan.snapshot = GenerationInputs(root, read_only=True)
     _compare_generation(plan)
     assert not plan.failure_records and path in plan.saved
 
@@ -537,7 +540,7 @@ def check_service_note_differences_remain_document_failures(
     expected = generate_markdown(path, values, FRAMEWORK)
     plan = SimpleNamespace(
         root=scope.root,
-        read_inputs={},
+        snapshot=GenerationInputs(scope.root, read_only=True),
         expected_outputs={path: {path: expected}},
         failure_records=[],
         saved={},

@@ -38,7 +38,13 @@ def comparison(root):
 
 def mismatch_plan(root):
     return sync_runtime.Generation(
-        root, root / "stage", set(), [], [], None, ExitStack()
+        root,
+        root / "stage",
+        set(),
+        [],
+        [],
+        sync_runtime.GenerationInputs(root, read_only=True),
+        ExitStack(),
     )
 
 

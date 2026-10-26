@@ -281,23 +281,18 @@ def settings_rows(value: object, pointer: str = "") -> list[list[str]]:
     return [[code(pointer), kind, code(value)]]
 
 
-def policy_lines(path: Path, policy: Policy, *, presentation=None) -> list[str]:
+def policy_lines(
+    path: Path, policy: Policy, *, presentation=None, pending=None, policy_rows=None
+) -> list[str]:
     artifact = (path.parent / policy.link).resolve()
     if artifact.parent != (path.parent / path.stem).resolve():
         raise ValueError(
             f"policy artifact must belong to the owning service: {policy.link}"
         )
     if presentation is not None:
-        pending = _model_projection.pending_documents(
-            presentation.values, presentation.scope, presentation.root
-        )
-        matching = [
-            (rid, row)
-            for rid, row in entries(presentation.values, "desired.row.")
-            if row["property"] == policy.property_name
-            and (link := MODEL_JSON_LINK.fullmatch(row.get("value", "")))
-            and link[1] == policy.link
-        ]
+        if pending is None or policy_rows is None:
+            raise ValueError("policy presentation requires shared Document evaluation")
+        matching = policy_rows.get((policy.property_name, policy.link), ())
         if len(matching) == 1 and matching[0][0] in pending:
             if artifact.exists():
                 raise ValueError("pending policy JSON must be absent: " + policy.link)
@@ -328,14 +323,7 @@ def policy_lines(path: Path, policy: Policy, *, presentation=None) -> list[str]:
         )
     baseline = policy_document_lines(document, policy)
     if presentation is not None:
-        rows = [
-            (rid, row)
-            for rid, row in entries(presentation.values, "desired.row.")
-            if row["property"] == policy.property_name
-            and "document" in row
-            and (link := MODEL_JSON_LINK.fullmatch(row.get("value", "")))
-            and link[1] == policy.link
-        ]
+        rows = [(rid, row) for rid, row in matching if "document" in row]
         if len(rows) == 1:
             rid, row = rows[0]
             projected = _model_projection.generated_document(
@@ -605,7 +593,7 @@ def rendered_design(
     lines = without_policy_tables(original.splitlines())
     root = definitions_root or definition_root(path.resolve().parent)
     presentation = None
-    pending_links = {}
+    pending_links, pending, policy_rows = {}, {}, {}
     reference_tables = list(reference_tables)
     if (
         len(path.parents) > 4
@@ -622,9 +610,17 @@ def rendered_design(
             presentation = _reference_presentation.Presentation(
                 values, path, path.parents[4]
             )
-            pending_links = _model_projection.pending_artifact_links(
+            pending = _model_projection.pending_documents(
                 values, presentation.scope, presentation.root
             )
+            pending_links = _model_projection.pending_artifact_links(
+                values, presentation.scope, presentation.root, pending=pending
+            )
+            for rid, row in entries(values, "desired.row."):
+                if link := MODEL_JSON_LINK.fullmatch(row.get("value", "")):
+                    policy_rows.setdefault((row["property"], link[1]), []).append(
+                        (rid, row)
+                    )
     resources = resources_in(
         lines, root, pending_links=pending_links, reference_tables=reference_tables
     )
@@ -643,7 +639,16 @@ def rendered_design(
         generated = ["", start]
         for policy in resource.policies:
             generated.extend(
-                ["", *policy_lines(path, policy, presentation=presentation)]
+                [
+                    "",
+                    *policy_lines(
+                        path,
+                        policy,
+                        presentation=presentation,
+                        pending=pending,
+                        policy_rows=policy_rows,
+                    ),
+                ]
             )
         generated.extend(["", end])
         lines[resource.table_end : resource.table_end] = generated

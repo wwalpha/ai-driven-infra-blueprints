@@ -11,9 +11,10 @@ from utils.aws_mappings import definition_root, mapping_alias
 class GenerationInputs:
     """Invocation-owned record of consumed raw bytes, kinds and selections."""
 
-    def __init__(self, root, definitions_root=None, *, task_file=None):
+    def __init__(self, root, definitions_root=None, *, task_file=None, read_only=False):
         status = _imports_task_contract.status
         self.root = root
+        self.read_only = read_only
         self.runtime_root = Path(__file__).resolve().parents[2]
         self.definitions_root = definitions_root or definition_root(root)
         self.contents = {}
@@ -43,15 +44,16 @@ class GenerationInputs:
                 (None, None) if selected is None else (selected.name, selected.text)
             )
         name, text = self.expected_task
-        if text is not None and status(text) != "running":
+        if not read_only and text is not None and status(text) != "running":
             raise ValueError("completed task cannot write")
 
     def tracks(self, path):
         if self.stage is not None and path.is_relative_to(self.stage):
             return False
-        for root in (self.root, self.definitions_root, self.runtime_root):
-            if path.is_relative_to(root / "framework"):
-                return False
+        if not self.read_only:
+            for root in (self.root, self.definitions_root, self.runtime_root):
+                if path.is_relative_to(root / "framework"):
+                    return False
         return path.is_relative_to(self.root) or path.is_relative_to(
             self.definitions_root
         )

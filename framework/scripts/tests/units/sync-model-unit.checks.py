@@ -1230,7 +1230,7 @@ def check_readonly_stale_views(tmp_path):
         before = {file: file.read_bytes() for file in (path, source)}
         plan = SimpleNamespace(
             root=tmp_path,
-            read_inputs={source: before[source]},
+            snapshot=sync_runtime.GenerationInputs(tmp_path, read_only=True),
             expected_outputs={path: {path: expected}},
             failure_records=[],
             saved={},
@@ -1247,7 +1247,7 @@ def check_readonly_stale_views(tmp_path):
     path.unlink()
     plan = SimpleNamespace(
         root=tmp_path,
-        read_inputs={},
+        snapshot=sync_runtime.GenerationInputs(tmp_path, read_only=True),
         expected_outputs={path: {path: expected}},
         failure_records=[],
         saved={},

@@ -278,7 +278,9 @@ def check_snapshot():
             source.write_text(changed, encoding="utf-8")
             plan = SimpleNamespace(
                 root=project_root,
-                read_inputs={},
+                snapshot=_imports_sync_runtime.GenerationInputs(
+                    project_root, read_only=True
+                ),
                 expected_outputs={source: {source: alias_text}},
                 failure_records=[],
                 saved={},
