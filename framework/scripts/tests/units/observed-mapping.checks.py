@@ -222,6 +222,7 @@ def check_static_exports_share_mapping_and_skip_observed(mapping_inputs, monkeyp
         )
         for cached in (False, True):
             backend = SimpleNamespace(
+                run_context={},
                 root=root,
                 environment="dev",
                 directory="test",
@@ -473,6 +474,7 @@ def check_static_export_preserves_removal_guards(mapping_inputs, monkeypatch):
                     implementation=implementation,
                 )
     backend = SimpleNamespace(
+        run_context={},
         root=root,
         environment="dev",
         directory="test",

@@ -244,15 +244,15 @@ def check_v3_registry():
             # Restore only the two authorized flags in a test-local copy for the original hash.
             baseline_properties["ec2"][kind][name]["model"]["include"] = False
             baseline_properties["ec2"][kind][name]["display"]["show"] = False
-    # Keep the original P0 hash by serializing YAML metadata in its historical shape.
+    # Environment mappings add CodePipeline SDK fields and expose ECS/Lambda values.
     for values, expected in [
         (
             baseline_properties,
-            "011c38a46feabd4a28eb4619a3963a3c145f207266dfd757f4a0bbc25a02a463",
+            "756741f1aee199834603331d1ba4a9611fc8660e6da724b4d6a16db05b04c03e",
         ),
         (
             definitions,
-            "345c0f5691eeaf636a27f902e04831de58cd96f5506d1936c67f43edb156944b",
+            "b611a2bf2ce4b384c2e80b6c63f51646e0f5439789bdeb308878250df095e0c4",
         ),
         (metadata, "6ddf2190bf6c29c9615b5fad44deb27f8b33007f9fd8b4596be89630da10869b"),
     ]:
@@ -261,7 +261,7 @@ def check_v3_registry():
             == expected
         )
     print(
-        "YAML v3/P0 baseline: PASS (50 files, 178 types, 52 adapter types, 50 identities, 63 getters; 18 TGW include/show changes explicit; all other properties/native getters/metadata/API sets unchanged)"
+        "YAML v3/environment baseline: PASS (50 files, 178 types, 52 adapter types, 50 identities, 63 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
     )
 
 

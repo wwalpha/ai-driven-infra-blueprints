@@ -503,7 +503,9 @@ invalid unrelated table alignment
         rejected.accounts = validator.accounts
         rejected.schema_catalog = DesignSchemaCatalog(root)
         rejected.check_design_links(rejected.catalog_design_properties()[2])
-        assert not rejected.errors
+        assert len(rejected.errors) == 1 and rejected.errors[0].startswith(
+            "design.display.mismatch:"
+        ), rejected.errors
         assert any(
             "missing design anchor" in warning["message"]
             for warning in rejected.findings.warnings

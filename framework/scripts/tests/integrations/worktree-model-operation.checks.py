@@ -18,7 +18,6 @@ from model.sources import load_model
 from support.model_sources import write_model
 from support.worktree_task_fixtures import fixture as git_fixture
 from support.worktree_task_fixtures import git
-from utils.aws_mappings import mapping_alias
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
@@ -74,7 +73,6 @@ def check_one_parent_merge_and_failed_candidate_repair():
         )
         original_git = wt.git
         with (
-            mapping_alias(Path(__file__).resolve().parents[4], target),
             patch.object(wt, "git", wraps=original_git) as calls,
             patch("validation.loop.run_loop", side_effect=final_check) as validation,
         ):

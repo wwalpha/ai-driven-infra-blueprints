@@ -29,9 +29,11 @@ import pytest
 import sync_views
 import utils.aws.client as _imports_utils_aws_client
 from deploy import controller as M
-from deploy import scheduler
+from deploy import observed, scheduler
+from deploy.observed_resume import source_snapshot
 from deploy.s3_delivery import ALGORITHM, KEY
 from design.layout import stack_delivery
+from model.adapters.observed import publish_observed
 from model.core import deployment_settings, entries, properties, stack_model
 from model.files import read_model
 from model.format import JSON_LINK
@@ -469,3 +471,20 @@ def observation_contract(root, services):
 
 
 __all__.append("observation_contract")
+
+
+def publish_collected(backend, units, states):
+    """Exercise the adapter and guarded publication; journal recovery has its own IT."""
+    outputs, services, sync = observed.collect_successful(backend, units, states)
+    if outputs:
+        publish_observed(backend.root, outputs, source_snapshot(backend.root, outputs))
+        assert not sync.sync(
+            backend.root,
+            True,
+            backend.environment,
+            backend.directory,
+            services=services,
+        ), "observed view generation failed"
+    for unit in units:
+        states[unit["name"]]["observedSynced"] = True
+    return outputs or None

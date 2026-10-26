@@ -17,7 +17,7 @@ import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
 from deploy.model_cache import RunModels
-from deploy.observed import removed_resources, sync_successful
+from deploy.observed import removed_resources
 from deploy.preparation import candidate
 from model.adapters import observed
 from model.adapters.observed import mappings, preflight, validate_mapping_targets
@@ -39,6 +39,7 @@ from support.cloudformation_deploy_fixtures import (
     observation_contract,
     patch,
     properties,
+    publish_collected,
     pytest,
     read_model,
     redirect_stdout,
@@ -342,7 +343,7 @@ def check_observed_collector(observed_collector_root):
     values["desired.row.002-003.value"] = subnet_identifier
     write_model(source, values)
     output[0] = "vpc-different"
-    rejects(lambda: sync_successful(backend, [unit], states([unit])), "disagree")
+    rejects(lambda: publish_collected(backend, [unit], states([unit])), "disagree")
     assert snapshot_model(source) == before
     output[0] = physical[0]
     # Shared template identities cannot be assigned to one model row by guessing.
@@ -361,7 +362,8 @@ def check_observed_collector(observed_collector_root):
         'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[EC2_VPC_001](ec2.md#ec2-vpc-test-dev)\ndesired.row.001-001.comment=接続先\n',
     )
     rejects(
-        lambda: sync_successful(backend, [unit], states([unit])), "task scope violation"
+        lambda: publish_collected(backend, [unit], states([unit])),
+        "task scope violation",
     )
     assert snapshot_model(source) == before
     remove_model(consumer)
@@ -371,11 +373,13 @@ def check_observed_collector(observed_collector_root):
     original = unrelated.read_text()
     unrelated.write_text("broken syntax\n")
     saved = states([unit])
-    rejects(lambda: sync_successful(backend, [unit], saved), "unsupported Model format")
+    rejects(
+        lambda: publish_collected(backend, [unit], saved), "unsupported Model format"
+    )
     assert snapshot_model(source) == before
     unrelated.write_text(original)
     with redirect_stdout(io.StringIO()):
-        sync_successful(backend, [unit], saved)
+        publish_collected(backend, [unit], saved)
     observed = properties(read_model(source))
     assert observed["observed.row.001-002.value"] == "`" + physical[0] + "`"
     assert observed["observed.row.002-002.value"] == physical[0]
@@ -388,13 +392,13 @@ def check_observed_collector(observed_collector_root):
     document["Outputs"] = {}
     physical[0] = "vpc-1234567890abcdef0"
     with redirect_stdout(io.StringIO()):
-        sync_successful(backend, [unit], saved)
+        publish_collected(backend, [unit], saved)
     assert properties(read_model(source))["observed.row.002-002.value"] == physical[0]
     assert "arn:aws" not in read_model(source)
     physical[0] = "arn:aws:ec2:ap-northeast-1:123456789012:vpc/secret"
     before = snapshot_model(source)
     rejects(
-        lambda: sync_successful(backend, [unit], saved),
+        lambda: publish_collected(backend, [unit], saved),
         "non-ARN identifier unavailable",
     )
     assert snapshot_model(source) == before
@@ -410,7 +414,7 @@ def check_observed_collector(observed_collector_root):
     assert len(parts) > 1
     before_parts = {p: p.read_bytes() for p in [template, *parts]}
     with redirect_stdout(io.StringIO()):
-        sync_successful(backend, [unit], saved)
+        publish_collected(backend, [unit], saved)
     after_parts = load_model(source)
     assert set(after_parts.files) == set(before_parts)
     for file, raw in before_parts.items():
@@ -442,7 +446,7 @@ def check_observed_collector(observed_collector_root):
     ]
     removed[0] = True
     before = read_model(source)
-    sync_successful(backend, [unit], saved)
+    publish_collected(backend, [unit], saved)
     assert read_model(source) == before
     saved["A"]["changes"][0]["PolicyAction"] = "Delete"
     saved["A"].update(
@@ -461,7 +465,7 @@ def check_observed_collector(observed_collector_root):
         "resources": copy.deepcopy(saved["A"]["changes"]),
     }
     with redirect_stdout(io.StringIO()):
-        sync_successful(backend, [unit], saved)
+        publish_collected(backend, [unit], saved)
     assert (
         properties(read_model(source))["observed.row.001-002.value"]
         == "`PENDING_DEPLOY`"
@@ -885,7 +889,7 @@ def check_shared_stack_mapping(publication_workspace):
         ),
         redirect_stdout(io.StringIO()),
     ):
-        sync_successful(backend, scoped, states(scoped))
+        publish_collected(backend, scoped, states(scoped))
     actual = properties(read_model(source))
     for index, unit in enumerate(scoped, 1):
         assert (
@@ -1064,7 +1068,7 @@ def check_shared_stack_mapping(publication_workspace):
     }
 
     with redirect_stdout(io.StringIO()):
-        sync_successful(backend, [scoped[1]], deleted)
+        publish_collected(backend, [scoped[1]], deleted)
     assert (
         properties(read_model(source))["observed.row.002-002.value"]
         == "`PENDING_DEPLOY`"
@@ -1086,7 +1090,7 @@ def check_shared_stack_mapping(publication_workspace):
         ),
         redirect_stdout(io.StringIO()),
     ):
-        sync_successful(backend, [scoped[1]], deleted)
+        publish_collected(backend, [scoped[1]], deleted)
     assert deleted[scoped[1]["name"]]["observedSynced"]
     print(
         "Shared stack mapping checks: PASS (ism/ced/sd identifiers, Conditions, explicit failures, CodeCommit Outputs, validated-plan reuse, deletion)"
@@ -1444,7 +1448,7 @@ def check_integrated_child_mapping(project_workspace):
         "deploy.observed.resolve_resources",
         return_value=(plan[0], {unit["name"]: children}),
     ):
-        sync_successful(backend, [unit], state)
+        publish_collected(backend, [unit], state)
     assert state[unit["name"]]["observedSynced"]
     state[unit["name"]]["changes"] = [
         {
@@ -1469,7 +1473,7 @@ def check_integrated_child_mapping(project_workspace):
         "deploy.observed.resolve_resources",
         return_value=(plan[0], {unit["name"]: children}),
     ):
-        sync_successful(backend, [unit], state)
+        publish_collected(backend, [unit], state)
     assert before == {path: path.read_bytes() for path in before}
     print(
         "Integrated child mapping: PASS (11 BucketPolicies, 5 associations, hidden RepositoryId, strict ownership/scope/Conditions, identifier-free sync/deletion)"
@@ -1486,13 +1490,21 @@ def _callback_check_secretsmanager_arn_identifiers_aws(
     actual, outputs, /, operation, **args
 ):
     return (
-        {"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": outputs}]}
+        {
+            "Stacks": [
+                {
+                    "StackId": "stack-A",
+                    "StackStatus": "CREATE_COMPLETE",
+                    "Outputs": outputs,
+                }
+            ]
+        }
         if operation == "describe_stacks"
         else {"StackResourceSummaries": actual}
     )
 
 
-def check_secretsmanager_arn_identifiers(publication_workspace):
+def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
     root = publication_workspace
     (root / "project.json").write_text(
         json.dumps(
@@ -1612,7 +1624,7 @@ def check_secretsmanager_arn_identifiers(publication_workspace):
             )
         backend.mapping_plan = mapping()
         saved = states(selected)
-        sync_successful(backend, selected, saved)
+        publish_collected(backend, selected, saved)
         assert all(state["observedSynced"] for state in saved.values())
     current = properties(read_model(model / "secretsmanager.properties"))
     assert current["observed.row.001-002.value"] == "key-current"
@@ -1638,35 +1650,37 @@ def check_secretsmanager_arn_identifiers(publication_workspace):
     before = {path: path.read_bytes() for path in model.rglob("*.properties")}
     actual[1]["ResourceType"] = "AWS::SecretsManager::Secret"
     rejects(
-        lambda: sync_successful(backend, selected, states(selected)),
+        lambda: publish_collected(backend, selected, states(selected)),
         "actual resource missing/type mismatch",
     )
     actual[1]["ResourceType"] = document["Resources"]["Secret1Rotation"]["Type"]
     missing = outputs.pop(0)
     rejects(
-        lambda: sync_successful(backend, selected, states(selected)),
+        lambda: publish_collected(backend, selected, states(selected)),
         "required Output absent",
     )
     outputs.insert(0, {**missing, "OutputValue": "wrong-key"})
-    rejects(lambda: sync_successful(backend, selected, states(selected)), "disagree")
+    rejects(lambda: publish_collected(backend, selected, states(selected)), "disagree")
     outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = arn
     rejects(
-        lambda: sync_successful(backend, selected, states(selected)),
+        lambda: publish_collected(backend, selected, states(selected)),
         "non-ARN identifier unavailable",
     )
     outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = "key-current"
     assert before == {path: path.read_bytes() for path in before}
-    # The real collector completes the barrier before the next DeployOrder starts.
+    # Keep the real collector in this scheduler fixture; journal ownership has separate IT.
+    monkeypatch.setattr(M.run_ops, "sync_successful", publish_collected)
     session = {
         "states": states(selected),
         "metrics": {"observedSyncSeconds": 0},
     }
+    session["states"]["A"]["stackId"] = "stack-A"
     assert (
         M.run_ops.run_deploy(
             selected, 1, session, backend, lambda: None, sleep=lambda _: None
         )
         == "COMPLETE"
-    )
+    ), session
     assert session["metrics"]["deployOrderCount"] == 2 and starts(backend) == ["A", "B"]
     failed = Fake()
     for field in (
@@ -1684,6 +1698,7 @@ def check_secretsmanager_arn_identifiers(publication_workspace):
         "states": states(selected),
         "metrics": {"observedSyncSeconds": 0},
     }
+    session["states"]["A"]["stackId"] = "stack-A"
     assert (
         M.run_ops.run_deploy(
             selected, 1, session, failed, lambda: None, sleep=lambda _: None
