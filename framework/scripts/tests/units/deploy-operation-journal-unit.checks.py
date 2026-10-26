@@ -965,5 +965,60 @@ def test_existing_readable_lock_is_reused_without_unlink(tmp_path):
     assert lock.stat().st_ino == inode
 
 
+@pytest.mark.parametrize(
+    "relation",
+    [
+        "forward",
+        "reverse",
+        "transitive-forward",
+        "transitive-reverse",
+        "shared-producer",
+        "missing-imports",
+        "invalid-exports",
+        "invalid-consumers",
+    ],
+)
+def test_deploy_and_handoff_dependency_graph(relation):
+    pending = {"Kms": {"status": "RUNNING", "delivery": {"imports": {}}}}
+    if relation == "missing-imports":
+        pending["Kms"].pop("delivery")
+    edges = {
+        "forward": [("S3", "Kms")],
+        "reverse": [("Kms", "S3")],
+        "transitive-forward": [("S3", "Middle"), ("Middle", "Kms")],
+        "transitive-reverse": [("Kms", "Middle"), ("Middle", "S3")],
+        "shared-producer": [("Kms", "Common"), ("S3", "Common")],
+    }.get(relation, [])
+    owners = sorted({producer for _, producer in edges})
+    exports = [
+        {"Name": name, "ExportingStackId": STACK.replace("/Kms/", "/" + name + "/")}
+        for name in owners
+    ]
+    if relation == "invalid-consumers":
+        exports = [{"Name": "Kms", "ExportingStackId": STACK}]
+    aws = Mock(
+        side_effect=[
+            {"Exports": {} if relation == "invalid-exports" else exports},
+            *[
+                {
+                    "Imports": {}
+                    if relation == "invalid-consumers"
+                    else [
+                        consumer
+                        for consumer, producer in edges
+                        if producer == export["Name"]
+                    ]
+                }
+                for export in exports
+            ],
+        ]
+    )
+    if relation == "shared-producer":
+        J.require_independent(pending, {"S3"}, aws)
+    else:
+        with pytest.raises(Blocked, match="unfinished Stack"):
+            J.require_independent(pending, {"S3"}, aws)
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

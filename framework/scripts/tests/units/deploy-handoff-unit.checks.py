@@ -4,7 +4,7 @@ import copy
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 from deploy import contracts, failures, handoff
+from deploy import operation_journal as J
 from deploy.recovery import cleanup_unexecuted
 from support.pytest_cli import run
 from task_contract_core import set_status, task_digest
@@ -219,7 +220,9 @@ def check_validation_snapshot_project_paths(tmp_path):
     }
 
 
-@pytest.mark.parametrize("defect", ["none", "model", "path", "failure"])
+@pytest.mark.parametrize(
+    "defect", ["none", "model", "path", "failure", "other-task", "other-digest"]
+)
 def check_one_shot_request_requires_current_authority(tmp_path, defect):
     root = tmp_path / "project"
     root.mkdir()
@@ -261,6 +264,10 @@ def check_one_shot_request_requires_current_authority(tmp_path, defect):
     }
     if defect == "failure":
         failure["states"]["Kms"]["failure"]["classification"] = "SUBMISSION_UNKNOWN"
+    if defect == "other-task":
+        failure["taskFile"] = "tasks/previous.md"
+    elif defect == "other-digest":
+        failure["taskDigest"] = "previous"
     path = tmp_path / "failure.json"
     write_sealed(root, path, failure)
     diagnosis = {
@@ -352,7 +359,18 @@ def check_delivered_request_evidence_is_discarded(tmp_path, unknown):
 
 @pytest.mark.parametrize(
     "reference",
-    ["unused", "request", "unknown-request", "other-task", "other-digest", "tampered"],
+    [
+        "unused",
+        "request",
+        "unknown-request",
+        "other-task",
+        "other-digest",
+        "tampered",
+        "other-repo",
+        "other-target",
+        "symlink",
+        "writable",
+    ],
 )
 def check_unused_failure_cleanup_preserves_active_or_unknown_evidence(
     tmp_path, reference
@@ -365,11 +383,17 @@ def check_unused_failure_cleanup_preserves_active_or_unknown_evidence(
         "repository": str(root),
         "taskFile": "tasks/deploy.md",
         "taskDigest": "task",
+        "target": {"awsAccountId": "123456789012", "awsRegion": "region"},
     }
+    target = dict(failure["target"])
     if reference == "other-task":
         failure["taskFile"] = "tasks/other.md"
     elif reference == "other-digest":
         failure["taskDigest"] = "different"
+    if reference == "other-repo":
+        failure["repository"] = str(tmp_path / "foreign")
+    elif reference == "other-target":
+        failure["target"]["awsRegion"] = "other"
     write_sealed(root, path, failure)
     if reference in {"request", "unknown-request"}:
         request = store / "deploy-repair-active/request.json"
@@ -379,8 +403,269 @@ def check_unused_failure_cleanup_preserves_active_or_unknown_evidence(
             request.write_text("unreadable")
     if reference == "tampered":
         path.write_text("unreadable")
-    handoff.discard_unused_failures(root, "tasks/deploy.md", "task")
-    assert path.exists() == (reference != "unused")
+    if reference == "symlink":
+        saved = path.with_suffix(".original")
+        path.rename(saved)
+        path.symlink_to(saved)
+    elif reference == "writable":
+        path.chmod(0o666)
+    with J.locked(tmp_path / "journal/journal.json"):
+        handoff.discard_unused_failures(root, target)
+    assert path.exists() == (reference not in {"unused", "other-task", "other-digest"})
+
+
+STACK_ID = "arn:aws:cloudformation:region:123456789012:stack/{}/token"
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "independent",
+        "same",
+        "inbound",
+        "outbound",
+        "transitive",
+        "unknown",
+        "publication",
+        "disjoint-publication",
+        "waiting-publication",
+        "producer",
+        "unknown-publication",
+        "aws-error",
+        "unknown-owner",
+        "observed-overlap",
+        "observed-disjoint",
+    ],
+)
+def check_handoff_scopes_current_failure_and_preserves_journal(tmp_path, case):
+    root = tmp_path / "repo"
+    root.mkdir()
+    template = root / "infra/cloudformation/templates/s3.yaml"
+    parameters = root / "infra/cloudformation/parameters/dev/team/s3.json"
+    model = root / "model/dev/team/s3.properties"
+    for path, text in (
+        (template, "Resources: {}"),
+        (parameters, "[]"),
+        (model, "desired.row.001-001.value=approved"),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    relative = template.relative_to(root).as_posix()
+    model_path = model.relative_to(root).as_posix()
+    target = {"awsAccountId": "123456789012", "awsRegion": "region"}
+    task = SimpleNamespace(
+        name="tasks/current.md",
+        task_digest="current",
+        text="- External IaC repair: `allowed`\n## Validation scope\n- `dev/team/s3`\n",
+    )
+    diagnosis = {
+        "S3": {
+            "reason": "The failed template needs correction to the current approved desired Model.",
+            "inputRefs": [{"path": relative, "sha256": sha(template)}],
+            "modelRefs": [
+                {
+                    "path": model_path,
+                    "sha256": sha(model),
+                    "key": "desired.row.001-001.value",
+                }
+            ],
+        }
+    }
+    failure = {
+        "repository": str(root),
+        "taskFile": task.name,
+        "taskDigest": task.task_digest,
+        "target": target,
+        "environment": "dev",
+        "directory": "team",
+        "inputs": {
+            p.relative_to(root).as_posix(): sha(p)
+            for p in (template, parameters, model)
+        },
+        "states": {
+            "S3": {"status": "BLOCKED", "failure": {"classification": "IAC_CANDIDATE"}}
+        },
+    }
+    failure_path = tmp_path / "failure.json"
+    write_sealed(root, failure_path, failure)
+    state = {
+        "status": "RUNNING",
+        "externalOperation": True,
+        "delivery": {"imports": {}},
+    }
+    if case == "inbound":
+        state["delivery"]["imports"] = {
+            "S3Export": {"ExportingStackId": STACK_ID.format("S3")}
+        }
+    elif case == "unknown":
+        state.pop("delivery")
+    name = "S3" if case == "same" else "KMS"
+    publication = {"repository": str(root), "target": target}
+    if case in {
+        "publication",
+        "disjoint-publication",
+        "waiting-publication",
+        "producer",
+        "unknown-publication",
+    }:
+        overlap = case == "publication"
+        publication["pendingGeneration"] = {
+            "view": {
+                "generated": {
+                    "originals": {
+                        (
+                            model_path if overlap else "docs/designs/dev/team/kms.md"
+                        ): None
+                    },
+                    "outputs": None if case == "waiting-publication" else {},
+                },
+                "waitingModelManifest": {
+                    model_path if overlap else "model/dev/team/kms.properties": "hash"
+                },
+                "producers": [{"stack": "S3"}] if case == "producer" else [],
+            }
+        }
+        if case == "unknown-publication":
+            publication["pendingGeneration"]["view"]["generated"]["originals"] = {}
+            publication["pendingGeneration"]["view"]["waitingModelManifest"] = {}
+    if case == "unknown-owner":
+        publication["repository"] = str(tmp_path / "missing")
+        publication["pendingObserved"] = {
+            "beforeManifest": {"model/unknown.properties": "hash"},
+            "evidence": {"KMS": {}},
+        }
+    elif case in {"observed-overlap", "observed-disjoint"}:
+        publication["pendingObserved"] = {
+            "beforeManifest": {
+                model_path
+                if case == "observed-overlap"
+                else "model/dev/team/kms.properties": "hash"
+            },
+            "evidence": {"KMS": {}},
+        }
+    record = {
+        "target": target,
+        "publication": publication,
+        "operations": {
+            name: {"unit": {"name": name}, "inputDigest": "old", "state": state}
+        },
+    }
+    journal = tmp_path / "operations/journal.json"
+    journal.parent.mkdir(mode=0o700)
+    write_sealed(Path(publication["repository"]), journal, record)
+    before = journal.read_bytes()
+    unit = {"name": "S3", "template": "s3.yaml", "parameters": "s3.json"}
+    exports = (
+        [{"Name": "KmsExport", "ExportingStackId": STACK_ID.format("KMS")}]
+        if case in {"outbound", "transitive"}
+        else []
+    )
+    if case == "outbound":
+        template.write_text(
+            "Resources: {X: {Type: X, Properties: {Value: {Fn::ImportValue: KmsExport}}}}"
+        )
+        failure["inputs"][relative] = sha(template)
+        diagnosis["S3"]["inputRefs"][0]["sha256"] = sha(template)
+        write_sealed(root, failure_path, failure)
+    if case == "transitive":
+        exports.append(
+            {"Name": "MiddleExport", "ExportingStackId": STACK_ID.format("Middle")}
+        )
+    aws = Mock(
+        side_effect=Blocked("read denied")
+        if case == "aws-error"
+        else [
+            {"Exports": exports},
+            *[
+                {"Imports": ["S3" if export["Name"] == "MiddleExport" else "Middle"]}
+                for export in exports
+            ],
+        ]
+    )
+    with (
+        patch.object(handoff, "task_snapshot", return_value=task),
+        patch.object(J, "location", return_value=journal),
+        patch.object(handoff.inputs, "load_units", return_value=(1, [unit])),
+        patch.object(handoff, "dependency_reader", return_value=aws),
+    ):
+        with J.locked(journal), handoff.repair_lock(root):
+            if case in {
+                "independent",
+                "disjoint-publication",
+                "waiting-publication",
+                "observed-disjoint",
+            }:
+                request = handoff.issue_request(
+                    root, failure_path, diagnosis, [relative]
+                )
+                assert set(request["diagnosis"]) == {"S3"}
+            else:
+                with pytest.raises((Blocked, KeyError)):
+                    handoff.issue_request(root, failure_path, diagnosis, [relative])
+    assert journal.read_bytes() == before
+
+
+@pytest.mark.parametrize("lock", ["journal", "repair"])
+def check_handoff_lock_order_fails_without_waiting_or_releasing_owner(tmp_path, lock):
+    root = tmp_path / "repo"
+    root.mkdir()
+    journal = tmp_path / "journal/journal.json"
+    with J.locked(journal) if lock == "journal" else handoff.repair_lock(root):
+        with pytest.raises(Blocked, match="lock busy"):
+            with J.locked(journal), handoff.repair_lock(root):
+                raise AssertionError("concurrent Handoff acquired controller locks")
+    with J.locked(journal), handoff.repair_lock(root):
+        pass
+
+
+@pytest.mark.parametrize("directory", ["team", "123456789012", "changed-target"])
+def check_dependency_reader_uses_current_authentication(tmp_path, directory):
+    target = {
+        "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+        "awsProfile": "approved",
+        "iacEngine": "cloudformation",
+    }
+    if not directory.isdigit():
+        target["alias"] = directory
+    (tmp_path / "project.json").write_text(
+        json.dumps({"targets": [{**target, "environment": "dev"}]}), encoding="utf-8"
+    )
+    request = {
+        "environment": "dev",
+        "directory": directory,
+        "target": target
+        if directory != "changed-target"
+        else {**target, "awsRegion": "us-east-1"},
+    }
+    with (
+        patch.object(
+            handoff.context,
+            "get_caller_identity",
+            return_value={"Account": "123456789012"},
+        ) as auth,
+        patch.object(
+            handoff.cloudformation, "list_exports", return_value={"Exports": []}
+        ) as read,
+    ):
+        if directory == "changed-target":
+            with pytest.raises(Blocked, match="target changed"):
+                handoff.dependency_reader(tmp_path, request)
+        else:
+            aws = handoff.dependency_reader(tmp_path, request)
+            assert aws("list_exports") == {"Exports": []}
+            assert read.call_args.args[0][:3] == (
+                "approved",
+                "ap-northeast-1",
+                "123456789012",
+            )
+            with pytest.raises(Blocked, match="only Import/Export reads"):
+                aws("delete_stack", StackName="KMS")
+        assert auth.call_args.args[0][:3] == (
+            "approved",
+            "ap-northeast-1",
+            "123456789012",
+        )
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from deploy import run_context, temporary
 from deploy.timing import Timing
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
-from utils.sealed_evidence import write_sealed
+from utils.sealed_evidence import evidence_store, write_sealed
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -65,6 +65,15 @@ def pin_template(journal, path, root):
         "orphan",
         "other-task",
         "other-root",
+        "same-repository",
+        "request",
+        "unknown-request",
+        "peer-journal",
+        "generation-producer",
+        "hardlink",
+        "writable",
+        "active-handoff",
+        "other-target",
         "unknown",
         "symlink",
         "tampered-marker",
@@ -72,13 +81,22 @@ def pin_template(journal, path, root):
 )
 def check_owned_directory_cleanup(tmp_path, state):
     root, journal, task = workspace(tmp_path)
-    owner_root = root if state != "other-root" else tmp_path / "another-repo"
+    owner_root = (
+        tmp_path / "worktree"
+        if state == "same-repository"
+        else root
+        if state != "other-root"
+        else tmp_path / "another-repo"
+    )
     owner_task = (
         task
         if state != "other-task"
         else SimpleNamespace(name="tasks/another.md", task_digest="other")
     )
-    directory = temporary.create(journal, owner_root, owner_task, TARGET, ["App"])
+    owner_target = (
+        {**TARGET, "awsRegion": "other"} if state == "other-target" else TARGET
+    )
+    directory = temporary.create(journal, owner_root, owner_task, owner_target, ["App"])
     template = directory / "App.json"
     template.write_text("{}", encoding="utf-8")
     if state in {"journal", "recovered"}:
@@ -90,23 +108,68 @@ def check_owned_directory_cleanup(tmp_path, state):
         template.symlink_to(root)
     elif state == "tampered-marker":
         (directory / "owner.json").write_text("unreadable", encoding="utf-8")
-    with J.locked(journal):
-        temporary.reclaim(journal, root, task, TARGET)
+    if state in {"request", "unknown-request"}:
+        store = evidence_store(root)
+        failure = store / "deploy-failure-old.json"
+        write_sealed(
+            root, failure, {"states": {"App": {"delivery": {"path": str(template)}}}}
+        )
+        request = store / "deploy-repair-active/request.json"
+        request.parent.mkdir(mode=0o700)
+        write_sealed(root, request, {"failureEvidence": str(failure)})
+        if state == "unknown-request":
+            request.write_text("unreadable")
+    elif state in {"peer-journal", "generation-producer"}:
+        pin_template(journal, template, root)
+        records = J.read(journal)
+        if state == "peer-journal":
+            peer = records[0]
+            record = {
+                "target": TARGET,
+                "operations": {},
+                "publication": {"repository": str(root), "target": TARGET},
+                "peers": [peer],
+            }
+        else:
+            record = records[0]
+            record["publication"]["generationProducers"] = record.pop("operations")
+            record["operations"] = {}
+            record["publication"]["generationProducers"]["App"]["state"].update(
+                status="SUCCESS", observedSynced=True
+            )
+        write_sealed(root, journal, record)
+    elif state == "hardlink":
+        (root / "linked").hardlink_to(template)
+    elif state == "writable":
+        template.chmod(0o666)
+    with (
+        temporary.handoff.repair_lock(root)
+        if state == "active-handoff"
+        else nullcontext(),
+        J.locked(journal),
+        patch.object(J, "same_repository", return_value=state != "other-root"),
+    ):
+        temporary.reclaim(journal, root, TARGET)
         retained = state in {
             "journal",
             "recovered",
-            "other-task",
             "other-root",
+            "request",
+            "unknown-request",
+            "peer-journal",
+            "generation-producer",
+            "hardlink",
+            "writable",
+            "active-handoff",
+            "other-target",
             "unknown",
             "symlink",
             "tampered-marker",
         }
         assert directory.exists() == retained
         if state == "recovered":
-            prior = temporary.references(J.read(journal))
             journal.unlink()
-            next_task = SimpleNamespace(name="tasks/next.md", task_digest="next")
-            temporary.reclaim(journal, root, next_task, TARGET, prior=prior)
+            temporary.reclaim(journal, root, TARGET)
             assert not directory.exists()
     assert journal.with_suffix(".lock").is_file()
 

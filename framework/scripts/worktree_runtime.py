@@ -166,7 +166,15 @@ def deploy_checkpoint(where, task_id, session_path):
     target = wt.task_worktree(root, state)
     request_path = handoff.external(target, session_path)
     request = read_sealed(target, request_path)
-    with wt.lifecycle_lock(root), handoff.locked(request_path):
+    with (
+        wt.lifecycle_lock(root),
+        handoff.operation_journal.locked(
+            handoff.operation_journal.location(request["target"])
+        ),
+        handoff.locked(request_path),
+    ):
+        if read_sealed(target, request_path) != request:
+            raise wt.Blocked("repair request changed before checkpoint")
         if (
             request["repository"] != str(target)
             or request["taskFile"] != state["task_file"]
@@ -185,7 +193,8 @@ def deploy_checkpoint(where, task_id, session_path):
             raise wt.Blocked(
                 "finish the current one-shot handoff before another repair"
             )
-        handoff.require_settled(target, request["target"])
+        changed = wt.changed_paths(target)
+        handoff.require_settled(target, request, changed=changed)
         handoff.verify_inputs(target, request)
         Findings = _imports_validation_findings.Findings
         TaskValidation = _imports_validation_task.TaskValidation
@@ -198,7 +207,8 @@ def deploy_checkpoint(where, task_id, session_path):
                 raise wt.Blocked(
                     "parent change authority: " + "; ".join(findings.errors)
                 )
-        changed = wt.changed_paths(target)
+        if wt.changed_paths(target) != changed:
+            raise wt.Blocked("checkpoint files changed after scoped handoff check")
         head = wt.output(target, "rev-parse", "HEAD")
         intent = state.get("repairCheckpointIntent")
         if intent:

@@ -9,7 +9,7 @@ from pathlib import Path
 import worktree_task
 from deploy import handoff
 from task_contract_core import task_snapshot
-from utils.sealed_evidence import evidence_store, write_sealed
+from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 
 def main(argv=None):
@@ -21,13 +21,21 @@ def main(argv=None):
     args = parser.parse_args(argv)
     root = args.repository_root.resolve()
     try:
-        with handoff.repair_lock(root):
+        failure = read_sealed(root, handoff.external(root, args.failure))
+        with (
+            handoff.operation_journal.locked(
+                handoff.operation_journal.location(failure["target"])
+            ),
+            handoff.repair_lock(root),
+        ):
             request = handoff.issue_request(
                 root,
                 args.failure,
                 json.loads(args.diagnosis.read_text(encoding="utf-8")),
                 args.path,
             )
+            if request["target"] != failure["target"]:
+                raise handoff.Blocked("failure target changed before handoff")
             request_path = (
                 evidence_store(root)
                 / ("deploy-repair-" + request["requestId"])

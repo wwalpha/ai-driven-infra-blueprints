@@ -120,6 +120,7 @@ def _callback_check_complete_pages_request(
     "operation,field",
     [
         ("list_exports", "Exports"),
+        ("list_imports", "Imports"),
         ("list_stack_resources", "StackResourceSummaries"),
         ("describe_stack_events", "StackEvents"),
         ("describe_change_set", "Changes"),
@@ -349,6 +350,19 @@ def check_sdk_arguments_and_pages(tmp_path, monkeypatch):
         )
         stub.add_response("list_exports", {"Exports": []}, {"NextToken": "next"})
         assert cloudformation.list_exports(("offline",))["Exports"] == [export]
+        stub.add_response(
+            "list_imports",
+            {"Imports": ["Consumer"], "NextToken": "next"},
+            {"ExportName": "Required"},
+        )
+        stub.add_response(
+            "list_imports",
+            {"Imports": []},
+            {"ExportName": "Required", "NextToken": "next"},
+        )
+        assert cloudformation.list_imports(("offline",), ExportName="Required")[
+            "Imports"
+        ] == ["Consumer"]
         stub.assert_no_pending_responses()
 
 

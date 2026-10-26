@@ -388,7 +388,7 @@ def _recovery_guard(backend, task, /):
             raise Blocked("unfinished bootstrap owner inputs changed")
 
 
-def same_repository(root, owner):
+def same_repository(root, owner, *, require_known=False):
     owner = safe_path(Path(owner))
     if root == owner:
         return True
@@ -405,7 +405,11 @@ def same_repository(root, owner):
                 )
             ).resolve()
         )
-    except (OSError, ValueError):
+    except (OSError, ValueError) as error:
+        if require_known:
+            raise Blocked(
+                "unfinished publication Repository ownership is unknown"
+            ) from error
         return False
 
 
@@ -786,45 +790,93 @@ def dependency_states(backend, unit):
         for record in getattr(backend, "retained_records", [])
         for name, operation in record["operations"].items()
     }
+    require_independent(pending, {unit["name"]}, backend.aws)
+    return {**{name: {"status": "RUNNING"} for name in pending}, **backend.states}
+
+
+def export_stack(entry):
+    if not isinstance(entry, dict):
+        raise Blocked("unfinished Stack dependency evidence unavailable: Export")
+    identity = entry.get("ExportingStackId", "")
+    if not isinstance(identity, str) or ":stack/" not in identity:
+        raise Blocked("unfinished Stack dependency evidence unavailable: Export owner")
+    name = identity.split(":stack/")[-1].split("/")[0]
+    if not name:
+        raise Blocked("unfinished Stack dependency evidence unavailable: Stack name")
+    return name
+
+
+def require_independent(pending, stacks, aws, *, imports=None):
+    """Share Delivery/live Import/Export proof between Deploy and repair handoff."""
     if not pending:
-        return backend.states
-    if unit["name"] in pending:
+        return
+    if set(pending) & stacks:
         raise Blocked(
-            "unfinished operation conflicts with current Stack: " + unit["name"]
+            "unfinished operation conflicts with current Stack: "
+            + ", ".join(sorted(set(pending) & stacks))
         )
+    dependencies = {}
     for name, state in pending.items():
-        in_flight = (
-            state.get("executionEvidence")
+        if not (
+            state.get("status") == "RUNNING"
+            or state.get("status") == "SUCCESS"
+            and not state.get("observedSynced")
+            or state.get("executionEvidence")
             or state.get("externalOperation")
             or state.get("bootstrap")
             or state.get("cleanupStatus") == "DELETE_INTENT"
-        )
-        if not in_flight:
+        ):
             continue
-        imports = state.get("delivery", {}).get("imports")
-        if not isinstance(imports, dict):
+        delivered = state.get("delivery", {}).get("imports")
+        if not isinstance(delivered, dict):
             raise Blocked("unfinished Stack dependency evidence unavailable: " + name)
-        if any(
-            entry.get("ExportingStackId", "").split(":stack/")[-1].split("/")[0]
-            == unit["name"]
-            for entry in imports.values()
-        ):
-            raise Blocked("unfinished Stack consumes current Stack Export: " + name)
-    exports = backend.aws("list_exports").get("Exports", [])
-    for export in exports:
-        if (
-            export.get("ExportingStackId", "").split(":stack/")[-1].split("/")[0]
-            != unit["name"]
-        ):
-            continue
-        consumers = backend.aws("list_imports", ExportName=export["Name"]).get(
-            "Imports", []
+        dependencies.setdefault(name, set()).update(
+            export_stack(entry) for entry in delivered.values()
         )
-        if set(consumers) & pending.keys():
+    exports = aws("list_exports")["Exports"]
+    if not isinstance(exports, list):
+        raise Blocked("unfinished Stack Export inventory is incomplete")
+    owners = {}
+    for export in exports:
+        owner = export_stack(export)
+        name = export.get("Name")
+        if not isinstance(name, str) or not name:
             raise Blocked(
-                "unfinished Stack still consumes current AWS Export: " + export["Name"]
+                "unfinished Stack dependency evidence unavailable: Export name"
             )
-    return {**{name: {"status": "RUNNING"} for name in pending}, **backend.states}
+        if name in owners:
+            raise Blocked("unfinished Stack Export identity is ambiguous: " + name)
+        owners[name] = owner
+        consumers = aws("list_imports", ExportName=name)["Imports"]
+        if not isinstance(consumers, list):
+            raise Blocked("unfinished Stack Import inventory is incomplete")
+        for consumer in consumers:
+            if not isinstance(consumer, str) or not consumer:
+                raise Blocked(
+                    "unfinished Stack dependency evidence unavailable: consumer"
+                )
+            dependencies.setdefault(consumer, set()).add(owner)
+    for stack, names in (imports or {}).items():
+        if names - owners.keys():
+            raise Blocked(
+                "unfinished Stack dependency evidence unavailable: missing Export"
+            )
+        dependencies.setdefault(stack, set()).update(owners[name] for name in names)
+    for start in stacks | set(pending):
+        reached, remaining = set(), list(dependencies.get(start, ()))
+        while remaining:
+            name = remaining.pop()
+            if name not in reached:
+                reached.add(name)
+                remaining.extend(dependencies.get(name, ()))
+        conflicts = reached & (set(pending) if start in stacks else stacks)
+        if conflicts:
+            raise Blocked(
+                "unfinished Stack dependency conflicts with repair/deploy: "
+                + start
+                + " -> "
+                + ", ".join(sorted(conflicts))
+            )
 
 
 def adopt_recovered(backend):

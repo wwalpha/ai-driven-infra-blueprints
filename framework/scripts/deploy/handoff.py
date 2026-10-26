@@ -5,19 +5,23 @@ import json
 import re
 import sys
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
 from task_contract_core import paths_in, safe_path, task_snapshot
-from utils.cloudformation.inputs import Blocked
+from utils.aws import cloudformation
+from utils.aws.client import connection_context
+from utils.aws.identity import execution_account, select_profile
+from utils.cloudformation.inputs import Blocked, load_template_inputs
 from utils.file_operations import sha
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
-from deploy import operation_journal
+from deploy import change_sets, context, inputs, operation_journal
 
 
 def repair_lock(root: Path) -> AbstractContextManager[None]:
@@ -51,9 +55,7 @@ def record_failure(backend: SimpleNamespace) -> str | None:
         state.pop("approvedChangeDigest", None)
     if not selected:
         return None
-    discard_unused_failures(
-        backend.root, backend.run_context["taskFile"], backend.run_context["taskDigest"]
-    )
+    discard_unused_failures(backend.root, backend.target)
     path = evidence_store(backend.root) / (
         "deploy-failure-" + uuid.uuid4().hex + ".json"
     )
@@ -75,35 +77,39 @@ def record_failure(backend: SimpleNamespace) -> str | None:
     return str(path)
 
 
-def discard_unused_failures(root: Path, task_file: str, task_digest: str) -> None:
+def referenced_failures(root: Path) -> set[Path]:
+    """Caller holds Repair lock; an unreadable request cannot prove any orphan safe."""
+    result = set()
+    for path in evidence_store(root).glob("deploy-repair-*/request.json"):
+        operation_journal.private_path(external(root, path))
+        request = read_sealed(root, path)
+        failure = external(root, request["failureEvidence"])
+        operation_journal.private_path(failure)
+        read_sealed(root, failure)
+        result.add(failure)
+    return result
+
+
+def discard_unused_failures(root: Path, target: dict[str, str]) -> None:
+    # Controller holds this target's Journal lock before acquiring Repair.
     with repair_lock(root):
         store = evidence_store(root)
-        referenced = set()
-        # An unreadable request may own any failure: preserve rather than guess.
-        for path in store.glob("deploy-repair-*/request.json"):
-            try:
-                request = read_sealed(root, external(root, path))
-                referenced.add(request["failureEvidence"])
-            except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
-                print(
-                    f"Deploy failure evidence retained: {path}: {error}",
-                    file=sys.stderr,
-                )
-                return
+        try:
+            referenced = referenced_failures(root)
+        except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
+            print(f"Deploy failure evidence retained: {error}", file=sys.stderr)
+            return
         for path in store.glob("deploy-failure-*.json"):
-            if str(path) in referenced:
+            if path in referenced:
                 continue
             try:
-                failure = read_sealed(root, external(root, path))
-                if (
-                    failure["repository"],
-                    failure["taskFile"],
-                    failure["taskDigest"],
-                ) == (
-                    str(root),
-                    task_file,
-                    task_digest,
-                ):
+                operation_journal.private_path(external(root, path))
+                failure = read_sealed(root, path)
+                if failure["repository"] == str(
+                    root
+                ) and operation_journal.target_identity(
+                    failure["target"]
+                ) == operation_journal.target_identity(target):
                     path.unlink()
             except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
                 print(
@@ -141,7 +147,6 @@ def issue_request(
             )
     if not isinstance(diagnosis, dict) or set(diagnosis) != set(failure["states"]):
         raise Blocked("diagnosis must cover every current failed Stack")
-    require_settled(root, failure["target"])
     allowed = sorted(set(allowed))
     if not allowed or any(
         not p.startswith("infra/cloudformation/") or p not in failure["inputs"]
@@ -203,6 +208,7 @@ def issue_request(
         diagnosis=diagnosis,
         failureEvidence=str(failure_path),
     )
+    require_settled(root, request)
     return request
 
 
@@ -224,31 +230,115 @@ def verify_inputs(
             )
 
 
-def require_settled(root: Path, target: dict[str, str]) -> None:
+def dependency_read(
+    connection: tuple, operation: str, **arguments: JsonValue
+) -> JsonObject:
+    if operation not in {"list_exports", "list_imports"}:
+        raise Blocked("repair dependency proof permits only Import/Export reads")
+    return getattr(cloudformation, operation)(connection, **arguments)
+
+
+def dependency_reader(root: Path, request: JsonObject) -> Callable[..., JsonObject]:
+    target = context.check_deploy_context(
+        root,
+        request["environment"],
+        request["target"]["awsAccountId"] if request["directory"].isdigit() else None,
+        None if request["directory"].isdigit() else request["directory"],
+    )
+    if target != request["target"]:
+        raise Blocked("repair target changed before dependency proof")
+    return partial(
+        dependency_read,
+        connection_context(
+            select_profile(target), target["awsRegion"], execution_account(target)
+        ),
+    )
+
+
+def require_settled(
+    root: Path, request: JsonObject, *, changed: Iterable[str] = ()
+) -> None:
+    """Caller holds Journal then Repair until request publication/checkpoint completes."""
+    target = request["target"]
+    stacks = set(request["diagnosis"])
+    if not stacks:
+        raise Blocked("repair request has no failed Stack scope")
+    files = set(changed) | set(request["allowedPaths"])
+    for entry in request["diagnosis"].values():
+        files.update(
+            ref["path"] for field in ("inputRefs", "modelRefs") for ref in entry[field]
+        )
     records = operation_journal.read(operation_journal.location(target)) or []
+    pending = {}
     for record in records:
-        require_record_settled(record)
-
-
-def require_record_settled(record: JsonObject) -> None:
-    if (
-        record["publication"].get("pendingObserved")
-        or any(
-            item["generated"]["outputs"] is not None
-            for item in record["publication"].get("pendingGeneration", {}).values()
+        if operation_journal.target_identity(
+            record["target"]
+        ) != operation_journal.target_identity(target):
+            raise Blocked("unfinished operation Account/Region changed")
+        publication = record["publication"]
+        if publication.get("pendingObserved") or publication.get("pendingGeneration"):
+            owner = operation_journal.safe_path(publication["repository"])
+            paths = operation_journal.publication_paths(publication)
+            producers = set(publication.get("generationProducers", {}))
+            observed = publication.get("pendingObserved")
+            if observed:
+                producers.update(observed["evidence"])
+            for plan in publication.get("pendingGeneration", {}).values():
+                producers.update(p["stack"] for p in plan["producers"])
+            if not paths or not owner.is_dir():
+                raise Blocked("unfinished publication scope/ownership is unknown")
+            if (
+                producers & stacks
+                or operation_journal.same_repository(root, owner, require_known=True)
+                and paths & files
+            ):
+                raise Blocked(
+                    "unfinished publication conflicts with repair/checkpoint files or Producers"
+                )
+        pending.update(
+            {
+                name: op["state"]
+                for name, op in record["operations"].items()
+                if operation_journal.unfinished(op["state"])
+            }
         )
-        or any(
-            op["state"].get("status") == "RUNNING"
-            or op["state"].get("status") == "SUCCESS"
-            and not op["state"].get("observedSynced")
-            or op["state"].get("bootstrap")
-            or op["state"].get("cleanupStatus") == "DELETE_INTENT"
-            for op in record["operations"].values()
-        )
-    ):
+    if not pending:
+        return
+    if pending.keys() & stacks:
         raise Blocked(
             "drain and synchronize unfinished operations before implement handoff"
         )
+    _, units = inputs.load_units(
+        root, request["environment"], request["directory"], sorted(stacks)
+    )
+    imports = {}
+    for unit in units:
+        template, parameters = inputs.paths(
+            root, request["environment"], request["directory"], target, unit
+        )
+        if any(
+            request["inputs"].get(p.relative_to(root).as_posix())
+            != sha(safe_path(root, p.relative_to(root).as_posix()))
+            for p in (template, parameters)
+        ):
+            raise Blocked("repair dependency inputs are not the current failure inputs")
+        document, values = load_template_inputs(template, parameters)
+        imports[unit["name"]] = change_sets.import_names(
+            document,
+            values,
+            {
+                "AWS::StackName": unit["name"],
+                "AWS::Region": target["awsRegion"],
+                "AWS::AccountId": target.get(
+                    "awsExecutionAccountId", target["awsAccountId"]
+                ),
+            },
+        )
+    if imports.keys() != stacks:
+        raise Blocked("repair dependency Stack scope is incomplete")
+    operation_journal.require_independent(
+        pending, stacks, dependency_reader(root, request), imports=imports
+    )
 
 
 def discard_request(state: JsonObject) -> None:

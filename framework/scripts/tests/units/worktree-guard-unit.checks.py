@@ -832,25 +832,126 @@ def check_checkpoint_observed_barrier(tmp_path, pending):
         side_effect=OSError("missing checkout") if pending == "success" else identities,
     ):
         assert journal.same_repository(tmp_path, tmp_path / "previous") == same
-    publication = {"pendingGeneration": {"view": {"generated": {"outputs": None}}}}
+    target = {"awsAccountId": "account", "awsRegion": "region"}
+    request = {
+        "target": target,
+        "diagnosis": {"Peer": {"inputRefs": [], "modelRefs": []}},
+        "allowedPaths": [],
+    }
+    publication = {
+        "repository": str(tmp_path),
+        "pendingGeneration": {
+            "view": {
+                "generated": {
+                    "outputs": None,
+                    "originals": {"docs/designs/peer.md": None},
+                },
+                "producers": [],
+            }
+        },
+    }
     state = {"status": "SUCCESS", "observedSynced": True}
     if pending in {"pendingObserved", "observedError"}:
-        publication["pendingObserved"] = {"stage": "PREPARED"}
+        publication["pendingObserved"] = {"stage": "PREPARED", "evidence": {"Peer": {}}}
     elif pending == "success":
         state["observedSynced"] = False
     elif pending in {"running", "pollError"}:
         state["status"] = "RUNNING"
-    record = {"publication": publication, "operations": {"Peer": {"state": state}}}
-    with patch.object(handoff.operation_journal, "read", return_value=[record]):
+    record = {
+        "target": target,
+        "publication": publication,
+        "operations": {"Peer": {"state": state}},
+    }
+    with patch.object(journal, "read", return_value=[record]):
         if pending == "generation-only":
-            handoff.require_settled(
-                tmp_path, {"awsAccountId": "account", "awsRegion": "region"}
-            )
+            handoff.require_settled(tmp_path, request)
         else:
-            with pytest.raises(handoff.Blocked, match="drain and synchronize"):
-                handoff.require_settled(
-                    tmp_path, {"awsAccountId": "account", "awsRegion": "region"}
-                )
+            with pytest.raises(handoff.Blocked, match="unfinished"):
+                handoff.require_settled(tmp_path, request)
+
+
+@pytest.mark.parametrize(
+    "case", ["independent", "publication-overlap", "journal-active", "repair-active"]
+)
+def check_checkpoint_uses_scoped_barrier_under_ordered_locks(tmp_path, case):
+    runtime = wt._worktree_runtime()
+    handoff = runtime.deploy_handoff
+    journal = handoff.operation_journal
+    target = {"awsAccountId": "account", "awsRegion": "region"}
+    request = {
+        "repository": str(tmp_path),
+        "taskFile": "tasks/deploy.md",
+        "taskDigest": "digest",
+        "target": target,
+        "requestId": "one",
+        "diagnosis": {"S3": {"inputRefs": [], "modelRefs": []}},
+        "allowedPaths": ["infra/cloudformation/s3.yaml"],
+    }
+    store = handoff.evidence_store(tmp_path)
+    request_path = store / "deploy-repair-one/request.json"
+    request_path.parent.mkdir(mode=0o700)
+    runtime.write_sealed(tmp_path, request_path, request)
+    journal_path = tmp_path / "journal/journal.json"
+    shared = "model/dev/team/kms.properties"
+    publication = {
+        "repository": str(tmp_path),
+        "pendingGeneration": {
+            "view": {
+                "generated": {"outputs": {}, "originals": {shared: None}},
+                "producers": [],
+            }
+        },
+    }
+    records = [{"target": target, "publication": publication, "operations": {}}]
+    state = {"task_file": "tasks/deploy.md"}
+    task = SimpleNamespace(
+        text="## Task contract\n- Task status: `running`", task_digest="digest"
+    )
+    active = (
+        journal.locked(journal_path)
+        if case == "journal-active"
+        else handoff.repair_lock(tmp_path)
+        if case == "repair-active"
+        else nullcontext()
+    )
+    with (
+        patch.object(
+            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
+        ),
+        patch.object(wt, "task_worktree", return_value=tmp_path),
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(runtime.tasks, "read_task_snapshot", return_value=task),
+        patch.object(
+            runtime._imports_deploy_contracts, "task_digest", return_value="digest"
+        ),
+        patch.object(journal, "location", return_value=journal_path),
+        patch.object(journal, "read", return_value=records),
+        patch.object(
+            wt,
+            "changed_paths",
+            return_value={shared}
+            if case == "publication-overlap"
+            else {"tasks/deploy.md"},
+        ),
+        patch.object(
+            handoff, "verify_inputs", side_effect=handoff.Blocked("past scoped barrier")
+        ) as verified,
+        patch.object(wt, "git") as git,
+        active,
+    ):
+        expected = (
+            "past scoped barrier"
+            if case == "independent"
+            else "unfinished publication"
+            if case == "publication-overlap"
+            else "lock busy"
+        )
+        with pytest.raises(handoff.Blocked, match=expected):
+            runtime.deploy_checkpoint(tmp_path, "deploy", request_path)
+        assert verified.called == (case == "independent")
+        git.assert_not_called()
+    with journal.locked(journal_path), handoff.repair_lock(tmp_path):
+        pass
 
 
 if __name__ == "__main__":

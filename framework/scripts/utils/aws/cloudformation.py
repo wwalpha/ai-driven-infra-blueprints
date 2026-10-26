@@ -35,6 +35,10 @@ def list_exports(context, **arguments):
     return pages(context, "cloudformation", "list_exports", "Exports", arguments)
 
 
+def list_imports(context, **arguments):
+    return pages(context, "cloudformation", "list_imports", "Imports", arguments)
+
+
 def validate_template(context, **arguments):
     return request(context, "cloudformation", "validate_template", arguments)
 

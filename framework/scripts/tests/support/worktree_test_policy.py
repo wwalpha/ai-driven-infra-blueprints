@@ -22,6 +22,7 @@ WORKTREE_CASES = {
         "check_lifecycle_layout",
         "check_metadata_symlinks",
         "check_checkpoint_observed_barrier",
+        "check_checkpoint_uses_scoped_barrier_under_ordered_locks",
     ),
     "units/worktree_python-unit.checks.py": (
         "check_environment",

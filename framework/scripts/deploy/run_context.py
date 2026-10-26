@@ -387,7 +387,6 @@ def run(
     resources = ExitStack()
     backend = None
     journal = None
-    prior_temporary = set()
     try:
         selected = context.load_target(
             root, args.environment, args.aws_account_id, args.alias
@@ -417,13 +416,8 @@ def run(
             directory = args.alias or args.aws_account_id
             journal = operation_journal.location(target)
             resources.enter_context(operation_journal.locked(journal))
-            prior_temporary = temporary.references(
-                operation_journal.read(journal) or []
-            )
-            temporary.reclaim(journal, root, initial_task, target)
-            handoff.discard_unused_failures(
-                root, initial_task.name, initial_task.task_digest
-            )
+            temporary.reclaim(journal, root, target)
+            handoff.discard_unused_failures(root, target)
             backend = backend_type(
                 root,
                 args.environment,
@@ -528,9 +522,7 @@ def run(
     finally:
         try:
             if backend is not None and backend.workdir is not None:
-                temporary.reclaim(
-                    journal, root, initial_task, target, prior=prior_temporary
-                )
+                temporary.reclaim(journal, root, target)
         except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
             print(f"Deploy temporary files retained: {error}", file=sys.stderr)
         finally:
