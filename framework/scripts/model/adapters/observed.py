@@ -550,10 +550,6 @@ def resolve_resources(
                 document, parameters, pseudo, definition
             ):
                 continue
-            if implementation and not static_export_handle(
-                document, logical, parameters, pseudo
-            ):
-                required_types.add(definition["Type"])
             wanted.add((unit["name"], logical))
             rules = [
                 rule
@@ -589,6 +585,14 @@ def resolve_resources(
                         f"{unit['name']}/{logical}: integrated child parent missing, inactive or formal CFn type mismatch"
                     )
                 wanted.add((unit["name"], parent["Ref"]))
+            if implementation and not static_export_handle(
+                document, logical, parameters, pseudo
+            ):
+                required_types.add(
+                    catalog.cloudformation_type(rules[0]["parent"])
+                    if rules
+                    else definition["Type"]
+                )
     wanted = {name + "-" + logical for name, logical in wanted}
     loaded, reads = {}, FileReads()
     owner_paths = (

@@ -497,20 +497,79 @@ def check_preflight_integrated_child(preflight_files, missing_settings):
     (root / "infra/cloudformation/templates/First.yaml").write_text(
         json.dumps(documents["First"]), encoding="utf-8"
     )
-    dependency_index.rebuild(root)
-    if missing_settings:
-        with pytest.raises(
-            observed.MappingError, match="integrated child settings missing"
+    if not missing_settings:
+        with (
+            sources.model_session(observed.RunModels(root, {})),
+            patch.object(sources, "_read_model", wraps=sources._read_model) as baseline,
         ):
-            observed.preflight(root, "dev", "123456789012", ["First"])
-    else:
-        with patch.object(sources, "_read_model", wraps=sources._read_model) as loads:
+            observed._mappings(
+                root,
+                "dev",
+                "123456789012",
+                {"First": (documents["First"], {})},
+                [{"name": "First"}],
+                implementation=True,
+                check_scope=False,
+            )
+        baseline_counts = Counter(call.args[0].path for call in baseline.call_args_list)
+        assert baseline_counts[paths[0]] == baseline_counts[paths[1]] == 1
+    paths[1].write_text(
+        paths[1].read_text(encoding="utf-8")
+        + "desired.reference.001.producerKind=unknown\n",
+        encoding="utf-8",
+    )
+    dependency_index.rebuild(root)
+    with (
+        patch.object(sources, "_read_model", wraps=sources._read_model) as loads,
+        patch.object(observed, "models", wraps=observed.models) as fallback,
+        patch.object(
+            dependency_index, "rebuild", side_effect=AssertionError("rebuild")
+        ),
+    ):
+        if missing_settings:
+            with pytest.raises(
+                observed.MappingError, match="integrated child settings missing"
+            ):
+                observed.preflight(root, "dev", "123456789012", ["First"])
+        else:
             _, mapped = observed.preflight(root, "dev", "123456789012", ["First"])
-        assert set(mapped["First"]) == {"Bucket", "Policy"}
-        assert all(item[0] == paths[0] for item in mapped["First"].values())
-        assert (
-            Counter(call.args[0].path for call in loads.call_args_list)[paths[0]] == 1
-        )
+            assert set(mapped["First"]) == {"Bucket", "Policy"}
+            assert all(item[0] == paths[0] for item in mapped["First"].values())
+        counts = Counter(call.args[0].path for call in loads.call_args_list)
+        assert counts[paths[0]] == 1
+        assert counts[paths[1]] == 0
+        assert fallback.call_count == 0
+
+    if not missing_settings:
+        template = root / "infra/cloudformation/templates/First.yaml"
+        original = deepcopy(documents["First"])
+        for fault in ("missing", "ref", "type"):
+            document = deepcopy(original)
+            if fault == "missing":
+                del document["Resources"]["Bucket"]
+            elif fault == "ref":
+                document["Resources"]["Policy"]["Properties"]["Bucket"] = "invalid"
+            else:
+                document["Resources"]["Bucket"]["Type"] = "AWS::EC2::VPC"
+            template.write_text(json.dumps(document), encoding="utf-8")
+            with pytest.raises(ValueError, match="integrated child parent"):
+                observed.preflight(root, "dev", "123456789012", ["First"])
+
+        second = text.replace("First-Bucket", "First-OtherBucket")
+        write_model(paths[1], second)
+        document = deepcopy(original)
+        document["Resources"]["OtherBucket"] = {"Type": "AWS::S3::Bucket"}
+        document["Resources"]["OtherPolicy"] = {
+            "Type": "AWS::S3::BucketPolicy",
+            "Properties": {"Bucket": {"Ref": "OtherBucket"}},
+        }
+        template.write_text(json.dumps(document), encoding="utf-8")
+        dependency_index.rebuild(root)
+        with patch.object(observed, "models", wraps=observed.models) as fallback:
+            _, mapped = observed.preflight(root, "dev", "123456789012", ["First"])
+        assert mapped["First"]["Policy"][0] == paths[0]
+        assert mapped["First"]["OtherPolicy"][0] == paths[1]
+        assert fallback.call_count == 0
 
 
 def check_preflight_indexed_task_scope_and_other_targets(preflight_files):
