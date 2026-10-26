@@ -38,7 +38,7 @@ from utils.aws_mappings import mapping_alias
 from validation.design import check_model_files as validate_models
 from validation.design import check_service_file as validate_service
 from validation.diagnostics import Diagnostic, InputValidationError, stable_id
-from validation.findings import Findings, FindingsError
+from validation.findings import Findings, FindingsError, reference_identity
 from validation.framework_contracts import check_structure as validate_structure
 
 if not __debug__:
@@ -550,6 +550,106 @@ def check_waiting_reference_ids_in_both_channels(tmp_path, category):
     validate_artifact(data)
     result = json.loads(review_snapshot(data, review_for(data)).data)
     assert ids == [item["diagnostic_id"] for item in result["unverified"]]
+
+
+@pytest.mark.parametrize(
+    "category", ["REFERENCE_UNRESOLVED", "REFERENCE_PENDING_DEPLOY"]
+)
+@pytest.mark.parametrize(
+    "field,other",
+    [
+        ("producerModel", "model/stg/team/kms.properties"),
+        ("producerModelKey", "observed.row.002-001.value"),
+    ],
+)
+def check_waiting_reference_producer_identity(tmp_path, category, field, other):
+    diagnostic = ReferenceResolutionError(
+        "pending",
+        category=category,
+        model="model/dev/team/iam.properties",
+        modelKey="desired.row.001-001.value",
+        resourceLogicalId="Role1",
+        targetLogicalId="Key1",
+        attribute="Arn",
+        pointer="/Statement/0/Resource",
+        producerModel="model/dev/team/kms.properties",
+        producerModelKey="observed.row.001-001.value",
+    ).diagnostic
+    findings = Findings(tmp_path)
+    for item in (diagnostic, dict(diagnostic, **{field: other}), diagnostic):
+        findings.warn(item)
+    assert len(findings.warnings) == len(findings.unverified) == 2
+    ids = [item["diagnostic_id"] for item in findings.warnings]
+    assert all(ids) and len(set(ids)) == 2
+    assert ids == [item["diagnostic_id"] for item in findings.unverified]
+    assert not findings.errors and not findings.processing_errors
+
+
+@pytest.mark.parametrize(
+    "category", ["REFERENCE_UNRESOLVED", "REFERENCE_PENDING_DEPLOY"]
+)
+@pytest.mark.parametrize("consumer_key", [None, "desired.row.001-001.value"])
+def check_waiting_reference_producer_path_normalization(
+    tmp_path, category, consumer_key
+):
+    diagnostic = ReferenceResolutionError(
+        "pending",
+        category=category,
+        model="model/dev/team/iam.properties",
+        modelKey=consumer_key,
+        targetLogicalId="Key1",
+        attribute="Arn",
+        producerModelKey="observed.row.001-001.value",
+    ).diagnostic
+    relative = "model/dev/team/kms.properties"
+    findings = Findings(tmp_path)
+    for path in (
+        relative,
+        str(tmp_path / relative),
+        relative.replace("/", "\\"),
+        str(tmp_path / relative).replace("/", "\\"),
+        "./model/dev/team/../team/kms.properties",
+    ):
+        findings.warn(dict(diagnostic, producerModel=path))
+    assert len(findings.warnings) == len(findings.unverified) == 1
+    assert (
+        findings.warnings[0]["diagnostic_id"] == findings.unverified[0]["diagnostic_id"]
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,category,expected",
+    [
+        (ModelNeedsFixError, "MODEL_NEEDS_FIX", "9928103453da35d7c300"),
+        (FrameworkUnsupportedError, "FRAMEWORK_UNSUPPORTED", "d0bc063478c24923355b"),
+        (ReferenceResolutionError, "REFERENCE_UNRESOLVED", "a8564548361268499f7c"),
+        (
+            ReferenceResolutionError,
+            "REFERENCE_PENDING_DEPLOY",
+            "d3891b2dad18585aa168",
+        ),
+    ],
+)
+def check_existing_reference_ids_unchanged(tmp_path, kind, category, expected):
+    details = (
+        dict(
+            producerModel="model/dev/team/kms.properties",
+            producerModelKey="observed.row.001-001.value",
+        )
+        if category in {"MODEL_NEEDS_FIX", "FRAMEWORK_UNSUPPORTED"}
+        else {}
+    )
+    diagnostic = kind(
+        "pending",
+        category=category,
+        model="model/dev/team/iam.properties",
+        modelKey="desired.row.001-001.value",
+        resourceLogicalId="Role1",
+        targetLogicalId="Key1",
+        attribute="Arn",
+        **details,
+    ).diagnostic
+    assert stable_id(reference_identity(tmp_path, diagnostic)) == expected
 
 
 @pytest.mark.parametrize("entrance", ["model", "view"])

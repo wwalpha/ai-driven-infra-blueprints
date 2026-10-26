@@ -22,6 +22,24 @@ class FindingsError(ValueError):
 
 
 def reference_identity(root, diagnostic):
+    fields = (
+        "category",
+        "resourceLogicalId",
+        "pointer",
+        "targetLogicalId",
+        "attribute",
+    )
+    if diagnostic.get("category") in {
+        "REFERENCE_UNRESOLVED",
+        "REFERENCE_PENDING_DEPLOY",
+    }:
+        diagnostic = dict(diagnostic)
+        if diagnostic.get("producerModel"):
+            diagnostic["producerModel"] = relative_path(
+                root, diagnostic["producerModel"].replace("\\", "/")
+            )
+        if diagnostic.get("producerModel") or diagnostic.get("producerModelKey"):
+            fields += ("producerModel", "producerModelKey")
     return Diagnostic.create(
         root,
         code=diagnostic["code"],
@@ -30,16 +48,7 @@ def reference_identity(root, diagnostic):
         source_path=diagnostic.get("model"),
         location=diagnostic.get("modelKey"),
         cause_key=json.dumps(
-            [
-                diagnostic.get(field)
-                for field in (
-                    "category",
-                    "resourceLogicalId",
-                    "pointer",
-                    "targetLogicalId",
-                    "attribute",
-                )
-            ]
+            [diagnostic.get(field) for field in fields]
             if diagnostic.get("model") and diagnostic.get("modelKey")
             else {
                 key: value
