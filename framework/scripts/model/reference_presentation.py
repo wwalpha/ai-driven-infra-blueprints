@@ -14,7 +14,6 @@ import model.projection as projection
 import model.references as references
 import model.render as render
 import model.sources as sources
-import model.validation as validation
 from model.core import LINK, literal
 from model.reference_nodes import nodes, project, receiving_property
 from model.reference_values import reference_value
@@ -87,7 +86,7 @@ class Presentation:
                             node,
                             field=receiving_property(prop, node.pointer),
                             property_name=prop,
-                            context=validation.reference_context_for(
+                            context=projection.reference_context_for(
                                 values, rid, row, raw, node.pointer, root
                             ),
                         )

@@ -20,9 +20,9 @@ import model.files as _model_files
 import model.format as _model_format
 import model.identity as _model_identity
 import model.projection as _imports_model_projection
+import model.references as _model_references
 import model.render as _model_render
 import model.sources as _imports_model_sources
-import model.validation as _model_validation
 import validation_scope as _dependency_validation_scope
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
@@ -186,7 +186,7 @@ def model_reference_tables(path, text, values, root, *, check_document=True):
         path.parents[4] / "model" / path.relative_to(path.parents[4] / "docs/designs")
     ).with_suffix(".properties")
     findings = Findings(path.parents[4])
-    prohibited = _model_validation.codebuild_reference_errors(
+    prohibited = _model_references.codebuild_reference_errors(
         model_path, source, findings=findings
     )
     if prohibited:
@@ -353,7 +353,7 @@ def model_resource_reference_tables(path, text, values, root):
                 / path.relative_to(path.parents[4] / "docs/designs")
             ).with_suffix(".properties")
             findings = Findings(path.parents[4])
-            prohibited = _model_validation.codebuild_reference_errors(
+            prohibited = _model_references.codebuild_reference_errors(
                 model_path, selected, findings=findings
             )
             if prohibited:

@@ -10,7 +10,9 @@ from functools import partial
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
+import design.array_display as _imports_array_display
 import design.document as _dependency_design_document
+import design.services.codepipeline as _imports_codepipeline
 import json_intrinsics as _imports_json_intrinsics
 import utils.json_format as _imports_utils_json_format
 from design.catalog import design_material_files
@@ -21,15 +23,14 @@ from utils.input_cache import input_is_file, input_text, memo_table, memoized
 from utils.json_format import (
     policy_json,
 )
+from utils.reference_contracts import action_contexts, row_contexts
 from utils.reference_contracts import reference_attribute as reference_attribute
 
 import model.environment_values as environment_values
 import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
-import model.importing.sources as _imports_model_importing_sources
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
-import model.validation as _model_validation
 from model.core import (
     LINK,
     ReferenceDiagnosticError,
@@ -204,7 +205,7 @@ def deployment_bucket(reference: str, path: Path, root: Path) -> str:
 
 
 def observed_value(row_id, row, observed, outputs):
-    has_reference = _imports_model_importing_sources.has_reference
+    has_reference = _imports_model_references.has_reference
     LINKS = _imports_model_references.LINKS
     value = row["value"]
     if observed is not None:
@@ -356,7 +357,7 @@ def reference_display(values, path, root, *, reference_values=None):
                 ),
                 model_key=key,
                 pending=pending,
-                context=_model_validation.reference_context_for(
+                context=reference_context_for(
                     reference_values if reference_values is not None else values,
                     key.split(".")[2],
                     rows[key.split(".")[2]],
@@ -566,7 +567,7 @@ def document_references(
         row = {"property": values.get(f"desired.row.{row_id}.property")}
         expected_context = None
         if property_name is not None and row["property"] is not None:
-            expected_context = _model_validation.reference_context_for(
+            expected_context = reference_context_for(
                 values, row_id, row, expected, "", scope.root
             )
         if (
@@ -679,3 +680,141 @@ def generated_document(
         logical_id=logical_id,
         warnings=warnings,
     )
+
+
+def configuration_context(values, row_id, root):
+    """Use the existing lossless Stage/Action projection for split Model rows."""
+    number = row_id.rpartition("-")[0]
+    kind = "CodePipeline.Pipeline"
+    rows = [
+        [
+            rid,
+            row["property"].removeprefix(kind + "."),
+            row["value"],
+            row.get("comment", ""),
+        ]
+        for rid, row in entries(values, "desired.row.")
+        if rid.rpartition("-")[0] == number
+    ]
+    indexed = _imports_array_display.indexed_rows(
+        _imports_codepipeline.pipeline_rows(rows), kind, root
+    )
+    contexts = action_contexts(
+        [(rid, {"property": prop, "value": value}) for rid, prop, value, _ in indexed]
+    )
+    properties = {rid: prop for rid, prop, _, _ in indexed}
+    parent = properties[row_id].split(".Configuration.", 1)[0]
+    return contexts.get(parent, {})
+
+
+def reference_context_for(values, row_id, row, value, pointer, root):
+    """Share the existing split-row and nested JSON receiving-context contract."""
+    context = (
+        configuration_context(values, row_id, root)
+        if row["property"].startswith(
+            "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
+        )
+        and not isinstance(value, list)
+        else None
+    )
+    if context is None:
+        kind = ".".join(row["property"].split(".")[:2])
+        number = row_id.rpartition("-")[0]
+        contexts = row_contexts(
+            kind,
+            [
+                (rid, item)
+                for rid, item in _resource_row_entries(values)
+                if rid.rpartition("-")[0] == number
+            ],
+        )
+        prop = row["property"].removeprefix(kind + ".")
+        context = contexts.get(
+            row_id, contexts.get(prop, contexts.get(prop.rsplit(".", 1)[0]))
+        )
+    context = context_at(value, row["property"], pointer, context)
+    return context
+
+
+def validate_json_documents(
+    values, model_path, *, warnings=None, excluded_references=(), reference_values=None
+):
+    """Generation structure/reference checks, independent of Model quality rules."""
+    reference_tokens = _imports_model_identity.reference_tokens
+    _json = _imports_model_references._json
+    string_leaves = _imports_model_references.string_leaves
+    path = Path(model_path)
+    if path.suffix == ".md" and path.parents[2].name == "designs":
+        path = (
+            path.parents[4]
+            / "model"
+            / path.relative_to(path.parents[4] / "docs/designs")
+        ).with_suffix(".properties")
+    resolver = None
+    diagnostics = []
+    for row_id, row in entries(values, "desired.row."):
+        if not {"property", "value"} <= row.keys():
+            raise ValueError("invalid resource row: " + row_id)
+        for field in ("value", "document"):
+            if field not in row:
+                continue
+            value, structured = _json(f"desired.row.{row_id}.{field}", row[field])
+            if not structured:
+                if any(nodes(value)):
+                    raise ValueError(
+                        "JSON Model references in .value require the existing JSON backtick notation"
+                    )
+                continue
+            if resolver is None:
+                scope = _imports_model_sources.scope_for(path)
+                resolver = reference_resolver(
+                    values if reference_values is None else reference_values,
+                    scope,
+                    scope.root,
+                )
+            _, row_diagnostics = document_references(
+                value,
+                resolver=resolver,
+                scope=scope,
+                property_name=row["property"],
+                logical_id=values.get(
+                    f"desired.resource.{row_id.rpartition('-')[0]}.logicalId"
+                ),
+                model_key=f"desired.row.{row_id}.{field}",
+                context=reference_context_for(
+                    values, row_id, row, value, "", scope.root
+                ),
+                excluded_references=tuple(
+                    pointer
+                    for identity, source_field, pointer in excluded_references
+                    if (identity, source_field) == (row_id, field)
+                ),
+            )
+            diagnostics.extend(row_diagnostics)
+            if row_diagnostics:
+                continue
+            number = row_id.rpartition("-")[0]
+            resource = values.get(f"desired.resource.{number}.logicalId", number)
+            for pointer, text in string_leaves(value):
+                if (row_id, field, pointer) in excluded_references:
+                    continue
+                if any(reference_tokens(text)):
+                    raise ValueError(
+                        f"JSON setting contains a Markdown Resource link: Model={model_path}, "
+                        f"Resource={resource} ({number}), Property={row['property']}, "
+                        f"JSON Pointer={pointer!r}; use confirmed AWS values and external desired.reference metadata"
+                    )
+            project_document = _imports_json_intrinsics.project_document
+            project_document(
+                value,
+                warnings=warnings,
+                model_path=model_path,
+                logical_id=resource,
+                property_name=row["property"],
+            )
+
+    try:
+        require_reference_diagnostics(diagnostics)
+    except ReferenceResolutionError as error:
+        if warnings is not None:
+            warnings.extend(error.diagnostics)

@@ -8,6 +8,8 @@ from pathlib import PurePosixPath
 import utils.reference_contracts as _imports_reference_contracts
 from utils.json_format import strict_json
 from utils.model_addresses import resource_address as resource_address
+from utils.reference_contracts import reference_error, row_contexts
+from validation.diagnostics import Diagnostic, service_scope
 
 import model.change_scope as change_plan
 import model.core as _imports_model_core
@@ -20,7 +22,14 @@ from model.core import ReferenceDiagnosticError, entries, literal
 from model.format import LINKS as LINKS
 from model.format import json_field, owner
 from model.format import link_scope as link_scope
-from model.reference_nodes import is_reference, nodes, parse, resolve
+from model.reference_nodes import (
+    context_at,
+    is_reference,
+    nodes,
+    parse,
+    receiving_property,
+    resolve,
+)
 
 FIELDS = {
     "consumerKey",
@@ -848,3 +857,100 @@ def reference_positions(value, pointer=""):
     elif isinstance(value, tuple):
         for child in value:
             yield from reference_positions(child, pointer)
+
+
+def codebuild_reference_errors(path, values, *, findings=None, context_values=None):
+    """Check source references before resolution or display can fail."""
+    errors = {}
+    rows = entries(values, "desired.row.")
+    for identity, resource in entries(values, "desired.resource."):
+        if resource["resourceType"] != "CodeBuild.Project":
+            continue
+        selected = [
+            (rid, row) for rid, row in rows if rid.rpartition("-")[0] == identity
+        ]
+        context_rows = (
+            entries(context_values, "desired.row.")
+            if context_values is not None
+            else rows
+        )
+        contexts = row_contexts(
+            "CodeBuild.Project",
+            [
+                (rid, row)
+                for rid, row in context_rows
+                if rid.rpartition("-")[0] == identity
+            ],
+        )
+        for rid, row in selected:
+            prop = row["property"]
+            if not prop.startswith("CodeBuild.Project.Environment"):
+                continue
+            for source_field in ("value", "document"):
+                if source_field not in row:
+                    continue
+                try:
+                    value, _ = _json(
+                        "desired.row." + rid + "." + source_field, row[source_field]
+                    )
+                    occurrences = [(node.pointer, True) for node in nodes(value)]
+                except (ValueError, TypeError):
+                    continue  # JSON validation reports syntax errors independently.
+                occurrences.extend(
+                    (pointer, bool(_imports_model_identity.resource_link(text)))
+                    for pointer, text in string_leaves(value)
+                )
+                for pointer, linked in occurrences:
+                    if not linked:
+                        continue
+                    field = receiving_property(prop, pointer)
+                    context = context_at(value, prop, pointer, contexts.get(rid, {}))
+                    if error := reference_error(field, context):
+                        errors[rid, source_field, pointer] = (
+                            f"Model={path}, Resource={resource['logicalId']} ({identity}), "
+                            f"Name={context.get('Name', '')}, Type=PLAINTEXT, Property={field}: {error}"
+                        )
+    if findings is not None:
+        for (row, source_field, pointer), message in errors.items():
+            findings.add_diagnostic(
+                Diagnostic.create(
+                    findings.canonical_root,
+                    code="codebuild.plaintext-reference",
+                    check_id="model.reference-policy",
+                    service=service_scope(findings.canonical_root, path),
+                    source_path=path,
+                    location=f"desired.row.{row}.{source_field}{pointer}",
+                    message=message,
+                )
+            )
+    return errors
+
+
+def _recursive_has_reference_linked(resource_link, /, value):
+    return (
+        bool(resource_link(value))
+        if isinstance(value, str)
+        else any(
+            _recursive_has_reference_linked(resource_link, item)
+            for item in value.values()
+        )
+        if isinstance(value, dict)
+        else any(_recursive_has_reference_linked(resource_link, item) for item in value)
+        if isinstance(value, list)
+        else False
+    )
+
+
+def has_reference(raw):
+    """Only internal Resource references, including structured leaves, consume observations."""
+    resource_link = _imports_model_identity.resource_link
+    if not isinstance(raw, str):
+        return False
+    if resource_link(raw):
+        return True
+    try:
+        value = strict_json(literal(raw))
+    except ValueError:
+        return False
+    linked = _bind_framework_callback(_recursive_has_reference_linked, resource_link)
+    return any(nodes(value)) or linked(value)

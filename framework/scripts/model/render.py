@@ -40,7 +40,6 @@ import model.projection as _imports_model_projection
 import model.reference_presentation as _reference_presentation
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
-import model.validation as _model_validation
 from model.change_scope import change_reads
 from model.core import (
     ARTIFACT_FIELDS,
@@ -515,7 +514,7 @@ def render_validated_model(
     definitions_root: Path | None = None,
 ) -> str:
     """Render structure and references without Model quality validation."""
-    _model_validation.validate_json_documents(
+    _imports_model_projection.validate_json_documents(
         values,
         (
             path.parents[4]
@@ -574,7 +573,7 @@ def generate_markdown(
 ) -> str:
     """Render selected values; reference_values supplies the complete candidate context."""
     reference_values = values if reference_values is None else reference_values
-    _model_validation.validate_json_documents(
+    _imports_model_projection.validate_json_documents(
         values,
         (
             path.parents[4]
@@ -583,6 +582,20 @@ def generate_markdown(
         ).with_suffix(".properties"),
         reference_values=reference_values,
     )
+    return _generate_markdown(
+        path,
+        values,
+        root,
+        reference_tables=reference_tables,
+        reference_values=reference_values,
+    )
+
+
+@input_scope
+def _generate_markdown(
+    path, values, root, *, reference_tables=None, reference_values=None
+):
+    """Draw only values checked by the enclosing public generation entry."""
     reference_display = _imports_model_projection.reference_display
     scope_for = _imports_model_sources.scope_for
     references = _dependency_model_display.reference_rows(values)
@@ -868,8 +881,8 @@ def model_policy_views(values, *, presentation=None):
 
 @change_reads()
 def generate_files(path, values, root, *, warnings=None):
-    """Generate one service in memory, without validation or dependency publication."""
-    _model_validation.validate_json_documents(
+    """Check JSON structure/references and generate one service in memory."""
+    _imports_model_projection.validate_json_documents(
         values,
         (
             path.parents[4]
@@ -917,7 +930,7 @@ def generate_files(path, values, root, *, warnings=None):
     artifacts[path] = (
         stack_markdown(path, values, root)
         if entries(values, "desired.stack.")
-        else generate_markdown(path, values, root)
+        else _generate_markdown(path, values, root, reference_values=values)
     )
     return artifacts
 

@@ -15,7 +15,7 @@ import model.projection as _imports_model_projection
 from model.core import entries as entries
 from model.core import literal, resource_row_index
 from model.format import owner
-from model.reference_nodes import nodes
+from model.references import has_reference as has_reference
 
 
 def typed_equal(left, right):
@@ -78,36 +78,6 @@ def property_values(values, rid, prop, schema, *, observed=False, rows=None):
     if len(result) > 1:
         raise ValueError("IMPORT ambiguous candidate Property: " + prop)
     return result[0] if result else None
-
-
-def _recursive_has_reference_linked(resource_link, /, value):
-    return (
-        bool(resource_link(value))
-        if isinstance(value, str)
-        else any(
-            _recursive_has_reference_linked(resource_link, item)
-            for item in value.values()
-        )
-        if isinstance(value, dict)
-        else any(_recursive_has_reference_linked(resource_link, item) for item in value)
-        if isinstance(value, list)
-        else False
-    )
-
-
-def has_reference(raw):
-    """Only internal Resource references, including structured leaves, consume observations."""
-    resource_link = _imports_model_identity.resource_link
-    if not isinstance(raw, str):
-        return False
-    if resource_link(raw):
-        return True
-    try:
-        value = json_read(literal(raw))
-    except ValueError:
-        return False
-    linked = _bind_framework_callback(_recursive_has_reference_linked, resource_link)
-    return any(nodes(value)) or linked(value)
 
 
 def selection_records(

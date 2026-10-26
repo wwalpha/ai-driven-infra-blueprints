@@ -10,12 +10,9 @@ from types import SimpleNamespace
 from types import SimpleNamespace as _CallbackState
 
 import aws_mapping_display as _imports_aws_mapping_display
-import design.array_display as _imports_array_display
 import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
 import design.policy_tables as _dependency_policy_tables
-import design.services.codepipeline as _imports_codepipeline
-import json_intrinsics as _imports_json_intrinsics
 import utils.aws_catalogs as _compat_utils_aws_catalogs
 import validation.design as _imports_validation_design
 import validation.findings as _imports_validation_findings
@@ -32,7 +29,6 @@ from utils.aws_mappings import definition_root
 from utils.input_cache import input_is_file, memo_table, memoized
 from utils.input_cache import input_scope as input_scope
 from utils.json_format import policy_json
-from utils.reference_contracts import action_contexts, reference_error, row_contexts
 from validation.diagnostics import Diagnostic, service_scope
 
 import model.core as _imports_model_core
@@ -40,7 +36,6 @@ import model.environment_values as environment_values
 import model.files as _imports_model_files
 import model.format as _imports_model_format
 import model.identity as _dependency_model_identity
-import model.identity as _imports_model_identity
 import model.importing.scope as _imports_model_importing_scope
 import model.projection as _dependency_model_projection
 import model.projection as _imports_model_projection
@@ -53,10 +48,18 @@ from model.core import (
     SnapshotValues,
     entries,
     properties,
-    require_reference_diagnostics,
     stack_model,
 )
-from model.reference_nodes import context_at, nodes, receiving_property
+from model.projection import (
+    configuration_context as configuration_context,
+)
+from model.projection import (
+    reference_context_for as reference_context_for,
+)
+from model.projection import (
+    validate_json_documents as validate_json_documents,
+)
+from model.references import codebuild_reference_errors as codebuild_reference_errors
 
 NAMING_EXEMPT_PROPERTIES = {
     "Config.ConfigurationRecorder.Name",
@@ -71,60 +74,6 @@ NAMING_EXEMPT_PROPERTIES = {
     "Route53.HostedZone.Name",
     "Route53.RecordSet.Name",
 }
-
-
-def configuration_context(values, row_id, root):
-    """Use the existing lossless Stage/Action projection for split Model rows."""
-    number = row_id.rpartition("-")[0]
-    kind = "CodePipeline.Pipeline"
-    rows = [
-        [
-            rid,
-            row["property"].removeprefix(kind + "."),
-            row["value"],
-            row.get("comment", ""),
-        ]
-        for rid, row in entries(values, "desired.row.")
-        if rid.rpartition("-")[0] == number
-    ]
-    indexed = _imports_array_display.indexed_rows(
-        _imports_codepipeline.pipeline_rows(rows), kind, root
-    )
-    contexts = action_contexts(
-        [(rid, {"property": prop, "value": value}) for rid, prop, value, _ in indexed]
-    )
-    properties = {rid: prop for rid, prop, _, _ in indexed}
-    parent = properties[row_id].split(".Configuration.", 1)[0]
-    return contexts.get(parent, {})
-
-
-def reference_context_for(values, row_id, row, value, pointer, root):
-    """Share the existing split-row and nested JSON receiving-context contract."""
-    context = (
-        configuration_context(values, row_id, root)
-        if row["property"].startswith(
-            "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
-        )
-        and not isinstance(value, list)
-        else None
-    )
-    if context is None:
-        kind = ".".join(row["property"].split(".")[:2])
-        number = row_id.rpartition("-")[0]
-        contexts = row_contexts(
-            kind,
-            [
-                (rid, item)
-                for rid, item in _imports_model_projection._resource_row_entries(values)
-                if rid.rpartition("-")[0] == number
-            ],
-        )
-        prop = row["property"].removeprefix(kind + ".")
-        context = contexts.get(
-            row_id, contexts.get(prop, contexts.get(prop.rsplit(".", 1)[0]))
-        )
-    context = context_at(value, row["property"], pointer, context)
-    return context
 
 
 def validate_json_settings(
@@ -148,90 +97,6 @@ def validate_json_settings(
         excluded_references=excluded_references,
         reference_values=reference_values,
     )
-
-
-def validate_json_documents(
-    values, model_path, *, warnings=None, excluded_references=(), reference_values=None
-):
-    """Generation structure/reference checks, independent of Model quality rules."""
-    reference_tokens = _imports_model_identity.reference_tokens
-    _json = _imports_model_references._json
-    string_leaves = _imports_model_references.string_leaves
-    path = Path(model_path)
-    if path.suffix == ".md" and path.parents[2].name == "designs":
-        path = (
-            path.parents[4]
-            / "model"
-            / path.relative_to(path.parents[4] / "docs/designs")
-        ).with_suffix(".properties")
-    resolver = None
-    diagnostics = []
-    for row_id, row in entries(values, "desired.row."):
-        if not {"property", "value"} <= row.keys():
-            raise ValueError("invalid resource row: " + row_id)
-        for field in ("value", "document"):
-            if field not in row:
-                continue
-            value, structured = _json(f"desired.row.{row_id}.{field}", row[field])
-            if not structured:
-                if any(nodes(value)):
-                    raise ValueError(
-                        "JSON Model references in .value require the existing JSON backtick notation"
-                    )
-                continue
-            if resolver is None:
-                scope = _imports_model_sources.scope_for(path)
-                resolver = _imports_model_projection.reference_resolver(
-                    values if reference_values is None else reference_values,
-                    scope,
-                    scope.root,
-                )
-            _, row_diagnostics = _imports_model_projection.document_references(
-                value,
-                resolver=resolver,
-                scope=scope,
-                property_name=row["property"],
-                logical_id=values.get(
-                    f"desired.resource.{row_id.rpartition('-')[0]}.logicalId"
-                ),
-                model_key=f"desired.row.{row_id}.{field}",
-                context=reference_context_for(
-                    values, row_id, row, value, "", scope.root
-                ),
-                excluded_references=tuple(
-                    pointer
-                    for identity, source_field, pointer in excluded_references
-                    if (identity, source_field) == (row_id, field)
-                ),
-            )
-            diagnostics.extend(row_diagnostics)
-            if row_diagnostics:
-                continue
-            number = row_id.rpartition("-")[0]
-            resource = values.get(f"desired.resource.{number}.logicalId", number)
-            for pointer, text in string_leaves(value):
-                if (row_id, field, pointer) in excluded_references:
-                    continue
-                if any(reference_tokens(text)):
-                    raise ValueError(
-                        f"JSON setting contains a Markdown Resource link: Model={model_path}, "
-                        f"Resource={resource} ({number}), Property={row['property']}, "
-                        f"JSON Pointer={pointer!r}; use confirmed AWS values and external desired.reference metadata"
-                    )
-            project_document = _imports_json_intrinsics.project_document
-            project_document(
-                value,
-                warnings=warnings,
-                model_path=model_path,
-                logical_id=resource,
-                property_name=row["property"],
-            )
-
-    try:
-        require_reference_diagnostics(diagnostics)
-    except ReferenceResolutionError as error:
-        if warnings is not None:
-            warnings.extend(error.diagnostics)
 
 
 def validate_environment_settings(
@@ -746,73 +611,6 @@ def validate_resource_identities(
                 raise ReferenceResolutionError(
                     f"{identity}: cfn-logicalId references an undeclared stack"
                 )
-
-
-def codebuild_reference_errors(path, values, *, findings=None, context_values=None):
-    """Check source references before resolution or display can fail."""
-    errors = {}
-    rows = entries(values, "desired.row.")
-    for identity, resource in entries(values, "desired.resource."):
-        if resource["resourceType"] != "CodeBuild.Project":
-            continue
-        selected = [
-            (rid, row) for rid, row in rows if rid.rpartition("-")[0] == identity
-        ]
-        context_rows = (
-            entries(context_values, "desired.row.")
-            if context_values is not None
-            else rows
-        )
-        contexts = row_contexts(
-            "CodeBuild.Project",
-            [
-                (rid, row)
-                for rid, row in context_rows
-                if rid.rpartition("-")[0] == identity
-            ],
-        )
-        for rid, row in selected:
-            prop = row["property"]
-            if not prop.startswith("CodeBuild.Project.Environment"):
-                continue
-            for source_field in ("value", "document"):
-                if source_field not in row:
-                    continue
-                try:
-                    value, _ = _imports_model_references._json(
-                        "desired.row." + rid + "." + source_field, row[source_field]
-                    )
-                    occurrences = [(node.pointer, True) for node in nodes(value)]
-                except (ValueError, TypeError):
-                    continue  # JSON validation reports syntax errors independently.
-                occurrences.extend(
-                    (pointer, bool(_dependency_model_identity.resource_link(text)))
-                    for pointer, text in _imports_model_references.string_leaves(value)
-                )
-                for pointer, linked in occurrences:
-                    if not linked:
-                        continue
-                    field = receiving_property(prop, pointer)
-                    context = context_at(value, prop, pointer, contexts.get(rid, {}))
-                    if error := reference_error(field, context):
-                        errors[rid, source_field, pointer] = (
-                            f"Model={path}, Resource={resource['logicalId']} ({identity}), "
-                            f"Name={context.get('Name', '')}, Type=PLAINTEXT, Property={field}: {error}"
-                        )
-    if findings is not None:
-        for (row, source_field, pointer), message in errors.items():
-            findings.add_diagnostic(
-                Diagnostic.create(
-                    findings.canonical_root,
-                    code="codebuild.plaintext-reference",
-                    check_id="model.reference-policy",
-                    service=service_scope(findings.canonical_root, path),
-                    source_path=path,
-                    location=f"desired.row.{row}.{source_field}{pointer}",
-                    message=message,
-                )
-            )
-    return errors
 
 
 def _callback_check_model_inputs_json_settings(values, path, findings, prohibited):
