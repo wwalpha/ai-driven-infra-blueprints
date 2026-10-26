@@ -1214,7 +1214,7 @@ def test_unrelated_array_display_cannot_block_saved_name(
 
 
 @pytest.mark.parametrize("invalid_identity", [False, True])
-def test_unavailable_name_array_keeps_other_resource_and_identity_checks(
+def test_indexed_name_array_keeps_other_resource_and_identity_checks(
     instance, invalid_identity
 ):
     root, values, path, expected = instance
@@ -1237,7 +1237,7 @@ def test_unavailable_name_array_keeps_other_resource_and_identity_checks(
     text = text.replace(
         "### EC2.Instance: saved-name", "### EC2.Instance: wrong-name", 1
     )
-    # The second Resource remains independently checkable after the first fails expansion.
+    # Each Resource keeps its own saved-name and identity checks.
     text = text.rsplit("### EC2.Instance: saved-name", 1)
     text = "### EC2.Instance: other-wrong-name".join(text)
     if invalid_identity:
@@ -1255,10 +1255,11 @@ def test_unavailable_name_array_keeps_other_resource_and_identity_checks(
         check_display=False,
     )
     assert not findings.processing_errors
-    assert len(findings.unverified) == int(not invalid_identity)
-    if not invalid_identity:
-        assert findings.unverified[0]["resource"] == "EC2_Instance_001"
-        assert findings.unverified[0]["status"] == "NOT_RUN"
+    assert not findings.unverified
+    assert sum(
+        "wrong-name != saved-name" in error and "other-wrong-name" not in error
+        for error in findings.errors
+    ) == int(not invalid_identity)
     assert (
         sum("other-wrong-name != saved-name" in error for error in findings.errors) == 1
     )
@@ -1311,37 +1312,156 @@ def test_missing_saved_name_is_not_filled_from_model(instance):
     assert findings.unverified[0]["resource"] == "EC2_Instance_001"
 
 
-@pytest.mark.parametrize("different", [False, True])
-def test_verified_indexed_name_tags_keep_existing_name_validation(tmp_path, different):
+@pytest.fixture(
+    params=[
+        ("kms", "KMS.Key", "Tags", "Description", "original"),
+        ("sns", "SNS.Topic", "Tags", "FifoTopic", "false"),
+        (
+            "route53",
+            "Route53.HostedZone",
+            "HostedZoneTags",
+            "HostedZoneConfig.Comment",
+            "original",
+        ),
+    ]
+)
+def indexed_name_tags(tmp_path, request):
+    service, kind, tags, prop, value = request.param
     with mapping_alias(FRAMEWORK, tmp_path), catalog_display():
-        _, values = resource(tmp_path, "kms", "KMS.Key", attribute="Tags[].Key")
-        values["desired.row.001-001.value"] = "`Name`"
-        values["desired.row.001-002.property"] = "KMS.Key.Tags[].Value"
-        values["desired.row.001-002.value"] = "`saved-name`"
-        values["desired.row.001-002.comment"] = "名称"
-        path = tmp_path / "docs/designs/qa/team/kms.md"
+        _, values = resource(tmp_path, service, kind, attribute=tags + "[].Key")
+        for number, (field, raw) in enumerate(
+            [
+                (tags + "[].Key", "Environment"),
+                (tags + "[].Value", "dev"),
+                (tags + "[].Key", "Name"),
+                (tags + "[].Value", "saved-name"),
+                (prop, value),
+            ],
+            1,
+        ):
+            prefix = f"desired.row.001-{number:03d}."
+            values.update(
+                {
+                    prefix + "property": kind + "." + field,
+                    prefix + "value": f"`{raw}`",
+                    prefix + "comment": "設定値",
+                }
+            )
+        path = tmp_path / f"docs/designs/qa/team/{service}.md"
         path.parent.mkdir(parents=True)
         expected = generate_markdown(path, values, FRAMEWORK)
-        assert "Tags[1].Key" in expected
-        if different:
-            expected = expected.replace(
-                "### KMS.Key: saved-name", "### KMS.Key: wrong-name"
-            )
-        path.write_text(expected, encoding="utf-8")
-        findings = Findings(tmp_path)
-        design.check_resource_names(
-            {path: ("kms", ("KMS.Key",))},
-            [path],
-            design_sources={path: values},
-            findings=findings,
-            root=tmp_path,
-            scope={("qa", "team", "kms")},
-            definitions_root=FRAMEWORK,
-            check_display=False,
+        assert f"{tags}[2].Key" in expected
+        yield tmp_path, service, kind, values, path, expected, tags, prop, value
+
+
+@pytest.mark.parametrize("change", ["none", "value", "comment"])
+@pytest.mark.parametrize(
+    "heading,name",
+    [
+        ("WRONG", "saved-name"),
+        ("saved-name", "saved-name"),
+        ("saved-name", "markdown-name"),
+        ("markdown-name", "markdown-name"),
+    ],
+)
+@pytest.mark.parametrize("check_display", [False, True])
+def test_indexed_name_tags_ignore_unrelated_properties(
+    indexed_name_tags, change, heading, name, check_display
+):
+    root, service, kind, values, path, expected, tags, prop, value = indexed_name_tags
+    text = expected.replace(f"### {kind}: saved-name", f"### {kind}: {heading}")
+    text = text.replace("| `saved-name` |", f"| `{name}` |")
+    if change != "none":
+        raw = f"{prop} | `{value}` | 設定値"
+        replacement = (
+            f"{prop} | `{'true' if value == 'false' else 'changed'}` | 設定値"
+            if change == "value"
+            else f"{prop} | `{value}` | 変更"
         )
-        assert findings.status == ("FAIL" if different else "PASS"), findings.errors
-        assert not findings.processing_errors and not findings.unverified
+        assert raw in text
+        text = text.replace(raw, replacement)
+    path.write_text(text, encoding="utf-8")
+    findings = Findings(root)
+    design.check_resource_names(
+        {path: (service, (kind,))},
+        [path],
+        design_sources={path: values},
+        findings=findings,
+        root=root,
+        scope={("qa", "team", service)},
+        definitions_root=FRAMEWORK,
+        check_display=check_display,
+    )
+    assert not findings.processing_errors
+    if check_display and change != "none":
+        assert any(d.code == "design.display.mismatch" for d in findings.diagnostics)
+    elif not check_display:
+        assert findings.status == ("PASS" if heading == name else "FAIL"), (
+            findings.errors
+        )
+        assert not findings.unverified
         assert all("saved resource name" in error for error in findings.errors)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "wrong-index",
+        "duplicate",
+        "zero",
+        "negative",
+        "leading-zero",
+        "text",
+        "missing",
+        "missing-key",
+        "unknown-field",
+        "value-first",
+        "duplicate-name",
+    ],
+)
+def test_indexed_name_tags_reject_broken_pairs(indexed_name_tags, damage):
+    root, service, kind, values, path, expected, tags, _, _ = indexed_name_tags
+    key = next(line for line in expected.splitlines() if f"{tags}[2].Key" in line)
+    val = next(line for line in expected.splitlines() if f"{tags}[2].Value" in line)
+    if damage in {"wrong-index", "zero", "negative", "leading-zero", "text"}:
+        index = {
+            "wrong-index": "3",
+            "zero": "0",
+            "negative": "-1",
+            "leading-zero": "02",
+            "text": "x",
+        }[damage]
+        text = expected.replace(f"{tags}[2].Value", f"{tags}[{index}].Value")
+    elif damage == "duplicate":
+        text = expected.replace(val, val + "\n" + val)
+    elif damage == "missing":
+        text = expected.replace(val + "\n", "")
+    elif damage == "missing-key":
+        text = expected.replace(key + "\n", "")
+    elif damage == "unknown-field":
+        text = expected.replace(f"{tags}[2].Key", f"{tags}[2].Unknown")
+    elif damage == "value-first":
+        text = (
+            expected.replace(key, "PLACEHOLDER")
+            .replace(val, key)
+            .replace("PLACEHOLDER", val)
+        )
+    else:
+        text = expected.replace("`Environment`", "`Name`")
+    path.write_text(text, encoding="utf-8")
+    findings = Findings(root)
+    design.check_resource_names(
+        {path: (service, (kind,))},
+        [path],
+        design_sources={path: values},
+        findings=findings,
+        root=root,
+        scope={("qa", "team", service)},
+        definitions_root=FRAMEWORK,
+        check_display=False,
+    )
+    assert not findings.processing_errors
+    assert findings.status in {"FAIL", "NOT_RUN"}, findings.errors
 
 
 if __name__ == "__main__":

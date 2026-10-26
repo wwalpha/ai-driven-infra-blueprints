@@ -10,6 +10,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import aws_mapping_display as _imports_aws_mapping_display
+import design.array_display as _array_display
 import design.document as _design_document
 import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
@@ -454,6 +455,32 @@ def _callback_check_resource_names_check_name(
                 saved_rows.append(row)
         name_unavailable = None
         try:
+            if any(
+                re.match(
+                    r"(?:Tags|HostedZoneTags)\[(?!\])",
+                    prop.removeprefix(resource_type + "."),
+                )
+                for _, prop, _, _ in saved_rows
+            ):
+                # Verify saved tag indexes against their own rows, never Model values.
+                saved_rows = _array_display.verified_rows(
+                    saved_rows,
+                    [
+                        [
+                            number,
+                            re.sub(
+                                r"((?:^|\.)(?:Tags|HostedZoneTags))\[[^]]*\]",
+                                r"\1[]",
+                                prop,
+                            ),
+                            value,
+                            comment,
+                        ]
+                        for number, prop, value, comment in saved_rows
+                    ],
+                    resource_type,
+                    definitions_root,
+                )
             name_lines = _dependency_design_layout.expanded_display_rows(
                 [
                     f'<a id="{anchor}"></a>',
@@ -469,30 +496,13 @@ def _callback_check_resource_names_check_name(
                 modes=modes,
             )
         except ValueError as error:
-            if str(error) != "indexed array display requires Model source rows":
+            if str(error) not in {
+                "indexed array display requires Model source rows",
+                "array display differs from Model source rows",
+            }:
                 findings.check(False, f"{findings.relative(path)}: {error}")
                 return
-            tables = _design_document.model_reference_tables(
-                path,
-                input_text(path, encoding="utf-8"),
-                tuple((values or {}).items()),
-                definitions_root,
-                check_document=False,
-            )
-            table = next((table for table in tables if table.anchor == anchor), None)
-            if table is not None:
-                name_lines = _dependency_design_layout.expanded_display_rows(
-                    [
-                        f'<a id="{anchor}"></a>',
-                        f"### {resource_type}: {display}",
-                        *table.expected,
-                    ],
-                    definitions_root,
-                    modes=modes,
-                    reference_tables=(table,),
-                )
-            else:
-                name_unavailable = str(error)
+            name_unavailable = str(error)
         if (
             not saved_rows
             and resource_type

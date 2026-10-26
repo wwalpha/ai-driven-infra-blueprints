@@ -247,14 +247,33 @@ def resource_display_name(
         if field in fields and not fields[field].startswith("["):
             return fields[field]
     for tags in ("Tags", "HostedZoneTags"):
-        for index, row in enumerate(rows[:-1]):
+        paths = [
+            row[1].removeprefix(resource_type + ".")
+            for row in rows
+            if row[1].removeprefix(resource_type + ".").startswith(tags + "[].")
+        ]
+        if paths != [tags + "[].Key", tags + "[].Value"] * (len(paths) // 2):
+            raise ValueError(
+                f"{resource_type} tags require corresponding Key/Value rows"
+            )
+        keys = [
+            index
+            for index, row in enumerate(rows)
+            if row[1].removeprefix(resource_type + ".") == tags + "[].Key"
+            and row[2].strip('`"') == "Name"
+        ]
+        if len(keys) > 1:
+            raise ValueError(f"{resource_type} requires exactly one {tags}[].Key=Name")
+        if keys:
+            index = keys[0] + 1
             if (
-                row[1].removeprefix(resource_type + ".") == tags + "[].Key"
-                and row[2].strip('`"') == "Name"
+                index >= len(rows)
+                or rows[index][1].removeprefix(resource_type + ".") != tags + "[].Value"
             ):
-                value = rows[index + 1]
-                if value[1].removeprefix(resource_type + ".") == tags + "[].Value":
-                    return value[2].strip('`"')
+                raise ValueError(
+                    f"{resource_type} Name tag requires the corresponding {tags}[].Value"
+                )
+            return rows[index][2].strip('`"')
         if tags in fields:
             try:
                 values = json.loads(fields[tags])
