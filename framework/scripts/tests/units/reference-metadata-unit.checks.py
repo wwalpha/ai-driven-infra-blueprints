@@ -15,6 +15,9 @@ from support.pytest_cli import run
 
 from model import dependency_index, sources
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 def check_recovery_retains_every_candidate(project_workspace):
     root = project_workspace
