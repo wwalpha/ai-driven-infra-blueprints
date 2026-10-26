@@ -1,4 +1,4 @@
-"""Type-only contracts for the existing injected scheduler and persisted records."""
+"""Type-only contracts for the existing injected scheduler and current-run records."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class StackUnit(StackOptions):
     deployOrder: str | int
 
 
-# State and workflow extensions are serialized JSON, including signed workflow fields.
+# Stack operation records also supply the minimal unfinished-operation journal.
 StackState: TypeAlias = JsonObject
 States: TypeAlias = dict[str, StackState]
 Target: TypeAlias = dict[str, str]
@@ -38,42 +38,23 @@ PathsFor: TypeAlias = Callable[[StackUnit], tuple[Path, Path]]
 InputPaths: TypeAlias = Callable[[Iterable[StackUnit]], list[Path]]
 
 
-class Session(TypedDict, total=False):
-    version: int
-    modelFormat: int
-    snapshotVersion: int
-    referenceMeaningVersion: int
+class DeployRunContext(TypedDict, total=False):
     repository: str
     taskFile: str
     taskDigest: str
     inputDigest: str
-    unitDigests: dict[str, str]
+    inputDigests: dict[str, str]
     states: States
     metrics: dict[str, float]
-    modelInputManifest: Manifest
-    infraManifest: Manifest
+    modelInputs: Manifest
+    consumedInputs: Manifest
     inputIdentities: dict[str, list[int]]
     pendingGeneration: dict[str, JsonObject]
     generationError: str
     pendingObserved: JsonObject
-    workflow: JsonObject
-    workflowBinding: str
-    result: str
     environment: str
     directory: str
     target: Target
-    inputRevision: int
-    profile: str | None
-    effectiveDigests: dict[str, str]
-    unitInputPaths: dict[str, list[str]]
-    observedError: str
-    observedRecoveryError: str
-    observedFailures: list[JsonObject]
-    failureObservations: list[JsonObject]
-    pendingRequest: JsonObject
-    validationScope: list[str]
-    logicalTarget: list[str]
-    repairBudget: int
 
 
 class SchedulerBackend(Protocol):

@@ -326,7 +326,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
 def sync_successful(backend, units, states):
     """Confirm the Model barrier; generated views have their own durable queue."""
     if getattr(backend, "session", {}).get("pendingObserved"):
-        names = list(backend.session["pendingObserved"]["evidence"])
+        names = list(backend.run_context["pendingObserved"]["evidence"])
         destinations = _dependency_deploy_observed_resume.finish(backend, units)
     else:
         views = set()
@@ -335,7 +335,7 @@ def sync_successful(backend, units, states):
         )
         names = [unit["name"] for unit in units]
         if services:
-            if getattr(backend, "session", {}).get("modelInputManifest") is not None:
+            if getattr(backend, "session", {}).get("modelInputs") is not None:
                 _dependency_deploy_observed_resume.prepare(
                     backend, units, destinations, services, views
                 )
@@ -365,7 +365,7 @@ def sync_successful(backend, units, states):
                     services=services,
                 ):
                     raise ValueError(
-                        "observed model sync/validation failed; resume same session after resolving blocker"
+                        "observed model sync/validation failed; resume unfinished operation after resolving blocker"
                     )
     for name in names:
         states[name]["observedSynced"] = True

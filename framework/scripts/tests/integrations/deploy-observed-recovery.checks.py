@@ -93,10 +93,10 @@ def check_generated_journal_recovery_uses_observed_owner(tmp_path, monkeypatch):
         "taskFile": "tasks/deploy.md",
         "taskDigest": M.task_digest(text),
         "inputDigest": "inputs",
-        "infraManifest": {},
-        "unitDigests": {"A": "unit"},
+        "consumedInputs": {},
+        "inputDigests": {"A": "unit"},
         "states": {"A": state},
-        "modelInputManifest": M.manifest({relative: old}),
+        "modelInputs": M.manifest({relative: old}),
     }
     with selected_task(root, "tasks/deploy.md"):
         session["pendingObserved"] = {

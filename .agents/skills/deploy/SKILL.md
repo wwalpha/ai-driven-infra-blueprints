@@ -1,23 +1,10 @@
 ---
 name: deploy
-description: Use for authorized infrastructure deployment, guarded runtime recovery and supervising-LLM external implement handoff.
+description: Use for independent authorized infrastructure deployment, unfinished AWS operation recovery and a one-shot external Implement handoff.
 ---
 
-Read `framework/prompts/codex/04_deploy.md` at the repository root in full and execute its authoritative workflow. Treat input following invocation as Human workflow input. Stop if the prompt is missing. Its Read before changing files section defines mandatory and conditional readings; matching hashes never prove unread content was reviewed.
+Read `framework/prompts/codex/04_deploy.md` in full and execute its authoritative workflow and required rule readings. Treat invocation input as Human workflow input. Stop if the prompt is missing.
 
+Every CloudFormation invocation uses current Worktree inputs and AWS state. DeployRunContext is memory-only. Never read or migrate old Deploy Sessions, Workflow ledgers/registries, repair histories or Human approval histories. Current destructive ChangeSets still require explicit Human consent and immediate ID/Stack/content/input revalidation. Only unfinished AWS/Secrets/Observed/publication operations use the minimal external Journal; confirmed completion removes it. Unknown submissions retain their original identity and never re-Execute with a new token.
 
-Deploy never edits authoritative IaC or starts another LLM/Task from Python. For an explicitly authorized external repair loop, the supervising LLM follows the prompt's request/checkpoint/suspend/implement-validation/integration/resume commands. Reuse the original workflow/session and existing Task helpers. Static PASS is a retry candidate; permission and histories survive Task switches. Terraform/update boundaries remain their existing separate contracts.
-
-Cause identity belongs to the supervising LLM: diagnose SAME/NEW/UNKNOWN with concrete
-reasons, compared prior IDs and revision-pinned evidence. UNKNOWN is saved without dummy
-labels and never requests repair. Schema pointer/label changes cannot prove NEW; Python
-only validates observations and enforces shared-cause attempts, cycles and input safety.
-Budget extensions are unavailable without external verifiable Human approval; arbitrary
-authorization text fails closed. Close/new Tasks cannot reset unresolved histories.
-
-Use the prompt's lazy-input flow: claim only available Stack slots, reuse the invocation's
-shared Model snapshots/desired checks, and apply verified observed deltas. Never read all
-service Models or pending IaC bodies to start or guard Deploy. Missing/stale dependency
-metadata stops only when ownership/reference synchronization needs it; never rebuild the
-index inside Deploy. Keep Task/target/IaC/ChangeSet guards, atomic publication and SUCCESS
-recovery. Session v5 has no automatic older-format migration.
+Preserve lazy Stack inputs, shared Load Once / same-generation Validate Once Model Cache, DeployOrder/concurrency, fresh AWS boundaries, per-success Observed sync and atomic publication. Deploy never edits IaC. A proved defect uses a separate authorized Implement Task with a one-shot pinned request, static validation and exact commit integration. Discard temporary evidence after delivery. Subsequent Deploy is independent; do not automatically chain unlimited new invocations. Terraform, Import, Destroy and Issue Gate retain their separate boundaries.

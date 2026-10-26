@@ -6,7 +6,7 @@ import os
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack, nullcontext
+from contextlib import ExitStack
 from dataclasses import FrozenInstanceError
 from functools import partial, partialmethod
 from pathlib import Path
@@ -19,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 import sync_runtime
 import task_contract_core as tasks
-from deploy import guards, session
+from deploy import guards
+from deploy import run_context as session
 from generation_inputs import GenerationInputs
 from import_guard import workflow
 from model.adapters.task import source_write_context
@@ -242,8 +243,8 @@ def check_deploy_mutation_io_and_live_denial(tmp_path, monkeypatch):
     issues.write_text("未解決issueなし")
     record = {
         "taskDigest": tasks.task_digest(task_text("one")),
-        "modelInputManifest": {},
-        "infraManifest": {},
+        "modelInputs": {},
+        "consumedInputs": {},
     }
     runtime = SimpleNamespace(
         root=tmp_path,
@@ -492,74 +493,6 @@ def check_model_publication_task_revision_reuses_original_read(tmp_path):
     with pytest.raises(ValueError, match="explicit running parent"):
         with source_write_context(tmp_path, None):
             pass
-
-
-def check_session_initialization_reuses_task_fields(tmp_path, monkeypatch):
-    root = tmp_path / "repository"
-    root.mkdir()
-    make_tasks(root)
-    monkeypatch.setenv(tasks.SELECTOR, "tasks/one.md")
-    monkeypatch.setattr(session.tempfile, "gettempdir", lambda: str(tmp_path))
-    state = tmp_path / "session.json"
-    text = (
-        task_text("one").replace("`deploy`", "`update`") + "\n## Repair options\n"
-        "- Repair cycle budget: `7`\n- External IaC repair: `allowed`\n"
-        f"- Deploy repair session: `{state}`\n"
-    )
-    (root / "tasks/one.md").write_text(text)
-    target = {
-        "awsAccountId": "123456789012",
-        "awsRegion": "ap-northeast-1",
-        "iacEngine": "cloudformation",
-    }
-    args = SimpleNamespace(
-        state=state,
-        stack=["A"],
-        environment="dev",
-        alias="cde",
-        aws_account_id="123456789012",
-        profile=None,
-        pause_after_group=False,
-        resume=False,
-        sequential=False,
-        approve_change_set=[],
-    )
-    backend = SimpleNamespace(
-        profile=None,
-        input_digest=lambda unit: "unit",
-        paths=lambda unit: [],
-        deployment_input_paths=lambda units: [],
-        file_digest=lambda path: "file",
-    )
-    timing = SimpleNamespace(phase=lambda *a, **kw: nullcontext())
-    units = [{"name": "A", "deployOrder": 1}]
-    with (
-        patch.object(
-            session._imports_deploy_context, "load_target", return_value=target
-        ),
-        patch.object(
-            session._imports_deploy_context, "check_deploy_context", return_value=target
-        ),
-        patch.object(session.handoff, "locked", return_value=nullcontext()),
-        patch.object(session.handoff, "effective", return_value={}),
-        patch.object(
-            session.handoff, "bind", side_effect=Blocked("initialized")
-        ) as bind,
-        TaskIO() as io,
-    ):
-        assert (
-            session.run(
-                args, root, timing, root, lambda *a: backend, lambda *a: (1, units)
-            )
-            == 2
-        )
-        saved = bind.call_args.args[2]
-        assert saved["taskFile"] == "tasks/one.md" and saved[
-            "taskDigest"
-        ] == tasks.task_digest(text)
-        assert saved["version"] == 5 and saved["repairBudget"] == 7
-        assert saved["validationScope"] == ["dev/cde/s3"]
-        assert io == {"reads": 1}
 
 
 if __name__ == "__main__":

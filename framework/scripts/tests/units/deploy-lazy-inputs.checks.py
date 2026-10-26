@@ -18,14 +18,15 @@ import model.validation as model_validation
 import pytest
 from deploy import (
     controller,
-    handoff,
     inputs,
     model_cache,
     observed,
     scheduler,
-    session,
 )
-from deploy.model_cache import SessionModels
+from deploy import (
+    run_context as session,
+)
+from deploy.model_cache import RunModels
 from model.adapters.observed import mapped_resource, resource_index
 from model.format import FORMAT, INDEX, parse, serialize
 from model.format import patch as patch_properties
@@ -119,7 +120,7 @@ def check_model_load_once_parallel_and_observed(tmp_path, monkeypatch):
         )
     )
     dependency_index.rebuild(tmp_path)
-    cache = SessionModels(tmp_path, {})
+    cache = RunModels(tmp_path, {})
     loader = sources._read_model
     diagnose = sources._imports_model_references.diagnose
     with (
@@ -221,7 +222,7 @@ def check_unrelated_invalid_model_and_shared_index(tmp_path, monkeypatch):
     unconnected = scope.path.with_name("unrelated.properties")
     unconnected.write_text("this is invalid properties")
     with (
-        sources.model_session(SessionModels(tmp_path, {})),
+        sources.model_session(RunModels(tmp_path, {})),
         patch.object(
             dependency_index, "inventory", side_effect=AssertionError("inventory")
         ),
@@ -277,9 +278,9 @@ def check_claim_immutable_inputs_and_no_eager_decode(tmp_path):
     parameters.write_text("[]")
     runtime = SimpleNamespace(
         root=tmp_path,
-        session={
-            "infraManifest": {},
-            "unitDigests": {},
+        run_context={
+            "consumedInputs": {},
+            "inputDigests": {},
             "inputIdentities": {
                 p.name: dependency_index.revision(p) for p in (template, parameters)
             },
@@ -291,13 +292,13 @@ def check_claim_immutable_inputs_and_no_eager_decode(tmp_path):
     runtime.input_digest = partial(controller.input_digest, runtime)
     unit = {"name": "first"}
     session._callback_claim_inputs(
-        tmp_path, runtime.session, runtime, lambda: None, unit
+        tmp_path, runtime.run_context, runtime, lambda: None, unit
     )
-    assert set(runtime.session["unitDigests"]) == {"first"}
+    assert set(runtime.run_context["inputDigests"]) == {"first"}
     template.write_text('{"Resources": {}, "Description": "changed"}')
     with pytest.raises(Blocked, match="changed before first use"):
         session._callback_claim_inputs(
-            tmp_path, runtime.session, runtime, lambda: None, unit
+            tmp_path, runtime.run_context, runtime, lambda: None, unit
         )
 
 
@@ -328,13 +329,6 @@ def check_resume_skips_success_and_dependency_unknown(tmp_path):
         == "GROUP_COMPLETE"
     )
     assert backend.loads == backend.executed == ["2"]
-    backend.templates, backend.target = (
-        {},
-        {"awsRegion": "region", "awsAccountId": "account"},
-    )
-    assert handoff.dependencies(backend, units) == {
-        "__unloaded__": [u["name"] for u in units]
-    }
 
 
 def check_reference_dependent_validation_invalidated_after_observed(
@@ -342,7 +336,7 @@ def check_reference_dependent_validation_invalidated_after_observed(
 ):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, _ = deploy_properties_fixture(tmp_path)
-    cache = SessionModels(tmp_path, {})
+    cache = RunModels(tmp_path, {})
     with (
         sources.model_session(cache),
         patch.object(
@@ -447,7 +441,7 @@ def check_stack_metadata_defers_delivery_model(tmp_path, monkeypatch):
     design.parent.mkdir(parents=True)
     design.write_text(stack_markdown(design, values, tmp_path, validate_delivery=False))
     with (
-        sources.model_session(SessionModels(tmp_path, {})),
+        sources.model_session(RunModels(tmp_path, {})),
         patch.object(sources, "_read_model", wraps=sources._read_model) as loaded,
     ):
         _, units = inputs.load_units(
@@ -534,7 +528,7 @@ def check_owner_ambiguity_blocks_mapping(tmp_path, monkeypatch):
 def check_cache_permission_and_input_revision(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, _ = deploy_properties_fixture(tmp_path)
-    cache = SessionModels(tmp_path, {})
+    cache = RunModels(tmp_path, {})
     permission = sources._imports_model_importing_scope
     with (
         sources.model_session(cache),
@@ -557,7 +551,7 @@ def check_cache_permission_and_input_revision(tmp_path, monkeypatch):
         ):
             with pytest.raises(ValueError, match="denied"):
                 sources.load_model(scope.path)
-    with sources.model_session(SessionModels(tmp_path, cache.session)):
+    with sources.model_session(RunModels(tmp_path, cache.run_context)):
         for _ in range(2):
             with pytest.raises(ValueError, match="differs from saved session"):
                 sources.load_model(scope.path)
@@ -566,7 +560,7 @@ def check_cache_permission_and_input_revision(tmp_path, monkeypatch):
 def check_generation_stage_reuses_checked_model(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, _ = deploy_properties_fixture(tmp_path)
-    cache = SessionModels(tmp_path, {})
+    cache = RunModels(tmp_path, {})
     stage = tmp_path / "candidate-stage"
     with (
         sources.model_session(cache),
@@ -608,7 +602,7 @@ def check_generation_stage_reuses_checked_model(tmp_path, monkeypatch):
 def check_first_read_revision_race(tmp_path):
     path = tmp_path / "model.properties"
     path.write_text("input")
-    cache = SessionModels(tmp_path, {})
+    cache = RunModels(tmp_path, {})
     with patch.object(model_cache, "revision", side_effect=[[1] * 5, [2] * 5]):
         with pytest.raises(ValueError, match="changed during first read"):
             cache.read(path)
@@ -643,7 +637,7 @@ def check_index_corruption_and_related_model(
             del index["models"][relative]
             del index["files"][relative]
         dependency_index.write_sealed(tmp_path, path, index)
-    cache = SessionModels(tmp_path, {})
+    cache = RunModels(tmp_path, {})
     with sources.model_session(cache):
         if loaded_first:
             sources.load_model(scope.path)
@@ -741,7 +735,7 @@ def check_index_transaction_rollback_and_recovery(tmp_path, monkeypatch, interru
         with sources.publication_lock(tmp_path):
             pass
         assert scope.path.read_bytes() == original
-        with sources.model_session(SessionModels(tmp_path, {})):
+        with sources.model_session(RunModels(tmp_path, {})):
             sources.load_model(scope.path)
             assert dependency_index.owners(
                 tmp_path, scope.environment, scope.target, ["fixture-OriginalVpc"]
@@ -860,7 +854,7 @@ def check_readiness_blocks_before_mutation(tmp_path, monkeypatch, problem, statu
         backend.execute = partial(controller.execute, backend)
         backend.expected_digests = {}
     with (
-        sources.model_session(SessionModels(tmp_path, {})),
+        sources.model_session(RunModels(tmp_path, {})),
         patch.object(
             dependency_index, "inventory", side_effect=AssertionError("inventory")
         ),
@@ -895,7 +889,7 @@ def check_readiness_cache_and_fresh_process(tmp_path, monkeypatch):
     dependency_index.rebuild(tmp_path)
     unrelated.write_text("invalid unrelated Model")
     with (
-        sources.model_session(SessionModels(tmp_path, {})),
+        sources.model_session(RunModels(tmp_path, {})),
         patch.object(
             dependency_index, "read_sealed", wraps=dependency_index.read_sealed
         ) as index_reads,
@@ -916,7 +910,7 @@ def check_readiness_cache_and_fresh_process(tmp_path, monkeypatch):
     backend.observed_checks.clear()
     backend.observed_models.clear()
     with (
-        sources.model_session(SessionModels(tmp_path, {})),
+        sources.model_session(RunModels(tmp_path, {})),
         patch.object(
             observed, "resolve_resources", wraps=observed.resolve_resources
         ) as mappings,
@@ -956,7 +950,7 @@ def check_readiness_removal_and_ready_execution(tmp_path, monkeypatch):
         ]
     }
     with (
-        sources.model_session(SessionModels(tmp_path, {})),
+        sources.model_session(RunModels(tmp_path, {})),
         patch.object(
             controller.change_sets, "verify_execution", return_value=current
         ) as verify,
@@ -992,7 +986,7 @@ def check_readiness_and_collection_removal_scope(tmp_path, monkeypatch, policy):
     dependency_index.rebuild(tmp_path)
     unit = {"name": "fixture"}
     # Static ownership/Model validation must not project unconfirmed changes.
-    with sources.model_session(SessionModels(tmp_path, {})):
+    with sources.model_session(RunModels(tmp_path, {})):
         with patch.object(observed, "observed_destinations") as destinations:
             backend.observed_readiness(unit)
             destinations.assert_not_called()
@@ -1084,7 +1078,7 @@ def check_readiness_declared_destinations_after_changeset(
         + (allowed if problem == "declared" else allowed.replace(entry, ""))
     )
     dependency_index.rebuild(tmp_path)
-    with sources.model_session(SessionModels(tmp_path, {})):
+    with sources.model_session(RunModels(tmp_path, {})):
         backend.observed_readiness({"name": "fixture"})
         with pytest.raises(Blocked, match="observed"):
             backend.observed_readiness({"name": "fixture"}, {"changes": []})
@@ -1149,7 +1143,7 @@ def check_retained_and_updating_resources(tmp_path, monkeypatch, other_action):
     }
     dependency_index.rebuild(tmp_path)
     with (
-        sources.model_session(SessionModels(tmp_path, {})),
+        sources.model_session(RunModels(tmp_path, {})),
         patch.object(
             observed, "propagate_references", wraps=observed.propagate_references
         ) as propagate,
@@ -1196,7 +1190,7 @@ def check_index_noop_preserves_file_and_cache(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, _ = deploy_properties_fixture(tmp_path)
     dependency_index.rebuild(tmp_path)
-    cache = SessionModels(tmp_path, {})
+    cache = RunModels(tmp_path, {})
     with sources.model_session(cache):
         sources.load_model(scope.path)
         original = dependency_index.load(tmp_path)

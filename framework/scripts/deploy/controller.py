@@ -20,9 +20,9 @@ from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
 import deploy.failures as _imports_deploy_failures
-from deploy import change_sets, delivery, handoff, inputs, observed, secret_bootstrap
+from deploy import change_sets, delivery, inputs, observed, secret_bootstrap
 from deploy import recovery as repair_ops
-from deploy import session as session_ops
+from deploy import run_context as run_ops
 from deploy.guards import call, secret_value_missing
 from deploy.inputs import load_units
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
@@ -65,7 +65,7 @@ def create_runtime(
         save=lambda: None,
         guard=lambda: None,
         hashes={},
-        session={},
+        run_context={},
         refresh_validation=lambda unit: None,
     )
     runtime.aws = partial(aws, runtime)
@@ -174,16 +174,6 @@ def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
     try:
         runtime.templates[unit["name"]] = load_template_inputs(template, parameters)
     except (Blocked, ValueError):
-        if runtime.session.get("version") == 5:
-            runtime.session["effectiveDigests"].update(
-                handoff.effective(
-                    runtime.root,
-                    [unit],
-                    runtime.paths,
-                    runtime.deployment_input_paths,
-                    templates=runtime.templates,
-                )
-            )
         error = Blocked(
             "invalid/transform template or parameter input; inspect exact authorized source offline"
         )
@@ -220,20 +210,6 @@ def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
             artifact["bucket"] = deployment_bucket(
                 artifact["bucket"], design, runtime.root
             )
-    if runtime.session.get("version") == 5:
-        runtime.session["effectiveDigests"].update(
-            handoff.effective(
-                runtime.root,
-                [unit],
-                runtime.paths,
-                runtime.deployment_input_paths,
-                templates=runtime.templates,
-            )
-        )
-        runtime.session["declaredConsumers"] = handoff.dependencies(
-            runtime, runtime.units
-        )
-        runtime.save()
     if hasattr(runtime, "states") and unit["name"] in runtime.states:
         runtime.states[unit["name"]].setdefault("successfulPreparationOperations", {})[
             "decode_input"
@@ -246,7 +222,7 @@ def placement(runtime: SimpleNamespace) -> SimpleNamespace:
         runtime.environment,
         runtime.directory,
         runtime.target,
-        runtime.session,
+        runtime.run_context,
         runtime.save,
         runtime.aws,
         runtime.connection,
@@ -396,6 +372,10 @@ def verify_stack_ownership(runtime: SimpleNamespace, unit: StackUnit) -> None:
 def begin_prepare(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     runtime.load_inputs(unit)
     runtime.observed_readiness(unit)
+    document, parameters = runtime.templates[unit["name"]]
+    state["expectedOutputs"] = change_sets.required_outputs(
+        document, parameters, runtime.target, unit["name"]
+    )
     return change_sets.begin_prepare(
         unit,
         state,
@@ -416,7 +396,7 @@ def review_prepared(
     state: StackState,
     change_set: AwsResponse | None = None,
 ) -> str:
-    return change_sets.review_prepared(
+    result = change_sets.review_prepared(
         unit,
         state,
         runtime.approvals,
@@ -424,6 +404,11 @@ def review_prepared(
         runtime.describe_change_set,
         change_set,
     )
+    if result == "SUCCESS":
+        change_sets.verify_outputs(
+            runtime.aws, unit, state, state.get("expectedOutputs", {})
+        )
+    return result
 
 
 def prepare(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
@@ -577,7 +562,7 @@ def finish_repair(
 
 def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool:
     """Runtime recovery only. External IaC work always returns to the supervising LLM."""
-    history = state.setdefault("repairs", [])
+    entry = state.get("bootstrap")
     try:
         runtime.guard()
         repair_ops.require_authorized(runtime.root)
@@ -588,15 +573,8 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
             raise Blocked(
                 "unsafe rollback state; no automatic delete or ResourcesToSkip"
             )
-        if runtime.session.get("pendingRequest"):
-            raise Blocked("external IaC repair requires supervising LLM handoff")
-        pending = (
-            history[-1:]
-            if history and history[-1].get("classification") == "RUNTIME_BOOTSTRAP"
-            else []
-        )
-        if pending and pending[0].get("stage") in BOOTSTRAP_STAGES:
-            return runtime.bootstrap(unit, state, pending[0])
+        if entry and entry.get("stage") in BOOTSTRAP_STAGES:
+            return runtime.bootstrap(unit, state, entry)
         if any(
             secret_value_missing(e.get("ResourceStatusReason"))
             for e in state.get("failureEvents", [])
@@ -606,7 +584,7 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
         if (
             state.get("stackStatus") == "ROLLBACK_COMPLETE"
             and not state.get("emptyStackRecreated")
-            and not history
+            and not entry
             and runtime.cleanup_failed_create(unit, state, empty_only=True)
         ):
             state["emptyStackRecreated"] = True
@@ -625,6 +603,23 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
 
 
 def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
+    if state.get("externalOperation"):
+        stack = runtime.aws("describe_stacks", StackName=state["stackId"])["Stacks"][0]
+        if stack.get("StackId") != state["stackId"]:
+            raise Blocked("already-running AWS Stack identity changed")
+        status = stack["StackStatus"]
+        if status.endswith("_IN_PROGRESS"):
+            return status
+        if status not in {
+            "CREATE_COMPLETE",
+            "UPDATE_COMPLETE",
+            "IMPORT_COMPLETE",
+            "UPDATE_ROLLBACK_COMPLETE",
+        }:
+            raise Blocked("already-running AWS operation requires recovery: " + status)
+        state.clear()
+        state["status"] = "NOT_STARTED"
+        return "RECHECK"
     failures = _imports_deploy_failures
     state["pollCount"] = state.get("pollCount", 0) + 1
     # An old *_COMPLETE is not evidence that the new execution completed.
@@ -639,12 +634,18 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     if not operation:
         state["pollApiCount"] += 1
         current = runtime.describe_change_set(unit, state)
-        if current.get("ExecutionStatus") == "AVAILABLE":
-            state["status"] = "BLOCKED"
+        if current.get("ChangeSetId") != state.get("changeSetId") or current.get(
+            "StackId"
+        ) != state.get("stackId"):
+            raise Blocked("uncertain execution ChangeSet/Stack identity changed")
+        state["unconfirmedPolls"] = state.get("unconfirmedPolls", 0) + 1
+        if state["unconfirmedPolls"] >= 3:
             raise Blocked(
-                "execution not submitted; saved change set remains unexecuted"
+                "execution submission is unconfirmed; retain original token and inspect AWS"
             )
         return "UPDATE_IN_PROGRESS"  # Submission may be pending; never re-execute or release its slot.
+    if operation[0].get("StackId") != state.get("stackId"):
+        raise Blocked("execution token belongs to another Stack identity")
     state["operationStackId"] = operation[0].get("StackId")
     document, _ = runtime.templates.get(unit["name"], ({}, {}))
     state["failureEvents"] = []
@@ -682,6 +683,17 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
         raise Blocked(
             "stack status/event terminal status disagree; retrying observation"
         )
+    if stack_status in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}:
+        try:
+            change_sets.verify_outputs(
+                runtime.aws, unit, state, state.get("expectedOutputs", {})
+            )
+        except change_sets.OutputNotReflected:
+            # The AWS operation is terminal; report unapplied Outputs without retaining an execution lock.
+            state.update(
+                status="FAILED", stackStatus=stack_status, failureDetected=True
+            )
+            raise
     return stack_status
 
 
@@ -702,33 +714,21 @@ def controller_main(
         help="exact StackName; repeat for scope",
     )
     parser.add_argument(
-        "--state",
-        type=Path,
-        required=True,
-        help="persistent session path outside repository",
-    )
-    parser.add_argument(
         "--timing-log",
         type=Path,
         help="external JSONL phase durations, including authentication and AWS calls",
     )
     parser.add_argument("--profile")
     parser.add_argument("--approve-change-set", action="append", default=[])
-    parser.add_argument("--resume", action="store_true")
     parser.add_argument(
-        "--observe-only",
+        "--recover-operations",
         action="store_true",
-        help="resume observation/drain only, without mutation or accepting changed definitions",
-    )
-    parser.add_argument(
-        "--repair-result",
-        type=Path,
-        help="accept a helper-verified child result into this same session",
+        help="settle unfinished AWS/publication operations only; never start deployment",
     )
     parser.add_argument(
         "--sequential",
         action="store_true",
-        help="limit this session to one stack at a time without changing the design",
+        help="limit this run to one stack at a time without changing the design",
     )
     parser.add_argument(
         "--pause-after-group",
@@ -736,12 +736,8 @@ def controller_main(
         help="update phase only: explicit producer/consumer IaC handoff",
     )
     args = parser.parse_args(argv)
-    if (args.repair_result or args.observe_only) and not args.resume:
-        parser.error("--repair-result/--observe-only require --resume")
-    if args.repair_result and args.observe_only:
-        parser.error("--repair-result cannot be combined with --observe-only")
     root = (root if root is not None else Path.cwd()).resolve()
-    return session_ops.run(
+    return run_ops.run(
         args, root, timing, Path(__file__).parent.parent, create_runtime, load_units
     )
 
@@ -757,7 +753,7 @@ def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
             result = controller_main(argv, root, timing)
             # A nonzero result is a failed invocation even when handled internally.
             if result:
-                raise Blocked("controller stopped; see session/diagnostics")
+                raise Blocked("controller stopped; see operation journal/diagnostics")
             return result
     except (OSError, ValueError, Blocked) as error:
         print(f"CloudFormation controller: BLOCKED ({error})", file=sys.stderr)

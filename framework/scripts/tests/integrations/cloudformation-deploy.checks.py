@@ -16,7 +16,7 @@ import model.files as model_files
 import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
-from deploy.model_cache import SessionModels
+from deploy.model_cache import RunModels
 from deploy.observed import removed_resources, sync_successful
 from deploy.preparation import candidate
 from model.adapters import observed
@@ -105,7 +105,7 @@ def check_inputs(tmp_path):
         "## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n"
     )
     rejects(
-        lambda: M.session_ops.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]),
+        lambda: M.run_ops.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]),
         "infrastructure",
     )
 
@@ -1658,12 +1658,11 @@ def check_secretsmanager_arn_identifiers(publication_workspace):
     assert before == {path: path.read_bytes() for path in before}
     # The real collector completes the barrier before the next DeployOrder starts.
     session = {
-        "workflow": M.session_ops.handoff.new_workflow(),
         "states": states(selected),
         "metrics": {"observedSyncSeconds": 0},
     }
     assert (
-        M.session_ops.run_session(
+        M.run_ops.run_deploy(
             selected, 1, session, backend, lambda: None, sleep=lambda _: None
         )
         == "COMPLETE"
@@ -1682,12 +1681,11 @@ def check_secretsmanager_arn_identifiers(publication_workspace):
         setattr(failed, field, getattr(backend, field))
     outputs[0]["OutputValue"] = "wrong-key"
     session = {
-        "workflow": M.session_ops.handoff.new_workflow(),
         "states": states(selected),
         "metrics": {"observedSyncSeconds": 0},
     }
     assert (
-        M.session_ops.run_session(
+        M.run_ops.run_deploy(
             selected, 1, session, failed, lambda: None, sleep=lambda _: None
         )
         == "STOPPED"
@@ -1749,13 +1747,11 @@ def check_deploy_preparation_separates_producer_reads_from_writes(
     )
     allowed = paths_in(text, "## Allowed paths")
     assert producer not in sources
-    cache = SessionModels(tmp_path, {})
+    cache = RunModels(tmp_path, {})
     with model_sources.model_session(cache):
         snapshot = load_model(scope.path)
     assert producer in snapshot.dependencies
-    assert (
-        producer.relative_to(tmp_path).as_posix() in cache.session["modelInputManifest"]
-    )
+    assert producer.relative_to(tmp_path).as_posix() in cache.run_context["modelInputs"]
     assert producer.relative_to(tmp_path).as_posix() not in allowed
     assert "project.json" not in allowed and tmp_path / "project.json" in sources
     assert scope.path.relative_to(tmp_path).as_posix() in allowed

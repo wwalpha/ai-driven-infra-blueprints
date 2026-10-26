@@ -163,7 +163,7 @@ read は正本全体と WARNING、trace は正本の場所または派生元と�
 外部の可変辞書や、その辞書の読み取り専用proxyとは区別します。
 正本からのRuntime投影も同じ固定入力では一度だけ構築し、検証・生成で共有します。
 固定入力のオブジェクト同一性を、既存 `memo_table()` の実行内キャッシュと
-`SessionModels.checks` のキーに使います。識別のためのJSON化・内容ハッシュは行いません。
+`RunModels.checks` のキーに使います。識別のためのJSON化・内容ハッシュは行いません。
 `entries()` と行索引は固定入力だけを再利用し、返却した行の変更による汚染を防ぎます。
 可変辞書には同一性キャッシュを適用しません。
 
@@ -172,10 +172,10 @@ read は正本全体と WARNING、trace は正本の場所または派生元と�
 参照のないJSONは参照キャッシュを通りません。構文・AWS文書・Schema検査は引き続き実行します。
 Candidate / Rollbackは入力オブジェクト、別検証呼出しは `input_context()` により分離します。
 
-Observedの原子的公開後に `SessionModels.apply_observed()` が参照世代を更新します。
-参照先の影響範囲を確定できないため、他Serviceを含む当該セッションの参照結果を失効させます。
+Observedの原子的公開後に `RunModels.apply_observed()` が参照世代を更新します。
+参照先の影響範囲を確定できないため、他Serviceを含む当該実行の参照結果を失効させます。
 保持中のResolverもProducerと索引を再取得します。Desired自体は変更しません。
 現行のModel検証結果はJSON参照・表示・識別子の診断を含みDesiredだけに分離できないため、
-Observed更新後は全体を再検証します。同一世代の固定入力では既存 `SessionModels.checks` を再利用します。
-Modelの事前全件ロードは追加しません。Import承認、Deploy入力Manifest・再開、
+Observed更新後は全体を再検証します。同一世代の固定入力では既存 `RunModels.checks` を再利用します。
+Modelの事前全件ロードは追加しません。Import承認、Deploy実行中の入力固定・未完了操作Journal、
 配信・保存の整合性確認に使うSHA-256はこのキャッシュとは別の証跡として維持します。

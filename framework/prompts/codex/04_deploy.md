@@ -2,55 +2,29 @@
 
 ## Normal startup
 
+Human指定のenvironment、alias/account、execution account、Region/profile、StackNameとservice IDsを確定する。project.jsonの同じtargetだけを使い、認証失敗時に別credentialへ切り替えない。Task契約とAWS実行許可を確認する。Deploy本体はIaC、意図した設計、scenarioを変更しない。
 
-Human指定のenvironment/alias、resource/execution account、Region/profile、StackNameとservice IDsを確定する。未確定ならenvironment→複数target時のalias→account→scopeの順に一問ずつ確認し、同じproject.json targetの候補だけ示す。唯一targetにaliasを要求しない。configured awsProfileを使い、未設定時のみ明示profile/default chainを使う。不一致・認証失敗で別credentialへ切り替えない。
-
-Read before changing filesの必須本文と対象入力、Task候補を漏れなく読む。hash一致を未読範囲の読了証明にしない。生成物の存在・内容hash・scope・変更検知・機械検証を維持し、generated viewへのfallbackや値の推測をしない。設計変更・scenario実行は禁止。
-
-固定したworktree Python/PATH/PYTHONPATHで、Stack一覧・DeployOrder・並列数・Task/Targetと固定入力の識別情報を準備する。load_units()がStack Model/generated Stack view一致を確認する。未着手StackのIaC本文と全service Modelを先読み・全件検証しない。
+各起動は最新Worktree入力とAWS実状態から独立して実行する。永続Deploy Session、過去IaC Manifest、修復回数、SAME/NEW履歴、過去Human承認、Workflow Ledger/Registryは読み書きしない。旧Sessionファイルを移行・削除せず入力から除外する。以前SUCCESSだったStackも今回のIaCで通常のUPDATE候補とする。ローカルhashだけで適用済みと判定しない。
 
 ```console
-<fixed-python> framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --service <service-id> [--service <service-id> ...] --task-file tasks/<task-name>.md [--profile <profile>] [--sequential] [--allow-external-repair] [--repair-budget 20]
-```
-
-aliasなしは--aws-account-id。preparation.jsonのdocuments（<=6,000文字/chunk）、対象要約、契約候補を漏れなく確認する。確認済みの同一範囲だけ再読込を省略できる。inputsのhashとinputIdentities/generatedViewsの識別情報は読了やPASS証明ではない。欠損・不一致では停止する。Do not newly reregister already registered tasks. 新Taskは次の登録を最初の変更とし、runtime/hash/Task競合を再確認する。
-
-```console
+<fixed-python> framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --service <service-id> [--service <service-id> ...] --task-file tasks/<task-name>.md [--profile <profile>] [--sequential] [--allow-external-repair]
 <fixed-python> framework/scripts/deploy_preparation.py --register <external-preparation.json>
 <fixed-python> framework/scripts/deploy_preparation.py --run-controller <external-preparation.json>
 ```
 
-全Stackに一つのcontroller/sessionを使う。preparationはAWSなし。controllerが認証、Task/入力guard、既存Stack所有権、配送barrier、ValidateTemplate、ChangeSet、承認・実行・poll・drain・成功後同期を担当する。同じpreflight/APIをAgent側で重複実行しない。通常起動/Create/ExecuteはRemoveを含め全体mapping/lintなし。失敗修復/bootstrap/未同期SUCCESSだけ必要ownerと参照を解決する。DeployOrder/並行数を保ち、失敗時は新規開始を止めpeerをdrainする。SUCCESSは再実行しない。
+aliasなしは--aws-account-id。preparationはoffline。固定Python/PATH/PYTHONPATHを使い、documentsの必須本文、対象要約と契約候補を読む。hash一致は読了証明ではない。登録は最初の変更とする。既存Taskでは現在契約を選択しcontrollerを直接新規起動できる。preparation/controllerで同じ認証や検査をAI側から重複実行しない。
+
+```console
+<fixed-python> framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] [--profile <profile>] [--sequential] [--timing-log <external.jsonl>]
+```
 
 ## Lazy inputs and Model reuse
 
-One controller invocation owns one session `FileReads.models` cache. It shares normalized
-Model paths, read permissions, checked source snapshots, reference dependencies and desired
-validation across Stacks. First loads are serialized; unrelated Tasks and resumed processes
-never inherit unchecked in-memory results. A resumed process verifies the signed session's
-consumed input revisions and loads only the Models it actually needs.
+一つのDeployRunContextをメモリ内だけで保持する。load_units()でStack Modelとgenerated Stack view一致、DeployOrder、MaxConcurrentStacksを確認する。空きslot分だけIaCをclaim/decodeし、未着手IaC本文・全service Modelを先読みしない。同じModelのロードと同一世代の検証は実行内共有Cacheで一回とする。Observedで参照依存が変化した場合だけ既存の検証Cacheを失効させる。入力のbytes/識別情報/集合、Task、targetを固定し、途中変更は取り込まず停止する。次の独立起動では更新された入力を採用する。
 
-The scheduler claims at most the available concurrent Stack slots in the current DeployOrder.
-Each claimed Stack pins its template/parameters/artifacts, decodes inputs and prepares delivery,
-ValidateTemplate and ChangeSet. AWS success and observedSynced remain separate. Import/Export
-checks stay fresh at each Stack boundary; pending Stack templates are explicitly unloaded.
-External repair resolves affected/previously started inputs and blocks any effect on SUCCESS;
-unknown dependencies never authorize execution.
+既存Stack所有権、ValidateTemplate、Import/Export、S3配送barrier、ChangeSet再取得、実行Token、poll/drainを維持する。AWSの実行中Stackは完了を観測してから新しいChangeSetを作る。不明状態はBLOCKED。No Changeでも現在のAWS terminal successと必要Output/Exportを確認し、欠落・owner/value不一致なら未反映として停止する。KMS KeyId Export 4件の追加も例外を作らない。
 
-Observed ownership and incoming references use the sealed, derived Model dependency index.
-It is maintained inside Model publication, including deletion/retarget; observed-only changes
-update file revisions without rebuilding desired metadata. The index is checkout-local external
-metadata, not Model authority. Its explicit offline bootstrap is
-`<fixed-python> framework/scripts/model/cli.py index --repository-root .`; this is separate
-maintenance, never controller/preparation startup or an automatic Deploy fallback. Missing,
-stale, inconsistent or ambiguous ownership stops observation with its reason. Do not build an
-index by loading all Models during Deploy. Preserve AWS SUCCESS and resume the same session
-after the blocker is resolved. Resume journal recovery updates only proven observed file revisions.
-
-Observation plans contain only selected Models, necessary dependencies, exact before/after
-bytes, source part sets, generated outputs and execution evidence. Publication keeps the Task
-boundary, CAS, publication lock and rollback journal. Apply verified observed deltas to cached
-snapshots and retain byte-identical desired validation; do not rescan unrelated Models.
+Stack成功ごとにObservedと必要参照を同期する。AWS SUCCESSとobservedSyncedを分離する。既存publication lock、Task authority、Modelのbefore/after CAS、part集合、Rollback journal、Markdown/JSONのatomic publicationを維持する。checkout-localのModel ownership/reference indexは既存Model publicationが保守し、Deploy中に全Model走査で再構築しない。欠損/曖昧な識別子や削除証拠を推測しない。Retain/DELETE_SKIPPED/不明削除はidentifierをresetしない。
 
 ## Read before changing files
 
@@ -77,7 +51,7 @@ Ordinary deploy AI design inputs are authoritative model properties. Obtain desi
 
 Markdown Resource links are internal Model addresses. Resolve them through the common scope-checked resolver and read only necessary producer groups; use the producer Model saved anchor as selector; never use generated Markdown as authority. No generated Markdown fallback is permitted.
 
-Retain generated artifact existence/identity checks and scoped machine validation. Pin body hashes for consumed inputs and generated publication candidates when needed; keep save conflicts and stop conditions. Only for explicit display defect/mismatch investigation, necessary artifact portions may be read. Classify model/generated artifact/IaC mismatches and deployment failures under [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair). The supervising LLM handles proven IaC defects through the separate implement handoff below. The same controller handles authorized RUNTIME_BOOTSTRAP without repository changes. Secrets Manager initial-value bootstrap classification, CREATE ownership/account/region/schema/value checks, intent/token persistence, AWS mutation and failed-stack retry belong exclusively to the controller; do not manually run put-secret-value.
+Retain generated artifact existence/identity checks and scoped machine validation. Pin body hashes for consumed inputs and generated publication candidates when needed; keep save conflicts and stop conditions. Only for explicit display defect/mismatch investigation, necessary artifact portions may be read. Classify model/generated artifact/IaC mismatches and deployment failures under [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair). The supervising LLM handles proven IaC defects through the separate implement handoff below. The same controller handles authorized RUNTIME_BOOTSTRAP without repository changes. Secrets Manager initial-value bootstrap classification, CREATE ownership/account/region/schema/value checks, unfinished intent/token persistence, AWS mutation and failed-stack retry belong exclusively to the controller; do not manually run put-secret-value.
 
 `<target-directory>` is the selected target's alias if present, otherwise AWS account ID.
 
@@ -90,208 +64,55 @@ Add [Framework regression](../../rules/loop-engineering.md#framework-regression)
 
 ## Confirm unapproved delete/replacement
 
-If only unapproved delete/replacement is detected, do not treat it as deployment failure/task completion; wait for human confirmation in the same task. Do not uniformly hold all deployment for confirmation.
+Remove、Replacement=True/Conditionalは今回のChangeSet全体についてHumanの明示承認を必要とする。Stack、ChangeSet ID、LogicalId、Action、Replacement、PolicyAction、既知の物理resource/dataへの影響を示す。不明な影響は未確認と記す。変更がない通常Deployを一律承認待ちにしない。
 
-In the following order, display explanations humans can decide from, not just technical summaries.
+```console
+<fixed-python> framework/scripts/cloudformation-deploy.py <same-target-and-stack-arguments> --approve-change-set <current-ChangeSet-ID>
+```
 
-1. Detected changes: Show stack names or Terraform roots/workspaces and add, change, delete/destroy, and replacement counts.
-2. Direct stop reason: Show which delete/replacement does not match preapproval.
-3. Target resources: For CloudFormation, show logical IDs, physical IDs, resource types, Remove/Replace, `Replacement`, `PolicyAction`, `DeletionPolicy` / `UpdateReplacePolicy`, and known change reasons. For Terraform, show resource addresses, resource types, destroy/replacement actions, and known change reasons without sensitive values.
-4. Execution impacts: Explain known impacts on physical resources, stored data, settings, access, and availability plainly. Do not guess; explicitly mark unconfirmed impacts as `未確認`.
-5. Current execution state: Explicitly state that target change sets/saved plans are unexecuted; distinguish other successful, failed, or unexecuted units in the same task, accurately stating whether AWS resources changed.
-6. Available responses: Present options to approve all targets and continue the same deployment, perform additional read-only confirmation needed for decisions, decline and stop execution, or change IaC in a separate task for resource retention/releasing management. Do not imply that only part of the current change set/plan can be executed.
-7. Human confirmation question: In one question, ask whether to approve all listed delete/replacement in the same change set/saved plan for the stated reasons.
+未完了ChangeSetをAWSで再取得し、同じStack ID、ID、全Changes、今回の入力digestが一致し、CREATE_COMPLETE/AVAILABLEの場合だけExecuteする。承認Digestはメモリ内だけに保持する。中断後は再承認が必要。別ID、変更された内容/入力、期限切れ、部分承認では実行しない。旧--state/--resume/--repair-result/--observe-onlyオプションは存在しない。
 
-If the human requests more information, execute only list/get/describe-equivalent read-only operations within the same task's deployment scope to supplement explanations, then present the same question again. Do not delete data, change resources, or repair IaC.
+## Unfinished AWS operation recovery
 
-If the human approves all targets/reasons, update Authorized delete/replacement in `tasks/<task-name>.md` to approved resources, actions, and reasons, confirm the following, and resume the same task.
+`deploy/operation_journal.py`だけがaccount/Region別の外部Journalを管理する。target排他の下で未完了ChangeSet、Execute Token/送信段階、未完了Secrets初期化、未同期成功証拠とpublicationの必要最小限のbefore/after情報を保存する。署名はその未完了操作の整合性だけを保護し、履歴台帳を作らない。正常完了後はJournalを破棄する。
 
-- For CloudFormation, retrieve the same change set ID again and execute only if status is `CREATE_COMPLETE`, execution status is `AVAILABLE`, and approved logical IDs, actions, replacements, and `PolicyAction` match.
-- For Terraform, reconfirm the same saved plan and apply that plan binary only if approved resource addresses, resource types, and actions match.
-- If change sets/plans expired, were recreated, or changed, do not use previous approval; explain new contents and reconfirm.
+起動時にJournalがある場合だけAWSと照合する。元StackId/ChangeSetId/Tokenのeventとterminal statusから完了・失敗・未確定を区別し、不明な送信を新Tokenで再実行しない。AWS成功・Observed未同期はAWSの成功template/parametersと元のModel入力を検証して同期し、再Executeしない。第三者のModel変更は上書きしない。未完了publicationは元Taskの権限と正確なbytesで回復し、解けなければBLOCKED。
 
-If the human does not approve or approves only a subset, stop without executing change sets/plans. Even if resource retention, removal from CloudFormation management, or configuration changes are needed, do not change IaC/intended design in this deploy phase.
+```console
+<fixed-python> framework/scripts/cloudformation-deploy.py <target-and-stack-arguments> --recover-operations
+```
 
-CloudFormation failure stops new starts, drains accepted peers and synchronizes successful observations. The LLM investigates the preserved failure set and uses the external handoff below only when explicitly authorized. Keep runtime recovery independent. Approval waits resume the saved ChangeSet; auth/read/guard/unknown-submission/observed errors are never converted automatically to IaC repair. Terraform failures retain their existing stop and partial-state investigation rules.
+この入口は未完了操作の確定/同期だけを行い、新規Deployを開始しない。残った待機生成は完了と報告しない。通常起動は安全に確定後、新しいRunContextで最新IaCからChangeSetを作る。旧SessionがあってJournalがなくてもAWS実行中状態を直接観測する。lockが残る場合はcontroller終了と所有権を確認するまで勝手に削除しない。
 
-## Resume
-
-Resume the existing Task/session with --resume and only Human-approved --approve-change-set IDs. Preserve original intent/token, ChangeSet/approval and input evidence. Reacquire boundary AWS data; historical static validation metadata is never execution permission. Unsafe migration stops with its reason, retaining SUCCESS and unsynchronized work. Do not replace a session or rerun successful Stacks merely because modules/transport changed. External changes require --resume --repair-result, signed child validation/integration evidence, unchanged intended Model/target/scope, verified execution inputs and the original workflow ledger.
-
-Session v5 requires lazy input identities and consumed-input manifests. Older formats stop before execution/publication; do not create a replacement session or reset its history. Retain the old controller/session for its supported observation procedure. For v5, --resume --observe-only observes/drains existing identities without mutation or Model publication. See [Controller sessions](../../rules/cloudformation.md#controller-sessions-and-execution-timing).
+Secrets初期化はAWSのVersion/Stage、未完了ClientRequestToken、現在段階から冪等性を判定する。既存のCREATE owner/account/Region/schema検証とprivate stageを維持し、他VersionのAWSCURRENTを移動しない。完了したTokenや修復履歴を次回へ引き継がない。同じ実行内のbootstrap/empty-shell retryは有限とする。
 
 ## External IaC repair handoff
 
-This CloudFormation-only workflow requires the original Human-authorized contract
-`External IaC repair: allowed`, an absolute external `Deploy repair session`, and
-separate `Runtime recovery: allowed` when runtime recovery is authorized. Preparation
-adds the external-loop permission only with `--allow-external-repair`; the optional
-`--repair-budget N` sets the initial positive cycle budget (default 20 per approval
-interval, a safety bound rather than a measured optimum). Parent Modified files and
-Allowed paths contain its contract and authorized observed/generated outputs; never
-add templates, parameters or artifact sources for repair.
+CloudFormationのみ。元Taskの`External IaC repair: allowed`が必要。Runtime recoveryは独立した`Runtime recovery: allowed`で制御する。失敗後は新規開始を止めpeerをdrainし、未完了AWS操作とpublicationを先に確定する。LLMが今回の失敗Stack/AWS error、正確なIaCと承認済Modelを調査する。承認待ち、認証/権限、未知の送信、設計不足はIaC修復権限を与えない。
 
-After STOPPED, the supervising LLM investigates the saved `failureObservations` and
-exact approved Model/input locations. No Python deploy process starts an LLM or
-implement. Keep execution status independent of cause: safe terminal failed executions
-and proven unexecuted IaC failures can be diagnosed; approval waits resume the same
-ChangeSet without a repair attempt. Authentication/authorization, guards, reads,
-unknown submission, observed publication, deficient design and scope expansion need
-their own investigation/Human decision. BLOCKED alone grants no repair authority.
-
-Write non-secret external diagnosis JSON with `revision` and `problems`. The LLM
-compares AWS events/execution state, exact input IaC, approved Model, and all retained
-diagnoses/repairs. Each entry requires `relation: SAME | NEW | UNKNOWN`,
-`relatedProblemIds`, a concrete `reason` (at least 32 characters, explaining observed
-facts and the causal comparison rather than boilerplate), and `evidenceRefs` containing
-`{observationId, revision, eventIndices}` for the current and related historical failures.
-These reuse saved observations; `inputRefs`/`modelRefs`/optional `constraintRefs` below
-pin the corresponding source revisions. Do not put raw secrets or AWS prose in JSON.
-
-SAME names existing IDs for one common cause and reuses that cause's attempts, even
-across Resources. NEW compares all retained prior IDs (conservatively including other
-Resources), explains the specific difference and cites corresponding observations.
-Examples: another Property with a newly observed Property failure, or the same Property
-with a different observed constraint code, may support the LLM's NEW analysis. They do
-not prove a new cause by themselves. The same IAM permission deficiency across Resources
-can be SAME; identical error codes can still hide distinct constraints. After correcting A,
-explain whether B became observable and why it differs. Python never makes these causal
-judgments. It only rejects absent/inconsistent evidence and unsafe repeated observations.
-
-For SAME/NEW also supply `observationId`, `eventIndices`, `resourcePath`, formal
-`resourceType`, `operation`, `property`, confirmed `constraint`, `cause`, `inputRefs`
-and `modelRefs`. Input references identify exact `path`, `sha256`, and JSON `pointer`
-(empty for a whole unparseable input/artifact); Model references identify exact `path`,
-`sha256`, and authoritative `key` belonging to the failed resource. Supported causes
-remain IAC_PROPERTY, IAC_SYNTAX, IAC_PARAMETER, IAC_ARTIFACT and IAC_PERMISSION.
-IAC_PROPERTY must reference its claimed template Property and approved Model row.
-Optional provider `constraintRefs` identify path/hash/pointer and matching ResourceType.
-Cover the entire failure set, including rollback/delete peers.
-
-UNKNOWN is a valid saved diagnosis. Omit unproved cause/constraint/property fields;
-never fill them with dummy strings. Cite known observations and available source locations,
-perform additional authorized read-only investigation, and defer to Human if unprovable.
-No repair request is allowed while any failure is UNKNOWN or insufficiently distinguished.
-A changed label, invalid value, schema pointer, Task, RequestId, time or hash never buys a
-new cause/attempt. NEW with an already known structured target/operation/code/Property
-observation stays NEEDS_DIAGNOSIS even if a different schema pointer exists. If genuine
-causes cannot be distinguished structurally, stop for Human; do not invent evidence or
-relabel the problem. SAME also cannot transfer known observations to another cause.
-Reference existence/revision and structural differences are mechanical safety conditions,
-never Python confirmation that the semantic diagnosis is correct.
-
-The LLM runs these commands explicitly from the original managed Worktree, using its
-registered Python for task commands and the ordinary launcher for lifecycle commands:
+controllerが表示する`repairFailure`は今回の失敗だけの一時署名証拠。起動時には読まない。外部diagnosis JSONは失敗Stack名をkeyとし、各値に具体的な`reason`、`inputRefs: [{path, sha256}]`、`modelRefs: [{path, sha256, key}]`を記す。Model keyは実在するdesired entry。秘密値、過去比較、ダミー原因は記録しない。原因が確認できなければHumanへ報告し修復を依頼しない。
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_handoff.py diagnose --state <session.json> --diagnosis <external-diagnosis.json>
-python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_handoff.py request --state <session.json> --problem <problemId> [--problem <problemId>] --path <exact-IaC-path> [--path <exact-IaC-path>] --expectation <external-expectation.json>
-python3 -B framework/scripts/worktree_task.py repair-checkpoint --task-id <original-task-id> --state <session.json>
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<original-task-id>.md --suspend-reason "authorized implement repair request <requestId>"
-python3 -B framework/scripts/worktree_task.py create --task-id <repair-task-id> --repair-request <request.json>
+python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_handoff.py --failure <current-failure.json> --diagnosis <external-diagnosis.json> --path <exact-IaC-path> [--path <exact-IaC-path>]
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<original>.md --suspend-reason "one-shot implement repair <requestId>"
+python3 -B framework/scripts/worktree_task.py create --task-id <child> --repair-request <request.json>
 ```
 
-The expectation JSON is a nonempty list of `{stack, resourcePath, operation, status}`
-objects covering exactly the target problem operations. Resource statuses are
-CREATE_COMPLETE/UPDATE_COMPLETE/IMPORT_COMPLETE; a successful unexecuted preparation
-operation uses status SUCCEEDED. Reuse the request/attempt on interruption. Reservation
-occurs once; multiple target problems each get one attempt while the global budget
-uses one cycle. One attempt owns one child Task, including static failures.
-
-Checkpoint validates the parent's permitted differences and observed barrier without
-completing deploy. The sealed request fixes parent Worktree/branch/start/tip, integration
-destination, Task/target/scope, original input/design digests, execution/failure evidence,
-problem IDs and exact permitted IaC paths. Create with `--repair-request` starts at that
-suspended parent tip; ordinary Create still uses the configured base. In the returned
-child Worktree register a new infrastructure/implement contract with target fields,
-`Deploy repair request: <absolute request.json>`, identical Validation scope, and
-AWS API execution/AWS mutation/Deploy/apply all forbidden. Allowed paths are exactly
-the request's IaC paths plus its own contract. Never edit the parent contract or Model.
-Follow /implement, correct only defects repairable from the existing approved design,
-and use the existing same-child static repair limit of 3.
+最初のcommandは親の許可差分を検証してcheckpointし、Task/target/入力・承認済Model・exact IaC paths・親branch/tipを固定した単発requestを作る。別Implement Worktreeの契約はinfrastructure/implement、同Validation scope、`Deploy repair request: <absolute request.json>`を持つ。Allowed pathsは依頼IaCと自契約のみ。AWS API execution/AWS mutation/Deploy/applyは全てforbidden。Model変更や親への権限追加は禁止。
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<repair-task-id>.md --source <external-child-contract.md>
-python3 -B framework/scripts/worktree_task.py repair-validate --task-id <repair-task-id> --repair-request <request.json>
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<repair-task-id>.md --complete
-python3 -B framework/scripts/worktree_task.py finalize --task-id <repair-task-id>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<child>.md --source <external-child-contract.md>
+python3 -B framework/scripts/worktree_task.py repair-validate --task-id <child> --repair-request <request.json>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<child>.md --complete
+python3 -B framework/scripts/worktree_task.py finalize --task-id <child>
+python3 -B framework/scripts/worktree_task.py cleanup --task-id <child>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<original>.md --resume
+python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py <current-target-and-stack-arguments>
 ```
 
-repair-validate executes the existing scoped task loop in registered Python, records
-its real command/result and all tracked/dependent input hashes, and seals the receipt
-outside Git. Static PASS means a candidate for retry; it is not AWS resolution.
-finalize rechecks contract/snapshot, commits exact bytes, and ff-only integrates into
-the pinned suspended parent. Its durable intent supports retry after commit/merge
-interruption. Its result preserves child contract, blob/hash transitions, effective
-inputs, validation snapshot and integration commit after child cleanup. A handwritten
-PASS, a failure-approval exception, stale validation, extra files/commits, or a changed
-parent tip cannot produce an accepted result. No AWS or deploy/apply runs in child.
+既存scoped implement検証を実行し、実際のPASS、依存hash、exact commit/paths/before-afterを検証して親へff-only統合する。static失敗は同じchild/requestで最大3回。失敗承認の例外で修復結果を発行しない。統合中断は同じhelperのintentにより回復する。親の最終検証は現在Taskの単発commit証拠だけを帰属させ、同fileへの余分な変更を拒否する。統合後は単発request/失敗/validation/resultを破棄し、現在Task完了時に一時帰属情報も除去する。累積履歴を作らない。
 
-From a surviving root, clean up the child before continuing the parent. The supervising
-LLM explicitly resumes only the original Task named by this preauthorized request:
-
-```console
-python3 -B framework/scripts/worktree_task.py cleanup --task-id <repair-task-id>
-python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<original-task-id>.md --resume
-python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py <original-target-and-stack-arguments> --state <same-session.json> --resume --repair-result <result.json>
-```
-
-The dedicated result entrance plans and seals one input revision under exclusion before
-AWS recovery/execution. Normal --resume accepts no external IaC change. InputDigest,
-intended design/Model dependencies and Task/target/scope retain their authority; only
-verified child IaC manifests/unit digests/caches advance. Unknown commits/bytes and
-post-validation dependency changes are rejected. Final parent validation attributes
-only actual ordered before/after child transitions; it does not exempt whole files or
-expand parent permissions. Same-result replay recovers that acceptance without resetting
-RUNNING/SUCCESS or sending Execute again. Old/unrelated/out-of-order results fail closed.
-
-Affected unexecuted units and declared consumers discard old delivery, ChangeSets,
-client tokens and approvals. Input-unchanged SUCCESS/observed synchronization is retained.
-Shared-input or dependency impact on SUCCESS waits for scope confirmation. Failed
-executions first recheck original StackId/token, original failure safety and live state;
-unknown operations are observed through their existing identity before another execute.
-A failed, empty REVIEW_IN_PROGRESS CREATE shell is cleaned only with original
-Stack/ChangeSet ownership, FAILED/UNAVAILABLE, no execution, empty inventory and live
-protection checks; its status is never rewritten as rollback. Runtime cleanup requires
-the original separate recovery authorization. Each retry uses a new ChangeSet and new
-destructive approval when applicable.
-
-Python issues stable opaque problem IDs per common cause and request target
-(logical target/Stack/resource/type/operation); `causeId` links the common LLM-diagnosed
-cause across targets. Display/property/constraint labels are evidence, not identity keys.
-Task IDs, request IDs, time/token and changed hashes are evidence only. SAME retains
-IDs for existing targets and shares attempts/stops across all targets of that cause.
-Observation sets and the repaired subset remain separate; diagnosis rewrites never
-refund reservations. All diagnoses are retained in the signed workflow ledger.
-
-A→repair→A without observable target progress stops on the second distinct execution;
-A→B continues with distinct evidence; A→B→A stops as a cycle/regression. Untargeted B in
-A+B does not consume a B failure. Only confirmed target/nested operation successes count
-as progress, with at most 3 cycles per problem. File changes, static PASS, LLM claims,
-peer success and absence of A before its validation point are not resolution. Existing
-decoding excludes template comments/formatting from effective inputs; parameters and
-artifact content join the fingerprint. Unchanged or known failed effective input is
-rejected before redeploy. Unchanged-IaC runtime recovery remains a separate route.
-
-At the global limit retain all history and WAITING_HUMAN. There is currently no
-machine-verifiable external Human budget approval boundary. `deploy_handoff.py budget`
-always refuses extension, persists WAITING_HUMAN and returns nonzero; arbitrary
-`--authorization` text, handwritten JSON, environment variables or LLM declarations are
-not approval. Do not edit sessions/contracts to expand an existing interval. Even a future
-authentic extension must bind workflow/interval/count/single use and cannot release
-per-cause no-progress/cycle stops or authorize delete/replacement or elevated permissions.
-
-Signed workflow ledger/save intents prevent rollback/new-file resets. The Worktree
-helper's sealed account/Region/overlapping-Stack registry retains the original workflow.
-Closing drained/synchronized state archives any pending request and counts but cannot
-release an unresolved workflow to a new Task, even with another label. Only COMPLETE
-with all successful observations synchronized releases overlapping scope. CLOSED never
-re-executes. Resume the original session rather than resetting history. Close never
-cleans unknown AWS operations or unfinished children.
-
-After an interrupted writer exits, retain/review locks using existing ownership rules;
-never delete unknown locks. `deploy_handoff.py recover-session --state <original-path>`
-restores the same Task's latest signed state including cause links/diagnoses and attempts.
+修復後のDeployは独立した新規起動で、最新IaCとAWSからChangeSetを評価し、削除/置換なら新たなHuman承認を取る。PythonがLLM/別Taskを自動起動しない。修復後の独立Deployを際限なく自動連続起動することは禁止。
 
 ## Terraform
 
@@ -299,6 +120,4 @@ Use project.json target, existing roots/workspaces/backend/variable inputs and t
 
 ## Verify and finish
 
-AWS terminal SUCCESS and observedSynced are separate. Uniquely resolve only successful unsynchronized resources and necessary references, plan every update, then use the existing atomic Model/publication guard and service-scoped generation. Retain/DELETE_SKIPPED/unknown destruction and integrated children without identifiers never reset a parent. Preserve AWS SUCCESS on ambiguous synchronization, stop starts, drain peers, and resume only unsynchronized plans with original execution evidence. Do not store generated ARNs.
-
-Confirm only authorized repair/observed diffs; run one classified final validation under loop-engineering. An ordinary deploy uses blueprint-loop.py --mode task --task-file tasks/<task-name>.md. Required Validation scope/Acceptance and Git diff checks remain; no automatic next phase or scenario tests. Report execution/approval/observed states, timing and blockers separately. Do not store verification reports in the repository or claim AWS success from offline checks.
+AWS変更、No Change、未反映Output/Export、Observed、生成、未確定操作を分けて報告する。Issue Gateは既存の非ブロッキング方針を維持する。Task scope/Acceptanceと許可された差分を確認し、loop-engineeringのValidation policyで必要な最終検証だけを実行して完了する。通常のProject Deployはscoped task loopを使う。offlineテストから実AWS成功を主張せず、次phaseやscenarioを開始しない。

@@ -105,6 +105,11 @@ def run_group(
             try:
                 if error:
                     raise error
+                if status == "RECHECK":
+                    state.clear()
+                    state["status"] = "NOT_STARTED"
+                    save()
+                    continue
                 state["stackStatus"] = status
                 if (
                     state.get("failureDetected")
@@ -120,6 +125,7 @@ def run_group(
                 elif not status.endswith("_IN_PROGRESS"):
                     raise Blocked(f"unrecognized stack status: {status}")
                 state.pop("pollError", None)
+                state.pop("pollReadFailures", None)
                 if state["status"] in {"SUCCESS", "FAILED"}:
                     state["executionSeconds"] = time.time() - state.get(
                         "executionStarted", time.time()
@@ -127,9 +133,12 @@ def run_group(
             except Exception as error:
                 # Lost read access is not proof of terminal failure. Drain/retry only.
                 state["pollError"] = str(error)
+                state["pollReadFailures"] = state.get("pollReadFailures", 0) + 1
                 failures.exception(state, error, "POLL")
                 stopped = True
             save()
+        if any(s.get("pollReadFailures", 0) >= 3 for s in states.values()):
+            return "STOPPED"
         if any(
             states[u["name"]]["status"] == "SUCCESS"
             and not states[u["name"]].get("observedSynced")

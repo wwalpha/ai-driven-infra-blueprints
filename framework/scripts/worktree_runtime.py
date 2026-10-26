@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -9,7 +10,6 @@ from types import SimpleNamespace
 
 import deploy.contracts as _imports_deploy_contracts
 import deploy.handoff as _imports_deploy_handoff
-import deploy.inputs as _imports_deploy_inputs
 import model.core as _imports_model_core
 import model.sources as _imports_model_sources
 import task_contract as tasks
@@ -20,7 +20,6 @@ import validation.loop as _imports_validation_loop
 import validation.task as _imports_validation_task
 import validation_scope as _imports_validation_scope
 import worktree_python as python_env
-import worktree_state
 import worktree_task as wt
 from utils.sealed_evidence import read_sealed, write_sealed
 
@@ -129,94 +128,9 @@ def validate_final_candidate(candidate: wt.FinalCandidate) -> wt._ValidatedCandi
     return wt._ValidatedCandidate(candidate, code)
 
 
-def bind_deploy_workflow(where, session_path, session, ledger, *, activate=False):
-    """Prevent a new Task from resetting an overlapping unfinished deploy workflow."""
-    fingerprint = _imports_utils_json_format.fingerprint
-    # Pure session units have no Git; production deploy already requires clean Git inputs.
-    if not (where / ".git").exists():
-        return
-    managed_task_state = worktree_state.managed_task_state
-    root, _, primary = wt.repository(where)
-    directory = wt.metadata_directory(primary) / "deploy-workflows"
-    target = session["target"]
-    key = fingerprint(
-        [
-            target.get("awsExecutionAccountId", target["awsAccountId"]),
-            target["awsRegion"],
-        ]
-    )
-    file = directory / (key + ".json")
-    if directory.is_symlink() or file.is_symlink():
-        raise wt.Blocked("deploy workflow registry must not use symlinks")
-    if not activate and not file.exists():
-        return
-    managed_task_state(root, session["taskFile"])
-    directory.mkdir(parents=True, exist_ok=True)
-    lock = directory / "registry.lock"
-    try:
-        lock.mkdir()
-    except FileExistsError:
-        raise wt.Blocked(
-            "deploy workflow registry busy/interrupted; retain for review"
-        ) from None
-    try:
-        owners = read_sealed(primary, file) if file.exists() else []
-        current = {
-            "workflowId": session["workflow"]["workflowId"],
-            "repository": str(root),
-            "taskFile": session["taskFile"],
-            "session": str(session_path),
-            "ledger": str(ledger),
-            "scope": sorted(session["states"]),
-        }
-        existing = False
-        for owner in owners:
-            if owner["workflowId"] == current["workflowId"]:
-                if owner != current:
-                    raise wt.Blocked("deploy workflow ownership/Stack scope changed")
-                existing = True
-                continue
-            if not set(owner["scope"]) & set(current["scope"]):
-                continue
-            previous_ledger = Path(owner["ledger"])
-            if previous_ledger.with_name(previous_ledger.name + ".intent").exists():
-                raise wt.Blocked(
-                    "recover original workflow save intent before another Task"
-                )
-            previous = read_sealed(Path(owner["repository"]), previous_ledger)
-            if (
-                previous["workflowId"] != owner["workflowId"]
-                or previous["session"] != owner["session"]
-            ):
-                raise wt.Blocked("previous deploy workflow identity cannot be verified")
-            state = previous["state"]
-            finished = state["workflow"].get("status") == "COMPLETE" and not state.get(
-                "pendingRequest"
-            )
-            if not finished or any(
-                s["status"] == "RUNNING"
-                or s.get("pollError")
-                or s.get("cleanupStatus") == "DELETE_INTENT"
-                or s["status"] == "SUCCESS"
-                and not s.get("observedSynced")
-                for s in state["states"].values()
-            ):
-                raise wt.Blocked(
-                    "unfinished deploy workflow owns overlapping Stacks; resume/inherit its retained history: "
-                    + owner["session"]
-                )
-        if activate and not existing:
-            owners.append(current)
-            write_sealed(primary, file, owners)
-    finally:
-        lock.rmdir()
-
-
 def deploy_request(where, request_path):
-    """Read the sealed handoff through the parent seal and verify its live checkpoint."""
-    task_digest = _imports_deploy_contracts.task_digest
-    external = _imports_deploy_handoff.external
-    request_path = external(Path(where), request_path)
+    """Read one pinned request, owned by the current parent Task lifecycle."""
+    request_path = deploy_handoff.external(Path(where), request_path)
     envelope = json.loads(request_path.read_text(encoding="utf-8"))
     parent = Path(envelope["payload"]["repository"])
     request = read_sealed(parent, request_path)
@@ -226,29 +140,21 @@ def deploy_request(where, request_path):
         or request.get("parentBranch") != state["branch"]
     ):
         raise wt.Blocked("repair request parent ownership mismatch")
-    session = json.loads(Path(request["session"]).read_text(encoding="utf-8"))
-    locked = _imports_deploy_handoff.locked
-    restore = _imports_deploy_handoff.restore
-    with locked(Path(request["session"])):
-        restore(parent, Path(request["session"]), session)
-    if (
-        session.get("pendingRequest") != request
-        or session["inputRevision"] != request["revision"]
-        or session["workflow"]["workflowId"] != request["workflowId"]
-    ):
-        raise wt.Blocked("stale/consumed repair request")
+    pending = state.get("iacRepair", {})
+    if pending.get("requestId") != request["requestId"] or pending.get(
+        "requestPath"
+    ) != str(request_path):
+        raise wt.Blocked("stale/consumed one-shot repair request")
     text = tasks.read_task_snapshot(parent, request["taskFile"], live=True).text
-    normalized = tasks.set_status(text, "running")
-    if task_digest(normalized) != request["taskDigest"]:
+    if _imports_deploy_contracts.task_digest(text) != request["taskDigest"]:
         raise wt.Blocked("parent contract changed outside suspension/resume")
     if (
         wt.changed_paths(parent)
         or wt.output(parent, "rev-parse", "HEAD") != request["parentTip"]
     ):
-        # An interrupted child merge is checked separately against its exact integration intent.
         if not state.get("deployIntegrationIntent"):
             raise wt.Blocked("parent checkpoint changed")
-    return root, path, state, session, request
+    return root, path, state, request
 
 
 def deploy_checkpoint(where, task_id, session_path):
@@ -258,26 +164,29 @@ def deploy_checkpoint(where, task_id, session_path):
     task_digest = _imports_deploy_contracts.task_digest
     root, _, path, state = wt.load(where, task_id)
     target = wt.task_worktree(root, state)
-    session_path = handoff.external(target, session_path)
-    with wt.lifecycle_lock(root), handoff.locked(session_path):
-        session = json.loads(session_path.read_text(encoding="utf-8"))
-        handoff.restore(target, session_path, session)
-        request = session.get("pendingRequest")
+    request_path = handoff.external(target, session_path)
+    request = read_sealed(target, request_path)
+    with wt.lifecycle_lock(root), handoff.locked(request_path):
         if (
-            not request
-            or request["repository"] != str(target)
+            request["repository"] != str(target)
             or request["taskFile"] != state["task_file"]
         ):
-            raise wt.Blocked("checkpoint needs this parent pending request")
+            raise wt.Blocked("checkpoint needs this parent's one-shot request")
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
         if (
             tasks.status(text) != "running"
-            or task_digest(text) != session["taskDigest"]
+            or task_digest(text) != request["taskDigest"]
         ):
             raise wt.Blocked("checkpoint requires unchanged running parent Task")
-        if handoff.observed_unresolved(session):
-            raise wt.Blocked("drain and synchronize peers before checkpoint")
-        handoff.verify_inputs(target, session)
+        if state.get("iacRepair", {}).get("requestId") not in (
+            None,
+            request["requestId"],
+        ):
+            raise wt.Blocked(
+                "finish the current one-shot handoff before another repair"
+            )
+        handoff.require_settled(target, request["target"])
+        handoff.verify_inputs(target, request)
         Findings = _imports_validation_findings.Findings
         TaskValidation = _imports_validation_task.TaskValidation
         with tasks.selected_task(target, state["task_file"]):
@@ -331,28 +240,18 @@ def deploy_checkpoint(where, task_id, session_path):
             "tree"
         ] or wt.changed_paths(target):
             raise wt.Blocked("checkpoint changed during commit")
-        integration = state.get("deployIntegrationIntent")
-        if integration:
-            if integration.get("result") not in session["workflow"]["accepted"]:
-                raise wt.Blocked("previous child integration has not been accepted")
-            state.setdefault("deployIntegrations", []).append(
-                state.pop("deployIntegrationIntent")
-            )
         state["tip"] = tip
-        state.setdefault("deployCheckpoints", []).append(intent)
         state.pop("repairCheckpointIntent", None)
         request.update(
             parentTip=tip, parentBranch=state["branch"], parentStart=state["start"]
         )
-        directory = session_path.with_name(session_path.name + ".files") / (
-            "repair-" + request["requestId"]
-        )
-        directory.mkdir(parents=True, exist_ok=True)
-        request["requestPath"] = str(directory / "request.json")
-        # Both files are recoverable from the persisted checkpoint/intent on retry.
+        request["requestPath"] = str(request_path)
+        state["iacRepair"] = {
+            "requestId": request["requestId"],
+            "requestPath": str(request_path),
+        }
         wt.save(path, state)
-        handoff.save(session_path, session)
-        write_sealed(target, Path(request["requestPath"]), request)
+        write_sealed(target, request_path, request)
         return request
 
 
@@ -364,13 +263,13 @@ def deploy_validate(where, task_id, request_path):
     handoff = _imports_deploy_handoff
     root, _, path, state = wt.load(where, task_id)
     target = wt.task_worktree(root, state)
-    _, _, parent_state, session, request = wt.deploy_request(target, request_path)
+    _, _, parent_state, request = wt.deploy_request(target, request_path)
     if (
         state.get("deployRepair") != request["requestPath"]
         or state["start"] != request["parentTip"]
     ):
         raise wt.Blocked("child lifecycle does not belong to this request")
-    with wt.lifecycle_lock(root), handoff.locked(Path(request["session"])):
+    with wt.lifecycle_lock(root), handoff.locked(Path(request["requestPath"])):
         text = wt.deploy_child_contract(target, state, request)
         if (
             tasks.status(text) != "running"
@@ -381,17 +280,15 @@ def deploy_validate(where, task_id, request_path):
             )
         handoff.verify_inputs(
             target,
-            session,
+            request,
             child_paths=request["allowedPaths"],
             contract_file=state["task_file"],
         )
         before = wt.deploy_snapshot(target)
-        attempt = session["workflow"]["attempts"][request["attemptId"]]
-        if attempt.get("staticRuns", 0) >= 3:
-            raise wt.Blocked("implement static repair limit reached; WAITING_HUMAN")
-        attempt["staticRuns"] = attempt.get("staticRuns", 0) + 1
-        attempt["stage"] = "STATIC_VALIDATING"
-        handoff.save(Path(request["session"]), session)
+        if state.get("repairStaticRuns", 0) >= 3:
+            raise wt.Blocked("current implement static repair limit reached")
+        state["repairStaticRuns"] = state.get("repairStaticRuns", 0) + 1
+        wt.save(path, state)
         # Provisioned interpreter, same fixed validator as ordinary implement. No shell/LLM/AWS.
         interpreter, environment = python_env.runtime(target)
         definition_root = _imports_utils_aws_mappings.definition_root
@@ -410,7 +307,7 @@ def deploy_validate(where, task_id, request_path):
             command, cwd=target, env=environment, capture_output=True, text=True
         )
         log = Path(request["requestPath"]).with_name(
-            f"static-{attempt['staticRuns']}.log"
+            f"static-{state['repairStaticRuns']}.log"
         )
         # Validator output belongs to the same private external evidence boundary.
         fingerprint = _imports_utils_json_format.fingerprint
@@ -426,86 +323,22 @@ def deploy_validate(where, task_id, request_path):
             encoding="utf-8",
         )
         after = wt.deploy_snapshot(target)
-        candidate_error = None
-        if not outcome.returncode and before == after:
-            deployment_input_paths = _imports_deploy_inputs.deployment_input_paths
-            load_units = _imports_deploy_inputs.load_units
-            unit_paths = _imports_deploy_inputs.paths
-            with tasks.selected_task(target, state["task_file"]):
-                _, candidate_units = load_units(
-                    target,
-                    session["environment"],
-                    session["directory"],
-                    list(session["states"]),
-                )
-            candidate_effective = handoff.effective(
-                target,
-                [u for u in candidate_units if u["name"] in session["unitDigests"]],
-                lambda u: unit_paths(
-                    target,
-                    session["environment"],
-                    session["directory"],
-                    session["target"],
-                    u,
-                ),
-                lambda us: deployment_input_paths(
-                    target,
-                    session["environment"],
-                    session["directory"],
-                    session["target"],
-                    us,
-                ),
-            )
-            changed_inputs = wt.changed_paths(target)
-            direct = {
-                name
-                for name, inputs in session["unitInputPaths"].items()
-                if set(inputs) & changed_inputs
-            }
-            previous_ids = {
-                o["observationId"]
-                for p in attempt["problemIds"]
-                for o in session["workflow"]["problems"][p]["observations"]
-            }
-            if not direct or any(
-                candidate_effective[name] == session["effectiveDigests"][name]
-                or candidate_effective[name]
-                in {
-                    o.get("effectiveDigest")
-                    for o in session.get("failureObservations", [])
-                    if o["stack"] == name and o["observationId"] in previous_ids
-                }
-                for name in direct
-                if name in session["effectiveDigests"]
-            ):
-                candidate_error = (
-                    "unchanged or known failed effective inputs for this problem"
-                )
         if (
             outcome.returncode
             or before != after
-            or candidate_error
             or tasks.read_task_snapshot(target, state["task_file"], live=True).text
             != text
         ):
-            attempt["staticFailures"] += 1
-            attempt["stage"] = "STATIC_FAILED"
-            if attempt["staticRuns"] >= 3:
-                session["workflow"]["status"] = "WAITING_HUMAN"
-            handoff.save(Path(request["session"]), session)
             tasks.suspend(
                 target,
                 state["task_file"],
                 "repair static validation failed/inputs changed; " + str(log),
             )
             raise wt.Blocked(
-                (candidate_error or "repair static validation failed or inputs changed")
-                + "; "
-                + str(log)
+                "repair static validation failed/inputs changed; " + str(log)
             )
         receipt = dict(
             requestId=request["requestId"],
-            attemptId=request["attemptId"],
             childTask=state["task_file"],
             contract=text,
             snapshot=after,
@@ -518,9 +351,7 @@ def deploy_validate(where, task_id, request_path):
         validation_path = Path(request["requestPath"]).with_name("validation.json")
         write_sealed(Path(request["repository"]), validation_path, receipt)
         state["deployValidation"] = str(validation_path)
-        attempt["stage"] = "STATIC_PASSED"
         wt.save(path, state)
-        handoff.save(Path(request["session"]), session)
         return receipt
 
 
@@ -531,11 +362,11 @@ def deploy_finalize(where, task_id):
     subprocess_bytes = _imports_deploy_contracts.subprocess_bytes
     root, _, path, state = wt.load(where, task_id)
     target = wt.task_worktree(root, state)
-    _, parent_path, parent_state, session, request = wt.deploy_request(
+    _, parent_path, parent_state, request = wt.deploy_request(
         target, state["deployRepair"]
     )
     parent = Path(request["repository"])
-    with wt.lifecycle_lock(root), handoff.locked(Path(request["session"])):
+    with wt.lifecycle_lock(root), handoff.locked(Path(request["requestPath"])):
         parent_text = tasks.read_task_snapshot(
             parent, request["taskFile"], live=True
         ).text
@@ -552,7 +383,7 @@ def deploy_finalize(where, task_id):
             raise wt.Blocked("validated child contract/inputs changed")
         handoff.verify_inputs(
             parent,
-            session,
+            request,
             child_paths=request["allowedPaths"]
             if parent_state.get("deployIntegrationIntent")
             else (),
@@ -620,9 +451,9 @@ def deploy_finalize(where, task_id):
             raise wt.Blocked("repair merge differs from intended commit")
         changes = {
             p: {
-                "before": __import__("hashlib")
-                .sha256(subprocess_bytes(target, request["parentTip"], p))
-                .hexdigest(),
+                "before": hashlib.sha256(
+                    subprocess_bytes(target, request["parentTip"], p)
+                ).hexdigest(),
                 "after": sha(target / p),
                 "beforeBlob": wt.output(
                     target, "rev-parse", request["parentTip"] + ":" + p
@@ -631,52 +462,27 @@ def deploy_finalize(where, task_id):
             }
             for p in sorted(changed)
         }
-        deployment_input_paths = _imports_deploy_inputs.deployment_input_paths
-        load_units = _imports_deploy_inputs.load_units
-        input_paths = _imports_deploy_inputs.paths
-        with tasks.selected_task(target, state["task_file"]):
-            _, units = load_units(
-                target,
-                session["environment"],
-                session["directory"],
-                list(session["states"]),
-            )
-        effective_after = handoff.effective(
-            target,
-            [u for u in units if u["name"] in session["unitDigests"]],
-            lambda unit: input_paths(
-                target,
-                session["environment"],
-                session["directory"],
-                session["target"],
-                unit,
-            ),
-            lambda selected: deployment_input_paths(
-                target,
-                session["environment"],
-                session["directory"],
-                session["target"],
-                selected,
-            ),
-        )
         result = {
-            **request,
-            "effectiveInputs": {
-                "before": session["effectiveDigests"],
-                "after": effective_after,
-            },
+            "requestId": request["requestId"],
+            "taskFile": request["taskFile"],
+            "taskDigest": request["taskDigest"],
+            "repository": request["repository"],
+            "parentTip": request["parentTip"],
             "commit": commit,
             "changes": changes,
             "childTask": state["task_file"],
-            "childContract": text,
             "validation": validation,
-            "expected": session["workflow"]["attempts"][request["attemptId"]].get(
-                "expectation"
-            ),
             "result": "VALIDATED_CANDIDATE",
         }
         result_path = Path(request["requestPath"]).with_name("result.json")
         write_sealed(parent, result_path, result)
+        parent_state["iacRepair"] = {
+            "requestId": request["requestId"],
+            "commit": commit,
+            "parentTip": request["parentTip"],
+            "changes": changes,
+            "taskDigest": request["taskDigest"],
+        }
         parent_state["tip"] = commit
         parent_state["deployIntegrationIntent"]["result"] = str(result_path)
         wt.save(parent_path, parent_state)

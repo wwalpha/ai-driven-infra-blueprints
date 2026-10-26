@@ -22,10 +22,10 @@ def hashes(contents, root):
     }
 
 
-class SessionModels(FileReads):
-    def __init__(self, root, session):
+class RunModels(FileReads):
+    def __init__(self, root, run_context):
         super().__init__()
-        self.root, self.session = root, session
+        self.root, self.run_context = root, run_context
         self.lock = RLock()
         self.revisions = {}
         self.digests = {}
@@ -67,7 +67,7 @@ class SessionModels(FileReads):
                 self.contents.pop(path, None)
                 raise ValueError("Model input changed during first read: " + str(path))
             self.revisions[path] = current
-            expected = self.session.setdefault("modelInputManifest", {})
+            expected = self.run_context.setdefault("modelInputs", {})
             relative = path.relative_to(self.root).as_posix()
             if path not in self.digests:
                 self.digests[path] = (
@@ -222,6 +222,6 @@ class SessionModels(FileReads):
                     self.contents[path] = text.encode("utf-8")
                     self.revisions[path] = published[path]
                     self.digests[path] = hashlib.sha256(self.contents[path]).hexdigest()
-            self.session.setdefault("modelInputManifest", {}).update(
+            self.run_context.setdefault("modelInputs", {}).update(
                 hashes({p: t.encode("utf-8") for p, t in outputs.items()}, self.root)
             )

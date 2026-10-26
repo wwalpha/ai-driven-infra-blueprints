@@ -131,16 +131,13 @@ def create(where, task_id, repair_request=None):
             != "suspend"
         ):
             raise Blocked("suspend the original deploy Task before child creation")
-        session = transfer[-2]
-        attempt = session["workflow"]["attempts"][request["attemptId"]]
-        if attempt.get("childTask") not in (None, task_id):
-            raise Blocked(
-                "attempt already owns another child; no static retry Task reset"
-            )
+        parent_state = transfer[-2]
+        if parent_state["iacRepair"].get("childTask") not in (None, task_id):
+            raise Blocked("one-shot request already owns another implement child")
     repair_lock = nullcontext()
     if request:
         locked = _worktree_runtime().deploy_handoff.locked
-        repair_lock = locked(Path(request["session"]))
+        repair_lock = locked(Path(request["requestPath"]))
     with lifecycle_lock(primary), repair_lock:
         base = request["parentBranch"] if request else base_branch(root)
         if state_file.exists() or branch_exists(root, branch):
@@ -174,9 +171,8 @@ def create(where, task_id, repair_request=None):
         )
         if request:
             state["deployRepair"] = request["requestPath"]
-            attempt["childTask"] = task_id
-            save_session = _worktree_runtime().deploy_handoff.save
-            save_session(Path(request["session"]), session)
+            parent_state["iacRepair"]["childTask"] = task_id
+            save(transfer[1], parent_state)
         state_file.parent.mkdir(exist_ok=True)
         save(state_file, state)
     return setup(where, task_id)
@@ -424,6 +420,9 @@ def cleanup_state(root, path, state):
             git(base_worktree(root, state), "branch", "-d", state["branch"])
         phase = "remove_import_proof"
         discard_import_proof(target, state["task_file"])
+        phase = "remove_repair_proof"
+        if state.get("deployRepair"):
+            _worktree_runtime().deploy_handoff.discard_request(state)
         phase = "remove_state"
         path.unlink()
         return {
@@ -996,12 +995,6 @@ def _integrate_model(where, task_id):
             raise Blocked(str(error) + "; integration log: " + log.name) from error
 
 
-def bind_deploy_workflow(where, session_path, session, ledger, *, activate=False):
-    return _worktree_runtime().bind_deploy_workflow(
-        where, session_path, session, ledger, activate=activate
-    )
-
-
 def deploy_request(where, request_path):
     return _worktree_runtime().deploy_request(where, request_path)
 
@@ -1231,7 +1224,6 @@ def main():
         help="Finalize a suspended task only after explicit human approval of named validation failures",
     )
     parser.add_argument("--repair-request", type=Path)
-    parser.add_argument("--state", type=Path)
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-base")
     recovery_mode = parser.add_mutually_exclusive_group()
@@ -1263,9 +1255,9 @@ def main():
         if args.command == "sync-base":
             state = sync_base(where, args.task_id, args.expected_base)
         elif args.command == "repair-checkpoint":
-            if not args.state:
-                raise Blocked("repair-checkpoint requires --state")
-            state = deploy_checkpoint(where, args.task_id, args.state)
+            if not args.repair_request:
+                raise Blocked("repair-checkpoint requires --repair-request")
+            state = deploy_checkpoint(where, args.task_id, args.repair_request)
         elif args.command == "repair-validate":
             if not args.repair_request:
                 raise Blocked("repair-validate requires --repair-request")

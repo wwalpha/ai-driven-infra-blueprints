@@ -44,7 +44,7 @@ WORKTREE_CASES = {
     ),
     "integrations/worktree_task.checks.py": (
         "check_sync_base_preserves_candidate",
-        "check_deploy_workflow_cross_task_reset_rejected",
+        "check_old_workflow_registry_is_ignored",
         "check_success_and_empty",
         "check_finalize_line_endings",
         "check_incomplete_and_git_safety",

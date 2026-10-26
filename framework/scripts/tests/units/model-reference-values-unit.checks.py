@@ -14,7 +14,7 @@ import model.projection as projection
 import model.sources as sources
 import pytest
 import sync_runtime
-from deploy.model_cache import SessionModels
+from deploy.model_cache import RunModels
 from model.core import ModelNeedsFixError
 from model.format import patch as patch_properties
 from model.format import serialize
@@ -571,7 +571,7 @@ def test_reference_cache_observed_generation_and_invocation(fixture):
     _, _, consumer, _ = fixture
     producer, _ = resource(consumer.root, "kms", "KMS.Key", attribute="KeyId")
     dependency_index.rebuild(consumer.root)
-    shared = SessionModels(consumer.root, {})
+    shared = RunModels(consumer.root, {})
     with (
         sources.model_session(shared),
         patch.object(

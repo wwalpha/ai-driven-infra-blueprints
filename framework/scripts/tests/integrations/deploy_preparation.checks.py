@@ -94,7 +94,10 @@ def check_preparation():
         assert not {p for p in declared if p.startswith("infra/")}
         assert "- Runtime recovery: `allowed`" in text
         assert "- External IaC repair: `forbidden`" in text
-        assert f"- Deploy repair session: `{run / 'session.json'}`" in text
+        assert (
+            "Deploy repair session" not in text
+            and "--state" not in plan["controllerArgv"]
+        )
         for document in plan["documents"]:
             assert all(
                 len(Path(chunk).read_text(encoding="utf-8")) <= 6000

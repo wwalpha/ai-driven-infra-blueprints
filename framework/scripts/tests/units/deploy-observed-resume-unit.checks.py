@@ -1,9 +1,7 @@
 """Pure classification/authorization checks for durable observed publication plans."""
 
 import copy
-import json
 import sys
-from datetime import datetime, timedelta, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -11,20 +9,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import base64
-from argparse import Namespace
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
-from deploy import handoff, no_change_recovery, observed
+from deploy import observed
 from deploy import observed_resume as M
-from deploy import session as controller
-from deploy.timing import Timing
-from support.cloudformation_deploy_fixtures import TARGET, Fake, starts
+from deploy import run_context as controller
+from support.cloudformation_deploy_fixtures import Fake, starts
 from support.pytest_cli import run
 from task_contract_core import selected_task
 from utils.cloudformation.inputs import Blocked
-from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -154,9 +149,8 @@ def proposal(tmp_path):
         M.manifest({relative: new.encode()}),
     )
     session = {
-        "workflow": handoff.new_workflow(),
         "inputRevision": 0,
-        "modelInputManifest": before,
+        "modelInputs": before,
         "states": {
             "A": {
                 "status": "SUCCESS",
@@ -218,7 +212,7 @@ def check_plan_validation(proposal, problem):
     if problem == "evidence":
         session["states"]["A"]["stackId"] = "other"
     if problem == "manifest":
-        session["modelInputManifest"] = {}
+        session["modelInputs"] = {}
     if problem == "candidate":
         plan["outputs"][relative] = new.replace("`new`", "`other`")
     if problem == "desired":
@@ -249,7 +243,7 @@ def check_intent_save_failure(proposal):
     session.pop("pendingObserved")
     backend = SimpleNamespace(
         root=root,
-        session=session,
+        run_context=session,
         environment="dev",
         directory="team",
         target={},
@@ -271,7 +265,7 @@ def check_new_plan_rejects_missing_stack_status(proposal):
     session["states"]["A"].pop("stackStatus")
     backend = SimpleNamespace(
         root=root,
-        session=session,
+        run_context=session,
         environment="dev",
         directory="team",
         target={},
@@ -325,7 +319,7 @@ def check_exact_task_bytes_bound(proposal):
         taskFile="tasks/deploy.md",
         taskDigest=M.task_digest(task.read_text()),
         inputDigest="inputs",
-        infraManifest={},
+        consumedInputs={},
     )
     original = M._identity(root, session, {}, "dev", "team")
     task.write_text(
@@ -378,7 +372,7 @@ def check_pending_plan_drained_peer_barrier():
         patch.object(controller, "run_group", return_value="COMPLETE"),
     ):
         assert (
-            controller.run_session(units, 2, session, SimpleNamespace(), save)
+            controller.run_deploy(units, 2, session, SimpleNamespace(), save)
             == "COMPLETE"
         )
     assert calls == [["A"], ["B"]] and saves == [["A"], ["A", "B"]]
@@ -406,8 +400,7 @@ def check_original_failure_retained(guard, pending_stage):
         controller, "sync_successful", side_effect=Blocked("later guard refusal")
     ):
         assert (
-            controller.run_session(units, 1, session, backend, lambda: None)
-            == "STOPPED"
+            controller.run_deploy(units, 1, session, backend, lambda: None) == "STOPPED"
         )
     assert session["observedError"] == "original design I/O failure"
     assert session["observedRecoveryError"] == "later guard refusal"
@@ -589,8 +582,8 @@ def owned_proposal(proposal):
         taskFile="tasks/deploy.md",
         taskDigest=M.task_digest(text),
         inputDigest="inputs",
-        infraManifest={},
-        unitDigests={"A": "unit"},
+        consumedInputs={},
+        inputDigests={"A": "unit"},
     )
     state = session["states"]["A"]
     state.update(
@@ -636,17 +629,13 @@ def owned_proposal(proposal):
 def check_owned_resume_boundaries(owned_proposal, problem):
     root, session, source, old, new = owned_proposal
     saved_identity = copy.deepcopy(session["pendingObserved"]["identity"])
-    path = root.parent / (root.name + "-session.json")
-    handoff.bind(root, path, session)
-    handoff.save(path, session)
-    restored = json.loads(path.read_text(encoding="utf-8"))
+    restored = copy.deepcopy(session)
     if problem == "tampered-session":
         restored["pendingObserved"]["outputs"] = {}
     if problem == "tampered-session":
-        with pytest.raises(Blocked, match="ledger"):
-            handoff.restore(root, path, restored)
+        with pytest.raises(Blocked, match="file sets differ"):
+            M.validate_plan(root, restored, {}, "dev", "team")
         return
-    handoff.restore(root, path, restored)
     task = root / "tasks/deploy.md"
     if problem == "task-body":
         task.write_text(
@@ -701,7 +690,6 @@ def check_owned_resume_boundaries(owned_proposal, problem):
             assert M.reconcile(root, restored, {}, "dev", "team") == "PREPARED"
     assert source.read_bytes() == before
     assert restored["pendingObserved"]["identity"] == saved_identity
-    assert json.loads(path.read_text())["pendingObserved"]["identity"] == saved_identity
 
 
 @pytest.mark.parametrize("stage", ["PREPARED", "MODEL_PUBLISHED"])
@@ -713,529 +701,11 @@ def check_owned_interrupted_stages(owned_proposal, stage):
         assert M.reconcile(root, session, {}, "dev", "team") == stage
     assert session["pendingObserved"]["stage"] == stage
     assert (
-        session["modelInputManifest"]
+        session["modelInputs"]
         == session["pendingObserved"][
             "beforeManifest" if stage == "PREPARED" else "afterManifest"
         ]
     )
-
-
-def no_change_aws(replies, operation, **arguments):
-    assert operation in {
-        "describe_change_set",
-        "describe_stacks",
-        "describe_stack_events",
-    }
-    assert arguments["StackName"] == (
-        "A" if operation == "describe_change_set" else "stack"
-    )
-    return copy.deepcopy(replies[operation])
-
-
-def no_change_with_late_task(replies, task, operation, **arguments):
-    result = no_change_aws(replies, operation, **arguments)
-    if operation == "describe_stack_events":
-        task.write_text(
-            task.read_text(encoding="utf-8") + "\nchanged authority\n", encoding="utf-8"
-        )
-    return result
-
-
-@pytest.fixture
-def legacy_proposal(owned_proposal):
-    root, session, source, old, new = owned_proposal
-    state = session["states"]["A"]
-    for key in (
-        "clientToken",
-        "executionEvidence",
-        "changeDigest",
-        "approvedChangeDigest",
-    ):
-        state.pop(key)
-    state.update(
-        stackStatus=None,
-        reason="no changes; existing stack terminal success",
-        operationType="UPDATE",
-        absentBeforeCreate=False,
-    )
-    session["pendingObserved"]["evidence"] = {
-        "A": {key: state.get(key) for key in M.EVIDENCE_FIELDS}
-    }
-    start = datetime(2026, 10, 25, tzinfo=timezone.utc)
-    replies = {
-        "describe_change_set": {
-            "ChangeSetId": "change",
-            "StackId": "stack",
-            "StackName": "A",
-            "Status": "FAILED",
-            "StatusReason": "didn't contain changes",
-            "ExecutionStatus": "UNAVAILABLE",
-            "Changes": [],
-            "CreationTime": start + timedelta(minutes=2),
-        },
-        "describe_stacks": {
-            "Stacks": [
-                {
-                    "StackId": "stack",
-                    "StackStatus": "UPDATE_COMPLETE",
-                    "CreationTime": start - timedelta(days=1),
-                    "LastUpdatedTime": start,
-                }
-            ]
-        },
-        "describe_stack_events": {
-            "StackEvents": [
-                {
-                    "StackId": "stack",
-                    "PhysicalResourceId": "stack",
-                    "ResourceType": "AWS::CloudFormation::Stack",
-                    "ResourceStatus": "UPDATE_COMPLETE",
-                    "Timestamp": start + timedelta(minutes=1),
-                }
-            ]
-        },
-    }
-    aws = Mock(side_effect=_bind_framework_callback(no_change_aws, replies))
-    return root, session, source, old, new, replies, aws
-
-
-@pytest.mark.parametrize("pending_observed", [False, True])
-@pytest.mark.parametrize(
-    "problem",
-    [
-        "none",
-        "state-mismatch",
-        "reason",
-        "executed",
-        "change-id",
-        "stack-id",
-        "changed",
-        "available",
-        "stack-status",
-        "later-update",
-        "later-event",
-        "foreign-event",
-        "missing-time",
-        "missing-events",
-        "missing-terminal",
-        "unavailable",
-    ],
-)
-def check_legacy_no_change_proof(legacy_proposal, problem, pending_observed):
-    root, session, source, old, new, replies, aws = legacy_proposal
-    if not pending_observed:
-        session.pop("pendingObserved")
-    state = session["states"]["A"]
-    change = replies["describe_change_set"]
-    stack = replies["describe_stacks"]["Stacks"][0]
-    event = replies["describe_stack_events"]["StackEvents"][0]
-    if problem == "state-mismatch":
-        state["stackStatus"] = "UPDATE_COMPLETE"
-    if problem == "reason":
-        state["reason"] = "other success"
-    if problem == "executed":
-        state["executionStarted"] = 123
-    if problem == "change-id":
-        change["ChangeSetId"] = "other"
-    if problem == "stack-id":
-        stack["StackId"] = "other"
-    if problem == "changed":
-        change["StatusReason"] = "creation failed"
-    if problem == "available":
-        change["ExecutionStatus"] = "AVAILABLE"
-    if problem == "stack-status":
-        stack["StackStatus"] = "UPDATE_ROLLBACK_COMPLETE"
-    if problem == "later-update":
-        stack["LastUpdatedTime"] = change["CreationTime"] + timedelta(seconds=1)
-    if problem == "later-event":
-        event["Timestamp"] = change["CreationTime"] + timedelta(seconds=1)
-    if problem == "foreign-event":
-        event["StackId"] = "other"
-    if problem == "missing-time":
-        change.pop("CreationTime")
-    if problem == "missing-events":
-        replies["describe_stack_events"]["StackEvents"] = []
-    if problem == "missing-terminal":
-        event["ResourceType"] = "AWS::S3::Bucket"
-    if problem == "unavailable":
-        aws.side_effect = Blocked("AWS evidence unavailable")
-    original = copy.deepcopy(session)
-    backend = SimpleNamespace(aws=aws)
-    if problem == "state-mismatch" and not pending_observed:
-        assert no_change_recovery.candidate(backend, session) is None
-        aws.assert_not_called()
-        return
-    if problem != "none":
-        with pytest.raises(Blocked):
-            no_change_recovery.candidate(backend, session)
-    else:
-        candidate = no_change_recovery.candidate(backend, session)
-        assert candidate["states"]["A"]["stackStatus"] == "UPDATE_COMPLETE"
-        if pending_observed:
-            assert (
-                candidate["pendingObserved"]["evidence"]["A"]["stackStatus"]
-                == "UPDATE_COMPLETE"
-            )
-            with patch.object(
-                M, "source_snapshot", return_value={source: old.encode()}
-            ):
-                assert M.reconcile(root, candidate, {}, "dev", "team") == "PREPARED"
-        else:
-            assert "pendingObserved" not in candidate
-        assert no_change_recovery.candidate(backend, candidate) is None
-        assert aws.call_count == 4
-        candidate["states"]["A"]["stackStatus"] = None
-        if pending_observed:
-            candidate["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
-        assert candidate == original
-    assert session == original and source.read_text() == old
-
-
-@pytest.mark.parametrize("pending_observed", [False, True])
-def check_legacy_stack_changes_during_verification(legacy_proposal, pending_observed):
-    _, session, _, _, _, replies, aws = legacy_proposal
-    if not pending_observed:
-        session.pop("pendingObserved")
-    updated = copy.deepcopy(replies["describe_stacks"])
-    updated["Stacks"][0]["LastUpdatedTime"] += timedelta(minutes=3)
-    aws.side_effect = [
-        replies["describe_change_set"],
-        replies["describe_stacks"],
-        replies["describe_stack_events"],
-        updated,
-    ]
-    original = copy.deepcopy(session)
-    with pytest.raises(Blocked, match="changed during verification"):
-        no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
-    assert session == original
-
-
-@pytest.mark.parametrize("problem", ["none", "second-aws", "second-local"])
-def check_unplanned_recovery_is_private_for_all_stacks(legacy_proposal, problem):
-    _, session, _, _, _, replies, aws = legacy_proposal
-    session.pop("pendingObserved")
-    session["states"]["B"] = copy.deepcopy(session["states"]["A"])
-    session["states"]["C"] = {
-        "status": "SUCCESS",
-        "stackStatus": "CREATE_COMPLETE",
-        "reason": "other success",
-    }
-    session["states"]["D"] = {
-        "status": "SUCCESS",
-        "stackStatus": None,
-        "observedSynced": True,
-    }
-    session["states"]["E"] = {"status": "NOT_STARTED"}
-    second_change = {**replies["describe_change_set"], "StackName": "B"}
-    if problem == "second-aws":
-        second_change["ChangeSetId"] = "other"
-    if problem == "second-local":
-        session["states"]["B"]["clientToken"] = "executed"
-    aws.side_effect = [
-        replies["describe_change_set"],
-        replies["describe_stacks"],
-        replies["describe_stack_events"],
-        replies["describe_stacks"],
-        second_change,
-        replies["describe_stacks"],
-        replies["describe_stack_events"],
-        replies["describe_stacks"],
-    ]
-    original = copy.deepcopy(session)
-    if problem == "none":
-        result = no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
-        assert result["states"]["A"]["stackStatus"] == "UPDATE_COMPLETE"
-        assert result["states"]["B"]["stackStatus"] == "UPDATE_COMPLETE"
-        assert "pendingObserved" not in result
-        result["states"]["A"]["stackStatus"] = None
-        result["states"]["B"]["stackStatus"] = None
-        assert result == original
-    else:
-        with pytest.raises(Blocked):
-            no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
-        assert aws.call_count == (0 if problem == "second-local" else 5)
-    assert session == original
-
-
-def publish_recovered_observations(events, root, outputs, previous):
-    assert all(path.read_bytes() == raw for path, raw in previous.items())
-    for path, text in outputs.items():
-        path.write_text(text)
-    events.append(("observed", "A"))
-
-
-def finish_recovered_generation(backend):
-    assert backend.session["pendingGeneration"]
-    backend.session.pop("pendingGeneration")
-    backend.events.append(("generated", "A"))
-
-
-def collect_recovered_observations(
-    source, new, /, backend, units, states, *, generated_views=None
-):
-    if [unit["name"] for unit in units] != ["A"]:
-        return {}, [], None
-    if generated_views is not None:
-        generated_views.add(backend.root / "docs/designs/dev/team/service.md")
-    return {source: new}, ["service"], None
-
-
-@pytest.mark.parametrize("pending_observed", [False, True])
-def check_recovered_observed_barrier_releases_next_order(
-    legacy_proposal, pending_observed
-):
-    root, session, source, old, new, _, aws = legacy_proposal
-    session["states"]["B"] = {"status": "NOT_STARTED"}
-    session["metrics"] = {"observedSyncSeconds": 0}
-    session["pendingObserved"]["services"] = ["service"]
-    if not pending_observed:
-        session.pop("pendingObserved")
-    path = root.parent / (root.name + "-session.json")
-    handoff.bind(root, path, session)
-    handoff.save(path, session)
-    original = copy.deepcopy(session)
-    candidate = no_change_recovery.candidate(SimpleNamespace(aws=aws), session)
-    if pending_observed:
-        with patch.object(
-            M,
-            "source_snapshot",
-            side_effect=_bind_framework_callback(read_proposal_source, source),
-        ):
-            M.reconcile(root, candidate, {}, "dev", "team")
-    session.clear()
-    session.update(candidate)
-    handoff.save(path, session)
-    backend = Fake()
-    backend.root, backend.session, backend.target = root, session, {}
-    backend.environment, backend.directory = "dev", "team"
-    backend.save = _bind_framework_callback(handoff.save, path, session)
-    backend.guard = lambda: None
-    units = [
-        {
-            "name": name,
-            "deployOrder": order,
-            "template": "app.yaml",
-            "parameters": "app.json",
-        }
-        for name, order in (("A", "10"), ("B", "20"))
-    ]
-    with (
-        patch.object(
-            M,
-            "source_snapshot",
-            side_effect=_bind_framework_callback(read_proposal_source, source),
-        ),
-        patch.object(
-            observed,
-            "collect_successful",
-            side_effect=_bind_framework_callback(
-                collect_recovered_observations, source, new
-            ),
-        ),
-        patch(
-            "model.adapters.observed.publish_observed",
-            side_effect=_bind_framework_callback(
-                publish_recovered_observations, backend.events
-            ),
-        ),
-        patch.object(
-            controller.generation_resume, "run", side_effect=finish_recovered_generation
-        ),
-    ):
-        result = controller.run_session(
-            units, 1, session, backend, backend.save, sleep=lambda _: None
-        )
-        assert result == "COMPLETE", session
-    assert starts(backend) == ["B"]
-    assert (
-        backend.events.index(("observed", "A"))
-        < backend.events.index(("generated", "A"))
-        < next(
-            index
-            for index, event in enumerate(backend.events)
-            if event[:2] == ("start", "B")
-        )
-    )
-    assert source.read_text() == new
-    assert session["states"]["A"]["observedSynced"] and "pendingObserved" not in session
-    assert session["workflow"] == original["workflow"]
-    restored = json.loads(path.read_text())
-    handoff.restore(root, path, restored)
-    assert handoff.protected(restored) == handoff.protected(session)
-
-
-@pytest.mark.parametrize("pending_observed", [False, True])
-@pytest.mark.parametrize(
-    "problem",
-    [
-        "none",
-        "model",
-        "iac",
-        "candidate",
-        "task",
-        "late-model",
-        "late-task",
-        "scope",
-        "unavailable",
-        "tampered",
-    ],
-)
-def check_formal_no_change_resume(legacy_proposal, problem, pending_observed):
-    root, session, source, old, new, replies, aws = legacy_proposal
-    task = root / "tasks/deploy.md"
-    task.write_text(
-        task.read_text().replace(
-            "## Task contract", "## Task contract\n- Target alias: `team`"
-        )
-    )
-    units = [{"name": "A", "deployOrder": "10"}]
-    session.update(
-        version=5,
-        modelFormat=2,
-        snapshotVersion=2,
-        referenceMeaningVersion=1,
-        profile=None,
-        inputIdentities={},
-        taskDigest=M.task_digest(task.read_text()),
-        inputDigest=fingerprint([str(root), TARGET, "dev", "deploy", 1, units]),
-    )
-    plan = session["pendingObserved"]
-    plan["identity"] = M._identity(root, session, TARGET, "dev", "team")
-    plan["services"] = ["service"]
-    if problem == "late-model":
-        session["modelInputManifest"]["model/dev/team/other.properties"] = "missing"
-    if problem == "scope":
-        session["inputDigest"] = "other"
-        plan["identity"]["inputDigest"] = "other"
-    if problem == "iac":
-        session["infraManifest"]["infra/changed.yaml"] = "missing"
-        plan["identity"]["infraManifest"] = copy.deepcopy(session["infraManifest"])
-    if problem == "candidate":
-        plan["outputs"][source.relative_to(root).as_posix()] = new + "# changed\n"
-    if not pending_observed:
-        session.pop("pendingObserved")
-        if problem == "candidate":
-            session["modelInputManifest"][source.relative_to(root).as_posix()] = "other"
-    path = root.parent / (root.name + "-session.json")
-    handoff.bind(root, path, session)
-    handoff.save(path, session)
-    original = copy.deepcopy(session)
-    if problem == "model":
-        source.write_text(old + "# external\n")
-    if problem == "task":
-        task.write_text(
-            task.read_text() + "\n## Changed authority\nchanged authority\n"
-        )
-    if problem == "unavailable":
-        aws.side_effect = Blocked("AWS evidence unavailable")
-    if problem == "late-task":
-        aws.side_effect = _bind_framework_callback(
-            no_change_with_late_task, replies, task
-        )
-    if problem == "tampered":
-        tampered = json.loads(path.read_text())
-        tampered["states"]["A"]["reason"] = "changed"
-        path.write_text(json.dumps(tampered))
-    backend = SimpleNamespace(
-        root=root,
-        target=TARGET,
-        environment="dev",
-        directory="team",
-        profile=None,
-        aws=aws,
-        input_digest=lambda *args, **kwargs: "unit",
-        file_digest=lambda path: None,
-        deployment_input_paths=lambda units: [],
-    )
-    args = Namespace(
-        state=path,
-        environment="dev",
-        aws_account_id=TARGET["awsAccountId"],
-        alias="team",
-        profile=None,
-        stack=["A"],
-        approve_change_set=[],
-        resume=True,
-        pause_after_group=False,
-        sequential=False,
-    )
-    with (
-        patch.object(
-            controller._imports_deploy_context, "load_target", return_value=TARGET
-        ),
-        patch.object(
-            controller._imports_deploy_context,
-            "check_deploy_context",
-            return_value=TARGET,
-        ),
-        patch.object(
-            M,
-            "source_snapshot",
-            side_effect=_bind_framework_callback(read_proposal_source, source),
-        ),
-        patch.object(
-            controller, "run_session", return_value="STOPPED"
-        ) as scheduler_run,
-    ):
-        assert (
-            controller.run(
-                args,
-                root,
-                Timing(root),
-                root,
-                lambda *args: backend,
-                lambda *args: (1, units),
-            )
-            == 2
-        )
-        restored = json.loads(path.read_text())
-        if problem == "tampered":
-            scheduler_run.assert_not_called()
-            aws.assert_not_called()
-            return
-        handoff.restore(root, path, restored)
-        if problem == "none":
-            scheduler_run.assert_called_once()
-            assert restored["states"]["A"]["stackStatus"] == "UPDATE_COMPLETE"
-            assert restored["metrics"]["totalControllerSeconds"] > 0
-            if pending_observed:
-                assert (
-                    restored["pendingObserved"]["evidence"]["A"]["stackStatus"]
-                    == "UPDATE_COMPLETE"
-                )
-            else:
-                assert "pendingObserved" not in restored
-            assert aws.call_count == 4
-            # The same signed session resumes again without recovery calls or execution.
-            assert (
-                controller.run(
-                    args,
-                    root,
-                    Timing(root),
-                    root,
-                    lambda *args: backend,
-                    lambda *args: (1, units),
-                )
-                == 2
-            )
-            assert aws.call_count == 4
-            restored["states"]["A"]["stackStatus"] = None
-            if pending_observed:
-                restored["pendingObserved"]["evidence"]["A"]["stackStatus"] = None
-            assert restored["states"] == original["states"]
-            assert restored.get("pendingObserved") == original.get("pendingObserved")
-            assert restored["workflow"] == original["workflow"]
-        else:
-            scheduler_run.assert_not_called()
-            assert restored["states"] == original["states"]
-            assert restored["workflow"] == original["workflow"]
-            assert restored.get("pendingObserved") == original.get("pendingObserved")
-            if pending_observed:
-                assert restored.get("observedRecoveryError")
-            elif problem == "late-task":
-                assert aws.call_count == 4 and restored.get("observedRecoveryError")
-            elif problem != "unavailable":
-                aws.assert_not_called()
 
 
 @pytest.mark.parametrize("stage", ["PREPARED", "MODEL_PUBLISHED"])
@@ -1244,7 +714,7 @@ def check_finish_guard_precedes_publication(owned_proposal, stage):
     source.write_text(old if stage == "PREPARED" else new, encoding="utf-8")
     backend = SimpleNamespace(
         root=root,
-        session=session,
+        run_context=session,
         target={},
         environment="dev",
         directory="team",
@@ -1279,17 +749,17 @@ def check_finish_io_failure(owned_proposal, stage):
     plan = session["pendingObserved"]
     plan.update(services=["service"], stage=stage)
     source.write_text(old if stage == "PREPARED" else new, encoding="utf-8")
-    session["modelInputManifest"] = plan[
+    session["modelInputs"] = plan[
         "beforeManifest" if stage == "PREPARED" else "afterManifest"
     ]
     before, proof = (
         copy.deepcopy(plan),
         copy.deepcopy(session["states"]["A"]["executionEvidence"]),
     )
-    assert proof["clientToken"] and proof["inputDigest"] == session["unitDigests"]["A"]
+    assert proof["clientToken"] and proof["inputDigest"] == session["inputDigests"]["A"]
     backend = SimpleNamespace(
         root=root,
-        session=session,
+        run_context=session,
         target={},
         environment="dev",
         directory="team",
@@ -1345,7 +815,7 @@ def check_finish_transfers_v16_candidates(owned_proposal, committed):
     saved = []
     backend = SimpleNamespace(
         root=root,
-        session=session,
+        run_context=session,
         target={},
         environment="dev",
         directory="team",
@@ -1409,7 +879,7 @@ def check_session_sync_failure_drains_and_resumes():
     }
     with patch.object(controller, "sync_successful", side_effect=failing_session_sync):
         assert (
-            controller.run_session(
+            controller.run_deploy(
                 units, 2, session, backend, lambda: None, sleep=lambda _: None
             )
             == "STOPPED"
@@ -1434,7 +904,7 @@ def check_session_sync_failure_drains_and_resumes():
     )
     with patch.object(controller, "sync_successful", side_effect=sync):
         assert (
-            controller.run_session(
+            controller.run_deploy(
                 units, 2, session, backend, lambda: None, sleep=lambda _: None
             )
             == "COMPLETE"
@@ -1447,50 +917,6 @@ def check_session_sync_failure_drains_and_resumes():
         "pendingObserved" not in session
         and session["observedFailures"][0]["cause"] == "design publication failed"
     )
-
-
-@pytest.mark.parametrize("pending", [False, True])
-def check_session_without_plan_and_signed_removal(owned_proposal, pending):
-    root, session, _, _, _ = owned_proposal
-    session.update(repository=str(root), taskFile="tasks/deploy.md")
-    if not pending:
-        session.pop("pendingObserved")
-    path = root.parent / (root.name + "-session.json")
-    handoff.bind(root, path, session)
-    handoff.save(path, session)
-    restored = json.loads(path.read_text())
-    restored.pop("pendingObserved", None)
-    if pending:
-        with pytest.raises(Blocked, match="ledger"):
-            handoff.restore(root, path, restored)
-    else:
-        handoff.restore(root, path, restored)
-        assert (
-            "pendingObserved" not in restored
-            and restored["states"]["A"]["status"] == "SUCCESS"
-        )
-        restored["metrics"] = {"observedSyncSeconds": 0}
-        calls, backend = [], Fake()
-        sync = _bind_framework_callback(
-            _callback_check_pending_plan_drained_peer_barrier_sync, calls, restored
-        )
-        with patch.object(controller, "sync_successful", side_effect=sync):
-            assert (
-                controller.run_session(
-                    [{"name": "A", "deployOrder": 10}],
-                    1,
-                    restored,
-                    backend,
-                    lambda: None,
-                    sleep=lambda _: None,
-                )
-                == "COMPLETE"
-            )
-        assert (
-            calls == [["A"]]
-            and restored["states"]["A"]["observedSynced"]
-            and not starts(backend)
-        )
 
 
 if __name__ == "__main__":

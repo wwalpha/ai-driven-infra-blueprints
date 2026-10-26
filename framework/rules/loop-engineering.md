@@ -180,7 +180,7 @@ For tasks affecting runtime inputs or behavior, task-type-specific checks cannot
 
 - `initialization`: `project.json` changes, and target paths and IaC selection are valid
 - `design`: Target authoritative service Model inputs change first, and Markdown/JSON artifacts match their deterministic generation results
-- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, deploy does not edit IaC; only exact verified child commit transitions accepted by the same session may be attributed. In the `update` phase, human-changed authoritative service Model inputs, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
+- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, deploy does not edit IaC; only exact one-shot verified child commit transitions owned by the current Task may be attributed. In the `update` phase, human-changed authoritative service Model inputs, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
 - `scenario-test`: The scenario and current results for the same target change
 - `governance`: Framework files other than the active task change
 - `catalog-maintenance`: Catalog files and `framework/materials/catalog.sha256` change

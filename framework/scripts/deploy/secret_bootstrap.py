@@ -564,26 +564,17 @@ def bootstrap(
         )
     plan = bootstrap_plan(unit, state)
     if entry is None:
-        if any(
-            e.get("classification") == "RUNTIME_BOOTSTRAP"
-            and e.get("secretId") == plan["secretId"]
+        if state.get("bootstrapAttempted") or any(
+            s.get("bootstrap", {}).get("secretId") == plan["secretId"]
             for s in states.values()
-            for e in s.get("repairs", [])
         ):
-            raise Blocked(
-                "same Secret bootstrap already attempted; no second dummy PUT"
-            )
-        if (
-            sum(e.get("failureClass") == plan["failureClass"] for e in state["repairs"])
-            >= 3
-        ):
-            raise Blocked("runtime bootstrap repair iteration limit")
+            raise Blocked("same Secret bootstrap already attempted in this run")
         entry = plan | {
             "classification": "RUNTIME_BOOTSTRAP",
             "clientRequestToken": uuid.uuid4().hex,
             "stage": "BOOTSTRAP_INTENT",
         }
-        state["repairs"].append(entry)
+        state["bootstrap"] = entry
         state["failureClassification"] = "RUNTIME_BOOTSTRAP"
         save()  # Intent and stable token MUST be durable before any Secrets Manager mutation.
     elif any(entry.get(k) != value for k, value in plan.items()) or not re.fullmatch(

@@ -21,7 +21,6 @@ import pytest
 import worktree_state
 import worktree_task as wt
 from support.worktree_task_fixtures import contract
-from task_contract_core import task_digest
 from utils.git_changes import GitWorkingPaths
 
 if not __debug__:
@@ -820,56 +819,26 @@ def check_metadata_symlinks(tmp_path, relative):
     ],
 )
 def check_checkpoint_observed_barrier(tmp_path, pending):
-    runtime = wt._worktree_runtime()
-    handoff = runtime.deploy_handoff
-    root = tmp_path / "repo"
-    root.mkdir()
-    text = contract("deploy", ["file.txt"])
-    state = {"task_file": "tasks/deploy.md"}
-    session = {
-        "pendingRequest": {"repository": str(root), "taskFile": state["task_file"]},
-        "taskDigest": task_digest(text),
-        "generationError": "publication failed",
-        "pendingGeneration": {"view": {}},
-        "states": {"Peer": {"status": "SUCCESS", "observedSynced": True}},
-    }
-    if pending == "pendingObserved":
-        session[pending] = {"stage": "MODEL_PUBLISHED"}
-    elif pending == "observedError":
-        session[pending] = "Observed failure"
+    handoff = wt._worktree_runtime().deploy_handoff
+    publication = {"pendingGeneration": {"view": {"generated": {"outputs": None}}}}
+    state = {"status": "SUCCESS", "observedSynced": True}
+    if pending in {"pendingObserved", "observedError"}:
+        publication["pendingObserved"] = {"stage": "PREPARED"}
     elif pending == "success":
-        session["states"]["Peer"]["observedSynced"] = False
-    elif pending == "running":
-        session["states"]["Peer"]["status"] = "RUNNING"
-    elif pending == "pollError":
-        session["states"]["Peer"][pending] = "poll failed"
-    path = tmp_path / "session.json"
-    path.write_text(json.dumps(session), encoding="utf-8")
-    with (
-        patch.object(
-            wt, "load", return_value=(root, None, tmp_path / "state.json", state)
-        ),
-        patch.object(wt, "task_worktree", return_value=root),
-        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
-        patch.object(handoff, "restore"),
-        patch.object(
-            runtime.tasks, "read_task_snapshot", return_value=SimpleNamespace(text=text)
-        ),
-        patch.object(
-            handoff,
-            "verify_inputs",
-            side_effect=RuntimeError("input verification reached"),
-        ) as verify,
-        pytest.raises(
-            RuntimeError if pending == "generation-only" else wt.Blocked,
-            match="input verification reached"
-            if pending == "generation-only"
-            else "drain and synchronize",
-        ),
-    ):
-        wt.deploy_checkpoint(root, "deploy", path)
-    assert verify.call_count == int(pending == "generation-only")
-    assert json.loads(path.read_text(encoding="utf-8")) == session
+        state["observedSynced"] = False
+    elif pending in {"running", "pollError"}:
+        state["status"] = "RUNNING"
+    record = {"publication": publication, "operations": {"Peer": {"state": state}}}
+    with patch.object(handoff.operation_journal, "read", return_value=record):
+        if pending == "generation-only":
+            handoff.require_settled(
+                tmp_path, {"awsAccountId": "account", "awsRegion": "region"}
+            )
+        else:
+            with pytest.raises(handoff.Blocked, match="drain and synchronize"):
+                handoff.require_settled(
+                    tmp_path, {"awsAccountId": "account", "awsRegion": "region"}
+                )
 
 
 if __name__ == "__main__":

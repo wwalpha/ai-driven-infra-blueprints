@@ -1,6 +1,6 @@
 """Private Project data and operation-specific SDK replies for the real controller.
 
-Only JSON AWS state and session files survive a child process. Framework definitions
+Only synthetic AWS state, diagnostic snapshots and unfinished journals survive a child process. Framework definitions
 are read from the installed source; no Framework copy or controller substitution.
 """
 
@@ -28,7 +28,7 @@ import sync_files as _imports_sync_files
 import sync_runtime
 import utils.cloudformation.inputs as _imports_cfn_inputs
 from botocore.exceptions import ClientError
-from deploy import session
+from deploy import operation_journal, run_context
 from deploy.controller import main
 from model.core import properties, stack_model
 from model.dependency_index import rebuild as rebuild_index
@@ -40,8 +40,6 @@ from task_contract_core import selected_task, start
 from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import condition_active
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
-from utils.json_format import fingerprint
-from utils.project_targets import load_target
 
 SCRIPTS = Path(__file__).resolve().parents[2]
 
@@ -167,7 +165,7 @@ def seed(root, state_path, case="orders", *, same_group=False):
         "- Deployment scope: "
         + ", ".join("`cfn-stack-app-dev-" + item["name"] + "`" for item in stacks)
         + "\n- Authorized delete/replacement: `none`\n"
-        f"- Runtime recovery: `allowed`\n- External IaC repair: `allowed`\n- Deploy repair session: `{state_path}`\n"
+        "- Runtime recovery: `allowed`\n- External IaC repair: `allowed`\n"
         "## Required changes\n- [R1] Synthetic deployment\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         "## Validation scope\n"
         + "".join(
@@ -742,6 +740,11 @@ def fake_sleep(delays, seconds):
     delays.append(seconds)
 
 
+def save_diagnostics(real_save, report, /, path, backend):
+    real_save(path, backend)
+    report.write_text(json.dumps(backend.run_context), encoding="utf-8")
+
+
 def invoke(root, state_path, aws_path, options=(), fault=None):
     journal = (
         Path(tempfile.gettempdir())
@@ -763,11 +766,28 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
     with ExitStack() as stack:
         stack.enter_context(
             patch.object(
-                session, "run_session", partial(session.run_session, sleep=sleep)
+                operation_journal,
+                "location",
+                return_value=state_path.with_suffix(".operations.json"),
             )
         )
         stack.enter_context(
-            patch.object(session, "run_group", partial(session.run_group, sleep=sleep))
+            patch.object(
+                operation_journal,
+                "save",
+                partial(save_diagnostics, operation_journal.save, state_path),
+            )
+        )
+
+        stack.enter_context(
+            patch.object(
+                run_context, "run_deploy", partial(run_context.run_deploy, sleep=sleep)
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                run_context, "run_group", partial(run_context.run_group, sleep=sleep)
+            )
         )
         stack.enter_context(
             patch("utils.aws.client.client", clients(root, state_path, aws_path))
@@ -794,8 +814,6 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
                 "--aws-account-id",
                 ACCOUNT,
                 *selection,
-                "--state",
-                str(state_path),
                 "--timing-log",
                 str(state_path.with_suffix(".timing.jsonl")),
                 *options,
@@ -826,14 +844,10 @@ def child_environment():
 def recover_owned_lock(root, child):
     assert child.returncode is not None  # subprocess.run has reaped this exact child.
 
-    target = load_target(root, "dev", ACCOUNT)
-    lock = Path(tempfile.gettempdir()) / (
-        "blueprint-cfn-" + fingerprint(["dev", target]) + ".lock"
-    )
+    state_path = Path(child.args[child.args.index(str(root)) + 1])
+    lock = state_path.with_suffix(".operations.lock")
     assert lock.exists()
     lock.unlink()
-    state_path = Path(child.args[child.args.index(str(root)) + 1])
-    state_path.with_name(state_path.name + ".handoff-lock").rmdir()
 
 
 def ordinary_base(root, name):
@@ -845,8 +859,6 @@ if __name__ == "__main__":
     os.chdir(root)
     with (
         publication_repository(),
-        patch("deploy.handoff.register_workflow"),
-        patch("deploy.resume.verify_integration_owner"),
         patch("deploy.contracts.task_start_commit", ordinary_base),
     ):
         raise SystemExit(

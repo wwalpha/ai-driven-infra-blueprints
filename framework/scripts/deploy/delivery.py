@@ -17,14 +17,14 @@ from deploy.s3_delivery import preflight, upload_options, verify_encryption
 
 
 def placement(
-    root, environment, directory, target, session, save, aws, connection=None
+    root, environment, directory, target, run_context, save, aws, connection=None
 ):
     return SimpleNamespace(
         root=root,
         environment=environment,
         directory=directory,
         target=target,
-        session=session,
+        run_context=run_context,
         save=save,
         aws=aws,
         connection=connection,
@@ -320,9 +320,7 @@ def template_arguments(
         path, objects, input_digest = template_path, [], input_digest_for(unit)
         if bindings:
             if workdir is None:
-                raise Blocked(
-                    "artifact packaging requires the external deployment session directory"
-                )
+                raise Blocked("artifact packaging requires the external run directory")
             for artifact, container, prop, fields in bindings:
                 obj = upload(
                     placement,

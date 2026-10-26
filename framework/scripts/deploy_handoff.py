@@ -1,155 +1,46 @@
 #!/usr/bin/env python3
-"""Explicit supervising-LLM offline commands; never starts another Task or calls AWS."""
+"""Create one evidence-backed Implement handoff from the current Deploy failure."""
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
+import worktree_task
 from deploy import handoff
-from task_contract_core import (
-    selected_task,
-    task_digest,
-    task_path,
-    task_reads,
-    task_snapshot,
-)
-from utils.cloudformation.inputs import Blocked
+from task_contract_core import task_snapshot
+from utils.sealed_evidence import evidence_store, write_sealed
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "command", choices=("diagnose", "request", "budget", "close", "recover-session")
-    )
-    parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
-    parser.add_argument("--diagnosis", type=Path)
-    parser.add_argument("--problem", action="append", default=[])
-    parser.add_argument("--path", action="append", default=[])
-    parser.add_argument(
-        "--expectation",
-        type=Path,
-        help="non-secret structured expected Resource/operation/status",
-    )
-    parser.add_argument("--additional-cycles", type=int)
-    parser.add_argument(
-        "--authorization", help="explicit Human decision, without secrets"
-    )
+    parser.add_argument("--failure", type=Path, required=True)
+    parser.add_argument("--diagnosis", type=Path, required=True)
+    parser.add_argument("--path", action="append", required=True)
     args = parser.parse_args(argv)
     root = args.repository_root.resolve()
-    path = handoff.external(root, args.state)
     try:
-        with handoff.locked(path):
-            if args.command == "recover-session":
-                selected = task_path(root).relative_to(root).as_posix()
-                session = handoff.recover_session(root, path, selected)
-                print(
-                    json.dumps(
-                        {
-                            "result": "RECOVERED",
-                            "workflowId": session["workflow"]["workflowId"],
-                        }
-                    )
-                )
-                return 0
-            session = json.loads(path.read_text(encoding="utf-8"))
-            handoff.restore(root, path, session)
-            if session["repository"] != str(root):
-                raise Blocked("session belongs to a different parent Worktree")
-            with selected_task(root, session["taskFile"]), task_reads(root, live=True):
-                contract = task_snapshot(root).text
-                if task_digest(contract) != session["taskDigest"]:
-                    raise Blocked("original Task contract changed")
-                handoff.bind(root, path, session)
-                if args.command in {"diagnose", "request"}:
-                    handoff.verify_inputs(root, session)
-                if args.command == "diagnose":
-                    if not args.diagnosis:
-                        raise Blocked("diagnose requires --diagnosis")
-                    result = handoff.diagnose(
-                        root,
-                        session,
-                        json.loads(args.diagnosis.read_text(encoding="utf-8")),
-                    )
-                    value = {
-                        "result": result,
-                        "problemIds": session["workflow"].get("currentProblemIds", []),
-                    }
-                elif args.command == "request":
-                    if not args.expectation:
-                        raise Blocked("request requires a structured --expectation")
-                    expectation = json.loads(
-                        args.expectation.read_text(encoding="utf-8")
-                    )
-                    if not isinstance(expectation, list) or not expectation:
-                        raise Blocked("expected redeploy observations missing")
-                    for item in expectation:
-                        if (
-                            set(item)
-                            != {"stack", "resourcePath", "operation", "status"}
-                            or item["stack"] not in session["states"]
-                            or item["status"]
-                            not in {
-                                "CREATE_COMPLETE",
-                                "UPDATE_COMPLETE",
-                                "IMPORT_COMPLETE",
-                                "SUCCEEDED",
-                            }
-                        ):
-                            raise Blocked(
-                                "expectation must identify the target operation success"
-                            )
-                    pending = handoff.issue_request(
-                        root, path, session, args.problem, args.path, expectation
-                    )
-                    attempt = session["workflow"]["attempts"][pending["attemptId"]]
-                    if attempt.get("expectation") not in (None, expectation):
-                        raise Blocked("request retry changed expected result")
-                    attempt["expectation"] = expectation
-                    value = {
-                        "result": "REQUESTED",
-                        "requestId": pending["requestId"],
-                        "attemptId": pending["attemptId"],
-                        "next": "worktree_task.py repair-checkpoint --task-id "
-                        + Path(session["taskFile"]).stem
-                        + " --state "
-                        + str(path),
-                    }
-                elif args.command == "budget":
-                    if session["workflow"].get("status") in {"CLOSED", "COMPLETE"}:
-                        raise Blocked(
-                            "terminal workflow cannot be reopened by a budget command"
-                        )
-                    session["workflow"]["status"] = "WAITING_HUMAN"
-                    value = {
-                        "result": "WAITING_HUMAN",
-                        "budget": session["workflow"]["budget"],
-                        "reason": "No externally verified Human budget authorization is available; extension refused",
-                    }
-                else:
-                    if not args.authorization or any(
-                        s["status"] == "RUNNING"
-                        or s.get("cleanupStatus") == "DELETE_INTENT"
-                        or s["status"] == "SUCCESS"
-                        and not s.get("observedSynced")
-                        for s in session["states"].values()
-                    ):
-                        raise Blocked(
-                            "explicit close requires drained, synchronized state"
-                        )
-                    pending = session.pop("pendingRequest", None)
-                    if pending:
-                        session["workflow"]["attempts"][pending["attemptId"]].update(
-                            stage="ABANDONED", closedRequest=pending
-                        )
-                    session["workflow"]["status"] = "CLOSED"
-                    # Closing retains unresolved scope ownership and every spent attempt.
-                    value = {"result": "CLOSED", "retained": str(path)}
-            handoff.save(path, session)
-        print(json.dumps(value, indent=2))
-        return 2 if args.command == "budget" else 0
-    except (OSError, ValueError, KeyError, TypeError, Blocked) as error:
-        print("Deploy handoff: BLOCKED (" + str(error) + ")")
+        request = handoff.issue_request(
+            root,
+            args.failure,
+            json.loads(args.diagnosis.read_text(encoding="utf-8")),
+            args.path,
+        )
+        request_path = (
+            evidence_store(root)
+            / ("deploy-repair-" + request["requestId"])
+            / "request.json"
+        )
+        request_path.parent.mkdir(mode=0o700)
+        write_sealed(root, request_path, request)
+        request = worktree_task.deploy_checkpoint(
+            root, Path(task_snapshot(root).name).stem, request_path
+        )
+        print(json.dumps(request, indent=2))
+        return 0
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+        print(f"Deploy handoff: BLOCKED: {error}", file=sys.stderr)
         return 2
 
 

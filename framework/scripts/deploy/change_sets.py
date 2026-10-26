@@ -6,7 +6,8 @@ import uuid
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
-from utils.cloudformation.inputs import Blocked, resolve_value
+from utils.cloudformation.format import decode
+from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
 from utils.json_format import fingerprint
 
 import deploy.failures as _imports_deploy_failures
@@ -217,6 +218,9 @@ def begin_prepare(
             check_imports(unit, boundary=boundary)
             arguments = template_arguments(unit, state, boundary=boundary)
             stack = None
+        if stack and stack["StackStatus"].endswith("_IN_PROGRESS"):
+            state.update(stackId=stack["StackId"], externalOperation=True)
+            return "RUNNING"  # Observe an already-running AWS operation before preparing new inputs.
         if stack and stack["StackStatus"] not in SUCCESS | {"UPDATE_ROLLBACK_COMPLETE"}:
             raise Blocked(f"stack not updateable: {stack['StackStatus']}")
         if stack:
@@ -479,3 +483,107 @@ def record_execution(aws, unit, state, current, input_digest):
         "inputDigest": input_digest,
         "resources": resources,
     }
+
+
+class OutputNotReflected(Blocked):
+    """AWS completed the operation but did not expose the intended Output contract."""
+
+
+def required_outputs(document, parameters, target, name):
+    pseudo = {
+        "AWS::StackName": name,
+        "AWS::Region": target["awsRegion"],
+        "AWS::AccountId": target.get("awsExecutionAccountId", target["awsAccountId"]),
+    }
+    result = {}
+    for key, definition in document.get("Outputs", {}).items():
+        if not condition_active(document, parameters, pseudo, definition):
+            continue
+        export = (
+            resolve_value(
+                definition["Export"]["Name"],
+                parameters,
+                pseudo,
+                conditions=document.get("Conditions", {}),
+            )
+            if "Export" in definition
+            else None
+        )
+        try:
+            value = resolve_value(
+                definition["Value"],
+                parameters,
+                pseudo,
+                conditions=document.get("Conditions", {}),
+            )
+            value_digest = fingerprint(str(value))
+        except Blocked:
+            # Resource identifiers are verified through the deployed template and AWS Outputs.
+            value_digest = None
+        result[key] = {
+            "export": export,
+            "definitionDigest": fingerprint(definition),
+            "valueDigest": value_digest,
+        }
+    return result
+
+
+def verify_outputs(aws, unit, state, expected):
+    """Outputs-only changes are successful only when AWS exposes every required Output/Export."""
+    if not expected:
+        return
+    stack = aws("describe_stacks", StackName=state["stackId"])["Stacks"][0]
+    if (
+        stack.get("StackId") != state["stackId"]
+        or stack.get("StackStatus") not in SUCCESS
+    ):
+        raise Blocked("Output verification Stack identity/state changed")
+    values = stack.get("Outputs", [])
+    outputs = {item["OutputKey"]: item for item in values}
+    if len(outputs) != len(values):
+        raise Blocked("AWS Outputs are ambiguous")
+    deployed = aws("get_template", StackName=state["stackId"])["TemplateBody"]
+    if isinstance(deployed, str):
+        deployed, errors = decode(deployed)
+        if errors:
+            raise Blocked("AWS deployed Output definitions cannot be verified")
+    if not isinstance(deployed, dict):
+        raise Blocked("AWS deployed Output definitions unavailable")
+    exports = fetch_exports(
+        aws,
+        {
+            record["export"]
+            for record in expected.values()
+            if record["export"] is not None
+        },
+    )
+    for key, record in expected.items():
+        export = record["export"]
+        if (
+            fingerprint(deployed.get("Outputs", {}).get(key))
+            != record["definitionDigest"]
+        ):
+            raise OutputNotReflected(
+                "AWS Output definition not reflected: " + unit["name"] + "/" + key
+            )
+        actual = outputs.get(key)
+        if not actual or not isinstance(actual.get("OutputValue"), str):
+            raise OutputNotReflected(
+                "AWS output not reflected: " + unit["name"] + "/" + key
+            )
+        if (
+            record["valueDigest"] is not None
+            and fingerprint(actual["OutputValue"]) != record["valueDigest"]
+        ):
+            raise Blocked("AWS output value not reflected: " + unit["name"] + "/" + key)
+        if export is not None:
+            entry = exports.get(export)
+            if (
+                not isinstance(export, str)
+                or not export
+                or actual.get("ExportName") != export
+                or not entry
+                or entry.get("ExportingStackId") != state["stackId"]
+                or entry.get("Value") != actual["OutputValue"]
+            ):
+                raise OutputNotReflected("AWS Export not reflected: " + str(export))

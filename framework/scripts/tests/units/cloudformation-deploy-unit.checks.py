@@ -346,14 +346,14 @@ def check_scheduler():
 
 
 def _controller_sleep_only(options):
-    controller.session.run_session.keywords["sleep"](5)
-    controller.session.run_group.keywords["sleep"](5)
-    assert controller.session.run_session.keywords["sleep"].args[0] == [5, 5]
+    controller.run_context.run_deploy.keywords["sleep"](5)
+    controller.run_context.run_group.keywords["sleep"](5)
+    assert controller.run_context.run_deploy.keywords["sleep"].args[0] == [5, 5]
     return 0
 
 
 def check_controller_sleep_injection(tmp_path):
-    original = controller.session.run_session, controller.session.run_group
+    original = controller.run_context.run_deploy, controller.run_context.run_group
     with patch.object(controller, "main", side_effect=_controller_sleep_only):
         assert (
             controller.invoke(
@@ -361,13 +361,19 @@ def check_controller_sleep_injection(tmp_path):
             )
             == 0
         )
-    assert (controller.session.run_session, controller.session.run_group) == original
+    assert (
+        controller.run_context.run_deploy,
+        controller.run_context.run_group,
+    ) == original
     with (
         patch.object(controller, "main", side_effect=ValueError("controller failed")),
         pytest.raises(ValueError),
     ):
         controller.invoke(tmp_path, tmp_path / "session.json", tmp_path / "aws.json")
-    assert (controller.session.run_session, controller.session.run_group) == original
+    assert (
+        controller.run_context.run_deploy,
+        controller.run_context.run_group,
+    ) == original
     delays = []
     for _ in range(100):
         controller.fake_sleep(delays, 5)

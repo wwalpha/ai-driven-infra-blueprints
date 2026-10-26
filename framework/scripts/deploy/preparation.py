@@ -163,17 +163,14 @@ def prepare(root, args, run, timing):
         )
         if generated_views & execution_inputs:
             raise ValueError("generated view conflicts with execution/required input")
-        if getattr(args, "repair_budget", 20) <= 0:
-            raise ValueError("repair budget must be positive")
         text = text.replace(
             "- Authorized delete/replacement: `none`",
             "- Authorized delete/replacement: `none`\n- Runtime recovery: `allowed`\n"
             + (
-                "- External IaC repair: `allowed`\n"
+                "- External IaC repair: `allowed`"
                 if getattr(args, "allow_external_repair", False)
-                else "- External IaC repair: `forbidden`\n"
-            )
-            + f"- Repair cycle budget: `{getattr(args, 'repair_budget', 20)}`\n- Deploy repair session: `{run / 'session.json'}`",
+                else "- External IaC repair: `forbidden`"
+            ),
         )
         checks = [
             f"- [R1] `exists:{path.relative_to(root).as_posix()}`"
@@ -186,7 +183,9 @@ def prepare(root, args, run, timing):
         )
         records = contracts(root)
         if args.task_file in records:
-            raise ValueError("task already exists; resume the existing task/session")
+            raise ValueError(
+                "task already exists; select its current contract for an independent controller run"
+            )
         contract = run / "contract.md"
         contract.write_text(text, encoding="utf-8")
     with timing.phase("documentRead"):
@@ -327,7 +326,7 @@ def prepare(root, args, run, timing):
     ]
     for unit in units:
         command += ["--stack", unit["name"]]
-    command += ["--state", str(run / "session.json"), "--timing-log", str(timing.path)]
+    command += ["--timing-log", str(timing.path)]
     if args.profile:
         command += ["--profile", args.profile]
     if args.sequential:
@@ -442,7 +441,7 @@ def register(root, path, timing):
 
 
 def run_controller(root, path):
-    """One subprocess/session for the entire prepared scope; safety stays in the controller."""
+    """One subprocess/run for the entire prepared scope; safety stays in the controller."""
     task_snapshot = _imports_task_contract.task_snapshot
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [
@@ -460,7 +459,7 @@ def run_controller(root, path):
     snapshot = task_snapshot(root, plan["taskFile"])
     if snapshot.raw_digest != plan["registeredContractDigest"]:
         raise ValueError(
-            "registered contract changed; use existing controller resume procedure"
+            "registered contract changed; review the current Task before a new run"
         )
     if any(
         os.environ.get(key) != value
@@ -468,9 +467,6 @@ def run_controller(root, path):
         if key in {"PATH", "PYTHONPATH"}
     ):
         raise ValueError("prepared runtime environment changed")
-    state = Path(plan["controllerArgv"][plan["controllerArgv"].index("--state") + 1])
-    if state.exists():
-        raise ValueError("controller session already exists; resume that same session")
     return subprocess.run(
         plan["controllerArgv"], cwd=root, env=os.environ | plan["environment"]
     ).returncode
@@ -502,12 +498,6 @@ def main(argv=None):
     )
     parser.add_argument("--task-file")
     parser.add_argument("--profile")
-    parser.add_argument(
-        "--repair-budget",
-        type=int,
-        default=20,
-        help="repair cycles per approval interval, default safety limit 20",
-    )
     parser.add_argument(
         "--allow-external-repair",
         action="store_true",

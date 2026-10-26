@@ -1,4 +1,4 @@
-"""Exact, session-owned observation plans around the existing Model transaction."""
+"""Exact, operation-owned observation plans around the existing Model transaction."""
 
 import base64
 import copy
@@ -58,7 +58,6 @@ EVIDENCE_FIELDS = (
     "changeSetId",
     "changeDigest",
     "clientToken",
-    "approvedChangeDigest",
     "executionEvidence",
 )
 
@@ -272,30 +271,30 @@ def verify_generated_journal(root, plan, record):
 
 
 @task_read_scope
-def _identity(root, session, target, environment, directory):
+def _identity(root, run_context, target, environment, directory):
     snapshot = task_snapshot(root)
     task, text = snapshot.path, snapshot.text
     validate_contract(root, task.relative_to(root).as_posix(), text)
     if (
-        session["repository"] != str(root)
-        or session["taskFile"] != task.relative_to(root).as_posix()
-        or session["taskDigest"] != task_digest(text)
+        run_context["repository"] != str(root)
+        or run_context["taskFile"] != task.relative_to(root).as_posix()
+        or run_context["taskDigest"] != task_digest(text)
     ):
         raise Blocked("observed plan Task/repository changed")
     return {
         "repository": str(root),
-        "taskFile": session["taskFile"],
+        "taskFile": run_context["taskFile"],
         "taskDigest": task_digest(text),
         "taskBytes": snapshot.raw_digest,
         "environment": environment,
         "directory": directory,
         "target": target,
-        **{key: session[key] for key in ("inputDigest", "infraManifest")},
+        "inputDigest": run_context["inputDigest"],
     }
 
 
 def prepare(backend, units, outputs, services, views):
-    root, session = backend.root, backend.session
+    root, run_context = backend.root, backend.run_context
     with publication_lock(root, read_only=True):
         before = source_snapshot(root, outputs)
         verify_observed_outputs(before, outputs)
@@ -304,7 +303,7 @@ def prepare(backend, units, outputs, services, views):
         }
         before_manifest = manifest(relative)
         if any(
-            session["modelInputManifest"].get(p) != digest
+            run_context["modelInputs"].get(p) != digest
             for p, digest in before_manifest.items()
         ):
             raise Blocked("Model inputs changed before observed plan")
@@ -330,11 +329,17 @@ def prepare(backend, units, outputs, services, views):
             != before_manifest
         ):
             raise Blocked("Model inputs changed during observed generation planning")
-        session["pendingObserved"] = {
+        run_context["pendingObserved"] = {
             "identity": _identity(
-                root, session, backend.target, backend.environment, backend.directory
+                root,
+                run_context,
+                backend.target,
+                backend.environment,
+                backend.directory,
             ),
-            "evidence": evidence(session["states"], [unit["name"] for unit in units]),
+            "evidence": evidence(
+                run_context["states"], [unit["name"] for unit in units]
+            ),
             "beforeManifest": before_manifest,
             "afterManifest": manifest(after),
             "originals": {
@@ -357,8 +362,8 @@ def prepare(backend, units, outputs, services, views):
 
 
 @task_read_scope
-def validate_plan(root, session, target, environment, directory):
-    plan = session["pendingObserved"]
+def validate_plan(root, run_context, target, environment, directory):
+    plan = run_context["pendingObserved"]
     if not isinstance(plan, dict) or any(
         not isinstance(plan.get(key), dict)
         for key in (
@@ -376,21 +381,22 @@ def validate_plan(root, session, target, environment, directory):
         or plan["beforeManifest"].keys() != plan["afterManifest"].keys()
     ):
         raise Blocked("observed plan file sets differ")
-    if plan["identity"] != _identity(root, session, target, environment, directory):
-        raise Blocked("observed plan Task/target/session identity changed")
-    if plan["evidence"] != evidence(session["states"], plan["evidence"]):
+    if plan["identity"] != _identity(root, run_context, target, environment, directory):
+        raise Blocked("observed plan Task/target/run identity changed")
+    if plan["evidence"] != evidence(run_context["states"], plan["evidence"]):
         raise Blocked("observed plan execution evidence changed")
     if any(
         state["executionEvidence"]
         and state["executionEvidence"].get("inputDigest")
-        != session["unitDigests"][name]
+        != run_context["inputDigests"][name]
         for name, state in plan["evidence"].items()
     ):
         raise Blocked("observed execution evidence does not match unit inputs")
-    if {
-        p: session["modelInputManifest"].get(p) for p in plan["beforeManifest"]
-    } not in (plan["beforeManifest"], plan["afterManifest"]):
-        raise Blocked("observed plan/session manifest mismatch")
+    if {p: run_context["modelInputs"].get(p) for p in plan["beforeManifest"]} not in (
+        plan["beforeManifest"],
+        plan["afterManifest"],
+    ):
+        raise Blocked("observed plan/run input manifest mismatch")
     if plan["stage"] not in {"PREPARED", "MODEL_PUBLISHED"}:
         raise Blocked("unknown observed plan stage")
     before = {}
@@ -458,11 +464,11 @@ def verify_journal(plan, record, current):
 
 # Never let an unrelated transaction or third-party bytes be rolled back.
 def _callback_reconcile_recovery(
-    directory, environment, root, session, target, /, record
+    directory, environment, root, run_context, target, /, record
 ):
     with task_reads(root, live=True):
         # Never let an unrelated transaction or third-party bytes be rolled back.
-        plan = validate_plan(root, session, target, environment, directory)
+        plan = validate_plan(root, run_context, target, environment, directory)
         current = {
             relative: (root / relative).read_bytes()
             if (root / relative).is_file()
@@ -480,14 +486,14 @@ def _callback_reconcile_recovery(
 
 
 @task_read_scope
-def reconcile(root, session, target, environment, directory):
+def reconcile(root, run_context, target, environment, directory):
     """Validate recovery before any read-only Model load can encounter a journal."""
     recovery = _bind_framework_callback(
-        _callback_reconcile_recovery, directory, environment, root, session, target
+        _callback_reconcile_recovery, directory, environment, root, run_context, target
     )
 
     with publication_lock(root, recovery_check=recovery):
-        plan = validate_plan(root, session, target, environment, directory)
+        plan = validate_plan(root, run_context, target, environment, directory)
         current = {
             path.relative_to(root).as_posix(): raw
             for path, raw in plan_snapshot(root, plan).items()
@@ -500,8 +506,8 @@ def reconcile(root, session, target, environment, directory):
             root, {root / p for p in plan["outputs"]}, observed=True
         )
         plan["stage"] = stage
-        session["modelInputManifest"] = {
-            **session["modelInputManifest"],
+        run_context["modelInputs"] = {
+            **run_context["modelInputs"],
             **(
                 plan["beforeManifest"] if stage == "PREPARED" else plan["afterManifest"]
             ),
@@ -513,16 +519,16 @@ def finish(backend, units):
     publish_observed = _imports_model_adapters_observed.publish_observed
 
     collect_successful = _imports_deploy_observed.collect_successful
-    root, session = backend.root, backend.session
-    plan = session["pendingObserved"]
+    root, run_context = backend.root, backend.run_context
+    plan = run_context["pendingObserved"]
     stage = reconcile(
-        root, session, backend.target, backend.environment, backend.directory
+        root, run_context, backend.target, backend.environment, backend.directory
     )
     outputs = {root / path: text for path, text in plan["outputs"].items()}
     fresh, _, _ = collect_successful(
         backend,
         [unit for unit in units if unit["name"] in plan["evidence"]],
-        session["states"],
+        run_context["states"],
     )
     previous = plan_snapshot(root, plan)
     expected = {
@@ -541,19 +547,23 @@ def finish(backend, units):
         publish_observed(root, outputs, previous)
         if hasattr(backend, "after_observed"):
             backend.after_observed(outputs)
-        # The journal may be gone while the on-disk session still says PREPARED.
+        # The journal may be gone while the operation journal still says PREPARED.
         if (
             reconcile(
-                root, session, backend.target, backend.environment, backend.directory
+                root,
+                run_context,
+                backend.target,
+                backend.environment,
+                backend.directory,
             )
             != "MODEL_PUBLISHED"
         ):
             raise Blocked("observed publication did not produce the exact candidate")
     backend.guard()
     generation_resume.enqueue(backend, plan)
-    # The ledger saves the Model barrier and generation ownership in one revision.
+    # The journal saves the Model barrier and generation ownership in one revision.
     for name in plan["evidence"]:
-        session["states"][name]["observedSynced"] = True
-    session.pop("pendingObserved")
+        run_context["states"][name]["observedSynced"] = True
+    run_context.pop("pendingObserved")
     backend.save()
     return outputs

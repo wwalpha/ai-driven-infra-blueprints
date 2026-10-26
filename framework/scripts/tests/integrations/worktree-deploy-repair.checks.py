@@ -12,23 +12,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 import subprocess
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 import worktree_task as wt
-from deploy import session as deploy_session
+from deploy import handoff
+from deploy.contracts import accepted_changes, sha
 from support.deploy_controller_fixtures import (
     ACCOUNT,
+    aws_state,
     child_environment,
     git,
-)
-from support.deploy_repair_fixtures import (
-    assert_receipt_rejections,
-    assert_worktree_receipt_extras,
-    external_round_trip,
+    invoke,
 )
 from support.worktree_deploy_fixtures import seed
 from task_contract import complete, resume
 from task_contract_core import selected_task, start, suspend
+from utils.sealed_evidence import evidence_store, write_sealed
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -104,35 +104,63 @@ def validate_parent(parent):
 
 @pytest.mark.parametrize("boundary", ["normal", "merge"])
 def check_external_implement_round_trip(tmp_path, monkeypatch, boundary):
-    original = deploy_session.run_session, deploy_session.run_group
-    context = external_round_trip(
-        tmp_path,
-        monkeypatch,
-        boundary,
-        seed=seed,
-        deliver=managed_delivery,
-        validate_parent=validate_parent,
-        before_resume=assert_receipt_rejections if boundary == "normal" else None,
-        controller_helper="worktree_deploy_fixtures.py",
-    )
-    assert_worktree_receipt_extras(context)
-    assert (deploy_session.run_session, deploy_session.run_group) == original
-    polls = [
-        call
-        for call in json.loads((tmp_path / "aws.json").read_text())["calls"]
-        if call[1] in {"describe_stacks", "describe_change_set"}
-    ]
-    assert 0 < len(polls) < 1000
-
-
-def managed_delivery(parent, session, pending, relative, model, boundary, tmp_path):
-    request = (
-        _callback_external_round_trip_lifecycle(
-            "repair-checkpoint", parent, "deploy", "--state", session
+    report, aws = tmp_path / "run.json", tmp_path / "aws.json"
+    parent = seed(tmp_path / "project", report, "repair")
+    monkeypatch.chdir(parent)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    aws_state(aws, repair=True)
+    assert invoke(parent, report, aws) == 2
+    saved = json.loads(report.read_text())
+    relative = "infra/cloudformation/templates/second.yaml"
+    model = f"model/dev/{ACCOUNT}/ec2.properties"
+    failure = handoff.record_failure(
+        SimpleNamespace(
+            root=parent,
+            states=saved["states"],
+            run_context=saved,
+            target=saved["target"],
+            environment="dev",
+            directory=ACCOUNT,
         )
-        if boundary == "normal"
-        else wt.deploy_checkpoint(parent, "deploy", session)
     )
+    diagnosis = {
+        "cfn-stack-app-dev-second": {
+            "reason": "The current failed VPC CidrBlock differs from its explicitly approved Model value.",
+            "inputRefs": [{"path": relative, "sha256": sha(parent / relative)}],
+            "modelRefs": [
+                {
+                    "path": model,
+                    "sha256": sha(parent / model),
+                    "key": "desired.row.001-002.value",
+                }
+            ],
+        }
+    }
+    request = handoff.issue_request(parent, Path(failure), diagnosis, [relative])
+    request_path = (
+        evidence_store(parent)
+        / ("deploy-repair-" + request["requestId"])
+        / "request.json"
+    )
+    request_path.parent.mkdir()
+    write_sealed(parent, request_path, request)
+    request = wt.deploy_checkpoint(parent, "deploy", request_path)
+    request, result_path = managed_delivery(
+        parent, request, relative, boundary, tmp_path
+    )
+    assert git(parent, "rev-parse", "HEAD").strip() == request["commit"]
+    assert not result_path.exists() and not request_path.parent.exists()
+    with selected_task(parent, "tasks/deploy.md"):
+        assert accepted_changes(
+            parent, (parent / "tasks/deploy.md").read_text(), {relative}
+        ) == {relative}
+    # Independent current-input Deploy is a separate invocation, with no result/session entrance.
+    assert invoke(parent, report, aws) == 0
+    assert not report.with_suffix(".operations.json").exists()
+    validate_parent(parent)
+
+
+def managed_delivery(parent, request, relative, boundary, tmp_path):
     assert request["parentTip"] == git(parent, "rev-parse", "HEAD").strip()
     suspend(
         parent,
@@ -183,12 +211,8 @@ def managed_delivery(parent, session, pending, relative, model, boundary, tmp_pa
             pytest.raises((ValueError, RuntimeError)),
         ):
             wt.deploy_validate(child, "repair-one", Path(request["requestPath"]))
-        rejected = json.loads(session.read_text())
-        assert rejected["workflow"]["reserved"] == 1
-        assert (
-            rejected["workflow"]["attempts"][pending["attemptId"]]["staticFailures"]
-            == 1
-        )
+        rejected = wt.load(child, "repair-one")[-1]
+        assert rejected["repairStaticRuns"] == 1
         (child / relative).write_text(approved)
         resume(child, child_task)
     with (
@@ -234,7 +258,7 @@ def managed_delivery(parent, session, pending, relative, model, boundary, tmp_pa
     wt.cleanup(parent, "repair-one")
     assert not child.exists()  # Parent seal and archived contract survive cleanup.
     resume(parent, "tasks/deploy.md")
-    return request, result_path
+    return {**request, "commit": result["commit"]}, result_path
 
 
 if __name__ == "__main__":

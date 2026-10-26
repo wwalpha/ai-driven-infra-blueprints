@@ -372,7 +372,7 @@ def policy_conditions(policy, bucket, key, conditions):
 def preflight(backend, bucket, prefix, keys, boundary=None):
     boundary = {} if boundary is None else boundary
     identity = json.dumps([bucket, prefix], separators=(",", ":"))
-    reports = backend.session.setdefault("placementPreflight", {})
+    reports = backend.run_context.setdefault("placementPreflight", {})
     try:
         account = backend.target.get(
             "awsExecutionAccountId", backend.target["awsAccountId"]
@@ -426,13 +426,15 @@ def preflight(backend, bucket, prefix, keys, boundary=None):
             "bucketKeyEnabled": rules[0].get("BucketKeyEnabled", False),
         }
         conditions["policyDigest"] = fingerprint(policy)
-        previous = backend.session.setdefault("placementConditions", {}).get(identity)
+        previous = backend.run_context.setdefault("placementConditions", {}).get(
+            identity
+        )
         if previous is not None and previous != conditions:
             fail(
                 "CHANGED",
-                "resolved placement conditions changed in this session; do not resume",
+                "resolved placement conditions changed in this run; do not resume",
             )
-        backend.session["placementConditions"][identity] = conditions
+        backend.run_context["placementConditions"][identity] = conditions
         reports[identity] = {
             "status": "READ_CONFIRMED",
             "effectiveWritePermission": "UNCONFIRMED",

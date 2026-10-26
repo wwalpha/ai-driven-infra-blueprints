@@ -1,6 +1,5 @@
 """Pinned AWS runtime recovery; never writes authoritative IaC."""
 
-import copy
 import time
 
 import task_contract_core as _imports_task_contract
@@ -103,8 +102,6 @@ def cleanup_failed_create(
             raise Blocked("interrupted cleanup state unsafe")
     document = state.get("failureTemplateSafety")
     if document is None:
-        if state.get("externalRepair"):
-            raise Blocked("original failed template safety evidence missing")
         document, _ = templates[unit["name"]]
     stack = aws("describe_stacks", StackName=state["stackId"])["Stacks"][0]
     if (
@@ -128,7 +125,7 @@ def cleanup_failed_create(
             or state.get("operationStackId") != state["stackId"]
         ):
             raise Blocked(
-                "failed CREATE session provenance missing; never delete by name"
+                "failed CREATE operation provenance missing; never delete by name"
             )
         if any(
             resource.get("DeletionPolicy", "Delete") != "Delete"
@@ -180,17 +177,14 @@ def wait_cleanup(aws, save, state):
 
 
 def reset_after_cleanup(save, state, *, retain_delivery=False):
-    archive_failure(state)
     retained = {
         key: state[key]
         for key in (
-            "repairs",
+            "bootstrap",
+            "bootstrapAttempted",
             "cleanupStatus",
             "cleanupStackId",
             "emptyStackRecreated",
-            "failureArchive",
-            "externalRepair",
-            "recoveryPending",
         )
         if key in state
     }
@@ -216,28 +210,7 @@ def finish_repair(
     entry["stage"] = "BOOTSTRAP_CONFIRMED"
     save()
     cleanup_failed_create(unit, state)
-    entry["stage"] = "RETRY_READY"
+    state.pop("bootstrap", None)
+    state["bootstrapAttempted"] = True
     reset_after_cleanup(state)
     save()
-
-
-def archive_failure(state):
-    keys = (
-        "failureEvents",
-        "failureTemplateSafety",
-        "executionEvidence",
-        "clientToken",
-        "stackId",
-        "operationStackId",
-        "stackStatus",
-        "operationType",
-        "absentBeforeCreate",
-        "changeSetId",
-        "changeSetFailure",
-        "preExecutionRecovery",
-        "failure",
-        "successEvents",
-    )
-    record = {key: copy.deepcopy(state[key]) for key in keys if key in state}
-    if record and record not in state.setdefault("failureArchive", []):
-        state["failureArchive"].append(record)

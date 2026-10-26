@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-import deploy.handoff as _imports_deploy_handoff
 import deploy.s3_delivery as _imports_deploy_s3_delivery
 from botocore.exceptions import ReadTimeoutError
 from deploy import failures
@@ -42,7 +41,6 @@ from support.cloudformation_deploy_fixtures import (
     properties,
     pytest,
     read_model,
-    redirect_stderr,
     redirect_stdout,
     rejects,
     remove_model,
@@ -59,7 +57,7 @@ from support.cloudformation_deploy_fixtures import (
     zipfile,
 )
 from support.model_sources import allocate_fixture as allocate
-from task_contract_core import selected_task, task_snapshot
+from task_contract_core import task_snapshot
 from utils.aws import cloudformation as cfn
 from utils.aws import secretsmanager as secrets
 from utils.aws.client import AwsError
@@ -312,7 +310,11 @@ def check_sdk_execution():
     _state_check_sdk_execution_65.backend.aws = lambda operation, **args: (
         {"StackEvents": []}
         if operation == "describe_stack_events"
-        else {"ExecutionStatus": "EXECUTE_IN_PROGRESS"}
+        else {
+            "ExecutionStatus": "EXECUTE_IN_PROGRESS",
+            "ChangeSetId": "cs-A",
+            "StackId": state.get("stackId"),
+        }
     )
     assert (
         _state_check_sdk_execution_65.backend.poll(unit, state) == "UPDATE_IN_PROGRESS"
@@ -448,15 +450,14 @@ def check_empty_rollback_recreation(tmp_path):
         for name in ("A", "B")
     }
     session = {
-        "workflow": _imports_deploy_handoff.new_workflow(),
         "inputRevision": 0,
         "states": saved,
         "metrics": {"observedSyncSeconds": 0},
     }
     synced = _check_empty_rollback_recreation_synced
-    with patch.object(M.session_ops, "sync_successful", side_effect=synced):
+    with patch.object(M.run_ops, "sync_successful", side_effect=synced):
         assert (
-            M.session_ops.run_session(
+            M.run_ops.run_deploy(
                 scoped,
                 2,
                 session,
@@ -1236,7 +1237,7 @@ def check_delivery_encryption(tmp_path):
     assert sum(op == "put_object" for op, _ in backend.calls) == 1
     assert all(
         v["effectiveWritePermission"] == "UNCONFIRMED"
-        for v in backend.session["placementPreflight"].values()
+        for v in backend.run_context["placementPreflight"].values()
     )
     backend.objects[bucket, obj["key"]]["ServerSideEncryption"] = "aws:kms"
     rejects(
@@ -1470,9 +1471,9 @@ def check_delivery_encryption(tmp_path):
     # Session restart rechecks AWS policy/default/alias and never adopts changed conditions.
     backend, source = fresh()
     obj = backend.upload(source, bucket, prefix)
-    session = json.loads(json.dumps(backend.session))
+    session = json.loads(json.dumps(backend.run_context))
     resumed = DeliveryAws(backend.root, base / "session.files")
-    resumed.session, resumed.objects = session, backend.objects
+    resumed.run_context, resumed.objects = session, backend.objects
     resumed.policy = {
         "Statement": [
             {
@@ -1493,8 +1494,8 @@ def check_delivery_encryption(tmp_path):
     obj = backend.upload(source, bucket, prefix)
     resumed = DeliveryAws(backend.root, base / "session.files")
     resumed.add_bucket(bucket, "aws:kms", "alias/test")
-    resumed.session, resumed.objects = (
-        json.loads(json.dumps(backend.session)),
+    resumed.run_context, resumed.objects = (
+        json.loads(json.dumps(backend.run_context)),
         backend.objects,
     )
     resumed.default_algorithm, resumed.default_key = "aws:kms", "alias/test"
@@ -1550,120 +1551,7 @@ def check_delivery_encryption(tmp_path):
     )
 
 
-def _check_session_cli_invoke_subprocess_result(command, **kwargs):
-    return SimpleNamespace(
-        returncode=0,
-        stdout='{"Account":"123456789012"}' if "get-caller-identity" in command else "",
-        stderr="",
-    )
-
-
-def _callback_check_session_cli_run_session(
-    execution_limits, mutation, session_runner, /, *args
-):
-    execution_limits.append(args[1])
-    if mutation[0]:
-        mutation[0]()
-    args[3].guard()
-    return session_runner(*args, sleep=lambda _: None)
-
-
-def _callback_check_session_cli_backend_factory_validate(
-    backend, validation_calls, /, unit
-):
-    validation_calls.append(unit["name"])
-    backend.templates.update({unit["name"]: ({}, {})})
-
-
-def _callback_check_session_cli_backend_factory_repair(recovered, /, unit, state):
-    recovered.append((unit["name"], state["repairs"][-1]["clientRequestToken"]))
-    state["repairs"][-1]["stage"] = "RETRY_READY"
-    return True
-
-
-def _callback_check_session_cli_backend_factory(
-    backends,
-    destructive,
-    recovered,
-    runtime_resume,
-    validation_calls,
-    /,
-    root,
-    environment,
-    tmp_path,
-    target,
-    profile,
-    approvals,
-):
-    assert target["awsProfile"] == "dev-profile"
-    backend = StubAws(destructive=destructive[0])
-    if destructive[0]:
-        # This scheduler/session fixture has no model; approval uses replacement.
-        backend.change["Changes"][0]["ResourceChange"].update(
-            Action="Modify", Replacement="True"
-        )
-    backend.root, backend.approvals = root, set(approvals)
-    backend.target, backend.profile = target, target.get("awsProfile") or profile
-    validate = _bind_framework_callback(
-        _callback_check_session_cli_backend_factory_validate, backend, validation_calls
-    )
-    backend.validate = validate
-    backend.load_inputs = lambda unit: backend.templates.update(
-        {unit["name"]: ({}, {})}
-    )
-    backend.poll = lambda *args: "CREATE_COMPLETE"
-    if runtime_resume[0]:
-        repair = _bind_framework_callback(
-            _callback_check_session_cli_backend_factory_repair, recovered
-        )
-        backend.repair = repair
-    backends.append(backend)
-    return backend
-
-
 # Independent fixture scenarios use independent Tasks; one Task cannot reset its workflow.
-def _callback_check_session_cli_invoke(
-    argv,
-    backend_factory,
-    base,
-    contract,
-    last_output,
-    root,
-    run_session,
-    state_file,
-    /,
-    options=(),
-):
-    # Independent fixture scenarios use independent Tasks; one Task cannot reset its workflow.
-    task_file = (
-        "tasks/example.md"
-        if state_file.name == "session.json"
-        else "tasks/" + state_file.stem + ".md"
-    )
-    if task_file != "tasks/example.md" and not (root / task_file).exists():
-        (root / task_file).write_text(
-            contract.read_text().replace("tasks/example.md", task_file)
-        )
-    subprocess_result = _check_session_cli_invoke_subprocess_result
-    with (
-        selected_task(root, task_file),
-        redirect_stdout(io.StringIO()) as output,
-        redirect_stderr(io.StringIO()) as errors_output,
-        patch.object(M, "create_runtime", side_effect=backend_factory),
-        patch(
-            "deploy.context.get_caller_identity",
-            return_value={"Account": "123456789012"},
-        ) as sts,
-        patch.object(subprocess, "run", side_effect=subprocess_result) as _,
-        patch.object(M.session_ops, "run_session", side_effect=run_session),
-        patch.object(Path, "cwd", return_value=base if options else root),
-    ):
-        result = M.main(argv + list(options), **({"root": root} if options else {}))
-        if not state_file.exists() and "--profile" not in options:
-            raise AssertionError(output.getvalue() + errors_output.getvalue())
-        assert sts.call_count == 0 if "--profile" in options else sts.call_count <= 1
-        last_output.append(output.getvalue() + errors_output.getvalue())
-        return result
 
 
 def check_runtime_identity_delegation(tmp_path):
@@ -1680,753 +1568,6 @@ def check_runtime_identity_delegation(tmp_path):
             M.create_runtime(tmp_path, "dev", "test", TARGET, "explicit")
         assert caught.value is failure
         connection.assert_not_called()
-
-
-def check_session_cli(tmp_path, monkeypatch):
-    """Exercise entrypoint, preflight, persisted groups, approvals and immutable inputs."""
-    base = tmp_path
-    root = (base / "repo").resolve()
-    root.mkdir(parents=True)
-    (root / "project.json").write_text(
-        json.dumps(
-            {
-                "targets": [
-                    {"environment": "dev", **TARGET, "awsProfile": "dev-profile"},
-                    {"environment": "stg", **TARGET},
-                ]
-            }
-        )
-    )
-    (root / "tasks").mkdir()
-    contract = root / "tasks/example.md"
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/example.md")
-    contract.write_text(
-        "\n".join(
-            [
-                "## Task contract",
-                "- Task status: `running`",
-                "- Task type: `infrastructure`",
-                "- Infrastructure phase: `deploy`",
-                "- AWS API execution: `allowed`",
-                "- Deploy/apply: `allowed`",
-                "- Target environment: `dev`",
-                "- Target AWS account: `123456789012`",
-                "- Deployment scope: `A`, `B`",
-                "- Authorized delete/replacement: `none`",
-                "## Modified files",
-                "- `tasks/example.md`",
-                "## Allowed paths",
-                "- `tasks/example.md`",
-                "## Validation scope",
-                "- `all`",
-            ]
-        )
-    )
-    values = {"desired.deployment.maxConcurrentStacks": "2"}
-    for i, unit in enumerate(units(10, 20), 1):
-        values.update(
-            {f"desired.stack.{i:03}.{key}": value for key, value in unit.items()}
-        )
-        values[f"display.stack.{i:03}.comment"] = "アプリケーションを配置するstack"
-    source = root / "model/dev/123456789012/cloudformation-stacks.properties"
-    source.parent.mkdir(parents=True)
-    write_model(source, "\n".join(f"{key}={value}" for key, value in values.items()))
-    design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
-    design.parent.mkdir(parents=True)
-    design.write_text(markdown_for(design, values, root))
-    template = root / "infra/cloudformation/templates/app.yaml"
-    template.parent.mkdir(parents=True)
-    template.write_text("Resources: {}\n")
-    params = root / "infra/cloudformation/parameters/dev/123456789012"
-    params.mkdir(parents=True)
-    for name in ("a", "b"):
-        (params / (name + ".json")).write_text("[]\n")
-    consumer = source.with_name("consumer.properties")
-    reference = root / "model/stg/123456789012/reference.properties"
-    reference.parent.mkdir(parents=True)
-    write_model(
-        reference,
-        'desired.resource.001.resourceType=Logs.LogGroup\ndesired.resource.001.logicalId=Logs_LogGroup_001\ndesired.resource.001.anchor=resource-Logs_LogGroup_001\ndesired.service.identity.lastAllocated={"Logs.LogGroup":1}\ndesired.row.001-001.property=Logs.LogGroup.LogGroupName\ndesired.row.001-001.value=approved\ndesired.row.001-001.comment=参照先\n',
-    )
-    write_model(
-        consumer,
-        'desired.resource.001.resourceType=Logs.LogGroup\ndesired.resource.001.logicalId=Logs_LogGroup_001\ndesired.resource.001.anchor=resource-Logs_LogGroup_001\ndesired.service.identity.lastAllocated={"Logs.LogGroup":1}\ndesired.row.001-001.property=Logs.LogGroup.LogGroupName\ndesired.row.001-001.value=[Logs_LogGroup_001](../../stg/123456789012/reference.md#resource-Logs_LogGroup_001)\ndesired.row.001-001.comment=参照する名前\n',
-    )
-    stg_source = root / "model/stg/123456789012/cloudformation-stacks.properties"
-    stg_source.parent.mkdir(parents=True, exist_ok=True)
-    write_model(stg_source, read_model(source))
-    stg_design = root / "docs/designs/stg/123456789012/cloudformation-stacks.md"
-    stg_design.parent.mkdir(parents=True)
-    stg_design.write_text(markdown_for(stg_design, values, root))
-    state_file = base / "session.json"
-    argv = [
-        "--environment",
-        "dev",
-        "--aws-account-id",
-        "123456789012",
-        "--stack",
-        "A",
-        "--stack",
-        "B",
-        "--state",
-        str(state_file),
-        "--timing-log",
-        str(base / "timing.jsonl"),
-    ]
-    backends, validation_calls = [], []
-    destructive = [True]
-    runtime_resume, recovered = [False], []
-    backend_factory = _bind_framework_callback(
-        _callback_check_session_cli_backend_factory,
-        backends,
-        destructive,
-        recovered,
-        runtime_resume,
-        validation_calls,
-    )
-    session_runner = M.session_ops.run_session
-    execution_limits = []
-    mutation = [None]
-    run_session = _bind_framework_callback(
-        _callback_check_session_cli_run_session,
-        execution_limits,
-        mutation,
-        session_runner,
-    )
-    last_output = []
-    with patch(
-        "deploy.context.select_profile", side_effect=IdentityError("identity rejected")
-    ) as select:
-        assert (
-            _callback_check_session_cli_invoke(
-                argv,
-                backend_factory,
-                base,
-                contract,
-                last_output,
-                root,
-                run_session,
-                state_file,
-                ["--profile", "explicit"],
-            )
-            == 2
-        )
-        select.assert_called_once_with(
-            dict(TARGET, awsProfile="dev-profile"), "explicit"
-        )
-    assert not backends
-    timing = [
-        json.loads(line) for line in (base / "timing.jsonl").read_text().splitlines()
-    ]
-    assert any(
-        event["phase"] == "authenticationContext" and event["result"] == "FAIL"
-        for event in timing
-    )
-    assert timing[-1]["phase"] == "controller" and timing[-1]["result"] == "FAIL"
-    # Ordinary startup has no whole-scope mapping or static validation permission.
-    with patch(
-        "model.adapters.observed.mappings",
-        side_effect=AssertionError("startup mapping forbidden"),
-    ):
-        assert (
-            _callback_check_session_cli_invoke(
-                argv,
-                backend_factory,
-                base,
-                contract,
-                last_output,
-                root,
-                run_session,
-                state_file,
-            )
-            == 2
-        )
-    session = json.loads(state_file.read_text())
-    assert "lintSeconds" not in session["metrics"] and "validationStatus" not in session
-    assert session["states"]["A"]["status"] == "BLOCKED", (session, last_output[-1])
-    assert session["states"]["B"]["status"] == "NOT_STARTED"
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume", "--approve-change-set", "cs-A"],
-        )
-        == 2
-    )
-    session = json.loads(state_file.read_text())
-    assert (
-        session["result"] == "STOPPED" and session["states"]["A"]["status"] == "SUCCESS"
-    )
-    assert [
-        args["StackName"]
-        for op, args in backends[-1].calls
-        if op == "create_change_set"
-    ] == ["B"], last_output[-1]
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 2
-    )
-    session = json.loads(state_file.read_text())
-    assert session["states"]["B"]["status"] == "BLOCKED", session
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume", "--approve-change-set", "cs-B"],
-        )
-        == 0
-    ), last_output[-1]
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 0
-    )
-    assert "validationCount" not in session["metrics"] and not validation_calls
-    assert not backends[-1].calls  # Completed run never redeploys successful stacks.
-    # A/B: unrelated environment bytes (even invalid JSON) are absent from guards/resume.
-    unrelated = root / "infra/cloudformation/parameters/stg/123456789012/other.json"
-    unrelated.parent.mkdir(parents=True)
-    unrelated.write_text("invalid JSON\n")
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 0
-    )
-    assert set(json.loads(state_file.read_text())["infraManifest"]) == {
-        p.relative_to(root).as_posix()
-        for p in backends[-1].deployment_input_paths(units(10, 20))
-    }
-    # A stale/unrecorded v4 manifest cannot replace the signed accepted input authority.
-    saved_manifest_session = state_file.read_bytes()
-    legacy = json.loads(state_file.read_text())
-    legacy["infraManifest"][unrelated.relative_to(root).as_posix()] = (
-        "old unrelated digest"
-    )
-    state_file.write_text(json.dumps(legacy))
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 2
-    )
-    state_file.write_bytes(saved_manifest_session)
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 0
-    )
-    mutation[0] = lambda: unrelated.write_text("other invalid JSON\n")
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 0
-    )
-    mutation[0] = None
-    # C/D/E/H/I and model/contract guards run after validation, immediately before mutation.
-    assert (
-        M.load_units(root, "stg", "123456789012", ["A"])[1][0]["template"] == "app.yaml"
-    )
-    for path, text in (
-        (params / "a.json", '[{"ParameterKey":"Name","ParameterValue":"changed"}]'),
-        (template, "Resources: {}\n# shared dev/stg template changed\n"),
-        (contract, contract.read_text() + "\n# contract changed\n"),
-    ):
-        canonical = path.suffix == ".properties" and path.is_relative_to(root / "model")
-        before = path.read_bytes()
-        if canonical:
-            text = before.decode() + "# canonical input changed\n"
-        mutation[0] = lambda path=path, text=text: path.write_text(text)
-        assert (
-            _callback_check_session_cli_invoke(
-                argv,
-                backend_factory,
-                base,
-                contract,
-                last_output,
-                root,
-                run_session,
-                state_file,
-                ["--resume"],
-            )
-            == 2
-        ), path
-        path.write_bytes(before)
-        mutation[0] = None
-        assert (
-            _callback_check_session_cli_invoke(
-                argv,
-                backend_factory,
-                base,
-                contract,
-                last_output,
-                root,
-                run_session,
-                state_file,
-                ["--resume"],
-            )
-            == 0
-        )
-    project = root / "project.json"
-    before = project.read_bytes()
-    for key, value in (
-        ("awsAccountId", "999999999999"),
-        ("awsRegion", "us-east-1"),
-        ("awsProfile", "other-profile"),
-        ("iacEngine", "terraform"),
-    ):
-        changed = json.loads(before)
-        changed["targets"][0][key] = value
-        mutation[0] = lambda changed=changed: project.write_text(json.dumps(changed))
-        assert (
-            _callback_check_session_cli_invoke(
-                argv,
-                backend_factory,
-                base,
-                contract,
-                last_output,
-                root,
-                run_session,
-                state_file,
-                ["--resume"],
-            )
-            == 2
-        ), key
-        mutation[0] = None
-        project.write_bytes(before)
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 0
-    )
-    # Declared artifact bytes join the same controller manifest and mutation guard.
-    saved_source, saved_design = snapshot_model(source), design.read_bytes()
-    saved_state, saved_argv = state_file, argv[:]
-    artifact_source = root / "infra/cloudformation/artifacts/job.py"
-    artifact_source.parent.mkdir(parents=True)
-    artifact_source.write_text("print('approved')\n")
-    bucket_model = source.with_name("s3.properties")
-    write_model(
-        bucket_model,
-        'desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=S3_Bucket_001\ndesired.resource.001.anchor=resource-S3_Bucket_001\ndesired.service.identity.lastAllocated={"S3.Bucket":1}\ndesired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`assets`\ndesired.row.001-001.comment=配布先bucket\n',
-    )
-    artifact = {
-        "stack": "A",
-        "resource": "Job",
-        "property": "Command.ScriptLocation",
-        "source": artifact_source.relative_to(root).as_posix(),
-        "bucket": "[S3_Bucket_001](s3.md#resource-S3_Bucket_001)",
-        "keyPrefix": "jobs/",
-    }
-    with_artifact = values | {
-        "desired.artifact.001." + key: value for key, value in artifact.items()
-    }
-    write_model(
-        source, "\n".join(f"{key}={value}" for key, value in with_artifact.items())
-    )
-    design.write_text(markdown_for(design, with_artifact, root))
-    state_file = base / "artifact.json"
-    argv[argv.index("--state") + 1] = str(state_file)
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-        )
-        == 2
-    )  # Exact replacement approval still blocks the stub change set.
-    assert (
-        artifact_source.relative_to(root).as_posix()
-        in json.loads(state_file.read_text())["infraManifest"]
-    )
-    mutation[0] = lambda: artifact_source.write_text("print('changed')\n")
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 2
-    )
-    mutation[0] = None
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 2
-    )  # Resume also rejects changed target artifact bytes.
-    for file, data in saved_source.items():
-        file.write_bytes(data)
-    design.write_bytes(saved_design)
-    remove_model(bucket_model)
-    state_file, argv = saved_state, saved_argv
-    print(
-        "Deployment input isolation: PASS (A/B unrelated invalid stg guard/resume; C/D/E target/shared; artifact guard/resume; I target account/region/profile/engine; target/reference model/contract guards)"
-    )
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume", "--approve-change-set", "cs-A"],
-        )
-        == 2
-    )
-    template.write_text("Resources: {Changed: {}}\n")
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 2
-    )
-    template.write_text("Resources: {}\n")
-    contract.write_text(
-        contract.read_text().replace("`infrastructure`", "`governance`")
-    )
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 2
-    )
-
-    # Cases 1/2/3: one invocation, one whole-scope validation, all barriers inside it.
-    contract.write_text(
-        contract.read_text().replace("`governance`", "`infrastructure`")
-    )
-    destructive[0] = False
-    for orders, limit in (((10,), 1), ((10,) * 4, 4), ((10,) * 4 + (20,) * 4, 4)):
-        selected = units(*orders)
-        values = {"desired.deployment.maxConcurrentStacks": str(limit)}
-        for number, unit in enumerate(selected, 1):
-            values.update(
-                {
-                    f"desired.stack.{number:03}.{key}": value
-                    for key, value in unit.items()
-                }
-            )
-            values[f"display.stack.{number:03}.comment"] = "実行するstack"
-            (params / unit["parameters"]).write_text("[]\n")
-        write_model(
-            source, "\n".join(f"{key}={value}" for key, value in values.items())
-        )
-        design.write_text(markdown_for(design, values, root))
-        contract.write_text(
-            contract.read_text().replace(
-                next(
-                    line
-                    for line in contract.read_text().splitlines()
-                    if line.startswith("- Deployment scope:")
-                ),
-                "- Deployment scope: "
-                + ", ".join("`" + u["name"] + "`" for u in selected),
-            )
-        )
-        state_file = base / f"success-{len(orders)}.json"
-        argv = [
-            "--environment",
-            "dev",
-            "--aws-account-id",
-            "123456789012",
-            "--state",
-            str(state_file),
-        ]
-        for unit in selected:
-            argv += ["--stack", unit["name"]]
-        assert (
-            _callback_check_session_cli_invoke(
-                argv,
-                backend_factory,
-                base,
-                contract,
-                last_output,
-                root,
-                run_session,
-                state_file,
-            )
-            == 0
-        )
-        session = json.loads(state_file.read_text())
-        assert session["result"] == "COMPLETE", session
-        assert (
-            session["metrics"]["controllerInvocationCount"] == 1
-            and "validationCount" not in session["metrics"]
-        )
-        assert session["metrics"]["deployOrderCount"] == len(set(orders))
-        assert all(
-            s["status"] == "SUCCESS" and s["observedSynced"]
-            for s in session["states"].values()
-        )
-        assert not any(op == "list-stacks" for op, _ in backends[-1].calls)
-        assert (
-            _callback_check_session_cli_invoke(
-                argv,
-                backend_factory,
-                base,
-                contract,
-                last_output,
-                root,
-                run_session,
-                state_file,
-                ["--resume"],
-            )
-            == 0
-            and not backends[-1].calls
-        )
-        assert "validationCount" not in json.loads(state_file.read_text())["metrics"]
-        # CLI resume dispatches the persisted bootstrap intent with the same token.
-        session = json.loads(state_file.read_text())
-        handoff = _imports_deploy_handoff
-        handoff.restore(root, state_file, session)
-        session["states"]["A"]["repairs"] = [
-            {
-                "classification": "RUNTIME_BOOTSTRAP",
-                "stage": "BOOTSTRAP_INTENT",
-                "clientRequestToken": "stable-bootstrap-token",
-            }
-        ]
-        handoff.save(state_file, session)
-        runtime_resume[0] = True
-        before = len(recovered)
-        assert _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        ) == 0 and recovered[before:] == [("A", "stable-bootstrap-token")]
-        assert not backends[-1].calls
-        runtime_resume[0] = False
-        if limit == 4:
-            # Sequential is a session cap, not a design edit or per-stack invocation.
-            state_file = base / f"sequential-{len(orders)}.json"
-            argv[argv.index("--state") + 1] = str(state_file)
-            before = snapshot_model(source)
-            assert (
-                _callback_check_session_cli_invoke(
-                    argv,
-                    backend_factory,
-                    base,
-                    contract,
-                    last_output,
-                    root,
-                    run_session,
-                    state_file,
-                    ["--sequential"],
-                )
-                == 0
-                and execution_limits[-1] == 1
-            )
-            assert snapshot_model(source) == before
-            assert json.loads(state_file.read_text())["result"] == "COMPLETE"
-            assert (
-                _callback_check_session_cli_invoke(
-                    argv,
-                    backend_factory,
-                    base,
-                    contract,
-                    last_output,
-                    root,
-                    run_session,
-                    state_file,
-                    ["--resume", "--sequential"],
-                )
-                == 0
-                and not backends[-1].calls
-            )
-            assert (
-                _callback_check_session_cli_invoke(
-                    argv,
-                    backend_factory,
-                    base,
-                    contract,
-                    last_output,
-                    root,
-                    run_session,
-                    state_file,
-                    ["--resume"],
-                )
-                == 2
-            )  # Resume cannot expand the saved cap.
-    # Explicit update handoff retains the older producer/consumer editing contract.
-    contract.write_text(
-        contract.read_text().replace(
-            "Infrastructure phase: `deploy`", "Infrastructure phase: `update`"
-        )
-    )
-    state_file = base / "update-handoff.json"
-    argv[argv.index("--state") + 1] = str(state_file)
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--pause-after-group"],
-        )
-        == 0
-    )
-    session = json.loads(state_file.read_text())
-    assert session["result"] == "GROUP_COMPLETE"
-    assert all(session["states"][u["name"]]["observedSynced"] for u in selected[:4])
-    pending = params / selected[4]["parameters"]
-    pending.write_text('[{"ParameterKey":"Environment","ParameterValue":"dev"}]')
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume", "--pause-after-group"],
-        )
-        == 0
-    )
-    session = json.loads(state_file.read_text())
-    assert (
-        session["result"] == "COMPLETE" and "validationCount" not in session["metrics"]
-    )
-    prepared = params / selected[0]["parameters"]
-    prepared.write_text('[{"ParameterKey":"Changed","ParameterValue":"value"}]')
-    assert (
-        _callback_check_session_cli_invoke(
-            argv,
-            backend_factory,
-            base,
-            contract,
-            last_output,
-            root,
-            run_session,
-            state_file,
-            ["--resume"],
-        )
-        == 2
-    )
 
 
 def _callback_check_parallel_and_restart_parallel_poll(
@@ -2481,14 +1622,13 @@ def check_parallel_and_restart():
     scoped = units(10, 10, 10, 10, 20, 20, 20, 20)
     sequential = Fake({"B": ["CREATE_FAILED"]})
     saved = {
-        "workflow": _imports_deploy_handoff.new_workflow(),
         "inputRevision": 0,
         "states": states(scoped),
         "metrics": {"observedSyncSeconds": 0},
     }
-    with patch.object(M.session_ops, "sync_successful"):
+    with patch.object(M.run_ops, "sync_successful"):
         assert (
-            M.session_ops.run_session(
+            M.run_ops.run_deploy(
                 scoped, 1, saved, sequential, lambda: None, sleep=lambda _: None
             )
             == "STOPPED"
@@ -2509,14 +1649,13 @@ def check_parallel_and_restart():
     synced = []
     sync = _bind_framework_callback(_callback_check_parallel_and_restart_sync, synced)
     session = {
-        "workflow": _imports_deploy_handoff.new_workflow(),
         "inputRevision": 0,
         "states": state,
         "metrics": {"observedSyncSeconds": 0},
     }
-    with patch.object(M.session_ops, "sync_successful", side_effect=sync):
+    with patch.object(M.run_ops, "sync_successful", side_effect=sync):
         assert (
-            M.session_ops.run_session(
+            M.run_ops.run_deploy(
                 scoped,
                 4,
                 session,
@@ -2629,18 +1768,17 @@ def check_parallel_and_restart():
     )
     _state_check_parallel_and_restart_1131.backend.running = {"B"}
     session = {
-        "workflow": _imports_deploy_handoff.new_workflow(),
         "inputRevision": 0,
         "states": state,
         "metrics": {"observedSyncSeconds": 0},
     }
     with patch.object(
-        M.session_ops,
+        M.run_ops,
         "sync_successful",
         side_effect=ValueError("AMBIGUOUS_OBSERVED_MAPPING"),
     ):
         assert (
-            M.session_ops.run_session(
+            M.run_ops.run_deploy(
                 selected,
                 2,
                 session,
@@ -2677,132 +1815,6 @@ def check_api_timing(tmp_path):
     assert [e["result"] for e in events] == ["PASS", "FAIL"]
     assert all(e["phase"] == "awsApi" and e["seconds"] >= 0 for e in events)
     assert "private-stack" not in path.read_text() and "Stacks" not in path.read_text()
-
-
-def _check_controlled_repair_rejects(call, message):
-    try:
-        call()
-    except M.Blocked as error:
-        assert message in str(error)
-    else:
-        raise AssertionError(message)
-
-
-def _check_controlled_repair_failed_without_id(operation, **args):
-    if operation == "describe_stacks":
-        return {"Stacks": [{"StackId": "id", "StackStatus": "ROLLBACK_COMPLETE"}]}
-    return {
-        "StackResourceSummaries": [
-            {
-                "LogicalResourceId": "Item",
-                "ResourceType": "AWS::EC2::VPC",
-                "ResourceStatus": "CREATE_FAILED",
-            }
-        ]
-    }
-
-
-def _check_controlled_repair_protected(operation, **args):
-    return {
-        "Stacks": [
-            {
-                "StackId": "id",
-                "StackStatus": "ROLLBACK_COMPLETE",
-                "EnableTerminationProtection": True,
-            }
-        ]
-    }
-
-
-def _check_controlled_repair_partial_asset(operation, **args):
-    if operation == "describe_stacks":
-        return {"Stacks": [{"StackId": "id", "StackStatus": "ROLLBACK_COMPLETE"}]}
-    return {
-        "StackResourceSummaries": [
-            {
-                "LogicalResourceId": "Item",
-                "ResourceType": "AWS::EC2::VPC",
-                "ResourceStatus": "CREATE_FAILED",
-                "PhysicalResourceId": "vpc-existing",
-            }
-        ]
-    }
-
-
-def check_controlled_repair(tmp_path):
-    """Deploy never edits IaC; original cleanup provenance/retention gates remain."""
-    root = tmp_path / "repo"
-    root.mkdir()
-    task = root / "tasks/example.md"
-    task.parent.mkdir()
-    task.write_text(
-        "## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n- Runtime recovery: `allowed`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n"
-    )
-    unit = units(10)[0]
-    backend = Runtime(root, "dev", "123456789012", TARGET)
-    backend.templates["A"] = (
-        {
-            "Resources": {
-                "Item": {
-                    "Type": "AWS::EC2::VPC",
-                    "Properties": {"CidrBlock": "10.1.0.0/16"},
-                }
-            }
-        },
-        {},
-    )
-    state = {
-        "status": "FAILED",
-        "stackStatus": "UPDATE_ROLLBACK_COMPLETE",
-        "failureEvents": [
-            {
-                "LogicalResourceId": "Item",
-                "ResourceType": "AWS::EC2::VPC",
-                "ResourceStatus": "UPDATE_FAILED",
-                "ResourceStatusReason": "CidrBlock invalid",
-            }
-        ],
-    }
-    backend.session = {"states": {"A": state}}
-    assert not backend.repair(unit, state)
-    assert state["failureClassification"] == "NEEDS_DIAGNOSIS"
-    for removed in (
-        "repair_plan",
-        "apply_candidate",
-        "resume_candidate",
-        "repair_template",
-    ):
-        assert not hasattr(M.repair_ops, removed)
-    rejects = _check_controlled_repair_rejects
-    # Unknown provenance and retained resource conditions are checked before delete.
-    state.update(
-        stackStatus="ROLLBACK_COMPLETE",
-        operationType="CREATE",
-        absentBeforeCreate=True,
-        stackId="id",
-        operationStackId="other",
-    )
-    failed_without_id = _check_controlled_repair_failed_without_id
-    backend.aws = failed_without_id
-    rejects(lambda: backend.cleanup_failed_create(unit, state), "provenance")
-    state["operationStackId"] = "id"
-    backend.templates["A"][0]["Resources"]["Item"]["DeletionPolicy"] = "Retain"
-    rejects(lambda: backend.cleanup_failed_create(unit, state), "retained")
-    backend.templates["A"][0]["Resources"]["Item"].pop("DeletionPolicy")
-    protected = _check_controlled_repair_protected
-    backend.aws = protected
-    rejects(lambda: backend.cleanup_failed_create(unit, state), "protected")
-    partial_asset = _check_controlled_repair_partial_asset
-    backend.aws = partial_asset
-    rejects(lambda: backend.cleanup_failed_create(unit, state), "still owns resources")
-    # Cleanup authorization uses the failed input, even after a child removes Retain.
-    state["operationStackId"] = "id"
-    state["externalRepair"] = "request"
-    state["failureTemplateSafety"] = {
-        "Resources": {"Item": {"Type": "AWS::EC2::VPC", "DeletionPolicy": "Retain"}}
-    }
-    backend.aws = failed_without_id
-    rejects(lambda: backend.cleanup_failed_create(unit, state), "retained")
 
 
 def _check_secret_runtime_bootstrap_consumer_reference(key):
@@ -2906,7 +1918,7 @@ def _callback_check_secret_runtime_bootstrap_configure_aws(
             }
         if operation == "put_secret_value":
             guard()
-            saved = json.loads(session_path.read_text())["states"]["B"]["repairs"][-1]
+            saved = json.loads(session_path.read_text())["states"]["B"]["bootstrap"]
             assert (
                 saved["classification"] == "RUNTIME_BOOTSTRAP"
                 and saved["stage"] == "PUT_SUBMITTED"
@@ -3040,8 +2052,8 @@ def _callback_check_secret_runtime_bootstrap_concurrent_value(
 ):
     _state_check_secret_runtime_bootstrap_1420.save()
     if (
-        _state_check_secret_runtime_bootstrap_1420.state.get("repairs")
-        and _state_check_secret_runtime_bootstrap_1420.state["repairs"][-1]["stage"]
+        _state_check_secret_runtime_bootstrap_1420.state.get("bootstrap")
+        and _state_check_secret_runtime_bootstrap_1420.state["bootstrap"]["stage"]
         == "VALUE_CHECKED_MISSING"
     ):
         _state_check_secret_runtime_bootstrap_1420.f.versions["external-version"] = [
@@ -3053,10 +2065,10 @@ def _callback_check_secret_runtime_bootstrap_interrupted(
     _state_check_secret_runtime_bootstrap_1420, /
 ):
     _state_check_secret_runtime_bootstrap_1420.save()
-    records = _state_check_secret_runtime_bootstrap_1420.state.get("repairs", [])
+    records = _state_check_secret_runtime_bootstrap_1420.state.get("bootstrap")
     if (
         records
-        and records[-1]["stage"] == _state_check_secret_runtime_bootstrap_1420.boundary
+        and records["stage"] == _state_check_secret_runtime_bootstrap_1420.boundary
     ):
         raise KeyboardInterrupt()
 
@@ -3074,8 +2086,8 @@ def _callback_check_secret_runtime_bootstrap_configure_validate(
 def _callback_check_secret_runtime_bootstrap_configure_run(
     active, backend, session, synced, /
 ):
-    with patch.object(M.session_ops, "sync_successful", side_effect=synced):
-        return M.session_ops.run_session(
+    with patch.object(M.run_ops, "sync_successful", side_effect=synced):
+        return M.run_ops.run_deploy(
             active, 2, session, backend, backend.save, sleep=lambda _: None
         )
 
@@ -3214,19 +2226,18 @@ def _callback_check_secret_runtime_bootstrap_configure_1518(
         root, "dev", "123456789012", backend.templates, active, target=TARGET
     )
     session = {
-        "workflow": _imports_deploy_handoff.new_workflow(),
         "inputRevision": 0,
         "states": states(active),
         "metrics": {"observedSyncSeconds": 0},
-        "unitDigests": {u["name"]: backend.input_digest(u) for u in active},
+        "inputDigests": {u["name"]: backend.input_digest(u) for u in active},
     }
     session["states"]["SecretOwner"].update(
         status="SUCCESS", stackId=stack_ids["SecretOwner"], observedSynced=True
     )
     backend.states = session["states"]
-    backend.session = session
-    backend.expected_digests = session["unitDigests"]
-    backend.validated_digests = dict(session["unitDigests"])
+    backend.run_context = session
+    backend.expected_digests = session["inputDigests"]
+    backend.validated_digests = dict(session["inputDigests"])
     calls, executed, validations, syncs = [], [], [], []
     versions = {}
     knobs = {
@@ -3316,7 +2327,7 @@ def _callback_check_secret_runtime_bootstrap_configure_1518(
     save()
     return SimpleNamespace(
         backend=backend,
-        session=session,
+        run_context=session,
         calls=calls,
         executed=executed,
         validations=validations,
@@ -3447,7 +2458,7 @@ def check_secret_runtime_bootstrap(tmp_path):
     # Cases 1, 8, 13: one JSON PUT, failed CREATE cleanup/retry, peer sync and original remaining order.
     _state_check_secret_runtime_bootstrap_1420.f = configure()
     assert _state_check_secret_runtime_bootstrap_1420.f.run() == "COMPLETE", (
-        _state_check_secret_runtime_bootstrap_1420.f.session
+        _state_check_secret_runtime_bootstrap_1420.f.run_context
     )
     assert (
         _state_check_secret_runtime_bootstrap_1420.f.executed == ["A", "B", "B", "C"]
@@ -3458,14 +2469,10 @@ def check_secret_runtime_bootstrap(tmp_path):
     assert json.loads(
         puts(_state_check_secret_runtime_bootstrap_1420.f)[0]["SecretString"]
     ) == {"username": "DUMMY_DEPLOY_ONLY", "password": "DUMMY_DEPLOY_ONLY"}
-    entry = _state_check_secret_runtime_bootstrap_1420.f.session["states"]["B"][
-        "repairs"
-    ][0]
-    assert (
-        entry["classification"] == "RUNTIME_BOOTSTRAP"
-        and entry["stage"] == "RETRY_READY"
-    )
-    assert entry["requiredJsonKeys"] == ["password", "username"]
+    completed_state = _state_check_secret_runtime_bootstrap_1420.f.run_context[
+        "states"
+    ]["B"]
+    assert completed_state["bootstrapAttempted"] and "bootstrap" not in completed_state
     assert (
         all(
             p.read_bytes() == data
@@ -3486,7 +2493,7 @@ def check_secret_runtime_bootstrap(tmp_path):
         _state_check_secret_runtime_bootstrap_1420.f.run() == "COMPLETE"
         and _state_check_secret_runtime_bootstrap_1420.f.executed
         == ["A", "B", "B", "C", "FutureSecretOwner"]
-    ), _state_check_secret_runtime_bootstrap_1420.f.session
+    ), _state_check_secret_runtime_bootstrap_1420.f.run_context
     assert len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1 and not any(
         op == "list_stack_resources" and args == ("--stack-name", "FutureSecretOwner")
         for op, args in _state_check_secret_runtime_bootstrap_1420.f.calls
@@ -3670,10 +2677,10 @@ def check_secret_runtime_bootstrap(tmp_path):
             template_dir / "b.yaml"
         ).read_bytes()
         _state_check_secret_runtime_bootstrap_1420.f.before[path] = path.read_bytes()
-        _state_check_secret_runtime_bootstrap_1420.f.session["unitDigests"]["B"] = (
-            _state_check_secret_runtime_bootstrap_1420.f.backend.input_digest(
-                selected[2], fresh=True
-            )
+        _state_check_secret_runtime_bootstrap_1420.f.run_context["inputDigests"][
+            "B"
+        ] = _state_check_secret_runtime_bootstrap_1420.f.backend.input_digest(
+            selected[2], fresh=True
         )
         _state_check_secret_runtime_bootstrap_1420.f.backend.load_inputs(selected[2])
         _state_check_secret_runtime_bootstrap_1420.f.backend.save()
@@ -3711,7 +2718,7 @@ def check_secret_runtime_bootstrap(tmp_path):
         encoding="utf-8",
     )
     _state_check_secret_runtime_bootstrap_1420.f.before[path] = path.read_bytes()
-    _state_check_secret_runtime_bootstrap_1420.f.session["unitDigests"]["B"] = (
+    _state_check_secret_runtime_bootstrap_1420.f.run_context["inputDigests"]["B"] = (
         _state_check_secret_runtime_bootstrap_1420.f.backend.input_digest(
             selected[2], fresh=True
         )
@@ -3750,7 +2757,6 @@ def check_secret_runtime_bootstrap(tmp_path):
         "PUT_SUBMITTED",
         "afterPut",
         "BOOTSTRAP_CONFIRMED",
-        "RETRY_READY",
     ):
         _state_check_secret_runtime_bootstrap_1420.f = configure()
         _state_check_secret_runtime_bootstrap_1420.state = (
@@ -3774,19 +2780,19 @@ def check_secret_runtime_bootstrap(tmp_path):
         persisted = json.loads(
             _state_check_secret_runtime_bootstrap_1420.f.saved.read_text()
         )
-        token = persisted["states"]["B"]["repairs"][0]["clientRequestToken"]
+        token = persisted["states"]["B"]["bootstrap"]["clientRequestToken"]
         # Reload all persisted state, as a new process would; the AWS versions survive.
-        _state_check_secret_runtime_bootstrap_1420.f.session.clear()
-        _state_check_secret_runtime_bootstrap_1420.f.session.update(persisted)
+        _state_check_secret_runtime_bootstrap_1420.f.run_context.clear()
+        _state_check_secret_runtime_bootstrap_1420.f.run_context.update(persisted)
         previous = _state_check_secret_runtime_bootstrap_1420.f.backend
         _state_check_secret_runtime_bootstrap_1420.f.backend = Runtime(
             root, "dev", "123456789012", TARGET
         )
-        _state_check_secret_runtime_bootstrap_1420.f.backend.session = (
-            _state_check_secret_runtime_bootstrap_1420.f.session
+        _state_check_secret_runtime_bootstrap_1420.f.backend.run_context = (
+            _state_check_secret_runtime_bootstrap_1420.f.run_context
         )
         _state_check_secret_runtime_bootstrap_1420.f.backend.states = (
-            _state_check_secret_runtime_bootstrap_1420.f.session["states"]
+            _state_check_secret_runtime_bootstrap_1420.f.run_context["states"]
         )
         _state_check_secret_runtime_bootstrap_1420.f.backend.units = selected
         _state_check_secret_runtime_bootstrap_1420.f.backend.mapping_plan = (
@@ -3798,7 +2804,7 @@ def check_secret_runtime_bootstrap(tmp_path):
         _state_check_secret_runtime_bootstrap_1420.f.backend.aws = previous.aws
         _state_check_secret_runtime_bootstrap_1420.f.backend.guard = previous.guard
         _state_check_secret_runtime_bootstrap_1420.f.backend.expected_digests = (
-            _state_check_secret_runtime_bootstrap_1420.f.session["unitDigests"]
+            _state_check_secret_runtime_bootstrap_1420.f.run_context["inputDigests"]
         )
         _state_check_secret_runtime_bootstrap_1420.f.backend.refresh_validation = (
             lambda unit,
@@ -3819,18 +2825,19 @@ def check_secret_runtime_bootstrap(tmp_path):
                 _state_check_secret_runtime_bootstrap_1420.boundary,
                 _state_check_secret_runtime_bootstrap_1420.state,
             )
+        assert token in _state_check_secret_runtime_bootstrap_1420.f.versions
         assert (
-            _state_check_secret_runtime_bootstrap_1420.f.session["states"]["B"][
-                "repairs"
-            ][0]["clientRequestToken"]
-            == token
+            "bootstrap"
+            not in _state_check_secret_runtime_bootstrap_1420.f.run_context["states"][
+                "B"
+            ]
         )
         assert (
             len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1
             and len(_state_check_secret_runtime_bootstrap_1420.f.versions) == 1
         )
         assert (
-            _state_check_secret_runtime_bootstrap_1420.f.session["states"]["B"][
+            _state_check_secret_runtime_bootstrap_1420.f.run_context["states"]["B"][
                 "status"
             ]
             == "NOT_STARTED"
@@ -3843,13 +2850,15 @@ def check_secret_runtime_bootstrap(tmp_path):
         and len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1
     )
     assert (
-        _state_check_secret_runtime_bootstrap_1420.f.session["states"]["B"][
+        _state_check_secret_runtime_bootstrap_1420.f.run_context["states"]["B"][
             "failureClassification"
         ]
         == "HUMAN_REQUIRED"
     )
     assert (
-        _state_check_secret_runtime_bootstrap_1420.f.session["states"]["C"]["status"]
+        _state_check_secret_runtime_bootstrap_1420.f.run_context["states"]["C"][
+            "status"
+        ]
         == "NOT_STARTED"
     )
     assert (
@@ -3954,8 +2963,12 @@ class CapacityFake(Fake):
         return super().poll(unit, state)
 
 
+def _save_test_snapshot(path, snapshot):
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+
 def _capacity_save(path, session, snapshots):
-    _imports_deploy_handoff.save(path, session)
+    _save_test_snapshot(path, session)
     snapshots.append(json.loads(path.read_text(encoding="utf-8")))
 
 
@@ -3990,7 +3003,6 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
     # A restored READY peer must not Execute or trigger delivery when a violation exists.
     saved[scoped[-2]["name"]].update(status="READY", changeSetId="cs-ready")
     session = {
-        "workflow": _imports_deploy_handoff.new_workflow(),
         "inputRevision": 0,
         "states": saved,
         "metrics": {"observedSyncSeconds": 0},
@@ -3999,8 +3011,8 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
     path = tmp_path / "session.json"
     save = _bind_framework_callback(_capacity_save, path, session, snapshots)
     sync = _bind_framework_callback(_callback_check_parallel_and_restart_sync, synced)
-    with patch.object(M.session_ops, "sync_successful", side_effect=sync):
-        result = M.session_ops.run_session(
+    with patch.object(M.run_ops, "sync_successful", side_effect=sync):
+        result = M.run_ops.run_deploy(
             scoped, limit, session, backend, save, sleep=lambda _: None
         )
     # Ordinary failure/retry behavior is covered by the existing runtime recovery cases.
@@ -4036,9 +3048,9 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
             )
         # Resume from the actual saved session preserves the stop even after peers drained.
         restored = json.loads(path.read_text(encoding="utf-8"))
-        with patch.object(M.session_ops, "sync_successful", side_effect=sync):
+        with patch.object(M.run_ops, "sync_successful", side_effect=sync):
             assert (
-                M.session_ops.run_session(
+                M.run_ops.run_deploy(
                     scoped, limit, restored, backend, lambda: None, sleep=lambda _: None
                 )
                 == "STOPPED"
@@ -4061,15 +3073,14 @@ def check_capacity_optimized_python():
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from deploy.session import run_session
-import deploy.handoff as _imports_deploy_handoff
+from deploy.run_context import run_deploy
 units = [{'name': n, 'deployOrder': 10} for n in ('A', 'B', 'C')]
 states = {n: {'status': 'RUNNING' if n != 'C' else 'READY', 'clientToken': n} for n in ('A', 'B', 'C')}
-session = {'workflow': _imports_deploy_handoff.new_workflow(), 'inputRevision': 0, 'states': states, 'metrics': {'observedSyncSeconds': 0}}
+session = {'states': states, 'metrics': {'observedSyncSeconds': 0}}
 backend = SimpleNamespace(poll=Mock(return_value='CREATE_COMPLETE'), prepare=Mock(), execute=Mock(),
                           prepare_delivery_group=Mock(), repair=Mock())
-with patch('deploy.session.sync_successful'):
-    result = run_session(units, 1, session, backend, lambda: None, sleep=lambda _: None)
+with patch('deploy.run_context.sync_successful'):
+    result = run_deploy(units, 1, session, backend, lambda: None, sleep=lambda _: None)
 for state in states.values():
     state.pop('executionSeconds', None)
 print(json.dumps([result, states, backend.prepare.call_count, backend.execute.call_count,
@@ -4149,7 +3160,7 @@ def check_execute_timeout_keeps_evidence(tmp_path):
     unit, state = selected[0], {"status": "NOT_STARTED", "clientToken": "stable-token"}
     path = tmp_path / "session.json"
     backend.save = _bind_framework_callback(
-        _imports_deploy_handoff.save, path, {"states": {"A": state}}
+        _save_test_snapshot, path, {"states": {"A": state}}
     )
     backend.load_inputs(unit)
     assert backend.prepare(unit, state) == "READY"
@@ -4169,7 +3180,7 @@ def check_execute_timeout_keeps_evidence(tmp_path):
     backend.save()
     restored = json.loads(path.read_text(encoding="utf-8"))["states"]
     backend.save = _bind_framework_callback(
-        _imports_deploy_handoff.save, path, {"states": restored}
+        _save_test_snapshot, path, {"states": restored}
     )
     backend.stack_status = "CREATE_IN_PROGRESS"
     assert backend.poll(unit, restored["A"]) == "CREATE_IN_PROGRESS"

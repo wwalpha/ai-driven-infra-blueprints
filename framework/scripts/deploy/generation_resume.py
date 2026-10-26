@@ -18,32 +18,32 @@ from utils.iac_values import cfn_resource_identity
 import deploy.observed_resume as observed
 
 
-def complete(session):
+def complete(run_context):
     return (
-        not session.get("pendingObserved")
-        and not session.get("pendingGeneration")
-        and not session.get("generationError")
+        not run_context.get("pendingObserved")
+        and not run_context.get("pendingGeneration")
+        and not run_context.get("generationError")
         and all(
             state["status"] == "SUCCESS" and state.get("observedSynced")
-            for state in session["states"].values()
+            for state in run_context["states"].values()
         )
     )
 
 
-def describe(session):
-    if session.get("generationError"):
-        return session["generationError"]
+def describe(run_context):
+    if run_context.get("generationError"):
+        return run_context["generationError"]
     return "pending design generation: " + "; ".join(
         key + ": " + record["reason"] + " " + str(record["producers"])
-        for key, record in session.get("pendingGeneration", {}).items()
+        for key, record in run_context.get("pendingGeneration", {}).items()
     )
 
 
 def enqueue(backend, plan):
-    """Transfer even v16 candidates only after their existing exact-byte guard."""
-    root, session = backend.root, backend.session
+    """Transfer exact publication candidates only after their existing exact-byte guard."""
+    root, run_context = backend.root, backend.run_context
     observed.check_generated(root, plan)
-    pending = session.setdefault("pendingGeneration", {})
+    pending = run_context.setdefault("pendingGeneration", {})
     for view, files in plan["generated"]["groups"].items():
         prior = pending.get(view)
         if prior is not None:
@@ -61,7 +61,7 @@ def enqueue(backend, plan):
             "service": Path(view).stem,
             "reason": "Observed committed; generation required",
             "producers": [],
-            "waitingModelManifest": retry_manifest(root, session, view),
+            "waitingModelManifest": retry_manifest(root, run_context, view),
             "candidateSelections": []
             if generated["outputs"] is None
             else [
@@ -78,7 +78,7 @@ def enqueue(backend, plan):
                 ]
                 for directory in plan["directories"]
             ],
-            "candidateManifest": copy.deepcopy(session["modelInputManifest"])
+            "candidateManifest": copy.deepcopy(run_context["modelInputs"])
             if generated["outputs"] is not None
             else None,
             "generated": {
@@ -93,23 +93,22 @@ def enqueue(backend, plan):
 
 
 @task_read_scope
-def validate(root, session, target, environment, directory, views=None):
-    identity = observed._identity(root, session, target, environment, directory)
-    for view, record in session.get("pendingGeneration", {}).items():
+def validate(root, run_context, target, environment, directory, views=None):
+    identity = observed._identity(root, run_context, target, environment, directory)
+    for view, record in run_context.get("pendingGeneration", {}).items():
         if views is not None and view not in views:
             continue
         if (
-            {k: v for k, v in record["identity"].items() if k != "infraManifest"}
-            != {k: v for k, v in identity.items() if k != "infraManifest"}
+            record["identity"] != identity
             or record["environment"] != environment
             or record["directory"] != directory
             or view != f"docs/designs/{environment}/{directory}/{record['service']}.md"
             or set(record["generated"]["groups"]) != {view}
         ):
-            raise Blocked("pending generation Task/target/session identity changed")
+            raise Blocked("pending generation Task/target/run identity changed")
         observed.generated_manifests(root, record)
         if record["generated"]["outputs"] is not None and any(
-            session["modelInputManifest"].get(p) != digest
+            run_context["modelInputs"].get(p) != digest
             for p, digest in record["candidateManifest"].items()
         ):
             raise Blocked("generation candidate Model manifest changed")
@@ -133,11 +132,11 @@ def validate(root, session, target, environment, directory, views=None):
                 raise Blocked("generation candidate Model bytes changed")
 
 
-def recover_journal(root, session, target, environment, directory, record):
-    validate(root, session, target, environment, directory)
+def recover_journal(root, run_context, target, environment, directory, record):
+    validate(root, run_context, target, environment, directory)
     owners = [
         item
-        for item in session["pendingGeneration"].values()
+        for item in run_context["pendingGeneration"].values()
         if set(record["originals"]) <= set(item["generated"]["originals"])
     ]
     if len(owners) != 1:
@@ -145,19 +144,21 @@ def recover_journal(root, session, target, environment, directory, record):
     observed.verify_generated_journal(root, owners[0], record)
 
 
-def reconcile(root, session, target, environment, directory, views=None):
-    recovery = partial(recover_journal, root, session, target, environment, directory)
+def reconcile(root, run_context, target, environment, directory, views=None):
+    recovery = partial(
+        recover_journal, root, run_context, target, environment, directory
+    )
     with publication_lock(root, recovery_check=recovery):
-        validate(root, session, target, environment, directory, views)
+        validate(root, run_context, target, environment, directory, views)
         return {
             view: observed.check_generated(root, record)
-            for view, record in session.get("pendingGeneration", {}).items()
+            for view, record in run_context.get("pendingGeneration", {}).items()
             if views is None or view in views
         }
 
 
 def producers(backend, view, info, stage, resolver):
-    """Only exact, indexed CREATE owners in this session can unblock a service."""
+    """Only exact, indexed CREATE owners in this run can unblock a service."""
     diagnostics = info.get("diagnostics")
     if not diagnostics or any(
         d.get("category") != "REFERENCE_PENDING_DEPLOY" for d in diagnostics
@@ -165,7 +166,7 @@ def producers(backend, view, info, stage, resolver):
         raise Blocked(
             "generation unavailable is not a pending CREATE reference: " + str(info)
         )
-    root, session = backend.root, backend.session
+    root, run_context = backend.root, backend.run_context
     scope = scope_for(
         root
         / "model"
@@ -192,9 +193,9 @@ def producers(backend, view, info, stage, resolver):
         stack, template_logical = cfn_resource_identity(
             resource.get("cfn-logicalId", "")
         )
-        if stack not in names or stack not in session["states"]:
+        if stack not in names or stack not in run_context["states"]:
             raise Blocked("pending Producer is outside Deploy session: " + stack)
-        if producer_state(session, stack).get("observedSynced"):
+        if producer_state(run_context, stack).get("observedSynced"):
             raise Blocked("pending Producer is already synchronized: " + stack)
         result[(str(producer_path), logical)] = {
             "producerModel": str(producer_path),
@@ -206,8 +207,8 @@ def producers(backend, view, info, stage, resolver):
     return list(result.values())
 
 
-def producer_state(session, stack):
-    state = session["states"].get(stack)
+def producer_state(run_context, stack):
+    state = run_context["states"].get(stack)
     if (
         state is None
         or state["status"]
@@ -219,15 +220,15 @@ def producer_state(session, stack):
     return state
 
 
-def ready(session, record):
+def ready(run_context, record):
     for producer in record["producers"]:
         producer["observedSynced"] = bool(
-            producer_state(session, producer["stack"]).get("observedSynced")
+            producer_state(run_context, producer["stack"]).get("observedSynced")
         )
     return all(p["observedSynced"] for p in record["producers"])
 
 
-def retry_manifest(root, session, view):
+def retry_manifest(root, run_context, view):
     """Reuse checked Model dependencies; unknown references wait for explicit Resume."""
     entrance = (root / "model" / Path(view).relative_to("docs/designs")).with_suffix(
         ".properties"
@@ -242,7 +243,7 @@ def retry_manifest(root, session, view):
         relative = path.relative_to(root).as_posix()
         paths.update(
             root / p
-            for p in session["modelInputManifest"]
+            for p in run_context["modelInputs"]
             if p == relative or p.startswith(relative.removesuffix(".properties") + "/")
         )
         if shared is None:
@@ -257,15 +258,15 @@ def retry_manifest(root, session, view):
             if p.is_relative_to(root / "model")
         )
     return {
-        p.relative_to(root).as_posix(): session["modelInputManifest"].get(
+        p.relative_to(root).as_posix(): run_context["modelInputs"].get(
             p.relative_to(root).as_posix()
         )
         for p in sorted(paths)
     }
 
 
-def retry_producers(session, record):
-    root = Path(session["repository"])
+def retry_producers(run_context, record):
+    root = Path(run_context["repository"])
     shared = session_reads(root)
     if shared is None or shared.dependency_index is None:
         return {}
@@ -283,25 +284,22 @@ def retry_producers(session, record):
             except ValueError:
                 # Unknown ownership cannot supply retry evidence; Resume re-evaluates it.
                 continue
-            if stack in session["states"]:
+            if stack in run_context["states"]:
                 stacks.add(stack)
     return {
-        stack: bool(session["states"][stack].get("observedSynced"))
+        stack: bool(run_context["states"][stack].get("observedSynced"))
         for stack in sorted(stacks)
     }
 
 
-def revision(session, record):
+def revision(run_context, record):
     """In-process invalidation only; a fresh backend/session always recovers evidence."""
     return (
         record,
-        {
-            p: session["modelInputManifest"].get(p)
-            for p in record["waitingModelManifest"]
-        },
-        retry_producers(session, record),
+        {p: run_context["modelInputs"].get(p) for p in record["waitingModelManifest"]},
+        retry_producers(run_context, record),
         [
-            bool(producer_state(session, p["stack"]).get("observedSynced"))
+            bool(producer_state(run_context, p["stack"]).get("observedSynced"))
             for p in record["producers"]
         ],
     )
@@ -343,8 +341,8 @@ def settle(
     validated=False,
 ):
     """Commit Pending and Error together, retaining candidates on uncertain publication."""
-    root, session = backend.root, backend.session
-    previous = session["pendingGeneration"]
+    root, run_context = backend.root, backend.run_context
+    previous = run_context["pendingGeneration"]
     pending = copy.deepcopy(previous)
     failed = failed or {}
     for view in views:
@@ -408,7 +406,7 @@ def settle(
     errors.extend(unclassified)
     if error is not None:
         errors.append(str(error))
-    prior_error = session.get("generationError")
+    prior_error = run_context.get("generationError")
     if prior_error and not previous and not views and not errors:
         raise Blocked(
             "generation error has no retained candidate evidence; safe recovery cannot be proven: "
@@ -418,54 +416,56 @@ def settle(
         # Pending records without a current result cannot disprove an unclassified error.
         errors.append(prior_error)
     backend.guard()
-    session["pendingGeneration"] = pending
+    run_context["pendingGeneration"] = pending
     if errors:
-        session["generationError"] = "pending design generation: " + "; ".join(errors)
+        run_context["generationError"] = "pending design generation: " + "; ".join(
+            errors
+        )
     else:
-        session.pop("generationError", None)
+        run_context.pop("generationError", None)
     try:
         backend.save()
     except Exception:
-        session["pendingGeneration"] = previous
+        run_context["pendingGeneration"] = previous
         if prior_error is None:
-            session.pop("generationError", None)
+            run_context.pop("generationError", None)
         else:
-            session["generationError"] = prior_error
+            run_context["generationError"] = prior_error
         raise
     return error
 
 
 def run(backend):
-    root, session = backend.root, backend.session
+    root, run_context = backend.root, backend.run_context
     backend._generation_finalized = False
     backend.guard()
-    pending = session["pendingGeneration"]
-    if getattr(backend, "_generation_session", None) is not session:
-        backend._generation_session = session
+    pending = run_context["pendingGeneration"]
+    if getattr(backend, "_generation_session", None) is not run_context:
+        backend._generation_session = run_context
         backend._generation_checks = {}
     checked = backend._generation_checks
     changed = {
         view
         for view, record in pending.items()
-        if checked.get(view) != revision(session, record)
+        if checked.get(view) != revision(run_context, record)
     }
     if not changed:
-        if session.get("generationError"):
+        if run_context.get("generationError"):
             if not pending:
                 settle(backend)
-            raise Blocked(session["generationError"])
+            raise Blocked(run_context["generationError"])
         return
     recovered = getattr(backend, "generation_recovery", {})
     current = {}
     for view in changed:
         evidence = recovered.pop(view, None)
-        if evidence is not None and evidence[0] == revision(session, pending[view]):
+        if evidence is not None and evidence[0] == revision(run_context, pending[view]):
             current[view] = evidence[1]
     if changed - current.keys():
         current.update(
             reconcile(
                 root,
-                session,
+                run_context,
                 backend.target,
                 backend.environment,
                 backend.directory,
@@ -475,19 +475,19 @@ def run(backend):
     recovery_error = settle(backend, sorted(changed), current=current)
     if recovery_error is not None:
         raise recovery_error
-    pending = session["pendingGeneration"]
+    pending = run_context["pendingGeneration"]
     selected = []
     for view in sorted(changed):
         if view not in pending:
             continue
         record = pending[view]
-        if ready(session, record) or record["reason"].startswith("FAILED:"):
+        if ready(run_context, record) or record["reason"].startswith("FAILED:"):
             selected.append(view)
         else:
-            checked[view] = copy.deepcopy(revision(session, record))
+            checked[view] = copy.deepcopy(revision(run_context, record))
     if not selected:
-        if session.get("generationError"):
-            raise Blocked(session["generationError"])
+        if run_context.get("generationError"):
+            raise Blocked(run_context["generationError"])
         return
     backend.guard()
     with publication_lock(root, read_only=True):
@@ -588,11 +588,11 @@ def run(backend):
                         }
                     )
                 settle(backend, validated=True)
-                pending = session["pendingGeneration"]
+                pending = run_context["pendingGeneration"]
                 backend.guard()
                 reconcile(
                     root,
-                    session,
+                    run_context,
                     backend.target,
                     backend.environment,
                     backend.directory,
@@ -606,7 +606,7 @@ def run(backend):
                 failed, unclassified = failed_services(generation, selected)
                 for view in selected:
                     pending[view]["waitingModelManifest"] = retry_manifest(
-                        root, session, view
+                        root, run_context, view
                     )
                 publication_error = settle(
                     backend,
@@ -616,12 +616,14 @@ def run(backend):
                     unclassified=unclassified,
                     error=publication_error,
                 )
-                pending = session["pendingGeneration"]
+                pending = run_context["pendingGeneration"]
                 if publication_error is not None:
                     raise publication_error
                 for view in selected:
                     if view in pending:
-                        checked[view] = copy.deepcopy(revision(session, pending[view]))
+                        checked[view] = copy.deepcopy(
+                            revision(run_context, pending[view])
+                        )
                 backend._generation_finalized = True
                 try:
                     sync_runtime.report_generation(generation)
@@ -633,11 +635,11 @@ def run(backend):
                         and deferred
                     ):
                         pass
-                    elif session.get("generationError"):
-                        raise Blocked(session["generationError"]) from error
+                    elif run_context.get("generationError"):
+                        raise Blocked(run_context["generationError"]) from error
                     else:
                         raise
-                if session.get("generationError"):
-                    raise Blocked(session["generationError"])
+                if run_context.get("generationError"):
+                    raise Blocked(run_context["generationError"])
             finally:
                 generation.close()

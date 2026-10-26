@@ -20,8 +20,6 @@ import pytest
 import pytest as _imports_pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
 import validation.loop as _imports_validation_loop
-from deploy import handoff
-from deploy_handoff import main as handoff_cli
 from import_guard import require_import_changes
 from model.adapters.task import edit_write_context
 from model.sources import load_model
@@ -49,7 +47,6 @@ from support.worktree_task_fixtures import (
 from support.worktree_task_fixtures import (
     contract as contract,
 )
-from task_contract_core import task_digest
 from utils import sealed_evidence
 from utils.aws_mappings import mapping_alias
 from validation import loop
@@ -84,107 +81,16 @@ def check_sync_base_preserves_candidate():
         assert cli(root, "finalize")["cleaned"]
 
 
-def _callback_check_deploy_workflow_cross_task_reset_rejected_initial(
-    target, /, root, state
-):
-    return {
-        "repository": str(root),
-        "taskFile": state["task_file"],
-        "target": target,
-        "taskDigest": task_digest((root / state["task_file"]).read_text()),
-        "workflow": handoff.new_workflow(),
-        "states": {"Stack": {"status": "NOT_STARTED"}},
-    }
-
-
 @it_case
-def check_deploy_workflow_cross_task_reset_rejected():
+def check_old_workflow_registry_is_ignored():
     with fixture() as primary:
-        parent, parent_state = start(primary, task_id="deploy-one", files=("file.txt",))
-        other, other_state = start(primary, task_id="deploy-two", files=("file.txt",))
-        target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
-        initial = _bind_framework_callback(
-            _callback_check_deploy_workflow_cross_task_reset_rejected_initial, target
-        )
-        path = primary.parent / "original-session.json"
-        original = initial(parent, parent_state)
-        handoff.bind(parent, path, original)
-        original["workflow"]["reserved"] = 2
-        handoff.save(path, original)
-        wt.bind_deploy_workflow(
-            parent, path, original, Path(original["workflowBinding"]), activate=True
-        )
-        replacement = initial(other, other_state)
-        next_path = primary.parent / "replacement-session.json"
-        try:
-            handoff.bind(other, next_path, replacement)
-        except ValueError as error:
-            assert "unfinished deploy workflow" in str(error)
-        else:
-            raise AssertionError("another Task reset the original workflow")
-        proof = Path(original["workflowBinding"])
-        retained = proof.with_name(proof.name + ".retained")
-        proof.rename(retained)
-        try:
-            try:
-                handoff.bind(other, next_path, replacement)
-            except (OSError, ValueError):
-                pass
-            else:
-                raise AssertionError(
-                    "missing prior ledger became a zero-cycle workflow"
-                )
-        finally:
-            retained.rename(proof)
-        original["workflow"]["attempts"]["static-failed"] = {
-            "attemptId": "static-failed",
-            "stage": "STATIC_FAILED",
-            "staticRuns": 3,
-        }
-        original["pendingRequest"] = {
-            "attemptId": "static-failed",
-            "requestId": "retained-pending-proof",
-        }
-        handoff.save(path, original)
-        with tasks.selected_task(parent, parent_state["task_file"]):
-            assert (
-                handoff_cli(
-                    [
-                        "close",
-                        "--repository-root",
-                        str(parent),
-                        "--state",
-                        str(path),
-                        "--authorization",
-                        "fixture explicit Human termination",
-                    ]
-                )
-                == 0
-            )
-        try:
-            handoff.bind(other, next_path, replacement)
-            wt.bind_deploy_workflow(
-                other,
-                next_path,
-                replacement,
-                Path(replacement["workflowBinding"]),
-                activate=True,
-            )
-        except ValueError as error:
-            assert "unfinished deploy workflow" in str(error)
-        else:
-            raise AssertionError("close must not reset unresolved history or budget")
-        saved = json.loads(path.read_text())
-        assert (
-            saved["workflow"]["reserved"] == 2
-            and saved["workflow"]["status"] == "CLOSED"
-        )
-        assert "pendingRequest" not in saved
-        assert (
-            saved["workflow"]["attempts"]["static-failed"]["closedRequest"]["requestId"]
-            == "retained-pending-proof"
-        )
-        assert saved["workflow"]["attempts"]["static-failed"]["stage"] == "ABANDONED"
+        directory = wt.metadata_directory(primary) / "deploy-workflows"
+        directory.mkdir()
+        retained = directory / "old.json"
+        retained.write_text('{"workflowId":"old","status":"unfinished"}')
+        target, state = start(primary, task_id="new-deploy", files=("file.txt",))
+        assert target.is_dir() and state["task_id"] == "new-deploy"
+        assert retained.read_text() == '{"workflowId":"old","status":"unfinished"}'
 
 
 @it_case
@@ -965,7 +871,7 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
 def main():
     for check in (
         check_sync_base_preserves_candidate,
-        check_deploy_workflow_cross_task_reset_rejected,
+        check_old_workflow_registry_is_ignored,
         check_success_and_empty,
         check_finalize_line_endings,
         check_incomplete_and_git_safety,

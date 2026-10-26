@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import copy
 import re
-from collections.abc import Iterable
 
 from utils.json_format import fingerprint
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
 from deploy.guards import secret_value_missing
-from deploy.typing import AwsResponse, Session, StackState, StackUnit
+from deploy.typing import AwsResponse, StackState
 from deploy.typing import AwsValue as AwsValue
 
 # A transport failure, approval wait or guard failure never becomes an IaC failure.
@@ -98,109 +97,4 @@ def template_safety(document: AwsResponse) -> JsonObject:
             }
             for key, resource in document.get("Resources", {}).items()
         }
-    }
-
-
-def capture(session: Session, unit: StackUnit, state: StackState) -> JsonObject | None:
-    if state.get("status") not in {"FAILED", "BLOCKED"}:
-        return None
-    execution = (
-        state.get("clientToken")
-        if state.get("executionEvidence")
-        else state.get("preparationId")
-    )
-    if not execution:
-        return None
-    observation = {
-        "stack": unit["name"],
-        "execution": execution,
-        "revision": session.get("inputRevision", 0),
-        "inputManifest": copy.deepcopy(session.get("infraManifest", {})),
-        "unitDigest": session.get("unitDigests", {}).get(unit["name"]),
-        "effectiveDigest": session.get("effectiveDigests", {}).get(unit["name"]),
-        "awsState": {
-            key: copy.deepcopy(state[key])
-            for key in (
-                "status",
-                "stackStatus",
-                "stackId",
-                "changeSetId",
-                "clientToken",
-                "executionEvidence",
-                "operationStackId",
-                "operationType",
-                "absentBeforeCreate",
-                "preparationId",
-                "changeSetFailure",
-                "failureTemplateSafety",
-                "failure",
-                "failureEvents",
-                "successEvents",
-            )
-            if key in state
-        },
-    }
-    observation["observationId"] = fingerprint([unit["name"], execution])
-    history = session.setdefault("failureObservations", [])
-    existing = next(
-        (
-            item
-            for item in history
-            if item["observationId"] == observation["observationId"]
-        ),
-        None,
-    )
-    if existing:
-        return existing
-    history.append(observation)
-    return observation
-
-
-def repairable(observation: JsonObject) -> bool:
-    state = observation["awsState"]
-    failure = state.get("failure", {})
-    if failure.get("classification") in {
-        "AUTHORIZATION",
-        "SUBMISSION_UNKNOWN",
-        "NEEDS_HUMAN",
-        "APPROVAL",
-    }:
-        return False
-    if state["status"] == "FAILED":
-        return state.get("stackStatus") in {
-            "ROLLBACK_COMPLETE",
-            "UPDATE_ROLLBACK_COMPLETE",
-        } and bool(state.get("failureEvents"))
-    return (
-        failure.get("classification") in {"IAC_CANDIDATE", "INPUT_CANDIDATE"}
-        and failure.get("executionState") == "NOT_EXECUTED"
-    )
-
-
-def structured(observation: JsonObject, indices: Iterable[int]) -> set[str]:
-    """Observation identity only, never a root-cause classifier or prose fingerprint."""
-    state = observation["awsState"]
-    events = state.get("failureEvents", [])
-    if events:
-        return {
-            fingerprint(
-                [
-                    observation["stack"],
-                    event.get("resourcePath", event.get("LogicalResourceId")),
-                    event.get("ResourceType"),
-                    event.get("ResourceStatus"),
-                    event.get("code"),
-                    sorted(event.get("properties", [])),
-                ]
-            )
-            for event in (events[i] for i in indices)
-        }
-    failure = state.get("failure", {})
-    return {
-        fingerprint(
-            [
-                observation["stack"],
-                *(failure.get(k) for k in ("stage", "service", "operation", "code")),
-            ]
-        )
     }

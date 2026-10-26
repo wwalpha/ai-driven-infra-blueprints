@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from deploy import controller, failures, handoff
-from deploy.typing import DeliveryBoundary, Session, StackUnit
+from deploy import controller, failures
+from deploy.typing import DeliveryBoundary, DeployRunContext, StackUnit
 from model.sources import ModelSnapshot
 
 if not __debug__:
@@ -23,7 +23,7 @@ if not __debug__:
 
 MODULES = (
     "deploy.scheduler",
-    "deploy.session",
+    "deploy.run_context",
     "deploy.controller",
     "deploy.handoff",
     "deploy.failures",
@@ -89,13 +89,11 @@ def check_typed_records_keep_json_and_runtime_shape(tmp_path):
         "metrics": {},
     }
     assert StackUnit(**unit) == unit
-    assert Session(**session) == session
-    assert get_origin(get_type_hints(Session)["states"]) is dict
-    assert get_args(get_type_hints(Session)["states"])[0] is str
+    assert DeployRunContext(**session) == session
+    assert get_origin(get_type_hints(DeployRunContext)["states"]) is dict
+    assert get_args(get_type_hints(DeployRunContext)["states"])[0] is str
     assert get_type_hints(DeliveryBoundary)["importNames"] == dict[str, set[str]]
-    path = tmp_path / "state.json"
-    handoff.save(path, session)
-    assert json.loads(path.read_text(encoding="utf-8")) == session
+    assert json.loads(json.dumps(session)) == session
     runtime = controller.create_runtime(
         tmp_path,
         "dev",

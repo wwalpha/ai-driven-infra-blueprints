@@ -140,7 +140,7 @@ Implementation scope:
 
 ### `codex/04_deploy.md`
 
-- Description: Deploy/apply created/validated IaC to authorized target AWS accounts; authoritative IaC changes belong to a separately verified implement Task, accepted through the original deploy session.
+- Description: Deploy/apply created/validated IaC to authorized target AWS accounts; authoritative IaC changes belong to a separately verified implement Task, integrated through a one-shot verified handoff before an independent new Deploy.
 - Timing: IaC from `03_implement.md` is confirmed and target IaC has no uncommitted changes.
 - How to use: Pass environment, alias when present, AWS account, deployment scope, permitted delete/replacement, and AWS profile if needed. Perform preflight, change set/plan checks, execution, completion confirmation, and necessary observed value updates.
 
@@ -218,7 +218,7 @@ If design changes need new human decisions, confirm them in chat before reposito
 
 - Codex prompts output by `service-design.md` change only detailed designs and models.
 - `03_implement.md` changes only IaC and does not run AWS APIs.
-- `04_deploy.md` executes only authorized deploy/apply; IaC changes require a separate authorized implement Task and verified same-session handoff.
+- `04_deploy.md` executes only authorized deploy/apply; IaC changes require a separate authorized implement Task and verified one-shot handoff and independent new Deploy.
 - `05_update.md` preserves human intended-design model diffs, generates Markdown/JSON, reflects IaC, and executes only authorized deploy/apply and observed updates.
 - `06_scenario-test.md` changes only scenarios/results, without repairing designs or IaC.
 - Do not treat deploy success as application behavior PASS.
