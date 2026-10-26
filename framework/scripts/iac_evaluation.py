@@ -29,7 +29,7 @@ def _callback_Evaluation_evaluate_replace(
     if key.startswith("!"):
         return "${" + key[1:] + "}"
     if key in substitutions:
-        child = substitutions[key]
+        child = self.evaluate(stack, substitutions[key], seen)
     else:
         child = self.evaluate(
             stack, {"Fn::GetAtt": key} if "." in key else {"Ref": key}, seen
@@ -303,14 +303,7 @@ class Evaluation:
                 )
                 if not isinstance(text, str) or not isinstance(variables, dict):
                     raise ValueError("invalid Fn::Sub")
-                substitutions = (
-                    parameters
-                    | pseudo
-                    | {
-                        key: self.evaluate(stack, child, seen)
-                        for key, child in variables.items()
-                    }
-                )
+                substitutions = parameters | pseudo | variables
                 resolved = {}
                 replace = _bind_framework_callback(
                     _callback_Evaluation_evaluate_replace,

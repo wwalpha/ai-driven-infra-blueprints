@@ -447,7 +447,10 @@ def template(kind, properties):
         "PENDING_DEPLOY",
         {"Ref": "Key"},
         {"Fn::Sub": "${Key}"},
+        {"Fn::Sub": "prefix-${Key}-suffix"},
+        {"Fn::Sub": ["prefix-${Value}", {"Value": {"Ref": "Key"}}]},
         {"Fn::Join": ["", ["prefix-", {"Ref": "Key"}]]},
+        {"Fn::Select": [0, {"Fn::Split": ["-", {"Ref": "Key"}]}]},
         {"Fn::Sub": ["${Resource.Arn}:${Key}", {}]},
     ],
 )
@@ -470,17 +473,28 @@ def check_deploy_blocks_literals_and_parameters(value):
         {"Fn::GetAtt": ["Resource", "Arn"]},
         {"Fn::Sub": "${Resource.Arn}"},
         {"Ref": "Key"},
+        "PREFIX_PENDING_DEPLOY_SUFFIX",
+        {"Fn::Sub": "prefix-${Key}-suffix"},
+        {"Fn::Sub": "PREFIX_PENDING_DEPLOY_SUFFIX"},
+        {"Fn::Join": ["-", ["PREFIX_PENDING_DEPLOY_SUFFIX", {"Ref": "Key"}]]},
+        {"Fn::ImportValue": {"Fn::Sub": "${Key}-export"}},
+        {"Fn::Sub": "arn:${AWS::Partition}:service:${AWS::Region}:${AWS::AccountId}"},
+        {"Ref": "AWS::StackId"},
+        {"Ref": "AWS::URLSuffix"},
+        {"Ref": "AWS::NoValue"},
     ],
 )
 def check_deploy_accepts_cfn_references(value):
     doc = template("Lambda.Function", {"Environment": {"Variables": {"KEY": value}}})
+    before = copy.deepcopy(doc)
     validate_environment_inputs(
         FRAMEWORK,
         doc,
-        {"Key": "confirmed"},
+        {"Key": "PREFIX_PENDING_DEPLOY_SUFFIX"},
         {"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"},
         "stack",
     )
+    assert doc == before
 
 
 def check_deploy_selects_active_branch_and_only_environment():
@@ -503,6 +517,34 @@ def check_deploy_selects_active_branch_and_only_environment():
         {"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"},
         "stack",
     )
+    doc["Resources"]["Resource"]["Condition"] = "Disabled"
+    doc["Conditions"]["Disabled"] = {"Fn::Equals": ["yes", "no"]}
+    validate_environment_inputs(FRAMEWORK, doc, {"Flag": "no"}, TARGET, "stack")
+
+    pipeline = template(
+        "CodePipeline.Pipeline",
+        {
+            "Stages": [
+                {
+                    "Actions": [
+                        {
+                            "Configuration": {
+                                "ProjectName": {"Fn::GetAtt": ["Build", "Name"]},
+                                "EnvironmentVariables": json.dumps(
+                                    [{"name": "KEY", "value": "fixed"}]
+                                ),
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+    pipeline["Resources"]["Build"] = {
+        "Type": "AWS::CodeBuild::Project",
+        "Properties": {"Name": "PREFIX_PENDING_DEPLOY_SUFFIX"},
+    }
+    validate_environment_inputs(FRAMEWORK, pipeline, {}, TARGET, "stack")
 
 
 def check_deploy_snapshot_guard_precedes_aws_and_is_per_stack(models):
@@ -607,6 +649,12 @@ def check_deploy_five_services(kind, prop, value, pointer):
         validate_environment_inputs(
             FRAMEWORK, template(kind, properties), {}, TARGET, "stack"
         )
+    confirmed = json.loads(
+        json.dumps(properties).replace("PENDING_DEPLOY", "PREFIX_PENDING_DEPLOY_SUFFIX")
+    )
+    validate_environment_inputs(
+        FRAMEWORK, template(kind, confirmed), {}, TARGET, "stack"
+    )
 
 
 def check_deploy_only_evaluates_selected_settings():
@@ -823,7 +871,13 @@ def check_deploy_uses_existing_select_and_mapping_evaluation(index):
             "Environment": {
                 "Variables": {
                     "KEY": {
-                        "Fn::Sub": ["${Resource.Arn}", {"Unused": "PENDING_DEPLOY"}]
+                        "Fn::Sub": [
+                            "${Resource.Arn}",
+                            {
+                                "Unused": "PENDING_DEPLOY",
+                                "Undefined": {"Ref": "Missing"},
+                            },
+                        ]
                     }
                 }
             }

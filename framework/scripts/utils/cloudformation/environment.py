@@ -1,83 +1,55 @@
-"""Reject unresolved environment literals in a decoded Stack input snapshot."""
+"""Reject unresolved environment inputs in a decoded Stack snapshot."""
 
-import re
 from functools import partial
 
 from iac_evaluation import Evaluation
-from model.environment_values import inspect, mapping_for
+from model.environment_values import inspect, mapping_for, state
 
-from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
+from utils.cloudformation.inputs import Blocked, condition_active
+from utils.iac_values import Expression, unknown_value
 
 
 class EnvironmentValuePending(Blocked):
     """A Stack-local input wait; independent peers may still execute."""
 
 
+class _EnvironmentEvaluation(Evaluation):
+    def evaluate(self, stack, value, seen=frozenset()):
+        if isinstance(value, str) and state(value).status == "unresolved":
+            return Expression("Unverified", [])
+        parameters = self.stack_inputs[stack][1]
+        if isinstance(value, dict) and set(value) == {"Ref"}:
+            key = value["Ref"]
+            if key in parameters:
+                return self.evaluate(stack, parameters[key], seen)
+        return super().evaluate(stack, value, seen)
+
+    def string_operand(self, value):
+        return unknown_value(value) or super().string_operand(value)
+
+
 def _aws_resolved(*args):
     raise Blocked("CloudFormation resolves this reference")
 
 
-def _substitute(known, match):
-    key = match.group(1)
-    return (
-        str(known[key])
-        if key in known and isinstance(known[key], (str, int, float))
-        else match.group(0)
-    )
+def _aws_reference(template, stack, logical_id, attribute=None):
+    if logical_id not in template.get("Resources", {}):
+        raise Blocked(f"undefined CloudFormation resource: {logical_id}")
+    # Opaque tokens retain valid AWS references while encoded environment strings are decoded.
+    return "${" + logical_id + ("." + attribute if attribute else "") + "}"
 
 
-def _known(value, evaluate, parameters, pseudo, conditions):
-    if isinstance(value, list):
-        return [
-            _known(child, evaluate, parameters, pseudo, conditions) for child in value
-        ]
-    if not isinstance(value, dict):
-        return value
-    if len(value) == 1 and "Fn::If" in value:
-        name, yes, no = value["Fn::If"]
-        active = resolve_value(
-            {"Condition": name}, parameters, pseudo, conditions=conditions
-        )
-        return _known(yes if active else no, evaluate, parameters, pseudo, conditions)
-    if len(value) == 1 and any(key == "Ref" or key.startswith("Fn::") for key in value):
-        try:
-            return evaluate(value)
-        except Blocked:
-            if "Fn::Sub" in value:
-                argument = value["Fn::Sub"]
-                text, variables = (
-                    (argument, {}) if isinstance(argument, str) else argument
-                )
-                known = (
-                    parameters
-                    | pseudo
-                    | {
-                        key: _known(child, evaluate, parameters, pseudo, conditions)
-                        for key, child in variables.items()
-                    }
-                )
-                text = re.sub(r"\$\{([^}]+)\}", partial(_substitute, known), text)
-                remaining = {
-                    key: known[key] for key in variables if "${" + key + "}" in text
-                }
-                return (
-                    {"Fn::Sub": [text, remaining]} if remaining else {"Fn::Sub": text}
-                )
-        return {
-            key: _known(child, evaluate, parameters, pseudo, conditions)
-            for key, child in value.items()
-        }
+def _aws_import(evaluator, stack, value, seen):
+    name = evaluator.evaluate(stack, value, seen)
+    return "${Fn::ImportValue}" if isinstance(name, str) else name
+
+
+def _environment_input(evaluator, stack, value):
+    if isinstance(value, dict) and any(
+        key == "Ref" or key.startswith("Fn::") for key in value
+    ):
+        return evaluator.evaluate(stack, value)
     return value
-
-
-def _pending(value):
-    if isinstance(value, str):
-        return "PENDING_DEPLOY" in value
-    if isinstance(value, dict):
-        return any(_pending(child) for child in value.values())
-    if isinstance(value, list):
-        return any(_pending(child) for child in value)
-    return False
 
 
 def validate_environment_inputs(root, template, parameters, target, stack):
@@ -86,24 +58,22 @@ def validate_environment_inputs(root, template, parameters, target, stack):
         "AWS::Region": target["awsRegion"],
         "AWS::AccountId": target.get("awsExecutionAccountId", target["awsAccountId"]),
         "AWS::StackName": stack,
+        "AWS::Partition": "${AWS::Partition}",
+        "AWS::URLSuffix": "${AWS::URLSuffix}",
+        "AWS::StackId": "${AWS::StackId}",
+        "AWS::NoValue": {"$noValue": True},
     }
-    conditions = template.get("Conditions", {})
-    evaluator = Evaluation(
+    evaluator = _EnvironmentEvaluation(
         {stack: (template, parameters, pseudo)},
         {},
         _aws_resolved,
+        partial(_aws_reference, template),
         _aws_resolved,
-        _aws_resolved,
-        False,
+        True,
         _aws_resolved,
     )
-    evaluate = partial(
-        _known,
-        evaluate=partial(evaluator.evaluate, stack),
-        parameters=parameters,
-        pseudo=pseudo,
-        conditions=conditions,
-    )
+    evaluator.import_value = partial(_aws_import, evaluator)
+    evaluate = partial(_environment_input, evaluator, stack)
     for logical_id, resource in template.get("Resources", {}).items():
         kind = resource.get("Type", "").removeprefix("AWS::").replace("::", ".")
         mapping = mapping_for(root, kind)
@@ -118,7 +88,7 @@ def validate_environment_inputs(root, template, parameters, target, stack):
         for item in inspect(
             kind, kind, resource.get("Properties", {}), mapping, evaluate=evaluate
         ):
-            if _pending(item.value):
+            if item.status != "resolved" and item.value != {"$noValue": True}:
                 raise EnvironmentValuePending(
                     f"unresolved environment PENDING_DEPLOY: Stack={stack}, Resource={logical_id}, JSON Pointer={item.pointer}"
                 )
