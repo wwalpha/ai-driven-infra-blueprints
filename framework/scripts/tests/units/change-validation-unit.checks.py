@@ -160,6 +160,7 @@ def check_save_delegates_without_full(project_workspace):
         ("plaintext-link", "PLAINTEXT"),
         ("dependent-plaintext", "PLAINTEXT"),
         ("json-reference", "modelRef"),
+        ("outside-link", "outside the Model tree"),
         ("missing-producer", "producer"),
         ("name", None),
         ("environment-pending", None),
@@ -203,6 +204,8 @@ def check_prepare_save_change_validation(project_workspace, action, case, error)
         after["desired.row.001-004.value"] = "PLAINTEXT"
     elif case == "json-reference":
         after["desired.row.001-006.value"] = '`{"$modelRef":{"attribute":"Arn"}}`'
+    elif case == "outside-link":
+        after["desired.row.001-006.value"] = "[text](/outside.md#unrelated)"
     elif case == "missing-producer":
         after["desired.row.001-006.value"] = "[absent](iam.md#absent)"
     elif case == "environment-pending":
@@ -1245,6 +1248,7 @@ def require_test_candidate(changes):
         '`{"description":"description of $modelRef format"}`',
         '`{"$modelRef":{"attribute":"Arn"}}`',
         '`{"$modelRef":{"logicalId":"S3_Bucket_999"}}`',
+        "[text](/outside.md#unrelated)",
     ],
 )
 @pytest.mark.parametrize(
@@ -1266,9 +1270,12 @@ def check_save_preparation_uses_change_validation(
         "bucket",
         [("BucketName", foreign_value)],
     )
-    write_model(peer, malformed)
+    write_model(peer, dict(malformed, **{"desired.row.001-001.value": "fixture-data"}))
     if index_state != "missing":
         dependency_index.rebuild(root)
+    write_model(peer, malformed)
+    if index_state == "current":
+        dependency_index.update(root, {peer})
     write_model(path, before)
     if index_state == "stale":
         write_model(
@@ -1412,31 +1419,40 @@ def check_wildcard_occurrence_keeps_scalar_constraints(project_workspace, value,
     assert (not result.errors) == valid, result.errors
 
 
-def check_current_index_reuses_unaffected_metadata(project_workspace):
+@pytest.mark.parametrize("comment_only", [False, True])
+def check_current_index_reuses_unaffected_metadata(project_workspace, comment_only):
     root = project_workspace
     setup(root, ["logs"], ["Logs.LogGroup"])
     path = root / "model/preview/team/logs.properties"
-    peer = root / "model/preview/team/peer.properties"
     write_model(path, logs())
-    write_model(peer, logs("002"))
+    for service in ("s3", "lambda", "iam", "kms"):
+        write_model(path.with_name(service + ".properties"), logs("002"))
     dependency_index.rebuild(root)
     sealed = dependency_index.location(root).read_bytes()
     old = sources.raw_model(path)
-    reads = sources.CandidateReads(
-        sources.FileReads(), {path: serialize(logs(retention="14"))}
+    candidate = (
+        dict(logs(), **{"desired.row.001-001.comment": "説明のみ変更"})
+        if comment_only
+        else logs(retention="14")
     )
-    after = sources.raw_model(path, reads)
+    reads = sources.CandidateReads(sources.FileReads(), {path: serialize(candidate)})
     with (
         patch.object(sources, "raw_model", wraps=sources.raw_model) as raw,
+        patch.object(
+            dependency_index, "change_snapshot", wraps=dependency_index.change_snapshot
+        ) as snapshots,
         patch.object(
             dependency_index, "snapshot_record", wraps=dependency_index.snapshot_record
         ) as record,
     ):
+        after = sources.raw_model(path, reads)
         change.validate_save(old, after, reads)
-        # Signed entries lack incomplete-node diagnostics; read current sources once.
-        raw.assert_called_once_with(peer, reads)
-        assert record.call_count == 1
-        assert record.call_args.args[0] is after
+        raw.assert_called_once_with(path, reads)
+        assert snapshots.call_count == (0 if comment_only else 1)
+        assert record.call_count == (0 if comment_only else 1)
+        if not comment_only:
+            assert snapshots.call_args.args[:2] == (path, reads)
+            assert record.call_args.args[0] is after
     assert dependency_index.location(root).read_bytes() == sealed
 
 
@@ -1575,3 +1591,230 @@ def check_structural_dependency_edges_and_diagnostics(project_workspace):
     assert transient["typed"] == ["S3_Bucket_001"]
     assert set(errors) == {"desired.row.001-003.value"}
     assert errors["desired.row.001-003.value"][0]["targetLogicalId"] == "S3_Bucket_002"
+
+
+@pytest.mark.parametrize("environment", ["preview", "other"])
+@pytest.mark.parametrize("index_state", ["missing", "current", "stale"])
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "[text](/outside.md#unrelated)",
+        "[text](../../../outside.md#unrelated)",
+        "[text](s3.md#unrelated)",
+        '`{"$modelRef":{"logicalId":"S3_Bucket_999"}}`',
+    ],
+)
+def check_unrelated_reference_does_not_block_change(
+    project_workspace, environment, index_state, reference
+):
+    root = project_workspace
+    setup(root, ["logs", "s3"], [], environments=("preview", "other"))
+    path = root / "model/preview/team/logs.properties"
+    peer = root / f"model/{environment}/team/s3.properties"
+    write_model(path, logs())
+    values = resource("001", "S3.Bucket", "bucket", [("BucketName", "fixture-data")])
+    write_model(peer, values)
+    if index_state != "missing":
+        dependency_index.rebuild(root)
+    write_model(peer, dict(values, **{"desired.row.001-001.value": reference}))
+    if index_state == "current":
+        dependency_index.update(root, {peer})
+    old = sources.raw_model(path)
+    reads = sources.CandidateReads(
+        sources.FileReads(), {path: serialize(logs(retention="14"))}
+    )
+    with patch.object(
+        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+    ):
+        plan = change_plan.ChangePlan(
+            changes={
+                ("preview", "team", "logs"): change_plan.compare(
+                    old, sources.raw_model(path, reads)
+                )
+            },
+            reads=reads,
+        )
+        change_plan.collect_contracts(root, plan)
+        assert not plan.contracts
+        assert not change.validate_plan(root, plan).errors
+    # Unchanged quality errors remain visible to independent quality validation.
+    if reference.startswith("[text](/"):
+        assert validation.check_model_inputs(
+            peer, sources.raw_model(peer).authoritative, root
+        ).errors
+
+
+@pytest.mark.parametrize("index_state", ["missing", "current", "stale"])
+@pytest.mark.parametrize("unrelated_link", [False, True])
+def check_cross_environment_contract_is_selected(
+    project_workspace, index_state, unrelated_link
+):
+    root = project_workspace
+    setup(root, ["s3", "lambda"], [], environments=("preview", "other"))
+    path = root / "model/preview/team/s3.properties"
+    peer = root / "model/other/team/lambda.properties"
+    before = resource("001", "S3.Bucket", "bucket", [("BucketName", "fixture-data")])
+    write_model(path, before)
+    write_model(
+        peer,
+        resource(
+            "001",
+            "Lambda.Function",
+            "consumer",
+            [("Code.S3Bucket", "[bucket](../../preview/team/s3.md#bucket)")],
+        ),
+    )
+    if index_state != "missing":
+        dependency_index.rebuild(root)
+    if unrelated_link:
+        values = dict(sources.raw_model(peer).authoritative)
+        values.update(
+            {
+                "desired.row.001-002.property": "Lambda.Function.Description",
+                "desired.row.001-002.value": "[text](/outside.md#unrelated)",
+                "desired.row.001-002.comment": "既存の無関係なリンク",
+            }
+        )
+        write_model(peer, values)
+        if index_state == "current":
+            dependency_index.update(root, {peer})
+    if index_state == "stale":
+        peer.write_text(
+            peer.read_text(encoding="utf-8") + "# stale\n", encoding="utf-8"
+        )
+    old = sources.raw_model(path)
+    reads = sources.CandidateReads(
+        sources.FileReads(),
+        {
+            path: serialize(
+                dict(before, **{"desired.row.001-001.value": "changed-data"})
+            )
+        },
+    )
+    plan = change_plan.ChangePlan(
+        changes={
+            ("preview", "team", "s3"): change_plan.compare(
+                old, sources.raw_model(path, reads)
+            )
+        },
+        reads=reads,
+    )
+    change_plan.collect_contracts(root, plan)
+    assert set(plan.contracts) == {("other", "team", "lambda")}
+    assert plan.contracts[("other", "team", "lambda")][1] == {
+        "desired.row.001-001.value"
+    }
+    assert not change.validate_plan(root, plan).errors
+    reads = sources.CandidateReads(sources.FileReads(), {path: None})
+    plan = change_plan.ChangePlan(
+        changes={("preview", "team", "s3"): change_plan.compare(old, None)},
+        reads=reads,
+    )
+    change_plan.collect_contracts(root, plan)
+    assert set(plan.contracts) == {("other", "team", "lambda")}
+    assert change.validate_plan(root, plan).errors
+
+
+@pytest.mark.parametrize("index_state", ["current", "stale", "missing"])
+def check_index_revision_and_consumer_selection(project_workspace, index_state):
+    root = project_workspace
+    setup(root, ["logs", "lambda", "s3", "iam", "kms"], [])
+    path = root / "model/preview/team/logs.properties"
+    consumer = path.with_name("lambda.properties")
+    peer = path.with_name("s3.properties")
+    write_model(path, logs())
+    write_model(
+        consumer,
+        resource(
+            "001",
+            "Lambda.Function",
+            "consumer",
+            [
+                (
+                    "Description",
+                    '`{"$modelRef":{"logicalId":"Logs_LogGroup_001","attribute":"Arn","extra":true}}`',
+                )
+            ],
+        ),
+    )
+    for service in ("s3", "iam", "kms"):
+        write_model(path.with_name(service + ".properties"), logs("002"))
+    if index_state != "missing":
+        dependency_index.rebuild(root)
+    if index_state == "stale":
+        write_model(peer, dict(logs("002"), **{"desired.row.002-002.comment": "変更"}))
+    old = sources.raw_model(path)
+    reads = sources.CandidateReads(
+        sources.FileReads(), {path: serialize(logs(retention="14"))}
+    )
+    with (
+        patch.object(sources, "raw_model", wraps=sources.raw_model) as raw,
+        patch.object(
+            dependency_index,
+            "write_sealed",
+            side_effect=AssertionError("unexpected write"),
+        ),
+    ):
+        after = sources.raw_model(path, reads)
+        plan = change_plan.ChangePlan(
+            changes={("preview", "team", "logs"): change_plan.compare(old, after)},
+            reads=reads,
+            metadata={"snapshots": {path: after}},
+        )
+        change_plan.collect_contracts(root, plan)
+        assert not plan.contracts
+        assert not change.validate_plan(root, plan).errors
+        loaded = {call.args[0] for call in raw.call_args_list}
+        expected = {path, consumer}
+        if index_state == "stale":
+            expected.add(peer)
+        elif index_state == "missing":
+            expected.update(
+                path.with_name(service + ".properties")
+                for service in ("s3", "iam", "kms")
+            )
+        assert loaded == expected
+        assert raw.call_count == len(expected)
+        with change_plan.change_reads(root, reads, metadata=plan.metadata):
+            selected = dependency_index.change_consumers(
+                root,
+                {"preview/team/logs"},
+                {("preview", "team", "Logs_LogGroup_001")},
+                {("preview", "team", "logs")},
+                reads=reads,
+            )
+        assert selected == [consumer]
+        assert raw.call_count == len(expected)
+    # Reusing the sealed diagnostic must still reject a changed Arn contract.
+    reads = sources.CandidateReads(
+        sources.FileReads(),
+        {path: serialize(dict(logs(), **{"desired.row.001-001.value": "renamed"}))},
+    )
+    with pytest.raises(
+        ValueError, match="affected reference metadata.*lambda.properties"
+    ):
+        change.validate_save(old, sources.raw_model(path, reads), reads)
+
+
+def check_reference_metadata_reuses_immutable_snapshot(project_workspace):
+    root = project_workspace
+    setup(root, ["logs"], [])
+    path = root / "model/preview/team/logs.properties"
+    write_model(path, logs())
+    snapshot = sources.raw_model(path)
+    with (
+        change_plan.change_reads(root, sources.FileReads()),
+        patch.object(dependency_index, "nodes", wraps=dependency_index.nodes) as parsed,
+    ):
+        first = dependency_index.reference_metadata(snapshot)
+        calls = parsed.call_count
+        assert dependency_index.reference_metadata(snapshot) is first
+        assert parsed.call_count == calls
+        newer = snapshot._replace(
+            authoritative=dict(
+                logs(),
+                **{"desired.row.001-002.value": '`{"$modelRef":{"attribute":"Arn"}}`'},
+            )
+        )
+        assert dependency_index.reference_metadata(newer)[2]
+        assert parsed.call_count > calls

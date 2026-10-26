@@ -36,6 +36,16 @@ def record(path, reads, *, quality=True):
 
 def reference_metadata(snapshot, *, strict=False):
     """Extract edges and retain incomplete references without running quality rules."""
+    metadata = change_scope.metadata()
+    cache = (
+        metadata.setdefault("references", {})
+        if metadata is not None
+        and isinstance(snapshot.authoritative, sources.SnapshotValues)
+        else {}
+    )
+    cache_key = id(snapshot.authoritative), strict
+    if cache_key in cache:
+        return cache[cache_key][1]
     links, logical, errors = set(), set(), {}
     for key, value in snapshot.authoritative.items():
         if key.startswith(("desired.row.", "desired.resource.")):
@@ -48,7 +58,10 @@ def reference_metadata(snapshot, *, strict=False):
                 except ValueError as error:
                     if strict:
                         raise
-                    diagnostics.append({"message": str(error), "kind": "link"})
+                    # Tokens already satisfy resource_link; only link_scope can reject them.
+                    diagnostics.append(
+                        {"message": str(error), "kind": "link", "outsideModel": True}
+                    )
             # Raw snapshots already check declared JSON syntax; nodes distinguishes prose.
             logical.update(
                 node.logical_id for node in nodes(value.strip("`"), errors=diagnostics)
@@ -59,7 +72,9 @@ def reference_metadata(snapshot, *, strict=False):
                 errors[key] = diagnostics
         elif key.startswith("desired.reference.") and key.endswith(".producerScope"):
             links.add(value)
-    return links, logical, errors
+    result = links, logical, errors
+    cache[cache_key] = snapshot.authoritative, result
+    return result
 
 
 def snapshot_record(snapshot, *, quality=True, errors=None):
@@ -79,6 +94,7 @@ def snapshot_record(snapshot, *, quality=True, errors=None):
         "logical": [r["logicalId"] for r in resources if "logicalId" in r],
         "links": sorted(links),
         "typed": sorted(logical),
+        "errors": diagnostics,
     }
 
 
@@ -96,7 +112,7 @@ def rebuild(root):
         if inventory(root) != before:
             raise ValueError("Model dependency index inputs changed during build")
         write_sealed(
-            root, location(root), {"version": 1, "files": before, "models": records}
+            root, location(root), {"version": 2, "files": before, "models": records}
         )
     return records
 
@@ -132,7 +148,7 @@ def _load(root):
 def validate(root, index):
     if (
         not isinstance(index, dict)
-        or index.get("version") != 1
+        or index.get("version") != 2
         or not isinstance(index.get("files"), dict)
         or not isinstance(index.get("models"), dict)
     ):
@@ -151,13 +167,15 @@ def validate(root, index):
     entrances = {p for p in index["files"] if len(p.split("/")) == 4}
     if set(index["models"]) != entrances or any(
         not isinstance(entry, dict)
-        or set(entry) != {"files", "owners", "logical", "links", "typed"}
+        or set(entry) != {"files", "owners", "logical", "links", "typed", "errors"}
         or any(
             not isinstance(items, list)
             or any(not isinstance(item, str) for item in items)
             or len(items) != len(set(items))
-            for items in entry.values()
+            for name, items in entry.items()
+            if name != "errors"
         )
+        or not valid_reference_errors(entry["errors"])
         or set(entry["files"])
         != {
             p
@@ -167,6 +185,29 @@ def validate(root, index):
         for entrance, entry in index["models"].items()
     ):
         raise ValueError("Model dependency index has inconsistent source membership")
+
+
+def valid_reference_errors(errors):
+    return isinstance(errors, dict) and all(
+        isinstance(key, str)
+        and key.startswith(("desired.row.", "desired.resource."))
+        and key.endswith((".value", ".document", ".parentReference"))
+        and isinstance(diagnostics, list)
+        and bool(diagnostics)
+        and all(
+            isinstance(error, dict)
+            and isinstance(error.get("message"), str)
+            and all(isinstance(field, str) for field in error)
+            and all(
+                type(value) is bool
+                if field == "outsideModel"
+                else isinstance(value, str)
+                for field, value in error.items()
+            )
+            for error in diagnostics
+        )
+        for key, diagnostics in errors.items()
+    )
 
 
 def verify_snapshot(index, snapshot, revisions):
@@ -300,13 +341,13 @@ def check_change_inventory(root, changed, *, reads=None):
     previous = (
         read_sealed(primary, location(primary))
         if location(primary).is_file()
-        else {"version": 1, "files": {}, "models": {}}
+        else {"version": 2, "files": {}, "models": {}}
     )
     validate(primary, previous)
     current = inventory(root)
     # Register membership with the same input recorder used by publication.
     paths = sources.model_paths(root, read_context=reads)
-    index = {"version": 1, "files": current, "models": {}}
+    index = {"version": 2, "files": current, "models": {}}
     for path in paths:
         relative = path.relative_to(root).as_posix()
         scope = sources.scope_for(path)
@@ -316,7 +357,6 @@ def check_change_inventory(root, changed, *, reads=None):
             for p in current
             if p == relative or p.startswith(relative.removesuffix(".properties") + "/")
         }
-        errors = {}
         if (
             entry is None
             or (scope.environment, scope.target, scope.service) in changed
@@ -324,17 +364,26 @@ def check_change_inventory(root, changed, *, reads=None):
             or any(current[p] != previous["files"].get(p) for p in files)
         ):
             snapshot = change_snapshot(path, reads, metadata)
-            entry = snapshot_record(snapshot, quality=False, errors=errors)
-        else:
-            # The sealed format has no diagnostics; current edges alone cannot prove absence.
-            snapshot = change_snapshot(path, reads, metadata)
-            _, _, errors = reference_metadata(snapshot)
+            entry = snapshot_record(snapshot, quality=False)
         if metadata is not None:
-            metadata.setdefault("reference_errors", {})[path] = errors
+            metadata.setdefault("reference_errors", {})[path] = entry["errors"]
         index["models"][relative] = entry
     if metadata is not None:
         metadata.setdefault("indexes", {})[root] = index
     return index
+
+
+def incomplete_reference_matches(scope, error, producer, logical=None):
+    """Limit unknown typed targets to their lookup scope; outside links have no edge."""
+    if error.get("outsideModel"):
+        return False
+    if producer[:2] != (scope.environment, scope.target):
+        return False
+    return (
+        logical is None
+        or not error.get("targetLogicalId")
+        or error["targetLogicalId"] == logical
+    )
 
 
 def change_consumers(root, scopes, identifiers, changed, *, reads=None):
@@ -343,26 +392,24 @@ def change_consumers(root, scopes, identifiers, changed, *, reads=None):
     with change_scope.change_reads(root, reads, metadata=metadata):
         index = check_change_inventory(root, changed, reads=reads)
     selected = set(consumers(root, scopes, identifiers, index=index))
+    targets = (
+        {
+            (producer, logical)
+            for value in scopes
+            for producer in [tuple(value.split("/"))]
+            for environment, target, logical in identifiers
+            if producer[:2] == (environment, target)
+        }
+        if identifiers
+        else {(tuple(value.split("/")), None) for value in scopes}
+    )
     for path, fields in metadata.get("reference_errors", {}).items():
         scope = sources.scope_for(path)
         if any(
-            error.get("kind") == "link"
-            and scopes
-            or not identifiers
-            and any(
-                tuple(producer.split("/")[:2]) == (scope.environment, scope.target)
-                for producer in scopes
-            )
-            or any(
-                identity[:2] == (scope.environment, scope.target)
-                and (
-                    not error.get("targetLogicalId")
-                    or error["targetLogicalId"] == identity[-1]
-                )
-                for identity in identifiers
-            )
+            incomplete_reference_matches(scope, error, producer, logical)
             for errors in fields.values()
             for error in errors
+            for producer, logical in targets
         ):
             selected.add(path)
     return sorted(selected)

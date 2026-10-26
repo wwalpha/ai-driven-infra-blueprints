@@ -610,7 +610,17 @@ def check_first_read_revision_race(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "problem", ["signature", "shape", "membership", "owners", "missing"]
+    "problem",
+    [
+        "signature",
+        "shape",
+        "membership",
+        "owners",
+        "missing",
+        "diagnostics",
+        "diagnostics-shape",
+        "version",
+    ],
 )
 @pytest.mark.parametrize("loaded_first", [False, True])
 def check_index_corruption_and_related_model(
@@ -633,6 +643,14 @@ def check_index_corruption_and_related_model(
             index["models"][relative]["files"] = []
         elif problem == "owners":
             index["models"][relative]["owners"] = ["wrong-owner"]
+        elif problem == "diagnostics":
+            index["models"][relative]["errors"] = {
+                "desired.row.001-001.value": [{"message": "incorrect diagnostic"}]
+            }
+        elif problem == "diagnostics-shape":
+            index["models"][relative]["errors"] = []
+        elif problem == "version":
+            index["version"] = 1
         else:
             del index["models"][relative]
             del index["files"][relative]

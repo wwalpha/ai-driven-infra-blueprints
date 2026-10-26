@@ -278,17 +278,13 @@ def signature(values, logical, attribute=None):
 def incomplete_reference_affected(snapshot, error, changes):
     """Use partial target/attribute evidence; unknown relationships are not empty edges."""
     for identity, change in changes.items():
-        if error.get("kind") != "link" and identity[:2] != (
-            snapshot.scope.environment,
-            snapshot.scope.target,
-        ):
-            continue
         old = {} if change.before is None else change.before.authoritative
         new = {} if change.after is None else change.after.authoritative
-        logical = error.get("targetLogicalId")
         attribute = error.get("attribute")
         for target in change.resources | change.deleted:
-            if logical and logical != target:
+            if not dependency_index.incomplete_reference_matches(
+                snapshot.scope, error, identity, target
+            ):
                 continue
             if not attribute or signature(old, target, attribute) != signature(
                 new, target, attribute

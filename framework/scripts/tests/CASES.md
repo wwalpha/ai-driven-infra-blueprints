@@ -3915,8 +3915,8 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | `change-residual::changed-metadata` | `check_changed_resource_metadata_is_validated` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | 変更したResource metadataの不正は拒否 | Synthetic Models |
 | `change-residual::dependency-states` | `check_dependency_discovery_and_broken_consumer` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 6 | missing/current/stale × typed/Markdown参照、Consumer完全探索・参照破壊FAIL・再読込なし・Deploy sealed条件維持 | Synthetic Models |
 | `change-residual::dependency-empty` | `check_missing_index_without_consumer` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | indexなし・Consumerなしで正常更新 | Synthetic Models |
-| `change-residual::dependency-reuse` | `check_current_index_reuses_unaffected_metadata` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | 正常indexの未変更metadata再利用、変更Snapshotのみ解析、sealed index不変 | Synthetic Models |
-| `change-residual::save-preparation` | `check_save_preparation_uses_change_validation` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 12 | 実prepare_editとpublication、Import/EditのRetentionInDays型不正拒否・既存別Resourceエラー非阻害・Full呼出0 | Synthetic Models |
+| `change-residual::dependency-reuse` | `check_current_index_reuses_unaffected_metadata` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | 5サービスの正常indexを再利用、変更Snapshotのみ解析、コメントのみは参照探索0、sealed index不変 | Synthetic Models |
+| `change-residual::save-preparation` | `check_save_preparation_uses_change_validation` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 180 | 実prepare_editとpublication、Import/EditのRetentionInDays型不正拒否・既存別Resourceの不正リンク/型付き参照/metadata非阻害・Full呼出0 | Synthetic Models |
 | `change-residual::same-resource` | `check_same_resource_old_metadata_does_not_block_property` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | 同一Resource内の未変更metadata不正と変更Propertyの分離 | Synthetic Models |
 | `change-residual::incoming-save` | `check_save_preparation_rejects_incoming_reference_break` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | missing/stale indexから保存準備で既存Consumer破壊を拒否 | Synthetic Models |
 | `change-residual::final-candidate` | `check_real_final_candidate_guard_never_calls_full` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | 実Git baselineで通常更新とImportの最終候補共通検証、不正変更拒否、Full呼出0 | Synthetic Models |
@@ -3942,7 +3942,7 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 
 | Case | Function | Layer | Location | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
-| `change-save::prepare` | `check_prepare_save_change_validation` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 22 | 実prepare_editでIMPORT/EDIT共通検証、Name/PENDING_DEPLOY・PLAINTEXTリンク・依存Type変更・JSON参照・不在Producerを拒否して旧bytes維持。正常更新・環境変数PENDING_DEPLOY・未変更既存ERROR/参照・コメント・Warning保持と保存、Full呼出禁止 | Synthetic Models / exact IMPORT read scope |
+| `change-save::prepare` | `check_prepare_save_change_validation` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 24 | 実prepare_editでIMPORT/EDIT共通検証、Name/PENDING_DEPLOY・PLAINTEXTリンク・依存Type変更・JSON参照・Modelツリー外リンク・不在Producerを拒否して旧bytes維持。正常更新・環境変数PENDING_DEPLOY・未変更既存ERROR/参照・コメント・Warning保持と保存、Full呼出禁止 | Synthetic Models / exact IMPORT read scope |
 | `change-save::resource-contracts` | `check_prepare_save_resource_contracts` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 4 | IMPORT/EDITの正常Resource追加を保存、Producer削除で既存Consumerの参照契約を壊す変更を保存前に拒否。IMPORTのConsumer依存読取は権限を拡大せず共通差分抽出を使用 | Synthetic producer/consumer Models |
 | `change-save::column-arrays` | `check_changed_column_array` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 6 | 取得配列の親階層を解いて既存schema検証を再利用、boolean/enum不正要素を拒否し正常な入れ子・配列leafを保持 | Synthetic CloudTrail rows |
 
@@ -3968,3 +3968,13 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | `deploy-guidance::controller-output` | `check_controller_final_json_keeps_state_and_exit_code` | UT | [units/deploy-cli-guidance.checks.py](units/deploy-cli-guidance.checks.py) | pytest / 4 | state/metrics/repairFailure/終了コードとObserved/生成原因 | Added |
 | `deploy-guidance::single-json` | `check_handled_controller_stop_prints_one_json` | UT | [units/deploy-cli-guidance.checks.py](units/deploy-cli-guidance.checks.py) | pytest / 1 | 外側例外処理がJSONを重複出力しない | Added |
 | `deploy-guidance::structured-cause` | `check_structured_reference_cause_and_handoff_command` | UT | [units/deploy-cli-guidance.checks.py](units/deploy-cli-guidance.checks.py) | pytest / 1 | Reference分類と実親Task suspendコマンド | Added |
+
+## v1026v12 Reference impact and dependency metadata reuse
+
+| Case | Function | Layer | Location | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `change-impact::unrelated-reference` | `check_unrelated_reference_does_not_block_change` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 24 | 同一/別環境、missing/current/stale indexの既存Modelツリー外・無関係anchor・不正modelRef非阻害、Full品質検出は維持 | Synthetic Models |
+| `change-impact::cross-environment` | `check_cross_environment_contract_is_selected` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 6 | 正当な環境間MarkdownのConsumer集合・変更契約を検証、Producer削除はERROR | Synthetic Models |
+| `change-impact::revision-selection` | `check_index_revision_and_consumer_selection` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 3 | 5サービスのcurrent/stale/missing比較、必要Consumer集合・読込回数・診断再利用・Arn破壊停止・永続書込0 | Synthetic Models |
+| `change-impact::snapshot-reuse` | `check_reference_metadata_reuses_immutable_snapshot` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | 同一Snapshot解析1回、新Snapshotは再解析 | Immutable synthetic snapshots |
+| `change-impact::sealed-diagnostics` | `check_index_corruption_and_related_model` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 16 | 署名・構造・membership・owner・診断の改変と旧schemaを拒否、Snapshot先読込/後読込の両方を検証 | Offline Deploy fixtures |
