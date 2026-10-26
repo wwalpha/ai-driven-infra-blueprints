@@ -21,7 +21,7 @@ import model.identity as model_identity
 import model.impact_changes as impact_changes
 import model.references as references
 import model.validation as model_validation
-from model import dependency_index, environment_values, sources
+from model import dependency_index, environment_values, reference_metadata, sources
 from model.change_scope import change_reads
 from model.core import resource_groups
 from model.core import structural_entries as entries
@@ -278,16 +278,33 @@ def signature(values, logical, attribute=None):
 def incomplete_reference_affected(snapshot, error, changes):
     """Use partial target/attribute evidence; unknown relationships are not empty edges."""
     for identity, change in changes.items():
+        if not reference_metadata.possible(
+            error,
+            snapshot.scope,
+            {"/".join(identity)},
+            {(*identity[:2], logical) for logical in change.resources | change.deleted},
+        ):
+            continue
         old = {} if change.before is None else change.before.authoritative
         new = {} if change.after is None else change.after.authoritative
+        logical = error.get("targetLogicalId")
         attribute = error.get("attribute")
         for target in change.resources | change.deleted:
-            if not dependency_index.incomplete_reference_matches(
-                snapshot.scope, error, identity, target
+            if logical and logical != target:
+                continue
+            anchor = error.get("anchor")
+            if anchor and not any(
+                resource.get("anchor", name) == anchor
+                for values in (old, new)
+                for name, (_, resource) in resource_map(values).items()
+                if name == target
             ):
                 continue
-            if not attribute or signature(old, target, attribute) != signature(
-                new, target, attribute
+            if (
+                not attribute
+                and error.get("kind") != "link"
+                or signature(old, target, attribute)
+                != signature(new, target, attribute)
             ):
                 return True
     return False
@@ -453,25 +470,27 @@ def collect_contracts(root, plan):
         consumers = dependency_index.change_consumers(
             root, scopes, identifiers, set(plan.changes), reads=reads
         )
-    for path in consumers:
-        scope = sources.scope_for(path)
-        snapshot = plan.changes.get((scope.environment, scope.target, scope.service))
-        snapshot = (
-            snapshot.after
-            if snapshot is not None
-            else dependency_index.change_snapshot(scope.path, reads, plan.metadata)
-        )
-        if snapshot is None:
-            continue
-        keys = incoming_keys(snapshot, semantic)
-        if keys:
-            identity = scope.environment, scope.target, scope.service
-            plan.contracts[identity] = (
-                snapshot,
-                keys | plan.contracts.get(identity, (None, set()))[1],
+        for path in consumers:
+            scope = sources.scope_for(path)
+            snapshot = plan.changes.get(
+                (scope.environment, scope.target, scope.service)
             )
-            plan.views.add(identity)
-            plan.dependencies.add(path)
+            snapshot = (
+                snapshot.after
+                if snapshot is not None
+                else dependency_index.change_snapshot(scope.path, reads, plan.metadata)
+            )
+            if snapshot is None:
+                continue
+            keys = incoming_keys(snapshot, semantic)
+            if keys:
+                identity = scope.environment, scope.target, scope.service
+                plan.contracts[identity] = (
+                    snapshot,
+                    keys | plan.contracts.get(identity, (None, set()))[1],
+                )
+                plan.views.add(identity)
+                plan.dependencies.add(path)
 
 
 def task_plan(

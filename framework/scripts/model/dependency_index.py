@@ -5,11 +5,10 @@ from contextlib import nullcontext
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.change_scope as change_scope
-import model.identity as identity
 import model.importing.scope as import_scope
 import model.sources as sources
+from model import reference_metadata as metadata_rules
 from model.core import entries, structural_entries
-from model.reference_nodes import nodes
 
 
 def location(root):
@@ -35,7 +34,6 @@ def record(path, reads, *, quality=True):
 
 
 def reference_metadata(snapshot, *, strict=False):
-    """Extract edges and retain incomplete references without running quality rules."""
     metadata = change_scope.metadata()
     cache = (
         metadata.setdefault("references", {})
@@ -43,35 +41,14 @@ def reference_metadata(snapshot, *, strict=False):
         and isinstance(snapshot.authoritative, sources.SnapshotValues)
         else {}
     )
-    cache_key = id(snapshot.authoritative), strict
+    cache_key = snapshot.scope, id(snapshot.authoritative), strict
     if cache_key in cache:
         return cache[cache_key][1]
-    links, logical, errors = set(), set(), {}
-    for key, value in snapshot.authoritative.items():
-        if key.startswith(("desired.row.", "desired.resource.")):
-            diagnostics = []
-            for token in identity.reference_tokens(value):
-                try:
-                    links.add(
-                        "/".join(identity.parse_reference(token[0], snapshot.scope)[:3])
-                    )
-                except ValueError as error:
-                    if strict:
-                        raise
-                    # Tokens already satisfy resource_link; only link_scope can reject them.
-                    diagnostics.append(
-                        {"message": str(error), "kind": "link", "outsideModel": True}
-                    )
-            # Raw snapshots already check declared JSON syntax; nodes distinguishes prose.
-            logical.update(
-                node.logical_id for node in nodes(value.strip("`"), errors=diagnostics)
-            )
-            if diagnostics and key.endswith(
-                (".value", ".document", ".parentReference")
-            ):
-                errors[key] = diagnostics
-        elif key.startswith("desired.reference.") and key.endswith(".producerScope"):
-            links.add(value)
+    links, logical, errors = metadata_rules.extract(snapshot, strict=strict)
+    for key, diagnostics in (
+        (metadata or {}).get("recovery_errors", {}).get(snapshot.scope.path, {}).items()
+    ):
+        errors.setdefault(key, []).extend(diagnostics)
     result = links, logical, errors
     cache[cache_key] = snapshot.authoritative, result
     return result
@@ -112,18 +89,18 @@ def rebuild(root):
         if inventory(root) != before:
             raise ValueError("Model dependency index inputs changed during build")
         write_sealed(
-            root, location(root), {"version": 2, "files": before, "models": records}
+            root, location(root), {"version": 3, "files": before, "models": records}
         )
     return records
 
 
-def load(root):
+def load(root, *, publication=False):
     root = change_scope.index_root(root)
     shared = sources.session_reads(root)
     with shared.lock if shared is not None else nullcontext():
         if shared is not None and shared.dependency_index is not None:
             return shared.dependency_index
-        index = _load(root)
+        index = _load(root, publication=publication)
         if shared is not None:
             for key, snapshot in shared.models.items():
                 if key[0] == "source":
@@ -133,7 +110,7 @@ def load(root):
         return index
 
 
-def _load(root):
+def _load(root, *, publication=False):
     path = location(root)
     if not path.is_file():
         raise ValueError(
@@ -141,6 +118,9 @@ def _load(root):
             f"python framework/scripts/model/cli.py index --repository-root {root}"
         )
     index = read_sealed(root, path)
+    if publication and isinstance(index, dict) and index.get("version") in {1, 2}:
+        # Publication re-discovers old metadata; Deploy never takes this branch.
+        return check_change_inventory(root, set())
     validate(root, index)
     return index
 
@@ -148,7 +128,7 @@ def _load(root):
 def validate(root, index):
     if (
         not isinstance(index, dict)
-        or index.get("version") != 2
+        or index.get("version") != 3
         or not isinstance(index.get("files"), dict)
         or not isinstance(index.get("models"), dict)
     ):
@@ -172,10 +152,10 @@ def validate(root, index):
             not isinstance(items, list)
             or any(not isinstance(item, str) for item in items)
             or len(items) != len(set(items))
-            for name, items in entry.items()
-            if name != "errors"
+            for key, items in entry.items()
+            if key != "errors"
         )
-        or not valid_reference_errors(entry["errors"])
+        or not valid_reference_errors(entry.get("errors"))
         or set(entry["files"])
         != {
             p
@@ -187,26 +167,24 @@ def validate(root, index):
         raise ValueError("Model dependency index has inconsistent source membership")
 
 
-def valid_reference_errors(errors):
-    return isinstance(errors, dict) and all(
+def valid_reference_errors(fields):
+    return isinstance(fields, dict) and all(
         isinstance(key, str)
-        and key.startswith(("desired.row.", "desired.resource."))
-        and key.endswith((".value", ".document", ".parentReference"))
-        and isinstance(diagnostics, list)
-        and bool(diagnostics)
+        and isinstance(errors, list)
+        and errors
         and all(
             isinstance(error, dict)
             and isinstance(error.get("message"), str)
-            and all(isinstance(field, str) for field in error)
+            and all(isinstance(name, str) for name in error)
             and all(
                 type(value) is bool
-                if field == "outsideModel"
+                if name == "outsideModel"
                 else isinstance(value, str)
-                for field, value in error.items()
+                for name, value in error.items()
             )
-            for error in diagnostics
+            for error in errors
         )
-        for key, diagnostics in errors.items()
+        for key, errors in fields.items()
     )
 
 
@@ -227,7 +205,32 @@ def update(root, changed, *, observed=False):
     """Called inside the Model transaction; an absent index stays absent until bootstrap."""
     if not location(root).is_file():
         return
-    previous = load(root)
+    shared = sources.session_reads(root)
+    previous = load(root) if shared is not None else read_sealed(root, location(root))
+    migrating = (
+        not observed
+        and isinstance(previous, dict)
+        and previous.get("version") in {1, 2}
+    )
+    if migrating:
+        # Old edges cannot prove absence; refresh metadata inside the existing transaction.
+        with change_scope.change_reads(root, sources.FileReads(), metadata={}):
+            previous = check_change_inventory(root, set())
+    elif observed and isinstance(previous, dict) and previous.get("version") in {1, 2}:
+        # Rollback only refreshes file revisions; old edges stay unusable by Deploy.
+        validate(
+            root,
+            {
+                **previous,
+                "version": 3,
+                "models": {
+                    path: {**entry, "errors": {}}
+                    for path, entry in previous["models"].items()
+                },
+            },
+        )
+    else:
+        validate(root, previous)
     index = {
         **previous,
         "files": dict(previous["files"]),
@@ -246,7 +249,7 @@ def update(root, changed, *, observed=False):
             index["files"][relative] = revision(path)
         else:
             index["files"].pop(relative, None)
-    for path in () if observed else scopes:
+    for path in () if observed or migrating else scopes:
         relative = path.relative_to(root).as_posix()
         files = set(index["models"].get(relative, {}).get("files", ()))
         for changed_path in changed:
@@ -267,12 +270,12 @@ def update(root, changed, *, observed=False):
             if files:
                 raise ValueError("deleted Model still has indexed parts: " + relative)
             index["models"].pop(relative, None)
-    if index == previous:
+    if index == previous and not migrating:
         return
     write_sealed(root, location(root), index)
     shared = sources.session_reads(root)
     if shared is not None:
-        shared.dependency_index = index
+        shared.dependency_index = index if index["version"] == 3 else None
         if not observed:
             shared.index_checks.clear()
 
@@ -318,12 +321,13 @@ def change_snapshot(path, reads, metadata=None):
                 {(scope.environment, scope.target, scope.service)}
             ):
                 base = sources.edit_base(path, reads)
-                # Text with no Model fields or reference tokens cannot declare an edge or owner.
-                empty = not any(
-                    "desired." in text or any(identity.reference_tokens(text))
-                    for text in base.files.values()
-                )
-                snapshots[path] = base if empty else sources.raw_model(path, reads)
+                try:
+                    snapshots[path] = sources.raw_model(path, reads)
+                except ValueError:
+                    snapshots[path], errors = metadata_rules.recover(base)
+                    if metadata is not None:
+                        metadata.setdefault("recovery_errors", {})[path] = errors
+
         except ValueError as error:
             raise ValueError(
                 f"cannot read reference metadata: {path}: {error}"
@@ -341,13 +345,15 @@ def check_change_inventory(root, changed, *, reads=None):
     previous = (
         read_sealed(primary, location(primary))
         if location(primary).is_file()
-        else {"version": 2, "files": {}, "models": {}}
+        else {"version": 3, "files": {}, "models": {}}
     )
+    if isinstance(previous, dict) and previous.get("version") in {1, 2}:
+        previous = {"version": 3, "files": {}, "models": {}}
     validate(primary, previous)
     current = inventory(root)
     # Register membership with the same input recorder used by publication.
     paths = sources.model_paths(root, read_context=reads)
-    index = {"version": 2, "files": current, "models": {}}
+    index = {"version": 3, "files": current, "models": {}}
     for path in paths:
         relative = path.relative_to(root).as_posix()
         scope = sources.scope_for(path)
@@ -373,43 +379,18 @@ def check_change_inventory(root, changed, *, reads=None):
     return index
 
 
-def incomplete_reference_matches(scope, error, producer, logical=None):
-    """Limit unknown typed targets to their lookup scope; outside links have no edge."""
-    if error.get("outsideModel"):
-        return False
-    if producer[:2] != (scope.environment, scope.target):
-        return False
-    return (
-        logical is None
-        or not error.get("targetLogicalId")
-        or error["targetLogicalId"] == logical
-    )
-
-
 def change_consumers(root, scopes, identifiers, changed, *, reads=None):
     metadata = change_scope.metadata()
     metadata = metadata if metadata is not None else {}
     with change_scope.change_reads(root, reads, metadata=metadata):
         index = check_change_inventory(root, changed, reads=reads)
     selected = set(consumers(root, scopes, identifiers, index=index))
-    targets = (
-        {
-            (producer, logical)
-            for value in scopes
-            for producer in [tuple(value.split("/"))]
-            for environment, target, logical in identifiers
-            if producer[:2] == (environment, target)
-        }
-        if identifiers
-        else {(tuple(value.split("/")), None) for value in scopes}
-    )
     for path, fields in metadata.get("reference_errors", {}).items():
         scope = sources.scope_for(path)
         if any(
-            incomplete_reference_matches(scope, error, producer, logical)
+            metadata_rules.possible(error, scope, scopes, identifiers)
             for errors in fields.values()
             for error in errors
-            for producer, logical in targets
         ):
             selected.add(path)
     return sorted(selected)

@@ -30,7 +30,7 @@ from task_contract_core import selected_task, start
 from validation import change
 from validation.runner import Validator, run_validation
 
-from model import change_plan, dependency_index, sources, validation
+from model import change_plan, dependency_index, reference_metadata, sources, validation
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -1226,8 +1226,14 @@ def check_unrelated_non_model_text_has_no_dependency_edges(project_workspace, te
     result = change.validate_plan(root, plan)
     assert not result.errors, result.errors
     broken.write_text("invalid [ref](logs.md#logs-001)\n", encoding="utf-8")
+    # The partial link proves retention is unrelated, but cannot authorize a rename.
+    plan = change_plan.assemble(
+        root, {("preview", "team", "logs")}, old, sources.FileReads()
+    )
+    assert not change.validate_plan(root, plan).errors
+    write_model(path, dict(logs(), **{"desired.row.001-001.value": "changed-name"}))
     with pytest.raises(
-        ValueError, match="cannot read reference metadata.*broken.properties"
+        ValueError, match="affected reference metadata.*broken.properties"
     ):
         change_plan.assemble(
             root, {("preview", "team", "logs")}, old, sources.FileReads()
@@ -1804,7 +1810,9 @@ def check_reference_metadata_reuses_immutable_snapshot(project_workspace):
     snapshot = sources.raw_model(path)
     with (
         change_plan.change_reads(root, sources.FileReads()),
-        patch.object(dependency_index, "nodes", wraps=dependency_index.nodes) as parsed,
+        patch.object(
+            reference_metadata, "nodes", wraps=reference_metadata.nodes
+        ) as parsed,
     ):
         first = dependency_index.reference_metadata(snapshot)
         calls = parsed.call_count
@@ -1818,3 +1826,169 @@ def check_reference_metadata_reuses_immutable_snapshot(project_workspace):
         )
         assert dependency_index.reference_metadata(newer)[2]
         assert parsed.call_count > calls
+
+
+@pytest.mark.parametrize("defect", ["outside-link", "syntax", "partial-unrelated"])
+@pytest.mark.parametrize(
+    "index_state",
+    ["missing", "current", "stale", "old-format", "old-format-rollback", "old-v2"],
+)
+def check_broken_unrelated_model_save(project_workspace, defect, index_state):
+    root = project_workspace
+    setup(root, ["logs", "s3"], ["Logs.LogGroup", "S3.Bucket"])
+    path = root / "model/preview/team/logs.properties"
+    peer = path.with_name("s3.properties")
+    before = logs()
+    write_model(path, before)
+    foreign = (
+        "[bad](../../../outside.md#foo)"
+        if defect == "outside-link"
+        else "fixture-bucket"
+    )
+    write_model(peer, resource("001", "S3.Bucket", "bucket", [("BucketName", foreign)]))
+    if defect == "syntax":
+        peer.write_text(
+            peer.read_text(encoding="utf-8") + "BROKEN KEY\n", encoding="utf-8"
+        )
+    elif defect == "partial-unrelated":
+        peer.write_text(
+            peer.read_text(encoding="utf-8") + "invalid [ref](s3.md#bucket)\n",
+            encoding="utf-8",
+        )
+    if index_state != "missing":
+        with change_plan.change_reads(root, sources.FileReads(), metadata={}):
+            index = dependency_index.check_change_inventory(root, set())
+        if index_state.startswith("old-format"):
+            index["version"] = 1
+            for entry in index["models"].values():
+                entry.pop("errors")
+        elif index_state == "old-v2":
+            index["version"] = 2
+        dependency_index.write_sealed(root, dependency_index.location(root), index)
+    if index_state == "stale":
+        peer.write_text(
+            peer.read_text(encoding="utf-8") + "# stale\n", encoding="utf-8"
+        )
+    name = "tasks/save.md"
+    listed = "\n".join(
+        "- `" + value + "`" for value in (name, path.relative_to(root).as_posix())
+    )
+    start(
+        root,
+        name,
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `update`\n"
+        "## Required changes\n- [R1] 合成保存\n## Acceptance checks\n- [R1] `exists:project.json`\n"
+        "## Validation scope\n- `preview/team/logs`\n## Modified files\n"
+        + listed
+        + "\n## Allowed paths\n"
+        + listed
+        + "\n",
+    )
+    original = peer.read_bytes()
+    with selected_task(root, name):
+        context = sources.SourceWriteContext._authorized(
+            root,
+            GenerationInputs(root, task_file=name),
+            SimpleNamespace(action="edit"),
+            require_test_candidate,
+            frozenset({path}),
+        )
+        with patch.object(
+            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        ) as full:
+            plan = prepare_edit(
+                path,
+                {
+                    path: serialize(
+                        dict(before, **{"desired.row.001-001.value": "changed-name"})
+                    )
+                },
+                context,
+            )
+            if index_state == "old-format-rollback":
+                with (
+                    patch(
+                        "model.operations._verify_published_inputs",
+                        side_effect=ValueError("rollback probe"),
+                    ),
+                    pytest.raises(ValueError, match="rollback probe"),
+                ):
+                    publish_edit(plan, context)
+                assert path.read_text(encoding="utf-8") == serialize(before)
+            else:
+                assert publish_edit(plan, context) == (path,)
+            full.assert_not_called()
+    assert peer.read_bytes() == original
+    if index_state in {"old-format", "old-v2"}:
+        assert dependency_index.load(root)["version"] == 3
+    elif index_state == "old-format-rollback":
+        with pytest.raises(ValueError, match="dependency index"):
+            dependency_index.load(root)
+
+
+def check_broken_syntax_keeps_valid_incoming_reference(project_workspace):
+    root = project_workspace
+    setup(root, ["logs", "lambda"], ["Logs.LogGroup", "Lambda.Function"])
+    path = root / "model/preview/team/logs.properties"
+    peer = path.with_name("lambda.properties")
+    write_model(path, logs())
+    write_model(
+        peer,
+        resource(
+            "001",
+            "Lambda.Function",
+            "consumer",
+            [
+                (
+                    "Code.S3Bucket",
+                    '`{"$modelRef":{"logicalId":"Logs_LogGroup_001","attribute":"Arn"}}`',
+                )
+            ],
+        ),
+    )
+    peer.write_text(peer.read_text(encoding="utf-8") + "BROKEN KEY\n", encoding="utf-8")
+    old = sources.raw_model(path)
+    reads = sources.CandidateReads(
+        sources.FileReads(),
+        {
+            path: serialize(
+                dict(logs(), **{"desired.row.001-001.value": "changed-name"})
+            )
+        },
+    )
+    # Its recovered reference still selects the consumer and enforces receiving types.
+    with pytest.raises(ValueError, match="reference type|type mismatch"):
+        change.validate_save(old, sources.raw_model(path, reads), reads)
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def check_outside_link_still_fails_quality(project_workspace, existing):
+    root = project_workspace
+    setup(root, ["s3"], ["S3.Bucket"])
+    path = root / "model/preview/team/s3.properties"
+    valid = resource("001", "S3.Bucket", "bucket", [("BucketName", "fixture-data")])
+    invalid = dict(
+        valid,
+        **{
+            "desired.row.001-002.property": "S3.Bucket.LoggingConfiguration.DestinationBucketName",
+            "desired.row.001-002.value": "[bad](../../../outside.md#foo)",
+            "desired.row.001-002.comment": "出力先",
+        },
+    )
+    write_model(path, invalid if existing else valid)
+    if existing:
+        result = validation.check_model_inputs(path, invalid, root)
+        assert result.errors
+    else:
+        reads = sources.CandidateReads(sources.FileReads(), {path: serialize(invalid)})
+        with (
+            patch.object(
+                validation,
+                "check_model_inputs",
+                side_effect=AssertionError("Full called"),
+            ),
+            pytest.raises(ValueError, match="outside the Model tree"),
+        ):
+            change.validate_save(
+                sources.raw_model(path), sources.raw_model(path, reads), reads
+            )
