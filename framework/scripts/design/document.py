@@ -24,6 +24,7 @@ import model.render as _model_render
 import model.sources as _imports_model_sources
 import validation_scope as _dependency_validation_scope
 from model.core import SnapshotValues
+from task_contract_core import task_read_scope
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
 from validation.diagnostics import stable_id
@@ -157,6 +158,11 @@ def require_saved_identity(text, expected):
         )
 
 
+def _task_root(path, text, values, root, **kwargs):
+    return _imports_model_sources.design_project_root(path) if values else None
+
+
+@task_read_scope(root=_task_root)
 @memoized
 def model_reference_tables(path, text, values, root, *, check_document=True):
     """Prepare Model expectations; parsers bind formal rows after table equality."""
@@ -313,6 +319,7 @@ def model_resource_groups(path, source):
     return resources, groups
 
 
+@task_read_scope(root=_task_root)
 def model_resource_reference_tables(path, text, values, root):
     """Recover complete Resource displays after separating a proven service suffix."""
     source = values if isinstance(values, SnapshotValues) else SnapshotValues(values)

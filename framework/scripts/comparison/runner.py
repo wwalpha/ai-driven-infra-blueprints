@@ -14,6 +14,7 @@ from design.layout import resource_mode
 from design.layout_schema import GROUPED
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from model.core import ReferenceResolutionError
+from task_contract_core import task_reads
 from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import Blocked, condition_active
 from utils.comparison_rows import Unresolved, put_row, select
@@ -150,6 +151,10 @@ class Comparison(Inputs):
         self.results.append(self.inactive_record(*args))
 
     def run(self) -> list[JsonObject]:
+        with task_reads(self.root):
+            return self._run()
+
+    def _run(self) -> list[JsonObject]:
         self.local_comparison = True
         self.symbols.clear()
         for service, message in self.reference_unavailable.items():

@@ -31,6 +31,7 @@ import utils.iac_values as _imports_iac_values
 import utils.project_targets as _imports_project_targets
 from design.catalog import DesignSchemaCatalog, selected_properties
 from design.policy_tables import literal
+from task_contract_core import task_read_scope
 from utils.aws.client import API_BUDGET_SECONDS, READ_RATES, read_api
 from utils.aws.identity import (
     IdentityError,
@@ -1289,6 +1290,7 @@ def inventory(root, selected_targets, services=None):
     return found
 
 
+@task_read_scope
 @input_scope
 def coverage(root, items):
     counts, stack_counts, types, keys, models, problems, details = (
@@ -1431,6 +1433,7 @@ def summarize(results):
     }
 
 
+@task_read_scope
 @input_scope
 def run(root, items, profile=None, session_factory=None):
     # Reject every configured-profile conflict before any AWS retrieval.

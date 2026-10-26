@@ -76,6 +76,23 @@ def session_reads(root: Path) -> FileReads | None:
     )
 
 
+def project_root(root: Path) -> Path:
+    """Task contracts belong to the Project, including reads of its temporary stage."""
+    root = change_scope.index_root(root)
+    shared = session_reads(root)
+    return shared.root if shared is not None else root
+
+
+def model_project_root(scope=None, *args, path=None, **kwargs):
+    scope = path if scope is None else scope
+    scope = scope if isinstance(scope, Scope) else scope_for(scope)
+    return project_root(scope.root)
+
+
+def design_project_root(path):
+    return project_root(path.parents[4])
+
+
 @contextmanager
 def model_stage(root: Path, stage: Path) -> Iterator[None]:
     shared = session_reads(root)
@@ -696,6 +713,7 @@ def _read_source_snapshot(scope, reads):
     return models[key]
 
 
+@task_contract.task_read_scope(root=model_project_root)
 def stack_snapshot(
     path: str | Path, read_context: ReadContext | None = None
 ) -> ModelSnapshot:
@@ -706,6 +724,7 @@ def stack_snapshot(
     return _source_snapshot(scope, read_context or _invocation_reads(scope.root))
 
 
+@task_contract.task_read_scope(root=model_project_root)
 def load_model(
     scope: Scope | str | Path, read_context: ReadContext | None = None
 ) -> ModelSnapshot:
@@ -920,6 +939,7 @@ def edit_base(path: Path, reads: ReadContext) -> ModelSnapshot:
     )
 
 
+@task_contract.task_read_scope(root=model_project_root)
 def raw_model(
     scope: Scope | str | Path, read_context: ReadContext | None = None
 ) -> ModelSnapshot:

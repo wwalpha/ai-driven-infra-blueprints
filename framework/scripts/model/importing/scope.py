@@ -20,6 +20,10 @@ _reference = ContextVar("model_import_reference", default=None)
 _views = ContextVar("model_import_views", default=None)
 
 
+def _project_root(root, **kwargs):
+    return _imports_model_sources.project_root(root)
+
+
 @contextmanager
 def reference_reader(path):
     """A producer is read-only and always in the selected environment/target."""
@@ -34,8 +38,9 @@ def reference_reader(path):
         _reference.reset(token)
 
 
-@task_read_scope
+@task_read_scope(root=_project_root)
 def selected(root, *, contract_file=None):
+    root = _imports_model_sources.project_root(root)
     if _scope.get() is not None:
         return _scope.get()
     # Reading scope grants no execution/write rights; those boundaries check paths/status.
@@ -96,8 +101,9 @@ def read_consumers(identities):
         _consumers.reset(token)
 
 
-@task_read_scope
+@task_read_scope(root=_project_root)
 def readable(root):
+    root = _imports_model_sources.project_root(root)
     active_scope = _imports_validation_scope.active_scope
 
     has_baseline = _imports_model_importing_repository.has_baseline

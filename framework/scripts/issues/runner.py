@@ -361,6 +361,7 @@ def reference_issues(findings, comparison, services, *, scope=None, judgments=No
     return list(records.values())
 
 
+@task_read_scope
 @input_scope
 def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     started = time.perf_counter()

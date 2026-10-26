@@ -46,6 +46,7 @@ def context_module():
     return aws_context
 
 
+@task_read_scope
 def local_plan(root, environment, directory, requested, check_scope=True):
     source = (
         root / "model" / environment / directory / "cloudformation-stacks.properties"

@@ -337,13 +337,23 @@ def contract_read_scope(function):
     return FunctionWrapper(function, _invoke_contract_read_scope)
 
 
-def _invoke_task_read_scope(function, /, root, *args, **kwargs):
-    with task_reads(root):
-        return function(root, *args, **kwargs)
+def _invoke_task_read_scope(function, root_for, /, *args, **kwargs):
+    root = (
+        root_for(*args, **kwargs)
+        if root_for is not None
+        else args[0]
+        if args
+        else kwargs["root"]
+    )
+    with task_reads(root) if root is not None else nullcontext():
+        return function(*args, **kwargs)
 
 
-def task_read_scope(function):
-    return FunctionWrapper(function, _invoke_task_read_scope)
+def task_read_scope(function=None, *, root=None):
+    """Own one operation's reads; resolve non-root API arguments before memoization."""
+    if function is None:
+        return _bind_framework_callback(task_read_scope, root=root)
+    return FunctionWrapper(function, _invoke_task_read_scope, root)
 
 
 def contracts(root):

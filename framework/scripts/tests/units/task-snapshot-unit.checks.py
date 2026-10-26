@@ -442,7 +442,13 @@ def check_generation_workers_reuse_task_snapshot(tmp_path, monkeypatch):
         tmp_path / "docs/designs/dev/cde/s3.md",
         tmp_path / "docs/designs/dev/cde/iam.md",
     ]
-    state = SimpleNamespace(design_index=None, candidate_paths=None)
+    state = SimpleNamespace(
+        design_index=None,
+        candidate_paths=None,
+        model_inputs={},
+        metadata={},
+        recorder=None,
+    )
     with tasks.task_reads(tmp_path):
         captured = tasks.task_snapshot(tmp_path)
         with (

@@ -21,6 +21,7 @@ from model.files import load_model, resource_row_index
 from model.identity import anchor_index, parse_reference, select_anchor
 from model.projection import reference_attribute
 from model.sources import _invocation_reads, model_exists, model_paths
+from task_contract_core import task_reads
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import (
@@ -56,6 +57,10 @@ from .result import redacted
 
 class Inputs:
     def __init__(self, root, environment, directory, services, *, catalog=None):
+        with task_reads(root):
+            self._initialize(root, environment, directory, services, catalog=catalog)
+
+    def _initialize(self, root, environment, directory, services, *, catalog=None):
         self.root, self.environment, self.directory = root, environment, directory
         self.services = sorted(set(services))
         self.target = load_target(root, environment, directory)

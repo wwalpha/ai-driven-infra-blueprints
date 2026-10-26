@@ -998,6 +998,7 @@ def sync_destroyed(backend, states, plan):
         states[name]["observedSynced"] = True
 
 
+@task_read_scope
 @input_scope
 def preflight(root, environment, directory, stack_names):
     """Local inputs only: same mapping validator as the deploy controller."""

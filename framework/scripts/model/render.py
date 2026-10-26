@@ -21,6 +21,7 @@ from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from design.services.definitions.secrets_manager import ROTATION_SCHEDULE
 from sync_files import changed_files
+from task_contract_core import task_read_scope
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import (
     input_bytes,
@@ -500,6 +501,10 @@ def resource_table_lines(
     return output
 
 
+def _task_root(path, *args, **kwargs):
+    return _imports_model_sources.design_project_root(path)
+
+
 @input_scope
 def markdown_for(
     path: Path,
@@ -512,6 +517,7 @@ def markdown_for(
     return render_validated_model(path, values, root, definitions_root=definitions_root)
 
 
+@task_read_scope(root=_task_root)
 def render_validated_model(
     path: Path,
     values: dict[str, str],
@@ -568,6 +574,7 @@ def render_validated_model(
     )
 
 
+@task_read_scope(root=_task_root)
 @input_scope
 def generate_markdown(
     path: Path,
@@ -885,6 +892,7 @@ def model_policy_views(values, *, presentation=None):
     return result
 
 
+@task_read_scope(root=_task_root)
 @change_reads()
 def generate_files(path, values, root, *, warnings=None):
     """Check JSON structure/references and generate one service in memory."""

@@ -130,6 +130,7 @@ def candidate(root, task, env, directory, target, stacks, services):
     return "\n".join(lines), sources, scope, generated_views
 
 
+@_imports_task_contract.task_read_scope
 def prepare(root, args, run, timing):
     TASK_NAME = _imports_task_contract.TASK_NAME
     contracts = _imports_task_contract.contracts
