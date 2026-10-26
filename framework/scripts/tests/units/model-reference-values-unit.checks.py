@@ -645,11 +645,12 @@ def test_reference_cache_observed_generation_and_invocation(fixture):
             assert scan.call_count == 4
 
 
-def test_reference_cache_candidate_and_rollback(fixture):
+@pytest.mark.parametrize("read_only, expected_calls", [(False, 3), (True, 2)])
+def test_reference_cache_candidate_and_rollback(fixture, read_only, expected_calls):
     _, _, consumer, policy = fixture
     key = "desired.row.001-002.document"
     with (
-        input_context(),
+        input_context(read_only=read_only),
         patch.object(
             projection, "reference_value", wraps=projection.reference_value
         ) as evaluate,
@@ -679,7 +680,7 @@ def test_reference_cache_candidate_and_rollback(fixture):
         assert (
             diagnostics[0] == diagnostics[2] and diagnostics[0] and not diagnostics[1]
         )
-        assert evaluate.call_count == 2
+        assert evaluate.call_count == expected_calls
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ import pytest
 import task_contract_core as tasks
 from comparison import Comparison
 from deploy import preparation
+from deploy.model_cache import RunModels
 from design.document import (
     DisplayMismatchError,
     model_reference_tables,
@@ -29,7 +30,7 @@ from support.deploy_preparation_fixtures import fixture as preparation_fixture
 from support.pytest_cli import run
 from utils.input_cache import input_context, memoized
 
-from model import change_scope, render, sources
+from model import change_scope, impact, render, sources
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -388,6 +389,200 @@ def check_comparison_stage_reuses_project_snapshot(
                 assert comparison.run() == expected
             once(io, root)
             assert tasks._read_contracts.get() is parent
+    assert tasks._read_contracts.get() is None
+
+
+MULTI_MODEL_APIS = ("dependencies", "analyze", "authority", "observed-models")
+CHANGED_MODEL = Path(f"model/{ENV}/{TARGET}/s3.properties")
+
+
+def multi_model_operation(root, api, *, before=None, raw=False):
+    if api == "dependencies":
+        return impact.dependencies(root=root, raw=raw)
+    if api == "analyze":
+        return impact.analyze(
+            root=root, changed={CHANGED_MODEL}, before=before, raw=raw
+        )
+    if api == "authority":
+        return sources.authority_snapshot(root=root, environment=ENV, directory=TARGET)
+    return observed.models(root=root, environment=ENV, directory=TARGET)
+
+
+@pytest.mark.parametrize("api", MULTI_MODEL_APIS)
+@pytest.mark.parametrize("outer_scope", [False, True])
+def check_multi_model_public_api_budget(project, api, outer_scope):
+    root, _ = project
+    with (
+        task_io() as io,
+        tasks.task_reads(root) if outer_scope else nullcontext() as parent,
+    ):
+        if outer_scope:
+            tasks.contract_snapshot(root)
+        assert multi_model_operation(root, api)
+        once(io, root)
+        assert tasks._read_contracts.get() is parent
+    assert tasks._read_contracts.get() is None
+
+
+@pytest.mark.parametrize("api", MULTI_MODEL_APIS)
+def check_multi_model_fresh_tasks_and_exception_restore(project, tmp_path_factory, api):
+    root, _ = project
+    foreign = tmp_path_factory.mktemp("foreign-project")
+    make_tasks(foreign, workflow="import", service="sqs")
+    with task_io() as io:
+        original = multi_model_operation(root, api)
+        once(io, root)
+        make_tasks(root, workflow="import")
+        current = outcome(partial(multi_model_operation, root, api))
+        assert current != original
+        if api == "dependencies":
+            assert set(current) == {(ENV, TARGET, "s3")}
+        elif api == "analyze":
+            assert current.services == {(ENV, TARGET, "s3")}
+        else:
+            assert current == (
+                ValueError,
+                "IMPORT reference is outside selected environment/target/service",
+            )
+        assert io.catalog.call_count == 2
+    with tasks.task_reads(foreign) as parent:
+        assert permissions.selected(foreign) == (ENV, TARGET, "sqs")
+        assert outcome(partial(multi_model_operation, root, api)) == current
+        assert tasks._read_contracts.get() is parent
+        # A malformed Task fails every API and must restore the unrelated parent.
+        (root / "tasks/two.md").write_text(
+            (root / "tasks/one.md").read_text(), encoding="utf-8"
+        )
+        with pytest.raises(ValueError, match="multiple running"):
+            multi_model_operation(root, api)
+        assert tasks._read_contracts.get() is parent
+        assert permissions.selected(foreign) == (ENV, TARGET, "sqs")
+    with pytest.raises(ValueError, match="multiple running"):
+        multi_model_operation(root, api)
+    assert tasks._read_contracts.get() is None
+    make_tasks(root)
+    assert multi_model_operation(root, api) == original
+
+
+@pytest.mark.parametrize("api", MULTI_MODEL_APIS)
+@pytest.mark.parametrize("stage_kind", ["index", "session"])
+def check_multi_model_stage_budget(project, tmp_path_factory, api, stage_kind):
+    root, _ = project
+    stage = tmp_path_factory.mktemp("api-stage") / "project"
+    shutil.copytree(root, stage)
+    make_tasks(stage, workflow="import", service="absent")
+    with (
+        sources.model_session(RunModels(root, {}))
+        if stage_kind == "session"
+        else nullcontext(),
+        sources.model_stage(root, stage)
+        if stage_kind == "session"
+        else change_scope.index_stage(root, stage),
+        task_io() as io,
+    ):
+        assert multi_model_operation(stage, api)
+        once(io, root)
+        with tasks.task_reads(root) as parent:
+            tasks.contract_snapshot(root)
+            io.catalog.reset_mock()
+            assert multi_model_operation(stage, api)
+            assert io.catalog.call_count == 0
+            assert tasks._read_contracts.get() is parent
+    assert tasks._read_contracts.get() is None
+
+
+@pytest.mark.parametrize("baseline", ["same", "other", "stage"])
+@pytest.mark.parametrize("raw", [False, True])
+@pytest.mark.parametrize("outer_scope", [False, True])
+def check_analyze_baseline_project_budget(
+    project, tmp_path_factory, baseline, raw, outer_scope
+):
+    root, _ = project
+    before = root
+    if baseline != "same":
+        before = tmp_path_factory.mktemp("baseline") / "project"
+        shutil.copytree(root, before)
+        # A genuinely separate Project enforces its own IMPORT restrictions.
+        make_tasks(before, workflow="import", service="s3")
+    with (
+        change_scope.index_stage(root, before)
+        if baseline == "stage"
+        else nullcontext(),
+        tasks.task_reads(root) if outer_scope else nullcontext() as parent,
+        task_io() as io,
+    ):
+        actual = multi_model_operation(root, "analyze", before=before, raw=raw)
+        assert actual.services == {(ENV, TARGET, "s3")}
+        assert tasks._read_contracts.get() is parent
+        if outer_scope:
+            assert permissions.selected(root) is None
+        roots = [call.args[0] for call in io.catalog.call_args_list]
+        assert roots.count(root) == 1
+        assert roots.count(before) == (1 if baseline != "stage" else 0)
+        assert len(roots) == (2 if baseline == "other" else 1)
+    assert tasks._read_contracts.get() is None
+
+
+def live_model_read(root, reader, *args, **kwargs):
+    captured = tasks.task_snapshot(root)
+    make_tasks(root, service="sqs")
+    assert tasks.task_snapshot(root) is captured
+    assert captured.scope == {(ENV, TARGET, "s3")}
+    assert tasks.task_snapshot(root, live=True).scope == {(ENV, TARGET, "sqs")}
+    with pytest.raises(ValueError, match="changed during validation"):
+        tasks.verify_snapshot(captured)
+    assert tasks.task_snapshot(root) is captured
+    return reader(*args, **kwargs)
+
+
+@pytest.mark.parametrize("api", MULTI_MODEL_APIS)
+def check_multi_model_live_revalidation(project, api):
+    root, _ = project
+    module, name = (
+        (observed, "read_model")
+        if api == "observed-models"
+        else (sources, "load_model")
+    )
+    reader = getattr(module, name)
+    with patch.object(
+        module, name, side_effect=partial(live_model_read, root, reader)
+    ) as reads:
+        assert multi_model_operation(root, api)
+        assert reads.call_count > 1
+    assert tasks._read_contracts.get() is None
+    assert tasks.task_snapshot(root).scope == {(ENV, TARGET, "sqs")}
+
+
+@pytest.mark.parametrize("api", MULTI_MODEL_APIS)
+def check_multi_model_root_failure_does_not_fall_back(project, api):
+    root, _ = project
+    with (
+        tasks.task_reads(root) as parent,
+        patch.object(
+            sources, "project_root", side_effect=ValueError("root unavailable")
+        ),
+    ):
+        with pytest.raises(ValueError, match="root unavailable"):
+            multi_model_operation(root, api)
+        assert tasks._read_contracts.get() is parent
+    assert tasks._read_contracts.get() is None
+
+
+def check_analyze_baseline_exception_restores_outer(project, tmp_path_factory):
+    root, _ = project
+    before = tmp_path_factory.mktemp("failed-baseline") / "project"
+    shutil.copytree(root, before)
+    with tasks.task_reads(root) as parent:
+        expected = multi_model_operation(root, "analyze", before=before)
+        with patch.object(
+            impact._imports_model_impact_graph.Graph,
+            "include",
+            side_effect=RuntimeError("graph failure"),
+        ):
+            with pytest.raises(RuntimeError, match="graph failure"):
+                multi_model_operation(root, "analyze", before=before)
+        assert tasks._read_contracts.get() is parent
+        assert multi_model_operation(root, "analyze", before=before) == expected
     assert tasks._read_contracts.get() is None
 
 

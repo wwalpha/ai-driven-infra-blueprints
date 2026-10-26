@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from task_contract_core import task_read_scope
+from task_contract_core import task_read_scope, task_reads
 
 import model.change_plan as change_plan
 import model.impact_changes as _imports_model_impact_changes
@@ -15,26 +15,27 @@ import model.sources as _imports_model_sources
 
 
 def dependencies(root, *, read_context=None, raw=False):
-    readable = _imports_model_importing_scope.readable
-    root = Path(root).absolute()
-    reads = read_context or _dependency_model_sources._invocation_reads(root)
-    allowed = readable(root)
-    result = {}
-    reader = _dependency_model_sources.load_model
-    if raw:
-        raw_model = _imports_model_sources.raw_model
-        reader = raw_model
-    for scope in _dependency_model_sources.list_models(root, reads):
-        identity = scope.environment, scope.target, scope.service
-        if allowed is not None and identity not in allowed:
-            continue
-        model = reader(scope, reads)
-        result[identity] = {
-            tuple(usage.producer_scope.split("/"))
-            for usage in _dependency_model_references.usages(model, reads)
-            if usage.producer_kind != "context"
-        }
-    return result
+    with task_reads(_imports_model_sources.project_root(Path(root).absolute())):
+        readable = _imports_model_importing_scope.readable
+        root = Path(root).absolute()
+        reads = read_context or _dependency_model_sources._invocation_reads(root)
+        allowed = readable(root)
+        result = {}
+        reader = _dependency_model_sources.load_model
+        if raw:
+            raw_model = _imports_model_sources.raw_model
+            reader = raw_model
+        for scope in _dependency_model_sources.list_models(root, reads):
+            identity = scope.environment, scope.target, scope.service
+            if allowed is not None and identity not in allowed:
+                continue
+            model = reader(scope, reads)
+            result[identity] = {
+                tuple(usage.producer_scope.split("/"))
+                for usage in _dependency_model_references.usages(model, reads)
+                if usage.producer_kind != "context"
+            }
+        return result
 
 
 def _service_affected(root, changed, *, before=None, read_context=None, raw=False):
@@ -79,54 +80,56 @@ class Impact:
 
 def analyze(root, changed, *, before=None, read_context=None, raw=False):
     """Keep source services for validation; propagate only their changed semantic nodes."""
-    changed_nodes = _imports_model_impact_changes.changed_nodes
-    node = _imports_model_impact_changes.node
-    Graph = _imports_model_impact_graph.Graph
-    models = _imports_model_impact_graph.models
-    readable = _imports_model_importing_scope.readable
-    selected = _imports_model_importing_scope.selected
-    root = Path(root).absolute()
-    changed = {Path(path) for path in changed}
-    sources = {path for path in changed if path.parts[:1] == ("model",)}
-    if not sources and Path("project.json") not in changed:
-        return Impact(frozenset())
-    if before is None or selected(root) is not None:
+    with task_reads(_imports_model_sources.project_root(Path(root).absolute())):
+        changed_nodes = _imports_model_impact_changes.changed_nodes
+        node = _imports_model_impact_changes.node
+        Graph = _imports_model_impact_graph.Graph
+        models = _imports_model_impact_graph.models
+        readable = _imports_model_importing_scope.readable
+        selected = _imports_model_importing_scope.selected
+        root = Path(root).absolute()
+        changed = {Path(path) for path in changed}
+        sources = {path for path in changed if path.parts[:1] == ("model",)}
+        if not sources and Path("project.json") not in changed:
+            return Impact(frozenset())
+        if before is None or selected(root) is not None:
+            return Impact(
+                frozenset(
+                    _service_affected(
+                        root, changed, before=before, read_context=read_context, raw=raw
+                    )
+                ),
+                reasons=(
+                    {
+                        "reason": "IMPORT compatibility scope"
+                        if selected(root) is not None
+                        else "no baseline: conservative service impact"
+                    },
+                ),
+            )
+        reads = read_context or _dependency_model_sources._invocation_reads(root)
+        allowed = readable(root)
+        current = models(root, reads, raw=raw, allowed=allowed)
+        with task_reads(_imports_model_sources.project_root(Path(before).absolute())):
+            old_reads = _dependency_model_sources._invocation_reads(Path(before))
+            previous = models(before, old_reads, previous=True, allowed=allowed)
+            scopes = set()
+            for path in sources:
+                scope = _dependency_model_sources.source_scope(root, root / path)
+                scopes.add((scope.environment, scope.target, scope.service))
+            graph = Graph()
+            graph.include(previous, old_reads)
+        graph.include(current, reads)
+        seeds = changed_nodes(scopes, previous, current, graph.reasons)
+        if Path("project.json") in changed:
+            seeds.update(node(scope) for scope in previous.keys() | current.keys())
+        visited = graph.traverse(seeds)
         return Impact(
-            frozenset(
-                _service_affected(
-                    root, changed, before=before, read_context=read_context, raw=raw
-                )
-            ),
-            reasons=(
-                {
-                    "reason": "IMPORT compatibility scope"
-                    if selected(root) is not None
-                    else "no baseline: conservative service impact"
-                },
-            ),
+            frozenset(scopes | {entry[:3] for entry in visited}),
+            frozenset(seeds),
+            frozenset(visited),
+            tuple(graph.reasons),
         )
-    reads = read_context or _dependency_model_sources._invocation_reads(root)
-    allowed = readable(root)
-    current = models(root, reads, raw=raw, allowed=allowed)
-    old_reads = _dependency_model_sources._invocation_reads(Path(before))
-    previous = models(before, old_reads, previous=True, allowed=allowed)
-    scopes = set()
-    for path in sources:
-        scope = _dependency_model_sources.source_scope(root, root / path)
-        scopes.add((scope.environment, scope.target, scope.service))
-    graph = Graph()
-    graph.include(previous, old_reads)
-    graph.include(current, reads)
-    seeds = changed_nodes(scopes, previous, current, graph.reasons)
-    if Path("project.json") in changed:
-        seeds.update(node(scope) for scope in previous.keys() | current.keys())
-    visited = graph.traverse(seeds)
-    return Impact(
-        frozenset(scopes | {entry[:3] for entry in visited}),
-        frozenset(seeds),
-        frozenset(visited),
-        tuple(graph.reasons),
-    )
 
 
 def affected(root, changed, *, before=None, read_context=None, raw=False):

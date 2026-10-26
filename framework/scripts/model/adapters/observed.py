@@ -14,7 +14,7 @@ from task_contract_core import matches as matches
 from task_contract_core import paths_in as paths_in
 from task_contract_core import section as section
 from task_contract_core import task_path as task_path
-from task_contract_core import task_read_scope, task_snapshot
+from task_contract_core import task_read_scope, task_reads, task_snapshot
 from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import (
     Blocked,
@@ -84,11 +84,12 @@ class MappingError(ValueError):
 
 
 def models(root, environment, directory):
-    return {
-        path: properties(read_model(path))
-        for path in model_paths(root, environment, directory)
-        if path.stem != "cloudformation-stacks"
-    }
+    with task_reads(source_models.project_root(Path(root).absolute())):
+        return {
+            path: properties(read_model(path))
+            for path in model_paths(root, environment, directory)
+            if path.stem != "cloudformation-stacks"
+        }
 
 
 def resource_index(loaded, catalog):

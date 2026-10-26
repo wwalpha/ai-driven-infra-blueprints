@@ -466,12 +466,13 @@ def authority_snapshot(
     directory: str,
     read_context: ReadContext | None = None,
 ) -> dict[Path, bytes | None]:
-    reads = read_context or FileReads()
-    return {
-        file: data
-        for path in model_paths(root, environment, directory, reads)
-        for file, data in load_model(path, reads).dependencies.items()
-    }
+    with task_contract.task_reads(project_root(Path(root).absolute())):
+        reads = read_context or FileReads()
+        return {
+            file: data
+            for path in model_paths(root, environment, directory, reads)
+            for file, data in load_model(path, reads).dependencies.items()
+        }
 
 
 def _safe(root, path, reads):
