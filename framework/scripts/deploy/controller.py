@@ -290,7 +290,25 @@ def exports_for(
             names[unit["name"]] = change_sets.import_names(document, parameters, pseudo)
         boundary["importNames"] = names
         required = set().union(*names.values()) if names else set()
-        for state in runtime.states.values():
+        if not required:
+            boundary["exports"] = {}
+            return boundary["exports"]
+        states = [
+            *runtime.states.values(),
+            *(
+                operation["state"]
+                for record in getattr(runtime, "retained_records", [])
+                for operation in record["operations"].values()
+            ),
+        ]
+        hints = []
+        for state in states:
+            saved = state.get("delivery", {}).get("imports", {})
+            if not isinstance(saved, dict):
+                raise Blocked("saved Export evidence is incomplete")
+            hints.append(
+                {name: entry for name, entry in saved.items() if name in required}
+            )
             if state.get("stackId") and any(
                 record.get("export") in required
                 for record in state.get("expectedOutputs", {}).values()
@@ -299,10 +317,7 @@ def exports_for(
         boundary["exports"] = resolve_exports(
             runtime.aws,
             required,
-            hints=merge_hints(
-                state.get("delivery", {}).get("imports", {})
-                for state in runtime.states.values()
-            ),
+            hints=merge_hints(hints),
             boundary=boundary,
         )
     return boundary["exports"]
@@ -388,13 +403,20 @@ def check_imports(
     runtime: SimpleNamespace, unit: StackUnit, boundary: DeliveryBoundary | None = None
 ) -> None:
     boundary = {} if boundary is None else boundary
+    exports = runtime.exports_for([unit], boundary)
     return change_sets.check_imports(
         runtime.target,
         runtime.templates,
-        operation_journal.dependency_states(runtime, unit),
+        operation_journal.dependency_states(
+            runtime,
+            unit,
+            imports=boundary["importNames"][unit["name"]],
+            hints=exports,
+            boundary=boundary,
+        ),
         runtime.aws,
         unit,
-        runtime.exports_for([unit], boundary),
+        exports,
     )
 
 

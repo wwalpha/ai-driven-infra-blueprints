@@ -4038,3 +4038,12 @@ These UTs exercise cache units and execution boundaries; existing generation/imp
 | `comparison-reuse::policy_batch_evaluates_documents_once` | `check_policy_batch_evaluates_documents_once` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 1 | policy batch evaluates documents once | Synthetic fixed bytes and Model snapshots |
 | `comparison-reuse::candidate_restore_replaces_only_view_cache` | `check_candidate_restore_replaces_only_view_cache` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 2 | candidate restore replaces only view cache | Synthetic fixed bytes and Model snapshots |
 | `comparison-reuse::independent_comparison_scope_cleanup` | `check_independent_comparison_scope_cleanup` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 2 | independent comparison scope cleanup | Synthetic fixed bytes and Model snapshots |
+
+## v1026v13 Export scope and dependency hint propagation
+
+| Case | Function | Layer | Location | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `export-scope::saved-conflicts` | `check_controller_scopes_saved_hint_conflicts` | UT | [units/cloudformation-export-resolution.checks.py](units/cloudformation-export-resolution.checks.py) | pytest / 6 | Importなし・無関係ExportのProducer/Value矛盾は非阻害、必要Exportの矛盾はBLOCKED、ImportなしのExport APIは0回 | Synthetic offline |
+| `export-scope::controller-proof` | `test_controller_passes_current_import_proof_to_independence` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 4 | delivery・Producer outputs・未完了Operationの既知ProducerはListExports 0回、未知だけ1回、同一境界Describe共有・次境界Value変更BLOCKED・無効Import除外 | Synthetic offline |
+| `export-scope::hint-conflicts` | `test_planned_hints_cannot_override_unfinished_operation_evidence` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 2 | 今回予定Importと未完了OperationのProducer/Value矛盾はAWS読取前にBLOCKED | Synthetic offline |
+| `export-scope::retained-proof` | `test_no_planned_imports_keep_unfinished_operation_export_proof` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 今回Importなしでも未完了Operationの保存済みValueとAWS実値を比較してBLOCKED | Synthetic offline |

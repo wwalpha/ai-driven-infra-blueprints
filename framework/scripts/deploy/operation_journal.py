@@ -790,30 +790,21 @@ def verify_producer(backend, operation):
         raise Blocked("Producer Observed values no longer match AWS: " + unit["name"])
 
 
-def dependency_states(backend, unit):
+def dependency_states(backend, unit, *, imports, hints, boundary):
     """Unrelated unfinished Stacks are allowed only across proved dependency boundaries."""
     pending = {
         name: operation["state"]
         for record in getattr(backend, "retained_records", [])
         for name, operation in record["operations"].items()
     }
-    imports = None
-    if pending:
-        document, parameters = backend.templates[unit["name"]]
-        imports = {
-            unit["name"]: change_sets.import_names(
-                document,
-                parameters,
-                {
-                    "AWS::StackName": unit["name"],
-                    "AWS::Region": backend.target["awsRegion"],
-                    "AWS::AccountId": backend.target.get(
-                        "awsExecutionAccountId", backend.target["awsAccountId"]
-                    ),
-                },
-            )
-        }
-    require_independent(pending, {unit["name"]}, backend.aws, imports=imports)
+    require_independent(
+        pending,
+        {unit["name"]},
+        backend.aws,
+        imports={unit["name"]: imports},
+        hints=hints,
+        boundary=boundary,
+    )
     return {**{name: {"status": "RUNNING"} for name in pending}, **backend.states}
 
 
@@ -823,7 +814,9 @@ def export_stack(entry):
     return stack_name(entry.get("ExportingStackId"))
 
 
-def require_independent(pending, stacks, aws, *, imports=None):
+def require_independent(
+    pending, stacks, aws, *, imports=None, hints=None, boundary=None
+):
     """Share Delivery/live Import/Export proof between Deploy and repair handoff."""
     if not pending:
         return
@@ -840,9 +833,14 @@ def require_independent(pending, stacks, aws, *, imports=None):
             raise Blocked("unfinished Stack dependency evidence unavailable: " + name)
         for entry in delivered.values():
             consumers.setdefault(export_stack(entry), set()).add(name)
-    boundary = {}
-    hints = merge_hints(state["delivery"]["imports"] for state in pending.values())
+    boundary = {} if boundary is None else boundary
     planned = set().union(*(imports or {}).values()) if imports else set()
+    hints = merge_hints(
+        [
+            {name: entry for name, entry in (hints or {}).items() if name in planned},
+            *(state["delivery"]["imports"] for state in pending.values()),
+        ]
+    )
     identities = {
         name: state["stackId"]
         for name, state in pending.items()

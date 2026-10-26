@@ -257,7 +257,7 @@ def aws_state(path, **knobs):
     )
 
 
-def _callback_clients_client(operations, request, /, context, service):
+def _callback_clients_client(operations, request, /, context, service, *, read=False):
     return SimpleNamespace(
         **{op: partial(request, service, op) for op in operations[service]}
     )

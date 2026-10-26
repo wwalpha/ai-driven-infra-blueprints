@@ -185,6 +185,41 @@ def check_controller_uses_current_producer_output_contract():
     assert [op for op, _ in aws.calls] == ["describe_stacks"]
 
 
+@pytest.mark.parametrize("scope", ["none", "unrelated", "required"])
+@pytest.mark.parametrize("defect", ["producer", "value"])
+def check_controller_scopes_saved_hint_conflicts(scope, defect):
+    aws = ExportAws()
+    name = "A" if scope == "required" else "B"
+    changed = dict(ENTRIES[name])
+    changed["ExportingStackId" if defect == "producer" else "Value"] += "-changed"
+    runtime = SimpleNamespace(
+        aws=aws,
+        target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+        templates={
+            "Consumer": (
+                {}
+                if scope == "none"
+                else {"Outputs": {"Used": {"Value": {"Fn::ImportValue": "A"}}}},
+                {},
+            )
+        },
+        states={
+            "One": {"delivery": {"imports": {name: ENTRIES[name]}}},
+            "Two": {"delivery": {"imports": {name: changed}}},
+            "Producer": {"stackId": STACK, "expectedOutputs": {"B": {"export": "B"}}},
+        },
+    )
+    if scope == "required":
+        with pytest.raises(Blocked, match="saved Export Producer/value is ambiguous"):
+            exports_for(runtime, [{"name": "Consumer"}], {})
+    else:
+        assert exports_for(runtime, [{"name": "Consumer"}], {}) == (
+            {} if scope == "none" else {"A": ENTRIES["A"]}
+        )
+        if scope == "none":
+            assert aws.calls == []
+
+
 @pytest.mark.parametrize("defect", ["value", "producer"])
 def check_execute_export_changes_prevent_execution(tmp_path, defect):
     runtime = from_fixture.DeliveryAws(tmp_path / "repo", tmp_path / "delivery")

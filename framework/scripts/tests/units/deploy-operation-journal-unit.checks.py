@@ -819,11 +819,21 @@ def test_unrelated_stack_requires_proved_dependency_boundary(tmp_path, dependenc
         }
         exports = [{"Name": "KmsExport", "Value": "value", "ExportingStackId": STACK}]
     backend.aws = Mock(side_effect=partial(dependency_response, exports, edges, ""))
+    boundary = {}
+    current = backend.exports_for([other], boundary)
+    dependency_states = partial(
+        J.dependency_states,
+        backend,
+        other,
+        imports=boundary["importNames"]["Other"],
+        hints=current,
+        boundary=boundary,
+    )
     if dependency in {"inbound", "unknown", "live-inbound", "new-iac"}:
         with pytest.raises(Blocked):
-            J.dependency_states(backend, other)
+            dependency_states()
     else:
-        states = J.dependency_states(backend, other)
+        states = dependency_states()
         assert states["Kms"]["status"] == "RUNNING"
         if dependency == "outbound":
             backend.templates["Other"][0]["Resources"] = {
@@ -1034,6 +1044,108 @@ def dependency_response(exports, edges, defect, operation, **arguments):
             if producer == arguments["ExportName"]
         ]
     }
+
+
+@pytest.mark.parametrize("source", ["delivery", "outputs", "pending", "unknown"])
+def test_controller_passes_current_import_proof_to_independence(tmp_path, source):
+    backend = create_runtime(tmp_path, "dev", TARGET["awsAccountId"], TARGET)
+    entry = {
+        "Name": "Common",
+        "Value": "value",
+        "ExportingStackId": STACK.replace("/Kms/", "/Common/"),
+    }
+    backend.templates = {
+        "S3": (
+            {
+                "Conditions": {"Disabled": {"Fn::Equals": ["yes", "no"]}},
+                "Outputs": {
+                    "Used": {"Value": {"Fn::ImportValue": "Common"}},
+                    "Unused": {
+                        "Condition": "Disabled",
+                        "Value": {"Fn::ImportValue": "Missing"},
+                    },
+                },
+            },
+            {},
+        )
+    }
+    backend.states = {"S3": {"status": "NOT_STARTED"}}
+    if source == "delivery":
+        backend.states["S3"]["delivery"] = {"imports": {"Common": dict(entry)}}
+    elif source == "outputs":
+        backend.states["Common"] = {
+            "status": "SUCCESS",
+            "stackId": entry["ExportingStackId"],
+            "expectedOutputs": {"Common": {"export": "Common"}},
+        }
+    backend.retained_records = [
+        {"operations": {"Kms": {"state": {"delivery": {"imports": {}}}}}}
+    ]
+    if source == "pending":
+        backend.retained_records[0]["operations"]["Kms"]["state"]["delivery"][
+            "imports"
+        ] = {"Common": dict(entry)}
+    backend.aws = Mock(side_effect=partial(dependency_response, [entry], [], ""))
+    backend.check_imports({"name": "S3"})
+    operations = [c.args[0] for c in backend.aws.call_args_list]
+    assert operations.count("list_exports") == (1 if source == "unknown" else 0), (
+        operations
+    )
+    assert (
+        sum(
+            c.args[0] == "describe_stacks"
+            and c.kwargs["StackName"] == entry["ExportingStackId"]
+            for c in backend.aws.call_args_list
+        )
+        == 1
+    )
+    if source in {"delivery", "pending"}:
+        entry["Value"] = "changed"
+        backend.aws.reset_mock()
+        with pytest.raises(Blocked, match="Producer/value changed"):
+            backend.check_imports({"name": "S3"})
+        assert all(c.args[0] != "list_exports" for c in backend.aws.call_args_list)
+
+
+@pytest.mark.parametrize("defect", ["producer", "value"])
+def test_planned_hints_cannot_override_unfinished_operation_evidence(defect):
+    entry = {
+        "Name": "Common",
+        "Value": "value",
+        "ExportingStackId": STACK.replace("/Kms/", "/Common/"),
+    }
+    pending = {"Kms": {"delivery": {"imports": {"Common": entry}}}}
+    changed = dict(entry)
+    changed["ExportingStackId" if defect == "producer" else "Value"] += "-changed"
+    aws = Mock(side_effect=AssertionError("conflicts must block before AWS"))
+    with pytest.raises(Blocked, match="saved Export Producer/value is ambiguous"):
+        J.require_independent(
+            pending,
+            {"S3"},
+            aws,
+            imports={"S3": {"Common"}},
+            hints={"Common": changed},
+        )
+    aws.assert_not_called()
+
+
+def test_no_planned_imports_keep_unfinished_operation_export_proof():
+    entry = {
+        "Name": "Common",
+        "Value": "stale",
+        "ExportingStackId": STACK.replace("/Kms/", "/Common/"),
+    }
+    aws = Mock(
+        side_effect=partial(dependency_response, [dict(entry, Value="current")], [], "")
+    )
+    with pytest.raises(Blocked, match="Producer/value changed"):
+        J.require_independent(
+            {"Kms": {"delivery": {"imports": {"Common": entry}}}},
+            {"S3"},
+            aws,
+            imports={"S3": set()},
+        )
+    assert all(c.args[0] != "list_exports" for c in aws.call_args_list)
 
 
 @pytest.mark.parametrize(
