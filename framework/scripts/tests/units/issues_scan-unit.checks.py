@@ -2650,16 +2650,18 @@ def check_issues_checks_saved_display_without_generation(
     assert checks > 0 and not warnings, (errors, warnings)
     if display in {"plain", "label"}:
         assert errors and validators[0].findings.unverified
-        assert any("Model expected display" in error for error in errors)
+        assert not validators[0].findings.processing_errors
+        assert any(
+            "indexed array display requires Model source rows" in error
+            for error in errors
+        ), errors
     else:
         assert not errors and not validators[0].findings.unverified, errors
     assert not any(
         item.code == "design.display.mismatch"
         for item in validators[0].findings.diagnostics
     )
-    assert bool(validators[0].findings.processing_errors) == (
-        display in {"plain", "label"}
-    )
+    assert not validators[0].findings.processing_errors
     assert not any(
         check_id == "framework.generated-service-model"
         for check_id, _, _ in validators[0].findings.results

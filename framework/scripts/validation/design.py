@@ -395,6 +395,134 @@ def _callback_check_resource_names_check_name(
         label = values.get(f"display.resource.{matched[0]}.label")
     elif display != resource_type:
         label = display
+    if path in service_metadata:
+        expected = bound_anchors.get(
+            (resource_type, identities.get(anchor)),
+            _dependency_design_layout.resource_anchor(
+                service_metadata[path][0], display, resource_type
+            ),
+        )
+        message = f"resource anchor must match saved Model anchor: {findings.relative(path)}: expected {expected}"
+        if values and anchor != expected:
+            findings.add_diagnostic(
+                Diagnostic.create(
+                    root,
+                    code="design.identity.invalid",
+                    check_id="design.identity",
+                    service=service_scope(root, path),
+                    source_path=path,
+                    location=anchor,
+                    message=message,
+                )
+            )
+            return
+        else:
+            findings.warn(anchor == expected, message)
+    if not check_display:
+        fields = set(
+            _dependency_design_layout.configured_name_fields(
+                definitions_root, resource_type
+            )
+        )
+        saved_rows = []
+        properties = [
+            _imports_aws_mapping_display.formal_name(
+                row[1], resource_type, definitions_root
+            )
+            or row[1]
+            for row in rows
+        ]
+        direct_name = any(
+            prop.removeprefix(resource_type + ".") in fields
+            or resource_type == "KMS.Key"
+            and prop == "KMS.Alias.AliasName"
+            for prop in properties
+        )
+        for row, prop in zip(rows, properties, strict=True):
+            field = prop.removeprefix(resource_type + ".")
+            if (
+                field in fields
+                or resource_type == "KMS.Key"
+                and prop == "KMS.Alias.AliasName"
+            ):
+                saved_rows.append(row)
+            elif (
+                not direct_name
+                or "[]" in field
+                and resource_type in _dependency_design_layout.REQUIRED_NAME_TAG_TYPES
+            ) and re.match(r"(?:Tags|HostedZoneTags)(?:$|\[)", field):
+                saved_rows.append(row)
+        name_unavailable = None
+        try:
+            name_lines = _dependency_design_layout.expanded_display_rows(
+                [
+                    f'<a id="{anchor}"></a>',
+                    f"### {resource_type}: {display}",
+                    TABLE_HEADER,
+                    TABLE_ALIGNMENT,
+                    *(
+                        "| " + " | ".join([str(number), *row[1:]]) + " |"
+                        for number, row in enumerate(saved_rows, 1)
+                    ),
+                ],
+                definitions_root,
+                modes=modes,
+            )
+        except ValueError as error:
+            if str(error) != "indexed array display requires Model source rows":
+                findings.check(False, f"{findings.relative(path)}: {error}")
+                return
+            tables = _design_document.model_reference_tables(
+                path,
+                input_text(path, encoding="utf-8"),
+                tuple((values or {}).items()),
+                definitions_root,
+                check_document=False,
+            )
+            table = next((table for table in tables if table.anchor == anchor), None)
+            if table is not None:
+                name_lines = _dependency_design_layout.expanded_display_rows(
+                    [
+                        f'<a id="{anchor}"></a>',
+                        f"### {resource_type}: {display}",
+                        *table.expected,
+                    ],
+                    definitions_root,
+                    modes=modes,
+                    reference_tables=(table,),
+                )
+            else:
+                name_unavailable = str(error)
+        if (
+            not saved_rows
+            and resource_type
+            in _dependency_design_layout.REQUIRED_NAME_TAG_TYPES
+            | {"IAM.Role", "CodeBuild.Project"}
+            and (mode != "IMPORT" or resource_type in {"IAM.Role", "CodeBuild.Project"})
+        ):
+            name_unavailable = "saved resource name rows are unavailable"
+        if name_unavailable is not None:
+            name_scope = {(*path.parent.parts[-2:], path.stem)}
+            entry = dict(
+                code="design.identity.dependency",
+                reason="expansion",
+                status="NOT_RUN",
+                scope=["/".join(item) for item in name_scope],
+                resource=identities.get(anchor, anchor),
+                checks=["resource name from saved array rows"],
+                message=name_unavailable,
+                complete=False,
+            )
+            findings.unverified.append(entry)
+            result = findings.result("design.identity", name_scope)
+            result.metadata.update(complete=False, reason="expansion")
+            result.metadata.setdefault("unverified", []).append(entry)
+            return
+        rows = [
+            [cell.strip() for cell in line.strip("|").split("|")]
+            for line in name_lines
+            if line.startswith("| ") and line.split("|")[1].strip().isdigit()
+        ]
     try:
         validation_rows = _imports_aws_mapping_display.validation_rows
         semantic = validation_rows(
@@ -469,28 +597,6 @@ def _callback_check_resource_names_check_name(
             anchor in identities and display != identities[anchor],
             f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}",
         )
-    if path in service_metadata:
-        expected = bound_anchors.get(
-            (resource_type, identities.get(anchor)),
-            _dependency_design_layout.resource_anchor(
-                service_metadata[path][0], display, resource_type
-            ),
-        )
-        message = f"resource anchor must match saved Model anchor: {findings.relative(path)}: expected {expected}"
-        if values and anchor != expected:
-            findings.add_diagnostic(
-                Diagnostic.create(
-                    root,
-                    code="design.identity.invalid",
-                    check_id="design.identity",
-                    service=service_scope(root, path),
-                    source_path=path,
-                    location=anchor,
-                    message=message,
-                )
-            )
-        else:
-            findings.warn(anchor == expected, message)
 
 
 @input_scope
@@ -532,19 +638,22 @@ def check_resource_names(
                 }
             )
             modes = _dependency_design_layout.resource_modes(lines, values)
-            reference_tables = _design_document.model_reference_tables(
-                path,
-                input_text(path, encoding="utf-8"),
-                tuple((values or {}).items()),
-                definitions_root,
-                check_document=check_display,
-            )
-            lines = _dependency_security_group_tables.security_group_table_lines(
-                lines, definitions_root
-            )
-            lines = _dependency_design_layout.expanded_display_rows(
-                lines, definitions_root, modes=modes, reference_tables=reference_tables
-            )
+            if check_display:
+                reference_tables = _design_document.model_reference_tables(
+                    path,
+                    input_text(path, encoding="utf-8"),
+                    tuple((values or {}).items()),
+                    definitions_root,
+                )
+                lines = _dependency_security_group_tables.security_group_table_lines(
+                    lines, definitions_root
+                )
+                lines = _dependency_design_layout.expanded_display_rows(
+                    lines,
+                    definitions_root,
+                    modes=modes,
+                    reference_tables=reference_tables,
+                )
             values = values or {}
             resources = {
                 (resource["resourceType"], resource["logicalId"]): (identity, resource)
@@ -676,6 +785,13 @@ def check_resource_names(
             elif current and line.startswith("| "):
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
                 if len(cells) == 4 and cells[0].isdigit():
+                    if not check_display:
+                        cells[1] = (
+                            _imports_aws_mapping_display.formal_name(
+                                cells[1], current[0], definitions_root
+                            )
+                            or cells[1]
+                        )
                     rows.append(cells)
                     if cells[1] == "KMS.Alias.AliasName" and path in service_metadata:
                         marker = CHILD.match(cells[3])

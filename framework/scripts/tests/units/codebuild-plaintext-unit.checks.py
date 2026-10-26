@@ -35,6 +35,8 @@ from utils.aws_mappings import mapping_alias
 from utils.reference_contracts import reference_error
 from validation.runner import Validator
 
+from model import dependency_index
+
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
@@ -185,6 +187,7 @@ def dependency_projects(
     write_model(path, values)
     view.parent.mkdir(parents=True, exist_ok=True)
     view.write_text(generate_markdown(view, values, FRAMEWORK), encoding="utf-8")
+    dependency_index.rebuild(root)
     return path, view, values
 
 

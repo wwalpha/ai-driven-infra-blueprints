@@ -43,6 +43,7 @@ from support.model_reference_fixtures import (
     resource,
     save,
 )
+from support.model_sources import catalog_display
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context
@@ -159,9 +160,7 @@ def test_scan_ignores_display_sync_and_keeps_independent_checks(pipeline, equal)
     ):
         artifact = scan_runner.scan(root, "qa", "team", ["codepipeline"], jobs=1)
     assert names.call_count == tables.call_count == links.call_count == 1
-    assert bool(artifact["processing_errors"]) == (not equal), artifact[
-        "processing_errors"
-    ]
+    assert not artifact["processing_errors"], artifact["processing_errors"]
     display = [
         item
         for item in artifact["ordinary"]
@@ -1120,13 +1119,229 @@ def test_saved_name_evidence_excludes_model_fallback(tmp_path, case, different):
                 check_display=False,
             )
         if case == "tag":
-            assert findings.processing_errors
-            assert any("Model expected display" in error for error in findings.errors)
+            assert not findings.processing_errors
+            assert bool(findings.errors) == different, findings.errors
+            assert all("saved resource name" in error for error in findings.errors)
         else:
             assert not findings.processing_errors
             assert not any("heading must display" in error for error in findings.errors)
         if case == "hidden":
             assert not findings.errors, findings.errors
+
+
+@pytest.fixture
+def instance(tmp_path):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        _, values = resource(tmp_path, "ec2", "EC2.Instance", attribute="Tags[].Key")
+        for number, (prop, value) in enumerate(
+            [
+                ("Tags[].Key", "Name"),
+                ("Tags[].Value", "saved-name"),
+                ("Tags[].Key", "Purpose"),
+                ("Tags[].Value", "original"),
+            ],
+            1,
+        ):
+            prefix = f"desired.row.001-{number:03d}."
+            values.update(
+                {
+                    prefix + "property": "EC2.Instance." + prop,
+                    prefix + "value": f"`{value}`",
+                    prefix + "comment": "タグ",
+                }
+            )
+        path = tmp_path / "docs/designs/qa/team/ec2.md"
+        path.parent.mkdir(parents=True)
+        expected = generate_markdown(path, values, FRAMEWORK)
+        yield tmp_path, values, path, expected
+
+
+@pytest.mark.parametrize("change", ["value", "comment", "index", "number"])
+@pytest.mark.parametrize(
+    "heading,name",
+    [
+        ("saved-name", "saved-name"),
+        ("wrong-heading", "saved-name"),
+        ("saved-name", "saved-other"),
+        ("saved-other", "saved-other"),
+    ],
+)
+@pytest.mark.parametrize("check_display", [False, True])
+def test_unrelated_array_display_cannot_block_saved_name(
+    instance, change, heading, name, check_display
+):
+    root, values, path, expected = instance
+    text = expected.replace(
+        "### EC2.Instance: saved-name", f"### EC2.Instance: {heading}"
+    )
+    text = text.replace("| `saved-name` |", f"| `{name}` |")
+    replacements = {
+        "value": ("`original`", "`changed`"),
+        "comment": ("`original` | タグ", "`original` | 変更"),
+        "index": ("Tags[2].Value", "Tags[7].Value"),
+        "number": ("| 3 | Tags[2].Value", "| 9 | Tags[2].Value"),
+    }
+    old, new = replacements[change]
+    assert old in text
+    text = text.replace(old, new)
+    path.write_text(text, encoding="utf-8")
+    findings = Findings(root)
+    design.check_resource_names(
+        {path: ("ec2", ("EC2.Instance",))},
+        [path],
+        design_sources={path: values},
+        findings=findings,
+        root=root,
+        scope={("qa", "team", "ec2")},
+        definitions_root=FRAMEWORK,
+        check_display=check_display,
+    )
+    assert not findings.processing_errors
+    if check_display:
+        assert any(d.code == "design.display.mismatch" for d in findings.diagnostics)
+    else:
+        assert findings.status == ("PASS" if heading == name else "FAIL"), (
+            findings.errors
+        )
+        assert not findings.unverified
+        assert all("saved resource name" in error for error in findings.errors)
+        assert (
+            model_reference_tables(
+                path, text, tuple(values.items()), FRAMEWORK, check_document=False
+            )
+            == ()
+        )
+
+
+@pytest.mark.parametrize("invalid_identity", [False, True])
+def test_unavailable_name_array_keeps_other_resource_and_identity_checks(
+    instance, invalid_identity
+):
+    root, values, path, expected = instance
+    second = {
+        key.replace(".001", ".002", 1): value.replace("_001", "_002").replace(
+            "saved-001", "saved-002"
+        )
+        for key, value in values.items()
+        if ".001" in key
+    }
+    values.update(second)
+    expected = generate_markdown(path, values, FRAMEWORK)
+    first = next(line for line in expected.splitlines() if "ec2-name-tag:" in line)
+    text = expected.replace(
+        first,
+        "| 1 | Tags[1].Key | `Name` | タグ |\n"
+        "| 2 | Tags[1].Value | `saved-name` | タグ |",
+        1,
+    )
+    text = text.replace(
+        "### EC2.Instance: saved-name", "### EC2.Instance: wrong-name", 1
+    )
+    # The second Resource remains independently checkable after the first fails expansion.
+    text = text.rsplit("### EC2.Instance: saved-name", 1)
+    text = "### EC2.Instance: other-wrong-name".join(text)
+    if invalid_identity:
+        text = text.replace('id="saved-001"', 'id="wrong-anchor"')
+    path.write_text(text, encoding="utf-8")
+    findings = Findings(root)
+    design.check_resource_names(
+        {path: ("ec2", ("EC2.Instance",))},
+        [path],
+        design_sources={path: values},
+        findings=findings,
+        root=root,
+        scope={("qa", "team", "ec2")},
+        definitions_root=FRAMEWORK,
+        check_display=False,
+    )
+    assert not findings.processing_errors
+    assert len(findings.unverified) == int(not invalid_identity)
+    if not invalid_identity:
+        assert findings.unverified[0]["resource"] == "EC2_Instance_001"
+        assert findings.unverified[0]["status"] == "NOT_RUN"
+    assert (
+        sum("other-wrong-name != saved-name" in error for error in findings.errors) == 1
+    )
+    assert sum(
+        d.code == "design.identity.invalid" for d in findings.diagnostics
+    ) == int(invalid_identity)
+
+
+def test_unchecked_document_returns_only_verified_tables(instance):
+    _, values, path, expected = instance
+    tables = model_reference_tables(
+        path, expected, tuple(values.items()), FRAMEWORK, check_document=False
+    )
+    assert len(tables) == 1
+    changed = expected.replace("# 合成参照", "# 表示のみ変更")
+    assert changed != expected
+    assert (
+        model_reference_tables(
+            path, changed, tuple(values.items()), FRAMEWORK, check_document=False
+        )
+        == tables
+    )
+    extra_row = expected + "| 4 | Unknown | `extra` | 追加 |\n"
+    assert (
+        model_reference_tables(
+            path, extra_row, tuple(values.items()), FRAMEWORK, check_document=False
+        )
+        == ()
+    )
+
+
+def test_missing_saved_name_is_not_filled_from_model(instance):
+    root, values, path, expected = instance
+    name_row = next(line for line in expected.splitlines() if "ec2-name-tag:" in line)
+    path.write_text(expected.replace(name_row + "\n", ""), encoding="utf-8")
+    findings = Findings(root)
+    design.check_resource_names(
+        {path: ("ec2", ("EC2.Instance",))},
+        [path],
+        design_sources={path: values},
+        findings=findings,
+        root=root,
+        scope={("qa", "team", "ec2")},
+        definitions_root=FRAMEWORK,
+        check_display=False,
+    )
+    assert findings.status == "NOT_RUN"
+    assert not findings.errors and not findings.processing_errors
+    assert len(findings.unverified) == 1
+    assert findings.unverified[0]["resource"] == "EC2_Instance_001"
+
+
+@pytest.mark.parametrize("different", [False, True])
+def test_verified_indexed_name_tags_keep_existing_name_validation(tmp_path, different):
+    with mapping_alias(FRAMEWORK, tmp_path), catalog_display():
+        _, values = resource(tmp_path, "kms", "KMS.Key", attribute="Tags[].Key")
+        values["desired.row.001-001.value"] = "`Name`"
+        values["desired.row.001-002.property"] = "KMS.Key.Tags[].Value"
+        values["desired.row.001-002.value"] = "`saved-name`"
+        values["desired.row.001-002.comment"] = "名称"
+        path = tmp_path / "docs/designs/qa/team/kms.md"
+        path.parent.mkdir(parents=True)
+        expected = generate_markdown(path, values, FRAMEWORK)
+        assert "Tags[1].Key" in expected
+        if different:
+            expected = expected.replace(
+                "### KMS.Key: saved-name", "### KMS.Key: wrong-name"
+            )
+        path.write_text(expected, encoding="utf-8")
+        findings = Findings(tmp_path)
+        design.check_resource_names(
+            {path: ("kms", ("KMS.Key",))},
+            [path],
+            design_sources={path: values},
+            findings=findings,
+            root=tmp_path,
+            scope={("qa", "team", "kms")},
+            definitions_root=FRAMEWORK,
+            check_display=False,
+        )
+        assert findings.status == ("FAIL" if different else "PASS"), findings.errors
+        assert not findings.processing_errors and not findings.unverified
+        assert all("saved resource name" in error for error in findings.errors)
 
 
 if __name__ == "__main__":

@@ -187,7 +187,7 @@ def check_resource_display_names():
         ):
             resource_display_selection(REPOSITORY, kind, [], "label", "IMPORT", 1)
     for kind in ("IAM.Role", "CodeBuild.Project"):
-        with pytest.raises(ValueError, match="must appear exactly once"):
+        with pytest.raises(ValueError, match="required Name is not selected"):
             resource_display_selection(REPOSITORY, kind, [], "label", "IMPORT", 1)
     for label in ("", "UNSET", "PENDING_DEPLOY"):
         with pytest.raises(

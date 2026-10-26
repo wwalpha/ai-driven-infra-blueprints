@@ -1027,12 +1027,9 @@ def validate_generation(plan, *, jobs=4, write=True):
             "framework.policy-tables",
         }
         required_service = {
-            "design.names",
-            "design.tables",
             "design.overviews",
             "design.links",
             "design.artifacts",
-            "design.observed",
         }
         if common is None or any(
             not common.result(name, plan.generated_scope).model_completion_allowed

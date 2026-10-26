@@ -1720,5 +1720,71 @@ def check_generation_input_failures(tmp_path, fault):
         assert source.read_bytes() == b"malformed Model\n"
 
 
+@pytest.mark.parametrize("status", ["FAIL", "NOT_RUN"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "design.collections",
+        "design.ownership",
+        "design.stacks",
+        "framework.policy-tables",
+        "design.overviews",
+        "design.links",
+        "design.artifacts",
+        "candidate",
+    ],
+)
+def check_candidate_completion_matches_executed_view_checks(tmp_path, fault, status):
+    root, stage = tmp_path / "root", tmp_path / "stage"
+    path = root / "docs/designs/dev/team/logs.md"
+    staged = stage / path.relative_to(root)
+    staged.parent.mkdir(parents=True)
+    staged.write_text("# 候補\n", encoding="utf-8")
+    scope = {("dev", "team", "logs")}
+    common, service = Findings(root), Findings(root)
+    service.candidate = common.candidate
+    common_checks = {
+        "design.collections",
+        "design.ownership",
+        "design.stacks",
+        "framework.policy-tables",
+    }
+    service_checks = {"design.overviews", "design.links", "design.artifacts"}
+    for checked, names in ((common, common_checks), (service, service_checks)):
+        for name in names:
+            checked.result(name, scope).status = status if name == fault else "PASS"
+    if fault == "candidate":
+        service.candidate = object()
+    plan = SimpleNamespace(
+        root=root,
+        stage=stage,
+        generated={path: [staged]},
+        destinations={},
+        failure_records=[],
+        failures=[],
+        markdown_paths=[path],
+        model_paths=[],
+        unavailable={},
+        validation={None: common, path: service},
+        accounts={},
+        generated_scope=scope,
+        definitions_root=root,
+        reference_warnings=[],
+        pending_artifacts={},
+        expected_outputs={},
+        snapshot=None,
+        saved_paths=[],
+    )
+    with patch.object(sync_runtime, "validate_candidates"):
+        if fault is None:
+            sync_runtime.validate_generation(plan, jobs=1)
+            assert plan.expected_outputs == {path: {path: "# 候補\n"}}
+        else:
+            with pytest.raises(ValueError, match="required candidate"):
+                sync_runtime.validate_generation(plan, jobs=1)
+    assert {key[0] for key in service.results} == service_checks
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

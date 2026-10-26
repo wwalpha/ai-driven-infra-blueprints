@@ -205,6 +205,33 @@ def model_reference_tables(path, text, values, root, *, check_document=True):
         else table
         for table in tables
     ]
+    if not check_document:
+        # A skipped document check never grants authority to mismatched table values.
+        saved = resource_blocks(
+            _dependency_security_group_tables.security_group_table_lines(
+                _dependency_design_layout.resource_heading_lines(
+                    resource_lines(text, source)
+                ),
+                root,
+            )
+        )
+        tables = [
+            table
+            for table in tables
+            if any(
+                f'<a id="{table.anchor}"></a>' in block
+                and any(
+                    tuple(block[start : start + len(table.expected)]) == table.expected
+                    and (
+                        start + len(table.expected) == len(block)
+                        or not block[start + len(table.expected)].startswith("|")
+                    )
+                    for start, line in enumerate(block)
+                    if line == HEADER
+                )
+                for block in saved
+            )
+        ]
     return tuple(tables)
 
 
