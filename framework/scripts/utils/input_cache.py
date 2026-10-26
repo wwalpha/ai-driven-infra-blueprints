@@ -26,6 +26,7 @@ def baseline_scope(*, fresh=False):
 
 
 _inputs = ContextVar("blueprint_inputs", default=None)
+_read_only = ContextVar("blueprint_read_only_inputs", default=False)
 
 
 _generation_inputs = ContextVar("generation_inputs", default=None)
@@ -109,15 +110,17 @@ def input_select(base, pattern="*", *, recursive=False, kinds=None):
 
 
 @contextmanager
-def input_context(*, fresh=False, inputs=None):
+def input_context(*, fresh=False, inputs=None, read_only=False):
     if _inputs.get() is not None and not fresh:
         yield
         return
     token = _inputs.set({} if inputs is None else inputs)
+    mode = _read_only.set(read_only)
     try:
         with baseline_scope(fresh=fresh):
             yield
     finally:
+        _read_only.reset(mode)
         _inputs.reset(token)
 
 
@@ -133,6 +136,10 @@ def input_scope(function):
 
 def memo_table():
     return _inputs.get()
+
+
+def read_only_inputs():
+    return _read_only.get()
 
 
 def _invoke_memoized(function, /, *args, **kwargs):

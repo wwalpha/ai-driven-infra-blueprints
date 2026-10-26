@@ -10,7 +10,7 @@ import re
 import tempfile
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -28,6 +28,7 @@ from utils.input_cache import (
     input_recorder,
     memo_table,
     memoized,
+    read_only_inputs,
 )
 from utils.json_format import exact as exact
 from utils.json_format import json_text, strict_json
@@ -689,9 +690,10 @@ def _model_document(scope, reads, path):
     )
     key = scope, permission_context(scope.root), path
     revision = getattr(reads, "reference_revision", None)
-    if key not in documents or documents[key][0] is not revision:
-        documents[key] = revision, parse(reads.read(path).decode("utf-8"))
-    return documents[key][1]
+    with reads.lock if isinstance(reads, FileReads) else nullcontext():
+        if key not in documents or documents[key][0] is not revision:
+            documents[key] = revision, parse(reads.read(path).decode("utf-8"))
+        return documents[key][1]
 
 
 def _model_documents(scope, reads, parts):
@@ -782,13 +784,17 @@ def _invocation_reads(root):
     if shared is not None:
         return shared
     memo = memo_table()
+    recorder = input_recorder(root)
     if memo is None:
         return FileReads()
-    read_context = _imports_model_importing_scope.read_context
-    key = FileReads, root, read_context(root)
+    # Resolving current read authority also acquires this operation's Task snapshot.
+    _imports_model_importing_scope.read_context(root)
+    if not read_only_inputs() and recorder is None:
+        return FileReads()
+    # Bytes are permission independent; Model/document keys still enforce read authority.
+    key = FileReads, root
     if key not in memo:
         reads = FileReads()
-        recorder = input_recorder(root)
         if recorder is not None:
             reads.models = _model_snapshots(recorder)
             reads.documents = memo.setdefault((parse, id(recorder)), (recorder, {}))[1]

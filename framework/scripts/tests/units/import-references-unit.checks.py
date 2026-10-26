@@ -1287,7 +1287,7 @@ def check_preserved_analysis_cache_boundary(tmp_path, permission_first):
     path = impact_fixture(tmp_path)
     producer_path = path.with_name("vpc.properties")
     with (
-        input_context(),
+        input_context(read_only=True),
         restrict(("dev", "cde", "codebuild")),
         read_consumers({("dev", "cde", "codebuild")}),
     ):

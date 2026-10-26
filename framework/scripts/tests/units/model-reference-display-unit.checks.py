@@ -255,7 +255,7 @@ def check_snapshot_candidate_and_definition_roots(pipeline):
     document = index.get(path, text=expected, values=candidate)
     candidate["desired.row.001-001.comment"] = "外部変更"
     with (
-        input_context(),
+        input_context(read_only=True),
         patch.object(sources, "_read_model", wraps=sources._read_model) as reads,
     ):
         assert "候補だけのcomment" in "\n".join(document.raw.display_lines)

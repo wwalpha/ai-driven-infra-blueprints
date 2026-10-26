@@ -4,6 +4,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from pathlib import Path
+from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -19,7 +20,8 @@ from model.format import serialize
 from model.importing import scope as permissions
 from support.model_sources import write_model
 from support.pytest_cli import run
-from utils.input_cache import input_context, memo_table
+from utils import source_reads
+from utils.input_cache import input_context, memo_table, recording_inputs
 
 from model import change_scope, dependency_index, projection, sources
 
@@ -50,11 +52,62 @@ def model_input(root):
     return path, values
 
 
+def check_update_reads_are_live_inside_input_context(tmp_path):
+    path, values = model_input(tmp_path)
+    path.unlink()
+    with input_context(fresh=True):
+        assert not sources.model_exists(path)
+        write_model(path, values)
+        assert sources.model_exists(path)
+        assert sources.model_parts(path) == [path]
+        original = sources.load_model(path)
+        assert sources.raw_model(path).authoritative == values
+        replacement = dict(values, **{"desired.row.001-001.value": "`changed`"})
+        write_model(path, replacement)
+        assert sources.raw_model(path).authoritative == replacement
+        assert sources.load_model(path).authoritative == replacement
+        assert original.authoritative == values
+        path.unlink()
+        assert not sources.model_exists(path)
+        with pytest.raises(FileNotFoundError):
+            sources.model_parts(path)
+
+
+def check_index_rebuild_is_live_inside_input_context(tmp_path):
+    path, values = model_input(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    relative = path.relative_to(tmp_path).as_posix()
+    with input_context(fresh=True):
+        original = dependency_index.load(tmp_path)
+        write_model(
+            path,
+            dict(values, **{"desired.resource.001.logicalId": "Logs_LogGroup_002"}),
+        )
+        dependency_index.rebuild(tmp_path)
+        rebuilt = dependency_index.load(tmp_path)
+        assert rebuilt["files"][relative] != original["files"][relative]
+        assert rebuilt["models"][relative]["logical"] == ["Logs_LogGroup_002"]
+        assert dependency_index.load(tmp_path, publication=True) == rebuilt
+
+
+@pytest.mark.parametrize("candidate", [False, True])
+def check_explicit_read_context_keeps_its_snapshot(tmp_path, candidate):
+    path, values = model_input(tmp_path)
+    reads = sources.FileReads()
+    if candidate:
+        reads = sources.CandidateReads(reads, {path: serialize(values)})
+    with input_context(fresh=True):
+        original = sources.raw_model(path, reads)
+        write_model(path, dict(values, **{"desired.row.001-001.value": "`changed`"}))
+        assert sources.raw_model(path, reads) is original
+        assert sources.raw_model(path).authoritative != original.authoritative
+
+
 @pytest.mark.parametrize("raw_first", [True, False])
 def check_one_parse_for_raw_checked_and_layout(tmp_path, raw_first):
     path, values = model_input(tmp_path)
     with (
-        input_context(fresh=True),
+        input_context(fresh=True, read_only=True),
         patch.object(sources, "parse", wraps=sources.parse) as parse,
     ):
         readers = [sources.raw_model, sources.load_model]
@@ -84,7 +137,7 @@ def check_reader_candidate_root_and_next_execution(tmp_path):
     second, _ = model_input(other)
     replacement = dict(values, **{"desired.row.001-001.value": "`changed`"})
     with (
-        input_context(fresh=True),
+        input_context(fresh=True, read_only=True),
         patch.object(sources, "parse", wraps=sources.parse) as parse,
     ):
         original = sources.raw_model(first)
@@ -99,13 +152,16 @@ def check_reader_candidate_root_and_next_execution(tmp_path):
         write_model(first, replacement)
         assert sources.raw_model(first) is original
         assert parse.call_count == 4
-    with input_context(fresh=True):
+    with input_context(fresh=True, read_only=True):
         assert sources.raw_model(first).authoritative == replacement
 
 
 def check_permission_checked_before_cached_source(tmp_path):
     path, _ = model_input(tmp_path)
-    with input_context(fresh=True), permissions.restrict(("dev", "team", "logs")):
+    with (
+        input_context(fresh=True, read_only=True),
+        permissions.restrict(("dev", "team", "logs")),
+    ):
         original = sources.raw_model(path)
         with permissions.read_consumers({("dev", "team", "other")}):
             with pytest.raises(ValueError, match="outside selected"):
@@ -119,25 +175,161 @@ def check_permission_checked_before_cached_source(tmp_path):
 
 def check_index_checked_once_per_root_permission_and_execution(tmp_path):
     path, _ = model_input(tmp_path)
-    with patch.object(dependency_index, "_load", return_value={}) as load:
-        with input_context(fresh=True):
+    other = tmp_path / "other"
+    other.mkdir()
+    model_input(other)
+    for root in (tmp_path, other):
+        dependency_index.rebuild(root)
+    with patch.object(dependency_index, "_load", wraps=dependency_index._load) as load:
+        with input_context(fresh=True, read_only=True):
             assert dependency_index.load(tmp_path) is dependency_index.load(tmp_path)
             assert load.call_count == 1
+            dependency_index.load(tmp_path, publication=True)
+            assert load.call_count == 2
             with (
                 permissions.restrict(("dev", "team", "logs")),
                 permissions.reference_reader(path),
             ):
                 dependency_index.load(tmp_path)
             dependency_index.load(tmp_path / "other")
-            assert load.call_count == 3
-        with input_context(fresh=True):
+            assert load.call_count == 4
+        with input_context(fresh=True, read_only=True):
             dependency_index.load(tmp_path)
-        assert load.call_count == 4
+        assert load.call_count == 5
+
+
+class ColdWorker:
+    def __init__(self, inputs, path, *, inventory=False):
+        self.inputs, self.path = inputs, path
+        self.barrier = Barrier(4)
+        self.inventory, self.diagnostics = inventory, []
+
+    def __call__(self, number):
+        with input_context(
+            fresh=True, read_only=True, inputs=sources.fork_model_inputs(self.inputs)
+        ):
+            self.barrier.wait(timeout=10)
+            reads = sources._invocation_reads(self.path.parents[3])
+            if self.inventory:
+                metadata = {}
+                with change_scope.change_reads(metadata=metadata):
+                    index = dependency_index.check_change_inventory(
+                        self.path.parents[3], set()
+                    )
+                self.diagnostics.append(metadata)
+            else:
+                index = dependency_index.load(self.path.parents[3])
+            snapshot = sources.raw_model(self.path)
+            reads.models[number] = None
+            return snapshot, reads, index
+
+
+@pytest.mark.parametrize("recorded", [False, True])
+def check_cold_workers_share_one_read_parse_and_index(tmp_path, recorded):
+    path, values = model_input(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    with ExitStack() as lifetime:
+        lifetime.enter_context(input_context(fresh=True, read_only=True))
+        if recorded:
+            recorder = GenerationInputs(tmp_path, read_only=True)
+            lifetime.callback(recorder.close)
+            lifetime.enter_context(recording_inputs(recorder))
+        reads = sources._invocation_reads(tmp_path)
+        assert path not in reads.contents and not reads.documents
+        inputs = dict(memo_table())
+        worker = ColdWorker(inputs, path)
+        with (
+            patch.object(sources, "parse", wraps=sources.parse) as parse,
+            patch.object(
+                source_reads, "input_bytes", wraps=source_reads.input_bytes
+            ) as read,
+            patch.object(
+                dependency_index, "_load", wraps=dependency_index._load
+            ) as index,
+            ThreadPoolExecutor(max_workers=4) as executor,
+        ):
+            first = list(executor.map(worker, range(4)))
+            assert parse.call_count == 1
+            write_model(
+                path, dict(values, **{"desired.row.001-001.value": "`changed`"})
+            )
+            second = list(executor.map(worker, range(4)))
+        assert parse.call_count == 1
+        assert sum(call.args == (path,) for call in read.call_args_list) == 1
+        assert index.call_count == 1
+        assert all(
+            snapshot.authoritative == values for snapshot, _, _ in first + second
+        )
+        assert all(
+            snapshot.documents[path] is first[0][0].documents[path]
+            for snapshot, _, _ in first + second
+        )
+        assert len({id(fork.models) for _, fork, _ in first}) == 4
+        assert not any(number in reads.models for number in range(4))
+        assert all(loaded is first[0][2] for _, _, loaded in first + second)
+    with input_context(fresh=True, read_only=True):
+        assert sources.raw_model(path).authoritative != values
+
+
+def check_workers_share_inventory_and_retain_diagnostics(tmp_path):
+    path, values = model_input(tmp_path)
+    values.update(
+        {
+            "desired.row.001-002.property": "Logs.LogGroup.KmsKeyId",
+            "desired.row.001-002.value": '`{"$modelRef":{"attribute":"Arn"}}`',
+        }
+    )
+    write_model(path, values)
+    with input_context(fresh=True, read_only=True):
+        sources._invocation_reads(tmp_path)
+        worker = ColdWorker(dict(memo_table()), path, inventory=True)
+        with (
+            patch.object(
+                dependency_index, "inventory", wraps=dependency_index.inventory
+            ) as inventory,
+            patch.object(sources, "parse", wraps=sources.parse) as parse,
+            ThreadPoolExecutor(max_workers=4) as executor,
+        ):
+            results = list(executor.map(worker, range(4)))
+        assert inventory.call_count == parse.call_count == 1
+        assert all(index is results[0][2] for _, _, index in results)
+        assert len({id(metadata) for metadata in worker.diagnostics}) == 4
+        assert all(
+            metadata["reference_errors"][path] for metadata in worker.diagnostics
+        )
+
+
+def check_inventory_distinguishes_changed_sets_and_candidates(tmp_path):
+    path, values = model_input(tmp_path)
+    metadata = {}
+    changed = {("dev", "team", "logs")}
+    candidate = sources.CandidateReads(
+        sources.FileReads(),
+        {
+            path: serialize(
+                dict(values, **{"desired.resource.001.logicalId": "Logs_LogGroup_002"})
+            ),
+        },
+    )
+    with (
+        input_context(fresh=True, read_only=True),
+        change_scope.change_reads(metadata=metadata),
+    ):
+        original = dependency_index.check_change_inventory(tmp_path, set())
+        forced = dependency_index.check_change_inventory(tmp_path, changed)
+        replacement = dependency_index.check_change_inventory(
+            tmp_path, changed, reads=candidate
+        )
+        assert forced == original and forced is not original
+        assert replacement["models"][path.relative_to(tmp_path).as_posix()][
+            "logical"
+        ] == ["Logs_LogGroup_002"]
+        assert dependency_index.check_change_inventory(tmp_path, set()) is original
 
 
 def check_worker_forks_share_snapshots_and_keep_private_tables(tmp_path):
     path, _ = model_input(tmp_path)
-    with input_context(fresh=True):
+    with input_context(fresh=True, read_only=True):
         model = sources.load_model(path)
         inputs = dict(memo_table())
         with patch.object(
@@ -153,7 +345,9 @@ def check_worker_forks_share_snapshots_and_keep_private_tables(tmp_path):
 
 def worker_read(arguments):
     inputs, path = arguments
-    with input_context(fresh=True, inputs=sources.fork_model_inputs(inputs)):
+    with input_context(
+        fresh=True, read_only=True, inputs=sources.fork_model_inputs(inputs)
+    ):
         reads = sources._invocation_reads(path.parents[3])
         value = sources.load_model(path)
         reads.models["private"] = None
@@ -168,7 +362,7 @@ def check_stage_and_original_snapshots_remain_separate(tmp_path):
     changed = dict(values, **{"desired.row.001-001.value": "`stage`"})
     write_model(staged, changed)
     with (
-        input_context(fresh=True),
+        input_context(fresh=True, read_only=True),
         change_scope.change_reads(),
         change_scope.index_stage(tmp_path, stage),
     ):
@@ -286,7 +480,7 @@ def check_candidate_restore_replaces_only_view_cache(tmp_path, jobs):
     generated, failures = {first: [], peer: []}, []
     probe = CandidateProbe(stage, stage / peer.relative_to(tmp_path))
     with (
-        input_context(fresh=True),
+        input_context(fresh=True, read_only=True),
         patch.object(sync_runtime.sync_views, "validate_views", probe),
     ):
         sync_runtime.validate_candidates(
@@ -314,7 +508,10 @@ class ComparisonProbe:
 @pytest.mark.parametrize("interrupt", [False, True])
 def check_independent_comparison_scope_cleanup(tmp_path, interrupt):
     probe = ComparisonProbe(interrupt)
-    with input_context(fresh=True), patch.object(sync_runtime, "_comparison", probe):
+    with (
+        input_context(fresh=True, read_only=True),
+        patch.object(sync_runtime, "_comparison", probe),
+    ):
         outer = memo_table()
         outer["outer"] = True
         for _ in range(2):

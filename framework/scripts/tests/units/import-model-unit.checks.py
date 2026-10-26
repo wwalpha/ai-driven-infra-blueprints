@@ -2348,7 +2348,7 @@ def check_effective_reference_identity(tmp_path, selection, monkeypatch):
     before = {p: p.read_bytes() for p in (tmp_path / "model").rglob("*") if p.is_file()}
     # Legacy instance selection is converted to an explicit fixed producer identity.
     with (
-        input_context(),
+        input_context(read_only=True),
         patch.object(sources, "_read_model", wraps=sources._read_model) as body,
     ):
         producer = load_model(tmp_path / "model/stg/cde/service-a.properties")

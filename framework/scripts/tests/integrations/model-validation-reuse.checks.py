@@ -399,7 +399,8 @@ def _callback_check_authorization_before_memo_and_publication_publish(model, roo
     assert input_cache.memo_table()
     original = model.read_bytes()
     assert MODULE.sync(root, True, *ENTRY[:2], ["iam"]) == 0
-    assert load_model(model) is loaded
+    refreshed = load_model(model)
+    assert refreshed is not loaded and refreshed.authoritative == loaded.authoritative
     assert model.read_bytes() == original
 
 

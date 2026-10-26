@@ -2,7 +2,7 @@
 
 from contextlib import nullcontext
 
-from utils.input_cache import memoized
+from utils.input_cache import read_only_inputs
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.change_scope as change_scope
@@ -116,9 +116,14 @@ def load(root, *, publication=False):
         return index
 
 
-@memoized
 def _checked_index(root, publication, reads, permission):
-    return _load(root, publication=publication)
+    if not read_only_inputs() or not isinstance(reads, sources.FileReads):
+        return _load(root, publication=publication)
+    key = root, publication, permission
+    with reads.lock:
+        if key not in reads.indexes:
+            reads.indexes[key] = _load(root, publication=publication)
+        return reads.indexes[key]
 
 
 def _load(root, *, publication=False):
@@ -361,45 +366,66 @@ def check_change_inventory(root, changed, *, reads=None):
         root,
         getattr(reads, "cache_identity", reads),
         import_scope.read_context(root),
+        frozenset(changed),
     )
-    if metadata is not None and key in metadata.get("indexes", {}):
-        return metadata["indexes"][key]
-    primary = change_scope.index_root(root)
-    previous = (
-        read_sealed(primary, location(primary))
-        if location(primary).is_file()
-        else {"version": 3, "files": {}, "models": {}}
+    shared = read_only_inputs() and isinstance(reads, sources.FileReads)
+    indexes = (
+        reads.indexes
+        if shared
+        else metadata.setdefault("indexes", {})
+        if metadata is not None
+        else {}
     )
-    if isinstance(previous, dict) and previous.get("version") in {1, 2}:
-        previous = {"version": 3, "files": {}, "models": {}}
-    validate(primary, previous)
-    current = inventory(root)
-    # Register membership with the same input recorder used by publication.
-    paths = sources.model_paths(root, read_context=reads)
-    index = {"version": 3, "files": current, "models": {}}
-    for path in paths:
-        relative = path.relative_to(root).as_posix()
-        scope = sources.scope_for(path)
-        entry = previous["models"].get(relative)
-        files = {
-            p
-            for p in current
-            if p == relative or p.startswith(relative.removesuffix(".properties") + "/")
-        }
-        if (
-            entry is None
-            or (scope.environment, scope.target, scope.service) in changed
-            or files != set(entry["files"])
-            or any(current[p] != previous["files"].get(p) for p in files)
-        ):
-            snapshot = change_snapshot(path, reads, metadata)
-            entry = snapshot_record(snapshot, quality=False)
-        if metadata is not None:
-            metadata.setdefault("reference_errors", {})[path] = entry["errors"]
-        index["models"][relative] = entry
-    if metadata is not None:
-        metadata.setdefault("indexes", {})[key] = index
-    return index
+    with reads.lock if shared else nullcontext():
+        if key in indexes:
+            index = indexes[key]
+            if metadata is not None:
+                metadata.setdefault("reference_errors", {}).update(
+                    {
+                        root / path: entry["errors"]
+                        for path, entry in index["models"].items()
+                    }
+                )
+            return index
+        primary = change_scope.index_root(root)
+        previous = (
+            read_sealed(primary, location(primary))
+            if location(primary).is_file()
+            else {"version": 3, "files": {}, "models": {}}
+        )
+        if isinstance(previous, dict) and previous.get("version") in {1, 2}:
+            previous = {"version": 3, "files": {}, "models": {}}
+        validate(primary, previous)
+        inventory_key = "files", *key[:3]
+        if inventory_key not in indexes:
+            indexes[inventory_key] = inventory(root)
+        current = indexes[inventory_key]
+        # Register membership with the same input recorder used by publication.
+        paths = sources.model_paths(root, read_context=reads)
+        index = {"version": 3, "files": current, "models": {}}
+        for path in paths:
+            relative = path.relative_to(root).as_posix()
+            scope = sources.scope_for(path)
+            entry = previous["models"].get(relative)
+            files = {
+                p
+                for p in current
+                if p == relative
+                or p.startswith(relative.removesuffix(".properties") + "/")
+            }
+            if (
+                entry is None
+                or (scope.environment, scope.target, scope.service) in changed
+                or files != set(entry["files"])
+                or any(current[p] != previous["files"].get(p) for p in files)
+            ):
+                snapshot = change_snapshot(path, reads, metadata)
+                entry = snapshot_record(snapshot, quality=False)
+            if metadata is not None:
+                metadata.setdefault("reference_errors", {})[path] = entry["errors"]
+            index["models"][relative] = entry
+        indexes[key] = index
+        return index
 
 
 def change_consumers(root, scopes, identifiers, changed, *, reads=None):

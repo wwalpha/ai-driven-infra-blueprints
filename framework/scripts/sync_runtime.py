@@ -529,6 +529,7 @@ def _callback_validate_candidates_validate(
     with (
         input_context(
             fresh=True,
+            read_only=True,
             inputs=_imports_model_sources.fork_model_inputs(
                 _state_validate_candidates_260.model_inputs
             ),
@@ -654,7 +655,12 @@ def validate_candidates(
             _state_validate_candidates_260.recorder = (
                 input_recorder(root) if write else None
             )
-            _state_validate_candidates_260.model_inputs = dict(memo_table() or {})
+            with input_context(
+                fresh=True, read_only=True, inputs=dict(memo_table() or {})
+            ):
+                for source_root in (root, stage):
+                    _imports_model_sources._invocation_reads(source_root)
+                _state_validate_candidates_260.model_inputs = dict(memo_table())
             _state_validate_candidates_260.metadata = {
                 key: dict(value)
                 for key, value in (_change_scope.metadata() or {}).items()
@@ -1451,7 +1457,10 @@ def compare_generation(
     root: Path, scope, *, jobs=4, definitions_root=None, findings=None
 ) -> tuple[str, ...]:
     """Own fresh caches for one independent read-only comparison."""
-    with input_context(fresh=True), generation_context(root, False, definitions_root):
+    with (
+        input_context(fresh=True, read_only=True),
+        generation_context(root, False, definitions_root),
+    ):
         return _comparison(
             root, scope, jobs=jobs, definitions_root=definitions_root, findings=findings
         )

@@ -1,6 +1,7 @@
 """Recorded source reads and candidate overlays, independent of Model operations."""
 
 from pathlib import Path
+from threading import RLock
 
 import generation_inputs as _imports_generation_inputs
 
@@ -73,6 +74,7 @@ class FileReads:
     """Use the existing invocation recorder/cache for file and discovery dependencies."""
 
     def __init__(self):
+        self.lock = RLock()
         self.cache_identity = object()
         self.contents = {}
         self.models = {}
@@ -80,51 +82,59 @@ class FileReads:
         self.selections = {}
         self.kinds = {}
         self.read_failures = {}
+        self.indexes = {}
 
     def fork(self):
-        """Private worker tables over the same fixed bytes and immutable Models."""
+        """Private Model tables over shared lazy bytes, documents and index reads."""
         reads = FileReads()
         reads.cache_identity = self.cache_identity
+        reads.lock = self.lock
+        reads.models = dict(self.models)
         for name in (
             "contents",
-            "models",
             "documents",
             "selections",
             "kinds",
             "read_failures",
+            "indexes",
         ):
-            setattr(reads, name, dict(getattr(self, name)))
+            setattr(reads, name, getattr(self, name))
         return reads
 
     def read(self, path):
-        if path not in self.contents:
-            try:
-                self.contents[path] = input_bytes(path) if input_exists(path) else None
-            except OSError as error:
-                self.read_failures.setdefault(path, type(error).__name__)
-                raise
-        return self.contents[path]
+        with self.lock:
+            if path not in self.contents:
+                try:
+                    self.contents[path] = (
+                        input_bytes(path) if input_exists(path) else None
+                    )
+                except OSError as error:
+                    self.read_failures.setdefault(path, type(error).__name__)
+                    raise
+            return self.contents[path]
 
     def kind(self, path):
-        if path not in self.kinds:
-            self.kinds[path] = (
-                "symlink"
-                if input_is_symlink(path)
-                else "file"
-                if input_is_file(path)
-                else "dir"
-                if input_is_dir(path)
-                else "missing"
-            )
-        return self.kinds[path]
+        with self.lock:
+            if path not in self.kinds:
+                self.kinds[path] = (
+                    "symlink"
+                    if input_is_symlink(path)
+                    else "file"
+                    if input_is_file(path)
+                    else "dir"
+                    if input_is_dir(path)
+                    else "missing"
+                )
+            return self.kinds[path]
 
     def select(self, base, pattern="*", recursive=False, kinds=None):
         key = base, pattern, recursive, None if kinds is None else tuple(kinds)
-        if key not in self.selections:
-            self.selections[key] = tuple(
-                input_select(base, pattern, recursive=recursive, kinds=kinds)
-            )
-        return self.selections[key]
+        with self.lock:
+            if key not in self.selections:
+                self.selections[key] = tuple(
+                    input_select(base, pattern, recursive=recursive, kinds=kinds)
+                )
+            return self.selections[key]
 
     def verify(self):
         """Fresh raw bytes, absence, file kind and discovery sets; bypass invocation caches."""

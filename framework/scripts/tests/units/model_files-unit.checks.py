@@ -356,7 +356,7 @@ def check_resource_reading_inputs(tmp_path):
             "desired.row.001-001.comment": "Role name",
         },
     )
-    with input_context():
+    with input_context(read_only=True):
         memo = memo_table()
         with patch.object(sources, "_read_model", wraps=sources._read_model) as body:
             original = load_model(source)
