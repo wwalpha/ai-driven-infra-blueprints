@@ -2605,6 +2605,26 @@ import-model/import-cli/Worktree/Full IT、cProfile、性能用追加実行は�
 | `sealed-evidence::ownership` | `check_ownership` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py#L28) | pytest / 5 | Worktree正本とTask所有確認 | evidence |
 | `sealed-evidence::dependency_boundaries` | `check_dependency_boundaries` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py#L142) | pytest / 1 | 共通証拠とWorktreeの依存分離 | evidence |
 
+## Shared Python requirements synchronization
+
+既存worktree Python UTを拡張する。既存の初期構築・symlink・失敗復旧・実venv/並列Create ITは維持する。細かい同期分岐は合成共有ディレクトリとmock metadata/pipで検証し、実ネットワークやAWSは使用しない。
+
+| Case | Class | Location | Conditions | Responsibility |
+|---|---|---|---|---|
+| `check_dependency_sync` | UT | [worktree Python](units/worktree_python-unit.checks.py) | 6 | 同一hashは子process/pipなし、追加/不一致のみinstall、旧hashなし/既存一致はhashのみ |
+| `check_added_dependency` | UT | [worktree Python](units/worktree_python-unit.checks.py) | 1 | primaryへの追加を検出、旧Worktreeの同一pin subsetを許可、巻き戻しなし |
+| `check_worktree_requirement_conflict` | UT | [worktree Python](units/worktree_python-unit.checks.py) | 2 | 旧pin/Worktree独自依存はpip前に明示拒否 |
+| `check_sync_failure_retry` | UT | [worktree Python](units/worktree_python-unit.checks.py) | 2 | install/verify失敗でhash無効、詳細診断、環境保持と再検証 |
+| `check_parallel_dependency_sync` | UT | [worktree Python](units/worktree_python-unit.checks.py) | 1 | 共有lockで待機し取得後再確認、同期installは1回 |
+| `check_requirement_metadata_probe` | UT | [worktree Python](units/worktree_python-unit.checks.py) | 1 | metadata queryの実コード、不足/不一致の名前・要求/実version |
+| `check_runtime_dependency_sync` | UT | [worktree Python](units/worktree_python-unit.checks.py) | 1 | runtimeから同期、通常経路は子processなし、管理外は同期なし |
+| `check_changed_requirements_during_sync` | UT | [worktree Python](units/worktree_python-unit.checks.py) | 1 | 同期中のrequirements変更ではhash公開しない |
+| `check_requirement_pins_reject_unsupported` | UT | [worktree Python](units/worktree_python-unit.checks.py) | 3 | 非exact pin/重複/間接requirementsを拒否 |
+
+`check_shared_symlinks` は適用hashとatomic temporary markerのsymlink拒否も検証する（計7条件）。`support/worktree_test_policy.py` の専用Worktreeケース登録を同時更新する。
+
+共有requirementsを置く2つの手動構築IT fixtureはFramework定義一式も初期配置する。部分的なframework/scriptsだけで定義rootを誤選択し、owners.jsonが欠落する状態を作らない。
+
 ## Worktree dependency separation (master 1024v2)
 
 | 分類 | 旧依存 / 対象 | 現在の検証責務 |

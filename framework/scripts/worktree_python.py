@@ -1,7 +1,9 @@
 """One primary-owned Python environment for every managed worktree."""
 
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -10,6 +12,8 @@ from pathlib import Path
 import worktree_state as wt
 
 REQUIREMENTS = "framework/scripts/requirements.txt"
+APPLIED = ".blueprint-requirements-sha256"
+UNVERIFIED = "pending verification"
 # WeasyPrint loads native PDF libraries; check them only during PDF export.
 IMPORTS = "yaml boto3 botocore pytest pypdf".split()
 
@@ -68,7 +72,7 @@ def probe(root, directory):
 def verify(root, directory):
     env = environment(directory)
     run([python_path(directory), "-I", "-m", "pip", "check"], root, env)
-    # Initial completion requires working imports and requested versions.
+    # Installation requires working imports and requested versions.
     code = (
         "import importlib,importlib.metadata as m; from pathlib import Path; "
         f"[importlib.import_module(n) for n in {IMPORTS!r}]; "
@@ -93,6 +97,8 @@ def shared_ready(directory):
         directory,
         owner,
         complete,
+        directory / APPLIED,
+        directory / (APPLIED + ".tmp"),
         directory / "pyvenv.cfg",
         python_path(directory).parent,
     ):
@@ -137,13 +143,78 @@ def setup_result(directory, installed):
     }
 
 
+def requirement_pins(content):
+    pins = {}
+    for line in content.decode("utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;#]+)", line)
+        if not match:
+            raise ValueError(f"shared Python requires exact name==version pins: {line}")
+        name, version = match.groups()
+        name = re.sub(r"[-_.]+", "-", name).lower()
+        if name in pins:
+            raise ValueError(f"duplicate shared Python requirement: {name}")
+        pins[name] = version
+    return pins
+
+
+def requirements_snapshot(root, primary):
+    canonical = (primary / REQUIREMENTS).read_bytes()
+    local = (root / REQUIREMENTS).read_bytes()
+    if local != canonical:
+        pins = requirement_pins(canonical)
+        conflicts = [
+            f"{name}: worktree requires {version}, primary requires {pins.get(name, 'absent')}"
+            for name, version in requirement_pins(local).items()
+            if pins.get(name) != version
+        ]
+        if conflicts:
+            raise ValueError(
+                f"shared Python requirements conflict with {primary / REQUIREMENTS}; "
+                "update/reconcile this worktree before execution: "
+                + "; ".join(conflicts)
+            )
+    return primary, canonical, local
+
+
+def applied(directory, content):
+    marker = directory / APPLIED
+    return (
+        marker.is_file()
+        and marker.read_text(encoding="utf-8") == hashlib.sha256(content).hexdigest()
+    )
+
+
+def requirement_differences(root, directory, content):
+    code = (
+        "import importlib.metadata as m,json\n"
+        "versions={}\n"
+        f"for name in {list(requirement_pins(content))!r}:\n"
+        " try: versions[name]=m.version(name)\n"
+        " except m.PackageNotFoundError: versions[name]=None\n"
+        "print(json.dumps(versions))"
+    )
+    versions = json.loads(
+        run([python_path(directory), "-I", "-c", code], root, environment(directory))
+    )
+    return [
+        f"{name}: required {version}, installed {versions.get(name) or 'missing'}"
+        for name, version in requirement_pins(content).items()
+        if versions.get(name) != version
+    ]
+
+
 def setup(root, previous):
     directory = shared_directory(root)
+    primary = directory.parents[2]
     lock = directory.with_name("python-env.setup-lock")
     # A competing builder may be between mkdir and its ownership record.
-    if (directory / ".blueprint-ready").exists() or not lock.exists():
+    if not lock.exists() and not lock.is_symlink():
         if shared_ready(directory):
-            return setup_result(directory, False)
+            if applied(directory, requirements_snapshot(root, primary)[1]):
+                return setup_result(directory, False)
     deadline = time.monotonic() + 300
     while True:
         if lock.is_symlink():
@@ -164,7 +235,10 @@ def setup(root, previous):
                 f"shared Python directory write denied: {lock}: {error}"
             ) from error
     try:
-        if shared_ready(directory):
+        ready = shared_ready(directory)
+        snapshot = requirements_snapshot(root, primary)
+        primary, content, _ = snapshot
+        if ready and applied(directory, content):
             return setup_result(directory, False)
         if not directory.exists():
             try:
@@ -191,29 +265,53 @@ def setup(root, previous):
                 raise ValueError(
                     f"shared Python environment creation failed; partial environment retained; rerun setup: {error}"
                 ) from error
-        try:
-            run(
-                [
-                    python_path(directory),
-                    "-I",
-                    "-m",
-                    "pip",
-                    "install",
-                    "--disable-pip-version-check",
-                    "-r",
-                    str(root / REQUIREMENTS),
-                ],
-                root,
-                environment(directory),
-            )
-        except (OSError, ValueError) as error:
+        differences = (
+            requirement_differences(primary, directory, content) if ready else []
+        )
+        installed = not ready or bool(differences)
+        marker = directory / APPLIED
+        unverified = (
+            marker.is_file() and marker.read_text(encoding="utf-8") == UNVERIFIED
+        )
+        if installed:
+            # A partial pip update invalidates even the previously applied hash.
+            marker.write_text(UNVERIFIED, encoding="utf-8")
+            try:
+                run(
+                    [
+                        python_path(directory),
+                        "-I",
+                        "-m",
+                        "pip",
+                        "install",
+                        "--disable-pip-version-check",
+                        "-r",
+                        str(primary / REQUIREMENTS),
+                    ],
+                    primary,
+                    environment(directory),
+                )
+                if not ready:
+                    probe(primary, directory)
+                verify(primary, directory)
+            except (OSError, ValueError) as error:
+                raise ValueError(
+                    "shared Python dependency synchronization failed; environment retained; "
+                    f"retry execution/setup; {'; '.join(differences)}: {error}"
+                ) from error
+        elif unverified:
+            verify(primary, directory)
+        if (primary / REQUIREMENTS).read_bytes() != content or (
+            root / REQUIREMENTS
+        ).read_bytes() != snapshot[2]:
             raise ValueError(
-                f"shared Python pip install failed; incomplete environment retained; rerun setup: {error}"
-            ) from error
-        probe(root, directory)
-        verify(root, directory)
+                "shared Python requirements changed during synchronization; retry"
+            )
+        temporary = directory / (APPLIED + ".tmp")
+        temporary.write_text(hashlib.sha256(content).hexdigest(), encoding="utf-8")
+        temporary.replace(directory / APPLIED)
         (directory / ".blueprint-ready").write_text(str(directory), encoding="utf-8")
-        return setup_result(directory, True)
+        return setup_result(directory, installed)
     finally:
         lock.rmdir()
 
@@ -253,4 +351,11 @@ def runtime(root):
         raise ValueError(
             "shared Python partially built or missing completion marker; rerun worktree setup"
         )
+    lock = directory.with_name("python-env.setup-lock")
+    if (
+        lock.exists()
+        or lock.is_symlink()
+        or not applied(directory, requirements_snapshot(root, primary)[1])
+    ):
+        setup(root, setup_state)
     return interpreter, environment(directory)

@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
+import io
 import sys
-from contextlib import nullcontext
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext, redirect_stdout
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -226,6 +230,10 @@ def check_setup_failure_recovery(tmp_path, stage):
     shared = tmp_path / ".worktrees/.blueprint/python-env"
     path = shared.parent / "tasks/example.json"
     path.parent.mkdir(parents=True)
+    for root in (tmp_path, target):
+        requirements = root / py.REQUIREMENTS
+        requirements.parent.mkdir(parents=True, exist_ok=True)
+        requirements.write_text("", encoding="utf-8")
     state = dict(task_id="example", worktree=str(target), merged=None)
     failure = (
         AttributeError("unexpected setup error")
@@ -293,7 +301,16 @@ def check_setup_lock_timeout(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "name", ["directory", ".blueprint-owner", ".blueprint-ready", "pyvenv.cfg", "bin"]
+    "name",
+    [
+        "directory",
+        ".blueprint-owner",
+        ".blueprint-ready",
+        py.APPLIED,
+        py.APPLIED + ".tmp",
+        "pyvenv.cfg",
+        "bin",
+    ],
 )
 def check_shared_symlinks(tmp_path, name):
     shared, external = tmp_path / "python-env", tmp_path / "external"
@@ -339,6 +356,251 @@ def check_shared_completion(tmp_path, problem):
     }
     blocked(lambda: py.shared_ready(shared), expected[problem])
     assert shared.is_dir()
+
+
+@pytest.fixture
+def shared_environment(tmp_path):
+    target = tmp_path / ".worktrees/example"
+    directory = tmp_path / ".worktrees/.blueprint/python-env"
+    directory.mkdir(parents=True)
+    for name in (".blueprint-owner", ".blueprint-ready"):
+        (directory / name).write_text(str(directory), encoding="utf-8")
+    fake_run(["venv", str(directory)], tmp_path)
+    for root in (tmp_path, target):
+        requirements = root / py.REQUIREMENTS
+        requirements.parent.mkdir(parents=True, exist_ok=True)
+        requirements.write_text("example==2\n", encoding="utf-8")
+    with patch.object(py, "shared_directory", return_value=directory):
+        yield tmp_path, target, directory
+
+
+@pytest.mark.parametrize(
+    "hash_state,versions,install",
+    [
+        ("same", {}, False),
+        ("old", {"example": None}, True),
+        ("old", {"example": "1"}, True),
+        ("old", {"example": "2"}, False),
+        ("missing", {"example": "2"}, False),
+        ("missing", {"example": None}, True),
+    ],
+)
+def check_dependency_sync(shared_environment, hash_state, versions, install):
+    primary, target, directory = shared_environment
+    marker = directory / py.APPLIED
+    content = (primary / py.REQUIREMENTS).read_bytes()
+    if hash_state != "missing":
+        marker.write_text(
+            py.hashlib.sha256(content).hexdigest() if hash_state == "same" else "old"
+        )
+    with (
+        patch.object(py, "run", return_value=json.dumps(versions)) as commands,
+        patch.object(py, "verify") as verify,
+        patch.object(py, "probe", side_effect=AssertionError("no rebuild")),
+    ):
+        assert py.setup(target, {})["installed"] == install
+        assert sum("install" in c.args[0] for c in commands.call_args_list) == int(
+            install
+        )
+        assert commands.call_count == (0 if hash_state == "same" else 1 + int(install))
+        assert verify.call_count == int(install)
+        if install:
+            command, where, _ = commands.call_args_list[-1].args
+            assert command[-1] == str(primary / py.REQUIREMENTS) and where == primary
+        assert py.applied(directory, content)
+        commands.reset_mock()
+        py.setup(target, {})
+        commands.assert_not_called()
+
+
+def check_added_dependency(shared_environment):
+    primary, target, directory = shared_environment
+    content = (primary / py.REQUIREMENTS).read_bytes()
+    (directory / py.APPLIED).write_text(py.hashlib.sha256(content).hexdigest())
+    (primary / py.REQUIREMENTS).write_bytes(content + b"new-package==3\n")
+    # An older worktree may omit a newly added primary requirement.
+    with (
+        patch.object(
+            py, "run", return_value='{"example":"2","new-package":null}'
+        ) as commands,
+        patch.object(py, "verify"),
+    ):
+        assert py.setup(target, {})["installed"]
+        assert sum("install" in c.args[0] for c in commands.call_args_list) == 1
+        assert py.applied(directory, (primary / py.REQUIREMENTS).read_bytes())
+        commands.reset_mock()
+        py.setup(target, {})
+        commands.assert_not_called()
+
+
+@pytest.mark.parametrize("local", ["example==1\n", "new-package==3\n"])
+def check_worktree_requirement_conflict(shared_environment, local):
+    primary, target, directory = shared_environment
+    (target / py.REQUIREMENTS).write_text(local, encoding="utf-8")
+    (directory / py.APPLIED).write_text(
+        py.hashlib.sha256((primary / py.REQUIREMENTS).read_bytes()).hexdigest()
+    )
+    with patch.object(py, "run") as commands:
+        blocked(lambda: py.setup(target, {}), "requirements conflict")
+        commands.assert_not_called()
+
+
+@pytest.mark.parametrize("stage", ["install", "verify"])
+def check_sync_failure_retry(shared_environment, stage):
+    primary, target, directory = shared_environment
+    marker = directory / py.APPLIED
+    marker.write_text("previous")
+    installed = False
+
+    def run(command, root, env):
+        nonlocal installed
+        if "install" in command:
+            installed = True
+            if stage == "install":
+                raise ValueError("pip fixture unavailable")
+            return ""
+        return json.dumps({"example": "2" if installed else "1"})
+
+    with (
+        patch.object(py, "run", side_effect=run) as commands,
+        patch.object(
+            py, "verify", side_effect=ValueError("verification failed")
+        ) as verify,
+    ):
+        with pytest.raises(ValueError) as caught:
+            py.setup(target, {})
+        assert "example: required 2, installed 1" in str(caught.value)
+        assert (
+            "pip fixture unavailable" if stage == "install" else "verification failed"
+        ) in str(caught.value)
+        assert not py.applied(directory, (primary / py.REQUIREMENTS).read_bytes())
+        assert marker.read_text() == py.UNVERIFIED
+        assert py.shared_ready(directory)
+        assert not directory.with_name("python-env.setup-lock").exists()
+        verify.side_effect = None
+        # Even a failed pip can leave all versions correct; verification is still required.
+        assert not py.setup(target, {})["installed"]
+        assert verify.call_count == (1 if stage == "install" else 2)
+        assert sum("install" in c.args[0] for c in commands.call_args_list) == 1
+        assert py.applied(directory, (primary / py.REQUIREMENTS).read_bytes())
+
+
+def check_parallel_dependency_sync(shared_environment):
+    primary, target, directory = shared_environment
+    other = primary / ".worktrees/other"
+    requirements = other / py.REQUIREMENTS
+    requirements.parent.mkdir(parents=True)
+    requirements.write_bytes((target / py.REQUIREMENTS).read_bytes())
+    entered, contending = threading.Event(), threading.Event()
+    installed = False
+    original_sleep = time.sleep
+
+    def run(command, root, env):
+        nonlocal installed
+        if "install" in command:
+            entered.set()
+            assert contending.wait(5)
+            installed = True
+            return ""
+        return json.dumps({"example": "2" if installed else None})
+
+    def sleep(seconds):
+        contending.set()
+        original_sleep(0.001)
+
+    with (
+        patch.object(py, "run", side_effect=run) as commands,
+        patch.object(py, "verify") as verify,
+        patch.object(py.time, "sleep", side_effect=sleep),
+        ThreadPoolExecutor(max_workers=2) as workers,
+    ):
+        first = workers.submit(py.setup, target, {})
+        assert entered.wait(5)
+        second = workers.submit(py.setup, other, {})
+        assert first.result(timeout=10)["installed"]
+        assert not second.result(timeout=10)["installed"]
+        assert sum("install" in c.args[0] for c in commands.call_args_list) == 1
+        assert verify.call_count == 1
+    assert not directory.with_name("python-env.setup-lock").exists()
+
+
+def check_requirement_metadata_probe(shared_environment):
+    primary, _, directory = shared_environment
+
+    def code_run(command, root, env):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            exec(command[-1], {})
+        return output.getvalue()
+
+    with (
+        patch.object(py, "run", side_effect=code_run),
+        patch.object(importlib.metadata, "version", return_value="1"),
+    ):
+        assert py.requirement_differences(primary, directory, b"Example==2\n") == [
+            "example: required 2, installed 1"
+        ]
+    with (
+        patch.object(py, "run", side_effect=code_run),
+        patch.object(
+            importlib.metadata,
+            "version",
+            side_effect=importlib.metadata.PackageNotFoundError,
+        ),
+    ):
+        assert py.requirement_differences(primary, directory, b"Example==2\n") == [
+            "example: required 2, installed missing"
+        ]
+
+
+def check_runtime_dependency_sync(shared_environment):
+    primary, target, directory = shared_environment
+    path = directory.parent / "tasks/example.json"
+    path.parent.mkdir()
+    state = dict(
+        task_id="example",
+        worktree=str(target),
+        python_setup=py.setup_result(directory, False),
+    )
+    path.write_text(json.dumps(state))
+    with (
+        patch.object(py.wt, "repository", return_value=(target, None, primary)),
+        patch.object(py.wt, "load", return_value=(primary, None, path, state)),
+        patch.object(py, "run", return_value='{"example":"2"}') as commands,
+    ):
+        assert py.runtime(target)[0] == py.python_path(directory)
+        assert commands.call_count == 1
+        commands.reset_mock()
+        with patch.object(
+            py.subprocess, "run", side_effect=AssertionError("no subprocess")
+        ):
+            assert py.runtime(target)[0] == py.python_path(directory)
+        commands.assert_not_called()
+        assert py.runtime(primary) is None
+
+
+def check_changed_requirements_during_sync(shared_environment):
+    primary, target, directory = shared_environment
+
+    def verify(root, directory):
+        (primary / py.REQUIREMENTS).write_text("example==3\n", encoding="utf-8")
+
+    with (
+        patch.object(py, "run", return_value='{"example":null}'),
+        patch.object(py, "verify", side_effect=verify),
+    ):
+        blocked(
+            lambda: py.setup(target, {}), "requirements changed during synchronization"
+        )
+    assert (directory / py.APPLIED).read_text() == py.UNVERIFIED
+
+
+@pytest.mark.parametrize(
+    "content", [b"example>=1", b"example==1\nExample==2", b"-r other.txt"]
+)
+def check_requirement_pins_reject_unsupported(content):
+    with pytest.raises(ValueError):
+        py.requirement_pins(content)
 
 
 if __name__ == "__main__":

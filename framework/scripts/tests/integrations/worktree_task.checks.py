@@ -761,6 +761,14 @@ def check_registered_normal_model_guard():
     relative = "model/stg/cde/service-a.properties"
     with fixture() as root:
         dependency_fixture(root)
+        # Requirements select local definitions, so provision the complete Framework.
+        shutil.copytree(
+            Path(wt.__file__).resolve().parents[1],
+            root / "framework",
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
+        requirements = root / wt.python_env.REQUIREMENTS
+        requirements.write_text("", encoding="utf-8")
         (root / ".gitignore").write_text((root / ".gitignore").read_text() + ".venv/\n")
         git(root, "add", ".")
         git(root, "commit", "-qm", "synthetic runtime fixture")
@@ -813,6 +821,10 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
             "import guard_probe\n", encoding="utf-8"
         )
         (directory / ".blueprint-ready").write_text(str(directory))
+        (directory / wt.python_env.APPLIED).write_text(
+            wt.python_env.hashlib.sha256(requirements.read_bytes()).hexdigest(),
+            encoding="utf-8",
+        )
         state["python_setup"] = dict(
             status="ready",
             kind="shared",
