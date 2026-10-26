@@ -136,7 +136,7 @@ def check_json_boundaries(tmp_path):
     for render in (generate_files, generate_markdown, render_validated_model):
         with pytest.raises(ValueError, match="JSON setting contains"):
             render(view, values, tmp_path)
-    with pytest.raises(ValueError, match="JSON setting contains"):
+    with pytest.raises(ValueError, match="before snapshot"):
         validate_candidates(
             tmp_path,
             {path.relative_to(tmp_path)},
@@ -154,7 +154,20 @@ def check_json_boundaries(tmp_path):
         )
         snapshot = load_model(path, reads)
         with pytest.raises(ValueError, match="JSON setting contains"):
-            prepare_edit(snapshot, {path: serialize(values)}, context)
+            prepare_edit(
+                snapshot,
+                {
+                    path: serialize(
+                        {
+                            **values,
+                            "desired.row.008-001.document": json.dumps(
+                                {"Resource": "[new](vpc.md#different-missing)"}
+                            ),
+                        }
+                    )
+                },
+                context,
+            )
     assert path.read_bytes() == before and not view.exists()
 
 

@@ -26,7 +26,7 @@ from design.catalog import (
 )
 from design.layout_schema import GROUPED_RESOURCE_TYPES, IMPLICIT_GROUPED_PROPERTIES
 from design.layout_schema import resource_anchor as resource_anchor
-from design.services.definitions.registry import HIDDEN_PROPERTIES
+from design.services.definitions.registry import HIDDEN_PROPERTIES, POLICY_FORMATS
 from utils import iac_values
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_is_file, memo_table, memoized
@@ -131,9 +131,6 @@ def validate_json_settings(
     values, model_path, *, warnings=None, excluded_references=(), reference_values=None
 ):
     """Validate JSON links and intrinsic structure without rewriting Model authority."""
-    reference_tokens = _imports_model_identity.reference_tokens
-    _json = _imports_model_references._json
-    string_leaves = _imports_model_references.string_leaves
     path = Path(model_path)
     if path.suffix == ".md" and path.parents[2].name == "designs":
         path = (
@@ -144,6 +141,29 @@ def validate_json_settings(
     validate_environment_settings(
         values, path, warnings=warnings, reference_values=reference_values
     )
+    validate_json_documents(
+        values,
+        model_path,
+        warnings=warnings,
+        excluded_references=excluded_references,
+        reference_values=reference_values,
+    )
+
+
+def validate_json_documents(
+    values, model_path, *, warnings=None, excluded_references=(), reference_values=None
+):
+    """Generation structure/reference checks, independent of Model quality rules."""
+    reference_tokens = _imports_model_identity.reference_tokens
+    _json = _imports_model_references._json
+    string_leaves = _imports_model_references.string_leaves
+    path = Path(model_path)
+    if path.suffix == ".md" and path.parents[2].name == "designs":
+        path = (
+            path.parents[4]
+            / "model"
+            / path.relative_to(path.parents[4] / "docs/designs")
+        ).with_suffix(".properties")
     resolver = None
     diagnostics = []
     for row_id, row in entries(values, "desired.row."):
@@ -401,6 +421,16 @@ def naming_errors(
             or "{{" in value
         ):
             return [f"{kind}.{field} must be confirmed and non-empty"]
+    catalog = DesignSchemaCatalog(root)
+    for field in _imports_design_layout.configured_name_fields(root, kind):
+        for row in rows:
+            if row[1].removeprefix(kind + ".") == field:
+                try:
+                    errors = catalog.literal_errors(kind, field, row[2].strip('`"'))
+                except KeyError:
+                    continue  # Design-only names have no provider field.
+                if errors:
+                    return errors
     if mode == "IMPORT":
         return []  # Confirmed actual names above and provider/schema checks remain mandatory.
     outputs = catalog_outputs(root, kind)
@@ -425,11 +455,13 @@ def naming_errors(
 
 
 def validate_required_properties(
-    values: dict[str, str], root: Path, *, warnings=None
+    values: dict[str, str], root: Path, *, warnings=None, properties_scope=None
 ) -> list[dict]:
-    """Reject missing required model inputs before producing any view or artifact."""
+    """Check required inputs selected by the calling Change or Full validation."""
     validate_model_keys = _imports_model_core.validate_runtime_keys
     resource_row_index = _imports_model_files.resource_row_index
+    if properties_scope is not None:
+        values = row_rule_inputs(values, properties_scope)
     validate_model_keys(values)
     resource_row_index(values)
     if entries(values, "desired.stack."):
@@ -463,6 +495,8 @@ def validate_required_properties(
             )
         }
         for rid, prop, value, _ in rows:
+            if properties_scope is not None and prop not in properties_scope:
+                continue
             rule(prop, root)
             owner = ".".join(prop.split(".")[:2])
             if owner not in {kind, *GROUPED_RESOURCE_TYPES.get(kind, set())}:
@@ -528,10 +562,20 @@ def validate_required_properties(
                     if prop.startswith(schema_kind + ".")
                 }
             )
+            required = catalog.required_design_properties(schema_kind)
+            if properties_scope is not None:
+                required = {
+                    prop
+                    for prop in required
+                    if any(
+                        changed == schema_kind + "." + prop
+                        or changed.startswith(schema_kind + "." + prop + ".")
+                        or (schema_kind + "." + prop).startswith(changed + ".")
+                        for changed in properties_scope
+                    )
+                }
             missing = (
-                catalog.required_design_properties(schema_kind)
-                - present
-                - IMPLICIT_GROUPED_PROPERTIES.get(schema_kind, set())
+                required - present - IMPLICIT_GROUPED_PROPERTIES.get(schema_kind, set())
             )
             errors.extend(
                 f"{resource['logicalId']}: required provider schema property missing: {schema_kind}.{prop}"
@@ -702,7 +746,7 @@ def validate_resource_identities(
                 )
 
 
-def codebuild_reference_errors(path, values, *, findings=None):
+def codebuild_reference_errors(path, values, *, findings=None, context_values=None):
     """Check source references before resolution or display can fail."""
     errors = {}
     rows = entries(values, "desired.row.")
@@ -712,7 +756,19 @@ def codebuild_reference_errors(path, values, *, findings=None):
         selected = [
             (rid, row) for rid, row in rows if rid.rpartition("-")[0] == identity
         ]
-        contexts = row_contexts("CodeBuild.Project", selected)
+        context_rows = (
+            entries(context_values, "desired.row.")
+            if context_values is not None
+            else rows
+        )
+        contexts = row_contexts(
+            "CodeBuild.Project",
+            [
+                (rid, row)
+                for rid, row in context_rows
+                if rid.rpartition("-")[0] == identity
+            ],
+        )
         for rid, row in selected:
             prop = row["property"]
             if not prop.startswith("CodeBuild.Project.Environment"):
@@ -761,6 +817,7 @@ def _callback_check_model_inputs_json_settings(values, path, findings, prohibite
     validate_json_settings(
         values, path, warnings=findings.warnings, excluded_references=prohibited
     )
+    check_policy_settings(values, findings, path)
     for warning in findings.warnings:
         findings.warn(warning)
 
@@ -1029,6 +1086,14 @@ def _check_model_inputs(
             ),
         )
         findings.evaluate(
+            "model.api-constraints." + _state_check_model_inputs_337.identity,
+            None,
+            lambda selected=selected,
+            kind=_state_check_model_inputs_337.resource[
+                "resourceType"
+            ]: validate_api_constraints(selected, kind, catalog),
+        )
+        findings.evaluate(
             "model.mapping." + _state_check_model_inputs_337.identity,
             None,
             lambda *, selected=selected: validate_mappings(selected, definitions),
@@ -1146,3 +1211,330 @@ def design_target(path: Path, root: Path):
 
 def catalog_outputs(root: Path, kind: str):
     return _compat_utils_aws_catalogs.catalog_outputs(root, kind)
+
+
+def check_change_inputs(path, authority, root, change, *, definitions_root=None):
+    """Run only rules selected by semantic Resource/Property changes."""
+    definitions = definitions_root or definition_root(root)
+    findings = _imports_validation_findings.Findings(root)
+    resources = dict(entries(authority, "desired.resource."))
+    selected_resources = {
+        rid: resource
+        for rid, resource in resources.items()
+        if resource.get("logicalId") in change.resources
+    }
+    selected = {
+        key: value
+        for key, value in authority.items()
+        if (
+            not key.startswith(
+                (
+                    "desired.resource.",
+                    "desired.row.",
+                    "observed.row.",
+                    "display.resource.",
+                    "desired.reference.",
+                    "desired.stack.",
+                    "display.stack.",
+                    "desired.artifact.",
+                    "desired.deployment.",
+                )
+            )
+            or key.startswith("desired.resource.")
+            and key.split(".")[2] in selected_resources
+            or key.startswith(("desired.row.", "observed.row."))
+            and key.split(".")[2] in change.rows
+        )
+    }
+    findings.evaluate(
+        "change.keys",
+        None,
+        lambda: _imports_model_core.validate_model_keys(
+            {key: authority[key] for key in change.keys if key in authority}
+        ),
+    )
+    findings.evaluate(
+        "change.structure",
+        None,
+        lambda: _imports_model_core.validate_authority(selected),
+    )
+    findings.evaluate(
+        "change.stacks", None, lambda: validate_changed_stacks(authority, change)
+    )
+    if findings.errors:
+        return findings
+    values = _imports_model_sources.projected_values(authority)
+    rows = {rid: row for rid, row in entries(values, "desired.row.")}
+    catalog = DesignSchemaCatalog(definitions) if selected_resources else None
+    view = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+    for number, resource in selected_resources.items():
+        logical, kind = resource["logicalId"], resource["resourceType"]
+        resource_values = {
+            key: value
+            for key, value in values.items()
+            if owner_for_change(key, authority) == ("resource", number)
+        }
+        changed_properties = {
+            prop for identity, prop in change.properties if identity == logical
+        }
+        findings.evaluate(
+            "change.required." + logical,
+            None,
+            lambda resource_values=resource_values,
+            logical=logical,
+            changed_properties=changed_properties: validate_required_properties(
+                resource_values,
+                definitions,
+                warnings=findings.warnings,
+                properties_scope=None
+                if logical in change.added
+                else changed_properties,
+            ),
+        )
+        findings.evaluate(
+            "change.api-constraints." + logical,
+            None,
+            lambda resource_values=resource_values,
+            kind=kind,
+            changed_properties=changed_properties: validate_api_constraints(
+                resource_values,
+                kind,
+                catalog,
+                changed={prop.removeprefix(kind + ".") for prop in changed_properties},
+            ),
+        )
+        findings.evaluate(
+            "change.mapping." + logical,
+            None,
+            lambda resource_values=resource_values: _imports_aws_mapping_display.validate_mappings(
+                resource_values, definitions
+            ),
+        )
+        name_fields = _imports_design_layout.configured_name_fields(definitions, kind)
+        if logical in change.added or any(
+            prop == kind + "." + name
+            or prop.startswith(kind + ".Tags")
+            or prop.startswith(kind + ".HostedZoneTags")
+            for prop in changed_properties
+            for name in name_fields
+        ):
+            state = _CallbackState(identity=number, resource=resource)
+            findings.evaluate(
+                "change.naming." + logical,
+                None,
+                _bind_framework_callback(
+                    _callback_check_model_inputs_names,
+                    state,
+                    definitions,
+                    findings,
+                    values,
+                ),
+            )
+        if logical in change.identity_resources:
+            findings.evaluate(
+                "change.identity." + logical,
+                None,
+                lambda number=number,
+                resource=resource,
+                resource_values=resource_values: validate_resource_identities(
+                    view,
+                    resource_values,
+                    root,
+                    [(number, resource)],
+                    definitions_root=definitions,
+                ),
+            )
+        for rid in change.rows:
+            if rid.rpartition("-")[0] != number:
+                continue
+            state = _CallbackState(
+                identity=number, resource=resource, row=rows[rid], view=view
+            )
+            findings.evaluate(
+                "change.literal." + rid,
+                None,
+                _bind_framework_callback(
+                    _callback_check_model_inputs_literal_check,
+                    state,
+                    catalog,
+                    definitions,
+                    findings,
+                    root,
+                ),
+            )
+    selected_rows = {
+        key: value
+        for key, value in values.items()
+        if not key.startswith(("desired.row.", "observed.row."))
+        or key.split(".")[2] in change.rows
+    }
+    for key in change.keys:
+        if (
+            key.startswith("desired.row.")
+            and key.endswith(".comment")
+            and key in authority
+        ):
+            findings.check(
+                _imports_validation_design.JAPANESE_TEXT_PATTERN.search(authority[key])
+                is not None,
+                "Source / Comment must be Japanese: " + key.split(".")[2],
+            )
+    check_policy_settings(selected_rows, findings, path)
+    account_rows = change.rows | {
+        key.split(".")[2]
+        for key in change.keys
+        if key.startswith("desired.row.") and key.endswith(".comment")
+    }
+    account_inputs = {
+        key: value
+        for key, value in values.items()
+        if not key.startswith(("desired.row.", "observed.row."))
+        or key.split(".")[2] in account_rows
+    }
+    findings.evaluate(
+        "change.policy-accounts",
+        None,
+        lambda: validate_kms_policy_accounts(account_inputs, design_target(view, root)),
+    )
+    prohibited = codebuild_reference_errors(
+        path, selected_rows, findings=findings, context_values=values
+    )
+    findings.evaluate(
+        "change.json-settings",
+        None,
+        lambda: validate_json_settings(
+            selected_rows,
+            path,
+            warnings=findings.warnings,
+            excluded_references=prohibited,
+            reference_values=authority,
+        ),
+    )
+    if change.observed_rows:
+        observations = {
+            key: value
+            for key, value in values.items()
+            if not key.startswith("observed.row.")
+            or key.split(".")[2] in change.observed_rows
+        }
+        _imports_validation_design.check_observed_values(
+            [path],
+            findings=findings,
+            root=root,
+            scope=None,
+            design_sources={view: observations},
+        )
+    for warning in findings.warnings:
+        findings.warn(warning)
+    return findings
+
+
+def owner_for_change(key, values):
+    return _imports_model_format.owner(key, values)
+
+
+def validate_changed_stacks(values, change):
+    previous = (
+        {}
+        if change.before is None
+        else dict(entries(change.before.authoritative, "desired.stack."))
+    )
+    current = dict(entries(values, "desired.stack."))
+    for identity, stack in current.items():
+        selected = {
+            key.rsplit(".", 1)[-1]
+            for key in change.keys
+            if key.startswith(f"desired.stack.{identity}.")
+        }
+        if not selected:
+            continue
+        required = {"name", "template", "parameters", "deployOrder", "placementName"}
+        if identity not in previous or any(
+            field in required and field not in stack for field in selected
+        ):
+            if not required <= stack.keys():
+                raise ValueError("Stack required fields missing: " + identity)
+        if "placementName" in selected:
+            _imports_model_core.validate_stack_metadata(
+                {
+                    f"desired.stack.{identity}.{key}": value
+                    for key, value in stack.items()
+                }
+            )
+        for field in selected & stack.keys():
+            _imports_model_core.validate_stack_field(field, stack[field])
+            if field in {"name", "parameters", "placementName"} and any(
+                other != identity and spec.get(field) == stack[field]
+                for other, spec in current.items()
+            ):
+                raise ValueError("duplicate Stack " + field + ": " + stack[field])
+
+
+def validate_api_constraints(values, kind, catalog, *, changed=None):
+    if kind not in catalog.api_schemas:
+        return
+    required = catalog.job_rule_inputs(changed)
+    inputs = {}
+    for _, row in entries(values, "desired.row."):
+        prop = row["property"].removeprefix(kind + ".")
+        if prop not in required:
+            continue
+        raw = _dependency_policy_tables.literal(row.get("document", row["value"]))
+        node = catalog.property_schema(kind, prop)
+        inputs[prop] = (
+            _dependency_policy_tables.literal(raw)
+            if node.get("type") == "string"
+            else policy_json(raw)
+        )
+    if errors := catalog.job_errors(inputs, changed=changed):
+        raise ValueError("; ".join(errors))
+
+
+def row_rule_inputs(values, properties_scope):
+    groups = {tuple(prop.split(".")[:3]) for prop in properties_scope}
+    rows = {
+        rid
+        for rid, row in entries(values, "desired.row.")
+        if tuple(row.get("property", "").split(".")[:3]) in groups
+    }
+    return {
+        key: value
+        for key, value in values.items()
+        if not key.startswith(("desired.row.", "observed.row."))
+        or key.split(".")[2] in rows
+    }
+
+
+def _check_policy_setting(row, rid, policy, findings, path):
+    try:
+        _dependency_policy_tables.validate_policy_document(
+            policy_json(row["document"]), policy, design=True
+        )
+    except ValueError as error:
+        findings.add_diagnostic(
+            Diagnostic.create(
+                findings.canonical_root,
+                code="model.policy.invalid",
+                check_id="model.policy." + rid,
+                service=service_scope(findings.canonical_root, path),
+                source_path=path,
+                location=f"desired.row.{rid}.document",
+                message=str(error),
+            )
+        )
+
+
+def check_policy_settings(values, findings, path):
+    for rid, row in entries(values, "desired.row."):
+        if row["property"] not in POLICY_FORMATS or "document" not in row:
+            continue
+        policy = _dependency_policy_tables.Policy(
+            row["property"], row["value"], "", "", row["property"]
+        )
+        findings.evaluate(
+            "model.policy." + rid,
+            None,
+            _bind_framework_callback(
+                _check_policy_setting, row, rid, policy, findings, path
+            ),
+        )

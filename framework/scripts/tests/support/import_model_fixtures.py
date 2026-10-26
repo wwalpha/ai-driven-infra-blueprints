@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
 
+import model.dependency_index as dependency_index
 import model.format as _imports_model_format
 import support.it_workspace as workspace
 from model.core import entries
@@ -749,9 +750,13 @@ def operation_fixture(root):
         )
         write_model(root / "model" / env / TARGET / "vpc.properties", values)
 
+    dependency_index.rebuild(root)
+
 
 def operation_candidate(before, after, action="import-merge"):
+    dependency_index.rebuild(before)
     shutil.copytree(before, after)
+    dependency_index.rebuild(after)
     path = after / "model/stg/cde/vpc.properties"
     values = dict(load_model(path).authoritative)
     if action == "import-merge":
@@ -949,7 +954,9 @@ def batch_operation_fixture(before, after):
                 expanded[new_key] = raw
     expanded["desired.service.identity.lastAllocated"] = '{"EC2.VPC":28}'
     write_model(path, expanded)
+    dependency_index.rebuild(before)
     shutil.copytree(before, after)
+    dependency_index.rebuild(after)
     changed = dict(expanded)
     for source, destination in pairs:
         target_rows = operation_rows(expanded, destination)
@@ -1073,10 +1080,14 @@ def dependency_fixture(root):
         write_model(root / "model" / env / TARGET / "service-a.properties", a)
         write_model(root / "model" / env / TARGET / "service-b.properties", b)
 
+    dependency_index.rebuild(root)
+
 
 def dependency_refactor(before, after):
     """Detach only the explicitly selected meaning; keep saved values byte-for-byte."""
+    dependency_index.rebuild(before)
     shutil.copytree(before, after)
+    dependency_index.rebuild(after)
     file = after / "model/stg/cde/service-b.properties"
     values = {
         key: value
@@ -1084,6 +1095,7 @@ def dependency_refactor(before, after):
         if not key.startswith("desired.reference.origin.")
     }
     write_model(file, values)
+    dependency_index.rebuild(after)
     return {file.relative_to(after).as_posix()}
 
 

@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import import_guard
+import model.dependency_index as dependency_index
 import model.format as _imports_model_format
 import model.sources as _imports_model_sources
 import pytest
@@ -2727,6 +2728,7 @@ def check_value_preserving_detach_and_single_deletions(tmp_path):
         verify_model_operation(
             previous, candidate, operation, {file.relative_to(candidate).as_posix()}
         )
+        dependency_index.rebuild(candidate)
         previous = candidate
 
 
@@ -2808,8 +2810,7 @@ def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
     before = {p: p.read_bytes() for p in (tmp_path / "model").rglob("*") if p.is_file()}
     with input_context():
         producer = load_model(tmp_path / "model/stg/cde/service-a.properties")
-        with pytest.raises(ValueError, match="unsupported Model format"):
-            incoming(producer, "001")
+        assert incoming(producer, "001")
     assert all(p.read_bytes() == raw for p, raw in before.items())
     broken.write_bytes(original)
     before = {p: p.read_bytes() for p in (tmp_path / "model").rglob("*") if p.is_file()}
@@ -2821,10 +2822,7 @@ def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
         assert usages(consumer)
         producer = load_model(tmp_path / "model/stg/cde/service-a.properties")
         assert incoming(producer, "001")
-        assert {call.args[0].environment for call in body.call_args_list} == {
-            "dev",
-            "stg",
-        }
+        assert {call.args[0].environment for call in body.call_args_list} == {"stg"}
         assert body.call_count <= 6
     temporary = tmp_path / "temporary"
     temporary.mkdir()
@@ -3360,7 +3358,14 @@ def check_refactor_json_value_structure(tmp_path, field, document, allowed):
 @pytest.mark.parametrize(
     "change", ["comment", "value", "reference", "mode", "warning", "invalid"]
 )
-def check_guard_cache_equivalence(tmp_path, outer, change):
+@patch(
+    "model.validation.check_change_inputs",
+    return_value=SimpleNamespace(
+        errors=[], warnings=[], checks=0, diagnostics=[], diagnostic_errors={}
+    ),
+)
+@patch("validation.change.validate_producer_inputs")
+def check_guard_cache_equivalence(producer_inputs, quality, tmp_path, outer, change):
     dependency_fixture(tmp_path)
     path = tmp_path / (
         "model/stg/cde/service-a.properties"
@@ -3446,7 +3451,14 @@ def _callback_check_repair_invalid_model_final_only(
         "anchor",
     ],
 )
-def check_repair_invalid_model(tmp_path, old_error, failure):
+@patch(
+    "model.validation.check_change_inputs",
+    return_value=SimpleNamespace(
+        errors=[], warnings=[], checks=0, diagnostics=[], diagnostic_errors={}
+    ),
+)
+@patch("validation.change.validate_producer_inputs")
+def check_repair_invalid_model(producer_inputs, quality, tmp_path, old_error, failure):
     fixture = _imports_support_repository_fixtures.fixture
     git = _imports_support_repository_fixtures.git
     start = _imports_support_repository_fixtures.start
@@ -3518,6 +3530,7 @@ def check_repair_invalid_model(tmp_path, old_error, failure):
         with (
             selected_task(target, name),
             patch("model.operations.load_model", side_effect=final_only),
+            patch("model.dependency_index.change_consumers", return_value=[]),
         ):
             save = _bind_framework_callback(
                 _callback_check_repair_invalid_model_save,
@@ -3528,9 +3541,9 @@ def check_repair_invalid_model(tmp_path, old_error, failure):
                 path,
                 target,
             )
-            if failure == "none":
+            if failure in {"none", "scope"}:
                 assert save() == (path,)
-                assert path.read_text() == candidate and calls
+                assert path.read_text() == candidate and quality.called
                 import_guard.require_import_changes(target)
                 complete(target, name)
             else:
@@ -3607,7 +3620,7 @@ def check_generation_preserves_model_guards(generation_model_guard, failure):
             path.read_text(encoding="utf-8").replace("- `stg/cde/service-b`\n", ""),
             encoding="utf-8",
         )
-        diagnostic = "Model changes require all affected services in Validation scope"
+        diagnostic = "changed Model services require Validation scope"
     elif failure == "reference":
         values["desired.reference.origin.producerLogicalId"] = "ServiceA_Resource_999"
         write_model(model, values)

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import issues.publication as publication
 import issues.runner as scan_runner
+import model.dependency_index as dependency_index
 import model.sources as sources
 import support.issues_scan_fixtures as _exports_support_issues_scan_fixtures
 import support.issues_scan_fixtures as _retained_fixture_protected_sources
@@ -2663,6 +2664,7 @@ def check_issues_checks_saved_display_without_generation(
         check_id == "framework.generated-service-model"
         for check_id, _, _ in validators[0].findings.results
     )
+    dependency_index.rebuild(tmp_path)
     strict = Validator(tmp_path, {("dev", "123456789012", "s3")}, workers=1)
     strict.check_project_topology()
     strict.check_scoped_designs()

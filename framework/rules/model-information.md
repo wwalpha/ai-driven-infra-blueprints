@@ -1,5 +1,7 @@
 # Machine-readable Service Model Rules
 
+Model 更新時は **Change Validation のみ**実行する。Full Validation は Issue Scan や独立した明示的全量検証で使用し、更新の停止判定へ混入させない。変更した Resource / Property / Link と、それらが使用・破壊する参照契約を検証し、無関係な既存エラーを更新の停止理由にしない。読み取り依存先、検証対象、生成対象、Task の書き込み権限を区別する。
+
 ## Model authority
 
 [Service Model sources](model-templates.md) and [properties v2](../docs/model-format-2.md)
@@ -13,7 +15,6 @@ structure, links, artifacts and consistency, then save or compare them with exis
 outputs using the existing generation comparison. Whole-model reverse projection
 from Markdown is not required and must not be used as a publication gate.
 The field/identity/display rules below apply to canonical Models, runtime projections and generated views.
-
 
 If updating the model fails, do not update Markdown/JSON. The model is authoritative for design values, names, and descriptions.
 
@@ -228,7 +229,6 @@ it never invalidates completed reflection. Exit 2 includes unreflected items. Re
 Model, display and `Design validation: not-run` separately. Stale views can be refreshed
 without Model changes. Never auto-run issues or repeat AWS acquisition for display failure.
 
-
 ## Policy derived views
 
 - Retain policy/configuration JSON bodies as compact JSON in each service model's `desired.row.*.document`. Generate service-owned JSON from JSON artifact links in `desired.row.*.value`, and generate policy tables from that JSON. Do not feed JSON artifacts or tables back as design inputs.
@@ -287,10 +287,9 @@ Markdown is a generated view and cannot be imported as Model authority. Preserve
 
 1. Before saving, check whether naming rules exist for resources to create, catalog selections, types/constraints, and unconfirmed values.
 2. Update all confirmed environment-specific service properties first. Normally use `desired.service.*`, `desired.resource.*`, formal property `desired.row.*`, and required `observed.row.*`.
-3. Directly validate schema/catalog mandatory root properties from authoritative properties per service. If any are missing, do not proceed even to temporary Markdown/JSON artifact generation; report resources/properties and retain properties and existing generated outputs. Continue processing other services. Temporarily generate Markdown and JSON artifacts only for services with all mandatory items, and check them with existing service display parsers, schema, and reference validation. Retain saved Markdown/JSON and edited models of failed services. If a referenced service failed, revert to saved displays and revalidate references. Do not restore models from Markdown.
+3. Validate changed Properties and their rule inputs; new Resources require all mandatory Properties. Generate selected Views independently of full Model quality. Generation retains required structure/reference/artifact checks, successful services and failed services' existing outputs; report actual generation failures separately from saved Model state. Do not restore Models from Markdown.
 4. Before saving, compute reference warnings on the final candidate stage, including the selected service's own links and retained incoming links. Preserve generated views when possible. Reference-only generation inability retains saved views and reports the affected NOT_RUN scope; it neither cancels source saves nor requires a repair Task. Actual write failures retain service rollback/journal recovery and dependent revalidation; preserve unrelated successful saves and return nonzero for real failures.
 5. Run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` for ordinary Model edits. Common preconditions, all-target candidate generation/content validation, one all-target pre-save input comparison, publication, then output-dependent task/Acceptance checks execute in that validator process. No post-save regeneration, full readback/content validation or full input rescan is required. Independent read-only loops/validators retain saved-view equality checks. Do not overwrite properties.
-
 
 Retain the H1 title (including `# ...`) in `display.service.title`. Write resource functions, purposes, and roles in Japanese in `display.resource.<番号>.comment`. For types without name properties, derive the resource type as the display name if exactly 1 independent resource of that type exists within the same service and neither a selected Name tag nor an existing confirmed display label exists. In this case, do not require `display.resource.<番号>.label` or duplicate the type name into label. Use `### <catalog-resource-type>` for detail headings, the resource type for listings/ordinary reference links, and the saved anchor. Retain human-confirmed display names distinguishing multiple resources of the same type, or existing confirmed display names, in `display.resource.<番号>.label`. Even with type-name display, retain model entry numbers and immutable logicalIds; do not infer IaC IDs from type names. This does not apply to omitted name properties or missing mandatory Name tags. Generate display names for types with name properties from formal row values; do not duplicate them. `display.*` is display input; do not add it to catalog AWS properties or IaC settings. Use existing 3-digit formats for resource and row numbers.
 
@@ -419,7 +418,7 @@ locations, including parent/child/siblings, desired/display/observed/documents/r
 and service metadata/notes. Unknown/ambiguous selectors fail. Do not write an extracted
 subset or runtime projection back over the Model. Read required producers separately;
 do not use generated Markdown as a fallback or expand every service into chat context.
-Retain one generated Markdown per service and its full scoped validation. Read the final
+Retain one generated Markdown per service, Change Validation for updates and explicit Full Validation for independent scans. Read the final
 diff; extraction alone is not schema/reference/generated-equality validation.
 
 Restore `Config.ConfigurationRecorder.RoleName`, `EC2.RouteTableId`, `S3.Bucket.BucketEncryption.BucketKeyEnabled`, `S3.Bucket.BucketEncryption[].KMSMasterKeyID`, `S3.Bucket.BucketEncryption[].SSEAlgorithm`, and `S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays` used in Markdown configuration tables to formal properties through `framework/mappings/aws/<service>.yaml display.name` and save them in models. Do not save display names as model properties. Omit heading resource-type prefixes in Property columns.

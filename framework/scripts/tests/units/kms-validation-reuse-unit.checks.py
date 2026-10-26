@@ -116,6 +116,7 @@ def check_service_reuse_and_direct_call_diagnostics(tmp_path, monkeypatch):
     monkeypatch.setattr(validation, "naming_errors", lambda *a: [])
     monkeypatch.setattr(validation, "catalog_outputs", lambda *a: {"KMS.Key.KeyPolicy"})
     monkeypatch.setattr(validation, "DesignSchemaCatalog", lambda *a: None)
+    monkeypatch.setattr(validation, "validate_api_constraints", lambda *a, **k: None)
     monkeypatch.setattr(design, "check_observed_values", lambda *a, **k: None)
     monkeypatch.setattr(model.render, "resource_details", lambda *a, **k: None)
     monkeypatch.setattr(validation, "bound_resource_anchors", lambda *a: {})

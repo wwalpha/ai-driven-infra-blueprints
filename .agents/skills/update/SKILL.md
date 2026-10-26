@@ -11,7 +11,6 @@ only within the selected Task; authorized observations change only the selected
 consumers and generated paths in the Task. Read dependencies grant no write scope.
 Retain this skill's deployment target and AWS permission boundary.
 
-
 Read `framework/prompts/codex/05_update.md` at the repository root in full and execute only its contents as the authoritative text. Treat input following the Skill invocation as human input to the workflow. Do not duplicate, reinterpret, or extend the prompt body. If the prompt file does not exist, stop without changing the repository.
 
 The corresponding prompt's Read section is authoritative for reading scope, conditional rules, and validation scope.
@@ -49,3 +48,5 @@ values without Markdown Resource links, including `$resource`. Reuse external
 non-ARN identifiers. Never guess IDs, automatically migrate existing Models, or replace
 ARN selectors by saved generated ARNs; report unsupported cases. Keep Resource/artifact
 links outside JSON bodies.
+
+Model 更新時は **Change Validation のみ**実行する。Full Validation は Issue Scan や独立した明示的全量検証で使用し、更新の停止判定へ混入させない。変更した Resource / Property / Link と、それらが使用・破壊する参照契約を検証し、無関係な既存エラーを更新の停止理由にしない。読み取り依存先、検証対象、生成対象、Task の書き込み権限を区別する。

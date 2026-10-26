@@ -11,9 +11,7 @@ only within the selected Task; authorized observations change only the selected
 consumers and generated paths in the Task. Read dependencies grant no write scope.
 Retain this skill's deployment target and AWS permission boundary.
 
-
 Follow [task-contract](../../../framework/rules/task-contract.md) for save/repair contract registration.
-
 
 # Issue organization
 
@@ -24,6 +22,8 @@ For ordinary investigation, use the Python entrypoint in [Scoped scan and saving
 Save confirmed problems/validation errors within the requested scope to `issues/<environment>/<target-directory>/issues.md`. Python formats/saves model desired → local IaC differences to a separate `iac-issues.md`; do not mix them into ordinary issues. Separate uncompared items and processing errors from difference counts; IaC differences themselves are non-blocking. Replace both reports from the same whole-target Snapshot on each publication. AWS API checks and SDK current-value retrieval/comparison are not included in this skill. Handle AWS check requests with [aws-check](../aws-check/SKILL.md); do not automatically start them from issues execution. Do not start design/model/IaC repair or deploy/apply.
 
 External already acquired evidence may be included in the whole Scan Review, within the authorized scope. It cannot directly update a partial target report or prove unexecuted AWS checks succeeded.
+
+Model 更新時は **Change Validation のみ**実行する。Full Validation は Issue Scan や独立した明示的全量検証で使用し、更新の停止判定へ混入させない。変更した Resource / Property / Link と、それらが使用・破壊する参照契約を検証し、無関係な既存エラーを更新の停止理由にしない。読み取り依存先、検証対象、生成対象、Task の書き込み権限を区別する。
 
 ## Saving and updating
 

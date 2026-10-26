@@ -23,6 +23,9 @@ from support.import_model_fixtures import dependency_fixture
 from support.model_sources import write_model
 from task_contract_core import final_model_task, model_operation, selected_task, start
 from utils.aws_mappings import mapping_alias
+from validation.findings import Findings
+
+from model import dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -71,7 +74,9 @@ def fixture(tmp_path, document=False):
         values["desired.reference.origin.consumerKey"] = "desired.row.002-001.document"
         values["desired.reference.origin.pointer"] = "/Items/0"
         write_model(file, values)
+    dependency_index.rebuild(before)
     shutil.copytree(before, after)
+    dependency_index.rebuild(after)
     file = after / "model/stg/cde/service-b.properties"
     values = dict(load_model(file).authoritative)
     values["desired.reference.origin.producerLogicalId"] = "ServiceA_Resource_003"
@@ -290,7 +295,9 @@ def check_route_table_pair_example(tmp_path):
             }
         )
     write_model(before / "model/stg/cde/vpc-endpoint.properties", endpoint)
+    dependency_index.rebuild(before)
     shutil.copytree(before, after)
+    dependency_index.rebuild(after)
     template = after / "model/stg/cde/vpc-endpoint.properties"
     template.write_text(
         template.read_text()
@@ -362,9 +369,12 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
         + "## Allowed paths\n"
         + listing
     )
+    dependency_index.rebuild(before)
     start(before, name, text)
     with (
         patch("model.importing.repository.task_start_commit", return_value=base),
+        patch("validation.change.validate_producer_inputs"),
+        patch("model.validation.check_change_inputs", return_value=Findings(before)),
         mapping_alias(Path(__file__).resolve().parents[4], before),
         selected_task(before, name),
     ):
@@ -484,6 +494,7 @@ def check_final_candidate_uses_latest_base(tmp_path):
         + "## Allowed paths\n"
         + listing
     )
+    dependency_index.rebuild(before)
     start(before, name, text)
     candidate = SimpleNamespace(
         base_commit=latest,
@@ -494,6 +505,8 @@ def check_final_candidate_uses_latest_base(tmp_path):
     with (
         mapping_alias(Path(__file__).resolve().parents[4], before),
         selected_task(before, name),
+        patch("validation.change.validate_producer_inputs"),
+        patch("model.validation.check_change_inputs", return_value=Findings(before)),
         patch(
             "model.importing.repository.task_start_commit", return_value=original_base
         ),

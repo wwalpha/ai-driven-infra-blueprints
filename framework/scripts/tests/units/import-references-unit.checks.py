@@ -55,6 +55,8 @@ from utils.source_reads import FileReads
 from validation.design_links import check_design_links as _check_design_links
 from validation.findings import Findings
 
+from model import dependency_index
+
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
@@ -1245,6 +1247,7 @@ def impact_fixture(root):
     )
     consumer["desired.row.003-001.value"] = "[audit-build](codebuild.md#build)"
     write_model(root / "model/dev/cde/codepipeline.properties", consumer)
+    dependency_index.rebuild(root)
     return path
 
 

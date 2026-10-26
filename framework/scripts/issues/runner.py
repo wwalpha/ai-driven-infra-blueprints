@@ -48,6 +48,7 @@ def mechanical(
         fresh=fresh,
         workers=jobs,
         check_display=False,
+        model_validation="full",
     )
     validator.schema_catalog = catalog
     if validator_out is not None:

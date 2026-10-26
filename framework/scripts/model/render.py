@@ -9,7 +9,6 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import aws_mapping_display as _dependency_aws_mapping_display
-import aws_mapping_display as _imports_aws_mapping_display
 import design.array_display as _dependency_array_display
 import design.layout as _dependency_design_layout
 import design.policy_tables as _dependency_policy_tables
@@ -41,8 +40,7 @@ import model.projection as _imports_model_projection
 import model.reference_presentation as _reference_presentation
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
-import model.validation as _dependency_model_validation
-import model.validation as _imports_model_validation
+from model.change_scope import change_reads
 from model.core import (
     ARTIFACT_FIELDS,
     LINK,
@@ -55,6 +53,7 @@ from model.core import (
     properties as properties,
 )
 from model.format import JSON_LINK
+from model.validation import validate_json_documents
 
 
 def stack_markdown(
@@ -504,12 +503,7 @@ def markdown_for(
     *,
     definitions_root: Path | None = None,
 ) -> str:
-    """Validated generation used by ordinary design and explicit validation."""
-    validate_mappings = _imports_aws_mapping_display.validate_mappings
-    validate_mappings(values, definitions_root or root)
-    _dependency_model_validation.validate_required_properties(
-        values, definitions_root or root
-    )
+    """Generate a View; Model quality belongs to Change or Full Validation."""
     return render_validated_model(path, values, root, definitions_root=definitions_root)
 
 
@@ -520,14 +514,17 @@ def render_validated_model(
     *,
     definitions_root: Path | None = None,
 ) -> str:
-    """Internal renderer after mapping/required-property preflight, before artifacts."""
+    """Render structure and references without Model quality validation."""
+    validate_json_documents(
+        values,
+        (
+            path.parents[4]
+            / "model"
+            / path.relative_to(path.parents[4] / "docs/designs")
+        ).with_suffix(".properties"),
+    )
     reference_display = _imports_model_projection.reference_display
     scope_for = _imports_model_sources.scope_for
-    validate_json_settings = _imports_model_validation.validate_json_settings
-    model_path = (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
-        ".properties"
-    )
-    validate_json_settings(values, model_path)
     if path.stem == "cloudformation-stacks":
         return stack_markdown(path, values, root, definitions_root=definitions_root)
     references = _dependency_model_display.reference_rows(values)
@@ -540,9 +537,6 @@ def render_validated_model(
     resources = entries(values, "desired.resource.")
     if not resources:
         raise ValueError(f"service model has no resources: {path.name}")
-    _dependency_model_validation.validate_resource_identities(
-        path, values, root, resources, definitions_root=definitions_root
-    )
     scope = scope_for(
         (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
             ".properties"
@@ -580,10 +574,7 @@ def generate_markdown(
 ) -> str:
     """Render selected values; reference_values supplies the complete candidate context."""
     reference_values = values if reference_values is None else reference_values
-    reference_display = _imports_model_projection.reference_display
-    scope_for = _imports_model_sources.scope_for
-    validate_json_settings = _imports_model_validation.validate_json_settings
-    validate_json_settings(
+    validate_json_documents(
         values,
         (
             path.parents[4]
@@ -592,6 +583,8 @@ def generate_markdown(
         ).with_suffix(".properties"),
         reference_values=reference_values,
     )
+    reference_display = _imports_model_projection.reference_display
+    scope_for = _imports_model_sources.scope_for
     references = _dependency_model_display.reference_rows(values)
     presentation = _reference_presentation.Presentation(
         values, path, path.parents[4], reference_values=reference_values
@@ -873,18 +866,20 @@ def model_policy_views(values, *, presentation=None):
     return result
 
 
+@change_reads()
 def generate_files(path, values, root, *, warnings=None):
     """Generate one service in memory, without validation or dependency publication."""
-    safe = _imports_model_sources.safe
-    scope_for = _imports_model_sources.scope_for
-    validate_json_settings = _imports_model_validation.validate_json_settings
-    validate_json_settings(
+    validate_json_documents(
         values,
-        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
-            ".properties"
-        ),
+        (
+            path.parents[4]
+            / "model"
+            / path.relative_to(path.parents[4] / "docs/designs")
+        ).with_suffix(".properties"),
         warnings=warnings,
     )
+    safe = _imports_model_sources.safe
+    scope_for = _imports_model_sources.scope_for
     scope = scope_for(
         (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
             ".properties"

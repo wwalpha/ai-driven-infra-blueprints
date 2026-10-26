@@ -69,6 +69,7 @@ def selection(tmp_path, monkeypatch):
             "Catalog", (), {"literal_errors": lambda self, *a: ["literal failure"]}
         )(),
     )
+    monkeypatch.setattr(validation, "validate_api_constraints", lambda *a, **k: None)
     monkeypatch.setattr(validation, "resource_rows", lambda *a: [])
     monkeypatch.setattr(
         validation, "validate_resource_identities", lambda *a, **k: None
@@ -120,6 +121,7 @@ def check_selection_order_findings_and_fresh_calls(selection):
         for n in numbers
         for check in (
             "model.required." + n,
+            "model.api-constraints." + n,
             "model.mapping." + n,
             "model.naming." + n,
             "model.literal." + n + "-001",

@@ -3,17 +3,12 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-import import_guard as _imports_import_guard
-import task_contract_core as _imports_task_contract
-import utils.input_cache as _imports_validation_cache
 from task_contract_core import task_read_scope
 
+import model.change_plan as change_plan
 import model.impact_changes as _imports_model_impact_changes
 import model.impact_graph as _imports_model_impact_graph
-import model.importing.scope as _dependency_model_importing_scope
 import model.importing.scope as _imports_model_importing_scope
-import model.importing.scope as import_scope
-import model.operations as _imports_model_operations
 import model.references as _dependency_model_references
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
@@ -147,62 +142,16 @@ def affected(root, changed, *, before=None, read_context=None, raw=False):
 def task_impact(
     root, changed=None, *, output=None, base=None, contract_file=None, read_context=None
 ):
-    """One Task baseline and Candidate overlay shared by save, generation and validation."""
-    base_revision = _imports_import_guard.base_revision
-    changed_sources = _imports_import_guard.changed_sources
-    snapshots = _imports_import_guard.snapshots
-    memo_table = _imports_validation_cache.memo_table
-
-    CandidateReads = _imports_model_operations.CandidateReads
-
-    root = Path(root).resolve()
-    changed = changed_sources(root, changed, contract_file=contract_file)
-    output = output or {}
-    changed |= changed_sources(root, {p.relative_to(root).as_posix() for p in output})
-    if not changed:
-        return Impact(frozenset())
-    reads = read_context or _dependency_model_sources._invocation_reads(root)
-    candidates = CandidateReads(reads, output) if output else reads
-    if (
-        not (root / ".git").exists()
-        or import_scope.selected(root, contract_file=contract_file) is not None
-    ):
-        return analyze(root, changed, read_context=candidates, raw=True)
-    memo = memo_table()
-    if base is None:
-        task_path = _imports_task_contract.task_path
-        selector = (
-            contract_file
-            if contract_file is not None
-            else task_path(root, required=False)
-        )
-        baseline_key = (task_impact, "baseline", root, selector)
-        if memo is not None and baseline_key in memo:
-            base = memo[baseline_key]
-        else:
-            base = base_revision(root, contract_file=contract_file)
-            if memo is not None:
-                memo[baseline_key] = base
-    if base is None:
-        return analyze(root, changed, read_context=candidates, raw=True)
-    key = (
-        task_impact,
+    """Compatibility projection; quality scope comes from ChangePlan.services."""
+    plan = change_plan.task_plan(
         root,
-        base,
-        frozenset(changed),
-        tuple(sorted(output.items())),
-        _dependency_model_importing_scope.read_context(root),
-        id(reads),
+        changed,
+        output=output,
+        base=base,
+        contract_file=contract_file,
+        read_context=read_context,
     )
-    if memo is not None and key in memo:
-        return memo[key]
-    with snapshots(root, base, {}) as (before, _):
-        result = analyze(
-            root, changed, before=before, read_context=candidates, raw=True
-        )
-    if memo is not None:
-        memo[key] = result
-    return result
+    return Impact(frozenset(plan.views))
 
 
 def _lambda_scope_diagnostic_show_162(scopes):

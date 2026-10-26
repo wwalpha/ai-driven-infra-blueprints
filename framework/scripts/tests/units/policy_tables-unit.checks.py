@@ -14,7 +14,12 @@ from pathlib import Path
 import design.policy_tables as _imports_policy_tables
 import support.policy_tables_fixtures as _retained_fixture_policy_mapping_cache
 from design.layout import expanded_design, formal_property
-from design.policy_tables import Policy, policy_document_lines, validate_policy_document
+from design.policy_tables import (
+    Policy,
+    policy_document_lines,
+    validate_policy_artifacts,
+    validate_policy_document,
+)
 from model.display import ReferenceTable
 from support import design_layout_fixtures as layout_fixture
 from support.policy_tables_fixtures import (
@@ -356,6 +361,7 @@ def check_iam(tmp_path):
         rendered.replace("iam/role-a-trust-policy.json", "../role-a-trust-policy.json")
     )
 
+    path.write_text(rendered, encoding="utf-8")
     # The 16-character limit belongs only to inline Statement.Sid.
     inline_artifact = artifacts / "role-a-logging.json"
     role = resources_in(without_policy_tables(rendered.splitlines()))[0]
@@ -363,8 +369,9 @@ def check_iam(tmp_path):
         document = json.loads(json.dumps(inline))
         document["Statement"][0]["Sid"] = sid
         inline_artifact.write_text(json.dumps(document), encoding="utf-8")
+        view = "\n".join(policy_lines(path, role.policies[1]))
         try:
-            view = "\n".join(policy_lines(path, role.policies[1]))
+            validate_policy_artifacts(path)
         except ValueError as error:
             assert not valid and "Sid must be a string of at most 16 characters" in str(
                 error
@@ -784,7 +791,7 @@ def check_grouping_and_settings_checks():
         ):
             lifecycle.write_text(json.dumps(malformed), encoding="utf-8")
             with pytest.raises(ValueError):
-                rendered_design(path)
+                validate_policy_artifacts(path)
     print(
         "Policy grouping/settings checks: PASS (KMS aliases, absent policy, multiple formats, nested JSON)"
     )

@@ -8,6 +8,8 @@ from model.format import serialize
 from model.identity import COUNTERS
 from model.sources import Scope, load_model
 
+from model import dependency_index
+
 FRAMEWORK = Path(__file__).resolve().parents[4]
 
 
@@ -18,6 +20,8 @@ def reference(logical="KMS_Key_001", attribute="Arn"):
 def save(scope, values):
     scope.path.parent.mkdir(parents=True, exist_ok=True)
     scope.path.write_text(serialize(values), encoding="utf-8")
+    if (scope.root / "project.json").is_file():
+        dependency_index.rebuild(scope.root)
 
 
 def resource(

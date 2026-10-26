@@ -12,7 +12,6 @@ import model.display as _imports_model_display
 import model.files as _imports_model_files
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
-import model.validation as _imports_model_validation
 import utils.aws_mappings as _imports_utils_aws_mappings
 from model.core import ReferenceResolutionError, positive_integer
 from utils.aws_catalogs import catalogs_for
@@ -289,9 +288,6 @@ def resource_display_selection(
     selected_properties = _imports_design_catalog.selected_properties
     if GROUPED.get(resource_type, {}).get("display") == "rule-table":
         return label, None
-    naming_errors = _imports_model_validation.naming_errors
-    if errors := naming_errors(root, resource_type, rows, mode):
-        raise ValueError("; ".join(errors))
     names = set(configured_name_fields(root, resource_type))
     catalog_names = names & selected_properties(root, resource_type)
     selected = [
@@ -324,10 +320,6 @@ def resource_display_selection(
             raise ValueError(
                 f"resource display name must be confirmed and non-empty: {resource_type}.{field}"
             )
-        if field in catalog_names:
-            errors = catalog.literal_errors(resource_type, field, value)
-            if errors:
-                raise ValueError(f"{resource_type}.{field}: " + "; ".join(errors))
     configured = resource_display_name(resource_type, rows, label, mode, root=root)
     if configured is not None:
         return configured, configured

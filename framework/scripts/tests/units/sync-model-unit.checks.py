@@ -441,7 +441,7 @@ def check_stage_dependency_selection(tmp_path, write):
         plan = sync_runtime.prepare_generation(
             root, {("dev", "team", "iam")}, snapshot=inputs, write=write
         )
-        assert bool(plan.baseline_links) == write
+        assert not plan.baseline_links
         plan.close()
         assert not close.called
     assert inputs.contents[authority] == b"# model-format: 2\n# required\n"
@@ -451,8 +451,7 @@ def check_stage_dependency_selection(tmp_path, write):
         "model/dev/team/unrelated.properties",
         "tests/results/unrelated.log",
     }
-    if not write:
-        excluded.add("docs/designs/dev/team/in.md")
+    excluded.add("docs/designs/dev/team/in.md")
     assert present == set(files) - excluded
     assert root / "tests/results/unrelated.log" not in inputs.contents
     inputs.close()

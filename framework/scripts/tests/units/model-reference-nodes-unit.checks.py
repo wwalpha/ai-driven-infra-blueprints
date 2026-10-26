@@ -657,12 +657,13 @@ def check_scalar_value_and_json_are_stable(tmp_path, models, mode):
         )["Statement"][0]["Resource"]
         == "PENDING_DEPLOY"
     )
-    validate_candidates(
-        tmp_path,
-        {consumer.path.relative_to(tmp_path)},
-        {},
-        {("qa", "team", "iam")},
-    )
+    with pytest.raises(ValueError, match="change comparison unavailable"):
+        validate_candidates(
+            tmp_path,
+            {consumer.path.relative_to(tmp_path)},
+            {},
+            {("qa", "team", "iam")},
+        )
 
 
 def check_other_target_only_never_resolves(tmp_path, models):

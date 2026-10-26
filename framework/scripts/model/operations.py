@@ -17,6 +17,7 @@ import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import task_contract_core as _imports_task_contract_core
 import utils.input_cache as _imports_utils_input_cache
+import validation.change as change_validation
 from task_contract_core import DependencyDetach, ModelOperation
 from utils.source_reads import CandidateReads as CandidateReads
 from utils.type_contracts import JsonObject
@@ -24,14 +25,14 @@ from utils.type_contracts import JsonValue as JsonValue
 
 import model.adapters.task as _task_adapter
 import model.core as _imports_model_core
+import model.dependency_index as dependency_index
 import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
-import model.impact as _imports_model_impact
 import model.observed as _imports_model_observed
 import model.references as _dependency_model_references
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
-import model.validation as _imports_model_validation
+from model.change_scope import change_reads, index_stage
 from model.configuration import ConfigurationIndex as ConfigurationIndex
 from model.configuration import _observed_index
 from model.configuration import resource_configuration as resource_configuration
@@ -292,7 +293,6 @@ def prepare_edit(
     candidate: Mapping[Path, str | None],
     policy: _dependency_model_sources.SourceWriteContext,
 ) -> EditPlan:
-    validate_json_settings = _imports_model_validation.validate_json_settings
     if isinstance(snapshot, Path):
         edit_base = _imports_model_sources.edit_base
         raw_model = _imports_model_sources.raw_model
@@ -324,10 +324,11 @@ def prepare_edit(
     if policy.operation.action == "observed":
         after = _imports_model_sources.observed_snapshot(snapshot, output)
     else:
-        after = load_model(snapshot.scope, reads)
-        warnings = list(after.warnings)
-        validate_json_settings(after.authoritative, entry, warnings=warnings)
-        after = after._replace(warnings=tuple(warnings))
+        after = _imports_model_sources.raw_model(snapshot.scope, reads)
+        after = after._replace(
+            values=_imports_model_sources.projected_values(after.authoritative)
+        )
+        change_validation.validate_save(snapshot, after, reads)
     if policy.operation.action == "observed":
         verify_observed_outputs = _imports_model_observed.verify_observed_outputs
         verify_observed_outputs(
@@ -724,15 +725,30 @@ def _resource_references(operation, scope, rid, field, prop=None):
     ]
 
 
-def _models(root, targets, *, raw=False):
+def _models(root, identities, *, index_root=None):
+    """Read named/indexed authorities and reference contracts, never target quality."""
     reads = _dependency_model_sources.FileReads()
-    reader = load_model
-    if raw:
-        reader = _dependency_model_sources.raw_model
-    return {
-        (scope.environment, scope.target, scope.service): reader(scope, reads)
-        for scope in _dependency_model_sources.list_models(root, reads)
-        if (scope.environment, scope.target) in targets
+    result = {}
+    with change_reads(), index_stage(index_root or root, root):
+        for identity in identities:
+            snapshot = _dependency_model_sources.raw_model(
+                _dependency_model_sources.Scope(root, *identity), reads
+            )
+            warnings, dependencies = _dependency_model_references.diagnose(
+                snapshot, reads
+            )
+            result[identity] = snapshot._replace(
+                warnings=warnings, dependencies=dependencies
+            )
+    return result
+
+
+def operation_readable(root, selected):
+    scopes = {"/".join(identity) for identity in selected}
+    return selected | {
+        (scope.environment, scope.target, scope.service)
+        for path in dependency_index.consumers(root, scopes, set())
+        for scope in [_dependency_model_sources.scope_for(path)]
     }
 
 
@@ -968,6 +984,16 @@ def _verify_model_operation_explicit(values, identity):
     }
 
 
+def _call_operation_reads(function, /, before, after, *args, **kwargs):
+    with change_reads(), index_stage(before, after):
+        return function(before, after, *args, **kwargs)
+
+
+def operation_reads(function):
+    return _imports_task_contract_core.FunctionWrapper(function, _call_operation_reads)
+
+
+@operation_reads
 def verify_model_operation(
     before: Path,
     after: Path,
@@ -981,8 +1007,20 @@ def verify_model_operation(
     if (before / "project.json").read_bytes() != (after / "project.json").read_bytes():
         raise ValueError("Model-only operation cannot change project configuration")
     selected = set(operation.scopes)
-    targets = {scope[:2] for scope in selected}
-    old_models, new_models = _models(before, targets, raw=True), _models(after, targets)
+    readable = (
+        selected
+        | {
+            tuple(address.split("/")[:3])
+            for ref in operation.references
+            for address in (ref.consumer, ref.source, ref.destination)
+        }
+        | {tuple(detach.producer.split("/")[:3]) for detach in operation.detaches}
+    )
+    readable = operation_readable(before, readable)
+    old_models, new_models = (
+        _models(before, readable),
+        _models(after, readable, index_root=before),
+    )
     if old_models.keys() != new_models.keys():
         raise ValueError("Model-only operation cannot add/remove service Models")
     raw_files = _verify_model_operation_raw_files
@@ -1372,6 +1410,7 @@ def _verify_detaches(old_models, new_models, declarations_):
     return removed
 
 
+@operation_reads
 def verify_model_refactor(
     before: Path,
     after: Path,
@@ -1391,8 +1430,14 @@ def verify_model_refactor(
         )
     if (before / "project.json").read_bytes() != (after / "project.json").read_bytes():
         raise ValueError("Model refactor cannot change project configuration")
-    targets = {scope[:2] for scope in direct}
-    old_models, new_models = _models(before, targets, raw=True), _models(after, targets)
+    readable = direct | {
+        tuple(declaration.producer.split("/")[:3]) for declaration in detaches
+    }
+    readable = operation_readable(before, readable)
+    old_models, new_models = (
+        _models(before, readable),
+        _models(after, readable, index_root=before),
+    )
     if old_models.keys() != new_models.keys():
         raise ValueError("Model refactor cannot add/remove service Models")
     removed = _verify_detaches(old_models, new_models, detaches)
@@ -1437,61 +1482,9 @@ def validate_candidates(
     contract_file: str | None = None,
 ) -> list[JsonObject]:
     """Common ordinary-save/Task/integration check: validate only the final authority."""
-    scope_diagnostic = _imports_model_impact.scope_diagnostic
-    task_impact = _imports_model_impact.task_impact
-    _ = _imports_model_sources.FileReads
-    source_scope = _imports_model_sources.source_scope
-    original = _dependency_model_sources._invocation_reads(root)
-    reads = CandidateReads(original, output) if output else original
-    required = set(
-        task_impact(
-            root,
-            sources,
-            output=output,
-            base=base,
-            contract_file=contract_file,
-            read_context=original,
-        ).services
+    return change_validation.validate_task(
+        root, sources, output, scope, base=base, contract_file=contract_file
     )
-    if scope is not None and not required <= scope:
-        raise ValueError(
-            "Model changes require all affected services in Validation scope: "
-            + scope_diagnostic(required, scope)
-        )
-    warnings = []
-    for identity in sorted(required):
-        path = (
-            root / "model" / identity[0] / identity[1] / (identity[2] + ".properties")
-        )
-        if reads.kind(path) == "missing":
-            continue  # Incoming consumers are still checked, including deleted producers.
-        model = load_model(source_scope(root, path), reads)
-        validate_json_settings = _imports_model_validation.validate_json_settings
-        validate_json_settings(model.authoritative, path, warnings=warnings)
-        display_anchor = _imports_model_identity.display_anchor
-        anchors = [
-            display_anchor(resource)
-            for _, resource in entries(model.authoritative, "desired.resource.")
-        ]
-        if len(anchors) != len(set(anchors)):
-            raise ValueError("duplicate Resource anchor: " + str(path))
-        for warning in model.warnings:
-            if warning["message"] in {
-                "producer Model is absent",
-                "producer Stack is absent",
-                "producer Resource is absent or ambiguous",
-                "producer Resource Type differs",
-                "producer Property is absent or ambiguous",
-                "producer Property does not belong to the expected Resource Type",
-            }:
-                raise ValueError(
-                    "invalid candidate reference: "
-                    + str(path)
-                    + ": "
-                    + warning["message"]
-                )
-            warnings.append(warning)
-    return warnings
 
 
 def load_model(

@@ -1,13 +1,11 @@
 # Task Contract Rules
 Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
-
 ## Dedicated import boundary
 
 For `/import`, [IMPORT configuration authority](model-information.md#import-configuration-authority)
 replaces the design validation/completion rules below: source and display transactions
 are separate, and issues runs only when explicitly requested. Other workflows retain these rules.
-
 
 ## Task transition
 
@@ -64,8 +62,9 @@ IMPORT and other authority writers retain their dedicated publication checks and
 
 - [Service source authority](model-templates.md) applies to every Task type. Declare
   exact properties entrance/parts and generated Markdown/JSON paths before writing.
-  Include changed environment/target/services and affected reference consumers in
-  Validation scope. Read-only producer discovery never expands Allowed paths, Deployment
+  Include changed environment/target/services and actually changed generated Consumer
+  outputs in Validation scope. Read-only reference dependencies do not require whole-service
+  quality validation or write authority. Read-only producer discovery never expands Allowed paths, Deployment
   scope or AWS permission. Validate final identities and references; only dedicated operations require preservation outside their declarations.
   Infrastructure observation writers patch only permitted observed.value in the same
   properties. Destroy cannot change desired/display/reference design. Infrastructure
@@ -273,7 +272,6 @@ Failure retains the candidate without merge; a failure-approval flag cannot bypa
 refactor's final verification. Ordinary design Tasks without this declaration retain
 all existing behavior. Dependency repair/refactor completion is not a prerequisite for
 a separately authorized deletion. No remaining Resource edit is permitted inside its deletion Task.
-
 
 ## Controlled deploy repair contract
 

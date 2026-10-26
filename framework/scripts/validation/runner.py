@@ -16,6 +16,7 @@ from types import SimpleNamespace as _CallbackState
 
 import deploy.inputs as _imports_deploy_inputs
 import generation_inputs as _imports_generation_inputs
+import model.change_plan as change_plan
 import model.core as _exports_model_core
 import model.core as _imports_model_core
 import model.sources as _imports_model_sources
@@ -24,6 +25,7 @@ import sync_runtime as _imports_sync_runtime
 import sync_views as _imports_sync_views
 import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
+import validation.change as change_validation
 import validation.task as _dependency_validation_task
 from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex
@@ -315,6 +317,7 @@ class Validator:
         final_candidate=None,
         check_display=True,
         issues_save=False,
+        model_validation="full",
     ) -> None:
         definition_root = _imports_utils_aws_mappings.definition_root
         self.findings = Findings(root)
@@ -329,6 +332,10 @@ class Validator:
         self.write = write
         self.check_display = check_display
         self.issues_save = issues_save
+        if model_validation not in {"change", "full"}:
+            raise ValueError("unknown Model validation selection")
+        self.model_validation = model_validation
+        self.change_plan = None
         self.service_cache_pending = []
         self.catalog_pending = None
         self.catalog_key = None
@@ -508,7 +515,10 @@ class Validator:
             if not self.errors:
                 self.generate_and_validate(snapshot, registered)
             return self.report()
-        if self.scope is None:
+        if self.model_validation == "change":
+            if not self.errors:
+                self.check_changed_designs()
+        elif self.scope is None:
             self.check_designs()
             self.check_observed_values()
         elif self.scope and not self.errors:
@@ -583,11 +593,13 @@ class Validator:
             text is not None and status(text) == "running",
             "--write requires a running task contract",
         )
+        if self.model_validation == "change":
+            self.check_changed_inputs()
         if self.errors:
             return
         plan = prepare_generation(
             self.root,
-            self.scope,
+            self.change_plan.views if self.model_validation == "change" else self.scope,
             snapshot=snapshot,
             definitions_root=self.definitions_root,
         )
@@ -1153,8 +1165,22 @@ class Validator:
         )
 
     def check_validation_scope(self) -> None:
-        if self.task.final_candidate is not None or (self.root / ".git").exists():
-            self.task.fix_baseline()
+        if self.model_validation == "full":
+            project.check_validation_scope(
+                self.accounts,
+                set(),
+                self.contract_scope,
+                self.findings,
+                self.root,
+                self.scope,
+                self.task_iac_paths,
+                candidates=self.write,
+            )
+            return
+        self.task.fix_baseline()
+        self.change_plan = change_plan.task_plan(
+            self.root, self.task.scope_paths, base=self.task.baseline
+        )
         self.task.impact = project.check_validation_scope(
             self.accounts,
             self.task.scope_paths,
@@ -1163,11 +1189,51 @@ class Validator:
             self.root,
             self.scope,
             self.task_iac_paths,
-            candidates=self.write,
+            candidates=True,
             base=self.task.baseline,
         )
-        # Design requirements and scope validation consume the same source set and snapshot.
-        self.task.design_impact = self.task.impact
+        self.task.design_impact = set(self.change_plan.views)
+
+    def check_changed_inputs(self):
+        findings = change_validation.validate_plan(
+            self.root,
+            self.change_plan,
+            self.scope,
+            definitions_root=self.definitions_root,
+        )
+        self.findings.include_diagnostics(findings)
+        self.checks += findings.checks
+        for warning in findings.warnings:
+            self.findings.warn(warning)
+
+    def check_changed_designs(self):
+        self.check_changed_inputs()
+        if self.errors or not self.change_plan.views:
+            return
+        generator = Validator(
+            self.root,
+            set(self.change_plan.views),
+            workers=self.workers,
+            definitions_root=self.definitions_root,
+            model_validation="change",
+        )
+        generator.check_generated_service_models()
+        self.findings.include_diagnostics(generator.findings)
+        self.checks += generator.checks
+        for warning in generator.warnings:
+            self.findings.warn(warning)
+        self.findings.unverified.extend(generator.findings.unverified)
+        self.findings.processing_errors.extend(generator.findings.processing_errors)
+        for result in generator.findings.results.values():
+            self.findings.results[
+                result.check_id, result.scope, self.findings.candidate
+            ] = replace(result, candidate=self.findings.candidate)
+        result = self.findings.result("framework.generated-service-model", self.scope)
+        actual = generator.findings.result(
+            "framework.generated-service-model", generator.scope
+        )
+        result.status, result.metadata = actual.status, dict(actual.metadata)
+        self.generated_models_checked = True
 
     def check_framework_cloudformation_schema_catalog(self) -> None:
         return framework_contracts.check_framework_cloudformation_schema_catalog(
@@ -1254,6 +1320,8 @@ class Validator:
         )
 
     def check_model_files(self) -> None:
+        if self.model_validation == "change":
+            return
         return design.check_model_files(
             findings=self.findings, root=self.root, scope=self.scope
         )
@@ -1331,7 +1399,11 @@ class Validator:
         return self.findings.evaluate(
             "framework.policy-tables",
             self.scope,
-            lambda: design.check_policy_tables(
+            lambda: (
+                design.check_policy_view_integrity
+                if self.model_validation == "change"
+                else design.check_policy_tables
+            )(
                 self.design_files(),
                 self.findings,
                 definitions_root=self.definitions_root,
@@ -1596,6 +1668,15 @@ def run_validation(
             or not _imports_task_contract.issues_save_only(root)
         ):
             raise ValueError("invalid issues save validation options or contract")
+        model_validation = getattr(options, "model_validation", None) or (
+            "full" if options.all or task_file is None else "change"
+        )
+        if final_candidate is not None:
+            model_validation = "change"
+        if options.write and model_validation == "full":
+            raise ValueError(
+                "Full Model validation is independent and read-only; updates use Change Validation"
+            )
         deployment_paths = [] if issues_save else task_deployment_input_paths(root)
         validator = Validator(
             root,
@@ -1614,6 +1695,7 @@ def run_validation(
             else None,
             final_candidate=final_candidate,
             issues_save=issues_save,
+            model_validation=model_validation,
         )
         validator.run()
         return validator

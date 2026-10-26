@@ -689,7 +689,7 @@ def check_resource_names(
                         )
 
 
-def check_policy_tables(paths, findings, *, definitions_root=None) -> None:
+def check_policy_view_integrity(paths, findings, *, definitions_root=None) -> None:
     for path in paths:
         try:
             findings.check(
@@ -705,6 +705,18 @@ def check_policy_tables(paths, findings, *, definitions_root=None) -> None:
             findings.check(
                 False, f"invalid policy tables: {findings.relative(path)}: {error}"
             )
+
+
+def check_policy_tables(paths, findings, *, definitions_root=None):
+    for path in paths:
+        findings.evaluate(
+            "design.policy-quality",
+            None,
+            lambda path=path: _dependency_policy_tables.validate_policy_artifacts(
+                path, definitions_root=definitions_root
+            ),
+        )
+    check_policy_view_integrity(paths, findings, definitions_root=definitions_root)
 
 
 def check_observed_values(

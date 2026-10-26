@@ -317,7 +317,6 @@ def policy_lines(path: Path, policy: Policy, *, presentation=None) -> list[str]:
     document = policy_json(artifact.read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError(f"policy JSON must be an object: {policy.link}")
-    validate_policy_document(document, policy, design=True)
     if any(nodes(document)):
         root = path.parents[4]
         model_path = (
@@ -649,6 +648,24 @@ def rendered_design(
         generated.extend(["", end])
         lines[resource.table_end : resource.table_end] = generated
     return "\n".join(lines) + "\n"
+
+
+def validate_policy_artifacts(path, *, definitions_root=None):
+    """Independent saved-artifact quality checks; generation only renders their structure."""
+    document = _design_document.DesignIndex(definitions_root).get(path)
+    for resource in resources_in(list(document.raw.display_lines), definitions_root):
+        for policy in resource.policies:
+            artifact = (path.parent / policy.link).resolve()
+            if artifact.parent != path.with_suffix("").resolve():
+                raise ValueError(
+                    "policy artifact must belong to the owning service: " + policy.link
+                )
+            if artifact.is_file():
+                validate_policy_document(
+                    policy_json(artifact.read_text(encoding="utf-8")),
+                    policy,
+                    design=True,
+                )
 
 
 def main(argv=None) -> int:

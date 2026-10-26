@@ -134,28 +134,58 @@ def write_job_bucket_definitions(path: Path) -> None:
         )
 
 
-def job_errors(self, values: dict) -> list[str]:
+JOB_INPUT_GROUPS = (
+    {"jobType", "scheduleFrequency", "initialRun"},
+    {
+        "managedDataIdentifierSelector",
+        "managedDataIdentifierIds",
+        "customDataIdentifierIds",
+    },
+    {"s3JobDefinition"},
+)
+
+
+def job_rule_inputs(self, changed=None):
+    return set().union(
+        *(group for group in JOB_INPUT_GROUPS if changed is None or group & changed)
+    )
+
+
+def job_errors(self, values: dict, *, changed=None) -> list[str]:
     """Cross-property API constraints; call after typed value validation."""
     errors = []
-    if values.get("jobType") == "SCHEDULED" and "scheduleFrequency" not in values:
+    scheduling = changed is None or bool(JOB_INPUT_GROUPS[0] & changed)
+    selection = changed is None or bool(JOB_INPUT_GROUPS[1] & changed)
+    if (
+        scheduling
+        and values.get("jobType") == "SCHEDULED"
+        and "scheduleFrequency" not in values
+    ):
         errors.append("SCHEDULED requires scheduleFrequency")
-    if values.get("jobType") == "ONE_TIME":
+    if scheduling and values.get("jobType") == "ONE_TIME":
         for prop in ("scheduleFrequency", "initialRun"):
             if prop in values:
                 errors.append(f"ONE_TIME must omit {prop}")
     selector = values.get("managedDataIdentifierSelector", "RECOMMENDED")
-    if selector in {"INCLUDE", "EXCLUDE"} and not values.get(
-        "managedDataIdentifierIds"
+    if (
+        selection
+        and selector in {"INCLUDE", "EXCLUDE"}
+        and not values.get("managedDataIdentifierIds")
     ):
         errors.append(f"{selector} requires managedDataIdentifierIds")
     if (
-        selector in {"ALL", "NONE", "RECOMMENDED"}
+        selection
+        and selector in {"ALL", "NONE", "RECOMMENDED"}
         and "managedDataIdentifierIds" in values
     ):
         errors.append(f"{selector} must omit managedDataIdentifierIds")
-    if selector == "NONE" and not values.get("customDataIdentifierIds"):
+    if selection and selector == "NONE" and not values.get("customDataIdentifierIds"):
         errors.append("NONE requires customDataIdentifierIds")
-    scoping = values.get("s3JobDefinition", {}).get("scoping", {})
+    scoping = (
+        values.get("s3JobDefinition", {}).get("scoping", {})
+        if changed is None or "s3JobDefinition" in changed
+        else {}
+    )
     for block in scoping.values():
         for term in block.get("and", []):
             simple = term.get("simpleScopeTerm", {})

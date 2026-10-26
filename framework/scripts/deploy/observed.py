@@ -16,9 +16,6 @@ from model.adapters.observed import (
     resolve_resources,
 )
 from model.identity import resource_link
-from model.sources import load_model
-from model.validation import check_model_inputs
-from utils.aws_mappings import definition_root
 from utils.cloudformation.inputs import Blocked as Blocked
 from utils.json_format import fingerprint
 
@@ -130,21 +127,6 @@ def readiness(backend, unit, state=None):
             observed_destinations(
                 backend.root, backend.environment, backend.directory, loaded, changes
             )
-        models = getattr(backend, "observed_models", set())
-        for path in loaded.keys() - models:
-            view = (
-                backend.root / "docs/designs" / path.relative_to(backend.root / "model")
-            ).with_suffix(".md")
-            findings = check_model_inputs(
-                view,
-                load_model(path).authoritative,
-                backend.root,
-                definitions_root=definition_root(backend.root),
-            )
-            if findings.errors:
-                raise ValueError("\n".join(findings.errors))
-            models.add(path)
-        backend.observed_models = models
         checked.add(key)
         backend.observed_checks = checked
     except (OSError, ValueError, Blocked) as error:

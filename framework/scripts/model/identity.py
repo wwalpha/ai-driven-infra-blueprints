@@ -9,6 +9,8 @@ import utils.aws_catalogs as _imports_utils_aws_catalogs
 import utils.reference_contracts as _imports_reference_contracts
 from utils.reference_contracts import reference_attribute
 
+import model.change_scope as change_plan
+import model.dependency_index as dependency_index
 import model.environment_values as environment_values
 import model.importing.scope as _imports_model_importing_scope
 import model.sources as _imports_model_sources
@@ -152,7 +154,8 @@ class Resolver:
             {},
             {},
         )
-        self.overrides = {}
+        self.overrides = dict(change_plan.inputs_for(root)[2])
+        self.models.update(self.overrides)
         self.reference_revision = getattr(self.reads, "reference_revision", None)
         self.logical_indexes = {}
         self.catalog = None
@@ -190,7 +193,11 @@ class Resolver:
                     "producer Model is absent", reference=value
                 )
             with reference_reader(producer.path):
-                snapshot = _source_snapshot(producer, self.reads)
+                snapshot = (
+                    _imports_model_sources.raw_model(producer, self.reads)
+                    if change_plan.active()
+                    else _source_snapshot(producer, self.reads)
+                )
             resource_index(snapshot.authoritative)
             self.models[producer.path] = snapshot
             self.indexes[producer.path] = anchor_index(snapshot.authoritative)
@@ -207,7 +214,7 @@ class Resolver:
         sources = _imports_model_sources
         key = (
             (scope.environment, scope.target, logical_id)
-            if sources.session_reads(self.root) is not None
+            if sources.session_reads(self.root) is not None or change_plan.active()
             else (scope.environment, scope.target)
         )
         if key not in self.logical_indexes:
@@ -217,6 +224,10 @@ class Resolver:
                 for producer in (
                     sources.session_reads(self.root).logical_models(scope, logical_id)
                     if sources.session_reads(self.root) is not None
+                    else dependency_index.logical_models(
+                        self.root, scope.environment, scope.target, logical_id
+                    )
+                    if change_plan.active()
                     else sources.list_models(scope, self.reads)
                 )
             }
@@ -225,20 +236,26 @@ class Resolver:
                     path: snapshot.scope
                     for path, snapshot in self.models.items()
                     if snapshot is not None
+                    and snapshot.scope.root == self.root
                     and (snapshot.scope.environment, snapshot.scope.target)
                     == (scope.environment, scope.target)
                 }
             )
             for producer in scopes.values():
-                if producer.service == "cloudformation-stacks":
+                if (
+                    producer.service == "cloudformation-stacks"
+                    or self.reads.kind(producer.path) == "missing"
+                ):
                     continue
                 try:
                     if producer.path not in self.models:
                         with _imports_model_importing_scope.reference_reader(
                             producer.path
                         ):
-                            self.models[producer.path] = sources._source_snapshot(
-                                producer, self.reads
+                            self.models[producer.path] = (
+                                sources.raw_model(producer, self.reads)
+                                if change_plan.active()
+                                else sources._source_snapshot(producer, self.reads)
                             )
                     snapshot = self.models[producer.path]
                     if snapshot is None:

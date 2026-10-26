@@ -130,7 +130,7 @@ def test_pending_deploy_in_document_is_unchanged():
         desired_reference=Mock(),
         property_schema=Mock(),
         evaluate=Mock(),
-        model_path=Path("synthetic.json"),
+        model_path=Path("/synthetic/model/dev/team/route53.properties"),
     )
     assert prepared.require_value() == {"DNSName": "PENDING_DEPLOY"}
 

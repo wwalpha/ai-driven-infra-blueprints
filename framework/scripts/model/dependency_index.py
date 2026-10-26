@@ -4,6 +4,7 @@ from contextlib import nullcontext
 
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
+import model.change_scope as change_scope
 import model.identity as identity
 import model.sources as sources
 from model.core import entries
@@ -73,6 +74,7 @@ def rebuild(root):
 
 
 def load(root):
+    root = change_scope.index_root(root)
     shared = sources.session_reads(root)
     with shared.lock if shared is not None else nullcontext():
         if shared is not None and shared.dependency_index is not None:
@@ -235,3 +237,28 @@ def consumers(root, scopes, identifiers):
             for identity in identifiers
         )
     ]
+
+
+def check_change_inventory(root, changed):
+    """Reject unseen reference edits using metadata, without parsing other Models."""
+    primary = change_scope.index_root(root)
+    index = load(root)
+    current = inventory(primary)
+    stale = []
+    for relative in current.keys() | index["files"].keys():
+        scope = sources.source_scope(primary, primary / relative)
+        if (scope.environment, scope.target, scope.service) in changed:
+            continue
+        if current.get(relative) != index["files"].get(relative):
+            stale.append(relative)
+    if stale:
+        raise ValueError(
+            "Model dependency index is stale; rebuild offline before Change Validation: "
+            + ", ".join(sorted(stale))
+        )
+    return index
+
+
+def change_consumers(root, scopes, identifiers, changed):
+    check_change_inventory(root, changed)
+    return consumers(root, scopes, identifiers)

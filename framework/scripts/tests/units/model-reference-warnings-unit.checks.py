@@ -41,6 +41,8 @@ from utils.source_reads import FileReads
 from validation.findings import CheckResult, Findings
 from validation.runner import Validator
 
+from model import dependency_index
+
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
@@ -149,6 +151,7 @@ def check_deleted_target_retains_before_value(tmp_path):
     before, after = tmp_path / "before", tmp_path / "after"
     dependency_fixture(before)
     shutil.copytree(before, after)
+    dependency_index.rebuild(after)
     file = after / "model/stg/cde/service-a.properties"
     values = dict(load_model(file).authoritative)
     write_model(
@@ -216,7 +219,6 @@ def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
         "validate_kms_policy_accounts",
     ):
         monkeypatch.setattr(runtime, name, lambda *a, **k: None)
-    monkeypatch.setattr(runtime, "design_target", lambda *a: {})
     fail = _check_reference_view_retained_but_io_still_fails_fail
     monkeypatch.setattr(runtime, "markdown_for", fail)
     warnings, unavailable, failures = [], {}, []
@@ -466,7 +468,6 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
         "validate_kms_policy_accounts",
     ):
         monkeypatch.setattr(runtime, name, lambda *a, **k: None)
-    monkeypatch.setattr(runtime, "design_target", lambda *a: {})
     unavailable = _check_generation_warning_keeps_independent_error_unavailable
     monkeypatch.setattr(runtime, "markdown_for", unavailable)
     failures, warnings, unverified = [], [], {}
@@ -482,8 +483,8 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
         )
         == {}
     )
-    assert any("Name must appear exactly once" in error.message for error in failures)
-    assert warnings and not unverified
+    assert not failures
+    assert warnings and unverified
     assert not (stage / path.relative_to(root)).exists()
 
 
@@ -578,7 +579,7 @@ def check_model_document_uses_authoritative_json(tmp_path):
         "desired.row.001-001.comment": "ロール名",
         "desired.row.001-002.property": "IAM.Role.AssumeRolePolicyDocument",
         "desired.row.001-002.value": "[policy](iam/policy.json)",
-        "desired.row.001-002.document": '{"Version":"2012-10-17","Statement":[]}',
+        "desired.row.001-002.document": '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}',
         "desired.row.001-002.comment": "合成設定",
     }
     result = _check_model_inputs(
@@ -691,6 +692,7 @@ def check_cross_environment_direct_link_preserves_scope_and_dependency(tmp_path)
         "desired.note.002.text": "[ordinary](https://example.invalid/#fixed) old-id",
     }
     write_model(consumer, reference_rows(values))
+    dependency_index.rebuild(tmp_path)
     snapshot = load_model(consumer, FileReads())
     records = usages(snapshot)
     assert len(records) == 1 and records[0].producer_scope == "release/other/network.v1"

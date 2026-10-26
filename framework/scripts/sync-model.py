@@ -13,6 +13,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import import_guard as _imports_import_guard
+import model.change_plan as change_plan
 import model.impact as _imports_model_impact
 import model.importing.scope as _imports_model_importing_scope
 from model.core import ReferenceResolutionError
@@ -183,6 +184,8 @@ def main(argv=None, *, definitions_root=None) -> int:
                     + scope_diagnostic(impact, scope)
                 )
             if args.write and import_selection(root) is None:
+                if changed:
+                    scope = set(change_plan.task_plan(root, changed).views)
                 require_import_changes = _imports_import_guard.require_import_changes
                 require_import_changes(root, changed, generation=True)
                 return run_generation(

@@ -10,7 +10,6 @@ from pathlib import Path
 
 import model.adapters.task as _compat_model_adapters_task
 import model.core as _imports_model_core
-import model.impact as _imports_model_impact
 import model.importing.evidence as _compat_model_importing_evidence
 import model.importing.evidence as _dependency_model_importing_evidence
 import model.importing.repository as _imports_model_importing_repository
@@ -19,6 +18,7 @@ import model.sources as _dependency_model_sources
 import task_contract_core as _imports_task_contract
 import utils.sealed_evidence as _sealed_evidence
 import validation_scope as _imports_validation_scope
+from model.change_scope import index_stage
 from model.configuration import resource_configuration
 from sync_files import save_files
 from task_contract_core import (
@@ -127,7 +127,14 @@ def archive_sources(root, base, paths, destination):
 
 @contextmanager
 def snapshots(
-    root, base, output, definitions_root=None, *, detached=False, identity_inputs=False
+    root,
+    base,
+    output,
+    definitions_root=None,
+    *,
+    detached=False,
+    identity_inputs=False,
+    source_paths=None,
 ):
     definitions_root = definitions_root or definition_root(root)
     for path in output:
@@ -141,7 +148,7 @@ def snapshots(
             tempfile.TemporaryDirectory(prefix="blueprint-import-guard-")
         )
         before = Path(directory).resolve() / "before"
-        paths = [
+        paths = source_paths or [
             "model",
             "project.json",
             *(["infra/cloudformation"] if identity_inputs else []),
@@ -159,11 +166,13 @@ def snapshots(
             if cache is not None:
                 cache[1][key] = before
         lifetime.enter_context(mapping_alias(definitions_root, before))
+        lifetime.enter_context(index_stage(root, before))
         after = root
         if output or detached:
             after = Path(directory).resolve() / "after"
             after.mkdir()
             lifetime.enter_context(mapping_alias(definitions_root, after))
+            lifetime.enter_context(index_stage(root, after))
             for path in (
                 *input_select(root / "model", "*", recursive=True, kinds=("file",)),
                 root / "project.json",
@@ -261,7 +270,6 @@ def require_import_changes(
     operation = model_operation(text)
     refactor = model_refactor(text)
     if operation is not None:
-        affected = _imports_model_impact.affected
         if generation:
             return  # Source/view generation does not decide final Model operation meaning.
         base = (
@@ -289,7 +297,7 @@ def require_import_changes(
                     for ref in operation.references
                     for address in (ref.consumer, ref.source, ref.destination)
                 }
-                required |= operation.scopes | affected(after, sources)
+                required |= operation.scopes
                 if scope is None or not required <= scope:
                     raise ValueError(
                         "Model operation requires all producers/consumers in Validation scope"
@@ -355,7 +363,7 @@ def require_import_changes(
             raise ValueError(
                 "IMPORT retrieval/reflection is incomplete; task remains unfinished"
             )
-        return
+        warnings = []
     else:
         warnings = []
     if sources:

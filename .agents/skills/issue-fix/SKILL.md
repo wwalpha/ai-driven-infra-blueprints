@@ -7,6 +7,8 @@ description: Investigate existing issues.md for a specified AWS Blueprint enviro
 
 `issues.md` を調査の入口とし、現在の Model と根拠を確認してから、既存 Skill と保存・生成・検証 API へ委譲する。これは新しい修正エンジンではない。Framework と IaC は読み取り対象の必要箇所を除き変更禁止とし、Model/IaC 差分は調査・修正しない。
 
+Model 更新時は **Change Validation のみ**実行する。Full Validation は Issue Scan や独立した明示的全量検証で使用し、更新の停止判定へ混入させない。変更した Resource / Property / Link と、それらが使用・破壊する参照契約を検証し、無関係な既存エラーを更新の停止理由にしない。読み取り依存先、検証対象、生成対象、Task の書き込み権限を区別する。
+
 ## 入力と対象
 
 - Environment、Target は必須。Service と Issue ID は任意。省略時は指定 Target の全 Service、対象 Service の全 Issue を選ぶ。

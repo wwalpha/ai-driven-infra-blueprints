@@ -8,7 +8,6 @@ For `/import`, [IMPORT configuration authority](model-information.md#import-conf
 replaces the design validation/completion rules below: source and display transactions
 are separate, and issues runs only when explicitly requested. Other workflows retain these rules.
 
-
 ## Task boundary
 
 [task-contract](task-contract.md) is the authority for contracts, stopping, and resuming.
@@ -91,6 +90,41 @@ text-only phases use lightweight checks. Do not start an unrequested phase or cr
 another task merely because validation succeeds. Report executed checks, omitted checks
 and classification reasons in the completion response; add no permanent reports/logs.
 
+### Change Validation and Full Model Validation
+
+Model 更新時は **Change Validation のみ**実行する。Full Validation は Issue Scan や独立した明示的全量検証で使用し、更新の停止判定へ混入させない。変更した Resource / Property / Link と、それらが使用・破壊する参照契約を検証し、無関係な既存エラーを更新の停止理由にしない。読み取り依存先、検証対象、生成対象、Task の書き込み権限を区別する。
+
+`validation.change` is the update/save/Task/final-candidate entrypoint. The transient
+`model.change_plan` compares only changed service snapshots by logicalId and formal
+Property/occurrence. It records changed fields, read dependencies, affected reference
+contracts and required Views. Unreadable old authorities retain raw comparison fields;
+old Model validity is not a save prerequisite. A missing before snapshot for an existing
+persisted Model is an explicit comparison error, never a Full-validation fallback.
+
+`model.validation.check_model_inputs` remains the independent full-quality entrypoint;
+Issue Scan explicitly selects `model_validation="full"` and inspects every current
+Resource, Property and Link in its requested scope without Task/Git differences or
+previous PASS results. The two entries reuse naming, schema, required-property, policy
+and reference rules, selecting inputs before execution instead of filtering Full results.
+
+Task/local loops and Task completion use Change Validation. Read-only explicit `full`
+loops retain scoped Full Model checks and all UT regression. An independent validator
+can select `--model-validation full`; `--all` retains its explicit repository scope.
+Full Model validation with `--write` is rejected. Final candidates always use Change
+Validation, including when their caller requests regression.
+
+Reference discovery reuses the signed dependency index. Metadata revision/file-set checks
+reject unseen external reference edits without parsing unrelated Models. If it is absent, report missing
+comparison/dependency inputs and use the existing offline `model/cli.py index` operation;
+never discover dependencies by running Full quality validation. Producer reads validate
+only the required attributes/context. Read-only producers need no additional write rights
+or quality scope. Consumers join generation only when their reference inputs change;
+actual changed output paths still require Modified files, Allowed paths and publication
+scope. Generation checks structure, references, ownership and generated-artifact integrity,
+without Model quality preflight. Model save and partial View synchronization have separate
+results; incomplete generation does not complete a Task. Snapshot, publication-lock,
+input-comparison, atomic-save/rollback and Import/Deploy authority boundaries remain.
+
 ### Local loop execution
 
 For ordinary Model edits use one command:
@@ -123,7 +157,7 @@ entrypoint. IMPORT's dedicated flow, AWS post-operation verification and indepen
 invoked validation remain separate purposes. Follow
 [Selection and publication](task-contract.md#selection-and-publication) for concurrent editing.
 
-Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, design/model checks for services in Validation scope, task type checks, task Acceptance checks, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type. Blocking failure at any layer is FAIL. Existing checks retain their scan scope and record discovered failures as ordinary errors. `--all`, scope `all`, and `--repository-wide-iac` retain their existing scan-scope behavior.
+Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, Change Validation for changed inputs and required Views within Validation scope, task type checks, task Acceptance checks, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type. Blocking failure at any layer is FAIL. Existing checks retain their scan scope and record discovered failures as ordinary errors. `--all`, scope `all`, and `--repository-wide-iac` retain their existing scan-scope behavior.
 
 Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under [Task transition](task-contract.md#task-transition).
 
@@ -168,7 +202,7 @@ When running a local loop, retain the following checks in its applicable scope. 
 - CREATE `EC2.VPCEndpoint` / `EC2.Instance` have case-sensitive `Tags[].Key=Name` followed immediately by the corresponding confirmed non-empty `Tags[].Value`, matching overview/heading/ordinary reference link display names. Design validation/generation use the common helper to determine requirements and reject display label substitution
 - Single standalone resources of a type without a name property generate type-only detail headings and saved anchors when no selected Name tag or existing label exists. Distinguish overview headings from detail headings; retain hidden logical IDs and desired/observed separation. Do not save derived type names in labels; reject type-name display for multiple resources of the same type, omitted name properties, or missing mandatory CREATE Name tags
 - resourceMode is only CREATE/IMPORT; validate unspecified mode as CREATE. Exempt only IMPORT from framework naming coverage, lower-kebab, and mandatory Name policy; do not fill missing Name tags. Obtain classification and resource numbers from Model logicalId indexes, without duplicate Markdown comments; retain schema, catalog, reference, row structure, and generated display equality validation
-- Read-only reference analysis and intermediate leaves report warnings and retain unavailable Views with reference-dependent checks NOT_RUN. The common final candidate guard rejects missing/ambiguous Resource targets and invalid types/Properties; pending observations and saved-text differences remain warnings. Validate corrected authorities and affected consumers without loading old Git Models in ordinary saves, Task checks/completion or worktree guards. Framework-only changes perform no Model load.
+- Read-only reference analysis and intermediate leaves report warnings and retain unavailable Views with reference-dependent checks NOT_RUN. The common final candidate guard rejects missing/ambiguous Resource targets and invalid types/Properties; pending observations and saved-text differences remain warnings. Validate corrected fields and affected reference contracts using only changed-service before/after comparison snapshots in ordinary saves, Task checks/completion and worktree guards. Framework-only changes perform no Model load.
 - Each resource has exactly 1 `CodeBuild.Project.Name` row with a confirmed non-empty literal. Common name validation for design validation/model generation rejects missing, empty, unconfirmed, and duplicate values; Name tags/display labels are not substitutes
 - If CloudFormation stack detailed designs exist, validate stack names, template filenames, and parameter filenames, and confirm equality with generated stack models
 - No generated ARNs exist in `model/`
@@ -190,8 +224,8 @@ For tasks affecting runtime inputs or behavior, task-type-specific checks cannot
 
 Existing service entrances follow [Model sources](model-templates.md). Source and
 observation changes are environment/target/service scoped. Use common properties discovery
-and saved-reference impact analysis for incoming consumers, retaining conservative scope
-when the baseline or dependency meaning is unknown. Read-only producer discovery never
+and the Change Plan for affected incoming reference contracts. Missing comparison or
+dependency inputs are explicit errors; never fall back to target-wide quality checks. Read-only producer discovery never
 expands Deployment scope, Allowed paths or AWS permission.
 
 Assemble full properties authority before Model/catalog/schema/view checks. Input guards
@@ -208,7 +242,6 @@ Import pins one environment/target/service. Its producer/incoming inputs are rea
 acquisition/source/display completion runs no design validation or local loop. The LLM
 owns service iteration and conversational consent. This exception does not apply to
 Framework implementation or ordinary design.
-
 
 ## Validation cache
 
@@ -325,7 +358,7 @@ Before design questions, on resume, target changes, before design contract regis
 
 1. Update authoritative environment-specific properties inputs specified by the active prompt. Only when existing-resource retrieval is specified, validate read-only AWS context before repository changes and directly reflect differences in selected properties of human-selected resources to current values.
 2. For existing-resource retrieval, reflect only necessary non-ARN current identifiers in observed.row.*.value. Do not save secrets, generated ARNs, or resource provenance.
-3. Save confirmed design values in the corresponding properties first. The integrated task loop with `--write` validates schema/catalog mandatory root properties in authoritative properties per service; for deficient services, generate no Markdown/JSON artifacts or policy tables, even temporary files. Retain properties as inputs and report missing resources/properties. Temporarily generate/validate only services with complete required items; save successful services in the same coherent change. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for failing services and continue processing other services. If failures remain, do not treat as complete; correct authoritative properties and rerun.
+3. Save confirmed design values in the corresponding properties through Change Validation. New Resources require mandatory root properties; existing Resources select only rules related to changed fields and affected reference contracts. The integrated task loop with `--write` generates the required Views after checking their structure, references and artifacts, without Full Model quality validation. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for services whose generation fails and save successful services in the same coherent change. Report Model save and View synchronization separately; unresolved required Views prevent Task completion.
 4. Run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` once to generate and perform final validation.
 5. Finish the task without changing IaC, AWS mutation, scenarios, or results.
 
@@ -423,7 +456,6 @@ refactor meaning check through require_import_changes on the actual latest-base
 candidate. Generation remains the existing path, and independent complete retains its
 own check. No second pre-finalize final loop or completion is required. Ordinary design
 without this opt-in declaration retains its existing validation/integration behavior.
-
 
 The same Model-only final-candidate composition applies to
 [Standalone Model reference retarget](task-contract.md#standalone-model-reference-retarget).

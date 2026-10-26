@@ -676,6 +676,9 @@ def _callback__run_loop_validation_call(
         fresh=args.fresh or args.mode == "full" or args.all,
         jobs=args.validation_jobs,
         repository_wide_iac=args.mode == "full" or args.all,
+        model_validation="full"
+        if args.mode == "full" and not args.write and final_candidate is None
+        else "change",
         contract_scope=args.mode in {"task", "full"} and scope is not None,
     )
     if args.profile:
@@ -831,6 +834,12 @@ def _run_loop(root, args, final_candidate):
                     str(root),
                     "--jobs",
                     str(args.validation_jobs),
+                    "--model-validation",
+                    "full"
+                    if args.mode == "full"
+                    and not args.write
+                    and final_candidate is None
+                    else "change",
                     *(["--write"] if args.write else []),
                     *(
                         ["--fresh"]

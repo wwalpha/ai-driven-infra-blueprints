@@ -11,7 +11,6 @@ from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
 import design.document as _dependency_design_document
-import design.policy_tables as _imports_policy_tables
 import json_intrinsics as _imports_json_intrinsics
 import utils.json_format as _imports_utils_json_format
 from design.catalog import design_material_files
@@ -382,9 +381,6 @@ def execution_document(
     document, root, *, property_name=None, scope=None, logical_id=None, warnings=None
 ):
     """Project design JSON; unresolved CFn expressions retain their authored structure."""
-    POLICY_FORMATS = _imports_policy_tables.POLICY_FORMATS
-    Policy = _imports_policy_tables.Policy
-    validate_policy_document = _imports_policy_tables.validate_policy_document
     AwsDocumentError = _imports_utils_json_format.AwsDocumentError
 
     try:
@@ -397,18 +393,6 @@ def execution_document(
             logical_id=logical_id,
         )
         projected = document
-        if property_name in POLICY_FORMATS:
-            validate_policy_document(
-                projected, Policy("", "", "", "", property_name), design=True
-            )
-        else:
-            project_document(
-                projected,
-                warnings=warnings,
-                property_name=property_name,
-                model_path=scope.path if scope else root,
-                logical_id=logical_id,
-            )
     except AwsDocumentError as error:
         raise ValueError(
             f"Model={scope.path if scope else root}, Resource logicalId={logical_id}, "
@@ -662,7 +646,9 @@ def generated_document(
     )
     require_reference_diagnostics(diagnostics)
     resolved = project(document, partial(_resolved_document_value, resolutions))
-    if property_name:
+    if property_name and any(
+        value == "PENDING_DEPLOY" for _, value in environment_values._leaves(resolved)
+    ):
         kind = ".".join(property_name.split(".")[:2])
         pending = [
             item

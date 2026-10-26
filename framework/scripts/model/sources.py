@@ -38,6 +38,7 @@ from utils.source_reads import FileReads as FileReads
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
+import model.change_scope as change_scope
 import model.core as _imports_model_core
 import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
@@ -574,6 +575,16 @@ def runtime_values(authoritative: Mapping[str, str]) -> dict[str, str]:
             return memo[cache_key][1]
     validate_authority = _imports_model_core.validate_authority
     validate_authority(authoritative)
+    result = projected_values(authoritative)
+    if isinstance(authoritative, SnapshotValues):
+        result = SnapshotValues(result)
+        if memo is not None:
+            memo[cache_key] = (authoritative, result)
+    return result
+
+
+def projected_values(authoritative):
+    """Project known fields; callers own selection and authority validation."""
     values = {
         key: value
         for key, value in authoritative.items()
@@ -590,11 +601,6 @@ def runtime_values(authoritative: Mapping[str, str]) -> dict[str, str]:
                     values[key.removesuffix("value") + field] = authoritative[
                         prefix + field
                     ]
-    if isinstance(authoritative, SnapshotValues):
-        result = SnapshotValues(values)
-        if memo is not None:
-            memo[cache_key] = (authoritative, result)
-        return result
     return values
 
 
@@ -705,6 +711,9 @@ def _load_model(scope, read_context=None):
 
 
 def _invocation_reads(root):
+    selected = change_scope.inputs_for(root)[1]
+    if selected is not None:
+        return selected
     shared = session_reads(root)
     if shared is not None:
         return shared
@@ -817,7 +826,8 @@ def candidate_sources(
             "Model requires a complete properties candidate including its entrance"
         )
     output.update({path: None for path in before.files if path not in output})
-    after = load_model(before.scope, CandidateReads(FileReads(), output))
+    after = raw_model(before.scope, CandidateReads(FileReads(), output))
+    after = after._replace(values=projected_values(after.authoritative))
     return {
         path: text
         for path, text in output.items()

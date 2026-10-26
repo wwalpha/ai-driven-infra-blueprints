@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import os
 from contextlib import ExitStack as ExitStack
+from types import SimpleNamespace
 from unittest.mock import patch as patch
 
 import model.importing.scope as _imports_model_importing_scope
 import support.model_sources as _imports_support_model_sources
+from model.sources import source_scope
 from support.validator import MODULE, SCRIPT
 from support.validator import project as project
 from support.validator import write as write
@@ -353,11 +355,19 @@ def check_task_type_cases(root) -> None:
         ), validator.errors
 
 
+def task_impact_fixture(root, paths, **_kwargs):
+    scopes = [source_scope(root, root / path) for path in paths]
+    return SimpleNamespace(
+        services={(s.environment, s.target, s.service) for s in scopes}
+    )
+
+
 def check_task_type_inputs() -> None:
     write_model = _imports_support_model_sources.write_model
     with (
         project() as root,
         patch.dict(os.environ, {"BLUEPRINT_TASK_FILE": "tasks/example.md"}),
+        patch("validation.task.task_impact", side_effect=task_impact_fixture),
     ):
         write(
             root / "project.json",

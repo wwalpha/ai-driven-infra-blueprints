@@ -61,6 +61,11 @@ def parse_args() -> argparse.Namespace:
         help="Generate, validate and publish selected service views",
     )
     parser.add_argument(
+        "--model-validation",
+        choices=("change", "full"),
+        help="Select independent full Model checks or Task changes",
+    )
+    parser.add_argument(
         "--all", action="store_true", help="Explicit repository-wide validation"
     )
     parser.add_argument(

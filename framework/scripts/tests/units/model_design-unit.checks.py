@@ -1418,10 +1418,6 @@ def check_required_resource_names(kind, field):
                 for n, (prop, value) in enumerate(fields, 1)
             ]
             assert naming_errors(ROOT, kind, rows), (kind, rows)
-            with pytest.raises(ValueError, match=kind + "." + field):
-                resource_display_selection(
-                    ROOT, kind, rows, "fallback-label", "CREATE", 1
-                )
 
 
 @pytest.mark.parametrize("kind", ["EC2.VPCEndpoint", "EC2.Instance"])

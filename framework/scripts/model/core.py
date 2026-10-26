@@ -251,6 +251,18 @@ def validate_model_keys(values: dict[str, str]) -> None:
             raise ValueError("unknown Model field: " + key)
 
 
+def validate_stack_field(field, value):
+    if field == "deployOrder":
+        positive_integer(value, "DeployOrder")
+    elif field == "name" and not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", value):
+        raise ValueError(f"invalid stack name: {value}")
+    elif field in {"template", "parameters"}:
+        path = Path(value)
+        suffixes = {".yaml", ".yml"} if field == "template" else {".json"}
+        if path.name != value or "\\" in value or path.suffix not in suffixes:
+            raise ValueError(f"invalid stack {field} filename: {value}")
+
+
 def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, str]]]]:
     """Validate deployment inputs once for rendering, projection and execution."""
     limit = positive_integer(
@@ -264,9 +276,8 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
     for identity, stack in stacks:
         if set(stack) not in (allowed, allowed | {"placementName"}):
             raise ValueError(f"stack {identity} requires only {sorted(allowed)}")
-        positive_integer(stack["deployOrder"], "DeployOrder")
-        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", stack["name"]):
-            raise ValueError(f"invalid stack name: {stack['name']}")
+        for field in allowed:
+            validate_stack_field(field, stack[field])
         if stack["name"] in names:
             raise ValueError(f"duplicate stack name: {stack['name']}")
         if stack["parameters"] in parameters:
@@ -275,17 +286,6 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
             )
         names.add(stack["name"])
         parameters.add(stack["parameters"])
-        for field, suffixes in (
-            ("template", {".yaml", ".yml"}),
-            ("parameters", {".json"}),
-        ):
-            path = Path(stack[field])
-            if (
-                path.name != stack[field]
-                or "\\" in stack[field]
-                or path.suffix not in suffixes
-            ):
-                raise ValueError(f"invalid stack {field} filename: {stack[field]}")
     deployment_settings(values)
     unknown = [
         key

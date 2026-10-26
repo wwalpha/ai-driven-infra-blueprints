@@ -307,12 +307,13 @@ def check_pipeline_name_reference_and_candidate_guard(models, mode):
     assert result.status == "resolved" and result.value == "synthetic-codebuild-a"
     validate_json_settings(values, scope.path)
     before = producer_scope.path.read_bytes()
-    validate_candidates(
-        models,
-        [scope.path.relative_to(models).as_posix()],
-        {},
-        {("qa", "team", "codepipeline")},
-    )
+    with pytest.raises(ValueError, match="change comparison unavailable"):
+        validate_candidates(
+            models,
+            [scope.path.relative_to(models).as_posix()],
+            {},
+            {("qa", "team", "codepipeline")},
+        )
     assert producer_scope.path.read_bytes() == before
     producer["desired.row.001-001.value"] = "`PENDING_DEPLOY`"
     save(producer_scope, producer)

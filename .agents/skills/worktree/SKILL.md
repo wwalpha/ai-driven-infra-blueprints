@@ -111,8 +111,9 @@ Use this option only after actual human approval of this task's failures; a gene
 Ordinary integration runs the shared candidate Model guard before commit and after rebase
 in the target worktree’s registered Python,
 with its Task explicitly selected. The launcher retains Git, lifecycle lock and cleanup ownership.
-Framework-only changes do not load Models. Ordinary changes never expand or load old Git
-Models; dedicated operations retain raw-field comparisons only. Cheap contract, HEAD, commit
+Framework-only changes do not load Models. Ordinary Model changes compare only changed-service
+before/after snapshots through the Change Plan, never target-wide Full quality validation;
+dedicated operations retain their raw-field preservation checks. Cheap contract, HEAD, commit
 and base checks precede analysis and required checks remain after
 the guard; changed Task, files or index stop before staging. No runtime fallback or automatic
 setup/retry occurs. Successful guard diagnostics use stderr so stdout remains CLI JSON; failures

@@ -114,7 +114,7 @@ def check_unknown_scope_inputs(tmp_path, entry):
     findings = Findings(tmp_path)
     with (
         patch.object(
-            project, "task_impact", return_value=SimpleNamespace(services=set())
+            project, "task_plan", return_value=SimpleNamespace(services=set())
         ),
         patch.object(
             project._imports_model_sources, "model_exists", return_value=False

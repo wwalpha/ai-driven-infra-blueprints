@@ -10,7 +10,8 @@ import model.core as _imports_model_core
 import model.importing.scope as _imports_model_importing_scope
 import model.sources as _imports_model_sources
 import sync_progress as _imports_sync_progress
-from model.impact import affected, scope_diagnostic, task_impact
+from model.change_plan import assemble, task_plan
+from model.impact import scope_diagnostic
 from utils.aws.identity import IdentityError, select_profile, validate_account_id
 from utils.input_cache import input_is_dir, input_is_file, input_text
 from utils.project_targets import LOWER_KEBAB_PATTERN as LOWER_KEBAB_PATTERN
@@ -60,11 +61,26 @@ def check_validation_scope(
     impact = set()
     if scope or candidates:
         try:
-            impact = (
-                affected(root, changed_paths, before=before, raw=True)
-                if before is not None
-                else set(task_impact(root, changed_paths, base=base).services)
-            )
+            if before is not None:
+                source_scope = _imports_model_sources.source_scope
+                changed = {
+                    source_scope(root, root / path)
+                    for path in changed_paths
+                    if path.startswith("model/")
+                }
+                impact = set(
+                    assemble(
+                        root,
+                        {
+                            (item.environment, item.target, item.service)
+                            for item in changed
+                        },
+                        before,
+                        _imports_model_sources.FileReads(),
+                    ).services
+                )
+            else:
+                impact = set(task_plan(root, changed_paths, base=base).services)
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid Model source scope: {error}")
     if scope is None:

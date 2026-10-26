@@ -1,7 +1,6 @@
 # Manual Design Update and Deployment Prompt
 Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
-
 [Service Model sources](../../rules/model-templates.md) define environment-specific
 properties as authority. Read with `model.sources.load_model`; use
 `model/cli.py trace <service.properties> <key>` to locate exact source bytes.
@@ -12,10 +11,11 @@ Read dependencies grant no write paths. Read with the shared Model loader before
 matching IaC/issues/diff. Generation across environments grants no Deployment scope
 or AWS permission.
 
-
 Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt to receive diffs manually edited by the human in existing authoritative service Model inputs and not yet committed as confirmed design, then perform Markdown generation, reflection into selected IaC, deploy/apply, and completion confirmation in one `infrastructure` task. Do not use it to create new detailed designs.
+
+Model 更新時は **Change Validation のみ**実行する。Full Validation は Issue Scan や独立した明示的全量検証で使用し、更新の停止判定へ混入させない。変更した Resource / Property / Link と、それらが使用・破壊する参照契約を検証し、無関係な既存エラーを更新の停止理由にしない。読み取り依存先、検証対象、生成対象、Task の書き込み権限を区別する。
 
 ## Ordinary Model correction
 
@@ -95,7 +95,6 @@ and deploy/apply. Read [Task transition, boundary and Acceptance](../../rules/ta
 and [IMPORT authority](../../rules/model-information.md#import-configuration-authority).
 The [Model-only contract](../../rules/task-contract.md#model-only-import-operation-contract)
 defines exact pair/reference syntax and compatibility. Do not infer IDs or require pre-edits.
-
 
 The selected managed worktree is the transaction boundary. Keep the same parent Task
 selector through every operation; include all planned source/view paths and required

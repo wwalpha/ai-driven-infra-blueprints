@@ -25,6 +25,7 @@ from design.document import DesignIndex, DisplayMismatchError, require_saved_ide
 from design.layout_schema import STACK_DESIGN
 from design.policy_tables import rendered_design
 from generation_inputs import GenerationInputs
+from model.change_scope import change_reads, index_stage
 from model.core import (
     ReferenceDiagnosticError,
     ReferenceResolutionError,
@@ -34,7 +35,7 @@ from model.core import (
 from model.format import JSON_LINK
 from model.importing.scope import scoped as import_scoped
 from model.importing.scope import selected as import_selection
-from model.projection import design_target, resource_row_scope
+from model.projection import resource_row_scope
 from model.references import _json as model_json
 from model.render import generate_files as generate_files
 from model.render import owned_artifacts
@@ -182,20 +183,9 @@ def stage_inputs(
     links = _bind_framework_callback(_callback_stage_inputs_links, root)
     for path, values in destinations.items():
         views.update(links(path, values.values()))
-    # Discover incoming links without copying every scanned Markdown file.
-    if write:
-        for target in targets:
-            for path in input_select(docs / target, "*.md", kinds=("file",)):
-                if (
-                    path not in destinations
-                    and links(path, [index.get(path).text]) & destinations.keys()
-                ):
-                    views.add(path)
+    # The Change Plan already selected affected consumers; retained peers are not inputs.
     inputs, visited = set(), set()
     reads = snapshot or FileReads()
-    registered_models(
-        root
-    )  # Record the reverse-dependency discovery set, without copying its models.
     add_model = _bind_framework_callback(
         _callback_stage_inputs_add_model,
         inputs,
@@ -314,21 +304,12 @@ def generate_views(
         documents = {}
         failure_start = len(failures)
         try:
-            check_model_inputs = _imports_model_validation.check_model_inputs
-            model = load_model(
+            model = _imports_model_sources.raw_model(
                 (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
                     ".properties"
                 )
             )
-            independent = check_model_inputs(
-                path, model.authoritative, root, definitions_root=definitions_root
-            )
-            warnings.extend(
-                warning
-                for warning in (*model.warnings, *independent.warnings)
-                if warning not in warnings
-            )
-            diagnostics = list(getattr(independent, "reference_errors", ()))
+            diagnostics = []
             resolver = _imports_model_projection.reference_resolver(
                 values, model.scope, root
             )
@@ -431,40 +412,11 @@ def generate_views(
                         f"conflicting authoritative JSON documents: {artifact.name}"
                     )
                 artifacts[artifact] = content
-            for diagnostic in independent.diagnostics:
-                if not any(item.identity == diagnostic.identity for item in failures):
-                    failures.append(diagnostic)
-            reference_messages = {
-                json.dumps(d, ensure_ascii=False)
-                for d in getattr(independent, "reference_errors", ())
-            }
-            other_errors = [
-                error
-                for error in independent.errors
-                if error not in reference_messages
-                and error
-                not in {diagnostic.message for diagnostic in independent.diagnostics}
-            ]
-            if other_errors and diagnostics:
-                generation_failure(
-                    root,
-                    failures,
-                    "generation.render",
-                    path,
-                    f"{path.relative_to(root)}: " + "\n- ".join(other_errors),
-                )
             if strict or any(
                 d["category"] != "REFERENCE_PENDING_DEPLOY" for d in diagnostics
             ):
                 require_reference_diagnostics(diagnostics)
             warnings.extend(d for d in diagnostics if d not in warnings)
-            if other_errors:
-                raise ValueError("\n- ".join(other_errors))
-            if independent.diagnostics:
-                restore_view(stage, root, path)
-                advance()
-                continue
-            validate_kms_policy_accounts(values, design_target(staged, stage))
             if artifacts.keys() & deferred.keys():
                 raise ValueError("conflicting resolved and pending JSON ownership")
             managed = owned_artifacts(path, values)
@@ -825,6 +777,7 @@ def generation_context(root, write, definitions_root=None):
         definitions_root = definitions_root or definition_root(root)
         with ExitStack() as lifetime:
             lifetime.enter_context(input_context() if write else nullcontext())
+            lifetime.enter_context(change_reads())
             if definitions_root != root and definition_root(root) != definitions_root:
                 lifetime.enter_context(mapping_alias(definitions_root, root))
             snapshot = input_recorder(root)
@@ -959,6 +912,8 @@ def prepare_generation(
             ).resolve()
             lifetime.enter_context(mapping_alias(definitions_root, stage))
         lifetime.enter_context(_imports_model_sources.model_stage(root, stage))
+        lifetime.enter_context(change_reads())
+        lifetime.enter_context(index_stage(root, stage))
         plan = Generation(
             root,
             stage,

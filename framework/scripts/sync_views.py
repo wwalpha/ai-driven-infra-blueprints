@@ -35,7 +35,9 @@ def view_validator(stage: Path, root: Path, definitions_root=None):
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    validator = module.Validator(stage, definitions_root=definitions_root)
+    validator = module.Validator(
+        stage, definitions_root=definitions_root, model_validation="change"
+    )
     validator.schema_catalog = module.DesignSchemaCatalog(definitions_root)
     return validator
 
@@ -206,15 +208,6 @@ def validate_views(
     else:
         metadata, types, owners, outputs = context.ownership
     if deferred is None:
-        evaluate(
-            "design.names", lambda: validator.check_resource_names(metadata, services)
-        )
-        evaluate(
-            "design.tables",
-            lambda: validator.check_design_tables(
-                metadata, types, owners, outputs, services
-            ),
-        )
         evaluate("design.overviews", lambda: validator.check_design_overviews(services))
         evaluate(
             "design.links",
@@ -226,17 +219,6 @@ def validate_views(
             ),
         )
         evaluate("design.artifacts", validator.check_design_artifacts)
-        evaluate(
-            "design.observed",
-            lambda: validator.check_observed_values(
-                [
-                    (
-                        stage / "model" / path.relative_to(stage / "docs/designs")
-                    ).with_suffix(".properties")
-                    for path in paths
-                ]
-            ),
-        )
     if validator.errors:
         raise FindingsError(validator.findings)
     return validator.findings

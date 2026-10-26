@@ -9,7 +9,9 @@ import utils.reference_contracts as _imports_reference_contracts
 from utils.json_format import strict_json
 from utils.model_addresses import resource_address as resource_address
 
+import model.change_scope as change_plan
 import model.core as _imports_model_core
+import model.dependency_index as dependency_index
 import model.format as _imports_model_projection
 import model.identity as _imports_model_identity
 import model.importing.scope as _imports_model_importing_scope
@@ -243,6 +245,8 @@ def _producer(snapshot, address, reads, cache):
             cache[scope.path] = (
                 None
                 if reads.kind(scope.path) == "missing"
+                else source_models.raw_model(scope, reads)
+                if change_plan.active()
                 else source_models._source_snapshot(scope, reads)
             )
     return cache[scope.path]
@@ -471,7 +475,9 @@ def _callback_diagnose_warn(usage, warnings, /, message):
     )
 
 
-def diagnose(snapshot, read_context=None, *, _producer_scope=None, errors=None):
+def diagnose(
+    snapshot, read_context=None, *, _producer_scope=None, errors=None, details=None
+):
     """Retain producer warnings; validation may collect proven receiving-type errors."""
     reads = read_context or source_models.FileReads()
     warnings, dependencies, cache = (
@@ -501,6 +507,8 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None, errors=None):
             if producer is not None:
                 dependencies.update(producer.dependencies)
         return tuple(warnings), dependencies
+    if details is not None:
+        details.update(usages=extracted, models=cache)
     for usage in extracted:
         spec = specs.get(usage.metadata_id, {})
         if usage.producer_kind == "context":
@@ -659,12 +667,22 @@ def incoming(snapshot, producer_id, read_context=None, *, warnings=None):
     )
     read_consumers = _imports_model_importing_scope.read_consumers
     reads = read_context or source_models._invocation_reads(snapshot.scope.root)
-    scopes = source_models.list_models(snapshot.scope.root, reads)
+    logical = snapshot.authoritative.get(
+        f"desired.resource.{producer_id}.logicalId", producer_id
+    )
+    scopes = [
+        source_models.scope_for(path)
+        for path in dependency_index.consumers(
+            snapshot.scope.root,
+            {address},
+            {(snapshot.scope.environment, snapshot.scope.target, logical)},
+        )
+    ]
     with read_consumers(
         {(scope.environment, scope.target, scope.service) for scope in scopes}
     ):
         for scope in scopes:
-            consumer = source_models._source_snapshot(scope, reads)
+            consumer = source_models.raw_model(scope, reads)
             relevant_warnings, _ = diagnose(consumer, reads, _producer_scope=address)
             if warnings is not None:
                 warnings.extend(
