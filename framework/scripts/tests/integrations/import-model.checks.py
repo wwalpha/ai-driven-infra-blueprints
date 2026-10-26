@@ -1284,6 +1284,13 @@ def check_import_rejects_acquired_schema_violation_before_save(tmp_path):
         resource_types=["Logs.LogGroup"],
     )
     logs_edit(root, acquired, 31)
+    assert acquired["status"] == "incomplete"
+    record = next(
+        item for item in acquired["records"] if item["identity"] == "managed-new"
+    )
+    assert (
+        record["properties"]["Logs.LogGroup.RetentionInDays"]["status"] == "unavailable"
+    )
     before = source_files(root)
     with (
         patch.object(change, "validate_save", wraps=change.validate_save) as saving,
@@ -1298,7 +1305,7 @@ def check_import_rejects_acquired_schema_violation_before_save(tmp_path):
         pytest.raises(ValueError, match="RetentionInDays"),
     ):
         publish_fixture(root, acquired)
-    assert saving.call_count == 1
+    saving.assert_not_called()
     assert source_files(root) == before
     assert not import_guard.proof_path(root).exists()
 

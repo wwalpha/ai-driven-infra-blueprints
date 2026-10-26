@@ -731,6 +731,17 @@ def summary_scale_cases():
         "[model/dev/cde/glue.properties:12](../../../model/dev/cde/glue.properties)"
         in one
     )
+    for source in (
+        "model/dev/cde/glue.properties",
+        str(root / "model/dev/cde/glue.properties"),
+    ):
+        current["ordinary"] = [dict(finding, source=source)]
+        assert (
+            "[model/dev/cde/glue.properties](../../../model/dev/cde/glue.properties)"
+            in ordinary_report(root, current)
+        )
+    current["ordinary"] = [dict(finding, source="/outside/glue.properties")]
+    assert "根拠:" not in ordinary_report(root, current)
     current["ordinary"] = [
         dict(finding, key=str(i), message=f"問題{i}") for i in range(1001)
     ]

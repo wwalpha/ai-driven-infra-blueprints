@@ -286,6 +286,10 @@ def check_service_cache_invalidation(tmp_path, relative):
         cache.save(key, 17)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes((original or b"") + b"\n")
+        if relative.endswith("extra.properties"):
+            with pytest.raises(ValueError, match="unregistered Model parts"):
+                cache.service_key(entry)
+            return
         changed = cache.service_key(entry)
         assert changed != key and cache.load(changed) is None
     if original is not None:
@@ -375,6 +379,7 @@ def _callback_check_single_and_parallel_threads_run_candidates(
     _state_check_single_and_parallel_threads_259, main, paths, root, stage, /
 ):
     scope = input_cache.memo_table()
+    scope["candidate-local"] = object()
     failures = []
     with patch.object(
         sync_views,
@@ -397,8 +402,14 @@ def _callback_check_single_and_parallel_threads_run_candidates(
             False,
         )
     assert not failures
+    assert all(
+        inputs is not scope and "candidate-local" not in inputs
+        for _, inputs in _state_check_single_and_parallel_threads_259.threads
+    )
     if _state_check_single_and_parallel_threads_259.count == 1:
-        assert _state_check_single_and_parallel_threads_259.threads == [(main, scope)]
+        assert [
+            thread for thread, _ in _state_check_single_and_parallel_threads_259.threads
+        ] == [main]
     else:
         assert (
             len(
@@ -571,7 +582,8 @@ def check_preparation_cache(tmp_path):
         BoundCallback(_callback_check_preparation_cache_snapshot, original, path)
     )
     try:
-        snapshot()
+        with input_context(read_only=True):
+            snapshot()
         assert (
             load_model(path).authoritative["desired.row.002-001.value"] == "`changed`"
         )
@@ -607,7 +619,8 @@ def check_template_snapshot(tmp_path):
     reuse = (input_scope)(
         BoundCallback(_callback_check_template_snapshot_reuse, original, path, root)
     )
-    reuse()
+    with input_context(read_only=True):
+        reuse()
     path.write_text("invalid")
     with pytest.raises(ValueError, match="unsupported Model format"):
         load_model(path)

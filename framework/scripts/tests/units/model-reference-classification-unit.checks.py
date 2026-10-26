@@ -630,7 +630,7 @@ def test_input_and_generation_share_reference_evaluation(models, field):
         role[model_key] = "`" + json.dumps(document) + "`"
     role = SnapshotValues(role)
     with (
-        input_context(),
+        input_context(read_only=True),
         patch.object(
             projection, "reference_value", wraps=projection.reference_value
         ) as evaluate,
@@ -647,6 +647,14 @@ def test_input_and_generation_share_reference_evaluation(models, field):
                 logical_id="IAM_Role_070",
                 property_name="IAM.Role.Policies[].PolicyDocument",
                 model_key=model_key,
+                context=projection.reference_context_for(
+                    role,
+                    "070-004",
+                    {"property": "IAM.Role.Policies[].PolicyDocument"},
+                    document,
+                    "",
+                    consumer.root,
+                ),
             )
         assert evaluate.call_count == 1
     assert checked == generated.value.diagnostics

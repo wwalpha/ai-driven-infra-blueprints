@@ -71,7 +71,7 @@ class AwsCli:
             },
             {
                 "logGroupName": "fixture-002",
-                "retentionInDays": 99,
+                "retentionInDays": 120,
                 "logGroupClass": "STANDARD",
             },
         ]
@@ -452,7 +452,7 @@ def aws(service="cloudwatch-logs", *, changed=False, noise=False, profile="confi
         },
         {
             "logGroupName": "fixture-002",
-            "retentionInDays": 99,
+            "retentionInDays": 120,
             "deletionProtectionEnabled": True,
             "logGroupClass": "STANDARD",
         },

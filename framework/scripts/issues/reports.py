@@ -32,11 +32,12 @@ def issue_key(root, record):
 
 
 def report_source(root, record):
-    if record.get("source"):
+    if isinstance(record.get("source"), dict):
         return record["source"]
     diagnostic = record.get("diagnostic", {})
     source = (
-        record.get("source_path")
+        record.get("source")
+        or record.get("source_path")
         or diagnostic.get("source_path")
         or diagnostic.get("Filename")
         or record.get("model")

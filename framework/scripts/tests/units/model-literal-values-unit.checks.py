@@ -22,6 +22,9 @@ from support.pytest_cli import run
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
 from utils.comparison_rows import Unresolved, project, select
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 ROOT = Path(__file__).resolve().parents[4]
 
 

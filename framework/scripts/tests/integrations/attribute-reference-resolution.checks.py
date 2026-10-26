@@ -29,7 +29,7 @@ from support.producer_identifier_reference_fixtures import (
     warning,
     write_model,
 )
-from utils.input_cache import input_scope
+from utils.input_cache import input_context, input_scope
 from validation_cache import PassCache
 
 if not __debug__:
@@ -195,7 +195,8 @@ def check_pair(root, first, second):
             _callback_check_pair_snapshot, _state_check_pair_77, changed, original, root
         )
     )
-    snapshot()
+    with input_context(read_only=True):
+        snapshot()
     write_model(_state_check_pair_77.producer, original)
     # Reciprocal saved names have no evaluator and never recurse or rewrite either side.
     _state_check_pair_77.consumer, reciprocal = fixture(
