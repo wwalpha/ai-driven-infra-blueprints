@@ -445,21 +445,21 @@ def check_worktree_requirement_conflict(shared_environment, local):
         commands.assert_not_called()
 
 
+def _sync_failure_run(state, stage, command, root, env):
+    if "install" in command:
+        state.installed = True
+        if stage == "install":
+            raise ValueError("pip fixture unavailable")
+        return ""
+    return json.dumps({"example": "2" if state.installed else "1"})
+
+
 @pytest.mark.parametrize("stage", ["install", "verify"])
 def check_sync_failure_retry(shared_environment, stage):
     primary, target, directory = shared_environment
     marker = directory / py.APPLIED
     marker.write_text("previous")
-    installed = False
-
-    def run(command, root, env):
-        nonlocal installed
-        if "install" in command:
-            installed = True
-            if stage == "install":
-                raise ValueError("pip fixture unavailable")
-            return ""
-        return json.dumps({"example": "2" if installed else "1"})
+    run = partial(_sync_failure_run, SimpleNamespace(installed=False), stage)
 
     with (
         patch.object(py, "run", side_effect=run) as commands,
@@ -485,6 +485,20 @@ def check_sync_failure_retry(shared_environment, stage):
         assert py.applied(directory, (primary / py.REQUIREMENTS).read_bytes())
 
 
+def _parallel_dependency_run(state, entered, contending, command, root, env):
+    if "install" in command:
+        entered.set()
+        assert contending.wait(5)
+        state.installed = True
+        return ""
+    return json.dumps({"example": "2" if state.installed else None})
+
+
+def _contending_sleep(contending, original_sleep, seconds):
+    contending.set()
+    original_sleep(0.001)
+
+
 def check_parallel_dependency_sync(shared_environment):
     primary, target, directory = shared_environment
     other = primary / ".worktrees/other"
@@ -492,21 +506,10 @@ def check_parallel_dependency_sync(shared_environment):
     requirements.parent.mkdir(parents=True)
     requirements.write_bytes((target / py.REQUIREMENTS).read_bytes())
     entered, contending = threading.Event(), threading.Event()
-    installed = False
-    original_sleep = time.sleep
-
-    def run(command, root, env):
-        nonlocal installed
-        if "install" in command:
-            entered.set()
-            assert contending.wait(5)
-            installed = True
-            return ""
-        return json.dumps({"example": "2" if installed else None})
-
-    def sleep(seconds):
-        contending.set()
-        original_sleep(0.001)
+    run = partial(
+        _parallel_dependency_run, SimpleNamespace(installed=False), entered, contending
+    )
+    sleep = partial(_contending_sleep, contending, time.sleep)
 
     with (
         patch.object(py, "run", side_effect=run) as commands,
@@ -524,24 +527,25 @@ def check_parallel_dependency_sync(shared_environment):
     assert not directory.with_name("python-env.setup-lock").exists()
 
 
+def _requirement_code_run(command, root, env):
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exec(command[-1], {})
+    return output.getvalue()
+
+
 def check_requirement_metadata_probe(shared_environment):
     primary, _, directory = shared_environment
 
-    def code_run(command, root, env):
-        output = io.StringIO()
-        with redirect_stdout(output):
-            exec(command[-1], {})
-        return output.getvalue()
-
     with (
-        patch.object(py, "run", side_effect=code_run),
+        patch.object(py, "run", side_effect=_requirement_code_run),
         patch.object(importlib.metadata, "version", return_value="1"),
     ):
         assert py.requirement_differences(primary, directory, b"Example==2\n") == [
             "example: required 2, installed 1"
         ]
     with (
-        patch.object(py, "run", side_effect=code_run),
+        patch.object(py, "run", side_effect=_requirement_code_run),
         patch.object(
             importlib.metadata,
             "version",
@@ -579,15 +583,16 @@ def check_runtime_dependency_sync(shared_environment):
         assert py.runtime(primary) is None
 
 
+def _change_requirements(primary, root, directory):
+    (primary / py.REQUIREMENTS).write_text("example==3\n", encoding="utf-8")
+
+
 def check_changed_requirements_during_sync(shared_environment):
     primary, target, directory = shared_environment
 
-    def verify(root, directory):
-        (primary / py.REQUIREMENTS).write_text("example==3\n", encoding="utf-8")
-
     with (
         patch.object(py, "run", return_value='{"example":null}'),
-        patch.object(py, "verify", side_effect=verify),
+        patch.object(py, "verify", side_effect=partial(_change_requirements, primary)),
     ):
         blocked(
             lambda: py.setup(target, {}), "requirements changed during synchronization"
