@@ -2,20 +2,26 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
 import io
+import os
+import runpy
+import shlex
 import sys
 import threading
 import time
+from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext, redirect_stdout
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from deploy import cli_guidance as G
 from support.worktree_python_fixtures import (
     Path,
     blocked,
@@ -606,6 +612,145 @@ def check_changed_requirements_during_sync(shared_environment):
 def check_requirement_pins_reject_unsupported(content):
     with pytest.raises(ValueError):
         py.requirement_pins(content)
+
+
+ROOT = Path(__file__).resolve().parents[4]
+
+
+@pytest.fixture
+def managed_python(tmp_path, monkeypatch):
+    primary = tmp_path / "primary repo"
+    root = primary / ".worktrees" / "deploy-app"
+    root.mkdir(parents=True)
+    (root / ".git").write_text("gitdir: synthetic", encoding="utf-8")
+    directory = primary / ".worktrees" / ".blueprint" / "python-env"
+    interpreter = G.worktree_python.python_path(directory)
+    setup = {
+        "status": "ready",
+        "kind": "shared",
+        "interpreter": str(interpreter),
+        "bin": str(interpreter.parent),
+    }
+    state = {"worktree": str(root), "python_setup": setup}
+    monkeypatch.setattr(
+        G.worktree_state, "repository", Mock(return_value=(root, None, primary))
+    )
+    monkeypatch.setattr(
+        G.worktree_state, "load", Mock(return_value=(primary, None, None, state))
+    )
+    monkeypatch.setattr(
+        G.worktree_python, "shared_directory", Mock(return_value=directory)
+    )
+    monkeypatch.setattr(G.worktree_python, "shared_ready", Mock(return_value=True))
+    monkeypatch.setattr(
+        G.worktree_python,
+        "requirements_snapshot",
+        Mock(return_value=(primary, b"pins", b"pins")),
+    )
+    monkeypatch.setattr(G.worktree_python, "applied", Mock(return_value=True))
+    monkeypatch.setattr(sys, "executable", str(interpreter))
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.setenv("PATH", str(interpreter.parent) + os.pathsep + "/usr/bin:/bin")
+    monkeypatch.setenv("VIRTUAL_ENV", str(directory))
+    return root, directory, setup
+
+
+def _wrapper_runtime(root, directory):
+    return G.worktree_python.python_path(directory), G.worktree_python.environment(
+        directory
+    )
+
+
+def check_worktree_commands_reproduce_wrapper_environment(managed_python):
+    root, directory, _ = managed_python
+    expected_path = os.environ["PATH"]
+    task = "tasks/parent's task.md"
+    plan = root.parent / "approved plan's $(ignored).json"
+    args = Namespace(
+        environment="dev",
+        alias="app",
+        aws_account_id=None,
+        stack=["App"],
+        profile="app dev",
+        sequential=True,
+    )
+    reports = [
+        G.preparation_result(root, plan, True),
+        G.controller_result(
+            "STOPPED",
+            {"taskFile": task, "states": {"App": {"status": "RUNNING"}}},
+            args,
+            root,
+        ),
+        G.handoff_result(
+            {"repository": str(root), "taskFile": task, "requestId": "reviewed-id"}
+        ),
+    ]
+    wrapper = runpy.run_path(str(ROOT / "framework/scripts/run-python.py"))
+    for report in reports:
+        command = report["nextAction"]["command"]
+        cd, invocation = command.split(" && ", 1)
+        assert shlex.split(cd) == ["cd", str(root)]
+        argv = shlex.split(invocation)
+        index = argv.index(sys.executable)
+        assert argv[index + 1 : index + 5] == [
+            "-B",
+            str(ROOT / "framework/scripts/run-python.py"),
+            "-B",
+            str(
+                ROOT
+                / "framework/scripts"
+                / {
+                    "REGISTRATION": "deploy_preparation.py",
+                    "AWS_OPERATION": "cloudformation-deploy.py",
+                    "HANDOFF": "task_contract.py",
+                }[report["stage"]]
+            ),
+        ]
+        assignments = dict(
+            value.split("=", 1) for value in argv[:index] if "=" in value
+        )
+        assert assignments["PATH"] == "/usr/bin:/bin"
+        with (
+            patch.dict(os.environ, assignments),
+            patch.object(sys, "argv", argv[index + 2 :]),
+            patch.object(
+                G.worktree_python,
+                "runtime",
+                side_effect=partial(_wrapper_runtime, directory=directory),
+            ),
+            patch.object(os, "execvpe") as execute,
+        ):
+            wrapper["main"]()
+        executable, child_args, env = execute.call_args.args
+        assert executable == sys.executable and child_args[0] == sys.executable
+        assert env["PATH"] == expected_path and "PYTHONPATH" not in env
+        if report["stage"] == "REGISTRATION":
+            assert child_args[-2:] == ["--run-controller", str(plan)]
+        else:
+            assert env["BLUEPRINT_TASK_FILE"] == task
+
+
+@pytest.mark.parametrize(
+    "defect", ["python", "path", "pythonpath", "setup", "requirements"]
+)
+def check_worktree_command_unknown_environment(managed_python, monkeypatch, defect):
+    root, _, setup = managed_python
+    if defect == "python":
+        monkeypatch.setattr(sys, "executable", "/other/python")
+    elif defect == "path":
+        monkeypatch.setenv("PATH", "/other/bin")
+    elif defect == "pythonpath":
+        monkeypatch.setenv("PYTHONPATH", "/other/modules")
+    elif defect == "setup":
+        setup["status"] = "failed"
+    else:
+        G.worktree_python.applied.return_value = False
+    assert (
+        G.preparation_result(root, root / "plan.json", True)["nextAction"]["command"]
+        is None
+    )
 
 
 if __name__ == "__main__":

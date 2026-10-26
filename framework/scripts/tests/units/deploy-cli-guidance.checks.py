@@ -201,10 +201,13 @@ def check_repair_candidate_requires_structured_cause_and_authority(
 def check_unknown_execution_only_proposes_original_recovery(tmp_path, state):
     root = tmp_path / "repo with spaces"
     context = {"taskFile": "tasks/current-task.md", "states": {"a": state}}
-    report = G.controller_result("STOPPED", context, ARGS, root)
+    with patch.object(G, "command_environment", return_value=["env"]):
+        report = G.controller_result("STOPPED", context, ARGS, root)
     command = report["nextAction"]["command"]
     argv = shlex.split(command.split(" && ", 1)[1])
-    assert argv[0:2] == ["env", "BLUEPRINT_TASK_FILE=tasks/current-task.md"]
+    assert "BLUEPRINT_TASK_FILE=tasks/current-task.md" in argv
+    assert str(ROOT / "framework/scripts/run-python.py") in argv
+    assert shlex.split(command.split(" && ", 1)[0]) == ["cd", str(root)]
     assert argv[argv.index("--profile") + 1] == "app dev"
     assert argv.count("--stack") == 2 and argv[-1] == "--recover-operations"
     assert "--approve-change-set" not in argv and "--resume" not in argv
@@ -314,15 +317,21 @@ def check_cli_help_and_example_options(script, module, tokens):
 
 
 @pytest.mark.parametrize("registered", [False, True])
-def check_preparation_success_output(tmp_path, capsys, registered):
+@pytest.mark.parametrize(
+    "filename", ["preparation.json", "approved plan's $(ignored).json"]
+)
+def check_preparation_success_output(tmp_path, capsys, registered, filename):
     root, logs = tmp_path / "repo", tmp_path / "logs"
     root.mkdir()
     logs.mkdir()
-    plan = logs / "preparation.json"
-    with patch.object(
-        preparation,
-        "register" if registered else "prepare",
-        return_value={"preparationSeconds": 0, "within60Seconds": True},
+    plan = logs / filename
+    with (
+        patch.object(G, "command_environment", return_value=["env"]),
+        patch.object(
+            preparation,
+            "register" if registered else "prepare",
+            return_value={"preparationSeconds": 0, "within60Seconds": True},
+        ),
     ):
         args = ["--repository-root", str(root)]
         args += (
@@ -348,10 +357,14 @@ def check_preparation_success_output(tmp_path, capsys, registered):
     assert report["result"] == ("REGISTERED" if registered else "PREPARED_OFFLINE")
     assert {"plan", "timing", "preparationSeconds", "within60Seconds"} <= report.keys()
     if registered:
-        argv = shlex.split(report["nextAction"]["command"])
+        argv = shlex.split(report["nextAction"]["command"].split(" && ", 1)[1])
         assert argv[-2:] == ["--run-controller", str(plan)]
+        assert report["plan"] == str(plan)
+        assert str(ROOT / "framework/scripts/run-python.py") in argv
     else:
         assert report["nextAction"]["command"] is None
+        assert Path(report["plan"]).is_file()
+        assert Path(report["plan"]).name == "preparation.json"
 
 
 def check_preparation_and_handoff_keep_failure_exit_codes(tmp_path, capsys):
@@ -540,14 +553,17 @@ def check_structured_reference_cause_and_handoff_command(tmp_path):
     failures.exception(state, error, "PREPARATION")
     assert state["failure"]["classification"] == "NEEDS_HUMAN"
     assert state["failure"]["dependencyWait"] is True
-    report = G.handoff_result(
-        {
-            "requestId": "current-id",
-            "taskFile": "tasks/parent.md",
-            "repository": str(tmp_path),
-        }
-    )
-    argv = shlex.split(report["nextAction"]["command"])
+    with patch.object(G, "command_environment", return_value=["env"]):
+        report = G.handoff_result(
+            {
+                "requestId": "current-id",
+                "taskFile": "tasks/parent.md",
+                "repository": str(tmp_path),
+            }
+        )
+    argv = shlex.split(report["nextAction"]["command"].split(" && ", 1)[1])
+    assert str(ROOT / "framework/scripts/run-python.py") in argv
+    assert "BLUEPRINT_TASK_FILE=tasks/parent.md" in argv
     assert argv[-4:] == [
         "--task-file",
         "tasks/parent.md",
@@ -555,6 +571,173 @@ def check_structured_reference_cause_and_handoff_command(tmp_path):
         "one-shot implement repair current-id",
     ]
     assert "--resume" not in argv and "--repair-request" not in argv
+
+
+@pytest.mark.parametrize(
+    ("error", "code", "details"),
+    [
+        (
+            FileNotFoundError(
+                2, "private-secret", "/tmp/repo/model/dev/app/kms.properties"
+            ),
+            "FILE_NOT_FOUND",
+            {"target": "model/dev/app/kms.properties"},
+        ),
+        (
+            json.JSONDecodeError("private-secret", "private-secret", 1),
+            "InputDecodeError",
+            {"line": 1, "column": 2},
+        ),
+        (
+            G.PreparationError(
+                "private-secret",
+                code="PREPARATION_ENVIRONMENT_INCOMPLETE",
+                missing=["boto3", "git", "pip-check", "private-secret"],
+            ),
+            "PREPARATION_ENVIRONMENT_INCOMPLETE",
+            {"missingConditions": ["boto3", "git", "pip-check"]},
+        ),
+        (
+            G.InputChanged(
+                "private-secret",
+                target="model/dev/app/iam/part-001.properties",
+                condition="input-file",
+            ),
+            "PREPARATION_INPUT_CHANGED",
+            {
+                "target": "model/dev/app/iam/part-001.properties",
+                "condition": "input-file",
+            },
+        ),
+        (IdentityError("private-secret", "AccountMismatch"), "AccountMismatch", {}),
+    ],
+)
+def check_known_error_details(error, code, details):
+    report = G.stopped("PREPARATION", error)
+    assert report["cause"]["code"] == code
+    assert details.items() <= report["cause"].items()
+    assert report["cause"]["detailDigest"]
+    assert "private-secret" not in json.dumps(report)
+    assert report["nextAction"]["command"] is None
+
+
+def check_reference_diagnostics_filter_values():
+    error = ReferenceResolutionError(
+        "private-secret",
+        category="REFERENCE_PENDING_DEPLOY",
+        code="REFERENCE_PENDING_DEPLOY",
+        model="/tmp/repo/model/dev/app/codebuild.properties",
+        modelKey="desired.row.001-002.value",
+        producerModel="/tmp/repo/model/dev/app/kms.properties",
+        targetLogicalId="KMS_Key_001",
+        attribute="KeyId",
+        pointer="/Environment/Secret/private-secret",
+        value="private-secret",
+        action="private-secret",
+        credential="private-secret",
+    )
+    report = G.stopped("GENERATION", error)
+    diagnostic = report["cause"]["diagnostics"][0]
+    assert diagnostic == {
+        "category": "REFERENCE_PENDING_DEPLOY",
+        "code": "REFERENCE_PENDING_DEPLOY",
+        "status": "NOT_RUN",
+        "model": "model/dev/app/codebuild.properties",
+        "modelKey": "desired.row.001-002.value",
+        "producerModel": "model/dev/app/kms.properties",
+        "targetLogicalId": "KMS_Key_001",
+        "attribute": "KeyId",
+    }
+    assert "private-secret" not in json.dumps(report)
+    error.diagnostics = [
+        {
+            "code": "Token=private-secret",
+            "category": "private-secret",
+            "status": "private-secret",
+            "model": "/tmp/private-secret",
+            "producerModel": "model/dev/app/../private-secret.properties",
+            "modelKey": "desired.row.001.value=private-secret",
+            "attribute": "private-secret",
+            "targetLogicalId": "Credential=private-secret",
+            "message": "private-secret",
+        }
+    ]
+    assert G.safe_error(error)["diagnostics"] == [{}]
+
+
+def check_preparation_dependency_json(tmp_path, capsys):
+    with (
+        patch.object(
+            preparation.importlib,
+            "import_module",
+            side_effect=ImportError("private-secret"),
+        ),
+        patch.object(
+            preparation.subprocess,
+            "run",
+            return_value=SimpleNamespace(
+                returncode=1, stdout="private-secret", stderr=""
+            ),
+        ),
+        patch.object(preparation.shutil, "which", return_value=None),
+    ):
+        assert (
+            preparation.main(
+                [
+                    "--repository-root",
+                    str(tmp_path / "repo"),
+                    "--environment",
+                    "dev",
+                    "--alias",
+                    "app",
+                    "--stack",
+                    "App",
+                    "--service",
+                    "ec2",
+                    "--task-file",
+                    "tasks/deploy-app.md",
+                    "--log-dir",
+                    str(tmp_path / "logs"),
+                ]
+            )
+            == 1
+        )
+    report = json.loads(capsys.readouterr().out)
+    assert report["cause"]["missingConditions"] == [
+        "boto3",
+        "botocore",
+        "PyYAML",
+        "pip-check",
+        "git",
+    ]
+    assert "private-secret" not in json.dumps(report)
+
+
+def check_unknown_error_fields_and_environment_fail_closed(tmp_path):
+    error = ValueError("private-secret PENDING_DEPLOY missing token credential")
+    error.code = ["private-secret"]
+    report = G.stopped("PREPARATION", error)
+    assert report["nextAction"]["type"] == "HUMAN_REVIEW"
+    assert report["nextAction"]["command"] is None and report["cause"]["code"] is None
+    assert "private-secret" not in json.dumps(report)
+    with patch.object(G, "command_environment", return_value=None):
+        assert (
+            G.preparation_result(tmp_path, tmp_path / "plan.json", True)["nextAction"][
+                "command"
+            ]
+            is None
+        )
+        assert G.recovery_command(ARGS, tmp_path, "tasks/parent.md") is None
+        assert (
+            G.handoff_result(
+                {
+                    "repository": str(tmp_path),
+                    "taskFile": "tasks/parent.md",
+                    "requestId": "current-id",
+                }
+            )["nextAction"]["command"]
+            is None
+        )
 
 
 if __name__ == "__main__":

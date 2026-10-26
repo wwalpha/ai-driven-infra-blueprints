@@ -25,6 +25,8 @@ WORKTREE_CASES = {
         "check_checkpoint_uses_scoped_barrier_under_ordered_locks",
     ),
     "units/worktree_python-unit.checks.py": (
+        "check_worktree_commands_reproduce_wrapper_environment",
+        "check_worktree_command_unknown_environment",
         "check_environment",
         "check_pdf_native_optional",
         "check_windows_exit_propagation",

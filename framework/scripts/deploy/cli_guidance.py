@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import re
 import shlex
 import sys
 from pathlib import Path
 
+import worktree_python
+import worktree_state
 from model.core import ReferenceDiagnosticError
 from utils.aws.identity import IdentityError
 from utils.project_targets import DeployContextError
+from utils.reference_contracts import ARN_ATTRIBUTES, REF_ATTRIBUTES
 
 from deploy.failures import AUTH_CODES, dependency_wait
 
@@ -124,8 +130,89 @@ See framework/rules/terraform.md#validation-and-execution for authoritative boun
 """
 
 
-class InputChanged(ValueError):
+class PreparationError(ValueError):
+    """Known preparation conditions, separate from arbitrary exception prose."""
+
+    def __init__(self, message, *, code, target=None, missing=()):
+        super().__init__(message)
+        self.code, self.target, self.missing = code, target, missing
+
+
+class InputChanged(PreparationError):
     """Preparation snapshot revalidation failed; keep the existing ValueError boundary."""
+
+    def __init__(self, message, *, target=None, condition=None):
+        super().__init__(message, code="PREPARATION_INPUT_CHANGED", target=target)
+        self.condition = condition
+
+
+REFERENCE_CATEGORIES = {
+    "MODEL_NEEDS_FIX",
+    "FRAMEWORK_UNSUPPORTED",
+    "REFERENCE_PENDING_DEPLOY",
+    "REFERENCE_UNRESOLVED",
+}
+REFERENCE_CODES = REFERENCE_CATEGORIES | {
+    "reference.unresolved",
+    "codebuild.plaintext-reference",
+    "MODEL_REF_INVALID_ATTRIBUTE",
+    "MODEL_REF_INVALID_VALUE",
+    "MODEL_REF_VALUE_CONFLICT",
+    "MODEL_REF_INVALID_PENDING_STATE",
+    "MODEL_REF_INVALID_SYNTAX",
+    "MODEL_REF_TARGET_AMBIGUOUS",
+}
+
+
+def safe_model_path(value):
+    """Only authored Model paths, never arbitrary filenames or parameter values."""
+    if not isinstance(value, str):
+        return None
+    parts = Path(value).parts
+    if "model" not in parts or ".." in parts:
+        return None
+    relative = Path(*parts[parts.index("model") :]).as_posix()
+    return (
+        relative
+        if re.fullmatch(
+            r"model/[a-z0-9_-]+/[a-z0-9_-]+/[a-z0-9-]+(?:/part-[0-9]{3,})?\.properties",
+            relative,
+        )
+        else None
+    )
+
+
+def safe_diagnostic(diagnostic):
+    result = {}
+    for field, allowed in (
+        ("category", REFERENCE_CATEGORIES),
+        ("code", REFERENCE_CODES),
+        ("status", {"FAIL", "NOT_RUN"}),
+        ("attribute", {"Arn", *ARN_ATTRIBUTES.values(), *REF_ATTRIBUTES.values()}),
+    ):
+        value = diagnostic.get(field)
+        if isinstance(value, str) and value in allowed:
+            result[field] = value
+    for field in ("model", "producerModel"):
+        value = safe_model_path(diagnostic.get(field))
+        if value:
+            result[field] = value
+    for field, pattern in (
+        ("targetLogicalId", r"[A-Za-z][A-Za-z0-9]*_[A-Za-z][A-Za-z0-9]*_[0-9]{3,}"),
+        ("resourceLogicalId", r"[A-Za-z][A-Za-z0-9]*_[A-Za-z][A-Za-z0-9]*_[0-9]{3,}"),
+        (
+            "modelKey",
+            r"(?:desired|observed)\.(?:resource|row)\.[0-9]+(?:-[0-9]+)?\.(?:logicalId|value|property)",
+        ),
+        (
+            "producerModelKey",
+            r"(?:desired|observed)\.(?:resource|row)\.[0-9]+(?:-[0-9]+)?\.(?:logicalId|value|property)",
+        ),
+    ):
+        value = diagnostic.get(field)
+        if isinstance(value, str) and re.fullmatch(pattern, value):
+            result[field] = value
+    return result
 
 
 def guidance(stage, cause, kind, reason, command=None):
@@ -137,38 +224,141 @@ def guidance(stage, cause, kind, reason, command=None):
 
 
 def safe_error(error):
-    """Arbitrary exception prose can contain parameter/secret values; report identity only."""
+    """Accept typed conditions and allowlisted diagnostic fields, never exception prose."""
     code = getattr(error, "code", None)
-    return {
+    diagnostics = (
+        [safe_diagnostic(d) for d in error.diagnostics if isinstance(d, dict)]
+        if isinstance(error, ReferenceDiagnosticError)
+        else []
+    )
+    result = {
         "diagnosticCategories": sorted(
-            {
-                d["category"]
-                for d in error.diagnostics
-                if d.get("category")
-                in {
-                    "MODEL_NEEDS_FIX",
-                    "FRAMEWORK_UNSUPPORTED",
-                    "REFERENCE_PENDING_DEPLOY",
-                    "REFERENCE_UNRESOLVED",
-                }
-            }
+            {d["category"] for d in diagnostics if "category" in d}
         )
         if isinstance(error, ReferenceDiagnosticError)
         else [],
         "errorType": type(error).__name__,
         "code": code
-        if code
+        if isinstance(code, str)
+        and code
         in AUTH_CODES | {"InvalidIdentity", "AccountMismatch", "InputDecodeError"}
         else None,
         "detailDigest": hashlib.sha256(str(error).encode("utf-8")).hexdigest(),
     }
+    if diagnostics:
+        result["diagnostics"] = diagnostics
+    if isinstance(error, PreparationError):
+        if error.code in {
+            "PREPARATION_INPUT_CHANGED",
+            "PREPARATION_ENVIRONMENT_INCOMPLETE",
+        }:
+            result["code"] = error.code
+        target = safe_model_path(error.target)
+        if target:
+            result["target"] = target
+        result["missingConditions"] = [
+            item
+            for item in error.missing
+            if isinstance(item, str)
+            and item in {"boto3", "botocore", "PyYAML", "git", "pip-check"}
+        ]
+        if isinstance(error, InputChanged) and error.condition in {
+            "repository-or-python",
+            "runtime-environment",
+            "preparation-clock",
+            "command-paths",
+            "input-file",
+            "deferred-inputs",
+            "model-file-set",
+            "contract-candidate",
+        }:
+            result["condition"] = error.condition
+    elif isinstance(error, FileNotFoundError):
+        result["code"] = "FILE_NOT_FOUND"
+        target = safe_model_path(error.filename)
+        if target:
+            result["target"] = target
+    elif isinstance(error, json.JSONDecodeError):
+        result.update(code="InputDecodeError", line=error.lineno, column=error.colno)
+    return result
+
+
+def command_environment(root):
+    """Re-enter the registered wrapper without adding its bin to PATH a second time."""
+    if os.name != "posix":
+        return None
+    root = Path(root).resolve()
+    if not (root / ".git").exists():
+        return None
+    if "PYTHONHOME" in os.environ or not os.environ.get("PATH"):
+        return None
+    env = ["env", "-u", "PYTHONHOME", "-u", "PYTHONPATH"]
+    path = os.environ["PATH"]
+    try:
+        repository, _, primary = worktree_state.repository(root)
+        if repository != root:
+            return None
+        if root.parent == primary / ".worktrees":
+            _, _, _, state = worktree_state.load(root, root.name)
+            setup = state.get("python_setup", {})
+            directory = worktree_python.shared_directory(root)
+            interpreter = worktree_python.python_path(directory)
+            prefix = str(interpreter.parent) + os.pathsep
+            if (
+                state.get("worktree") != str(root)
+                or setup.get("status") != "ready"
+                or setup.get("kind") != "shared"
+                or setup.get("interpreter") != str(interpreter)
+                or setup.get("bin") != str(interpreter.parent)
+                or sys.executable != str(interpreter)
+                or not os.environ.get("PATH", "").startswith(prefix)
+                or "PYTHONPATH" in os.environ
+                or "PYTHONHOME" in os.environ
+                or not worktree_python.shared_ready(directory)
+                or directory.with_name("python-env.setup-lock").exists()
+                or not worktree_python.applied(
+                    directory, worktree_python.requirements_snapshot(root, primary)[1]
+                )
+            ):
+                return None
+            path = path[len(prefix) :]
+    except (OSError, ValueError, KeyError):
+        return None
+    env.append("PATH=" + path)
+    if "PYTHONPATH" in os.environ:
+        env.append("PYTHONPATH=" + os.environ["PYTHONPATH"])
+    return env
+
+
+def python_command(root, script, arguments, *, task_file=None):
+    root = Path(root).resolve()
+    scripts = Path(__file__).resolve().parents[1]
+    env = command_environment(root)
+    if env is None or not all(
+        (scripts / name).is_file() for name in ("run-python.py", script)
+    ):
+        return None
+    if task_file:
+        env.append("BLUEPRINT_TASK_FILE=" + task_file)
+    argv = env + [
+        sys.executable,
+        "-B",
+        str(scripts / "run-python.py"),
+        "-B",
+        str(scripts / script),
+        *arguments,
+    ]
+    if any(not isinstance(value, str) or "\0" in value for value in argv):
+        return None
+    return "cd " + shlex.quote(str(root)) + " && " + shlex.join(argv)
 
 
 def stopped(stage, error):
+    cause = safe_error(error)
     if isinstance(error, InputChanged):
         return guidance(
             "INPUT_REVALIDATION",
-            safe_error(error),
+            cause,
             "PREPARE_AGAIN",
             "Frozen preparation inputs changed; review the changes and prepare again before registration. No old plan may be run.",
         )
@@ -177,13 +367,13 @@ def stopped(stage, error):
         if dependency_wait(error)
         else "CONTEXT_REVIEW"
         if isinstance(error, (IdentityError, DeployContextError))
-        or getattr(error, "code", None) in AUTH_CODES
+        or cause["code"] in AUTH_CODES
         or stage in {"TARGET_SELECTION", "TASK_AUTHORITY", "AUTHENTICATION"}
         else "HUMAN_REVIEW"
     )
     return guidance(
         stage,
-        safe_error(error),
+        cause,
         kind,
         "Execution stopped at this stage. Review the current cause, Task authority and inputs; no safe automatic command is established.",
     )
@@ -196,15 +386,15 @@ def preparation_result(root, plan_path, registered):
             None,
             "START_CONTROLLER",
             "Reviewed preparation registered; explicitly start one authorized controller.",
-            shlex.join(
+            python_command(
+                root,
+                "deploy_preparation.py",
                 [
-                    sys.executable,
-                    str(Path(__file__).resolve().parents[1] / "deploy_preparation.py"),
                     "--repository-root",
                     str(root),
                     "--run-controller",
                     str(plan_path),
-                ]
+                ],
             ),
         )
     return guidance(
@@ -225,10 +415,6 @@ def recovery_command(args, root, task_file):
     ):
         return None
     argv = [
-        "env",
-        "BLUEPRINT_TASK_FILE=" + task_file,
-        sys.executable,
-        str(Path(__file__).resolve().parents[1] / "cloudformation-deploy.py"),
         "--environment",
         args.environment,
     ]
@@ -244,8 +430,7 @@ def recovery_command(args, root, task_file):
     if args.sequential:
         argv.append("--sequential")
     argv.append("--recover-operations")
-    # The controller's cwd is its repository; make that requirement explicit in the command.
-    return "cd " + shlex.quote(str(root)) + " && " + shlex.join(argv)
+    return python_command(root, "cloudformation-deploy.py", argv, task_file=task_file)
 
 
 def controller_result(
@@ -414,16 +599,17 @@ def handoff_result(request=None, *, discarded=False):
         {"requestId": request["requestId"]},
         "SUSPEND_PARENT",
         "Pinned request issued. Suspend only the named parent, then follow the Worktree repair lifecycle with a separately named child; do not start Deploy.",
-        shlex.join(
+        python_command(
+            Path(request["repository"]),
+            "task_contract.py",
             [
-                sys.executable,
-                str(Path(__file__).resolve().parents[1] / "task_contract.py"),
                 "--repository-root",
                 request["repository"],
                 "--task-file",
                 request["taskFile"],
                 "--suspend-reason",
                 "one-shot implement repair " + request["requestId"],
-            ]
+            ],
+            task_file=request["taskFile"],
         ),
     )

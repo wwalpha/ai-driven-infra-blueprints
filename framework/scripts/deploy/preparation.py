@@ -33,7 +33,7 @@ from deploy.timing import Timing
 
 def environment(root):
     """Report all missing dependencies together, without probing another interpreter."""
-    versions, errors = {}, []
+    versions, errors, missing = {}, [], []
     for name, distribution in (
         ("boto3", "boto3"),
         ("botocore", "botocore"),
@@ -44,10 +44,12 @@ def environment(root):
             versions[distribution] = importlib.metadata.version(distribution)
         except (ImportError, importlib.metadata.PackageNotFoundError):
             errors.append(f"missing Python dependency: {distribution}")
+            missing.append(distribution)
     result = subprocess.run(
         [sys.executable, "-m", "pip", "check"], capture_output=True, encoding="utf-8"
     )
     if result.returncode:
+        missing.append("pip-check")
         errors.append(
             "Python dependency consistency failed: "
             + (result.stdout + result.stderr).strip()
@@ -56,8 +58,13 @@ def environment(root):
     errors.extend(
         f"missing command: {name}" for name, path in tools.items() if path is None
     )
+    missing.extend(name for name, path in tools.items() if path is None)
     if errors:
-        raise ValueError("\n".join(errors))
+        raise cli_guidance.PreparationError(
+            "\n".join(errors),
+            code="PREPARATION_ENVIRONMENT_INCOMPLETE",
+            missing=missing,
+        )
     return {"python": sys.executable, "versions": versions, "tools": tools}
 
 
@@ -363,20 +370,27 @@ def register(root, path, timing):
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["runtime"]["python"] != sys.executable:
         raise cli_guidance.InputChanged(
-            "use the same repository and Python interpreter as preparation"
+            "use the same repository and Python interpreter as preparation",
+            condition="repository-or-python",
         )
     if any(
         os.environ.get(key) != value
         for key, value in plan["environment"].items()
         if key in {"PATH", "PYTHONPATH"}
     ):
-        raise cli_guidance.InputChanged("prepared runtime environment changed")
+        raise cli_guidance.InputChanged(
+            "prepared runtime environment changed", condition="runtime-environment"
+        )
     if time.perf_counter() < plan["reviewStarted"]:
-        raise cli_guidance.InputChanged("preparation clock reset; prepare again")
+        raise cli_guidance.InputChanged(
+            "preparation clock reset; prepare again", condition="preparation-clock"
+        )
     if {name: shutil.which(name) for name in plan["runtime"]["tools"]} != plan[
         "runtime"
     ]["tools"]:
-        raise cli_guidance.InputChanged("prepared command paths changed")
+        raise cli_guidance.InputChanged(
+            "prepared command paths changed", condition="command-paths"
+        )
     with timing.phase("documentReview", started=plan["reviewStarted"]):
         safe_path = _imports_task_contract.safe_path
         for relative, digest in plan["inputs"].items():
@@ -388,22 +402,29 @@ def register(root, path, timing):
             safe_path(base, relative)
             if not (base / relative).is_file() or sha(base / relative) != digest:
                 raise cli_guidance.InputChanged(
-                    f"preparation input changed or deleted; review the change and necessary inputs, then prepare again: {relative}"
+                    f"preparation input changed or deleted; review the change and necessary inputs, then prepare again: {relative}",
+                    target=relative,
+                    condition="input-file",
                 )
         if any(
             file_revision(root / p) != identity
             for p, identity in plan["inputIdentities"].items()
         ):
             raise cli_guidance.InputChanged(
-                "deferred deployment input changed; prepare again"
+                "deferred deployment input changed; prepare again",
+                condition="deferred-inputs",
             )
         if model_input_paths(root, plan["scope"]) != plan["modelInputPaths"]:
             raise cli_guidance.InputChanged(
-                "preparation Model dependency file set changed; prepare again"
+                "preparation Model dependency file set changed; prepare again",
+                condition="model-file-set",
             )
         contract = Path(plan["contract"]).resolve()
         if contract.is_relative_to(root) or sha(contract) != plan["contractDigest"]:
-            raise cli_guidance.InputChanged("contract candidate changed; prepare again")
+            raise cli_guidance.InputChanged(
+                "contract candidate changed; prepare again",
+                condition="contract-candidate",
+            )
     with timing.phase("contractRegistration"):
         result = subprocess.run(
             [
@@ -509,6 +530,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     root = args.repository_root.resolve()
     selected_plan = args.register or args.run_controller
+    plan_path = selected_plan.resolve() if selected_plan else None
     parent = (
         selected_plan.resolve().parent
         if selected_plan
@@ -538,12 +560,13 @@ def main(argv=None):
             return run_controller(root, args.run_controller.resolve())
         with timing.phase("registration" if args.register else "preparation"):
             if args.register:
-                plan = register(root, args.register.resolve(), timing)
+                plan = register(root, plan_path, timing)
             else:
                 plan = prepare(root, args, run, timing)
                 plan["preparationSeconds"] = time.perf_counter() - started
                 plan["within60Seconds"] = plan["preparationSeconds"] <= 60
-                (run / "preparation.json").write_text(
+                plan_path = run / "preparation.json"
+                plan_path.write_text(
                     json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
                     encoding="utf-8",
                 )
@@ -552,9 +575,9 @@ def main(argv=None):
                 {
                     "result": "REGISTERED" if args.register else "PREPARED_OFFLINE",
                     **cli_guidance.preparation_result(
-                        root, run / "preparation.json", bool(args.register)
+                        root, plan_path, bool(args.register)
                     ),
-                    "plan": str(run / "preparation.json"),
+                    "plan": str(plan_path),
                     "timing": str(timing.path),
                     "preparationSeconds": plan["preparationSeconds"],
                     "within60Seconds": plan["within60Seconds"],
