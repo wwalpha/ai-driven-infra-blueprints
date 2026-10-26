@@ -543,10 +543,6 @@ def document_references(
 ):
     """Evaluate typed references without generating a display or document."""
     resolver.refresh()
-    diagnostics = []
-    references = list(nodes(document, errors=diagnostics))
-    if not references and not diagnostics:
-        return {}, []
     cache = memo_table()
     values = resolver.models.get(scope.path)
     values = getattr(values, "authoritative", None)
@@ -573,6 +569,11 @@ def document_references(
             _, original, receiving_context, result = previous
             if original == document and receiving_context == context:
                 return copy.deepcopy(result)
+    diagnostics = []
+    references = list(nodes(document, errors=diagnostics))
+    if not references and not diagnostics:
+        return {}, []
+    if key is not None:
         expected, structured = _imports_model_references._json(
             model_key, values[model_key]
         )

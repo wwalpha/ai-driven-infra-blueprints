@@ -8,7 +8,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
-from model.core import ReferenceResolutionError
+from model.core import ReferenceResolutionError, SnapshotValues
 
 from model import format, operations, validation
 
@@ -192,25 +192,32 @@ def check_zero_resources_never_classified(selection):
 
 
 def _check_selected_mutation_is_isolated_mutate(selected, *a, **kw):
-    before = dict(selected)
-    with pytest.raises(TypeError, match="Snapshot values are immutable"):
-        selected["display.resource.marker.comment"] = "local mutation"
-    with pytest.raises(TypeError, match="Snapshot values are immutable"):
-        selected.pop("desired.row.001-001.value", None)
-    assert selected == before
+    assert type(selected) is dict
+    assert "display.resource.marker.comment" not in selected
+    selected["display.resource.marker.comment"] = "local mutation"
+    selected.pop("desired.row.001-001.value", None)
+    assert "desired.row.001-001.value" not in selected
 
 
-def check_selected_mutation_is_isolated(selection, monkeypatch):
+@pytest.mark.parametrize("fixed", [True, False])
+def check_selected_mutation_is_isolated(selection, monkeypatch, fixed):
     values, _, mapped, run = selection
+    if fixed:
+        values = SnapshotValues(values)
     before = dict(values)
     mutate = _check_selected_mutation_is_isolated_mutate
     monkeypatch.setattr(validation, "validate_required_properties", mutate)
-    run()
+    run(values)
     assert values == before
     assert len(mapped) == 2 and mapped[0] is not mapped[1]
-    with pytest.raises(TypeError, match="Snapshot values are immutable"):
-        mapped[0].clear()
-    assert mapped[1]
+    other = dict(mapped[1])
+    mapped[0].clear()
+    assert not mapped[0] and mapped[1] == other
+    if fixed:
+        with pytest.raises(TypeError, match="Snapshot values are immutable"):
+            values["display.resource.marker.comment"] = "canonical mutation"
+        with pytest.raises(TypeError, match="Snapshot values are immutable"):
+            values.clear()
 
 
 if __name__ == "__main__":

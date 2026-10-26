@@ -514,6 +514,7 @@ def test_snapshot_reference_cache_and_unbound_inputs(fixture, fixed):
         values = dict(values)
     with (
         input_context(),
+        patch.object(projection, "nodes", wraps=projection.nodes) as scan,
         patch.object(
             projection, "reference_value", wraps=projection.reference_value
         ) as evaluate,
@@ -546,25 +547,30 @@ def test_snapshot_reference_cache_and_unbound_inputs(fixture, fixed):
         if fixed:
             expected_calls = 1
         assert evaluate.call_count == expected_calls
+        assert scan.call_count == expected_calls
         assert projection.document_references({}, **contract) == ({}, [])
         assert evaluate.call_count == expected_calls
-        changed = copy.deepcopy(document)
-        changed["Statement"][0]["Resource"] = reference("S3_Bucket_999")
+        assert scan.call_count == expected_calls + 1
+        document["Statement"][0]["Resource"] = reference("S3_Bucket_999")
         if not fixed:
-            values[key] = json.dumps(changed)
-        _, diagnostics = projection.document_references(changed, **contract)
+            values[key] = json.dumps(document)
+        _, diagnostics = projection.document_references(document, **contract)
         assert diagnostics[0]["code"] == "MODEL_REF_TARGET_MISSING"
         assert evaluate.call_count == expected_calls + 1
+        assert scan.call_count == expected_calls + 2
+        document["Statement"][0]["Resource"] = reference("S3_Bucket_001")
         # Context and exclusion changes cannot reuse the earlier receiving contract.
         projection.document_references(
             document, context={"Name": "unbound"}, **contract
         )
         assert evaluate.call_count == expected_calls + 2
+        assert scan.call_count == expected_calls + 3
         resolutions, diagnostics = projection.document_references(
             document, excluded_references=("/Statement/0/Resource",), **contract
         )
         assert not resolutions and not diagnostics
         assert evaluate.call_count == expected_calls + 2
+        assert scan.call_count == expected_calls + 4
 
 
 def test_reference_cache_observed_generation_and_invocation(fixture):
@@ -574,6 +580,7 @@ def test_reference_cache_observed_generation_and_invocation(fixture):
     shared = RunModels(consumer.root, {})
     with (
         sources.model_session(shared),
+        patch.object(projection, "nodes", wraps=projection.nodes) as scan,
         patch.object(
             projection, "reference_value", wraps=projection.reference_value
         ) as evaluate,
@@ -597,6 +604,7 @@ def test_reference_cache_observed_generation_and_invocation(fixture):
             first[0]["message"] = "external contamination"
             assert projection.document_references(document, **contract)[1] == expected
             assert evaluate.call_count == 1
+            assert scan.call_count == 1
             categories = [expected[0]["category"]]
             for value in (
                 "PENDING_DEPLOY",
@@ -630,9 +638,11 @@ def test_reference_cache_observed_generation_and_invocation(fixture):
                 "RESOLVED",
             ]
             assert evaluate.call_count == 3
+            assert scan.call_count == 3
         with input_context():
             projection.document_references(document, **contract)
             assert evaluate.call_count == 4
+            assert scan.call_count == 4
 
 
 def test_reference_cache_candidate_and_rollback(fixture):

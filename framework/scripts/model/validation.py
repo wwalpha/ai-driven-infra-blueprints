@@ -947,9 +947,7 @@ def _check_model_inputs(
                 kind, number = owner(key, values)
                 if kind == "resource":
                     resource_values.setdefault(number, {})[key] = value
-        selected = SnapshotValues(
-            resource_values.get(_state_check_model_inputs_337.identity, {})
-        )
+        selected = dict(resource_values.get(_state_check_model_inputs_337.identity, {}))
         findings.evaluate(
             "model.required." + _state_check_model_inputs_337.identity,
             None,
