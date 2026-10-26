@@ -113,10 +113,12 @@ can select `--model-validation full`; `--all` retains its explicit repository sc
 Full Model validation with `--write` is rejected. Final candidates always use Change
 Validation, including when their caller requests regression.
 
-Reference discovery reuses the signed dependency index. Metadata revision/file-set checks
-reject unseen external reference edits without parsing unrelated Models. If it is absent, report missing
-comparison/dependency inputs and use the existing offline `model/cli.py index` operation;
-never discover dependencies by running Full quality validation. Producer reads validate
+Reference discovery reuses verified, current entries from the signed dependency index.
+Missing or stale entries are discovered structurally into invocation-local metadata using
+shared raw Model snapshots, without Full quality validation or persistent index writes.
+Unidentifiable reference inputs stop with their source and reason. Deploy retains its
+sealed-index and Snapshot checks; missing metadata needs no manual update preparation.
+Producer reads validate
 only the required attributes/context. Read-only producers need no additional write rights
 or quality scope. Consumers join generation only when their reference inputs change;
 actual changed output paths still require Modified files, Allowed paths and publication

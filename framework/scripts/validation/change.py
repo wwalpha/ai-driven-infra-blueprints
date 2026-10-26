@@ -4,7 +4,7 @@ from functools import partial
 
 from design.catalog import DesignSchemaCatalog
 from model.change_scope import change_reads
-from model.core import entries
+from model.core import structural_entries as entries
 from model.identity import Resolver, display_anchor
 from model.reference_values import ProducerValues
 from utils.reference_contracts import contract, reference_attribute
@@ -83,7 +83,9 @@ def validate_plan(root, plan, scope=None, *, definitions_root=None):
         for change in plan.changes.values()
         if change.after is not None
     }
-    with change_reads(root, plan.reads, models):
+    plan.metadata.setdefault("snapshots", {}).update(models)
+    models.update(plan.metadata["snapshots"])
+    with change_reads(root, plan.reads, models, metadata=plan.metadata):
         for change in plan.changes.values():
             if change.after is None:
                 continue

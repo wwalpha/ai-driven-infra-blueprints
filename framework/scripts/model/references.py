@@ -254,7 +254,7 @@ def _producer(snapshot, address, reads, cache):
             cache[scope.path] = (
                 None
                 if reads.kind(scope.path) == "missing"
-                else source_models.raw_model(scope, reads)
+                else dependency_index.change_snapshot(scope.path, reads)
                 if change_plan.active()
                 else source_models._source_snapshot(scope, reads)
             )
@@ -273,16 +273,25 @@ def _callback_usages_producer_for(cache, producers, reads, snapshot, /, scope):
 
 
 def _callback_usages_fixed(indexes, producer_for, resource_index, /, scope, logical):
-    if scope in indexes:
-        match = indexes[scope].get(logical)
-        return match[0] if match else None
-    producer = producer_for(scope)
-    if producer is None:
-        return None
     if scope not in indexes:
-        indexes[scope] = resource_index(producer.authoritative)
-    match = indexes[scope].get(logical)
-    return match[0] if match else None
+        producer = producer_for(scope)
+        if producer is None:
+            return None
+        indexes[scope] = (
+            _imports_model_core.resource_groups(producer.authoritative)
+            if change_plan.active()
+            else {
+                logical: [match]
+                for logical, match in resource_index(producer.authoritative).items()
+            }
+        )
+    matches = indexes[scope].get(logical, ())
+    if len(matches) > 1:
+        raise _imports_model_core.ModelNeedsFixError(
+            "producer logicalId is ambiguous: " + logical,
+            code="MODEL_REF_TARGET_AMBIGUOUS",
+        )
+    return matches[0][0] if matches else None
 
 
 def usages(
@@ -436,7 +445,8 @@ def usages(
                     continue
                 producer = producer_for(scope)
                 if producer is not None and scope not in anchors:
-                    resource_index(producer.authoritative)
+                    if not change_plan.active():
+                        resource_index(producer.authoritative)
                     anchors[scope] = anchor_index(producer.authoritative)
                 matches = anchors.get(scope, {}).get(anchor, ())
                 rid, resource = matches[0] if len(matches) == 1 else (None, {})
@@ -466,7 +476,9 @@ def usages(
 def _callback_diagnose_producer_entries(parsed, /, producer, prefix):
     key = (id(producer), prefix)
     if key not in parsed:
-        result = entries(producer.authoritative, prefix)
+        result = (
+            _imports_model_core.structural_entries if change_plan.active() else entries
+        )(producer.authoritative, prefix)
         parsed[key] = dict(result) if prefix == "desired.resource." else result
     return parsed[key]
 
@@ -679,36 +691,44 @@ def incoming(snapshot, producer_id, read_context=None, *, warnings=None):
     logical = snapshot.authoritative.get(
         f"desired.resource.{producer_id}.logicalId", producer_id
     )
-    scopes = [
-        source_models.scope_for(path)
-        for path in dependency_index.consumers(
-            snapshot.scope.root,
-            {address},
-            {(snapshot.scope.environment, snapshot.scope.target, logical)},
-        )
-    ]
-    with read_consumers(
-        {(scope.environment, scope.target, scope.service) for scope in scopes}
+    with change_plan.change_reads(
+        snapshot.scope.root, reads, {snapshot.scope.path: snapshot}
     ):
-        for scope in scopes:
-            consumer = source_models.raw_model(scope, reads)
-            relevant_warnings, _ = diagnose(consumer, reads, _producer_scope=address)
-            if warnings is not None:
-                warnings.extend(
-                    {
-                        "scope": "/".join(
-                            (scope.environment, scope.target, scope.service)
-                        ),
-                        **warning,
-                    }
-                    for warning in relevant_warnings
+        scopes = [
+            source_models.scope_for(path)
+            for path in dependency_index.change_consumers(
+                snapshot.scope.root,
+                {address},
+                {(snapshot.scope.environment, snapshot.scope.target, logical)},
+                set(),
+                reads=reads,
+            )
+        ]
+        with read_consumers(
+            {(scope.environment, scope.target, scope.service) for scope in scopes}
+        ):
+            for scope in scopes:
+                consumer = dependency_index.change_snapshot(scope.path, reads)
+                relevant_warnings, _ = diagnose(
+                    consumer, reads, _producer_scope=address
                 )
-            for usage in usages(consumer, reads, _producer_scope=address):
-                if usage.producer_scope == address and (
-                    usage.producer_id == producer_id or usage.logical_id == producer_id
-                ):
-                    result.append((scope, usage))
-    return tuple(result)
+                if warnings is not None:
+                    warnings.extend(
+                        {
+                            "scope": "/".join(
+                                (scope.environment, scope.target, scope.service)
+                            ),
+                            **warning,
+                        }
+                        for warning in relevant_warnings
+                    )
+                for usage in usages(consumer, reads, _producer_scope=address):
+                    if usage.producer_scope == address and (
+                        usage.producer_id == producer_id
+                        or usage.logical_id == producer_id
+                    ):
+                        result.append((scope, usage))
+        return tuple(result)
 
 
 @dataclass(frozen=True)

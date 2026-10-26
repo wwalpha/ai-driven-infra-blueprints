@@ -7,6 +7,9 @@ _inputs = ContextVar("model_change_inputs", default=None)
 
 _roots = ContextVar("model_change_index_roots", default=None)
 
+_metadata = ContextVar("model_change_metadata", default=None)
+
+
 _active = ContextVar("model_change_reads", default=False)
 
 
@@ -15,14 +18,16 @@ def active():
 
 
 @contextmanager
-def change_reads(root=None, reads=None, models=None):
+def change_reads(root=None, reads=None, models=None, *, metadata=None):
     token = _active.set(True)
+    cache = _metadata.set(metadata if metadata is not None else _metadata.get() or {})
     inputs = _inputs.set(
         (root, reads, models or {}) if root is not None else _inputs.get()
     )
     try:
         yield
     finally:
+        _metadata.reset(cache)
         _inputs.reset(inputs)
         _active.reset(token)
 
@@ -43,3 +48,7 @@ def index_stage(root, stage):
 def inputs_for(root):
     value = _inputs.get()
     return value if value is not None and value[0] == root else (root, None, {})
+
+
+def metadata():
+    return _metadata.get()

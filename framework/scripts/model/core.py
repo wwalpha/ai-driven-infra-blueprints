@@ -157,10 +157,26 @@ def validate_runtime_keys(values):
 
 
 def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, str]]]:
+    result = structural_entries(values, prefix)
+    if prefix == "desired.resource.":
+        for _identity, fields in result:
+            if "deploymentEncryption" in fields and (
+                fields.get("resourceType") != "S3.Bucket"
+                or fields["deploymentEncryption"] != "default"
+            ):
+                raise ValueError("deploymentEncryption is only default on an S3.Bucket")
+            if "cfn-logicalId" in fields:
+                cfn_resource_identity(fields["cfn-logicalId"])
+    return result
+
+
+def structural_entries(
+    values: dict[str, str], prefix: str
+) -> list[tuple[str, dict[str, str]]]:
     memo = None
     if isinstance(values, SnapshotValues):
         memo = memo_table()
-    cache_key = (entries, id(values), prefix)
+    cache_key = (structural_entries, id(values), prefix)
     if memo is not None and cache_key in memo:
         return [(identity, dict(fields)) for identity, fields in memo[cache_key][1]]
     groups: dict[str, dict[str, str]] = {}
@@ -170,20 +186,19 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
             if not separator:
                 raise ValueError(f"invalid model entry: {key}")
             groups.setdefault(identity, {})[field] = value
-    if prefix == "desired.resource.":
-        for _identity, fields in groups.items():
-            if "deploymentEncryption" in fields and (
-                fields.get("resourceType") != "S3.Bucket"
-                or fields["deploymentEncryption"] != "default"
-            ):
-                raise ValueError("deploymentEncryption is only default on an S3.Bucket")
-            if "cfn-logicalId" in fields:
-                cfn_resource_identity(fields["cfn-logicalId"])
     result = sorted(groups.items())
     if memo is not None:
         # Hold the immutable invocation input so object IDs cannot be recycled.
         memo[cache_key] = (values, result)
         return [(identity, dict(fields)) for identity, fields in result]
+    return result
+
+
+def resource_groups(values):
+    """Retain missing and duplicate identities for scoped comparison/resolution."""
+    result = {}
+    for number, resource in structural_entries(values, "desired.resource."):
+        result.setdefault(resource.get("logicalId"), []).append((number, resource))
     return result
 
 

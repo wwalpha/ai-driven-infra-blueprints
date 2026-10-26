@@ -23,7 +23,8 @@ import model.references as references
 import model.validation as model_validation
 from model import dependency_index, environment_values, sources
 from model.change_scope import change_reads
-from model.core import entries
+from model.core import resource_groups
+from model.core import structural_entries as entries
 from model.format import KEY, owner, parse
 from model.reference_nodes import nodes
 
@@ -50,6 +51,7 @@ class ChangePlan:
     views: set = field(default_factory=set)
     dependencies: set = field(default_factory=set)
     reads: object = None
+    metadata: dict = field(default_factory=dict)
 
     @property
     def services(self):
@@ -57,15 +59,13 @@ class ChangePlan:
 
 
 def resource_map(values):
-    result = {}
-    for number, resource in entries(values, "desired.resource."):
-        logical = resource.get("logicalId")
-        if not logical or logical in result:
-            raise ValueError(
-                "change comparison requires unambiguous Resource logicalId"
-            )
-        result[logical] = number, resource
-    return result
+    return {
+        logical
+        if logical and len(matches) == 1
+        else "<unknown identity: " + number + ">": (number, resource)
+        for logical, matches in resource_groups(values).items()
+        for number, resource in matches
+    }
 
 
 def property_rows(values, number):
@@ -207,12 +207,30 @@ def compare(before, after):
     for identity, spec in entries(new, "desired.reference."):
         if any(key.startswith(f"desired.reference.{identity}.") for key in change.keys):
             change.reference_keys.add(spec.get("consumerKey"))
+    unknown = {
+        logical
+        for logical in change.resources
+        if logical.startswith("<unknown identity:")
+        and (
+            logical in current
+            or previous[logical][0] not in {number for number, _ in current.values()}
+        )
+    }
+    if unknown:
+        raise ValueError(
+            "change comparison cannot identify changed Resource: "
+            + ", ".join(sorted(unknown))
+        )
     return change
 
 
 def signature(values, logical, attribute=None):
-    resources = resource_map(values)
-    number, resource = resources.get(logical, (None, {}))
+    matches = resource_groups(values).get(logical, ())
+    if len(matches) > 1:
+        raise ValueError(
+            "reference contract has ambiguous producer logicalId: " + logical
+        )
+    number, resource = matches[0] if matches else (None, {})
     if number is None:
         return None
     kind = resource["resourceType"]
@@ -271,9 +289,9 @@ def incoming_keys(snapshot, changes):
         )
         old = {} if change.before is None else change.before.authoritative
         new = {} if change.after is None else change.after.authoritative
-        if logical and signature(old, logical, attribute) != signature(
-            new, logical, attribute
-        ):
+        if logical in change.resources and signature(
+            old, logical, attribute
+        ) != signature(new, logical, attribute):
             result.add(spec["consumerKey"])
         elif spec.get("producerKind") == "stack" and any(
             k.startswith(f"desired.stack.{spec.get('producerId')}.")
@@ -293,7 +311,10 @@ def incoming_keys(snapshot, changes):
         value, _ = references._json(key, raw)
         for node in nodes(value):
             for identity, change in changes.items():
-                if identity[:2] != (snapshot.scope.environment, snapshot.scope.target):
+                if (
+                    identity[:2] != (snapshot.scope.environment, snapshot.scope.target)
+                    or node.logical_id not in change.resources
+                ):
                     continue
                 old = {} if change.before is None else change.before.authoritative
                 new = {} if change.after is None else change.after.authoritative
@@ -310,8 +331,10 @@ def incoming_keys(snapshot, changes):
             new = {} if change.after is None else change.after.authoritative
             logicals = {
                 logical
-                for logical, (_, resource) in resource_map(old).items()
-                if resource.get("anchor", logical) == address[3]
+                for source in (old, new)
+                for logical, (_, resource) in resource_map(source).items()
+                if logical in change.resources
+                and resource.get("anchor", logical) == address[3]
             }
             if any(
                 signature(old, logical) != signature(new, logical)
@@ -346,14 +369,6 @@ def comparison_snapshot(base):
             values[key] = value
     for key in duplicates:
         values[key] = "<ambiguous before value: " + key + ">"
-    seen = set()
-    for number, resource in entries(values, "desired.resource."):
-        logical = resource.get("logicalId")
-        if not logical or logical in seen:
-            values[f"desired.resource.{number}.logicalId"] = (
-                "<unknown before identity: " + number + ">"
-            )
-        seen.add(logical)
     return base._replace(authoritative=values, values=values)
 
 
@@ -381,8 +396,14 @@ def assemble(root, changed, before, reads, *, context=False):
         plan.changes[identity] = change
         if change.keys:
             plan.views.add(identity)
+    plan.metadata["snapshots"] = {
+        change.after.scope.path: change.after
+        for change in plan.changes.values()
+        if change.after is not None
+    }
     if context:
-        context_contracts(root, before, reads, plan)
+        with change_reads(root, reads, metadata=plan.metadata):
+            context_contracts(root, before, reads, plan)
     # No reference discovery for comment-only changes.
     semantic = {
         identity: change
@@ -397,13 +418,17 @@ def assemble(root, changed, before, reads, *, context=False):
         for identity, change in semantic.items()
         for logical in change.resources | change.deleted
     }
-    for path in dependency_index.change_consumers(
-        root, scopes, identifiers, set(changed)
-    ):
+    with change_reads(root, reads, metadata=plan.metadata):
+        consumers = dependency_index.change_consumers(
+            root, scopes, identifiers, set(changed), reads=reads
+        )
+    for path in consumers:
         scope = sources.scope_for(path)
         snapshot = plan.changes.get((scope.environment, scope.target, scope.service))
         snapshot = (
-            snapshot.after if snapshot is not None else sources.raw_model(scope, reads)
+            snapshot.after
+            if snapshot is not None
+            else dependency_index.change_snapshot(scope.path, reads, plan.metadata)
         )
         if snapshot is None:
             continue
@@ -455,12 +480,6 @@ def task_plan(
         frozenset(identities),
         tuple(sorted(output.items())),
         id(read_context),
-        tuple(
-            sorted(
-                (path, tuple(revision))
-                for path, revision in dependency_index.inventory(root).items()
-            )
-        ),
     )
     if memo is not None and key in memo:
         return memo[key]
@@ -523,15 +542,17 @@ def context_contracts(root, before, reads, plan):
     if not targets:
         return
     # Inventory membership is metadata; only actual context-reference inputs are parsed.
-    if not dependency_index.inventory(root):
-        return
-    index = dependency_index.check_change_inventory(root, set(plan.changes))
+    index = dependency_index.check_change_inventory(
+        root, set(plan.changes), reads=reads
+    )
     for relative, entry in index["models"].items():
         if tuple(relative.split("/")[1:3]) not in targets or not (
             entry["typed"] or any(scope.count("/") == 1 for scope in entry["links"])
         ):
             continue
-        snapshot = sources.raw_model(root / relative, reads)
+        snapshot = dependency_index.change_snapshot(
+            root / relative, reads, plan.metadata
+        )
         keys = {
             spec["consumerKey"]
             for _, spec in entries(snapshot.authoritative, "desired.reference.")

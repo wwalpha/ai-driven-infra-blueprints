@@ -20,6 +20,8 @@ from model.core import (
     ModelNeedsFixError,
     ReferenceResolutionError,
     entries,
+    resource_groups,
+    structural_entries,
 )
 from model.core import counters as counters
 from model.core import prefix as prefix
@@ -127,7 +129,7 @@ def display_anchor(resource):
 def anchor_index(values):
     """Retain ambiguous anchors for semantic diagnostics, without guessing identities."""
     result = {}
-    for number, resource in entries(values, "desired.resource."):
+    for number, resource in structural_entries(values, "desired.resource."):
         anchor = resource.get("anchor")
         if anchor:
             result.setdefault(anchor, []).append((number, resource))
@@ -194,11 +196,12 @@ class Resolver:
                 )
             with reference_reader(producer.path):
                 snapshot = (
-                    _imports_model_sources.raw_model(producer, self.reads)
+                    dependency_index.change_snapshot(producer.path, self.reads)
                     if change_plan.active()
                     else _source_snapshot(producer, self.reads)
                 )
-            resource_index(snapshot.authoritative)
+            if not change_plan.active():
+                resource_index(snapshot.authoritative)
             self.models[producer.path] = snapshot
             self.indexes[producer.path] = anchor_index(snapshot.authoritative)
         if producer.path not in self.indexes:
@@ -225,7 +228,13 @@ class Resolver:
                     sources.session_reads(self.root).logical_models(scope, logical_id)
                     if sources.session_reads(self.root) is not None
                     else dependency_index.logical_models(
-                        self.root, scope.environment, scope.target, logical_id
+                        self.root,
+                        scope.environment,
+                        scope.target,
+                        logical_id,
+                        index=dependency_index.check_change_inventory(
+                            self.root, set(), reads=self.reads
+                        ),
                     )
                     if change_plan.active()
                     else sources.list_models(scope, self.reads)
@@ -254,7 +263,9 @@ class Resolver:
                             producer.path
                         ):
                             self.models[producer.path] = (
-                                sources.raw_model(producer, self.reads)
+                                dependency_index.change_snapshot(
+                                    producer.path, self.reads
+                                )
                                 if change_plan.active()
                                 else sources._source_snapshot(producer, self.reads)
                             )
@@ -263,15 +274,21 @@ class Resolver:
                         raise FrameworkUnsupportedError(
                             "producer Model is unreadable", targetLogicalId=logical_id
                         )
-                    resources = resource_index(snapshot.authoritative)
+                    resources = (
+                        resource_groups(snapshot.authoritative).get(logical_id, ())
+                        if change_plan.active()
+                        else resource_index(snapshot.authoritative).values()
+                    )
                 except ModelNeedsFixError as error:
                     error.diagnostic.update(
                         producerModel=str(producer.path),
                         fixModels=[str(producer.path)],
                     )
                     raise
-                for logical, (number, resource) in resources.items():
-                    index.setdefault(logical, []).append((snapshot, number, resource))
+                for number, resource in resources:
+                    index.setdefault(resource.get("logicalId"), []).append(
+                        (snapshot, number, resource)
+                    )
             self.logical_indexes[key] = index
         matches = self.logical_indexes[key].get(logical_id, ())
         if len(matches) != 1:

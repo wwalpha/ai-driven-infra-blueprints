@@ -2,12 +2,13 @@
 
 from contextlib import nullcontext
 
+from utils.json_format import strict_json
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.change_scope as change_scope
 import model.identity as identity
 import model.sources as sources
-from model.core import entries
+from model.core import entries, structural_entries
 from model.reference_nodes import nodes
 
 
@@ -28,20 +29,41 @@ def inventory(root):
     return result
 
 
-def record(path, reads):
+def record(path, reads, *, quality=True):
     snapshot = sources.raw_model(path, reads)
-    return snapshot_record(snapshot)
+    return snapshot_record(snapshot, quality=quality)
 
 
-def snapshot_record(snapshot):
+def snapshot_record(snapshot, *, quality=True):
     values, scope = snapshot.authoritative, snapshot.scope
-    resources = [resource for _, resource in entries(values, "desired.resource.")]
+    resources = [
+        resource
+        for _, resource in (entries if quality else structural_entries)(
+            values, "desired.resource."
+        )
+    ]
     links, logical = set(), set()
     for key, value in values.items():
         if key.startswith(("desired.row.", "desired.resource.")):
             for token in identity.reference_tokens(value):
                 links.add("/".join(identity.parse_reference(token[0], scope)[:3]))
-            for node in nodes(value.strip("`"), errors=[]):
+            if (
+                not quality
+                and key.endswith((".value", ".document", ".parentReference"))
+                and "$modelRef" in value
+            ):
+                try:
+                    parsed = strict_json(value.strip("`"))
+                    references = list(nodes(parsed))
+                    if not references:
+                        raise ValueError("cannot identify typed reference")
+                except ValueError as error:
+                    raise ValueError(
+                        f"cannot determine reference metadata: {scope.path}: {key}: {error}"
+                    ) from error
+            else:
+                references = nodes(value.strip("`"), errors=[])
+            for node in references:
                 logical.add(node.logical_id)
         elif key.startswith("desired.reference.") and key.endswith(".producerScope"):
             links.add(value)
@@ -188,7 +210,7 @@ def update(root, changed, *, observed=False):
                 else:
                     files.discard(changed_relative)
         if path.is_file():
-            entry = record(path, reads)
+            entry = record(path, reads, quality=False)
             if set(entry["files"]) != files:
                 raise ValueError(
                     "Model dependency index has inconsistent source membership"
@@ -217,19 +239,19 @@ def owners(root, environment, directory, identities):
     ]
 
 
-def logical_models(root, environment, directory, logical):
+def logical_models(root, environment, directory, logical, *, index=None):
     prefix = f"model/{environment}/{directory}/"
     return [
         sources.scope_for(root / path)
-        for path, entry in load(root)["models"].items()
+        for path, entry in (load(root) if index is None else index)["models"].items()
         if path.startswith(prefix) and logical in entry["logical"]
     ]
 
 
-def consumers(root, scopes, identifiers):
+def consumers(root, scopes, identifiers, *, index=None):
     return [
         root / path
-        for path, entry in load(root)["models"].items()
+        for path, entry in (load(root) if index is None else index)["models"].items()
         if set(entry["links"]) & scopes
         or any(
             tuple(path.split("/")[1:3]) == identity[:2]
@@ -239,26 +261,66 @@ def consumers(root, scopes, identifiers):
     ]
 
 
-def check_change_inventory(root, changed):
-    """Reject unseen reference edits using metadata, without parsing other Models."""
+def change_snapshot(path, reads, metadata=None):
+    metadata = metadata if metadata is not None else change_scope.metadata()
+    snapshots = metadata.setdefault("snapshots", {}) if metadata is not None else {}
+    if path not in snapshots:
+        try:
+            base = sources.edit_base(path, reads)
+            # Text with no Model fields or reference tokens cannot declare an edge or owner.
+            empty = not any(
+                marker in text
+                for text in base.files.values()
+                for marker in ("desired.", "$modelRef", "](")
+            )
+            snapshots[path] = base if empty else sources.raw_model(path, reads)
+        except ValueError as error:
+            raise ValueError(
+                f"cannot read reference metadata: {path}: {error}"
+            ) from error
+    return snapshots[path]
+
+
+def check_change_inventory(root, changed, *, reads=None):
+    """Refresh only missing/stale reference metadata in this immutable read scope."""
+    metadata = change_scope.metadata()
+    if metadata is not None and root in metadata.get("indexes", {}):
+        return metadata["indexes"][root]
+    reads = reads or change_scope.inputs_for(root)[1] or sources.FileReads()
     primary = change_scope.index_root(root)
-    index = load(root)
-    current = inventory(primary)
-    stale = []
-    for relative in current.keys() | index["files"].keys():
-        scope = sources.source_scope(primary, primary / relative)
-        if (scope.environment, scope.target, scope.service) in changed:
-            continue
-        if current.get(relative) != index["files"].get(relative):
-            stale.append(relative)
-    if stale:
-        raise ValueError(
-            "Model dependency index is stale; rebuild offline before Change Validation: "
-            + ", ".join(sorted(stale))
-        )
+    previous = (
+        read_sealed(primary, location(primary))
+        if location(primary).is_file()
+        else {"version": 1, "files": {}, "models": {}}
+    )
+    validate(primary, previous)
+    current = inventory(root)
+    # Register membership with the same input recorder used by publication.
+    paths = sources.model_paths(root, read_context=reads)
+    index = {"version": 1, "files": current, "models": {}}
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        scope = sources.scope_for(path)
+        entry = previous["models"].get(relative)
+        files = {
+            p
+            for p in current
+            if p == relative or p.startswith(relative.removesuffix(".properties") + "/")
+        }
+        if (
+            entry is None
+            or (scope.environment, scope.target, scope.service) in changed
+            or files != set(entry["files"])
+            or any(current[p] != previous["files"].get(p) for p in files)
+        ):
+            snapshot = change_snapshot(path, reads, metadata)
+            entry = snapshot_record(snapshot, quality=False)
+        index["models"][relative] = entry
+    if metadata is not None:
+        metadata.setdefault("indexes", {})[root] = index
     return index
 
 
-def change_consumers(root, scopes, identifiers, changed):
-    check_change_inventory(root, changed)
-    return consumers(root, scopes, identifiers)
+def change_consumers(root, scopes, identifiers, changed, *, reads=None):
+    index = check_change_inventory(root, changed, reads=reads)
+    return consumers(root, scopes, identifiers, index=index)

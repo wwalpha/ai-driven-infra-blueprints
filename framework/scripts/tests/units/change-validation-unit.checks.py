@@ -486,7 +486,7 @@ def check_stage_does_not_load_unaffected_incoming_peer(project_workspace):
     assert all(call.args[0] != broken for call in reads.call_args_list)
 
 
-def check_stale_dependency_metadata_fails_without_full(project_workspace):
+def check_stale_dependency_metadata_refreshes_without_full(project_workspace):
     root = project_workspace
     setup(root, ["s3", "logs"], ["S3.Bucket"])
     producer = root / "model/preview/team/s3.properties"
@@ -503,14 +503,15 @@ def check_stale_dependency_metadata_fails_without_full(project_workspace):
     with patch.object(
         validation, "check_model_inputs", side_effect=AssertionError("Full called")
     ) as full:
-        with pytest.raises(ValueError, match="index is stale"):
-            change_plan.assemble(
-                root, {("preview", "team", "s3")}, old, sources.FileReads()
-            )
+        plan = change_plan.assemble(
+            root, {("preview", "team", "s3")}, old, sources.FileReads()
+        )
+        result = change.validate_plan(root, plan)
+        assert not result.errors, result.errors
         project = root / "project.json"
         project.write_text(project.read_text().replace("ap-northeast-1", "us-east-1"))
-        with pytest.raises(ValueError, match="index is stale"):
-            change_plan.assemble(root, set(), old, sources.FileReads(), context=True)
+        plan = change_plan.assemble(root, set(), old, sources.FileReads(), context=True)
+        assert not plan.contracts
         full.assert_not_called()
 
 
@@ -725,3 +726,260 @@ def check_comment_only_change_selects_comment_rule(project_workspace, comment, v
     after = dict(before, **{"desired.row.001-001.comment": comment})
     result = evaluate(project_workspace, before, after)
     assert bool(result.errors) is not valid, result.errors
+
+
+@pytest.mark.parametrize(
+    "defect",
+    ["cfn-logicalId", "deploymentEncryption", "missing-logical", "duplicate-logical"],
+)
+def check_unrelated_resource_identity_defect(project_workspace, defect):
+    root = project_workspace
+    setup(root, ["logs"], ["Logs.LogGroup"])
+    before = {**logs(), **logs("002"), **logs("003")}
+    if defect == "missing-logical":
+        before.pop("desired.resource.002.logicalId")
+    elif defect == "duplicate-logical":
+        before["desired.resource.003.logicalId"] = before[
+            "desired.resource.002.logicalId"
+        ]
+    else:
+        before["desired.resource.002." + defect] = "invalid!"
+    path = root / "model/preview/team/logs.properties"
+    write_model(path, before)
+    reads = sources.FileReads()
+    old = change_plan.comparison_snapshot(sources.edit_base(path, reads))
+    candidate = dict(before, **{"desired.row.001-001.value": "changed-name"})
+    current_reads = sources.CandidateReads(
+        sources.FileReads(), {path: serialize(candidate)}
+    )
+    new = sources.raw_model(path, current_reads)
+    with patch.object(
+        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+    ):
+        change.validate_save(old, new, current_reads)
+    with pytest.raises(ValueError):
+        validation.check_model_inputs(path, candidate, root)
+
+
+@pytest.mark.parametrize("field", ["cfn-logicalId", "deploymentEncryption"])
+def check_changed_resource_metadata_is_validated(project_workspace, field):
+    before = logs()
+    after = dict(before, **{"desired.resource.001." + field: "invalid!"})
+    result = evaluate(project_workspace, before, after)
+    assert result.errors
+
+
+@pytest.mark.parametrize("index_state", ["missing", "current", "stale"])
+@pytest.mark.parametrize("typed", [False, True])
+def check_dependency_discovery_and_broken_consumer(
+    project_workspace, index_state, typed
+):
+    root = project_workspace
+    setup(root, ["s3", "lambda", "logs"], ["S3.Bucket", "Lambda.Function"])
+    producer = root / "model/preview/team/s3.properties"
+    values = resource("001", "S3.Bucket", "bucket", [("BucketName", "fixture-data")])
+    write_model(producer, values)
+    consumer = producer.with_name("lambda.properties")
+    receiving = resource(
+        "001",
+        "Lambda.Function",
+        "consumer",
+        [
+            (
+                "Code.S3Bucket",
+                '`{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}`'
+                if typed
+                else "[bucket](s3.md#bucket)",
+            )
+        ],
+    )
+    if index_state == "stale":
+        write_model(
+            consumer,
+            resource(
+                "001",
+                "Lambda.Function",
+                "consumer",
+                [("Code.S3Bucket", "fixture-data")],
+            ),
+        )
+        dependency_index.rebuild(root)
+    write_model(consumer, receiving)
+    if index_state == "current":
+        dependency_index.rebuild(root)
+    # Unrelated quality defects in a different service and the producer's own service.
+    write_model(
+        producer.with_name("logs.properties"),
+        dict(logs(), **{"desired.resource.001.cfn-logicalId": "bad!"}),
+    )
+    extra = resource("002", "S3.Bucket", "unrelated", [("BucketName", "fixture-extra")])
+    extra["desired.resource.002.deploymentEncryption"] = "bad"
+    values.update(extra)
+    write_model(producer, values)
+    old = root / "old"
+    setup(old, ["s3"], ["S3.Bucket"])
+    write_model(old / producer.relative_to(root), values)
+    after = dict(values, **{"desired.row.001-001.value": "changed-data"})
+    write_model(producer, after)
+    with (
+        patch.object(
+            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        ),
+        patch.object(
+            validation,
+            "_check_model_inputs",
+            side_effect=AssertionError("Full internal called"),
+        ),
+        patch.object(
+            dependency_index,
+            "write_sealed",
+            side_effect=AssertionError("transient discovery persisted"),
+        ),
+        patch.object(
+            dependency_index, "inventory", wraps=dependency_index.inventory
+        ) as inventories,
+        patch.object(sources, "raw_model", wraps=sources.raw_model) as raw,
+    ):
+        plan = change_plan.assemble(
+            root, {("preview", "team", "s3")}, old, sources.FileReads()
+        )
+        assert ("preview", "team", "lambda") in plan.contracts
+        result = change.validate_plan(root, plan)
+        assert not result.errors, result.errors
+        assert inventories.call_count == 1
+        paths = [
+            call.args[0].path
+            if isinstance(call.args[0], sources.Scope)
+            else call.args[0]
+            for call in raw.call_args_list
+        ]
+        assert len(paths) == len(set(paths)), paths
+    producer.unlink()
+    plan = change_plan.assemble(
+        root, {("preview", "team", "s3")}, old, sources.FileReads()
+    )
+    result = change.validate_plan(root, plan)
+    assert (
+        result.errors
+    )  # Incoming contract cannot silently disappear with its producer.
+    if index_state == "missing":
+        assert not dependency_index.location(root).exists()
+        with pytest.raises(ValueError, match="index missing"):
+            dependency_index.load(root)  # Deploy still requires its sealed index.
+
+
+def check_missing_index_without_consumer(project_workspace):
+    root = project_workspace
+    setup(root, ["logs"], ["Logs.LogGroup"])
+    path = root / "model/preview/team/logs.properties"
+    old = root / "old"
+    setup(old, ["logs"], ["Logs.LogGroup"])
+    write_model(old / path.relative_to(root), logs())
+    write_model(path, logs(retention="14"))
+    plan = change_plan.assemble(
+        root, {("preview", "team", "logs")}, old, sources.FileReads()
+    )
+    result = change.validate_plan(root, plan)
+    assert not result.errors, result.errors
+    assert not dependency_index.location(root).exists()
+
+
+def check_ambiguous_changed_resource_and_reference_stop(project_workspace):
+    values = {**logs(), **logs("002"), **logs("003")}
+    values["desired.resource.003.logicalId"] = values["desired.resource.002.logicalId"]
+    after = dict(values, **{"desired.row.002-001.value": "changed-name"})
+    with pytest.raises(ValueError, match="cannot identify changed Resource"):
+        change_plan.compare(
+            snapshot(project_workspace, values), snapshot(project_workspace, after)
+        )
+    with pytest.raises(ValueError, match="ambiguous producer logicalId"):
+        change_plan.signature(values, "Logs_LogGroup_002", "Arn")
+
+
+def check_unidentifiable_reference_metadata_stops(project_workspace):
+    root = project_workspace
+    setup(root, ["logs"], ["Logs.LogGroup"])
+    path = root / "model/preview/team/logs.properties"
+    write_model(
+        path,
+        dict(
+            logs(),
+            **{"desired.row.001-001.value": '`{"$modelRef":{"attribute":"Arn"}}`'},
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match="cannot determine reference metadata.*desired.row.001-001.value",
+    ):
+        dependency_index.check_change_inventory(root, set())
+
+
+@pytest.mark.parametrize("typed", [True, False])
+def check_unrelated_ambiguous_producer_reference(project_workspace, typed):
+    root = project_workspace
+    setup(root, ["s3", "lambda"], ["S3.Bucket", "Lambda.Function"])
+    producer = root / "model/preview/team/s3.properties"
+    values = {
+        **resource("001", "S3.Bucket", "bucket", [("BucketName", "fixture-data")]),
+        **resource("002", "S3.Bucket", "old-bucket", [("BucketName", "fixture-old")]),
+        **resource(
+            "003", "S3.Bucket", "duplicate", [("BucketName", "fixture-duplicate")]
+        ),
+    }
+    values["desired.resource.003.logicalId"] = "S3_Bucket_002"
+    write_model(producer, values)
+    receiving = resource(
+        "001",
+        "Lambda.Function",
+        "consumer",
+        [
+            (
+                "Code.S3Bucket",
+                '`{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}`'
+                if typed
+                else "[bucket](s3.md#bucket)",
+            ),
+            (
+                "Environment.Variables",
+                '`{"old":{"$modelRef":{"logicalId":"S3_Bucket_002","attribute":"BucketName"}}}`'
+                if typed
+                else "[old](s3.md#old-bucket)",
+            ),
+        ],
+    )
+    write_model(producer.with_name("lambda.properties"), receiving)
+    old = root / "old"
+    setup(old, ["s3"], ["S3.Bucket"])
+    write_model(old / producer.relative_to(root), values)
+    write_model(producer, dict(values, **{"desired.row.001-001.value": "changed-data"}))
+    plan = change_plan.assemble(
+        root, {("preview", "team", "s3")}, old, sources.FileReads()
+    )
+    _, keys = plan.contracts[("preview", "team", "lambda")]
+    assert keys == {"desired.row.001-001.value"}
+    result = change.validate_plan(root, plan)
+    assert not result.errors, result.errors
+
+
+def check_unrelated_non_model_text_has_no_dependency_edges(project_workspace):
+    root = project_workspace
+    setup(root, ["logs", "broken"], ["Logs.LogGroup"])
+    path = root / "model/preview/team/logs.properties"
+    old = root / "old"
+    setup(old, ["logs"], ["Logs.LogGroup"])
+    write_model(old / path.relative_to(root), logs())
+    write_model(path, logs(retention="14"))
+    broken = path.with_name("broken.properties")
+    broken.write_text("invalid unrelated text\n", encoding="utf-8")
+    plan = change_plan.assemble(
+        root, {("preview", "team", "logs")}, old, sources.FileReads()
+    )
+    result = change.validate_plan(root, plan)
+    assert not result.errors, result.errors
+    broken.write_text("invalid [ref](logs.md#logs-001)\n", encoding="utf-8")
+    with pytest.raises(
+        ValueError, match="cannot read reference metadata.*broken.properties"
+    ):
+        change_plan.assemble(
+            root, {("preview", "team", "logs")}, old, sources.FileReads()
+        )

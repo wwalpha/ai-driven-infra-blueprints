@@ -104,7 +104,9 @@ def validate_environment_settings(
 ):
     root = _imports_model_sources.scope_for(path).root
     authority = values if reference_values is None else dict(reference_values, **values)
-    resources = dict(entries(authority, "desired.resource."))
+    resources = dict(
+        _imports_model_core.structural_entries(authority, "desired.resource.")
+    )
     rows = entries(values, "desired.row.")
     context_rows = entries(authority, "desired.row.")
     contexts, mappings = {}, {}
@@ -1017,7 +1019,9 @@ def check_change_inputs(path, authority, root, change, *, definitions_root=None)
     """Run only rules selected by semantic Resource/Property changes."""
     definitions = definitions_root or definition_root(root)
     findings = _imports_validation_findings.Findings(root)
-    resources = dict(entries(authority, "desired.resource."))
+    resources = dict(
+        _imports_model_core.structural_entries(authority, "desired.resource.")
+    )
     selected_resources = {
         rid: resource
         for rid, resource in resources.items()
@@ -1063,7 +1067,13 @@ def check_change_inputs(path, authority, root, change, *, definitions_root=None)
     )
     if findings.errors:
         return findings
-    values = _imports_model_sources.projected_values(authority)
+    quality_values = {
+        key: value
+        for key, value in authority.items()
+        if not key.startswith(("desired.resource.", "display.resource."))
+        or key.split(".")[2] in selected_resources
+    }
+    values = _imports_model_sources.projected_values(quality_values)
     rows = {rid: row for rid, row in entries(values, "desired.row.")}
     catalog = DesignSchemaCatalog(definitions) if selected_resources else None
     view = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")

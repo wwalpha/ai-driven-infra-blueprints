@@ -766,7 +766,7 @@ def operation_readable(
     scopes = {"/".join(identity) for identity in selected}
     return selected | {
         (scope.environment, scope.target, scope.service)
-        for path in dependency_index.consumers(root, scopes, set())
+        for path in dependency_index.change_consumers(root, scopes, set(), set())
         for scope in [_dependency_model_sources.scope_for(path)]
     }
 
