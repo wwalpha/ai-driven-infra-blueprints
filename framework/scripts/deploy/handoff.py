@@ -3,8 +3,10 @@
 import copy
 import json
 import re
+import sys
 import uuid
 from collections.abc import Iterable
+from contextlib import AbstractContextManager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,7 +18,15 @@ from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
 from deploy import operation_journal
-from deploy.operation_journal import locked as locked
+
+
+def repair_lock(root: Path) -> AbstractContextManager[None]:
+    return operation_journal.locked(evidence_store(root) / "deploy-repair.json")
+
+
+def locked(path: Path) -> AbstractContextManager[None]:
+    request = __read_request_owner(operation_journal.safe_path(path))
+    return repair_lock(Path(request["repository"]))
 
 
 def external(root: Path, path: str | Path) -> Path:
@@ -41,6 +51,9 @@ def record_failure(backend: SimpleNamespace) -> str | None:
         state.pop("approvedChangeDigest", None)
     if not selected:
         return None
+    discard_unused_failures(
+        backend.root, backend.run_context["taskFile"], backend.run_context["taskDigest"]
+    )
     path = evidence_store(backend.root) / (
         "deploy-failure-" + uuid.uuid4().hex + ".json"
     )
@@ -60,6 +73,43 @@ def record_failure(backend: SimpleNamespace) -> str | None:
         },
     )
     return str(path)
+
+
+def discard_unused_failures(root: Path, task_file: str, task_digest: str) -> None:
+    with repair_lock(root):
+        store = evidence_store(root)
+        referenced = set()
+        # An unreadable request may own any failure: preserve rather than guess.
+        for path in store.glob("deploy-repair-*/request.json"):
+            try:
+                request = read_sealed(root, external(root, path))
+                referenced.add(request["failureEvidence"])
+            except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
+                print(
+                    f"Deploy failure evidence retained: {path}: {error}",
+                    file=sys.stderr,
+                )
+                return
+        for path in store.glob("deploy-failure-*.json"):
+            if str(path) in referenced:
+                continue
+            try:
+                failure = read_sealed(root, external(root, path))
+                if (
+                    failure["repository"],
+                    failure["taskFile"],
+                    failure["taskDigest"],
+                ) == (
+                    str(root),
+                    task_file,
+                    task_digest,
+                ):
+                    path.unlink()
+            except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
+                print(
+                    f"Deploy failure evidence retained: {path}: {error}",
+                    file=sys.stderr,
+                )
 
 
 def issue_request(
@@ -175,9 +225,12 @@ def verify_inputs(
 
 
 def require_settled(root: Path, target: dict[str, str]) -> None:
-    record = operation_journal.read(operation_journal.location(target))
-    if record is None:
-        return
+    records = operation_journal.read(operation_journal.location(target)) or []
+    for record in records:
+        require_record_settled(record)
+
+
+def require_record_settled(record: JsonObject) -> None:
     if (
         record["publication"].get("pendingObserved")
         or any(
@@ -208,47 +261,48 @@ def discard_request(state: JsonObject) -> None:
         return
     envelope = __read_request_owner(path)
     parent = Path(envelope["repository"])
-    expected = (
-        evidence_store(parent)
-        / ("deploy-repair-" + envelope["requestId"])
-        / "request.json"
-    )
-    if (
-        path != expected
-        or not state.get("verified")
-        or state.get("merged") != state.get("commit")
-    ):
-        raise Blocked("cannot discard an unverified handoff")
-    result_path, validation_path = (
-        path.with_name("result.json"),
-        path.with_name("validation.json"),
-    )
-    result, validation = (
-        read_sealed(parent, result_path),
-        read_sealed(parent, validation_path),
-    )
-    if result.get("commit") != state["commit"] or any(
-        value.get("requestId") != envelope["requestId"]
-        for value in (result, validation)
-    ):
-        raise Blocked("handoff discard commit/request evidence changed")
-    failure_path = external(parent, envelope["failureEvidence"])
-    failure = read_sealed(parent, failure_path)
-    if (
-        failure["taskFile"] != envelope["taskFile"]
-        or failure["taskDigest"] != envelope["taskDigest"]
-    ):
-        raise Blocked("handoff failure evidence changed")
-    logs = [
-        path.with_name(f"static-{number}.log")
-        for number in range(1, state.get("repairStaticRuns", 0) + 1)
-    ]
-    owned = {path, result_path, validation_path, *logs}
-    if set(path.parent.iterdir()) != owned or any(p.is_symlink() for p in owned):
-        raise Blocked("unknown files in one-shot handoff need preservation")
-    for file in [*logs, validation_path, result_path, failure_path, path]:
-        file.unlink()
-    path.parent.rmdir()
+    with repair_lock(parent):
+        expected = (
+            evidence_store(parent)
+            / ("deploy-repair-" + envelope["requestId"])
+            / "request.json"
+        )
+        if (
+            path != expected
+            or not state.get("verified")
+            or state.get("merged") != state.get("commit")
+        ):
+            raise Blocked("cannot discard an unverified handoff")
+        result_path, validation_path = (
+            path.with_name("result.json"),
+            path.with_name("validation.json"),
+        )
+        result, validation = (
+            read_sealed(parent, result_path),
+            read_sealed(parent, validation_path),
+        )
+        if result.get("commit") != state["commit"] or any(
+            value.get("requestId") != envelope["requestId"]
+            for value in (result, validation)
+        ):
+            raise Blocked("handoff discard commit/request evidence changed")
+        failure_path = external(parent, envelope["failureEvidence"])
+        failure = read_sealed(parent, failure_path)
+        if (
+            failure["taskFile"] != envelope["taskFile"]
+            or failure["taskDigest"] != envelope["taskDigest"]
+        ):
+            raise Blocked("handoff failure evidence changed")
+        logs = [
+            path.with_name(f"static-{number}.log")
+            for number in range(1, state.get("repairStaticRuns", 0) + 1)
+        ]
+        owned = {path, result_path, validation_path, *logs}
+        if set(path.parent.iterdir()) != owned or any(p.is_symlink() for p in owned):
+            raise Blocked("unknown files in one-shot handoff need preservation")
+        for file in [*logs, validation_path, result_path, failure_path, path]:
+            file.unlink()
+        path.parent.rmdir()
 
 
 def __read_request_owner(path: Path) -> JsonObject:

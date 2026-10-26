@@ -323,6 +323,12 @@ def check_delivered_request_evidence_is_discarded(tmp_path, unknown):
         root, directory / "result.json", {"requestId": "current", "commit": "commit"}
     )
     write_sealed(root, directory / "validation.json", {"requestId": "current"})
+    with handoff.locked(path):
+        with pytest.raises(Blocked, match="lock busy"):
+            with handoff.locked(path):
+                raise AssertionError("second repair owner acquired lock")
+    assert not path.with_suffix(".lock").exists()
+    assert (evidence_store(root) / "deploy-repair.lock").is_file()
     state = {
         "deployRepair": str(path),
         "verified": True,
@@ -342,6 +348,39 @@ def check_delivered_request_evidence_is_discarded(tmp_path, unknown):
     else:
         handoff.discard_request(state)
         assert not directory.exists() and not failure.exists()
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ["unused", "request", "unknown-request", "other-task", "other-digest", "tampered"],
+)
+def check_unused_failure_cleanup_preserves_active_or_unknown_evidence(
+    tmp_path, reference
+):
+    root = tmp_path / "repo"
+    root.mkdir()
+    store = evidence_store(root)
+    path = store / "deploy-failure-original.json"
+    failure = {
+        "repository": str(root),
+        "taskFile": "tasks/deploy.md",
+        "taskDigest": "task",
+    }
+    if reference == "other-task":
+        failure["taskFile"] = "tasks/other.md"
+    elif reference == "other-digest":
+        failure["taskDigest"] = "different"
+    write_sealed(root, path, failure)
+    if reference in {"request", "unknown-request"}:
+        request = store / "deploy-repair-active/request.json"
+        request.parent.mkdir(mode=0o700)
+        write_sealed(root, request, {"failureEvidence": str(path)})
+        if reference == "unknown-request":
+            request.write_text("unreadable")
+    if reference == "tampered":
+        path.write_text("unreadable")
+    handoff.discard_unused_failures(root, "tasks/deploy.md", "task")
+    assert path.exists() == (reference != "unused")
 
 
 if __name__ == "__main__":

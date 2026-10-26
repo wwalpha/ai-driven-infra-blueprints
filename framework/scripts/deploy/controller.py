@@ -22,7 +22,14 @@ from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
 import deploy.failures as _imports_deploy_failures
-from deploy import change_sets, delivery, inputs, observed, secret_bootstrap
+from deploy import (
+    change_sets,
+    delivery,
+    inputs,
+    observed,
+    operation_journal,
+    secret_bootstrap,
+)
 from deploy import recovery as repair_ops
 from deploy import run_context as run_ops
 from deploy.guards import call, secret_value_missing
@@ -357,7 +364,7 @@ def check_imports(
     return change_sets.check_imports(
         runtime.target,
         runtime.templates,
-        runtime.states,
+        operation_journal.dependency_states(runtime, unit),
         runtime.aws,
         unit,
         runtime.exports_for([unit], boundary),

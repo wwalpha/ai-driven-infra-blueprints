@@ -7,10 +7,10 @@ import json
 import re
 import subprocess
 import sys
-import tempfile
 import time
 from argparse import Namespace
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import ExitStack
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +24,7 @@ from utils.type_contracts import JsonValue as JsonValue
 
 import deploy.context as context
 import deploy.observed as _dependency_deploy_observed
-from deploy import generation_resume, handoff, operation_journal
+from deploy import generation_resume, handoff, operation_journal, temporary
 from deploy.model_cache import RunModels
 from deploy.scheduler import run_group
 from deploy.timing import Timing
@@ -384,10 +384,10 @@ def run(
     ],
     load_units: Callable[[Path, str, str, list[str]], tuple[int, list[StackUnit]]],
 ) -> int:
-    model_scope = None
-    lock = None
+    resources = ExitStack()
     backend = None
     journal = None
+    prior_temporary = set()
     try:
         selected = context.load_target(
             root, args.environment, args.aws_account_id, args.alias
@@ -416,8 +416,14 @@ def run(
                 raise Blocked("controller requires CloudFormation target")
             directory = args.alias or args.aws_account_id
             journal = operation_journal.location(target)
-            lock = operation_journal.locked(journal)
-            lock.__enter__()
+            resources.enter_context(operation_journal.locked(journal))
+            prior_temporary = temporary.references(
+                operation_journal.read(journal) or []
+            )
+            temporary.reclaim(journal, root, initial_task, target)
+            handoff.discard_unused_failures(
+                root, initial_task.name, initial_task.task_digest
+            )
             backend = backend_type(
                 root,
                 args.environment,
@@ -427,9 +433,12 @@ def run(
                 args.approve_change_set,
             )
             backend.timing, backend.phase = timing, phase
-            backend.workdir = Path(tempfile.mkdtemp(prefix="blueprint-deploy-inputs-"))
+            backend.workdir = temporary.create(
+                journal, root, initial_task, target, args.stack
+            )
             # Only unfinished operations are read. Old Session files and registries are not inputs.
             operation_journal.recover(backend, journal, initial_task, args.stack)
+            operation_journal.publication_conflicts(backend, initial_task)
             if args.recover_operations and not backend.pending_publication:
                 return 0
             run_context = {"modelInputs": {}, **backend.pending_publication}
@@ -439,8 +448,7 @@ def run(
             else:
                 run_context["modelInputs"].update(models.run_context["modelInputs"])
                 models.run_context = run_context
-            model_scope = model_session(models)
-            model_scope.__enter__()
+            resources.enter_context(model_session(models))
             limit, units = load_units(root, args.environment, directory, args.stack)
             if args.sequential:
                 limit = 1
@@ -518,10 +526,15 @@ def run(
         print(f"CloudFormation controller: BLOCKED: {error}", file=sys.stderr)
         return 2
     finally:
-        if model_scope is not None:
-            model_scope.__exit__(None, None, None)
-        if lock is not None:
-            lock.__exit__(None, None, None)
+        try:
+            if backend is not None and backend.workdir is not None:
+                temporary.reclaim(
+                    journal, root, initial_task, target, prior=prior_temporary
+                )
+        except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
+            print(f"Deploy temporary files retained: {error}", file=sys.stderr)
+        finally:
+            resources.close()
 
 
 def sync_successful(

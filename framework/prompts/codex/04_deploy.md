@@ -74,15 +74,21 @@ Remove、Replacement=True/Conditionalは今回のChangeSet全体についてHuma
 
 ## Unfinished AWS operation recovery
 
-`deploy/operation_journal.py`だけがaccount/Region別の外部Journalを管理する。target排他の下で未完了ChangeSet、Execute Token/送信段階、未完了Secrets初期化、未同期成功証拠とpublicationの必要最小限のbefore/after情報を保存する。署名はその未完了操作の整合性だけを保護し、履歴台帳を作らない。正常完了後はJournalを破棄する。
+`deploy/operation_journal.py`だけがaccount/Region別の外部Journalを管理する。OS advisory lockの下で未完了ChangeSet、Execute Token/送信段階、未完了Secrets初期化、未同期成功証拠とpublicationの必要最小限のbefore/after情報を保存する。署名済みの各所有元と操作を保持し、別scopeの未完了記録を新規Deployで上書きしない。署名は未完了操作の整合性だけを保護し、履歴台帳を作らない。すべての操作・Observed・publicationの確定後にJournalデータを破棄する。
 
-起動時にJournalがある場合だけAWSと照合する。元StackId/ChangeSetId/Tokenのeventとterminal statusから完了・失敗・未確定を区別し、不明な送信を新Tokenで再実行しない。AWS成功・Observed未同期はAWSの成功template/parametersと元のModel入力を検証して同期し、再Executeしない。第三者のModel変更は上書きしない。未完了publicationは元Taskの権限と正確なbytesで回復し、解けなければBLOCKED。
+起動時にJournalがある場合だけ、今回scopeと重なるAWS操作を照合する。署名、Account/Region、元StackId/ChangeSetId/Tokenと入力証拠を検証し、元Tokenのeventとterminal statusから完了・失敗・未確定を区別する。この状態確認は過去Task Digestの一致を要求せず、不明な送信を新Tokenで再実行しない。AWS状態を先に保存し、Observed/publicationの復旧には現在Taskの明示権限を使う。別Worktreeへの反映は同じGit common directory、environment、target directory、targetを確認した場合に限る。過去Taskの権限・承認は継承しない。
+
+AWS成功・Observed未同期は元Tokenの成功、AWS template/parameters・Resource対応、現在Modelのbefore/afterと現在Taskの出力権限を検証して同期し、再Executeしない。未公開候補では、観測更新対象Resource/Rowのdesired同一性と対象observedのbefore/afterを保つコメント・独立Resourceのdesired修正を現在bytesへ再基準化できる。最新ModelからAWS観測候補を再計算し、保存候補との一致を確認する。対象Resource/Rowの第三者変更や確定不能なpublicationは上書きせず、対象証跡を保持してBLOCKEDにする。scope外の操作を含むatomic planは分割せず、その全scopeの明示権限を待つ。
 
 ```console
 <fixed-python> framework/scripts/cloudformation-deploy.py <target-and-stack-arguments> --recover-operations
 ```
 
-この入口は未完了操作の確定/同期だけを行い、新規Deployを開始しない。残った待機生成は完了と報告しない。通常起動は安全に確定後、新しいRunContextで最新IaCからChangeSetを作る。旧SessionがあってJournalがなくてもAWS実行中状態を直接観測する。lockが残る場合はcontroller終了と所有権を確認するまで勝手に削除しない。
+この入口は未完了操作の確定/同期だけを行い、新規Deployを開始しない。残った待機生成は完了と報告しない。通常起動は安全に確定後、新しいRunContextで最新IaCからChangeSetを作る。完了済み操作の旧IaC Digestで新規UPDATEを拘束せず、無変更ChangeSetはExecuteしない。別Stackの未完了操作は保持し、Import/Export双方向の依存とpublication出力の非競合を確認できる場合だけ新規Deployを許可する。依存証拠がなければ対象Stackを示してBLOCKEDにする。旧SessionがあってJournalがなくてもAWS実行中状態を直接観測する。
+
+排他はmacOS/Linuxのflock（Windowsは標準のbyte-range lock）を使う。競合ControllerはBLOCKEDとなり、正常終了・強制終了時ともOSが解放する。lockファイルは安定したinodeとして残し、存在だけで停止せず、PID推測やunlinkで解除しない。所有者・権限・symlink/hardlinkを検証し、例外・途中returnでもdescriptorをcloseする。
+
+Deploy入力一時directoryはaccount/Regionのprivate領域に作り、署名済みのrepository/Task/target/生成予定ファイルで所有を識別する。終了時は正常・BLOCKEDを問わずJournalが参照しない所有ファイルを回収する。後続実行では同じTaskの孤児入力と、署名済みJournalから復旧済みと証明できる入力を回収する。他Task/target・所有不明・追加ファイル・symlinkは保持し、判断不能な対象と理由を報告する。所有記録のない旧一時directoryを一括走査・削除しない。
 
 復旧中の生成依存は現在Taskの明示Stack scopeで確認する。過去の完了Stack状態は復元せず、未公開の生成待ちだけを新しいRunContextへ再結合する。書込み候補が残っている場合は元のpublicationを確定するまで新規実行へ進めない。
 
@@ -94,7 +100,7 @@ Secrets初期化はAWSのVersion/Stage、未完了ClientRequestToken、現在段
 
 CloudFormationのみ。元Taskの`External IaC repair: allowed`が必要。Runtime recoveryは独立した`Runtime recovery: allowed`で制御する。失敗後は新規開始を止めpeerをdrainし、未完了AWS操作とpublicationを先に確定する。LLMが今回の失敗Stack/AWS error、正確なIaCと承認済Modelを調査する。承認待ち、認証/権限、未知の送信、設計不足はIaC修復権限を与えない。
 
-controllerが表示する`repairFailure`は今回の失敗だけの一時署名証拠。起動時には読まない。外部diagnosis JSONは失敗Stack名をkeyとし、各値に具体的な`reason`、`inputRefs: [{path, sha256}]`、`modelRefs: [{path, sha256, key}]`を記す。Model keyは実在するdesired entry。秘密値、過去比較、ダミー原因は記録しない。原因が確認できなければHumanへ報告し修復を依頼しない。
+controllerが表示する`repairFailure`は今回の失敗だけの一時署名証拠で、新規Deployの入力にはしない。現在Task自身の参照されない旧失敗証拠だけ、修復依頼の作成と同じrepository排他の下で回収する。使用中の依頼は失敗証拠を保持し、統合後は既存discard_requestで削除する。読めない依頼・所有不明の証拠は保持して理由を報告する。修復用OS lockもrequest directoryの外で安定したファイルを共有する。外部diagnosis JSONは失敗Stack名をkeyとし、各値に具体的な`reason`、`inputRefs: [{path, sha256}]`、`modelRefs: [{path, sha256, key}]`を記す。Model keyは実在するdesired entry。秘密値、過去比較、ダミー原因は記録しない。原因が確認できなければHumanへ報告し修復を依頼しない。
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_handoff.py --failure <current-failure.json> --diagnosis <external-diagnosis.json> --path <exact-IaC-path> [--path <exact-IaC-path>]

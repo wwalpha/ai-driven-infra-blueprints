@@ -820,6 +820,18 @@ def check_metadata_symlinks(tmp_path, relative):
 )
 def check_checkpoint_observed_barrier(tmp_path, pending):
     handoff = wt._worktree_runtime().deploy_handoff
+    journal = handoff.operation_journal
+    same = pending == "generation-only"
+    identities = [
+        str(tmp_path / ".git"),
+        str(tmp_path / (".git" if same else "other.git")),
+    ]
+    with patch.object(
+        journal.worktree_state,
+        "output",
+        side_effect=OSError("missing checkout") if pending == "success" else identities,
+    ):
+        assert journal.same_repository(tmp_path, tmp_path / "previous") == same
     publication = {"pendingGeneration": {"view": {"generated": {"outputs": None}}}}
     state = {"status": "SUCCESS", "observedSynced": True}
     if pending in {"pendingObserved", "observedError"}:
@@ -829,7 +841,7 @@ def check_checkpoint_observed_barrier(tmp_path, pending):
     elif pending in {"running", "pollError"}:
         state["status"] = "RUNNING"
     record = {"publication": publication, "operations": {"Peer": {"state": state}}}
-    with patch.object(handoff.operation_journal, "read", return_value=record):
+    with patch.object(handoff.operation_journal, "read", return_value=[record]):
         if pending == "generation-only":
             handoff.require_settled(
                 tmp_path, {"awsAccountId": "account", "awsRegion": "region"}

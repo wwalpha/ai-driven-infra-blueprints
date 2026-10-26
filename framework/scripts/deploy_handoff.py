@@ -21,19 +21,20 @@ def main(argv=None):
     args = parser.parse_args(argv)
     root = args.repository_root.resolve()
     try:
-        request = handoff.issue_request(
-            root,
-            args.failure,
-            json.loads(args.diagnosis.read_text(encoding="utf-8")),
-            args.path,
-        )
-        request_path = (
-            evidence_store(root)
-            / ("deploy-repair-" + request["requestId"])
-            / "request.json"
-        )
-        request_path.parent.mkdir(mode=0o700)
-        write_sealed(root, request_path, request)
+        with handoff.repair_lock(root):
+            request = handoff.issue_request(
+                root,
+                args.failure,
+                json.loads(args.diagnosis.read_text(encoding="utf-8")),
+                args.path,
+            )
+            request_path = (
+                evidence_store(root)
+                / ("deploy-repair-" + request["requestId"])
+                / "request.json"
+            )
+            request_path.parent.mkdir(mode=0o700)
+            write_sealed(root, request_path, request)
         request = worktree_task.deploy_checkpoint(
             root, Path(task_snapshot(root).name).stem, request_path
         )

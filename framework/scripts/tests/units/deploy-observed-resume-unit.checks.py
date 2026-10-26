@@ -18,7 +18,7 @@ from deploy import observed_resume as M
 from deploy import run_context as controller
 from support.cloudformation_deploy_fixtures import Fake, starts
 from support.pytest_cli import run
-from task_contract_core import selected_task
+from task_contract_core import selected_task, task_snapshot
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
@@ -972,6 +972,98 @@ def check_session_sync_failure_drains_and_resumes():
         "pendingObserved" not in session
         and session["observedFailures"][0]["cause"] == "design publication failed"
     )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "task",
+        "worktree",
+        "comment",
+        "already-published-comment",
+        "independent-desired",
+        "desired",
+        "observed",
+        "authority",
+        "ownership",
+    ],
+)
+def check_current_task_reauthorizes_only_safe_signed_publication(proposal, change):
+    root, context, source, old, new = proposal
+    original = task_snapshot(root)
+    context.update(
+        repository=str(root),
+        taskFile=original.name,
+        taskDigest=original.task_digest,
+        target={},
+        environment="dev",
+        directory="team",
+        inputDigest="original-inputs",
+    )
+    plan = context["pendingObserved"]
+    if change == "independent-desired":
+        addition = "desired.row.002-001.value=`unrelated-original`\n"
+        old, new = old + addition, new + addition
+        relative = source.relative_to(root).as_posix()
+        plan["originals"][relative] = base64.b64encode(old.encode()).decode()
+        plan["outputs"][relative] = new
+        plan["beforeManifest"] = M.manifest({relative: old.encode()})
+        plan["afterManifest"] = M.manifest({relative: new.encode()})
+        context["modelInputs"] = dict(plan["beforeManifest"])
+        source.write_text(
+            old.replace("unrelated-original", "Human-correction"), encoding="utf-8"
+        )
+    plan["identity"] = M._identity(root, context, {}, "dev", "team")
+    if change == "worktree":
+        context["repository"] = str(root / "previous-worktree")
+        plan["identity"]["repository"] = context["repository"]
+    plan["generated"] = {"outputs": None}
+    if change == "comment":
+        source.write_text(old + "# Human comment\n", encoding="utf-8")
+    elif change == "already-published-comment":
+        source.write_text(new + "# Human comment\n", encoding="utf-8")
+    elif change == "desired":
+        source.write_text(old.replace("`desired`", "`different`"), encoding="utf-8")
+    elif change == "observed":
+        source.write_text(old.replace("`old`", "`third-party`"), encoding="utf-8")
+    elif change == "ownership":
+        plan["identity"]["taskDigest"] = "unrelated-owner"
+    current_path = root / "tasks/current.md"
+    current_text = original.text.replace(original.name, "tasks/current.md")
+    if change == "authority":
+        current_text = current_text.replace(
+            "- `model/dev/team/service.properties`\n", ""
+        )
+    current_path.write_text(current_text, encoding="utf-8")
+    backend = SimpleNamespace(
+        root=root, run_context=context, target={}, environment="dev", directory="team"
+    )
+    before = source.read_bytes()
+    with selected_task(root, "tasks/current.md"):
+        current = task_snapshot(root)
+        if change in {"desired", "observed", "ownership"}:
+            with pytest.raises(Blocked):
+                M.reauthorize(backend, current)
+        else:
+            M.reauthorize(backend, current)
+            if change == "authority":
+                with pytest.raises(Blocked, match="outside Task authority"):
+                    M.validate_plan(root, context, {}, "dev", "team")
+            else:
+                M.validate_plan(root, context, {}, "dev", "team")
+                assert context["taskFile"] == current.name
+                assert plan["identity"]["taskDigest"] == current.task_digest
+                assert plan["identity"]["taskDigest"] != original.task_digest
+                if change == "independent-desired":
+                    assert plan["outputs"][
+                        source.relative_to(root).as_posix()
+                    ] == new.replace("unrelated-original", "Human-correction")
+                if "comment" in change:
+                    assert (
+                        plan["outputs"][source.relative_to(root).as_posix()]
+                        == new + "# Human comment\n"
+                    )
+    assert source.read_bytes() == before
 
 
 if __name__ == "__main__":

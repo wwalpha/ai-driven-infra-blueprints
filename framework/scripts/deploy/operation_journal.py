@@ -1,14 +1,19 @@
 """Only unfinished AWS operations and atomic publication ownership survive an invocation."""
 
 import copy
+import errno
 import json
+import os
+import re
+import stat
 import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
+import worktree_state
 from model.sources import model_session, session_reads
-from task_contract_core import task_reads, task_snapshot
+from task_contract_core import paths_in, task_reads, task_snapshot
 from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked
 from utils.file_operations import atomic_replace_file
@@ -20,6 +25,11 @@ from deploy import context as deploy_context
 from deploy.model_cache import RunModels
 from deploy.recovery import cleanup_unexecuted, require_authorized
 from deploy.scheduler import FAILED, SUCCESS
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 # No approvals, failure archives, repair histories, workflow bindings or completed records.
 OPERATION_FIELDS = {
@@ -83,59 +93,122 @@ def safe_path(path):
     return path
 
 
+def private_path(path, *, directory=False, permissions=0o077):
+    path = safe_path(path)
+    info = path.lstat()
+    kind = stat.S_ISDIR if directory else stat.S_ISREG
+    if (
+        not kind(info.st_mode)
+        or os.name != "nt"
+        and (info.st_uid != os.getuid() or info.st_mode & permissions)
+        or not directory
+        and info.st_nlink != 1
+    ):
+        raise Blocked("operation journal path must be private and owned: " + str(path))
+    return info
+
+
 @contextmanager
 def locked(path):
     path = safe_path(path)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    lock = path.with_suffix(".lock")
+    private_path(path.parent, directory=True)
+    lock = safe_path(path.with_suffix(".lock"))
+    flags = os.O_CREAT | os.O_RDWR
+    if os.name != "nt":
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(lock, flags, 0o600)
     try:
-        handle = lock.open("x", encoding="utf-8")
-    except FileExistsError as error:
-        raise Blocked(
-            f"controller active or interrupted; verify lock ownership before maintenance: {lock}"
-        ) from error
-    try:
+        info = private_path(lock, permissions=0o022)
+        opened = os.fstat(descriptor)
+        if (info.st_dev, info.st_ino) != (opened.st_dev, opened.st_ino):
+            raise Blocked("operation lock identity changed")
+        try:
+            if os.name == "nt":
+                if opened.st_size == 0:
+                    os.write(descriptor, b"0")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            if error.errno not in {errno.EACCES, errno.EAGAIN}:
+                raise
+            raise Blocked(
+                "controller active; operation lock busy: " + str(lock)
+            ) from error
         yield
     finally:
-        handle.close()
-        lock.unlink()
+        os.close(descriptor)
 
 
 def read(path):
     path = safe_path(path)
     if not path.exists():
         return None
+    private_path(path)
     envelope = json.loads(path.read_text(encoding="utf-8"))
     try:
-        owner = Path(envelope["payload"]["publication"]["repository"])
+        owner = safe_path(Path(envelope["payload"]["publication"]["repository"]))
     except (KeyError, TypeError) as error:
         raise Blocked("invalid unfinished-operation ownership") from error
     record = read_sealed(owner, path)
-    if not isinstance(record, dict) or set(record) != {
-        "target",
-        "operations",
-        "publication",
-    }:
-        raise Blocked("invalid unfinished-operation journal; retain for investigation")
-    if not isinstance(record["operations"], dict):
-        raise Blocked("invalid unfinished operations")
-    producers = record["publication"].get("generationProducers", {})
-    if not isinstance(producers, dict):
-        raise Blocked("invalid pending generation Producer evidence")
-    for operation in [*record["operations"].values(), *producers.values()]:
+    if not isinstance(record, dict):
+        raise Blocked("invalid unfinished-operation ownership")
+    # Retain the original signed record entrance; peers are unfinished operations only.
+    peers = record.pop("peers", [])
+    if not isinstance(peers, list):
+        raise Blocked("invalid unfinished-operation peers")
+    records = [record, *peers]
+    names = set()
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {
+            "target",
+            "operations",
+            "publication",
+        }:
+            raise Blocked("invalid unfinished-operation ownership")
+        if not isinstance(record["operations"], dict):
+            raise Blocked("invalid unfinished operations")
         if (
-            set(operation) != {"unit", "inputDigest", "state"}
-            or set(operation["state"]) - OPERATION_FIELDS
+            not isinstance(record["publication"], dict)
+            or record["publication"].get("target") != record["target"]
         ):
-            raise Blocked("invalid unfinished operation fields")
-    if any(
-        op["state"].get("status") != "SUCCESS" or not op["state"].get("observedSynced")
-        for op in producers.values()
-    ):
-        raise Blocked("pending generation Producer has no Observed completion evidence")
-    if set(record["publication"]) - PUBLICATION_FIELDS:
-        raise Blocked("invalid publication ownership fields")
-    return record
+            raise Blocked("unfinished publication target differs from operation")
+        safe_path(Path(record["publication"]["repository"]))
+        if names & record["operations"].keys():
+            raise Blocked("conflicting unfinished Stack operations")
+        names.update(record["operations"])
+        producers = record["publication"].get("generationProducers", {})
+        if not isinstance(producers, dict):
+            raise Blocked("invalid pending generation Producer evidence")
+        for operation in [*record["operations"].values(), *producers.values()]:
+            if (
+                not isinstance(operation, dict)
+                or set(operation) != {"unit", "inputDigest", "state"}
+                or not isinstance(operation["unit"], dict)
+                or not isinstance(operation["state"], dict)
+                or set(operation["state"]) - OPERATION_FIELDS
+            ):
+                raise Blocked("invalid unfinished operation fields")
+        if any(
+            op["state"].get("status") != "SUCCESS"
+            or not op["state"].get("observedSynced")
+            for op in producers.values()
+        ):
+            raise Blocked(
+                "pending generation Producer has no Observed completion evidence"
+            )
+        if set(record["publication"]) - PUBLICATION_FIELDS:
+            raise Blocked("invalid publication ownership fields")
+    return records
+
+
+def target_identity(target):
+    return (
+        target.get("awsExecutionAccountId", target["awsAccountId"]),
+        target["awsRegion"],
+    )
 
 
 def unfinished(state):
@@ -224,20 +297,24 @@ def save(path, backend):
         publication["inputDigests"] = {
             name: publication["inputDigests"].get(name) for name in operations
         }
+    records = copy.deepcopy(getattr(backend, "retained_records", []))
+    if operations or context.get("pendingObserved") or context.get("pendingGeneration"):
+        records.append(
+            {
+                "target": context["target"],
+                "operations": operations,
+                "publication": publication,
+            }
+        )
     path = safe_path(path)
-    if (
-        not operations
-        and not context.get("pendingObserved")
-        and not context.get("pendingGeneration")
-    ):
+    if records:
+        payload, *peers = records
+        if peers:
+            payload["peers"] = peers
+        owner = safe_path(Path(payload["publication"]["repository"]))
+        atomic_replace_file(path, sealed(owner, payload), mode=0o600)
+    else:
         path.unlink(missing_ok=True)
-        return
-    payload = {
-        "target": context["target"],
-        "operations": operations,
-        "publication": publication,
-    }
-    atomic_replace_file(path, sealed(backend.root, payload), mode=0o600)
 
 
 def _restore_template(backend, unit, state):
@@ -311,35 +388,249 @@ def _recovery_guard(backend, task, /):
             raise Blocked("unfinished bootstrap owner inputs changed")
 
 
+def same_repository(root, owner):
+    owner = safe_path(Path(owner))
+    if root == owner:
+        return True
+    try:
+        return (
+            Path(
+                worktree_state.output(
+                    root, "rev-parse", "--path-format=absolute", "--git-common-dir"
+                )
+            ).resolve()
+            == Path(
+                worktree_state.output(
+                    owner, "rev-parse", "--path-format=absolute", "--git-common-dir"
+                )
+            ).resolve()
+        )
+    except (OSError, ValueError):
+        return False
+
+
+def publication_paths(context):
+    paths = set(context.get("pendingObserved", {}).get("beforeManifest", {}))
+    plans = [*context.get("pendingGeneration", {}).values()]
+    if context.get("pendingObserved"):
+        plans.append(context["pendingObserved"])
+    for plan in plans:
+        paths.update(plan.get("generated", {}).get("originals", {}))
+        paths.update(plan.get("waitingModelManifest", {}))
+        paths.update(plan.get("candidateManifest") or {})
+    return paths
+
+
+def publication_conflicts(backend, task):
+    declared = paths_in(task.text, "## Modified files")
+    for record in backend.retained_records:
+        context = record["publication"]
+        if context.get("repository") == str(backend.root):
+            overlap = declared & publication_paths(context)
+            if overlap:
+                raise Blocked(
+                    "unfinished publication shares current Task files: "
+                    + ", ".join(sorted(overlap))
+                )
+
+
 def recover(backend, path, task, scope):
-    """Settle original tokens before any new run. Never resubmit an uncertain mutation."""
-    record = read(path)
+    """Settle scoped original tokens; keep every other owner's unfinished evidence."""
     backend.prepared_operations = {}
-    backend.recovered_operations = {}
     backend.pending_publication = {}
-    if record is None:
-        return
-    if record["target"] != backend.target or set(record["operations"]) - set(scope):
-        raise Blocked(
-            "unfinished operations require their exact target and encompassing Stack scope"
+    backend.retained_records = read(path) or []
+    selected = set(scope)
+    for record in list(backend.retained_records):
+        if target_identity(record["target"]) != target_identity(backend.target):
+            raise Blocked("unfinished operation Account/Region changed")
+        context = record["publication"]
+        overlap = selected & record["operations"].keys()
+        same_destination = (
+            same_repository(backend.root, context["repository"])
+            and context.get("environment") == backend.environment
+            and context.get("directory") == backend.directory
+            and record["target"] == backend.target
         )
-    # Unexecuted ChangeSets carry no historical Task ownership or approval forward.
-    if (
-        not record["publication"].get("pendingObserved")
-        and not record["publication"].get("pendingGeneration")
-        and all(
-            not op["state"].get("executionEvidence")
-            and op["state"].get("status") != "RUNNING"
-            and not op["state"].get("bootstrap")
-            and op["state"].get("cleanupStatus") != "DELETE_INTENT"
-            for op in record["operations"].values()
+        publication_requested = (
+            not record["operations"]
+            and same_destination
+            and (
+                publication_paths(context) & paths_in(task.text, "## Modified files")
+                or any(
+                    p["stack"] in selected
+                    for plan in context.get("pendingGeneration", {}).values()
+                    for p in plan["producers"]
+                )
+            )
         )
-    ):
-        for name, operation in record["operations"].items():
-            state = operation["state"]
-            change = backend.describe_change_set(operation["unit"], state)
+        if not overlap and not publication_requested:
+            continue
+        active = copy.deepcopy(record)
+        remainder = copy.deepcopy(record)
+        active["operations"] = {
+            n: op for n, op in active["operations"].items() if n in selected
+        }
+        remainder["operations"] = {
+            n: op for n, op in remainder["operations"].items() if n not in selected
+        }
+        backend.retained_records.remove(record)
+        shared_publication = bool(
+            context.get("pendingObserved") or context.get("pendingGeneration")
+        )
+        backend.publication_scope_blocked = bool(
+            remainder["operations"] and shared_publication
+        )
+        if backend.publication_scope_blocked:
+            # Keep the atomic plan and all operation proofs together until its full scope is authorized.
+            active = copy.deepcopy(record)
+        elif remainder["operations"]:
+            backend.retained_records.append(remainder)
+        backend.recovery_scope = selected
+        backend.prepared_operations = {}
+        _recover_record(backend, path, task, scope, active, same_destination)
+        backend.retained_records = read(path) or []
+    backend.prepared_operations.update(
+        {
+            name: operation
+            for record in backend.retained_records
+            for name, operation in record["operations"].items()
+            if name in selected
+            and not operation["state"].get("executionEvidence")
+            and not operation["state"].get("bootstrap")
+            and operation["state"].get("cleanupStatus") != "DELETE_INTENT"
+            and operation["state"].get("status") != "RUNNING"
+        }
+    )
+    # Prepared operations will be saved by the new run, other records stay intact.
+    for record in backend.retained_records:
+        for name in backend.prepared_operations:
+            record["operations"].pop(name, None)
+    for record in backend.retained_records:
+        publication = record["publication"]
+        if (
+            publication.get("repository") == str(backend.root)
+            and publication.get("taskDigest") == task.task_digest
+        ):
+            for view in backend.pending_publication.get("pendingGeneration", {}):
+                publication.get("pendingGeneration", {}).pop(view, None)
+    backend.retained_records = [
+        r
+        for r in backend.retained_records
+        if r["operations"]
+        or r["publication"].get("pendingObserved")
+        or r["publication"].get("pendingGeneration")
+    ]
+
+
+def validate_operation(target, name, operation):
+    unit, state = operation["unit"], operation["state"]
+    if unit["name"] != name:
+        raise Blocked("unfinished operation Stack name changed: " + name)
+    execution = state.get("executionEvidence")
+    if execution:
+        if (
+            not state.get("clientToken")
+            or any(
+                execution.get(key) != state.get(field)
+                for key, field in (
+                    ("StackId", "stackId"),
+                    ("ChangeSetId", "changeSetId"),
+                    ("clientToken", "clientToken"),
+                    ("changeDigest", "changeDigest"),
+                )
+            )
+            or execution.get("inputDigest") != operation["inputDigest"]
+        ):
+            raise Blocked("unfinished original execution evidence changed: " + name)
+    elif state.get("status") == "RUNNING" and not state.get("externalOperation"):
+        raise Blocked("unfinished execution has no original token evidence: " + name)
+    account, region = target_identity(target)
+    for field, kind in (("stackId", "stack"), ("changeSetId", "changeSet")):
+        value = state.get(field)
+        if value is None or field == "changeSetId" and not execution:
+            continue  # A ChangeSet creation intent uses its original stable name.
+        match = re.fullmatch(
+            r"arn:(aws[a-z-]*):cloudformation:([^:]+):([^:]+):([^/]+)/([^/]+)/([^/]+)",
+            value,
+        )
+        if (
+            not match
+            or (match[2], match[3], match[4]) != (region, account, kind)
+            or kind == "stack"
+            and match[5] != name
+        ):
+            raise Blocked(
+                "unfinished AWS Account/Region/Stack identity differs: " + name
+            )
+
+
+def _recover_record(backend, path, task, scope, record, same_destination):
+    context = record["publication"]
+    context["states"] = {name: {"status": "NOT_STARTED"} for name in scope}
+    context["states"].update(
+        {name: op["state"] for name, op in record["operations"].items()}
+    )
+    context["metrics"] = {"observedSyncSeconds": 0, "inputLoadSeconds": 0}
+    context.setdefault("inputDigests", {})
+    backend.run_context, backend.states = context, context["states"]
+    backend.expected_digests = context["inputDigests"]
+    backend.units = [op["unit"] for op in record["operations"].values()]
+    backend.save = JournalSave(path, backend)
+    backend.guard = RecoveryGuard(backend, task)
+    for name, operation in record["operations"].items():
+        if name not in backend.recovery_scope:
+            continue
+        state, unit = operation["state"], operation["unit"]
+        validate_operation(record["target"], name, operation)
+        context["inputDigests"][name] = operation["inputDigest"]
+        running = state.get("status") == "RUNNING"
+        if running:
+            # Original poll verifies ChangeSet, StackId, terminal event and token.
+            for _ in range(120):
+                try:
+                    status = backend.poll(unit, state)
+                except change_sets.OutputNotReflected:
+                    backend.save()
+                    raise
+                if status == "RECHECK":
+                    state["status"] = "NOT_STARTED"
+                    break
+                if status in SUCCESS | FAILED:
+                    state.update(
+                        status="SUCCESS" if status in SUCCESS else "FAILED",
+                        stackStatus=status,
+                    )
+                    break
+                if not status.endswith("_IN_PROGRESS"):
+                    raise Blocked("unknown unfinished AWS operation state")
+                backend.save()
+                time.sleep(5)
+            else:
+                raise Blocked(
+                    "AWS operation still unconfirmed; retain original token; do not Execute again"
+                )
+            backend.save()
+        if state.get("status") == "SUCCESS" and not state.get("observedSynced"):
+            if (
+                not running
+                and state.get("executionEvidence")
+                and backend.poll(unit, state) != state.get("stackStatus")
+            ):
+                raise Blocked(
+                    "unfinished successful operation token is unconfirmed: " + name
+                )
+            _restore_template(backend, unit, state)
+            try:
+                change_sets.verify_outputs(
+                    backend.aws, unit, state, state.get("expectedOutputs", {})
+                )
+            except change_sets.OutputNotReflected:
+                state["status"] = "FAILED"
+                backend.save()
+                raise
+        elif state.get("changeSetId") and not state.get("executionEvidence"):
+            change = backend.describe_change_set(unit, state)
             if state.get("stackId") is None:
-                # Creation intent had a stable AWS name but its response was interrupted.
                 if (
                     change.get("StackName") != name
                     or not change.get("StackId")
@@ -350,132 +641,86 @@ def recover(backend, path, task, scope):
                     stackId=change["StackId"], changeSetId=change["ChangeSetId"]
                 )
             if (
-                change.get("StackId") != state["stackId"]
+                change.get("StackId") != state.get("stackId")
                 or change.get("ChangeSetId") != state["changeSetId"]
-                or change.get("ExecutionStatus") not in {"AVAILABLE", "UNAVAILABLE"}
             ):
+                raise Blocked("unfinished ChangeSet identity changed")
+            if change.get("ExecutionStatus") in {
+                "EXECUTE_IN_PROGRESS",
+                "EXECUTE_COMPLETE",
+            }:
                 raise Blocked(
-                    "unfinished ChangeSet execution is unknown; retain and investigate AWS"
+                    "ChangeSet executed without original token evidence; inspect AWS before continuing"
                 )
+            if change.get("ExecutionStatus") not in {"AVAILABLE", "UNAVAILABLE"}:
+                raise Blocked("unfinished ChangeSet submission unknown")
             backend.prepared_operations[name] = operation
-        return
-    context = record["publication"]
-    if (
-        context.get("repository") != str(backend.root)
-        or context.get("taskFile") != task.name
-        or context.get("taskDigest") != task.task_digest
-    ):
-        raise Blocked(
-            "unfinished publication/operation belongs to another Task; recover its owner before new work"
+    backend.save()
+    needs_local = (
+        context.get("pendingObserved")
+        or context.get("pendingGeneration")
+        or any(
+            s.get("status") == "SUCCESS"
+            and not s.get("observedSynced")
+            or s.get("bootstrap")
+            or s.get("cleanupStatus") == "DELETE_INTENT"
+            for s in backend.states.values()
         )
-    context["states"] = {name: {"status": "NOT_STARTED"} for name in scope}
-    context["states"].update(
-        {name: op["state"] for name, op in record["operations"].items()}
     )
-    context["metrics"] = {"observedSyncSeconds": 0, "inputLoadSeconds": 0}
-    context.setdefault("inputDigests", {})
-    backend.run_context, backend.states = context, context["states"]
-    backend.expected_digests = context["inputDigests"]
-    backend.units = [op["unit"] for op in record["operations"].values()]
-    backend.save = backend.recovery_save = JournalSave(path, backend)
-    backend.guard = RecoveryGuard(backend, task)
-    with task_reads(backend.root, live=True):
-        if context.get("pendingObserved"):
-            observed_resume.reconcile(
-                backend.root,
-                context,
-                backend.target,
-                backend.environment,
-                backend.directory,
+    if needs_local:
+        if not same_destination:
+            raise Blocked(
+                "AWS operation settled; local publication destination differs: "
+                + str(sorted(record["operations"]))
             )
-        if context.get("pendingGeneration"):
-            generation_resume.reconcile(
-                backend.root,
-                context,
-                backend.target,
-                backend.environment,
-                backend.directory,
+        if backend.publication_scope_blocked:
+            raise Blocked(
+                "shared publication requires explicit authority for its remaining Stacks"
             )
-    models = RunModels(backend.root, context)
-    backend.recovered_models = models
-    with model_session(models):
-        backend.after_observed = models.apply_observed
-        for name, operation in record["operations"].items():
-            state, unit = operation["state"], operation["unit"]
-            context["inputDigests"][name] = operation["inputDigest"]
-            if state.get("bootstrap") or state.get("cleanupStatus") == "DELETE_INTENT":
-                recover_runtime(backend, unit, state, operation)
-            if state.get("status") == "RUNNING":
-                # Original poll verifies ChangeSet, StackId, terminal event and token.
-                for _ in range(120):
-                    try:
-                        status = backend.poll(unit, state)
-                    except change_sets.OutputNotReflected:
-                        backend.save()
-                        raise
-                    if status == "RECHECK":
-                        state["status"] = "NOT_STARTED"
-                        break
-                    if status in SUCCESS | FAILED:
-                        state.update(
-                            status="SUCCESS" if status in SUCCESS else "FAILED",
-                            stackStatus=status,
-                        )
-                        break
-                    if not status.endswith("_IN_PROGRESS"):
-                        raise Blocked("unknown unfinished AWS operation state")
-                    backend.save()
-                    time.sleep(5)
-                else:
-                    raise Blocked(
-                        "AWS operation still unconfirmed; retain original token; do not Execute again"
-                    )
-                backend.save()
-            if state.get("status") == "SUCCESS" and not state.get("observedSynced"):
-                _restore_template(backend, unit, state)
-                try:
-                    change_sets.verify_outputs(
-                        backend.aws, unit, state, state.get("expectedOutputs", {})
-                    )
-                except change_sets.OutputNotReflected:
-                    state["status"] = "FAILED"
-                    backend.save()
-                    raise
-            elif state.get("changeSetId") and not state.get("executionEvidence"):
-                change = backend.describe_change_set(unit, state)
-                if (
-                    change.get("StackId") != state.get("stackId")
-                    or change.get("ChangeSetId") != state["changeSetId"]
-                ):
-                    raise Blocked("unfinished ChangeSet identity changed")
-                if change.get("ExecutionStatus") in {
-                    "EXECUTE_IN_PROGRESS",
-                    "EXECUTE_COMPLETE",
-                }:
-                    raise Blocked(
-                        "ChangeSet executed without original token evidence; inspect AWS before continuing"
-                    )
-                if change.get("ExecutionStatus") not in {"AVAILABLE", "UNAVAILABLE"}:
-                    raise Blocked("unfinished ChangeSet submission unknown")
-                backend.prepared_operations[name] = operation
-        from_run_sync(backend)
-        backend.recovered_operations = {
-            name: operation_record(backend, operation["unit"])
-            for name, operation in record["operations"].items()
-            if backend.states[name].get("status") == "SUCCESS"
-        }
-        if context.get("pendingGeneration"):
-            backend.pending_publication = {
-                key: copy.deepcopy(context[key])
-                for key in (
-                    "pendingGeneration",
-                    "modelInputs",
-                    "generationProducers",
-                    "inputDigest",
+        observed_resume.reauthorize(backend, task)
+        with task_reads(backend.root, live=True):
+            if context.get("pendingObserved"):
+                observed_resume.reconcile(
+                    backend.root,
+                    context,
+                    backend.target,
+                    backend.environment,
+                    backend.directory,
                 )
-                if key in context
-            }
-        backend.save()
+            if context.get("pendingGeneration"):
+                generation_resume.reconcile(
+                    backend.root,
+                    context,
+                    backend.target,
+                    backend.environment,
+                    backend.directory,
+                )
+        models = getattr(backend, "recovered_models", None) or RunModels(
+            backend.root, context
+        )
+        models.run_context = context
+        backend.recovered_models = models
+        with model_session(models):
+            backend.after_observed = models.apply_observed
+            for name, operation in record["operations"].items():
+                state = backend.states[name]
+                if (
+                    state.get("bootstrap")
+                    or state.get("cleanupStatus") == "DELETE_INTENT"
+                ):
+                    recover_runtime(backend, operation["unit"], state, operation)
+            from_run_sync(backend)
+    if context.get("pendingGeneration"):
+        for key in ("pendingGeneration", "modelInputs", "generationProducers"):
+            destination = backend.pending_publication.setdefault(key, {})
+            source = context.get(key, {})
+            if any(
+                destination[name] != source[name]
+                for name in destination.keys() & source.keys()
+            ):
+                raise Blocked("unfinished publication inputs overlap: " + key)
+            destination.update(copy.deepcopy(source))
+    backend.save()
 
 
 # Callable objects keep callbacks explicit without nested definitions/imports.
@@ -534,29 +779,78 @@ def verify_producer(backend, operation):
         raise Blocked("Producer Observed values no longer match AWS: " + unit["name"])
 
 
-def adopt_recovered(backend):
-    proofs = backend.run_context.get("generationProducers", {})
-    recovered = getattr(backend, "recovered_operations", {})
-    units = {unit["name"]: unit for unit in backend.units}
-    for name, operation in {**proofs, **recovered}.items():
-        if name not in units:
-            if name in recovered:
-                raise Blocked("recovered AWS success is outside current scope: " + name)
+def dependency_states(backend, unit):
+    """Unrelated unfinished Stacks are allowed only across proved dependency boundaries."""
+    pending = {
+        name: operation["state"]
+        for record in getattr(backend, "retained_records", [])
+        for name, operation in record["operations"].items()
+    }
+    if not pending:
+        return backend.states
+    if unit["name"] in pending:
+        raise Blocked(
+            "unfinished operation conflicts with current Stack: " + unit["name"]
+        )
+    for name, state in pending.items():
+        in_flight = (
+            state.get("executionEvidence")
+            or state.get("externalOperation")
+            or state.get("bootstrap")
+            or state.get("cleanupStatus") == "DELETE_INTENT"
+        )
+        if not in_flight:
             continue
-        if operation["unit"] != units[name]:
-            raise Blocked("recovered Stack definition changed: " + name)
+        imports = state.get("delivery", {}).get("imports")
+        if not isinstance(imports, dict):
+            raise Blocked("unfinished Stack dependency evidence unavailable: " + name)
+        if any(
+            entry.get("ExportingStackId", "").split(":stack/")[-1].split("/")[0]
+            == unit["name"]
+            for entry in imports.values()
+        ):
+            raise Blocked("unfinished Stack consumes current Stack Export: " + name)
+    exports = backend.aws("list_exports").get("Exports", [])
+    for export in exports:
+        if (
+            export.get("ExportingStackId", "").split(":stack/")[-1].split("/")[0]
+            != unit["name"]
+        ):
+            continue
+        consumers = backend.aws("list_imports", ExportName=export["Name"]).get(
+            "Imports", []
+        )
+        if set(consumers) & pending.keys():
+            raise Blocked(
+                "unfinished Stack still consumes current AWS Export: " + export["Name"]
+            )
+    return {**{name: {"status": "RUNNING"} for name in pending}, **backend.states}
+
+
+def adopt_recovered(backend):
+    # Recovered completion is AWS evidence, not an old IaC constraint or approval.
+    units = {unit["name"]: unit for unit in backend.units}
+    for name, operation in backend.run_context.get("generationProducers", {}).items():
+        if name not in units:
+            continue
         backend.claim_inputs(units[name])
-        if backend.run_context["inputDigests"][name] != operation["inputDigest"]:
-            raise Blocked("recovered successful Stack inputs changed: " + name)
-        if name not in recovered:
+        if (
+            operation["unit"] == units[name]
+            and backend.run_context["inputDigests"][name] == operation["inputDigest"]
+        ):
             verify_producer(backend, operation)
-        backend.states[name] = copy.deepcopy(operation["state"])
+            backend.states[name] = copy.deepcopy(operation["state"])
 
 
 def recover_runtime(backend, unit, state, operation):
     # Runtime mutation is authorized separately and cannot absorb changed IaC.
     backend.guard()
     require_authorized(backend.root)
+    owner_name = state.get("bootstrap", {}).get("owner", {}).get("stack")
+    if owner_name and owner_name not in backend.states:
+        raise Blocked(
+            "unfinished bootstrap owner is outside current Task scope: " + owner_name
+        )
     if backend.input_digest(unit, fresh=True) != operation["inputDigest"]:
         raise Blocked(
             "unfinished Secrets/cleanup operation requires its original inputs"
@@ -614,7 +908,10 @@ def adopt_prepared(backend, path, approvals):
         state = operation["state"]
         change_id = state["changeSetId"]
         backend.claim_inputs(unit)
-        unchanged = backend.input_digest(unit, fresh=True) == operation["inputDigest"]
+        unchanged = (
+            unit == operation["unit"]
+            and backend.input_digest(unit, fresh=True) == operation["inputDigest"]
+        )
         if not unchanged and change_id in approvals:
             raise Blocked(
                 "approved ChangeSet inputs changed; obtain approval for a fresh ChangeSet"

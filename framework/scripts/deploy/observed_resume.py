@@ -4,9 +4,11 @@ import base64
 import copy
 import hashlib
 from functools import partial as _bind_framework_callback
+from pathlib import Path
 
 import generation_inputs as _imports_generation_inputs
 import model.adapters.observed as _imports_model_adapters_observed
+from model.format import parse, patch
 from model.observed import verify_observed_outputs
 from model.sources import load_model, publication_lock, safe, source_scope
 from task_contract_core import (
@@ -291,6 +293,134 @@ def _identity(root, run_context, target, environment, directory):
         "target": target,
         "inputDigest": run_context["inputDigest"],
     }
+
+
+def reauthorize(backend, task):
+    """Adopt signed unfinished publication only under this invocation's own authority."""
+    context, root = backend.run_context, backend.root
+    previous = {
+        key: context[key]
+        for key in (
+            "repository",
+            "taskFile",
+            "taskDigest",
+            "environment",
+            "directory",
+            "target",
+            "inputDigest",
+        )
+    }
+    candidate = dict(
+        context, repository=str(root), taskFile=task.name, taskDigest=task.task_digest
+    )
+    identity = _identity(
+        root, candidate, backend.target, backend.environment, backend.directory
+    )
+    plans = [*context.get("pendingGeneration", {}).values()]
+    if context.get("pendingObserved"):
+        plans.append(context["pendingObserved"])
+    for plan in plans:
+        saved = plan["identity"]
+        if (
+            set(saved) != set(identity)
+            or {k: v for k, v in saved.items() if k != "taskBytes"} != previous
+        ):
+            raise Blocked("signed publication ownership differs from operation")
+    # A saved candidate remains exact; a fresh patch preserves independent current edits.
+    plan = context.get("pendingObserved")
+    if plan and plan["generated"]["outputs"] is None:
+        rebase_inputs(root, context, plan)
+    context.update(
+        repository=str(root), taskFile=task.name, taskDigest=task.task_digest
+    )
+    for plan in plans:
+        plan["identity"] = copy.deepcopy(identity)
+        for producer in plan.get("producers", []):
+            path = Path(producer["producerModel"])
+            if not path.is_relative_to(previous["repository"]):
+                raise Blocked("pending Producer belongs to an unrelated repository")
+            producer["producerModel"] = str(
+                root / path.relative_to(previous["repository"])
+            )
+    if (
+        not context.get("pendingObserved")
+        and not any(
+            item["generated"]["outputs"] is not None
+            for item in context.get("pendingGeneration", {}).values()
+        )
+        and not any(
+            state.get("status") == "SUCCESS"
+            and not state.get("observedSynced")
+            or state.get("bootstrap")
+            or state.get("cleanupStatus") == "DELETE_INTENT"
+            for state in context["states"].values()
+        )
+    ):
+        # Observed is already committed: a fresh generation may consume the current Model.
+        context["modelInputs"] = {}
+
+
+def rebase_inputs(root, context, plan):
+    for relative, encoded in list(plan["originals"].items()):
+        path = root / relative
+        safe(root, path)
+        current = path.read_bytes()
+        if manifest({relative: current})[relative] in (
+            plan["beforeManifest"][relative],
+            plan["afterManifest"][relative],
+        ):
+            continue
+        original = base64.b64decode(encoded, validate=True)
+        verify_observed_outputs({path: original}, {path: plan["outputs"][relative]})
+        old = parse(original.decode("utf-8"))
+        after = parse(plan["outputs"][relative])
+        live = parse(current.decode("utf-8"))
+        updates = {
+            key: after.values.get(key)
+            for key in old.values.keys() | after.values.keys()
+            if old.values.get(key) != after.values.get(key)
+        }
+        resources = {key.split(".")[2].rpartition("-")[0] for key in updates}
+        for key in old.values.keys() | live.values.keys():
+            if old.values.get(key) == live.values.get(key) and (key in old.values) == (
+                key in live.values
+            ):
+                continue
+            if key in updates and live.values.get(key) in (
+                old.values.get(key),
+                after.values.get(key),
+            ):
+                continue
+            parts = key.split(".")
+            if (
+                len(parts) >= 4
+                and parts[0] == "desired"
+                and parts[1] in {"resource", "row"}
+            ):
+                resource = (
+                    parts[2] if parts[1] == "resource" else parts[2].rpartition("-")[0]
+                )
+                if resource not in resources:
+                    continue
+            raise Blocked(
+                "observed recovery cannot explain third-party Model values: "
+                + relative
+                + ": "
+                + key
+            )
+        before_text = patch(live, {key: old.values.get(key) for key in updates})
+        after_text = patch(live, updates)
+        plan["originals"][relative] = base64.b64encode(
+            before_text.encode("utf-8")
+        ).decode("ascii")
+        plan["outputs"][relative] = after_text
+        plan["beforeManifest"][relative] = manifest(
+            {relative: before_text.encode("utf-8")}
+        )[relative]
+        plan["afterManifest"][relative] = manifest(
+            {relative: after_text.encode("utf-8")}
+        )[relative]
+        context["modelInputs"][relative] = plan["beforeManifest"][relative]
 
 
 def prepare(backend, units, outputs, services, views):
