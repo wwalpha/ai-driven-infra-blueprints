@@ -759,8 +759,8 @@ def check_shared_stack_mapping(publication_workspace):
             (
                 preflight,
                 (root, "dev", "123456789012", [u["name"] for u in scoped]),
-                5,
-                5,
+                2,
+                2,
             ),
         ):
             with patch.object(observed, "mappings", mappings.__wrapped__):
@@ -799,10 +799,11 @@ def check_shared_stack_mapping(publication_workspace):
                 )
             )
             _, _, bodies, expanded = measured(inherited)
-            assert (
-                max(bodies.values()) == 1
-                and expected_after <= expanded < 2 * expected_after
-            )
+            assert max(bodies.values()) == 1
+            if _state_check_shared_stack_mapping_395.entry is preflight:
+                assert expanded == 2 * expected_after
+            else:
+                assert expected_after <= expanded < 2 * expected_after
             assert memo_table() is None
             assert (
                 measured(
