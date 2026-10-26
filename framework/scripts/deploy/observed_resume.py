@@ -545,8 +545,6 @@ def finish(backend, units):
     backend.guard()
     if stage == "PREPARED":
         publish_observed(root, outputs, previous)
-        if hasattr(backend, "after_observed"):
-            backend.after_observed(outputs)
         # The journal may be gone while the operation journal still says PREPARED.
         if (
             reconcile(
@@ -559,6 +557,11 @@ def finish(backend, units):
             != "MODEL_PUBLISHED"
         ):
             raise Blocked("observed publication did not produce the exact candidate")
+    if getattr(backend, "_observed_cache_plan", None) is not plan and hasattr(
+        backend, "after_observed"
+    ):
+        backend.after_observed(outputs)
+        backend._observed_cache_plan = plan
     backend.guard()
     generation_resume.enqueue(backend, plan)
     # The journal saves the Model barrier and generation ownership in one revision.

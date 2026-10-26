@@ -12,12 +12,11 @@ from model.adapters.observed import (
     observed_destinations,
     own_key,
     propagate_references,
-    publish_observed,
     reference_key,
     resolve_resources,
 )
 from model.identity import resource_link
-from model.sources import input_snapshot, load_model
+from model.sources import load_model
 from model.validation import check_model_inputs
 from utils.aws_mappings import definition_root
 from utils.cloudformation.inputs import Blocked as Blocked
@@ -202,6 +201,8 @@ def collect_successful(backend, units, states, *, generated_views=None):
             .get("evidence", {})
             .get(name)
         )
+        if not planned and states[name].get("status") == "SUCCESS":
+            planned = states[name]
         if planned and (
             stack.get("StackId") != planned["stackId"]
             or stack.get("StackStatus") != planned["stackStatus"]
@@ -325,48 +326,20 @@ def collect_successful(backend, units, states, *, generated_views=None):
 
 def sync_successful(backend, units, states):
     """Confirm the Model barrier; generated views have their own durable queue."""
-    if getattr(backend, "run_context", {}).get("pendingObserved"):
+    if backend.run_context.get("pendingObserved"):
         names = list(backend.run_context["pendingObserved"]["evidence"])
         destinations = _dependency_deploy_observed_resume.finish(backend, units)
     else:
         views = set()
-        destinations, services, sync = collect_successful(
+        destinations, services, _ = collect_successful(
             backend, units, states, generated_views=views
         )
         names = [unit["name"] for unit in units]
-        if services:
-            if getattr(backend, "run_context", {}).get("modelInputs") is not None:
-                _dependency_deploy_observed_resume.prepare(
-                    backend, units, destinations, services, views
-                )
-                _dependency_deploy_observed_resume.finish(backend, units)
-            else:
-                root = backend.root
-                publish_observed(
-                    root,
-                    destinations,
-                    {
-                        path: raw
-                        for service in services
-                        for path, raw in input_snapshot(
-                            root
-                            / "model"
-                            / backend.environment
-                            / backend.directory
-                            / (service + ".properties")
-                        ).items()
-                    },
-                )
-                if sync.sync(
-                    root,
-                    True,
-                    backend.environment,
-                    backend.directory,
-                    services=services,
-                ):
-                    raise ValueError(
-                        "observed model sync/validation failed; resume unfinished operation after resolving blocker"
-                    )
+        if destinations:
+            _dependency_deploy_observed_resume.prepare(
+                backend, units, destinations, services, views
+            )
+            destinations = _dependency_deploy_observed_resume.finish(backend, units)
     for name in names:
         states[name]["observedSynced"] = True
     return destinations or None

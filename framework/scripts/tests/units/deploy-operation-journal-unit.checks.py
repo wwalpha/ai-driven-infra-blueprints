@@ -587,9 +587,14 @@ def test_waiting_generation_recovers_scope_without_inheriting_completed_stacks(
     with (
         patch.object(J, "_recovery_guard"),
         patch.object(J.generation_resume, "reconcile"),
-        patch.object(J.generation_resume, "run"),
+        patch.object(
+            J.generation_resume, "recover_publications"
+        ) as settle_publications,
+        patch.object(J.generation_resume, "run") as generate,
     ):
         J.recover(backend, path, task, ["Kms", "Later"])
+    settle_publications.assert_called_once_with(backend)
+    generate.assert_not_called()
     assert backend.states == {
         "Kms": {"status": "NOT_STARTED"},
         "Later": {"status": "NOT_STARTED"},

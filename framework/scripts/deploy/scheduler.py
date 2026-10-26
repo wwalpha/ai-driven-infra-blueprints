@@ -166,19 +166,30 @@ def run_group(
                 state = states[unit["name"]]
                 try:
                     state.setdefault("preparationId", uuid.uuid4().hex)
-                    started = time.perf_counter()
+                    measured = getattr(backend, "_timed_input_loads", set())
+                    started = (
+                        None
+                        if unit["name"] in measured
+                        or unit["name"] in getattr(backend, "loaded_inputs", {})
+                        else time.perf_counter()
+                    )
+                    backend._timed_input_loads = measured
                     try:
                         if hasattr(backend, "claim_inputs"):
                             backend.claim_inputs(unit)
                         if hasattr(backend, "load_inputs"):
                             backend.load_inputs(unit)
+                        measured.add(unit["name"])
                     finally:
-                        metrics = getattr(backend, "run_context", {}).get("metrics", {})
-                        metrics["inputLoadSeconds"] = (
-                            metrics.get("inputLoadSeconds", 0)
-                            + time.perf_counter()
-                            - started
-                        )
+                        if started is not None:
+                            metrics = getattr(backend, "run_context", {}).setdefault(
+                                "metrics", {}
+                            )
+                            metrics["inputLoadSeconds"] = (
+                                metrics.get("inputLoadSeconds", 0)
+                                + time.perf_counter()
+                                - started
+                            )
                     if hasattr(backend, "observed_readiness"):
                         backend.observed_readiness(unit)
                     if hasattr(backend, "prepare_delivery_group"):

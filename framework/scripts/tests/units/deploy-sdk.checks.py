@@ -508,7 +508,7 @@ class DeletionEvents:
         if operation == "describe_stack_events":
             return {"StackEvents": [self.event]}
         if operation == "describe_stacks":
-            return {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]}
+            return {"Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]}
         if operation == "list_stack_resources":
             return {"StackResourceSummaries": []}
         raise AssertionError(operation)
@@ -520,6 +520,7 @@ class DeletionEvents:
 def check_deletion_event_identity(tmp_path, mismatch):
     state = {
         "status": "SUCCESS",
+        "stackStatus": "UPDATE_COMPLETE",
         "stackId": "stack",
         "changeSetId": "change",
         "changeDigest": "digest",
@@ -562,6 +563,7 @@ def check_deletion_event_identity(tmp_path, mismatch):
         source = tmp_path / "model/dev/team/ec2.properties"
         backend.root, backend.environment, backend.directory = tmp_path, "dev", "team"
         backend.target, backend.templates = TARGET, {"A": ({"Resources": {}}, {})}
+        backend.run_context = {"states": {"A": state}}
         mapped = {
             "A": {
                 "Old": (
@@ -577,7 +579,7 @@ def check_deletion_event_identity(tmp_path, mismatch):
             patch.object(
                 observed, "resolve_resources", return_value=({source: {}}, mapped)
             ),
-            patch.object(observed, "publish_observed") as publish,
+            patch("model.adapters.observed.publish_observed") as publish,
         ):
             with pytest.raises(ValueError, match="physical destruction is unconfirmed"):
                 observed.sync_successful(backend, [{"name": "A"}], {"A": state})

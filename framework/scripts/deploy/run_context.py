@@ -113,9 +113,7 @@ def _callback_run_deploy_sync_once(backend, save, run_context, units, /):
             generation_resume.run(backend)
         if unsynced:
             stage = "OBSERVED"
-            outputs = sync_successful(backend, unsynced, run_context["states"])
-            if hasattr(backend, "after_observed"):
-                backend.after_observed(outputs or {})
+            sync_successful(backend, unsynced, run_context["states"])
             run_context.pop("pendingObserved", None)
             run_context.pop("observedError", None)
             run_context.pop("observedRecoveryError", None)
@@ -320,11 +318,6 @@ def _callback_run_guard(
             raise Blocked("project target changed before mutation")
         if snapshot.task_digest != run_context["taskDigest"]:
             raise Blocked("task contract changed before mutation")
-        for relative, expected in run_context["modelInputs"].items():
-            path = root / relative
-            actual = backend.file_digest(path, fresh=True) if path.is_file() else None
-            if actual != expected:
-                raise Blocked("consumed Model changed during deployment: " + relative)
         if (
             current_manifest(root, run_context, backend)
             != run_context["consumedInputs"]
@@ -437,26 +430,30 @@ def run(
             backend.workdir = Path(tempfile.mkdtemp(prefix="blueprint-deploy-inputs-"))
             # Only unfinished operations are read. Old Session files and registries are not inputs.
             operation_journal.recover(backend, journal, initial_task, args.stack)
-            if args.recover_operations:
-                return 2 if backend.pending_publication else 0
+            if args.recover_operations and not backend.pending_publication:
+                return 0
             run_context = {"modelInputs": {}, **backend.pending_publication}
-            models = RunModels(root, run_context)
+            models = getattr(backend, "recovered_models", None)
+            if models is None:
+                models = RunModels(root, run_context)
+            else:
+                run_context["modelInputs"].update(models.run_context["modelInputs"])
+                models.run_context = run_context
             model_scope = model_session(models)
             model_scope.__enter__()
             limit, units = load_units(root, args.environment, directory, args.stack)
             if args.sequential:
                 limit = 1
-            run_context.update(
-                new_context(
-                    root,
-                    initial_task,
-                    target,
-                    args.environment,
-                    directory,
-                    units,
-                    backend,
-                )
+            current = new_context(
+                root,
+                initial_task,
+                target,
+                args.environment,
+                directory,
+                units,
+                backend,
             )
+            run_context.update(current)
             backend.run_context = run_context
             backend.states, backend.units = run_context["states"], units
             backend.expected_digests = run_context["inputDigests"]
@@ -478,6 +475,12 @@ def run(
             backend.refresh_validation = _bind_framework_callback(
                 _callback_run_refresh_validation, backend, run_context["inputDigests"]
             )
+            operation_journal.adopt_recovered(backend)
+            if args.recover_operations:
+                if run_context.get("pendingGeneration"):
+                    generation_resume.run(backend)
+                backend.save()
+                return 2 if run_context.get("pendingGeneration") else 0
             operation_journal.adopt_prepared(backend, journal, args.approve_change_set)
         result = run_deploy(
             units, limit, run_context, backend, backend.save, args.pause_after_group

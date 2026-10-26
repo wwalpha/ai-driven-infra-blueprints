@@ -285,23 +285,53 @@ def check_new_plan_rejects_missing_stack_status(proposal):
 def check_direct_writer_keeps_noop_source_snapshot(tmp_path):
     source = tmp_path / "model/dev/team/changed.properties"
     noop = source.with_name("unchanged.properties")
-    backend = SimpleNamespace(root=tmp_path, environment="dev", directory="team")
-    states = {"A": {"status": "SUCCESS"}}
-    sync = SimpleNamespace(sync=lambda *args, **kwargs: 0)
+    originals = {source: b"original", noop: b"unchanged"}
+    states = {
+        "A": {
+            "status": "SUCCESS",
+            "stackId": "stack",
+            "stackStatus": "UPDATE_COMPLETE",
+        }
+    }
+    backend = SimpleNamespace(
+        root=tmp_path,
+        environment="dev",
+        directory="team",
+        target={},
+        run_context={
+            "states": states,
+            "modelInputs": M.manifest(
+                {
+                    p.relative_to(tmp_path).as_posix(): raw
+                    for p, raw in originals.items()
+                }
+            ),
+        },
+        save=Mock(),
+    )
     with (
         patch.object(
             observed,
             "collect_successful",
-            return_value=({source: "candidate"}, ["changed", "unchanged"], sync),
+            return_value=({source: "candidate"}, ["changed", "unchanged"], None),
         ),
-        patch.object(
-            observed, "input_snapshot", side_effect=lambda path: {path: b"original"}
-        ) as snapshot,
-        patch.object(observed, "publish_observed") as publish,
+        patch.object(M, "source_snapshot", return_value=originals),
+        patch.object(M, "verify_observed_outputs"),
+        patch.object(M, "generated_plan", return_value={}),
+        patch.object(M, "_identity", return_value={}),
+        patch.object(M, "finish", return_value={source: "candidate"}) as finish,
+        patch("model.adapters.observed.publish_observed") as direct_publish,
     ):
         observed.sync_successful(backend, [{"name": "A"}], states)
-    assert {call.args[0] for call in snapshot.call_args_list} == {source, noop}
-    assert publish.call_args.args[2] == {source: b"original", noop: b"original"}
+    plan = backend.run_context["pendingObserved"]
+    assert plan["beforeManifest"] == backend.run_context["modelInputs"]
+    assert (
+        plan["afterManifest"][noop.relative_to(tmp_path).as_posix()]
+        == plan["beforeManifest"][noop.relative_to(tmp_path).as_posix()]
+    )
+    finish.assert_called_once_with(backend, [{"name": "A"}])
+    direct_publish.assert_not_called()
+    backend.save.assert_called_once()
     assert states["A"]["observedSynced"]
 
 
@@ -866,7 +896,7 @@ def check_run_context_owns_observed_publication(proposal, pending):
         ) as collect,
         patch.object(M, "prepare") as prepare,
         patch.object(M, "finish", return_value={source: new}) as finish,
-        patch.object(observed, "publish_observed") as direct_publish,
+        patch("model.adapters.observed.publish_observed") as direct_publish,
     ):
         assert observed.sync_successful(backend, units, context["states"]) == {
             source: new

@@ -157,6 +157,28 @@ def reconcile(root, run_context, target, environment, directory, views=None):
         }
 
 
+def recover_publications(backend):
+    """Settle saved bytes without consulting Producers from a not-yet-created run."""
+    run_context = backend.run_context
+    if not run_context.get("pendingGeneration"):
+        return
+    current = reconcile(
+        backend.root,
+        run_context,
+        backend.target,
+        backend.environment,
+        backend.directory,
+    )
+    error = settle(backend, sorted(current), current=current)
+    if error is not None:
+        raise error
+    if any(
+        record["generated"]["outputs"] is not None
+        for record in run_context["pendingGeneration"].values()
+    ):
+        raise Blocked("unfinished generation publication could not be settled")
+
+
 def producers(backend, view, info, stage, resolver):
     """Only exact, indexed CREATE owners in this run can unblock a service."""
     diagnostics = info.get("diagnostics")
@@ -208,9 +230,10 @@ def producers(backend, view, info, stage, resolver):
 
 def producer_state(run_context, stack):
     state = run_context["states"].get(stack)
+    if state is None:
+        return {"status": "UNKNOWN", "observedSynced": False}
     if (
-        state is None
-        or state["status"]
+        state["status"]
         not in {"NOT_STARTED", "CHANGESET_CREATING", "READY", "RUNNING", "SUCCESS"}
         or state.get("failureDetected")
         or state.get("schedulerError")
@@ -223,6 +246,15 @@ def ready(run_context, record):
     for producer in record["producers"]:
         producer["observedSynced"] = bool(
             producer_state(run_context, producer["stack"]).get("observedSynced")
+        )
+    unknown = [
+        p["stack"]
+        for p in record["producers"]
+        if producer_state(run_context, p["stack"])["status"] == "UNKNOWN"
+    ]
+    if unknown:
+        record["reason"] = "WAITING: Producer evidence unavailable: " + ", ".join(
+            unknown
         )
     return all(p["observedSynced"] for p in record["producers"])
 
@@ -264,11 +296,11 @@ def retry_manifest(root, run_context, view):
     }
 
 
-def retry_producers(run_context, record):
+def dependency_producers(run_context, record):
     root = Path(run_context["repository"])
     shared = session_reads(root)
     if shared is None or shared.dependency_index is None:
-        return {}
+        return set()
     stacks = set()
     for path in record["waitingModelManifest"]:
         if not path.startswith("model/"):
@@ -283,11 +315,15 @@ def retry_producers(run_context, record):
             except ValueError:
                 # Unknown ownership cannot supply retry evidence; Resume re-evaluates it.
                 continue
-            if stack in run_context["states"]:
-                stacks.add(stack)
+            stacks.add(stack)
+    return stacks
+
+
+def retry_producers(run_context, record):
     return {
         stack: bool(run_context["states"][stack].get("observedSynced"))
-        for stack in sorted(stacks)
+        for stack in sorted(dependency_producers(run_context, record))
+        if stack in run_context["states"]
     }
 
 

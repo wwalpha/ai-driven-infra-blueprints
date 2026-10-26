@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from model.sources import model_session
+from model.sources import model_session, session_reads
 from task_contract_core import task_reads, task_snapshot
 from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked
@@ -60,6 +60,7 @@ PUBLICATION_FIELDS = {
     "pendingGeneration",
     "modelInputs",
     "inputDigests",
+    "generationProducers",
 }
 
 
@@ -118,12 +119,20 @@ def read(path):
         raise Blocked("invalid unfinished-operation journal; retain for investigation")
     if not isinstance(record["operations"], dict):
         raise Blocked("invalid unfinished operations")
-    for operation in record["operations"].values():
+    producers = record["publication"].get("generationProducers", {})
+    if not isinstance(producers, dict):
+        raise Blocked("invalid pending generation Producer evidence")
+    for operation in [*record["operations"].values(), *producers.values()]:
         if (
             set(operation) != {"unit", "inputDigest", "state"}
             or set(operation["state"]) - OPERATION_FIELDS
         ):
             raise Blocked("invalid unfinished operation fields")
+    if any(
+        op["state"].get("status") != "SUCCESS" or not op["state"].get("observedSynced")
+        for op in producers.values()
+    ):
+        raise Blocked("pending generation Producer has no Observed completion evidence")
     if set(record["publication"]) - PUBLICATION_FIELDS:
         raise Blocked("invalid publication ownership fields")
     return record
@@ -143,20 +152,65 @@ def unfinished(state):
     )
 
 
+def operation_record(backend, unit, fields=OPERATION_FIELDS):
+    return {
+        "unit": copy.deepcopy(unit),
+        "inputDigest": backend.run_context["inputDigests"].get(unit["name"]),
+        "state": {
+            k: copy.deepcopy(v)
+            for k, v in backend.states[unit["name"]].items()
+            if k in fields
+        },
+    }
+
+
+def generation_producers(backend):
+    context = backend.run_context
+    if not context.get("pendingGeneration"):
+        context.pop("generationProducers", None)
+        return
+    required = {
+        p["stack"]
+        for record in context["pendingGeneration"].values()
+        for p in record["producers"]
+    }
+    for record in context["pendingGeneration"].values():
+        required.update(generation_resume.dependency_producers(context, record))
+    prior = context.get("generationProducers", {})
+    # Phase-one recovery has no current dependency index yet; retain its bounded proof.
+    shared = session_reads(backend.root)
+    if shared is None or shared.dependency_index is None:
+        required.update(prior)
+    proofs = {name: prior[name] for name in required & prior.keys()}
+    for unit in backend.units:
+        state = backend.states[unit["name"]]
+        if (
+            unit["name"] in required
+            and state.get("status") == "SUCCESS"
+            and state.get("observedSynced")
+            and not state.get("failureDetected")
+            and not state.get("schedulerError")
+        ):
+            proofs[unit["name"]] = operation_record(
+                backend,
+                unit,
+                (
+                    *observed_resume.EVIDENCE_FIELDS,
+                    "observedSynced",
+                    "expectedOutputs",
+                    "changes",
+                ),
+            )
+    context["generationProducers"] = proofs
+
+
 def save(path, backend):
     context = backend.run_context
+    generation_producers(backend)
     operations = copy.deepcopy(getattr(backend, "prepared_operations", {}))
     operations.update(
         {
-            unit["name"]: {
-                "unit": copy.deepcopy(unit),
-                "inputDigest": context["inputDigests"].get(unit["name"]),
-                "state": {
-                    k: copy.deepcopy(v)
-                    for k, v in backend.states[unit["name"]].items()
-                    if k in OPERATION_FIELDS
-                },
-            }
+            unit["name"]: operation_record(backend, unit)
             for unit in backend.units
             if unfinished(backend.states[unit["name"]])
         }
@@ -191,6 +245,7 @@ def _restore_template(backend, unit, state):
     if (
         stack.get("StackId") != state["stackId"]
         or stack.get("StackStatus") not in SUCCESS
+        or stack.get("StackStatus") != state.get("stackStatus")
     ):
         raise Blocked("unfinished successful operation Stack identity/state changed")
     template = backend.aws("get_template", StackName=state["stackId"])["TemplateBody"]
@@ -260,6 +315,7 @@ def recover(backend, path, task, scope):
     """Settle original tokens before any new run. Never resubmit an uncertain mutation."""
     record = read(path)
     backend.prepared_operations = {}
+    backend.recovered_operations = {}
     backend.pending_publication = {}
     if record is None:
         return
@@ -316,7 +372,7 @@ def recover(backend, path, task, scope):
     context["states"].update(
         {name: op["state"] for name, op in record["operations"].items()}
     )
-    context["metrics"] = {"observedSyncSeconds": 0}
+    context["metrics"] = {"observedSyncSeconds": 0, "inputLoadSeconds": 0}
     context.setdefault("inputDigests", {})
     backend.run_context, backend.states = context, context["states"]
     backend.expected_digests = context["inputDigests"]
@@ -341,6 +397,7 @@ def recover(backend, path, task, scope):
                 backend.directory,
             )
     models = RunModels(backend.root, context)
+    backend.recovered_models = models
     with model_session(models):
         backend.after_observed = models.apply_observed
         for name, operation in record["operations"].items():
@@ -402,10 +459,21 @@ def recover(backend, path, task, scope):
                     raise Blocked("unfinished ChangeSet submission unknown")
                 backend.prepared_operations[name] = operation
         from_run_sync(backend)
+        backend.recovered_operations = {
+            name: operation_record(backend, operation["unit"])
+            for name, operation in record["operations"].items()
+            if backend.states[name].get("status") == "SUCCESS"
+        }
         if context.get("pendingGeneration"):
             backend.pending_publication = {
                 key: copy.deepcopy(context[key])
-                for key in ("pendingGeneration", "modelInputs")
+                for key in (
+                    "pendingGeneration",
+                    "modelInputs",
+                    "generationProducers",
+                    "inputDigest",
+                )
+                if key in context
             }
         backend.save()
 
@@ -429,25 +497,60 @@ class RecoveryGuard:
 
 def from_run_sync(backend):
     backend.guard()
+    generation_resume.recover_publications(backend)
     unsynced = [
         u
         for u in backend.units
         if backend.states[u["name"]].get("status") == "SUCCESS"
         and not backend.states[u["name"]].get("observedSynced")
     ]
-    if unsynced:
+    if unsynced or backend.run_context.get("pendingObserved"):
         observed.sync_successful(backend, unsynced, backend.states)
-    if backend.run_context.get("pendingGeneration"):
-        generation_resume.run(backend)
-    if (
-        backend.run_context.get("pendingObserved")
-        or backend.run_context.get("generationError")
-        or any(
-            item["generated"]["outputs"] is not None
-            for item in backend.run_context.get("pendingGeneration", {}).values()
-        )
+    if backend.run_context.get("pendingObserved") or any(
+        item["generated"]["outputs"] is not None
+        for item in backend.run_context.get("pendingGeneration", {}).values()
     ):
         raise Blocked("unfinished Observed/publication could not be settled")
+
+
+def verify_producer(backend, operation):
+    """Recheck only a pending service's completed Producer, never replay its Execute."""
+    unit, state = operation["unit"], operation["state"]
+    observed_resume.evidence({unit["name"]: state}, [unit["name"]])
+    execution = state.get("executionEvidence")
+    if execution and execution.get("inputDigest") != operation["inputDigest"]:
+        raise Blocked("Producer execution input evidence changed: " + unit["name"])
+    _restore_template(backend, unit, state)
+    if execution and backend.poll(unit, state) != state["stackStatus"]:
+        raise Blocked(
+            "Producer terminal token evidence is unconfirmed: " + unit["name"]
+        )
+    change_sets.verify_outputs(
+        backend.aws, unit, state, state.get("expectedOutputs", {})
+    )
+    outputs, _, _ = observed.collect_successful(backend, [unit], {unit["name"]: state})
+    shared = session_reads(backend.root)
+    if any(shared.read(path) != text.encode("utf-8") for path, text in outputs.items()):
+        raise Blocked("Producer Observed values no longer match AWS: " + unit["name"])
+
+
+def adopt_recovered(backend):
+    proofs = backend.run_context.get("generationProducers", {})
+    recovered = getattr(backend, "recovered_operations", {})
+    units = {unit["name"]: unit for unit in backend.units}
+    for name, operation in {**proofs, **recovered}.items():
+        if name not in units:
+            if name in recovered:
+                raise Blocked("recovered AWS success is outside current scope: " + name)
+            continue
+        if operation["unit"] != units[name]:
+            raise Blocked("recovered Stack definition changed: " + name)
+        backend.claim_inputs(units[name])
+        if backend.run_context["inputDigests"][name] != operation["inputDigest"]:
+            raise Blocked("recovered successful Stack inputs changed: " + name)
+        if name not in recovered:
+            verify_producer(backend, operation)
+        backend.states[name] = copy.deepcopy(operation["state"])
 
 
 def recover_runtime(backend, unit, state, operation):
