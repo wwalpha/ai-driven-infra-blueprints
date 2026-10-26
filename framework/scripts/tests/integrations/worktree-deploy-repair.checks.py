@@ -175,7 +175,7 @@ def managed_delivery(parent, request, relative, boundary, tmp_path):
         else wt.create(parent, "repair-one", Path(request["requestPath"]))
     )
     child = Path(child_state["worktree"])
-    with pytest.raises(ValueError, match="another child"):
+    with pytest.raises(ValueError, match="another implement child"):
         wt.create(parent, "repair-two", Path(request["requestPath"]))
     assert git(child, "rev-parse", "HEAD").strip() == request["parentTip"]
     child_task = child_state["task_file"]

@@ -51,6 +51,13 @@ KMS_RECEIVERS = [
 ]
 
 
+class MutableSnapshot(ModelSnapshot):
+    """Synthetic builders edit dictionaries; production snapshots remain immutable."""
+
+    def __post_init__(self):
+        pass
+
+
 def stack_input(comparison, unit):
     return ROOT / "infra/cloudformation/templates/team" / (
         unit["name"] + ".yaml"
@@ -134,7 +141,7 @@ def resource(
     comparison.resources.setdefault(service, {})[identity] = metadata
     if service not in comparison.models:
         authority = {f"desired.service.{service}.serviceId": service}
-        comparison.models[service] = ModelSnapshot(
+        comparison.models[service] = MutableSnapshot(
             Scope(ROOT, "fixture", "team", service), authority, {}, {}, {}, {}, {}, ()
         )
     snapshot = comparison.models[service]

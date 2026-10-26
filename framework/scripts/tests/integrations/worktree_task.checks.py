@@ -85,7 +85,7 @@ def check_sync_base_preserves_candidate():
 def check_old_workflow_registry_is_ignored():
     with fixture() as primary:
         directory = wt.metadata_directory(primary) / "deploy-workflows"
-        directory.mkdir()
+        directory.mkdir(parents=True)
         retained = directory / "old.json"
         retained.write_text('{"workflowId":"old","status":"unfinished"}')
         target, state = start(primary, task_id="new-deploy", files=("file.txt",))

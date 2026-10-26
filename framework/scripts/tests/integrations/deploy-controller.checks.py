@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 import sync_runtime
-from deploy import contracts
+from deploy import contracts, generation_resume
 from model.core import properties
 from model.files import read_model
 from support.deploy_controller_fixtures import (
@@ -98,7 +98,8 @@ def assert_single_execution(aws, states):
 
 def assert_published(root, session, evidence):
     saved = json.loads(session.read_text())
-    assert saved["result"] == "COMPLETE" and "pendingObserved" not in saved
+    assert generation_resume.complete(saved)
+    assert not session.with_suffix(".operations.json").exists()
     assert saved["repository"] == str(root) and saved["taskFile"] == "tasks/deploy.md"
     assert all(
         state["status"] == "SUCCESS" and state["observedSynced"]

@@ -197,7 +197,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
             continue
         stack = backend.aws("describe_stacks", StackName=name)["Stacks"][0]
         planned = (
-            getattr(backend, "session", {})
+            getattr(backend, "run_context", {})
             .get("pendingObserved", {})
             .get("evidence", {})
             .get(name)
@@ -325,7 +325,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
 
 def sync_successful(backend, units, states):
     """Confirm the Model barrier; generated views have their own durable queue."""
-    if getattr(backend, "session", {}).get("pendingObserved"):
+    if getattr(backend, "run_context", {}).get("pendingObserved"):
         names = list(backend.run_context["pendingObserved"]["evidence"])
         destinations = _dependency_deploy_observed_resume.finish(backend, units)
     else:
@@ -335,7 +335,7 @@ def sync_successful(backend, units, states):
         )
         names = [unit["name"] for unit in units]
         if services:
-            if getattr(backend, "session", {}).get("modelInputs") is not None:
+            if getattr(backend, "run_context", {}).get("modelInputs") is not None:
                 _dependency_deploy_observed_resume.prepare(
                     backend, units, destinations, services, views
                 )

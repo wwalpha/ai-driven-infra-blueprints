@@ -343,6 +343,7 @@ def generate(root, environment, selector, service):
             "ReferenceDiagnosticError",
             "ReferenceResolutionError",
             "resource_link",
+            "SnapshotValues",
             "entries",
             "literal",
         ],

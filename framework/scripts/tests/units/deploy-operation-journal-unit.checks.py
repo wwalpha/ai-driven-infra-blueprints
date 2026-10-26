@@ -18,7 +18,7 @@ from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
-    raise SystemExit("checks require assertions")
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 TARGET = {
     "awsAccountId": "123456789012",

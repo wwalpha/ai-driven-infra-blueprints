@@ -192,8 +192,12 @@ def check_zero_resources_never_classified(selection):
 
 
 def _check_selected_mutation_is_isolated_mutate(selected, *a, **kw):
-    selected["display.resource.marker.comment"] = "local mutation"
-    selected.pop("desired.row.001-001.value", None)
+    before = dict(selected)
+    with pytest.raises(TypeError, match="Snapshot values are immutable"):
+        selected["display.resource.marker.comment"] = "local mutation"
+    with pytest.raises(TypeError, match="Snapshot values are immutable"):
+        selected.pop("desired.row.001-001.value", None)
+    assert selected == before
 
 
 def check_selected_mutation_is_isolated(selection, monkeypatch):
@@ -204,7 +208,8 @@ def check_selected_mutation_is_isolated(selection, monkeypatch):
     run()
     assert values == before
     assert len(mapped) == 2 and mapped[0] is not mapped[1]
-    mapped[0].clear()
+    with pytest.raises(TypeError, match="Snapshot values are immutable"):
+        mapped[0].clear()
     assert mapped[1]
 
 

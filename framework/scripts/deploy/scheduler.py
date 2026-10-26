@@ -170,7 +170,7 @@ def run_group(
                         if hasattr(backend, "load_inputs"):
                             backend.load_inputs(unit)
                     finally:
-                        metrics = getattr(backend, "session", {}).get("metrics", {})
+                        metrics = getattr(backend, "run_context", {}).get("metrics", {})
                         metrics["inputLoadSeconds"] = (
                             metrics.get("inputLoadSeconds", 0)
                             + time.perf_counter()

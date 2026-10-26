@@ -250,14 +250,17 @@ def check_preparation():
             patch.object(
                 subprocess,
                 "run",
-                side_effect=AssertionError("existing session restarted"),
-            ),
+                return_value=subprocess.CompletedProcess(plan["controllerArgv"], 0),
+            ) as launch,
             redirect_stderr(io.StringIO()),
         ):
             assert (
                 M.main(["--repository-root", str(root), "--run-controller", str(path)])
-                == 1
+                == 0
             )
+            assert launch.call_args.args[0] == plan["controllerArgv"]
+            assert not any("session" in arg for arg in launch.call_args.args[0])
+        assert (run / "session.json").read_text(encoding="utf-8") == "{}"
         print(
             "Offline preparation: required bodies, input fingerprints and audit timing verified"
         )

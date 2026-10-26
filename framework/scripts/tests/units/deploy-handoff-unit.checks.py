@@ -24,7 +24,7 @@ from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.sealed_evidence import evidence_store, write_sealed
 
 if not __debug__:
-    raise SystemExit("checks require assertions")
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 @pytest.mark.parametrize(

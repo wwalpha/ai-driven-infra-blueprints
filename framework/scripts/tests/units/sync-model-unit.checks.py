@@ -27,6 +27,7 @@ import utils.aws_schemas as aws_schemas
 import utils.input_cache as _imports_input_cache
 import validation.design_links as _imports_validation_design_links
 from design.catalog import property_paths_with_parents
+from model.core import SnapshotValues
 from model.format import serialize
 from model.identity import COUNTERS
 from model.sources import runtime_values
@@ -1012,6 +1013,7 @@ def check_resource_row_reuse_and_edits():
             property="IAM.Role.Description", value="first", comment="fixture"
         ).items()
     }
+    fixed = SnapshotValues(values)
     rows = _bind_framework_callback(
         _callback_check_resource_row_reuse_and_edits_rows_444, values, "role"
     )
@@ -1022,12 +1024,12 @@ def check_resource_row_reuse_and_edits():
     ):
         with projection.resource_row_scope():
             assert parse.call_count == 0  # Lazy, even for an empty generation.
-            first = rows()
+            first = rows(fixed)
             first[0][2] = "caller edit"
             first.clear()
-            assert rows()[0][2] == "first" and parse.call_count == 1
+            assert rows(fixed)[0][2] == "first" and parse.call_count == 1
             other = dict(values)
-            assert rows(other) == rows() and parse.call_count == 2
+            assert rows(other) == rows(fixed) and parse.call_count == 2
             values["desired.row.role-001.value"] = "edited"
             assert rows()[0][2] == "edited" and parse.call_count == 3
             for key, value in dict(
@@ -1056,10 +1058,11 @@ def check_resource_row_reuse_and_edits():
             values.clear()
             assert rows() == []
             before = parse.call_count
-            assert rows() == [] and parse.call_count == before
+            assert rows() == [] and parse.call_count == before + 1
         assert projection._resource_row_cache.get() is None
         with projection.resource_row_scope():
-            rows()
+            before = parse.call_count
+            assert rows(fixed)[0][2] == "first"
             assert parse.call_count == before + 1
 
 
