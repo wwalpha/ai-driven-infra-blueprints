@@ -320,6 +320,15 @@ def _desired_value(
             kind, re.sub(r"\[\d+\]", "[]", row["property"].removeprefix(kind + "."))
         )
         schema_type = node.get("type")
+        # A terminal [] selects the item schema, but the row may encode the whole array.
+        if (
+            schema_type == "string"
+            and row["property"].endswith("[]")
+            and value.lstrip().startswith("[")
+        ):
+            value = strict_json(value)
+            if any(not isinstance(item, str) for item in value):
+                raise ValueError("design array row has an invalid string element")
         if isinstance(value, str) and value.lstrip().startswith("{"):
             try:
                 encoded = strict_json(value)

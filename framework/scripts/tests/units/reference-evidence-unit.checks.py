@@ -263,6 +263,96 @@ def prepared(comparison, row):
     )
 
 
+@pytest.mark.parametrize(
+    "stored,actual,category",
+    [
+        (['["pri-quar-tgt/"]'], ["pri-quar-tgt/"], "matched"),
+        (['["a/","b/"]'], ["a/", "b/"], "matched"),
+        (["[]"], [], "matched"),
+        (["pri-quar-tgt/"], ["pri-quar-tgt/"], "matched"),
+        (["a/", "b/"], ["a/", "b/"], "matched"),
+        (['["a/"]', '["b/","c/"]'], ["a/", "b/", "c/"], "matched"),
+        (['  ["a/"]'], ["a/"], "matched"),
+        (['["a/"]'], ["b/"], "difference"),
+        (['["a/","b/"]'], ["b/", "a/"], "difference"),
+        (['["a/",]'], ["a/"], "error"),
+        (["["], [], "error"),
+        (["[1]"], [1], "error"),
+        (["[null]"], [None], "error"),
+        (["[true]"], [True], "error"),
+        (["[{}]"], [{}], "error"),
+        (['[["a/"]]'], [["a/"]], "error"),
+    ],
+)
+def test_terminal_string_array_comparison(stored, actual, category):
+    comparison = fixture()
+    kind = "GuardDuty.MalwareProtectionPlan"
+    field = "ProtectedResource.S3Bucket.ObjectPrefixes[]"
+    rows = resource(
+        comparison,
+        "guardduty",
+        "001",
+        kind,
+        "Plan",
+        [(field, value, None) for value in stored],
+        properties={"ProtectedResource": {"S3Bucket": {"ObjectPrefixes": actual}}},
+    )
+    if category == "matched":
+        desired = {}
+        for rid, row in rows:
+            value = comparison.prepare_value("guardduty", row, kind, row_id=rid)
+            put_row(desired, field, value.require_value())
+        assert desired == {
+            "ProtectedResource": {"S3Bucket": {"ObjectPrefixes": actual}}
+        }
+    document = comparison.stack_inputs["producer"][0]
+    batch = comparison.compare_rows(
+        "guardduty",
+        "001",
+        comparison.resources["guardduty"]["001"],
+        "producer",
+        "Plan",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Plan"],
+        document,
+    )
+    assert batch.failure is None, batch.failure
+    assert any(item["category"] == category for item in batch.records), batch.records
+    if category == "error":
+        assert not any(item["category"] == "matched" for item in batch.records)
+
+
+@pytest.mark.parametrize("text", ['["a/","b/"]', "[]", '["a/",]'])
+def test_array_member_string_remains_literal(text):
+    comparison = fixture()
+    kind = "GuardDuty.MalwareProtectionPlan"
+    for field in (
+        "Tags[].Value",
+        "Tags[1].Value",
+        "ProtectedResource.S3Bucket.BucketName",
+        "ProtectedResource.S3Bucket.ObjectPrefixes[1]",
+    ):
+        value = comparison.prepare_value(
+            "guardduty",
+            {"property": kind + "." + field, "value": "`" + text + "`"},
+            kind,
+        )
+        assert value.require_value() == text
+
+
+def test_terminal_string_array_is_not_service_specific():
+    comparison = fixture()
+    value = comparison.prepare_value(
+        "codebuild",
+        {
+            "property": "CodeBuild.Project.VpcConfig.Subnets[]",
+            "value": '`["subnet-first","subnet-second"]`',
+        },
+        "CodeBuild.Project",
+    )
+    assert value.require_value() == ["subnet-first", "subnet-second"]
+
+
 @pytest.fixture(autouse=True)
 def offline():
     with (
