@@ -327,11 +327,39 @@ BucketName. CREATE does not imply undeployed. AWS-generated identifiers require 
 values; never infer them. Observed PENDING_DEPLOY means the physical identifier is
 unconfirmed, with identical reference resolution for CREATE and IMPORT: generated IDs
 and ARNs requiring them are pending_deploy; ARNs derivable from confirmed attributes
-remain resolved. PENDING_DEPLOY is invalid in desired values. This does not change
+remain resolved. PENDING_DEPLOY is invalid in desired values except the Mapping-defined
+environment Values below. This does not change
 resourceMode ownership, IaC/deploy eligibility or the approved Import acquisition flow.
 Reject desired/observed conflicts rather than selecting one silently. Resolution reports
 resolved/pending_deploy/unresolved with its cause and never writes values back to authority.
 ARN assembly is shared with comparison, with ARN_SHAPES as the sole format definition.
+
+Environment Value positions are defined only by `environment` metadata on AWS Mapping
+properties. The common classifier handles CodeBuild PLAINTEXT Values, Lambda Variables
+map Values, ECS container Environment Values, CodePipeline direct Values and encoded
+Configuration EnvironmentVariables, and Glue's explicitly registered customer-driver /
+customer-executor argument Values. Lambda Variables and ECS ContainerDefinitions are
+Model-managed, displayed and acquired through their existing provider mappings.
+CREATE and IMPORT have identical pending rules; neither mode proves deployment state.
+A literal PENDING_DEPLOY with no identified dependency is allowed only in these Values
+and retains an unknown-dependency diagnostic. Confirmed reference attributes retain their
+real values; never guess IDs or query AWS at Model saving. Names, Types, ordinary IDs/ARNs,
+CIDRs, whole JSON objects, secrets references and unrelated arguments gain no exception.
+CodeBuild PLAINTEXT Resource links remain forbidden. Typed JSON references remain atomic;
+ordinary JSON strings never become references through matching text.
+
+Markdown and authoritative Model JSON retain these pending Values. Materialized AWS JSON
+artifacts require resolved Values and fail only their owning service through existing
+reference diagnostics. Desired Model/IaC comparison defers each pending Value and compares
+confirmed siblings, including encoded JSON and quoted Glue assignments. Observations are
+not a new comparison source. The decoded Stack Template/Parameters snapshot is checked
+once before delivery/AWS submission. Existing CFn evaluation selects active conditions and
+known parameter/mapping expressions; valid AWS-resolved references remain expressions.
+A remaining environment PENDING_DEPLOY blocks that Stack, while independent peers at the
+same DeployOrder may finish. The existing DeployOrder barrier, approval and execution
+guards remain. No Model-wide load, persistent Deploy Session or repair history is added.
+Unstructured scripts, UserData, Event/Scheduler inputs and SSM parameter payloads have no
+blanket environment exception; unproven indirect paths retain their ordinary rules.
 
 Independent AWS configuration/policy JSON has no CloudFormation execution context. The
 AWS submission boundary rejects internal Model nodes, nested Fn::*/Ref, unresolved

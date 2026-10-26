@@ -9,6 +9,7 @@ import utils.aws_catalogs as _imports_utils_aws_catalogs
 import utils.reference_contracts as _imports_reference_contracts
 from utils.reference_contracts import reference_attribute
 
+import model.environment_values as environment_values
 import model.importing.scope as _imports_model_importing_scope
 import model.sources as _imports_model_sources
 from model.core import COUNTERS as COUNTERS
@@ -282,6 +283,13 @@ class Resolver:
             field
             and not declared
             and _imports_reference_contracts.requires_context(field, context)
+            and not environment_values.value_property(
+                ".".join(field.split(".")[:2]),
+                field,
+                environment_values.mapping_for(
+                    self.root, ".".join(field.split(".")[:2])
+                ),
+            )
         ):
             reason = (
                 "CodePipeline ActionTypeId or Configuration"
@@ -354,6 +362,12 @@ class Resolver:
             ).get("type")
         except KeyError:
             expected = None
+        if environment_values.value_property(
+            consumer_kind,
+            field,
+            environment_values.mapping_for(self.root, consumer_kind),
+        ):
+            expected = "string"
         actual_types = set(actual if isinstance(actual, list) else [actual])
         expected_types = set(expected if isinstance(expected, list) else [expected])
         if (

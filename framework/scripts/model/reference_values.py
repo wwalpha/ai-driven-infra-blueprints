@@ -20,6 +20,7 @@ from utils.reference_contracts import (
     reference_attribute,
 )
 
+import model.environment_values as environment_values
 from model.core import (
     FrameworkUnsupportedError,
     ModelNeedsFixError,
@@ -128,6 +129,7 @@ class ProducerValues:
         ]
         self.schema = resolver.catalog.schema(self.kind)
         self.pending_fields = set()
+        self.environment_pending_fields = set()
         self.observed_fields = set()
         self.drift_fields = set()
 
@@ -146,10 +148,24 @@ class ProducerValues:
         rid, row = rows[0]
         desired_raw = literal(row["value"])
         if desired_raw == "PENDING_DEPLOY":
-            raise ModelNeedsFixError(
-                "PENDING_DEPLOY belongs only to observations: " + field,
-                code="MODEL_REF_INVALID_PENDING_STATE",
+            mapping = environment_values.mapping_for(
+                self.snapshot.scope.root, self.kind
             )
+            contexts = environment_values.row_contexts(self.kind, self.rows, mapping)
+            if environment_values.pending_errors(
+                self.kind,
+                row["property"],
+                desired_raw,
+                mapping,
+                context=contexts.get(rid),
+            ):
+                raise ModelNeedsFixError(
+                    "invalid desired PENDING_DEPLOY: " + field,
+                    code="MODEL_REF_INVALID_PENDING_STATE",
+                    modelKey=f"desired.row.{rid}.value",
+                )
+            self.pending_fields.add(field)
+            self.environment_pending_fields.add(field)
         desired = confirmed(desired_raw)
         observed = self.snapshot.authoritative.get(f"observed.row.{rid}.value")
         if observed is not None:
@@ -211,20 +227,13 @@ class ProducerValues:
             else strict_json(value)
         )
 
-    def validate_pending(self):
-        for rid, row in self.rows:
-            desired = literal(row["value"])
-            if desired == "PENDING_DEPLOY":
-                raise ModelNeedsFixError(
-                    "invalid Producer PENDING_DEPLOY state",
-                    code="MODEL_REF_INVALID_PENDING_STATE",
-                    model=str(self.snapshot.scope.path),
-                    modelKey=f"desired.row.{rid}.value",
-                )
-
     def waiting(self, fields):
         return bool(fields) and all(
-            field in self.pending_fields and generated_attribute(self.schema, field)
+            field in self.pending_fields
+            and (
+                field in self.environment_pending_fields
+                or generated_attribute(self.schema, field)
+            )
             for field in fields
         )
 
@@ -254,6 +263,11 @@ class ProducerValues:
                     raw = strict_json(raw)
                 except ValueError:
                     pass
+            if environment_values.pending_errors(self.kind, row["property"], raw, {}):
+                raise ModelNeedsFixError(
+                    "invalid ARN component PENDING_DEPLOY: " + field,
+                    code="MODEL_REF_INVALID_PENDING_STATE",
+                )
             put_row(properties, field, raw)
         values = {}
         for field in fields:
@@ -338,7 +352,6 @@ def reference_value(resolver, scope, node, **contract):
             node, scope, resolver, **contract
         )
         producer = ProducerValues(snapshot, number, resource, resolver)
-        producer.validate_pending()
         attribute = reference_attribute(resource["resourceType"], attribute)
         try:
             value = (

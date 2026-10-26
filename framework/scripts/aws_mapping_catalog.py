@@ -15,6 +15,8 @@ import utils.mapping_runtime as _mapping_runtime
 from design.catalog import DesignSchemaCatalog as DesignSchemaCatalog
 from utils.aws_sdk import aws_runtime
 from utils.json_format import exact
+from utils.mapping_types import definition as environment_definition
+from utils.mapping_types import validate_definition as validate_environment_definition
 from utils.script_loader import module
 
 # Existing fetch code explicitly copies these inputs into its projected response.
@@ -258,7 +260,8 @@ def catalog_properties(
                     "display",
                     "access",
                     "aws" if "aws" in definition else "source",
-                },
+                }
+                | ({"environment"} if "environment" in definition else set()),
                 key,
             )
             exact(definition["model"], {"include"}, key + " model")
@@ -281,6 +284,14 @@ def catalog_properties(
             expected_access = access(schema, path) if schema else ["api"]
             if definition["access"] != expected_access:
                 raise ValueError(key + ": provider access classification mismatch")
+            environment = (
+                environment_definition(definition["environment"])
+                if "environment" in definition
+                else None
+            )
+            validate_environment_definition(catalog, resource, path, environment)
+            if environment is not None and not include:
+                raise ValueError(key + ": environment Value must be Model managed")
             constraint = ""
             if "aws" in definition:
                 aws = definition["aws"]
@@ -465,6 +476,7 @@ def catalog_properties(
                 source,
                 constraint,
                 definition.get("aws", {}).get("transform", "identity"),
+                environment,
             )
     if used != getters.keys():
         raise ValueError("unused Mapping getter")

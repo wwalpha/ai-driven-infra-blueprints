@@ -262,8 +262,9 @@ resourceTypes:
         access: [read-write]
         aws: {getter: provider-lambda-function, path: Description, normalize: typed}
       Environment.Variables:
-        model: {include: false}
-        display: {show: false, name: Environment.Variables}
+        environment: {path: '*', encoding: value}
+        model: {include: true}
+        display: {show: true, name: Environment.Variables}
         access: [read-write]
         aws: {getter: provider-lambda-function, path: Environment.Variables, normalize: typed}
       EphemeralStorage.Size:

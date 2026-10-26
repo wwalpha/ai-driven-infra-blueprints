@@ -3,8 +3,10 @@
 import re
 from dataclasses import dataclass
 from functools import partial as _bind_framework_callback
+from pathlib import Path
 
 import json_intrinsics as _imports_json_intrinsics
+import model.environment_values as environment_values
 from design.policy_tables import literal
 from model.identity import resource_link
 from model.reference_nodes import is_reference
@@ -352,7 +354,29 @@ def _desired_value(
         "",
     )
     path = row["property"].removeprefix(kind + ".")
-    return references(value, path=path)
+    prepared = references(value, path=path)
+    return environment_values.project(
+        kind,
+        row["property"],
+        prepared,
+        environment_values.mapping_for(Path(model_path).parents[3], kind),
+        _bind_framework_callback(_pending_environment, failures, kind, row["property"]),
+        context=context,
+    )
+
+
+def _pending_environment(failures, kind, prop, item):
+    if item.value == "PENDING_DEPLOY" and item.pending_allowed:
+        path = prop.removeprefix(kind + ".")
+        for token in item.pointer.split("/")[1:]:
+            path += (
+                "[]"
+                if token.isdigit()
+                else "." + token.replace("~1", "/").replace("~0", "~")
+            )
+        failures.append((path, item.pointer, DesiredPendingDeployExcluded(prop)))
+        return Expression("Unverified", [])
+    return item.value
 
 
 def _callback_compare_values_compare(outcomes, reference, /, left, right, path):

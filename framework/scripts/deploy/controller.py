@@ -15,6 +15,7 @@ import utils.aws.client as _imports_utils_aws_client
 from model.core import ARTIFACT_PROPERTIES, resource_link
 from model.projection import deployment_bucket
 from utils.aws.identity import execution_account, select_profile
+from utils.cloudformation.environment import validate_environment_inputs
 from utils.cloudformation.inputs import Blocked, load_template_inputs
 from utils.json_format import fingerprint
 from utils.type_contracts import JsonObject
@@ -181,6 +182,9 @@ def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
         error.deploy_input_kind = "DECODE"
         error.code = "InputDecodeError"
         raise error from None
+    validate_environment_inputs(
+        runtime.root, *runtime.templates[name], runtime.target, name
+    )
     runtime.loaded_inputs = loaded
     loaded[name] = digest
     document, _ = runtime.templates[unit["name"]]

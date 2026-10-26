@@ -129,6 +129,7 @@ resourceTypes:
         access: [read-write]
         aws: {getter: base, path: 'environment.environmentVariables[].type', normalize: typed}
       Environment.EnvironmentVariables[].Value:
+        environment: {path: $, encoding: value, plaintext: true}
         model: {include: true}
         display: {show: true, name: 'Environment.EnvironmentVariables[].Value'}
         access: [read-write]

@@ -51,5 +51,8 @@ def runtime_properties(root, service, document):
                 source.get("kind", "aws"),
                 source.get("constraint", ""),
                 transform,
+                _imports_aws_mapping.definition(definition["environment"])
+                if "environment" in definition
+                else None,
             )
     return result

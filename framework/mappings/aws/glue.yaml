@@ -490,6 +490,7 @@ resourceTypes:
         access: [read-write]
         aws: {getter: base, path: Connections.Connections, normalize: name}
       DefaultArguments:
+        environment: {path: $, encoding: glue, keys: [--customer-driver-env-vars, --customer-executor-env-vars]}
         model: {include: true}
         display: {show: true, name: DefaultArguments}
         access: [read-write]
@@ -535,6 +536,7 @@ resourceTypes:
         access: [read-write]
         aws: {getter: base, path: MaxRetries, normalize: typed}
       NonOverridableArguments:
+        environment: {path: $, encoding: glue, keys: [--customer-driver-env-vars, --customer-executor-env-vars]}
         model: {include: true}
         display: {show: true, name: NonOverridableArguments}
         access: [read-write]

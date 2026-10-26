@@ -24,6 +24,7 @@ from utils.json_format import (
 )
 from utils.reference_contracts import reference_attribute as reference_attribute
 
+import model.environment_values as environment_values
 import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
 import model.importing.sources as _imports_model_importing_sources
@@ -661,6 +662,29 @@ def generated_document(
     )
     require_reference_diagnostics(diagnostics)
     resolved = project(document, partial(_resolved_document_value, resolutions))
+    if property_name:
+        kind = ".".join(property_name.split(".")[:2])
+        pending = [
+            item
+            for item in environment_values.inspect(
+                kind,
+                property_name,
+                resolved,
+                environment_values.mapping_for(root, kind),
+                context=context,
+            )
+            if item.value == "PENDING_DEPLOY"
+        ]
+        if pending:
+            raise ReferenceResolutionError(
+                "environment artifact requires confirmed Values",
+                category="REFERENCE_PENDING_DEPLOY",
+                code="ENVIRONMENT_VALUE_PENDING",
+                model=str(scope.path),
+                modelKey=model_key,
+                property=property_name,
+                pointer=pending[0].pointer,
+            )
     return execution_document(
         resolved,
         root,

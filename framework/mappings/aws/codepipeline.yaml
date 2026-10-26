@@ -1,6 +1,12 @@
 version: 3
 service: codepipeline
 getters:
+  sdk-codepipeline-pipeline:
+    kind: sdk
+    service: codepipeline
+    operation: get_pipeline
+    result: pipeline
+    resourceType: CodePipeline.Pipeline
   base:
     kind: adapter
     resources: [CodePipeline.Pipeline]
@@ -120,10 +126,27 @@ resourceTypes:
         access: [read-write]
         aws: {getter: provider-codepipeline-pipeline, path: 'Stages[].Actions[].Commands', normalize: typed}
       Stages[].Actions[].Configuration:
+        environment: {path: EnvironmentVariables, encoding: json, valuePath: '[].value', plaintext: true, typeField: type}
         model: {include: true}
         display: {show: true, name: 'Stages[].Actions[].Configuration'}
         access: [read-write]
         aws: {getter: base, path: 'stages[].actions[].configuration', normalize: json}
+      Stages[].Actions[].EnvironmentVariables[].Name:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].EnvironmentVariables[].Name'}
+        access: [read-write]
+        aws: {getter: sdk-codepipeline-pipeline, path: 'stages[].actions[].environmentVariables[].name', normalize: typed}
+      Stages[].Actions[].EnvironmentVariables[].Type:
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].EnvironmentVariables[].Type'}
+        access: [read-write]
+        aws: {getter: sdk-codepipeline-pipeline, path: 'stages[].actions[].environmentVariables[].type', normalize: typed}
+      Stages[].Actions[].EnvironmentVariables[].Value:
+        environment: {path: $, encoding: value, plaintext: true}
+        model: {include: true}
+        display: {show: true, name: 'Stages[].Actions[].EnvironmentVariables[].Value'}
+        access: [read-write]
+        aws: {getter: sdk-codepipeline-pipeline, path: 'stages[].actions[].environmentVariables[].value', normalize: typed}
       Stages[].Actions[].InputArtifacts[].Name:
         model: {include: true}
         display: {show: true, name: 'Stages[].Actions[].InputArtifacts[].Name'}

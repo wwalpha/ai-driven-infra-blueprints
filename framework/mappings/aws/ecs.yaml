@@ -867,8 +867,9 @@ resourceTypes:
         access: [create-only]
         aws: {getter: provider-ecs-taskdefinition, path: Family, normalize: typed}
       ContainerDefinitions:
-        model: {include: false}
-        display: {show: false, name: ContainerDefinitions}
+        environment: {path: '[].Environment[].Value', encoding: value}
+        model: {include: true}
+        display: {show: true, name: ContainerDefinitions}
         access: [create-only]
         aws: {getter: provider-ecs-taskdefinition, path: ContainerDefinitions, normalize: typed}
       Cpu:

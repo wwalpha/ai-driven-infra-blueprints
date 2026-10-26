@@ -1,5 +1,45 @@
 # UT / IT 全ケース台帳
 
+## Mapping-defined pending environment Values
+
+28 UT entrypoints / 83 collected pytest cases; synthetic data only, no local IT or AWS.
+The common suite owns the parser/state combinations; existing service suites retain their
+service policy and delegation assertions. Id fixture correction in codebuild-plaintext
+changes no test count. Existing IT registrations and their connection responsibilities
+remain unchanged.
+
+| Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `environment-values::model_pending_values` | `check_model_pending_values` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 14 | model pending values | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::pending_not_an_escape` | `check_pending_not_an_escape` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 10 | pending not an escape | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::codebuild_secret_reference_not_plaintext` | `check_codebuild_secret_reference_not_plaintext` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 2 | codebuild secret reference not plaintext | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::glue_quoting` | `check_glue_quoting` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | glue quoting | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::invalid_mapping_metadata` | `check_invalid_mapping_metadata` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 5 | invalid mapping metadata | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::mapping_schema_paths_and_publication` | `check_mapping_schema_paths_and_publication` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | mapping schema paths and publication | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::pipeline_name_reference_and_candidate_guard` | `check_pipeline_name_reference_and_candidate_guard` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 2 | pipeline name reference and candidate guard | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::unrelated_pending_does_not_hide_invalid_requested_value` | `check_unrelated_pending_does_not_hide_invalid_requested_value` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | unrelated pending does not hide invalid requested value | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::codebuild_plaintext_link_still_rejected` | `check_codebuild_plaintext_link_still_rejected` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | codebuild plaintext link still rejected | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::comparison_preserves_confirmed_siblings` | `check_comparison_preserves_confirmed_siblings` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 5 | comparison preserves confirmed siblings | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::deploy_blocks_literals_and_parameters` | `check_deploy_blocks_literals_and_parameters` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 5 | deploy blocks literals and parameters | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::deploy_accepts_cfn_references` | `check_deploy_accepts_cfn_references` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 4 | deploy accepts cfn references | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::deploy_selects_active_branch_and_only_environment` | `check_deploy_selects_active_branch_and_only_environment` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | deploy selects active branch and only environment | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::deploy_snapshot_guard_precedes_aws_and_is_per_stack` | `check_deploy_snapshot_guard_precedes_aws_and_is_per_stack` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | deploy snapshot guard precedes aws and is per stack | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::display_retains_pending_and_artifact_rejects` | `check_display_retains_pending_and_artifact_rejects` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | display retains pending and artifact rejects | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::pipeline_direct_display_roundtrip` | `check_pipeline_direct_display_roundtrip` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | pipeline direct display roundtrip | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::deploy_five_services` | `check_deploy_five_services` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 7 | deploy five services | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::deploy_only_evaluates_selected_settings` | `check_deploy_only_evaluates_selected_settings` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | deploy only evaluates selected settings | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::pending_stack_keeps_independent_peer_running` | `check_pending_stack_keeps_independent_peer_running` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 4 | pending stack keeps independent peer running | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::encoded_configuration_roundtrip` | `check_encoded_configuration_roundtrip` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | encoded configuration roundtrip | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::all_confirmed_values_are_preserved` | `check_all_confirmed_values_are_preserved` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | all confirmed values are preserved | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::snapshot_validated_once` | `check_snapshot_validated_once` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | snapshot validated once | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::comparison_pipeline_records_only_pending_leaf` | `check_comparison_pipeline_records_only_pending_leaf` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 2 | comparison pipeline records only pending leaf | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::deploy_uses_existing_select_and_mapping_evaluation` | `check_deploy_uses_existing_select_and_mapping_evaluation` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 2 | deploy uses existing select and mapping evaluation | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::encoded_environment_typed_reference_retains_state` | `check_encoded_environment_typed_reference_retains_state` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 2 | encoded environment typed reference retains state | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::glue_execution_expressions` | `check_glue_execution_expressions` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 2 | glue execution expressions | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::encoded_environment_invalid_entries` | `check_encoded_environment_invalid_entries` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 4 | encoded environment invalid entries | Synthetic Mapping/Model/CFn inputs |
+| `environment-values::plain_json_string_is_not_an_encoded_environment_structure` | `check_plain_json_string_is_not_an_encoded_environment_structure` | UT | [units/environment_values-unit.checks.py](units/environment_values-unit.checks.py) | pytest / 1 | plain json string is not an encoded environment structure | Synthetic Mapping/Model/CFn inputs |
+
+
 ## ARN計算とPending成果物
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |

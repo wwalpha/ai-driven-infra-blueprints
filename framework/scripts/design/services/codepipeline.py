@@ -184,9 +184,14 @@ def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
             if value.startswith("{"):
                 value = policy_json(value)
                 parse(value)
+            elif value.startswith("["):
+                if not isinstance(policy_json(value), list):
+                    raise ValueError(
+                        "Configuration JSON array must remain an encoded string"
+                    )
             elif (
                 not value.strip()
-                or value.startswith(("[", "!"))
+                or value.startswith("!")
                 or "Fn::" in value
                 or "](" in value
                 or "\n" in value

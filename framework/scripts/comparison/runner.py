@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
+import model.environment_values as environment_values
 from design.catalog import DesignSchemaCatalog
 from design.layout import resource_mode
 from design.layout_schema import GROUPED
@@ -523,6 +524,12 @@ class Comparison(Inputs):
         template: Path,
     ) -> Settings:
         settings = Settings()
+        contexts = dict(
+            contexts,
+            **environment_values.row_contexts(
+                kind, rows, environment_values.mapping_for(self.root, kind)
+            ),
+        )
         try:
             outputs = catalog_outputs(self.root, kind) | HIDDEN_PROPERTIES
             for rid, row in rows:
@@ -676,7 +683,9 @@ class Comparison(Inputs):
             **details,
         )
         settings.result.records.append(item)
-        if isinstance(error, DesiredPendingDeployExcluded):
+        if isinstance(error, DesiredPendingDeployExcluded) and not (source or {}).get(
+            "pointer"
+        ):
             return
         key = re.sub(r"\[\d*\]", "", prop.removeprefix(kind + ".").split(".", 1)[0])
         settings.incomplete.setdefault(key, []).append(self.redacted(item))
@@ -781,6 +790,29 @@ class Comparison(Inputs):
                         source=sources[0],
                         template=iac_source,
                         cause=getattr(error, "iac_cause", None),
+                    )
+                ],
+                warnings,
+            )
+        try:
+            actual = environment_values.project(
+                kind,
+                prop,
+                actual,
+                environment_values.mapping_for(self.root, kind),
+                environment_values.identity,
+            )
+        except (ValueError, TypeError) as error:
+            return RowResult(
+                [
+                    self.make_record(
+                        "error",
+                        service,
+                        identity,
+                        prop,
+                        str(error),
+                        source=sources[0],
+                        template=iac_source,
                     )
                 ],
                 warnings,

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial as _bind_framework_callback
 from typing import TypeVar
 
+from utils.cloudformation.environment import EnvironmentValuePending
 from utils.cloudformation.inputs import Blocked
 from utils.type_contracts import JsonValue as JsonValue
 
@@ -90,6 +91,7 @@ def run_group(
         state["status"] == "FAILED" or state.get("schedulerError")
         for state in states.values()
     )
+    input_blocked = set()
     while True:
         # Poll every running stack before reusing any freed slot.
         active = [
@@ -158,6 +160,7 @@ def run_group(
                 u
                 for u in group
                 if states[u["name"]]["status"] in {"NOT_STARTED", "BLOCKED"}
+                and u["name"] not in input_blocked
             ]
             for unit in pending[: max(0, limit - running - preparing)]:
                 state = states[unit["name"]]
@@ -192,8 +195,11 @@ def run_group(
                     )
                     state["status"] = "BLOCKED"
                     state["reason"] = str(error)
-                    stopped = True
-                if state["status"] == "BLOCKED":
+                    if isinstance(error, EnvironmentValuePending):
+                        input_blocked.add(unit["name"])
+                    else:
+                        stopped = True
+                if state["status"] == "BLOCKED" and unit["name"] not in input_blocked:
                     stopped = True
                 save()
                 if stopped:
@@ -235,7 +241,11 @@ def run_group(
                 except Exception as error:
                     failures.exception(state, error, "EXECUTE")
                     state["reason"] = str(error)
-                    stopped = True
+                    if isinstance(error, EnvironmentValuePending):
+                        state["status"] = "BLOCKED"
+                        input_blocked.add(unit["name"])
+                    else:
+                        stopped = True
                 save()
                 if stopped:
                     break
@@ -246,6 +256,10 @@ def run_group(
         if not running:
             if stopped:
                 return "STOPPED"
-            if all(states[unit["name"]]["status"] == "SUCCESS" for unit in group):
-                return "GROUP_COMPLETE"
+            if all(
+                states[unit["name"]]["status"] == "SUCCESS"
+                or unit["name"] in input_blocked
+                for unit in group
+            ):
+                return "STOPPED" if input_blocked else "GROUP_COMPLETE"
         sleep(5)

@@ -232,6 +232,18 @@ ITは7条件。実CLI→Validator、子プロセス・heartbeat・並列同期�
 全assertionの対応先は[Issue 18台帳](CASES.md#issue-18-blueprint-loopの検証責務)を参照。
 ローカルでは関連UTと静的確認のみを実行し、ITのPASSと10秒以内の達成は正式CIで確認する。
 
+## Pending environment Values
+
+`units/environment_values-unit.checks.py` owns Mapping metadata and parser combinations,
+CREATE/IMPORT permission, pending restrictions, requested-attribute resolution, typed
+encoded JSON, granular desired comparison, display preservation and the Stack input guard.
+Synthetic snapshots connect the existing candidate guard, reference resolver, comparison
+runner, decoded-input cache and scheduler; they use no real Project Models, Git setup or AWS.
+CodeBuild's existing suite retains its PLAINTEXT/link policy and validation isolation tests;
+its unrelated synthetic Id is a confirmed fixture value rather than a forbidden desired
+PENDING_DEPLOY. Existing component IT remains in the normal CI runner; local execution is
+limited to related UT, syntax/registration, scoped validation and repository-wide Ruff.
+
 ## Common Model Reference nodes
 
 `units/model-reference-nodes-unit.checks.py` is the dedicated typed-node UT. It uses only authored

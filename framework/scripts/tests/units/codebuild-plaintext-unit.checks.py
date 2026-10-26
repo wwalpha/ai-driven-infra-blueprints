@@ -126,7 +126,7 @@ def dependency_projects(
     values.update(
         {
             "desired.row.001-900.property": "CodeBuild.Project.Id",
-            "desired.row.001-900.value": "`PENDING_DEPLOY`",
+            "desired.row.001-900.value": "`synthetic-project-id`",
             "desired.row.001-900.comment": "合成識別子",
         }
     )
@@ -690,7 +690,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
         values.update(
             {
                 "desired.row.001-900.property": "CodeBuild.Project.Id",
-                "desired.row.001-900.value": "`PENDING_DEPLOY`",
+                "desired.row.001-900.value": "`synthetic-project-id`",
                 "desired.row.001-900.comment": "合成識別子",
             }
         )
