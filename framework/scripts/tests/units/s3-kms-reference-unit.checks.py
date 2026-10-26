@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from model import dependency_index
 import model.validation as _imports_model_validation
 from comparison import Comparison
 from design.catalog import DesignSchemaCatalog
@@ -154,6 +155,7 @@ def check_authority_display_and_references(project_workspace):
         scope.path, bucket, scope.root, definitions_root=FRAMEWORK
     )
     assert not schema.errors, schema.errors
+    dependency_index.rebuild(scope.root)
     uses = incoming(load_model(Scope(scope.root, "fixture", "team", "kms")), "002")
     assert any(
         consumer == scope and usage.consumer_key == ROW and usage.pointer is None
@@ -162,7 +164,7 @@ def check_authority_display_and_references(project_workspace):
     validate_candidates(
         scope.root,
         {"model/fixture/team/s3.properties"},
-        {},
+        {scope.path: serialize({**bucket, ROW: KEY_LINK})},
         {("fixture", "team", "s3")},
     )
     with patch(

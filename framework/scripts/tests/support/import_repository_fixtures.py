@@ -7,6 +7,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from model import dependency_index
+from model.importing.scope import read_consumers
 import model.importing.repository as _imports_model_importing_repository
 from utils import sealed_evidence
 
@@ -45,6 +47,13 @@ def checkpoint(root, *, task="tasks/import-fixture.md"):
     state = cases.setdefault(root, Repository(root, task=task))
     state.task = task
     state.checkpoint()
+    identities = {
+        (*path.relative_to(root / "model").parts[:2], path.stem)
+        for path in (root / "model").rglob("*.properties")
+        if len(path.relative_to(root / "model").parts) == 3
+    }
+    with read_consumers(identities):
+        dependency_index.rebuild(root)
     return state
 
 

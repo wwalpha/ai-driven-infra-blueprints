@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch as mock_patch
 
+from model import dependency_index
 import model.core as _imports_model_core
 import model.identity as _imports_model_identity
 import model.importing.approval as _imports_model_importing_approval
@@ -778,6 +779,7 @@ def check_declared_and_direct_links_coalesce_or_retain_conflicts():
         model = load_model(scope)
         assert len([usage for usage in usages(model) if usage.consumer_key == key]) == 2
         assert any("both meanings" in warning["message"] for warning in model.warnings)
+        dependency_index.rebuild(scope.root)
         assert len(incoming(model, "007")) == len(incoming(model, "008")) == 1
         assert scope.path.read_bytes() == original
         values["desired.reference.stable.producerLogicalId"] = "EC2_VPC_001"
@@ -1083,6 +1085,7 @@ def check_incoming_missing_producer_does_not_match_unrelated_metadata(tmp_path):
         }.items():
             values["desired.reference." + identity + "." + field] = value
     scope.path.write_text(serialize(values), encoding="utf-8")
+    dependency_index.rebuild(scope.root)
     uses = incoming(load_model(scope), "EC2_VPC_009")
     assert len(uses) == 1 and uses[0][1].logical_id == "EC2_VPC_009"
     assert uses[0][1].text == "missing"

@@ -15,6 +15,7 @@ import sync_runtime
 from model.files import trace_model
 from model.format import serialize
 from model.operations import CandidateReads
+from model import dependency_index
 from model.references import incoming
 from model.references import usages as usages
 from model.sources import design_source_digest, load_model
@@ -220,6 +221,7 @@ def check_external_instances(root):
         write_model(path, consumer)
         snapshot = load_model(path)
         assert not snapshot.warnings and producer in snapshot.dependencies
+        dependency_index.rebuild(root)
         assert len(incoming(load_model(producer), rid)) == 2
         assert (
             snapshot.authoritative["desired.reference.name.producerLogicalId"]

@@ -23,6 +23,7 @@ from threading import Barrier, get_ident
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from model import dependency_index
 import model.format as _imports_model_format
 import model.projection as model_projection
 import pytest
@@ -474,6 +475,7 @@ __all__.append("observation_contract")
 
 
 def publish_collected(backend, units, states):
+    dependency_index.rebuild(backend.root)
     """Exercise the adapter and guarded publication; journal recovery has its own IT."""
     outputs, services, sync = observed.collect_successful(backend, units, states)
     if outputs:

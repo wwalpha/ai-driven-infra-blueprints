@@ -25,9 +25,17 @@ def save(scope, values):
 
 
 def resource(
-    root, service, kind, *, target="team", attribute="Arn", observed=None, number="001"
+    root,
+    service,
+    kind,
+    *,
+    target="team",
+    environment="qa",
+    attribute="Arn",
+    observed=None,
+    number="001",
 ):
-    scope = Scope(root, "qa", target, service)
+    scope = Scope(root, environment, target, service)
     logical = kind.replace(".", "_") + "_" + number
     values = {
         COUNTERS: json.dumps({kind: int(number)}),

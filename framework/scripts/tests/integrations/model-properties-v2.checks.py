@@ -367,7 +367,7 @@ def check_managed_properties_save(monkeypatch, failure):
                     prepare_edit(snapshot, {target / "project.json": "{}"}, context)
                 return
             elif failure == "process-death":
-                program = "import sys, os\nfrom pathlib import Path\nsys.path[:0] = [sys.argv[1], str(Path(sys.argv[1]) / 'tests')]\nfrom task_contract import selected_task\nfrom model.adapters.task import source_write_context\nfrom model.sources import load_model\nfrom model.operations import prepare_edit, publish_edit\nfrom model.format import patch\nimport sync_files\nroot, name, path = Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4])\ndef crash(outputs):\n    path.write_bytes(b'partial child bytes')\n    os._exit(17)\nfrom support.publication_fixtures import publication_repository\nwith publication_repository(), selected_task(root, name), source_write_context(root, name) as context:\n    snapshot = load_model(path, context.snapshot)\n    candidate = patch(snapshot.documents[path], {'desired.row.007-001.comment': 'child candidate'})\n    plan = prepare_edit(snapshot, {path: candidate}, context)\n    sync_files.save_files = crash\n    publish_edit(plan, context)\n"
+                program = "import sys, os\nfrom pathlib import Path\nsys.path[:0] = [sys.argv[1], str(Path(sys.argv[1]) / 'tests')]\nfrom task_contract import selected_task\nfrom model.adapters.task import source_write_context\nfrom model.sources import load_model\nfrom model.operations import prepare_edit, publish_edit\nfrom model.format import patch\nimport sync_files\nroot, name, path = Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4])\ndef crash(outputs):\n    path.write_bytes(b'partial child bytes')\n    os._exit(17)\nfrom support.publication_fixtures import publication_repository\nwith publication_repository(), selected_task(root, name), source_write_context(root, name) as context:\n    snapshot = load_model(path, context.snapshot)\n    candidate = patch(snapshot.documents[path], {'desired.row.007-001.comment': '子プロセス候補'})\n    plan = prepare_edit(snapshot, {path: candidate}, context)\n    sync_files.save_files = crash\n    publish_edit(plan, context)\n"
                 crashed = subprocess.run(
                     [
                         sys.executable,
@@ -622,6 +622,11 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
         if change == "create":
             values = dict(load_model(scope).authoritative)
             values["desired.resource.007.resourceMode"] = "CREATE"
+            values["desired.resource.007.cfn-logicalId"] = "fixture-Vpc"
+            scope.path.write_text(serialize(values), encoding="utf-8")
+        if change == "fixed-id":
+            values = dict(load_model(scope).authoritative)
+            del values["desired.resource.007.cfn-logicalId"]
             scope.path.write_text(serialize(values), encoding="utf-8")
         relative = scope.path.relative_to(root).as_posix()
         git(root, "add", "model", "project.json")

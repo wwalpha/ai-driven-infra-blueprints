@@ -141,17 +141,34 @@ def artifacts_fixture(root, *, complete=True):
     return view, index
 
 
-@pytest.mark.parametrize("missing,extra", [(True, False), (False, True), (True, True)])
+@pytest.mark.parametrize(
+    "missing,extra", [(False, False), (True, False), (False, True), (True, True)]
+)
 def check_artifact_differences(tmp_path, missing, extra):
-    view, index = artifacts_fixture(tmp_path)
+    view, index = artifacts_fixture(tmp_path, complete=False)
+    present = view.with_suffix("") / "present.json"
+    present.parent.mkdir()
+    present.write_text("{}", encoding="utf-8")
+    text = "[JSON](iam/present.json)\n"
     absent = view.with_suffix("") / "missing.json"
     orphan = view.with_suffix("") / "extra.json"
     if missing:
-        index.add(absent, view, ("dev", "team", "iam"))
+        text += "[Missing](iam/missing.json)\n"
     if extra:
-        orphan.parent.mkdir()
         orphan.write_text("{}", encoding="utf-8")
     findings = Findings(tmp_path)
+    validate_links(
+        view,
+        text,
+        anchors={},
+        unavailable=set(),
+        findings=findings,
+        root=tmp_path,
+        design_index=None,
+        markdown_design_artifacts=index,
+    )
+    assert index.complete[view.resolve()]
+    assert index.sources[present.resolve()] == {view.resolve(): ("dev", "team", "iam")}
     findings.evaluate(
         "design.artifacts",
         {("dev", "team", "iam")},

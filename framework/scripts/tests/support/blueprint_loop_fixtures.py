@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from model import dependency_index
 import task_contract as tasks
 from design.policy_tables import rendered_design
 from model.files import read_model
@@ -187,4 +188,5 @@ def make_service_loop_fixture(root):
         markdown_for(design, load_model(model).values, root), encoding="utf-8"
     )
     design.write_text(rendered_design(design), encoding="utf-8")
+    dependency_index.rebuild(root)
     return model

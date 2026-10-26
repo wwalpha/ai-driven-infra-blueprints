@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from model import dependency_index
 import sync_runtime as _imports_sync_runtime
 from support import model_templates_fixtures as source_checks
 from support.it_case_receipt import it_case
@@ -241,6 +242,7 @@ def check_template_consumers(root):
         .replace("## Allowed paths\n", "## Allowed paths\n- `project.json`\n")
     )
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    dependency_index.rebuild(root)
     command = [
         sys.executable,
         str(ROOT / "framework/scripts/sync-model.py"),
@@ -442,6 +444,7 @@ invalid unrelated table alignment
                 )
         (root / "project.json").write_text(json.dumps(project) + "\n")
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        dependency_index.rebuild(root)
         subprocess.run(["git", "add", "."], cwd=root, check=True)
         subprocess.run(
             [
@@ -457,6 +460,7 @@ invalid unrelated table alignment
             cwd=root,
             check=True,
         )
+        dependency_index.rebuild(root)
         # Generate exactly four EC2 views; neither invalid prod nor invalid Logs may block them.
         with redirect_stdout(io.StringIO()):
             for env, target, service in sorted(scope):
@@ -482,6 +486,7 @@ invalid unrelated table alignment
         assert validator.generated_models_checked
         check_single_target_cache(root)
         # Missing/unknown selectors and changes outside scope fail before service checks.
+        validator.model_validation = "change"
         validator.changed_paths = {"model/prod/cde/ec2.properties"}
         validator.check_validation_scope()
         assert any("outside validation scope" in error for error in validator.errors)

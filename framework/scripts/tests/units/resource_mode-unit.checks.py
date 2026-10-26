@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from model.sources import model_parts
+from model.validation import check_model_inputs as _check_model_inputs
 from support.resource_mode_fixtures import (
     ROOT,
     Path,
@@ -79,7 +80,17 @@ def _callback_main_check(path, root, source, /, values):
     original = {file: file.read_bytes() for file in (source, *model_parts(source))}
     try:
         read_model(source)
+        checked = _check_model_inputs(source, values, root)
+        if checked.errors:
+            return "\n".join(checked.errors)
         path.write_text(markdown_for(path, values, root), encoding="utf-8")
+        validator = sync_views.view_validator(root, root)
+        validator.check_display = True
+        validator.design_sources = {path: values}
+        metadata = validator.check_design_service_ownership([path])
+        validator.check_design_tables(*metadata, paths=[path])
+        if validator.errors:
+            return "\n".join(validator.errors)
         sync_views.validate_views(root, root, [path], {path: values})
     except (ValueError, KeyError) as error:
         return str(error)

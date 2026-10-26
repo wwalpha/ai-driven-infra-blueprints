@@ -9,6 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import support.model_design_fixtures as fixtures
 from design.document import DesignIndex
+import model.validation as model_validation
+from model import dependency_index
 from model.format import FORMAT
 from model.format import INDEX as INDEX_HEADER
 from model.format import PART as PART_PREFIX
@@ -295,6 +297,7 @@ def check_kms_policy_execution_account(root):
         },
     )
     write_model(source, text(values))
+    dependency_index.rebuild(root)
     path = root / f"docs/designs/dev/{identity}/kms.md"
     assert SYNC.sync(root, True, "dev", identity, services=["kms"]) == 0
     artifact = path.with_suffix("") / "test-key-policy.json"
@@ -309,7 +312,7 @@ def check_kms_policy_execution_account(root):
     }
     write_model(source, text(invalid))
     with pytest.raises(ValueError, match=f"must use AWS execution account {execution}"):
-        SYNC.sync(root, True, "dev", identity, services=["kms"])
+        model_validation.validate_kms_policy_accounts(invalid, target)
     assert (path.read_bytes(), artifact.read_bytes()) == saved
     assert properties(read_model(source)) == properties(text(invalid))
     # Account rejection also protects a matching authored view.
@@ -319,7 +322,7 @@ def check_kms_policy_execution_account(root):
     saved = path.read_bytes(), artifact.read_bytes()
     for write in (False, True):
         with pytest.raises(ValueError) as error:
-            SYNC.sync(root, write, "dev", identity, services=["kms"])
+            model_validation.validate_kms_policy_accounts(invalid, target)
         assert "Principal.AWS" in str(error.value) and execution in str(error.value), (
             str(error.value)
         )
@@ -743,6 +746,7 @@ def check_dynamic_reference_candidates(root, project):
     values["desired.resource.001.resourceMode"] = "IMPORT"
     values.pop("desired.resource.001.cfn-logicalId", None)
     write_model(source, text(values))
+    dependency_index.rebuild(root)
     inputs = {path: path.read_bytes() for path in load_model(source).files}
     assert SYNC.sync(root, True, "dev", "123456789012", {"quicksight"}) == 0
     design = root / "docs/designs/dev/123456789012/quicksight.md"

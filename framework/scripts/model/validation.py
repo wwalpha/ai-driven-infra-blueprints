@@ -167,6 +167,8 @@ def validate_json_documents(
     resolver = None
     diagnostics = []
     for row_id, row in entries(values, "desired.row."):
+        if not {"property", "value"} <= row.keys():
+            raise ValueError("invalid resource row: " + row_id)
         for field in ("value", "document"):
             if field not in row:
                 continue

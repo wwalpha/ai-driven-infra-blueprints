@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from model import dependency_index
 import model.adapters.observed as _imports_model_adapters_observed
 import model.audit as _imports_model_audit
 import model.identity as _imports_model_identity
@@ -299,6 +300,7 @@ def main():
                 )
             assert read.call_count == 1, read.call_count
         assert usages(snapshot)[0].producer_id == "017"
+        dependency_index.rebuild(scope.root)
         assert incoming(snapshot, "017")[0][1].text == original
         for filename in ["", "./lambda.md", "lambda.md"]:
             alternative = snapshot._replace(

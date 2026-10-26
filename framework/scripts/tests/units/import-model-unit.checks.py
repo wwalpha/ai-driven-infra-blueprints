@@ -3488,7 +3488,10 @@ def check_repair_invalid_model(producer_inputs, quality, tmp_path, old_error, fa
         )
         git(root, "add", "model", "project.json", "issues")
         git(root, "commit", "-qm", "broken baseline")
-        target, state = start(root, files=(relative,))
+        with patch.object(
+            _imports_support_repository_fixtures.dependency_index, "rebuild"
+        ):
+            target, state = start(root, files=(relative,))
         path = target / relative
         name = state["task_file"]
         task = (

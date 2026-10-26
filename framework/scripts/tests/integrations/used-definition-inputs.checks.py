@@ -79,9 +79,9 @@ def check(root):
             before = load_model(model, context.snapshot)
             plan = prepare_edit(before, {model: text}, context)
             with patch(
-                "model.validation.validate_required_properties",
+                "model.validation.check_model_inputs",
                 side_effect=AssertionError(
-                    "intermediate save must not run final design validation"
+                    "ordinary save must not run Full Validation"
                 ),
             ):
                 assert publish_edit(plan, context) == (model,)

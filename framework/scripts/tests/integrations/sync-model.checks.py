@@ -21,6 +21,8 @@ from unittest.mock import patch
 import import_guard
 import model.impact as model_impact
 import model.render as model_design
+import model.validation as model_validation
+from model import dependency_index
 import model.sources as _imports_model_sources
 import model.sources as model_sources
 import pytest
@@ -479,8 +481,12 @@ def check_stage_cloudformation_definitions(generated_policy, tmp_path):
             stacks | {"desired.stack.001.name": "cfn-stack-other-dev-iam"},
         )
         with pytest.raises(ValueError, match="undeclared stack"):
-            model_design.markdown_for(
-                staged, values, stage, definitions_root=definition_root(root)
+            model_validation.validate_resource_identities(
+                staged,
+                values,
+                stage,
+                model_validation.entries(values, "desired.resource."),
+                definitions_root=definition_root(root),
             )
         validator = sync_views.view_validator(stage, root)
         validator.scope = {("dev", "123456789012", "cloudformation-stacks")}
@@ -642,11 +648,11 @@ def check_normal_writer_contents(generated_policy):
         assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
         assert [counter.call_count for counter in counters] == [
             1,
-            1,
-            2,
-            1,
             0,
-            1,
+            0,
+            0,
+            0,
+            0,
             1,
             1,
             1,
@@ -756,13 +762,12 @@ def check_pending_artifact_transaction(generated_policy, failure):
         "kms",
         "KMS.Key",
         target="123456789012",
+        environment="dev",
         attribute="KeyId",
         observed="PENDING_DEPLOY",
     )
     # This fixture uses dev, while the shared reference helper defaults to qa.
     producer = model_sources.Scope(root, "dev", "123456789012", "kms")
-    source = root / "model/qa/123456789012/kms.properties"
-    source.unlink()
     save(producer, key)
     document["Statement"][0]["Resource"][1] = reference()
     values["desired.row.001-004.document"] = json.dumps(document)
@@ -969,10 +974,8 @@ def check_unchanged_sidecar_validation(generated_policy):
 def _callback_check_incoming_reference_models_check_snapshot(
     incoming, models, /, stage, root, paths, *, definitions_root=None
 ):
-    assert stage / incoming.relative_to(root) in paths
-    assert read_model(
-        stage / (models / "kms.properties").relative_to(root)
-    ) == read_model(models / "kms.properties")
+    assert stage / incoming.relative_to(root) not in paths
+    assert not (stage / (models / "kms.properties").relative_to(root)).exists()
     return {}
 
 
@@ -1012,7 +1015,6 @@ def check_incoming_reference_models(project_workspace, tmp_path) -> None:
     check_snapshot = _bind_framework_callback(
         _callback_check_incoming_reference_models_check_snapshot, incoming, models
     )
-
     with patch.object(
         sync_views, "broken_design_links", side_effect=check_snapshot
     ) as check:
@@ -1025,8 +1027,10 @@ def check_incoming_reference_models(project_workspace, tmp_path) -> None:
             ["s3"],
             True,
         )
-    assert incoming in saved and check.call_count == 1
-    assert (stage / incoming.relative_to(root)).exists()
+    assert incoming not in saved
+    assert check.call_count == 1
+    assert not (stage / incoming.relative_to(root)).exists()
+    assert not (stage / (models / "kms.properties").relative_to(root)).exists()
 
 
 def check_required_preflight(project_workspace) -> None:
@@ -1072,31 +1076,26 @@ def check_required_preflight(project_workspace) -> None:
     artifact.parent.mkdir(parents=True)
     design.write_text("existing Markdown\n")
     artifact.write_text("existing JSON\n")
-    for write in (False, True):
-        with (
-            patch.object(
-                sync_runtime,
-                "markdown_for",
-                side_effect=AssertionError("rendered before preflight"),
-            ),
-            patch.object(
-                sync_runtime,
-                "save_files",
-                side_effect=AssertionError("wrote before preflight"),
-            ),
-        ):
-            with pytest.raises(
-                ValueError,
-                match="required provider schema property missing: QuickSight.DataSource.Type",
-            ):
-                MODULE.sync(root, write, "dev", "123456789012")
-        assert read_model(model) == source
-        assert (
-            design.read_text() == "existing Markdown\n"
-            and artifact.read_text() == "existing JSON\n"
-        )
-    with pytest.raises(ValueError, match="QuickSight.DataSource.Type"):
-        model_design.markdown_for(design, values, root)
+    checked = model_validation.check_model_inputs(model, load_model(model).values, root)
+    assert any("QuickSight.DataSource.Type" in error for error in checked.errors), (
+        checked.errors
+    )
+    assert (
+        design.read_text() == "existing Markdown\n"
+        and artifact.read_text() == "existing JSON\n"
+    )
+    with patch.object(
+        model_validation,
+        "check_model_inputs",
+        side_effect=AssertionError("generation ran Full quality validation"),
+    ):
+        assert MODULE.sync(root, True, "dev", "123456789012") == 0
+    assert read_model(model) == source
+    design.write_text("existing Markdown\n")
+    artifact.write_text("existing JSON\n")
+    invalid = dict(load_model(model).authoritative)
+    del invalid["desired.row.001-002.document"]
+    write_model(model, invalid)
     # An unrelated valid service still saves while the incomplete one fails.
     stack = model.with_name("cloudformation-stacks.properties")
     write_model(
@@ -1321,6 +1320,7 @@ def check_two_consumer_cli(generated_policy):
         source.write_text(
             source.read_text().replace("アプリケーションの実行権限", "更新後の処理権限")
         )
+    dependency_index.rebuild(root)
     cli = load("sync-model")
     arguments = [
         "sync-model.py",
@@ -1340,10 +1340,10 @@ def check_two_consumer_cli(generated_policy):
         redirect_stderr(stderr),
     ):
         with patch.object(sys, "argv", [*arguments, "--write"]):
-            assert cli.main() == 0
+            assert cli.main() == 0, stdout.getvalue() + stderr.getvalue()
         written = {file: file.read_bytes() for file in outputs}
         with patch.object(sys, "argv", arguments):
-            assert cli.main() == 0
+            assert cli.main() == 0, stdout.getvalue() + stderr.getvalue()
         assert written == {file: file.read_bytes() for file in outputs}
         with patch.object(
             sys,
@@ -1387,6 +1387,7 @@ def internal_sync_project(tmp_path):
         )
     )
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    dependency_index.rebuild(tmp_path)
     try:
         yield tmp_path
     finally:
@@ -1661,7 +1662,10 @@ def check_integrated_validator(generated_policy, initial):
         ),
     ):
         validator = validator_module.Validator(
-            root, {("dev", "123456789012", "iam")}, write=True
+            root,
+            {("dev", "123456789012", "iam")},
+            write=True,
+            model_validation="change",
         )
         assert validator.run() == 0, validator.errors
         assert len(validator.acceptance_results) == 3
@@ -1676,7 +1680,7 @@ def check_integrated_validator(generated_policy, initial):
     print(
         "integrated write counts: Model once per input/permission context; generation=1, candidate validation=1, guard=1, post-save readback=0"
     )
-    assert import_check.call_count == impact.call_count == 1, (
+    assert import_check.call_count == 1 and impact.call_count == 0, (
         impact.call_count,
         import_check.call_count,
     )
@@ -1741,7 +1745,10 @@ def check_integrated_validator_publication_failure(generated_policy):
         ),
     ):
         failed = validator_module.Validator(
-            root, {("dev", "123456789012", "iam")}, write=True
+            root,
+            {("dev", "123456789012", "iam")},
+            write=True,
+            model_validation="change",
         )
         assert failed.run() == 1
     assert originals == {p: p.read_bytes() for p in originals}

@@ -2967,7 +2967,7 @@ CloudFormation共通入力判定は `units/cloudformation-inputs-unit.checks.py`
 | `design-definitions::values` | `check_values` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py#L74) | direct / 1 | 移動前の31 Policy形式・参照・非表示・Name Tag・Packed定義を完全維持 | 固定baseline |
 | `design-definitions::duplicates` | `check_duplicates` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py#L87) | direct / 1 | Pendingを含む7集合すべての重複登録を拒否 | 小型定義 |
 | `design-definitions::registration` | `check_registration` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py#L99) | direct / 1 | 25サービスの明示登録・決定順・純粋データ依存 | 固定定義module |
-| `design-layout::import-order` | `check_import_order` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L74) | pytest / 11 | Layout・Policy・EC2 SG・Model表示・共通Array/Subnet・5サービスの先頭importで循環初期化を検出 | 独立Python process |
+| `design-layout::import-order` | `check_import_order` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L74) | pytest / 14 | Layout・Policy・EC2 SG・Model表示/検証/描画/変更比較・共通Array/Subnet・5サービスの先頭importで循環初期化を検出 | 独立Python process |
 | `design-layout::import-pending` | `check_import_pending_reference` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L79) | pytest / 1 | 許可3PropertyとPending完全一致、未登録Property・Backtick・literal/link拒否 | 小型入力、Model UTの重複したliteral/link判定を移管 |
 
 ## Incomplete Model settings and confirmed IaC differences
@@ -3197,7 +3197,7 @@ UTはGit init/commit・実Sync・全Model生成・全Frameworkコピーを行わ
 | `check_changed_sidecar_publication_rollback` | 2 → 2 | IT維持 | 変更済JSONの復元と、公開対象外JSONの外部書込保持は別障害境界。失敗後の実保存成功は保持し、末尾の重複read-only Syncだけ統合。 |
 | `check_failure_counts` | 1 → 0 | UTへ移管 | 旧17モデル×extra_inputs/read-writeの実SyncとMock rendererを廃止。check_failure_countsが実report_generationで8成功/9又は11失敗/診断件数とWARN分離の4組を検証。部分成功の実接続はmultiple_targets_barrier/required_preflightで保持。 |
 | `check_workflow` | 1 → 0 | UTへ移管/既存保証 | expanded_design・VPC/Subnet/S3表示・JSON raw digestはcheck_expanded_design_and_json_digest、Stack表/No/Order/commentは既存check_stack_policy、Scopeは選択UT、Missing authorityはcheck_invalid_model/check_missing_validation_inputs/check_generation_input_failures＋scope/Stage UT。実生成はnormal_writer/CLIを維持。 |
-| `check_required_preflight` | 1 → 1 | 細分化は直接UT | 空Type4種/正常Type/暗黙BucketPolicy親はcheck_required_datasource_type、既存Pending UTを再利用。実preflightのrender/save禁止・renderer自身の必須Property拒否・既存出力保持・複数Service部分成功はIT。 |
+| `check_required_preflight` | 1 → 1 | 細分化は直接UT | 空Type4種/正常Type/暗黙BucketPolicy親はcheck_required_datasource_type、既存Pending UTを再利用。Model品質検証で必須Propertyを検出し、生成時は品質検証を行わず、構造不備時の既存出力保持・複数Service部分成功をITで確認する。 |
 | `check_required_property_parents` | 1 → 1 | 細分化は直接UT | check_required_property_parents UTでConnectionInput/CatalogId欠落・boolean型・正常親推論をModel/Table両方で検証。実Glue生成とTable Validationの正常接続はIT。 |
 | `check_normal_writer_contents` | 1 → 1 | IT維持/統合 | 候補の各Validator handler回数、生成/照合1回、no readback・実保存内容は維持。旧output compatibilityのstdout/progressも同じ実生成で検証。 |
 | `check_generation_output_compatibility` | 1 → 0 | 既存ITへ統合 | normal_writerでstdout/progress、unchanged_sidecarで既存bytes、two_consumer_cliでread/write同値。2回の重複Syncを廃止。 |
@@ -3241,7 +3241,7 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 | `sync-15::check_changed_sidecar_publication_rollback` | `check_changed_sidecar_publication_rollback` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L441) | pytest / 2 | JSON公開後のMarkdown途中失敗の復元／未変更JSONへの外部書込を巻き戻さない独立2境界、再保存成功 | 統合境界 |
 | `sync-15::check_unchanged_sidecar_validation` | `check_unchanged_sidecar_validation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L467) | pytest / 1 | no-opでも候補Validation失敗時は公開せず、元Markdown/JSONを保持 | 統合境界 |
 | `sync-15::check_incoming_reference_models` | `check_incoming_reference_models` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L485) | pytest / 1 | 実Stageがincoming文書とその正本Modelを配置してリンク検証に渡す | 統合境界 |
-| `sync-15::check_required_preflight` | `check_required_preflight` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L510) | pytest / 1 | 必須Property不備でrender/save前に停止、read/writeで既存成果物・Model保持、独立Serviceは保存 | 統合境界 |
+| `sync-15::check_required_preflight` | `check_required_preflight` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L510) | pytest / 1 | 独立Model品質検証で必須Property不備を検出、生成は品質preflightなし、構造不備で既存成果物・Model保持、独立Serviceは保存 | 統合境界 |
 | `sync-15::check_required_property_parents` | `check_required_property_parents` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L569) | pytest / 1 | Glueの実Sync生成から実Table Validatorへの必須親Property接続、親行の捏造なし・正本保持 | 統合境界 |
 | `sync-15::check_publication_lock_wait` | `check_publication_lock_wait` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L630) | pytest / 1 | 実lock競合・再入可能性とprogressのlock-wait通知 | 統合境界 |
 | `sync-15::check_two_consumer_cli` | `check_two_consumer_cli` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L649) | pytest / 1 | 2環境の実CLI write/check・保存bytes・不正Scope拒否・診断チャネルと完了数 | 統合境界 |
@@ -3740,6 +3740,7 @@ verification_targets復元・resolved互換ProjectionのUTを削除した。部�
 
 | Origin | Case | Level | Entry | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
+| `validation-diagnostics::link-artifact-collection` | `check_artifact_differences` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 4 | 表の品質検証に依存しないJSONリンク収集の完了、正常参照・欠落・未参照の区別 | Synthetic Markdown/JSON |
 | `validation-diagnostics::scoped-orphans` | `check_scoped_orphans_without_markdown` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 6 | Markdownに依存しない全体/単一/複数Scope列挙、別Markdownによる所有誤判定とScope外JSON混入の防止、所有不明judgments | Synthetic JSON |
 | `validation-diagnostics::unavailable-orphans` | `check_unavailable_services_still_scan_orphans` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | 親子ValidatorでMarkdown欠落時も孤立JSONを検出、未検証情報を保持 | Synthetic JSON |
 | `validation-diagnostics::invalid-links` | `check_invalid_json_links_continue_without_external_reads` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 4 | サービス外/リポジトリ外/絶対/外部symlinkの配置違反、正常参照継続、外部ファイル非読込、正常索引への不正パス非登録 | Synthetic Markdown/JSON |

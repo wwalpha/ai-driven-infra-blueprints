@@ -53,7 +53,7 @@ from model.core import (
     properties as properties,
 )
 from model.format import JSON_LINK
-from model.validation import validate_json_documents
+import model.validation as _model_validation
 
 
 def stack_markdown(
@@ -515,7 +515,7 @@ def render_validated_model(
     definitions_root: Path | None = None,
 ) -> str:
     """Render structure and references without Model quality validation."""
-    validate_json_documents(
+    _model_validation.validate_json_documents(
         values,
         (
             path.parents[4]
@@ -574,7 +574,7 @@ def generate_markdown(
 ) -> str:
     """Render selected values; reference_values supplies the complete candidate context."""
     reference_values = values if reference_values is None else reference_values
-    validate_json_documents(
+    _model_validation.validate_json_documents(
         values,
         (
             path.parents[4]
@@ -869,7 +869,7 @@ def model_policy_views(values, *, presentation=None):
 @change_reads()
 def generate_files(path, values, root, *, warnings=None):
     """Generate one service in memory, without validation or dependency publication."""
-    validate_json_documents(
+    _model_validation.validate_json_documents(
         values,
         (
             path.parents[4]

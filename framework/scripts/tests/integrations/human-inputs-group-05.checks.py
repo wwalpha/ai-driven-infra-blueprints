@@ -61,16 +61,29 @@ def check_declared_inputs(service="cloudtrail"):
             "null": None,
             "number": 2.5,
         }
-        prefix = "desired.row.017-003."
-        values.update(
-            {
-                prefix + "property": kind
-                + (".PolicyDocument" if service == "vpc-endpoint" else ".Description"),
-                prefix + "value": "[" + service + "](" + service + "/fixture.json)",
-                prefix + "comment": "合成 native JSON",
-                prefix + "document": json.dumps(document, ensure_ascii=False),
+        if service == "vpc-endpoint":
+            document = {
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": "*",
+                        "Resource": "*",
+                        "Condition": {"Fixture": document},
+                    }
+                ]
             }
-        )
+            updated_document = json.loads(json.dumps(document))
+            updated_document["Statement"][0]["Condition"]["Fixture"]["number"] = 4.5
+        prefix = "desired.row.017-003."
+        if service == "vpc-endpoint":
+            values.update(
+                {
+                    prefix + "property": kind + ".PolicyDocument",
+                    prefix + "value": "[" + service + "](" + service + "/fixture.json)",
+                    prefix + "comment": "合成 native JSON",
+                    prefix + "document": json.dumps(document, ensure_ascii=False),
+                }
+            )
         paths = {}
         for environment in ("preview", "future"):
             path = primary / "model" / environment / "team" / (service + ".properties")
@@ -94,12 +107,18 @@ def check_declared_inputs(service="cloudtrail"):
         saved = other.read_bytes()
         initial = load_model(path)
         assert dict(initial.authoritative) == values
-        assert json.loads(initial.authoritative[prefix + "document"]) == document
+        if service == "vpc-endpoint":
+            assert json.loads(initial.authoritative[prefix + "document"]) == document
         changed = {
             **values,
-            "desired.row.017-002.value": "`changed`",
-            prefix + "document": json.dumps({**document, "number": 4.5}),
+            "desired.row.017-002.value": "`changed`"
+            if service == "secrets-manager"
+            else "`true`"
+            if service == "cloudtrail"
+            else "`false`",
         }
+        if service == "vpc-endpoint":
+            changed[prefix + "document"] = json.dumps(updated_document)
         before = design_source_digest(path)
         with edit_write_context(
             target, {("preview", "team", service)}, name

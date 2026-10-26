@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
+from model import dependency_index
 import task_contract as tasks
 import worktree_task as wt
 from support.repository_fixtures import contract as contract
@@ -79,6 +80,8 @@ def cli(root, command, task_id="example", success=True, approval=None):
     data = json.loads(result.stdout)
     assert result.returncode == (0 if success else 1), result.stdout + result.stderr
     assert data["status"] == ("ok" if success else "blocked"), data
+    if success and command == "create":
+        dependency_index.rebuild(Path(data["worktree"]))
     return data
 
 

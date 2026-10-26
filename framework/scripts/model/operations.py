@@ -9,7 +9,7 @@ from dataclasses import replace as replace
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import MappingProxyType
-from typing import NoReturn
+from typing import Callable, NoReturn
 
 import design.array_display as _imports_array_display
 import generation_inputs as _imports_generation_inputs
@@ -32,6 +32,7 @@ import model.observed as _imports_model_observed
 import model.references as _dependency_model_references
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
+import model.validation as model_validation
 from model.change_scope import change_reads, index_stage
 from model.configuration import ConfigurationIndex as ConfigurationIndex
 from model.configuration import _observed_index
@@ -328,7 +329,23 @@ def prepare_edit(
         after = after._replace(
             values=_imports_model_sources.projected_values(after.authoritative)
         )
-        change_validation.validate_save(snapshot, after, reads)
+        if policy.operation.action == "import":
+            keys = {
+                key
+                for key, value in after.authoritative.items()
+                if key.startswith("desired.row.")
+                and key.endswith((".value", ".document"))
+                and snapshot.authoritative.get(key) != value
+            }
+            selected = change_validation.reference_inputs(after, keys)
+            model_validation.validate_json_documents(
+                selected.authoritative,
+                after.scope.path,
+                reference_values=after.authoritative,
+            )
+        else:
+            warnings = change_validation.validate_save(snapshot, after, reads)
+            after = after._replace(warnings=tuple(warnings))
     if policy.operation.action == "observed":
         verify_observed_outputs = _imports_model_observed.verify_observed_outputs
         verify_observed_outputs(
@@ -743,7 +760,9 @@ def _models(root, identities, *, index_root=None):
     return result
 
 
-def operation_readable(root, selected):
+def operation_readable(
+    root: Path, selected: set[tuple[str, str, str]]
+) -> set[tuple[str, str, str]]:
     scopes = {"/".join(identity) for identity in selected}
     return selected | {
         (scope.environment, scope.target, scope.service)
@@ -989,7 +1008,9 @@ def _call_operation_reads(function, /, before, after, *args, **kwargs):
         return function(before, after, *args, **kwargs)
 
 
-def operation_reads(function):
+def operation_reads(
+    function: Callable[..., list[JsonObject]],
+) -> _imports_task_contract_core.FunctionWrapper:
     return _imports_task_contract_core.FunctionWrapper(function, _call_operation_reads)
 
 
@@ -1468,7 +1489,7 @@ def verify_model_refactor(
         }
         if changed - set(sources):
             raise ValueError("Model refactor has undeclared source changes")
-        warnings.extend((*old.warnings, *new.warnings))
+        warnings.extend(new.warnings)
     return warnings
 
 

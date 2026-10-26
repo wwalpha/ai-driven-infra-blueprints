@@ -287,5 +287,6 @@ def check_task_type_dispatch() -> None:
         validator = MODULE.Validator(root)
         validator.task_type = "design"
         validator.changed_paths = {"model/dev/cde/vpc.properties", "tasks/example.md"}
+        validator.task.design_impact = {("dev", "cde", "vpc")}
         validator.check_task_type_requirements()
         assert not validator.errors, validator.errors

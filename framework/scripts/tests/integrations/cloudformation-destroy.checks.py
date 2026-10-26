@@ -22,9 +22,10 @@ import model.sources as _imports_model_sources
 import pytest
 import sync_runtime
 from model.adapters import observed
-from model.core import properties
+from model.core import entries, properties
 from model.files import read_model
 from model.render import markdown_for
+from model.validation import validate_resource_identities as validate_identities
 from support.cloudformation_destroy_fixtures import (
     TARGET,
     Fake,
@@ -504,7 +505,12 @@ def check_observed(managed_destroy_root):
         write_model(
             source, "\n".join(key + "=" + value for key, value in values.items()) + "\n"
         )
-        rejects(lambda: markdown_for(design, values, root), "cfn-logicalId")
+        rejects(
+            lambda: validate_identities(
+                design, values, root, entries(values, "desired.resource.")
+            ),
+            "cfn-logicalId",
+        )
         before = properties(read_model(source))
         plan = M.local_plan(root, "dev", "123456789012", ["A", "B", "C"])
         assert plan["observed"]["unmappedResources"] == [

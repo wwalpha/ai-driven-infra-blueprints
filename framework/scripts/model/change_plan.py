@@ -3,6 +3,7 @@
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import design.layout as layout
 import import_guard
@@ -23,7 +24,7 @@ from model import dependency_index, environment_values, sources
 from model.change_scope import change_reads
 from model.core import entries
 from model.format import KEY, owner, parse
-from model.impact_changes import frozen
+import model.impact_changes as impact_changes
 from model.reference_nodes import nodes
 
 
@@ -134,8 +135,8 @@ def context_changes(old, new, old_number, number, kind, root):
         for prop, (rid, row) in current.items()
         if (
             prop in previous
-            and frozen(old_context.get(previous[prop][0]))
-            != frozen(new_context.get(rid))
+            and impact_changes.frozen(old_context.get(previous[prop][0]))
+            != impact_changes.frozen(new_context.get(rid))
         )
     }
 
@@ -164,9 +165,11 @@ def compare(before, after):
                 change.resources.add(logical)
                 if rid is not None:
                     change.observed_rows.add(rid)
-            if frozen(
+            if impact_changes.frozen(
                 {key: value for key, value in old_row.items() if key != "comment"}
-            ) != frozen({key: value for key, value in row.items() if key != "comment"}):
+            ) != impact_changes.frozen(
+                {key: value for key, value in row.items() if key != "comment"}
+            ):
                 change.resources.add(logical)
                 change.properties.add((logical, prop[0]))
                 if rid is not None:
@@ -243,7 +246,7 @@ def signature(values, logical, attribute=None):
     identity = {key: resource.get(key) for key in ("resourceType", "logicalId")}
     if attribute is None:
         identity.update((key, resource.get(key)) for key in ("anchor", "resourceMode"))
-    return frozen(
+    return impact_changes.frozen(
         [
             identity,
             rows,
@@ -462,7 +465,16 @@ def task_plan(
     if memo is not None and key in memo:
         return memo[key]
     with change_reads():
-        if base is None:
+        if base is None and (root / ".git").exists():
+            with TemporaryDirectory(prefix="blueprint-initial-model-") as directory:
+                plan = assemble(
+                    root,
+                    identities,
+                    Path(directory),
+                    reads,
+                    context="project.json" in changed,
+                )
+        elif base is None:
             plan = assemble(
                 root,
                 identities,
@@ -498,7 +510,7 @@ def target_contexts(raw):
 
 def context_contracts(root, before, reads, plan):
     old = (
-        target_contexts((before / "project.json").read_bytes())
+        target_contexts(sources.FileReads().read(before / "project.json"))
         if before is not None
         else {}
     )

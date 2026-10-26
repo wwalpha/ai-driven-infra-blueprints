@@ -24,6 +24,7 @@ import support.validator as _imports_support_validator
 import sync_files as _imports_sync_files
 from import_guard import require_import_changes, snapshots
 from model.format import serialize, split
+from model import dependency_index
 from model.impact import affected, analyze, dependencies, task_impact
 from model.importing.scope import read_consumers, restrict
 from model.operations import validate_candidates
@@ -223,13 +224,13 @@ def check_precision(root, service, kind, name_property):
     git(root, "add", str(relative))
     change(source, "001", "Setting", {"trust": ["other"]})
     assert affected(root, {relative}) == expected
-    validator = MODULE.Validator(root, {entry(service)})
+    dependency_index.rebuild(root)
+    validator = MODULE.Validator(root, {entry(service)}, model_validation="change")
     validator.accounts = {("dev", "team"): {}}
     validator.changed_paths = {relative.as_posix()}
     validator.check_validation_scope()
-    assert any("affected validation scope" in error for error in validator.errors), (
-        validator.errors
-    )
+    assert not validator.errors, validator.errors
+    assert validator.task.design_impact == {entry(service)}
     change(source, "001", "Name", "renamed")
     assert affected(root, {relative}) == expected
     assert path.read_bytes() == saved and load_model(path).warnings
@@ -707,7 +708,26 @@ def check_task_snapshot_routes(root):
     source = target / source.relative_to(root)
     values = dict(load_model(source).authoritative)
     values.update(resource("003", "IAM.Role", "iam-003", [("RoleName", "`dev-name3`")]))
-    values["desired.resource.003.resourceMode"] = "CREATE"
+    values["desired.resource.003.resourceMode"] = "IMPORT"
+    values.update(
+        {
+            "desired.row.003-002.property": "IAM.Role.AssumeRolePolicyDocument",
+            "desired.row.003-002.value": "[信頼ポリシー](iam/iam-role-003-trust-policy.json)",
+            "desired.row.003-002.comment": "合成の信頼ポリシー",
+            "desired.row.003-002.document": json.dumps(
+                {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {"Service": "lambda.amazonaws.com"},
+                            "Action": "sts:AssumeRole",
+                        }
+                    ],
+                }
+            ),
+        }
+    )
     values["desired.service.identity.lastAllocated"] = '{"IAM.Role":3}'
     output = split(source, values)
     paths = {p.relative_to(target).as_posix() for p in output}
@@ -763,7 +783,9 @@ def check_task_snapshot_routes(root):
                 ):
                     saved = task_impact(target)
                     require_import_changes(target)
-                    validator = MODULE.Validator(target, {entry("iam")}, write=True)
+                    validator = MODULE.Validator(
+                        target, {entry("iam")}, write=True, model_validation="change"
+                    )
                     validator.accounts = {("dev", "team"): {}}
                     validator.task.permission_paths = paths
                     validator.check_validation_scope()
@@ -794,7 +816,7 @@ def check_task_snapshot_routes(root):
                             == 0
                         )
                     assert generation.call_args.args[:2] == (target, {entry("iam")})
-                    assert include.call_count == 2 and archive.call_count == 1
+                    assert include.call_count == 0 and archive.call_count == 1
         # Final-candidate base is explicit and agrees with the registered Task baseline.
         final = SimpleNamespace(
             base_commit=state["start"],

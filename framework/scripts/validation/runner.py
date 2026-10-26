@@ -1533,6 +1533,7 @@ class Validator:
             view_reader=self.view_reader,
             unavailable_views=self.unavailable_views,
             candidate_paths=candidate_paths,
+            markdown_design_artifacts=self.markdown_design_artifacts,
         )
 
     def check_design_artifacts(self) -> None:
@@ -1600,8 +1601,14 @@ class Validator:
         self, stack_definitions=None
     ) -> None:
         if stack_definitions is None:
-            result = self.findings.result("design.stacks", self.scope)
-            if result.status == "PASS":
+            result = self.findings.results.get(
+                (
+                    "design.stacks",
+                    None if self.scope is None else frozenset(self.scope),
+                    self.findings.candidate,
+                )
+            )
+            if result is not None and result.status == "PASS":
                 stack_definitions = result.metadata.get("stack_definitions")
         cloudformation.check_cloudformation_environment_parameters(
             self.root,

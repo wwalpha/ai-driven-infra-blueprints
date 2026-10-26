@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from model import dependency_index
 from task_contract_core import selected_task
 
 
@@ -73,6 +74,8 @@ def start(root, task_id="example", files=("file.txt",)):
     git(target, "config", "user.name", "Fixture")
     git(target, "config", "user.email", "fixture@example.invalid")
     git(target, "config", "commit.gpgsign", "false")
+    if (target / "model").is_dir():
+        dependency_index.rebuild(target)
     name = f"tasks/{task_id}.md"
     (target / "tasks").mkdir(exist_ok=True)
     (target / name).write_text(contract(task_id, files))

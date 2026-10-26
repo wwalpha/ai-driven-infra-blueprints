@@ -126,10 +126,20 @@ def unavailable_semantics(
 
 
 def check_local_links(
-    source, text, *, anchors, unavailable, findings, root, design_index
+    source,
+    text,
+    *,
+    anchors,
+    unavailable,
+    findings,
+    root,
+    design_index,
+    markdown_design_artifacts=None,
 ) -> None:
     """Check saved link destinations without expanding or comparing Model displays."""
     outside_design = _imports_model_importing_scope.outside_design
+    if markdown_design_artifacts is not None:
+        markdown_design_artifacts.start(source)
     for raw in LINK_PATTERN.findall(text):
         if raw.startswith(("http://", "https://", "mailto:")):
             continue
@@ -138,6 +148,10 @@ def check_local_links(
             target = json_reference(root, source, target_text, findings)
             if target is None:
                 continue
+            if markdown_design_artifacts is not None:
+                markdown_design_artifacts.add(
+                    target, source, service_scope(root, source)
+                )
         else:
             target = (
                 source if not target_text else source.parent / target_text
@@ -175,6 +189,9 @@ def check_local_links(
                 fragment in known,
                 f"missing design anchor: {findings.relative(source)}: {raw}",
             )
+
+    if markdown_design_artifacts is not None:
+        markdown_design_artifacts.finish(source)
 
 
 def endpoint_dns_reference(
@@ -387,6 +404,7 @@ def check_design_links(
     unavailable_views=None,
     candidate_paths=None,
     check_display=True,
+    markdown_design_artifacts=None,
 ) -> None:
     outside_design = _imports_model_importing_scope.outside_design
     definitions_root = definitions_root or root
@@ -662,6 +680,7 @@ def check_design_links(
             findings=findings,
             root=root,
             design_index=design_index,
+            markdown_design_artifacts=markdown_design_artifacts,
         )
         if source.resolve() in unavailable:
             continue

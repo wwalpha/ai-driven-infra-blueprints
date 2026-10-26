@@ -801,7 +801,7 @@ def profile(frame, event, arg):
     name, file = frame.f_code.co_name, Path(frame.f_code.co_filename).name
     if file == 'worktree_task.py' and name in ('lifecycle_lock', 'finalize', 'prepare_integration', 'cleanup'):
         raise AssertionError('guard child entered lifecycle')
-    if file in ('references.py', 'sources.py') and name in ('usages', '_read_model'):
+    if file in ('references.py', 'sources.py') and name in ('usages', '_read_model', 'raw_model'):
         assert sys.modules['utils.input_cache'].memo_table() is not None
         counts[name] = counts.get(name, 0) + 1
 sys.setprofile(profile)
@@ -859,7 +859,7 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
         assert result.returncode == 0, response
         assert response["cleaned"] and response["merged"]
         counts = json.loads(probe.read_text())
-        assert counts["usages"] >= 1 and counts["_read_model"] >= 1, counts
+        assert counts.get("usages", 0) == 0 and counts["raw_model"] >= 1, counts
         assert not target.exists()
         assert wt.python_env.shared_ready(directory)
         assert (root / relative).read_text().endswith("# ordinary save\n")

@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
 
+from model import dependency_index
 from model.format import owner, serialize
 from model.operations import prepare_edit, publish_edit
 from model.sources import load_model, scope_for
@@ -89,6 +90,7 @@ def fixture(root, multiple=False):
             write_model(
                 root / "model" / env / "cde" / (service + ".properties"), values
             )
+    dependency_index.rebuild(root)
     return sources
 
 

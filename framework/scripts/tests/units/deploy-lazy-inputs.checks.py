@@ -824,7 +824,7 @@ def check_readiness_blocks_before_mutation(tmp_path, monkeypatch, problem, statu
         scope.path.write_text(
             patch_properties(
                 parse(scope.path.read_text()),
-                {"desired.row.007-002.property": "EC2.VPC.Unknown"},
+                {"desired.resource.007.logicalId": "invalid-logical-id"},
             )
         )
     dependency_index.rebuild(tmp_path)
@@ -898,7 +898,7 @@ def check_readiness_cache_and_fresh_process(tmp_path, monkeypatch):
             observed, "resolve_resources", wraps=observed.resolve_resources
         ) as mappings,
         patch.object(
-            observed, "check_model_inputs", wraps=observed.check_model_inputs
+            observed, "selected_resources", wraps=observed.selected_resources
         ) as checks,
     ):
         for _ in range(100):
@@ -908,7 +908,6 @@ def check_readiness_cache_and_fresh_process(tmp_path, monkeypatch):
             sum(call.args[0].path == scope.path for call in loads.call_args_list) == 1
         )
     backend.observed_checks.clear()
-    backend.observed_models.clear()
     with (
         sources.model_session(RunModels(tmp_path, {})),
         patch.object(

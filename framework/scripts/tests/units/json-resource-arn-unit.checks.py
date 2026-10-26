@@ -21,6 +21,7 @@ from model.format import serialize
 from model.identity import COUNTERS
 from model.operations import prepare_edit, publish_edit, validate_candidates
 from model.projection import execution_document, reference_display
+from model import dependency_index
 from model.render import generate_files
 from model.sources import Scope, SourceWriteContext, load_model, runtime_values
 from model.validation import validate_json_settings
@@ -329,6 +330,7 @@ def check_pending_intrinsic_generation(tmp_path, expression):
         patch.dict(os.environ),
     ):
         os.environ.pop("BLUEPRINT_TASK_FILE", None)
+        dependency_index.rebuild(root)
         reads = GenerationInputs(root)
         context = SourceWriteContext._authorized(
             root,
@@ -343,15 +345,18 @@ def check_pending_intrinsic_generation(tmp_path, expression):
         assert any(
             w["code"] == "json.intrinsic.unresolved" for w in plan.candidate.warnings
         )
+        warnings = validate_candidates(
+            root,
+            {scope.path.relative_to(root)},
+            plan.changes,
+            {("dev", "consumer", "iam")},
+        )
+        assert any(w["code"] == "json.intrinsic.unresolved" for w in warnings)
         with patch("import_guard.require_import_changes") as task_guard:
             publish_edit(plan, context)
             task_guard.assert_called_once()
         assert load_model(scope.path).authoritative[key] == policy[key]
         before = scope.path.read_bytes()
-        warnings = validate_candidates(
-            root, {scope.path.relative_to(root)}, {}, {("dev", "consumer", "iam")}
-        )
-        assert any(w["code"] == "json.intrinsic.unresolved" for w in warnings)
         warnings = []
         files = generate_files(design, runtime_values(policy), root, warnings=warnings)
         assert json.loads(files[design.with_suffix("") / "policy.json"]) == json.loads(

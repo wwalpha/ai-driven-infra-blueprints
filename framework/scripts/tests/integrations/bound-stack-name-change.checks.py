@@ -14,12 +14,13 @@ from contextlib import redirect_stdout
 import pytest
 import sync_runtime
 from model.adapters.observed import destroy_plan, mappings, validate_mapping_targets
-from model.core import stack_model
+from model.core import entries, stack_model
 from model.format import serialize
 from model.operations import CandidateReads
 from model.projection import bound_stack_names
 from model.render import markdown_for
 from model.sources import design_source_digest, load_model
+from model.validation import validate_resource_identities as validate_identities
 from support.it_case_receipt import it_case
 from support.model_design_fixtures import model
 from support.model_sources import write_model
@@ -230,7 +231,12 @@ def check(root):
             "desired.resource.027.cfn-logicalId": placement + "-PrimaryVpc",
         }
         with pytest.raises(ValueError, match="undeclared stack"):
-            markdown_for(root / "docs/designs/preview/team/vpc.md", invalid, root)
+            validate_identities(
+                root / "docs/designs/preview/team/vpc.md",
+                invalid,
+                root,
+                entries(invalid, "desired.resource."),
+            )
     path.unlink()
     with pytest.raises((OSError, ValueError)):
         bound_stack_names(path)

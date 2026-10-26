@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import support.model_sources as _imports_support_model_sources
 import support.model_templates_fixtures as _exports_support_model_templates_fixtures
 from generation_inputs import GenerationInputs
+from model import dependency_index
+from validation.project import check_validation_scope as validate_scope
 from model.files import service_model_path
 from model.importing.scope import read_consumers, restrict
 from model.operations import _verify_published_inputs
@@ -430,6 +432,9 @@ def check_layout(root):
         view = root / "docs/designs" / env / "team/iam.md"
         view.parent.mkdir(parents=True, exist_ok=True)
         view.write_text("fixture\n", encoding="utf-8")
+    before = root / "empty-baseline"
+    before.mkdir()
+    dependency_index.rebuild(root)
     for changed, rejected_scope in (
         ({part.relative_to(root).as_posix()}, False),
         ({"model/stg/team/iam.properties"}, True),
@@ -438,7 +443,16 @@ def check_layout(root):
         validator = MODULE.Validator(root, {("dev", "team", "iam")})
         validator.accounts = {("dev", "team"): {}, ("stg", "team"): {}}
         validator.changed_paths = changed
-        validator.check_validation_scope()
+        validate_scope(
+            validator.accounts,
+            changed,
+            None,
+            validator.findings,
+            root,
+            validator.scope,
+            None,
+            before=before,
+        )
         assert bool(validator.errors) == rejected_scope, validator.errors
     assert affected(root, {"docs/unrelated.md"}) == set()
 

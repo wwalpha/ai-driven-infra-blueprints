@@ -244,7 +244,8 @@ class Resolver:
             for producer in scopes.values():
                 if (
                     producer.service == "cloudformation-stacks"
-                    or self.reads.kind(producer.path) == "missing"
+                    or producer.path not in self.models
+                    and self.reads.kind(producer.path) == "missing"
                 ):
                     continue
                 try:

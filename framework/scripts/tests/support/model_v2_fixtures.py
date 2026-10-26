@@ -13,6 +13,7 @@ from types import SimpleNamespace as _CallbackState
 
 import generation_inputs as _imports_generation_inputs
 import import_guard as _imports_import_guard
+from model import dependency_index
 import model.format as _imports_model_format
 import model.importing.cli as _imports_model_importing_cli
 import model.operations as _imports_model_operations
@@ -329,6 +330,7 @@ def role_operation_fixture(root):
         )
     scope.path.parent.mkdir(parents=True)
     scope.path.write_text(serialize(values), encoding="utf-8")
+    dependency_index.rebuild(root)
     return scope, values
 
 
@@ -409,6 +411,7 @@ def retarget_fixture(root):
             }
         )
     consumer.path.write_text(serialize(values), encoding="utf-8")
+    dependency_index.rebuild(root)
     return consumer, values
 
 

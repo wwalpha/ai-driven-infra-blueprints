@@ -21,7 +21,11 @@ def check_deployment_iac_scope():
     tasks = _imports_task_contract
     task_deployment_input_paths = _imports_deploy_inputs.task_deployment_input_paths
     markdown_for = _imports_model_render.markdown_for
-    with git_project() as root, patch.dict(os.environ, {}, clear=True):
+    with (
+        git_project() as root,
+        patch.dict(os.environ, {}, clear=True),
+        patch("deploy.contracts.accepted_changes", return_value=set()),
+    ):
         target = {
             "awsAccountId": "123456789012",
             "awsRegion": "ap-northeast-1",
@@ -103,6 +107,7 @@ def check_deployment_iac_scope():
                     {(env, "shared", "cloudformation-stacks")},
                     iac_paths=paths,
                     task_iac_paths=paths,
+                    model_validation="change",
                 )
                 validator.check_task_scope()
                 validator.accounts = {(env, "shared"): {"alias": "shared"}}
@@ -126,7 +131,11 @@ def check_deployment_iac_scope():
         with patch.dict(os.environ, {tasks.SELECTOR: "tasks/dev.md"}):
             paths = task_deployment_input_paths(root)
             validator = MODULE.Validator(
-                root, set(), iac_paths=paths, task_iac_paths=paths
+                root,
+                set(),
+                iac_paths=paths,
+                task_iac_paths=paths,
+                model_validation="change",
             )
             validator.changed_paths = {parameters["stg"].relative_to(root).as_posix()}
             validator.check_validation_scope()

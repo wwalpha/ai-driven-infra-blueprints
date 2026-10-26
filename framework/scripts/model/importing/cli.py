@@ -556,7 +556,7 @@ def source_state(root, inputs):
             "base": base.relative_to(root).as_posix(),
             "pattern": pattern,
             "recursive": recursive,
-            "kinds": kinds,
+            "kinds": None if kinds is None else list(kinds),
             "paths": [path.relative_to(root).as_posix() for path in paths],
         }
         for (base, pattern, recursive, kinds), paths in inputs.selections.items()

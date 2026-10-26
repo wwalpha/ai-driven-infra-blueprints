@@ -583,7 +583,7 @@ def runtime_values(authoritative: Mapping[str, str]) -> dict[str, str]:
     return result
 
 
-def projected_values(authoritative):
+def projected_values(authoritative: Mapping[str, str]) -> dict[str, str]:
     """Project known fields; callers own selection and authority validation."""
     values = {
         key: value

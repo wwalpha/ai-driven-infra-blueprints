@@ -222,7 +222,10 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
             result = after.findings.result(check_id, {ENTRY})
             assert result.status == "FAIL", (check_id, result)
             assert any(
-                "generated ARN persisted in observed model value" in error
+                (
+                    "generated ARN persisted in observed model value" in error
+                    or "observed value requires a desired logical reference" in error
+                )
                 for error in result.errors
             ), (check_id, result.errors)
         for check_id in (
@@ -307,7 +310,16 @@ def check_deferred_guard_and_cleanup(generated_policy, monkeypatch):
         for write in (False, True):
             seen.clear()
             assert MODULE.sync(root, write, *ENTRY[:2], ["iam"]) == 0
-            assert set(COMMON) <= set(seen)
+            assert {
+                "check_design_overviews",
+                "check_design_links",
+                "check_design_artifacts",
+            } <= set(seen)
+            assert not {
+                "check_resource_names",
+                "check_design_tables",
+                "check_observed_values",
+            } & set(seen)
 
 
 def _callback_check_generation_failures_never_pass_generate(

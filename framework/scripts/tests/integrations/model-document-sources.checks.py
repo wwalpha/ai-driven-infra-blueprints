@@ -40,11 +40,13 @@ def check(root):
         document = {
             "Statement": [
                 {
-                    "Condition": {"IpAddress": {"aws:VpcSourceIp": "198.51.100.0/24"}},
+                    "Effect": "Allow",
+                    "Resource": "*",
+                    "Condition": {
+                        "IpAddress": {"aws:VpcSourceIp": "198.51.100.0/24"},
+                        "Fixture": {"Enabled": False, "Count": 2, "Text": "日本語"},
+                    },
                     "Action": ["s3:GetObject", "s3:ListBucket"],
-                    "Enabled": False,
-                    "Count": 2,
-                    "Text": "日本語",
                 }
             ]
         }
@@ -84,8 +86,8 @@ def check(root):
         actual = json.loads(first.authoritative[key + "document"])
         assert actual["Statement"][0]["Action"] == ["s3:GetObject", "s3:ListBucket"]
         assert (
-            actual["Statement"][0]["Enabled"] is False
-            and type(actual["Statement"][0]["Count"]) is int
+            actual["Statement"][0]["Condition"]["Fixture"]["Enabled"] is False
+            and type(actual["Statement"][0]["Condition"]["Fixture"]["Count"]) is int
         )
         assert json.loads(first.values[key + "document"]) == actual
         artifact = root / "policy.json"

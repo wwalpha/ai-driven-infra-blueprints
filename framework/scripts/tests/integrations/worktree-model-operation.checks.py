@@ -15,6 +15,7 @@ import worktree_task as wt
 from import_guard import require_import_changes
 from model.adapters.task import source_write_context
 from model.sources import load_model
+from model import dependency_index
 from support.model_sources import write_model
 from support.worktree_task_fixtures import fixture as git_fixture
 from support.worktree_task_fixtures import git
@@ -50,6 +51,7 @@ def check_one_parent_merge_and_failed_candidate_repair():
         with patch.object(wt.python_env, "setup", return_value={"status": "ready"}):
             state = wt.create(root, "parent")
         target = Path(state["worktree"])
+        dependency_index.rebuild(target)
         name = state["task_file"]
         paths = sorted(
             {
