@@ -13,8 +13,9 @@ import model.identity as _imports_model_identity
 import model.operations as _imports_model_operations
 import model.projection as _imports_model_projection
 from model.core import entries as entries
-from model.core import literal, resource_row_index
+from model.core import resource_row_index
 from model.format import owner
+from model.literal_values import projection_value, typed_value, value_shape
 from model.references import has_reference as has_reference
 
 
@@ -25,30 +26,12 @@ def typed_equal(left, right):
 
 
 def typed_row(row, raw, schema):
-    if "document" in row:
-        return json_read(row["document"])
-    value = literal(raw)
-    types = schema.get("type")
-    if "[]" in row["property"] and value.startswith("["):
-        parsed = json_read(value)
-        if isinstance(parsed, list):
-            return parsed
-    if types == "string":
-        return value
-    if types:
-        try:
-            value = json_read(value)
-        except ValueError:
-            if isinstance(types, list) and "string" in types:
-                return value
-            raise ValueError(
-                "IMPORT candidate Property has an invalid native type: "
-                + row["property"]
-            ) from None
-    return value
+    return typed_value(row, raw, schema)
 
 
-def property_values(values, rid, prop, schema, *, observed=False, rows=None):
+def property_values(
+    values, rid, prop, schema, *, observed=False, rows=None, resolve_observed=True
+):
     result = []
     for row_id, row in (resource_row_index(values) if rows is None else rows).get(
         rid, []
@@ -64,20 +47,19 @@ def property_values(values, rid, prop, schema, *, observed=False, rows=None):
             continue
         if observed:
             row = {key: value for key, value in row.items() if key != "document"}
-        elif _dependency_model_identity.resource_link(raw) or (
-            has_reference(row.get("document", raw))
-            and "observed.row." + row_id + ".value" in values
+        elif resolve_observed and (
+            _dependency_model_identity.resource_link(raw)
+            or (
+                has_reference(row.get("document", raw))
+                and "observed.row." + row_id + ".value" in values
+            )
         ):
             raw = values.get("observed.row." + row_id + ".value")
             if raw is None:
                 continue
             row = {key: value for key, value in row.items() if key != "document"}
-        result.append(typed_row(row, raw, schema))
-    if "[]" in prop:
-        return result[0] if len(result) == 1 and isinstance(result[0], list) else result
-    if len(result) > 1:
-        raise ValueError("IMPORT ambiguous candidate Property: " + prop)
-    return result[0] if result else None
+        result.append((value_shape(row), typed_row(row, raw, schema)))
+    return projection_value(prop, result)
 
 
 def selection_records(
@@ -486,14 +468,18 @@ def verify_values(
         capture = selected[rid]["properties"].get(prop, {})
         fields = (
             (
-                {"value", "document"}
+                {"value", "document", "valueShape"}
                 if row_id in old_rows
-                else {"value", "document", "property", "comment"}
+                else {"value", "document", "property", "comment", "valueShape"}
             )
             if pieces[0] == "desired"
             else {"value"}
         )
-        if capture.get("status") != "captured" or key not in new or field not in fields:
+        if (
+            capture.get("status") != "captured"
+            or (key not in new and field != "valueShape")
+            or field not in fields
+        ):
             raise ValueError(
                 "IMPORT existing unacquired field must be preserved: " + key
             )
@@ -529,7 +515,9 @@ def verify_values(
                     "IMPORT candidate uses an unacquired Property: " + prop
                 )
             schema = property_schema(prop)
-            desired = typed_row(row, row["value"], schema)
+            desired = property_values(
+                new, rid, prop, schema, rows=new_index, resolve_observed=False
+            )
             actual = property_values(after.values, rid, prop, schema, rows=new_index)
             if not reference_value_equal(desired, capture["value"]) or (
                 actual is not None

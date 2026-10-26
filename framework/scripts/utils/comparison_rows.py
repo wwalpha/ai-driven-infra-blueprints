@@ -28,6 +28,29 @@ def select(value, path):
     return select(child, rest) if rest else child
 
 
+def project(tree, path, value):
+    """Put an SDK leaf projection back into a tree without losing array membership."""
+    part, _, rest = path.partition(".")
+    if part.endswith("[]"):
+        name = part[:-2]
+        if value == MISSING:
+            tree[name] = MISSING
+        elif not rest:
+            tree[name] = value
+        else:
+            array = tree.setdefault(name, [{} for _ in value])
+            if not isinstance(array, list):
+                raise Unresolved("inconsistent SDK array projections")
+            if len(array) != len(value):
+                raise Unresolved("inconsistent SDK array lengths")
+            for item, child in zip(array, value, strict=False):
+                project(item, rest, child)
+    elif rest:
+        project(tree.setdefault(part, {}), rest, value)
+    else:
+        tree[part] = value
+
+
 def put_row(tree, path, value):
     """Use explicit membership for nested arrays; retain simple repeated rows."""
     arrays = re.findall(r"[^.]+\[(?:\d+)?\]", path)

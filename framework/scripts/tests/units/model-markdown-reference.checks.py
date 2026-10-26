@@ -448,6 +448,8 @@ def main():
             'm=n["engine"](n["SNAPSHOT"]); '
             'assert "utils" not in sys.modules and "iac_values" not in sys.modules; '
             "assert m._imports_iac_values is m; "
+            'assert m.typed_value({"property":"Parents[].Values","valueShape":"projection"}, "`[[1,2]]`", {"type":"array"}) == [[1,2]]; '
+            'assert m.normalize_literals("Parents[].Values", [[1,2]], "projection").values == ([1,2],); '
             'assert n["masked"]({"Password": "secret"}) == {"Password": "[REDACTED]"}; '
             'ctx=m.Context(m.ROOT, n["SNAPSHOT"]["target"], None); '
             'model=m.Model(ctx,m.ROOT/"model/dev/cde/lambda.properties"); '

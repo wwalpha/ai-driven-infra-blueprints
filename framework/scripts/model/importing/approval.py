@@ -203,6 +203,7 @@ def _callback_build_review_rows(property_schema, /, values, indexed, rid, prop):
             {
                 "row": row_id,
                 "desired": value,
+                "valueShape": row.get("valueShape", "leaf"),
                 "nativeType": {
                     str: "string",
                     bool: "boolean",
@@ -215,7 +216,9 @@ def _callback_build_review_rows(property_schema, /, values, indexed, rid, prop):
                 "observed": None
                 if current is None
                 else _dependency_model_importing_sources.typed_row(
-                    {"property": prop}, current, property_schema(prop)
+                    {k: v for k, v in row.items() if k != "document"},
+                    current,
+                    property_schema(prop),
                 ),
                 "observedPresent": current is not None,
                 "reference": raw

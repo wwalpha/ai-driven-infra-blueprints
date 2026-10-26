@@ -10,6 +10,7 @@ from utils.input_cache import memo_table
 from validation.diagnostics import InputValidationError
 
 from model.format import input_json, parse
+from model.literal_values import value_shape
 
 
 class ReferenceDiagnosticError(ValueError):
@@ -222,7 +223,7 @@ def validate_model_keys(values: dict[str, str]) -> None:
             "parentReference",
             "deploymentEncryption",
         },
-        ("desired", "row"): {"property", "value", "comment", "document"},
+        ("desired", "row"): {"property", "value", "comment", "document", "valueShape"},
         ("observed", "row"): {"value"},
         ("desired", "note"): {"text"},
         ("display", "resource"): {"comment", "label"},
@@ -266,6 +267,8 @@ def validate_model_keys(values: dict[str, str]) -> None:
             and parts[3] in fields.get(tuple(parts[:2]), set())
         ):
             raise InputValidationError("unknown Model field: " + key)
+        if key.startswith("desired.row.") and key.endswith(".valueShape"):
+            value_shape({"valueShape": values[key]})
 
 
 def validate_stack_field(field, value):

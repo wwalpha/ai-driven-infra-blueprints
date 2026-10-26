@@ -872,6 +872,9 @@ def check_reference_publication(tmp_path, race, review_race):
     link = "[S3_Bucket_001](s3.md#s3-audit-bucket)"
     for index, (prop, actual) in enumerate(captured.items(), 1):
         key = f"desired.row.009-{index:03d}.value"
+        values[f"desired.row.009-{index:03d}.valueShape"] = record["properties"][prop][
+            "valueShape"
+        ]
         if prop == "CloudTrail.Trail.S3BucketName":
             values[key] = link
             values[f"observed.row.009-{index:03d}.value"] = m.model_literal(actual)

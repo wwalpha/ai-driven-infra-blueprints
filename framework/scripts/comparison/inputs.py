@@ -19,6 +19,7 @@ from model.adapters.observed import mapped_resource, resource_index
 from model.core import ReferenceResolutionError, entries, stack_model
 from model.files import load_model, resource_row_index
 from model.identity import anchor_index, parse_reference, select_anchor
+from model.literal_values import value_shape
 from model.projection import reference_attribute
 from model.sources import _invocation_reads, model_exists, model_paths
 from task_contract_core import task_reads
@@ -1061,6 +1062,7 @@ class Inputs:
             / (service + ".properties"),
             normalize=normalize,
             environment_mapping=environment_values.mapping_for(self.root, kind),
+            catalog=self.catalog,
         )
 
     def project_rows(self, kind, rows):
@@ -1068,6 +1070,14 @@ class Inputs:
         prepare = registry.hook(kind, "prepare_rows")
         if prepare is None:
             return rows
-        return prepare(
-            rows, index_rows=lambda rows, kind: indexed_rows(rows, kind, self.root)
-        )
+        projected = [
+            (rid, row) for rid, row in rows if value_shape(row) == "projection"
+        ]
+        leaves = [(rid, row) for rid, row in rows if value_shape(row) == "leaf"]
+        return [
+            *prepare(
+                leaves,
+                index_rows=lambda rows, kind: indexed_rows(rows, kind, self.root),
+            ),
+            *projected,
+        ]

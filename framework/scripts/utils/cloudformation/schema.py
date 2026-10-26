@@ -86,6 +86,32 @@ def manifest_text(root: Path, files: list[Path]) -> str:
     )
 
 
+def native_type_errors(node, value):
+    expected = node.get("type")
+    types = {
+        "string": (str,),
+        "boolean": (bool,),
+        "integer": (int,),
+        "number": (int, float),
+        "array": (list,),
+        "object": (dict,),
+        "null": (type(None),),
+    }
+    allowed = expected if isinstance(expected, list) else [expected]
+    if expected and not any(type(value) in types.get(kind, ()) for kind in allowed):
+        return [f"must be {expected}"]
+    return []
+
+
+def array_bounds_errors(node, value):
+    errors = []
+    if "minItems" in node and len(value) < node["minItems"]:
+        errors.append(f"items must be >= {node['minItems']}")
+    if "maxItems" in node and len(value) > node["maxItems"]:
+        errors.append(f"items must be <= {node['maxItems']}")
+    return errors
+
+
 class CloudFormationSchemaCatalog:
     def __init__(self, root: Path, *, definitions=None) -> None:
         schemas_for = _imports_utils_aws_schemas.schemas_for
@@ -168,7 +194,12 @@ class CloudFormationSchemaCatalog:
                 arrays = [
                     candidate
                     for candidate in array_candidates
-                    if isinstance(candidate, dict) and candidate.get("type") == "array"
+                    if isinstance(candidate, dict)
+                    and (
+                        candidate.get("type") == "array"
+                        or isinstance(candidate.get("type"), list)
+                        and "array" in candidate["type"]
+                    )
                 ]
                 if not arrays:
                     raise KeyError(
@@ -197,7 +228,9 @@ class CloudFormationSchemaCatalog:
             if dynamic_errors is not None:
                 # AWS resolves references at deployment; their text is not the property value.
                 return dynamic_errors
-        errors = self._literal_errors(node, raw_value)
+        errors = self._literal_errors(
+            node, raw_value, resource_type=resource_type, property_path=property_path
+        )
         pattern = DESCRIPTION_PATTERNS.get(
             (self.canonical_type(resource_type), property_path)
         )
@@ -206,6 +239,26 @@ class CloudFormationSchemaCatalog:
                 self._literal_errors({"type": "string", "pattern": pattern}, raw_value)
             )
         return errors
+
+    def array_errors(self, resource_type, property_path, value):
+        """Projection columns retain parent counts, but do not contain parent objects."""
+        errors = native_type_errors({"type": "array"}, value)
+        return errors or array_bounds_errors(
+            self.property_schema(resource_type, property_path), value
+        )
+
+    def typed_literal_errors(self, resource_type, property_path, value):
+        node = self.property_schema(resource_type, property_path)
+        errors = native_type_errors(node, value)
+        if errors:
+            return errors
+        if isinstance(node.get("type"), list):
+            return self._item_errors(node, value, resource_type, property_path)
+        return self.literal_errors(
+            resource_type,
+            property_path,
+            value if isinstance(value, str) else json.dumps(value),
+        )
 
     def _dynamic_reference_errors(
         self, resource_type: str, property_path: str, raw_value: str
@@ -253,7 +306,14 @@ class CloudFormationSchemaCatalog:
                 return ["unsupported CloudFormation dynamic reference provider"]
         return []
 
-    def _literal_errors(self, node: dict[str, Any], raw_value: str) -> list[str]:
+    def _literal_errors(
+        self,
+        node: dict[str, Any],
+        raw_value: str,
+        *,
+        resource_type=None,
+        property_path="",
+    ) -> list[str]:
         if raw_value.lower() in {
             "n/a",
             "none",
@@ -269,7 +329,12 @@ class CloudFormationSchemaCatalog:
         expected_type = node.get("type")
         if isinstance(expected_type, list):
             alternatives = [
-                self._literal_errors({**node, "type": kind}, raw_value)
+                self._literal_errors(
+                    {**node, "type": kind},
+                    raw_value,
+                    resource_type=resource_type,
+                    property_path=property_path,
+                )
                 for kind in expected_type
             ]
             if any(not errors for errors in alternatives):
@@ -327,7 +392,66 @@ class CloudFormationSchemaCatalog:
                 errors.append(f"must be >= {node['minimum']}")
             if "maximum" in node and value > node["maximum"]:
                 errors.append(f"must be <= {node['maximum']}")
+        if isinstance(value, list):
+            errors.extend(array_bounds_errors(node, value))
+            child = node.get("items", {})
+            if resource_type is not None:
+                child = self._resolve(self.schema(resource_type), child)
+            if isinstance(child, dict):
+                for index, item in enumerate(value):
+                    errors.extend(
+                        f"[{index}]: {error}"
+                        for error in self._item_errors(
+                            child, item, resource_type, property_path + "[]"
+                        )
+                    )
+        if isinstance(value, dict):
+            for key in node.get("required", []):
+                if key not in value:
+                    errors.append(f"{property_path}.{key}: required property missing")
+            for key, item in value.items():
+                child = node.get("properties", {}).get(
+                    key, node.get("additionalProperties", True)
+                )
+                child_path = property_path + "." + key
+                if child is False:
+                    errors.append(f"{child_path}: unknown property")
+                elif isinstance(child, dict):
+                    if resource_type is not None:
+                        child = self._resolve(self.schema(resource_type), child)
+                    errors.extend(
+                        f"{child_path}: {error}"
+                        for error in self._item_errors(
+                            child, item, resource_type, child_path
+                        )
+                    )
         return errors
+
+    def _item_errors(self, node, value, resource_type, property_path):
+        errors = native_type_errors(node, value)
+        if errors:
+            return errors
+        if isinstance(node.get("type"), list):
+            node = {
+                **node,
+                "type": next(
+                    kind
+                    for kind in node["type"]
+                    if not native_type_errors({"type": kind}, value)
+                ),
+            }
+        if isinstance(value, str) and resource_type is not None:
+            dynamic_errors = self._dynamic_reference_errors(
+                resource_type, property_path, value
+            )
+            if dynamic_errors is not None:
+                return dynamic_errors
+        return self._literal_errors(
+            node,
+            value if isinstance(value, str) else json.dumps(value),
+            resource_type=resource_type,
+            property_path=property_path,
+        )
 
 
 def refresh(root: Path) -> None:

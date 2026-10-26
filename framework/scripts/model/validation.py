@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import re
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -51,6 +50,7 @@ from model.core import (
     properties,
     stack_model,
 )
+from model.literal_values import literal_errors as row_literal_errors
 from model.projection import (
     configuration_context as configuration_context,
 )
@@ -767,33 +767,19 @@ def _callback_check_model_inputs_literal_check(
         "EC2.FlowLog",
     }:
         return
-    for item in row_literal_values(catalog, kind, field, value):
-        for error in catalog.literal_errors(kind, field, item):
-            findings.input_check(
-                False,
-                findings.source_path,
-                f"provider schema violation: {prop}: {error}",
-                location=f"desired.resource.{_state_check_model_inputs_337.identity}/{prop}",
-            )
-
-
-def row_literal_values(catalog, kind, field, value):
-    """Acquired column arrays wrap the schema leaf once per parent array."""
-    if "[]" not in field or not value.lstrip().startswith("["):
-        return [value]
-    values = [json.loads(value)]
-    for _ in range(field.count("[]")):
-        values = [
-            item
-            for current in values
-            for item in (current if isinstance(current, list) else [current])
-        ]
-    expected = catalog.property_schema(kind, field).get("type")
-    string = expected == "string" or isinstance(expected, list) and "string" in expected
-    return [
-        item if isinstance(item, str) and string else json.dumps(item)
-        for item in values
-    ]
+    for error in row_literal_errors(
+        catalog,
+        kind,
+        field,
+        value,
+        _state_check_model_inputs_337.row.get("valueShape", "leaf"),
+    ):
+        findings.input_check(
+            False,
+            findings.source_path,
+            f"provider schema violation: {prop}: {error}",
+            location=f"desired.resource.{_state_check_model_inputs_337.identity}/{prop}",
+        )
 
 
 def check_model_inputs(path, values, root, *, definitions_root=None):

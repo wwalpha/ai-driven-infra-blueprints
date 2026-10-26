@@ -264,27 +264,15 @@ def prepared(comparison, row):
 
 
 @pytest.mark.parametrize(
-    "stored,actual,category",
+    "stored,shape,actual,category",
     [
-        (['["pri-quar-tgt/"]'], ["pri-quar-tgt/"], "matched"),
-        (['["a/","b/"]'], ["a/", "b/"], "matched"),
-        (["[]"], [], "matched"),
-        (["pri-quar-tgt/"], ["pri-quar-tgt/"], "matched"),
-        (["a/", "b/"], ["a/", "b/"], "matched"),
-        (['["a/"]', '["b/","c/"]'], ["a/", "b/", "c/"], "matched"),
-        (['  ["a/"]'], ["a/"], "matched"),
-        (['["a/"]'], ["b/"], "difference"),
-        (['["a/","b/"]'], ["b/", "a/"], "difference"),
-        (['["a/",]'], ["a/"], "error"),
-        (["["], [], "error"),
-        (["[1]"], [1], "error"),
-        (["[null]"], [None], "error"),
-        (["[true]"], [True], "error"),
-        (["[{}]"], [{}], "error"),
-        (['[["a/"]]'], [["a/"]], "error"),
+        (["a/", "b/"], "leaf", ["a/", "b/"], "matched"),
+        (['["a/","b/"]'], "projection", ["a/", "b/"], "matched"),
+        (['["a/","b/"]'], "projection", ["b/", "a/"], "difference"),
+        (["[1]"], "projection", [1], "error"),
     ],
 )
-def test_terminal_string_array_comparison(stored, actual, category):
+def test_terminal_string_array_comparison(stored, shape, actual, category):
     comparison = fixture()
     kind = "GuardDuty.MalwareProtectionPlan"
     field = "ProtectedResource.S3Bucket.ObjectPrefixes[]"
@@ -297,6 +285,11 @@ def test_terminal_string_array_comparison(stored, actual, category):
         [(field, value, None) for value in stored],
         properties={"ProtectedResource": {"S3Bucket": {"ObjectPrefixes": actual}}},
     )
+    for rid, row in rows:
+        row["valueShape"] = shape
+        comparison.models["guardduty"].authoritative[
+            f"desired.row.{rid}.valueShape"
+        ] = shape
     if category == "matched":
         desired = {}
         for rid, row in rows:
@@ -347,10 +340,62 @@ def test_terminal_string_array_is_not_service_specific():
         {
             "property": "CodeBuild.Project.VpcConfig.Subnets[]",
             "value": '`["subnet-first","subnet-second"]`',
+            "valueShape": "projection",
         },
         "CodeBuild.Project",
     )
     assert value.require_value() == ["subnet-first", "subnet-second"]
+
+
+@pytest.mark.parametrize(
+    "service,kind,field,encoded,actual",
+    [
+        (
+            "quicksight",
+            "QuickSight.DataSource",
+            "Permissions[].Actions",
+            '[["ActionA"],["ActionB"]]',
+            {"Permissions": [{"Actions": ["ActionA"]}, {"Actions": ["ActionB"]}]},
+        ),
+        (
+            "cloudtrail",
+            "CloudTrail.Trail",
+            "EventSelectors[].DataResources[].Values",
+            '[[["arn:aws:s3"]]]',
+            {"EventSelectors": [{"DataResources": [{"Values": ["arn:aws:s3"]}]}]},
+        ),
+    ],
+)
+def test_parent_projection_comparison(service, kind, field, encoded, actual):
+    comparison = fixture()
+    rows = resource(
+        comparison,
+        service,
+        "001",
+        kind,
+        "Projected",
+        [(field, encoded, None)],
+        properties=actual,
+    )
+    rows[0][1]["valueShape"] = "projection"
+    comparison.models[service].authoritative["desired.row.001-001.valueShape"] = (
+        "projection"
+    )
+    document = comparison.stack_inputs["producer"][0]
+    batch = comparison.compare_rows(
+        service,
+        "001",
+        comparison.resources[service]["001"],
+        "producer",
+        "Projected",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Projected"],
+        document,
+    )
+    assert batch.failure is None, batch.failure
+    assert batch.records and all(
+        item["category"] == "matched" for item in batch.records
+    ), batch.records
 
 
 @pytest.fixture(autouse=True)

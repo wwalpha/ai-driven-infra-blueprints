@@ -306,7 +306,7 @@ def generate(root, environment, selector, service):
     scripts = definition_root(ROOT) / "framework/scripts"
     engine = (
         "from __future__ import annotations\n"
-        "import argparse, hashlib, json, os, posixpath, re, subprocess, sys\n"
+        "import argparse, hashlib, json, math, os, posixpath, re, subprocess, sys\n"
         "from collections import Counter, defaultdict\nfrom collections.abc import Mapping\n"
         "from copy import deepcopy\nfrom threading import RLock\nfrom concurrent.futures import Future\n"
         "from functools import partial as _bind_framework_callback\n"
@@ -337,7 +337,7 @@ def generate(root, environment, selector, service):
     engine += definitions(scripts / "utils/lazy_definitions.py", ["load_once"])
     engine += definitions(
         scripts / "utils/json_format.py",
-        ["unique_object", "invalid_constant", "policy_json"],
+        ["unique_object", "invalid_constant", "_number", "strict_json", "policy_json"],
     )
     engine += definitions(scripts / "utils/iac_values.py", ["cfn_resource_identity"])
     engine += definitions(
@@ -353,8 +353,20 @@ def generate(root, environment, selector, service):
         ],
     )
     engine += definitions(
-        scripts / "utils/comparison_rows.py", ["Unresolved", "select", "put_row"]
+        scripts / "utils/comparison_rows.py",
+        ["Unresolved", "select", "project", "put_row"],
     )
+    engine += definitions(
+        scripts / "model/literal_values.py",
+        [
+            "value_shape",
+            "array_paths",
+            "LiteralValues",
+            "normalize",
+            "typed_value",
+            "projection_conflicts",
+        ],
+    ).replace("normalize(", "normalize_literals(")
     engine += 'MISSING = {"absent": True}\n'
     # Preserve the exact collection semantics maintained by the existing comparator.
     original = input_text(scripts / "model/adapters/aws.py", encoding="utf-8")
@@ -373,7 +385,6 @@ def generate(root, environment, selector, service):
             "AcquisitionError",
             "sdk_error",
             "one",
-            "project",
             "canonical",
             "stable",
             "policy",

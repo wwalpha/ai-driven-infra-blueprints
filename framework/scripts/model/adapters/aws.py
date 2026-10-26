@@ -43,7 +43,7 @@ from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.export_resolution import resolve_exports
 from utils.cloudformation.inputs import Blocked
-from utils.comparison_rows import MISSING, Unresolved, put_row, select
+from utils.comparison_rows import MISSING, Unresolved, project, put_row, select
 from utils.input_cache import input_scope
 from utils.json_format import policy_json
 from utils.lazy_definitions import load_once
@@ -60,6 +60,7 @@ from model.identity import (
     resource_link,
     select_anchor,
 )
+from model.literal_values import projection_conflicts, typed_value, value_shape
 from model.sources import model_paths
 
 SERVICES = tuple(
@@ -165,31 +166,6 @@ def one(items, api):
     if len(items) != 1:
         raise Unresolved("resource selector is ambiguous")
     return items[0]
-
-
-def project(tree, path, value):
-    """Put an SDK leaf projection back into a tree without losing array membership."""
-    part, _, rest = path.partition(".")
-    if part.endswith("[]"):
-        name = part[:-2]
-        if value == MISSING:
-            tree[name] = MISSING
-        elif not rest:
-            tree[name] = value
-        else:
-            array = tree.setdefault(name, [])
-            if not isinstance(array, list):
-                raise Unresolved("inconsistent SDK array projections")
-            while len(array) < len(value):
-                array.append({})
-            if len(array) != len(value):
-                raise Unresolved("inconsistent SDK array lengths")
-            for item, child in zip(array, value, strict=False):
-                project(item, rest, child)
-    elif rest:
-        project(tree.setdefault(part, {}), rest, value)
-    else:
-        tree[part] = value
 
 
 # Only collections with set/map semantics are reordered. Stages/actions and subnet
@@ -880,6 +856,8 @@ class Resource:
                 else "id"
             )
             value = target.identity(mode)
+            if schema_type == "array":
+                value = [value]
         else:
             value = literal(raw)
             explicit_empty = (
@@ -896,30 +874,11 @@ class Resource:
                 "TODO",
             }:
                 raise Unresolved("design value is unresolved")
-            if path.endswith("[]") and value.startswith("["):
+            if value_shape(row) == "projection" or schema_type != "string":
+                value = typed_value(row, raw, schema)
+            elif norm in {"json", "policy", "set"}:
                 value = policy_json(value)
-                if not isinstance(value, list):
-                    raise Unresolved("design array row must be a list")
-            elif schema_type != "string" or norm in {"json", "policy", "set"}:
-                try:
-                    value = policy_json(value)
-                except ValueError:
-                    if schema_type not in {"array", "object"}:
-                        raise Unresolved("design value has an invalid type") from None
-                    if schema_type == "array" and norm in {
-                        "name",
-                        "id",
-                        "arn",
-                        "set",
-                        "kms",
-                        "typed",
-                    }:
-                        value = [literal(item.strip()) for item in value.split(",")]
-                    else:
-                        raise Unresolved("design JSON is invalid") from None
         value = self.resolve_json(value, norm)
-        if schema_type == "array" and not isinstance(value, list):
-            value = [value]
         return value
 
     def resolve_json(self, value, norm="typed"):
@@ -1060,9 +1019,9 @@ def source(resource, rows):
     return [
         {"key": key, **resource.model.locations[key]}
         for rid, row in rows
-        for field in ("value", "document")
+        for field in ("value", "document", "valueShape")
         if (key := "desired.row." + rid + "." + field) in resource.model.locations
-        and (field == "value" or "document" in row)
+        and (field != "document" or "document" in row)
     ]
 
 
@@ -1158,7 +1117,7 @@ def compare_resource(ctx, resource):
                 for _, row in rows
             ]
             parsed.extend(
-                (rid, prop, val, row.get("comment", ""))
+                (rid, prop, val, row.get("comment", ""), value_shape(row))
                 for (rid, row), val in zip(rows, values, strict=False)
             )
             project(actual, prop, normalize(ctx, value, field.norm))
@@ -1204,13 +1163,18 @@ def compare_resource(ctx, resource):
             )
     # Restore catalog row order; grouping by property above must never reorder arrays.
     parsed.sort(key=lambda row: row[0])
-    unresolved = {}
-    for _rid, prop, value, _ in parsed:
+    unresolved = projection_conflicts(resource.rows)
+    for _rid, prop, value, _, shape in parsed:
         setting = re.sub(
             r"\[(?:\d*)\]", "", prop.removeprefix(resource.kind + ".").split(".", 1)[0]
         )
         try:
-            put_row(expected, prop, value)
+            if setting in unresolved:
+                continue
+            if shape == "projection":
+                project(expected, prop, value)
+            else:
+                put_row(expected, prop, value)
         except Unresolved as error:
             unresolved.setdefault(setting, str(error))
     expected, actual = canonical(expected), canonical(actual)

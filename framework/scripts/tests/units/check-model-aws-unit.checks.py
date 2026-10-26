@@ -63,6 +63,38 @@ def check_summary_exit_codes():
     check(m.summarize([])["exitCode"] == 2, "empty scan incomplete")
 
 
+@pytest.mark.parametrize("shape", ["leaf", "projection"])
+def check_explicit_array_shape_comparison(tmp_path, shape):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    kind = "QuickSight.DataSource"
+    prop = kind + ".Permissions[].Actions"
+    actions = ["ActionA", "ActionB"]
+    row = {
+        "property": prop,
+        "value": "`" + json.dumps(actions if shape == "leaf" else [actions]) + "`",
+        "valueShape": shape,
+    }
+    model = SimpleNamespace(
+        ctx=ctx,
+        service="quicksight",
+        values={},
+        locations={},
+        path=tmp_path / "model/dev" / ACCOUNT / "quicksight.properties",
+    )
+    selected = m.Resource(
+        model,
+        "001",
+        {"resourceType": kind, "logicalId": "QuickSight_DataSource_001"},
+        [("001-001", row)],
+    )
+    with patch.object(
+        m._imports_aws_mapping_compare, "value", return_value=({}, [actions])
+    ):
+        records = m.compare_resource(ctx, selected)
+    assert len(records) == 1 and records[0]["status"] == "match", records
+
+
 def check_value_normalization():
     tags = {"Tags": [{"Key": "b", "Value": "2"}, {"Key": "a", "Value": "1"}]}
     check(
@@ -723,6 +755,7 @@ def check_context_branches(tmp_path):
     sample_row = {
         "property": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
         "value": '`["a/","b/"]`',
+        "valueShape": "projection",
     }
     check(resource.parse(sample_row) == ["a/", "b/"], "terminal-array literal")
     check(

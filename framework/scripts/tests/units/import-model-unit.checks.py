@@ -60,6 +60,7 @@ from model.operations import (
     verify_model_operation,
     verify_model_refactor,
 )
+from model.projection import resource_rows
 from model.references import Reference, incoming, symbolic, usages
 from model.sources import Scope, candidate_sources, load_model
 from support.import_model_fixtures import (
@@ -76,6 +77,7 @@ from support.import_model_fixtures import (
     operation_candidate,
     operation_contract,
     operation_fixture,
+    project_fixture,
     reference_fields,
     resource_values,
     review_proof_fixture,
@@ -582,6 +584,70 @@ def check_typed_property_values():
     row = {"property": "Logs.LogGroup.RetentionInDays"}
     assert typed_equal(typed_row(row, "`90`", {"type": "integer"}), 90)
     assert not typed_equal(typed_row(row, '`"90"`', {"type": "integer"}), 90)
+
+
+def check_shape_round_trip_and_display(tmp_path):
+    project_fixture(tmp_path)
+    values = resource()
+    values.update(
+        {
+            "desired.row.001-004.property": "EC2.VPC.Tags[].Value",
+            "desired.row.001-004.value": '`["A","B"]`',
+            "desired.row.001-004.comment": "取得列",
+            "desired.row.001-004.valueShape": "projection",
+        }
+    )
+    path = tmp_path / "model/dev" / ACCOUNT / "vpc.properties"
+    write_model(path, values)
+    saved = load_model(path)
+    assert dict(saved.authoritative) == values
+    assert saved.values["desired.row.001-004.valueShape"] == "projection"
+    rows = resource_rows(saved.values, "001", "EC2.VPC", m.ROOT)
+    assert all(len(row) == 4 for row in rows)
+    assert "projection" not in str(rows)
+    assert property_values(
+        saved.values, "001", "EC2.VPC.Tags[].Value", {"type": "string"}
+    ) == ["A", "B"]
+
+
+@pytest.mark.parametrize("shape", ["leaf", "projection"])
+def check_import_array_leaf_comparison(shape):
+    kind = "QuickSight.DataSource"
+    prop = kind + ".Permissions[].Actions"
+    value = ["ActionA", "ActionB"]
+    raw = value if shape == "leaf" else [value]
+    candidate = resource_values(
+        "001",
+        kind,
+        "source",
+        "IMPORT",
+        [("Permissions[].Actions", m.model_literal(raw))],
+    )
+    candidate["desired.row.001-001.valueShape"] = shape
+    captured = {
+        "record": "source",
+        "kind": kind,
+        "identity": "source",
+        "identityProperty": None,
+        "identityProperties": [],
+        "properties": {
+            prop: {"status": "captured", "value": [value], "valueShape": "projection"},
+        },
+    }
+    assert verify_values(
+        expansion({}), expansion(candidate), {"001": captured}, m.property_schema
+    )
+    assert property_values(candidate, "001", prop, m.property_schema(prop)) == [value]
+
+
+def check_invalid_shape_is_rejected(tmp_path):
+    project_fixture(tmp_path)
+    values = resource()
+    values["desired.row.001-002.valueShape"] = "auto"
+    path = tmp_path / "model/dev" / ACCOUNT / "vpc.properties"
+    write_model(path, values)
+    with pytest.raises(ValueError, match="valueShape"):
+        load_model(path)
 
 
 def check_candidate_scope_and_changed_files(tmp_path):
@@ -1546,6 +1612,11 @@ def check_cloudtrail_all_model_properties():
         value["status"] == "captured" for value in result[0]["properties"].values()
     )
     assert result[0]["properties"]["CloudTrail.Trail.IsLogging"]["value"] is True
+    projected = result[0]["properties"][
+        "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
+    ]
+    assert projected["valueShape"] == "projection"
+    assert projected["value"] == [[["arn:aws:s3:::audit-bucket/"]]]
     assert (
         result[0]["properties"]["CloudTrail.Trail.S3BucketName"]["value"]
         == "audit-bucket"

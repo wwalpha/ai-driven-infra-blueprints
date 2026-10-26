@@ -8,6 +8,8 @@ import json_intrinsics as _imports_json_intrinsics
 import model.environment_values as environment_values
 from design.policy_tables import literal
 from model.identity import resource_link
+from model.literal_values import literal_errors as row_literal_errors
+from model.literal_values import typed_value, value_shape
 from model.reference_nodes import is_reference
 from utils.cloudformation.format import boolean_literal
 from utils.cloudformation.inputs import Blocked
@@ -63,6 +65,7 @@ def desired_value(
     context=None,
     normalize=None,
     environment_mapping=None,
+    catalog=None,
 ):
     warnings, failures = [], []
     try:
@@ -80,6 +83,7 @@ def desired_value(
             warnings=warnings,
             failures=failures,
             normalize=normalize,
+            catalog=catalog,
         )
         if environment_mapping is not None:
             value = environment_values.project(
@@ -284,6 +288,7 @@ def _desired_value(
     warnings,
     failures,
     normalize=None,
+    catalog=None,
 ):
     raw = row.get("document", row["value"])
     if "document" in row:
@@ -320,15 +325,18 @@ def _desired_value(
             kind, re.sub(r"\[\d+\]", "[]", row["property"].removeprefix(kind + "."))
         )
         schema_type = node.get("type")
-        # A terminal [] selects the item schema, but the row may encode the whole array.
-        if (
-            schema_type == "string"
-            and row["property"].endswith("[]")
-            and value.lstrip().startswith("[")
-        ):
-            value = strict_json(value)
-            if any(not isinstance(item, str) for item in value):
-                raise ValueError("design array row has an invalid string element")
+        if catalog is not None and value_shape(row) == "projection":
+            errors = row_literal_errors(
+                catalog,
+                kind,
+                re.sub(r"\[\d+\]", "[]", row["property"].removeprefix(kind + ".")),
+                value,
+                value_shape(row),
+            )
+            if errors:
+                raise ValueError("; ".join(errors))
+        if value_shape(row) == "projection":
+            value = typed_value(row, raw, node)
         if isinstance(value, str) and value.lstrip().startswith("{"):
             try:
                 encoded = strict_json(value)

@@ -146,6 +146,7 @@ def check_full_inventory_required(field):
         "task",
         "worktree",
         "type",
+        "shape",
     ],
 )
 def check_changed_review_needs_new_review(change):
@@ -164,6 +165,8 @@ def check_changed_review_needs_new_review(change):
         }[change]
     elif change == "risk":
         entry["risks"] = ["possible duplicate"]
+    elif change == "shape":
+        entry["properties"][0]["after"][0]["valueShape"] = "projection"
     else:
         changed[{"baseline": "sourceBaselineDigest"}.get(change, change)] = "different"
     # Even recomputing a local digest cannot reuse reviewed content or authorize saving.
@@ -216,23 +219,25 @@ def check_inventory_status_and_exclusions_remain_visible(state):
 def check_array_boolean_name_and_unreflected_values():
     acquisition, selection, _, proposed, risks = proposal()
     selection["resources"][0]["action"] = "add"
-    for index, (prop, value) in enumerate(
+    for index, (prop, value, shape) in enumerate(
         [
-            ("EnableDnsSupport", True),
-            ("Tags[].Key", ["Name", "Project"]),
-            ("Tags[].Value", ["main", "fixture"]),
+            ("EnableDnsSupport", True, "leaf"),
+            ("Tags[].Key", ["Name", "Project"], "projection"),
+            ("Tags[].Value", ["main", "fixture"], "projection"),
         ],
         3,
     ):
         acquisition["records"][0]["properties"]["EC2.VPC." + prop] = {
             "status": "captured",
             "value": value,
+            "valueShape": shape,
         }
         prefix = "desired.row.001-" + str(index).zfill(3) + "."
         proposed.update(
             {
                 prefix + "property": "EC2.VPC." + prop,
                 prefix + "value": "`" + json.dumps(value) + "`",
+                prefix + "valueShape": shape,
                 prefix + "comment": "合成取得値",
             }
         )
@@ -245,6 +250,8 @@ def check_array_boolean_name_and_unreflected_values():
     props = {p["property"]: p for p in item["properties"]}
     assert props["EC2.VPC.EnableDnsSupport"]["after"][0]["desired"] is True
     assert props["EC2.VPC.Tags[].Value"]["after"][0]["nativeType"] == "array"
+    assert props["EC2.VPC.Tags[].Value"]["after"][0]["valueShape"] == "projection"
+    assert props["EC2.VPC.Tags[].Value"]["acquisition"]["valueShape"] == "projection"
     assert item["name"]["Tags[Name]"] == ["main"]
     assert item["unreflected"][0]["property"] == "EC2.VPC.EnableDnsHostnames"
 

@@ -78,15 +78,7 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
                 parse(value)
                 return []  # Resolved attribute types are checked by the Model reference validator.
         if resource_type not in self.api_schemas:
-            errors = super().literal_errors(resource_type, property_path, raw_value)
-            node = self.property_schema(resource_type, property_path)
-            if not errors and node.get("type") in ("array", "object"):
-                errors.extend(
-                    self.nested_literal_errors(
-                        resource_type, node, json.loads(raw_value), property_path
-                    )
-                )
-            return errors
+            return super().literal_errors(resource_type, property_path, raw_value)
         node = self.property_schema(resource_type, property_path)
         try:
             value = raw_value if node.get("type") == "string" else json.loads(raw_value)
@@ -94,57 +86,17 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
             return [f"{property_path}: must be {node.get('type')}"]
         return self.api_value_errors(resource_type, node, value, property_path)
 
-    def nested_literal_errors(self, kind, node, value, path):
-        """Reuse provider scalar rules for compact object/array Properties."""
-        node = self._resolve(self.schema(kind), node)
-        errors = []
+    def typed_literal_errors(self, resource_type, property_path, value):
         if is_reference(value):
             parse(value)
-            return errors
-        if isinstance(value, list):
-            for key, relation in (
-                ("minItems", len(value) < node.get("minItems", 0)),
-                ("maxItems", len(value) > node.get("maxItems", len(value))),
-            ):
-                if relation:
-                    errors.append(f"{path}: {key} constraint violated")
-            children = [
-                (str(index), item, node.get("items", {}))
-                for index, item in enumerate(value)
-            ]
-        elif isinstance(value, dict):
-            for key in node.get("required", []):
-                if key not in value:
-                    errors.append(f"{path}.{key}: required property missing")
-            children = [
-                (
-                    key,
-                    item,
-                    node.get("properties", {}).get(
-                        key, node.get("additionalProperties", True)
-                    ),
-                )
-                for key, item in value.items()
-            ]
-        else:
-            children = []
-        for key, item, child in children:
-            child_path = path + ("[]" if key.isdigit() else "." + key)
-            if child is False:
-                errors.append(f"{child_path}: unknown property")
-            elif isinstance(child, dict) and not is_reference(item):
-                child = self._resolve(self.schema(kind), child)
-                raw = (
-                    item
-                    if isinstance(item, str) and child.get("type") == "string"
-                    else json.dumps(item)
-                )
-                errors.extend(
-                    f"{child_path}: {error}"
-                    for error in self._literal_errors(child, raw)
-                )
-                errors.extend(self.nested_literal_errors(kind, child, item, child_path))
-        return errors
+            return []
+        return super().typed_literal_errors(resource_type, property_path, value)
+
+    def _item_errors(self, node, value, resource_type, property_path):
+        if is_reference(value):
+            parse(value)
+            return []
+        return super()._item_errors(node, value, resource_type, property_path)
 
     def api_value_errors(
         self, resource_type: str, node: dict, value, path: str

@@ -3,6 +3,7 @@
 import re
 
 import design.policy_tables as _imports_policy_tables
+from model.literal_values import projection_conflicts, value_shape
 from utils.comparison_rows import Unresolved, put_row
 
 
@@ -33,10 +34,16 @@ def grouped_rows(resource, rows):
 
 
 def validated_rows(kind, rows):
+    conflicts = projection_conflicts(rows)
     unresolved = {}
     for rid, row in rows:
         short = row["property"].removeprefix(kind + ".")
         setting = re.sub(r"\[(?:\d*)\]", "", short.split(".", 1)[0])
+        if setting in conflicts:
+            unresolved.setdefault(setting, (rid, conflicts[setting]))
+            continue
+        if value_shape(row) == "projection":
+            continue
         try:
             put_row({}, short, None)
         except Unresolved as error:

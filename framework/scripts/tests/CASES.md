@@ -408,7 +408,7 @@ remain separate. Dry-run/incomplete/display-failed sessions are retained.
 |---|---|---|---|---|---|---|
 | `import-approval::typed-review` | `check_complete_typed_before_after_and_digest` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L62) | pytest / 1 | Before/After・型・論理参照・物理値・digest | Import Review |
 | `import-approval::inventory` | `check_full_inventory_required` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L77) | pytest / 3 | 全取得レコード・リスク・取得Typeの欠落拒否 | Import Review |
-| `import-approval::changed-review` | `check_changed_review_needs_new_review` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L90) | pytest / 10 | 反映先・操作・値・参照・リスク・基準・Scope・Task・Worktree・型の変更 | Import Review |
+| `import-approval::changed-review` | `check_changed_review_needs_new_review` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L90) | pytest / 11 | 反映先・操作・値・参照・リスク・基準・Scope・Task・Worktree・型・valueShapeの変更 | Import Review |
 | `import-approval::duplicate-risk` | `check_unknown_identity_risk_is_bound` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L110) | pytest / 1 | 既存ID不明の重複リスク | Import Review |
 | `import-approval::type-status` | `check_inventory_status_and_exclusions_remain_visible` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L127) | pytest / 5 | 取得失敗・権限・filter・empty・completeの区別 | Import Review |
 | `import-approval::native-values` | `check_array_boolean_name_and_unreflected_values` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L138) | pytest / 1 | 配列・Boolean・Name tag・未反映値 | Import Review |
@@ -3944,7 +3944,7 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | `change-residual::same-resource` | `check_same_resource_old_metadata_does_not_block_property` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | 同一Resource内の未変更metadata不正と変更Propertyの分離 | Synthetic Models |
 | `change-residual::incoming-save` | `check_save_preparation_rejects_incoming_reference_break` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | missing/stale indexから保存準備で既存Consumer破壊を拒否 | Synthetic Models |
 | `change-residual::final-candidate` | `check_real_final_candidate_guard_never_calls_full` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | 実Git baselineで通常更新とImportの最終候補共通検証、不正変更拒否、Full呼出0 | Synthetic Models |
-| `change-residual::occurrence-shape` | `check_wildcard_occurrence_keeps_scalar_constraints` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 3 | 既存column array処理を再利用しenum不正と余分な階層を拒否 | Synthetic Models |
+| `change-residual::occurrence-shape` | `check_shape_only_change_is_validated` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | valueShapeのみの変更をChange Planが選択し、共通literal検証へ接続。旧enum/階層条件はmodel-literal-values UTへ移管 | Synthetic Models |
 | `change-residual::issue-full` | `check_issue_scan_explicitly_keeps_full` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | Issue ScanでFull Validationを呼び既存エラーを検出 | Synthetic Models |
 | `change-residual::acquired-invalid` | `check_import_rejects_acquired_schema_violation_before_save` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 1 | 取得・Reviewを通過する不正RetentionInDays列挙値も共通Change Validationで実保存前に拒否、Model/Receipt不変、Full呼出0 | Offline acquired fixture |
 | `change-residual::import-index` | `check_import_refreshes_reference_metadata_without_full` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 2 | 実Importでmissing/stale indexのmetadataを取得し正常保存、別targetの品質検証なし、Full呼出0 | Offline acquired fixture |
@@ -3968,7 +3968,7 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | --- | --- | --- | --- | --- | --- | --- |
 | `change-save::prepare` | `check_prepare_save_change_validation` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 24 | 実prepare_editでIMPORT/EDIT共通検証、Name/PENDING_DEPLOY・PLAINTEXTリンク・依存Type変更・JSON参照・Modelツリー外リンク・不在Producerを拒否して旧bytes維持。正常更新・環境変数PENDING_DEPLOY・未変更既存ERROR/参照・コメント・Warning保持と保存、Full呼出禁止 | Synthetic Models / exact IMPORT read scope |
 | `change-save::resource-contracts` | `check_prepare_save_resource_contracts` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 4 | IMPORT/EDITの正常Resource追加を保存、Producer削除で既存Consumerの参照契約を壊す変更を保存前に拒否。IMPORTのConsumer依存読取は権限を拡大せず共通差分抽出を使用 | Synthetic producer/consumer Models |
-| `change-save::column-arrays` | `check_changed_column_array` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 6 | 取得配列の親階層を解いて既存schema検証を再利用、boolean/enum不正要素を拒否し正常な入れ子・配列leafを保持 | Synthetic CloudTrail rows |
+| `change-save::column-arrays` | `check_changed_column_array` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | leaf/projectionのChange/Full入口が同じ共通検証へ接続。boolean/enum/深い階層の条件はmodel-literal-values UTへ移管 | Synthetic CloudTrail rows |
 
 
 ## Deploy CLI guidance and reading authority
@@ -4053,3 +4053,29 @@ These UTs exercise cache units and execution boundaries; existing generation/imp
 | `export-scope::controller-proof` | `test_controller_passes_current_import_proof_to_independence` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 4 | delivery・Producer outputs・未完了Operationの既知ProducerはListExports 0回、未知だけ1回、同一境界Describe共有・次境界Value変更BLOCKED・無効Import除外 | Synthetic offline |
 | `export-scope::hint-conflicts` | `test_planned_hints_cannot_override_unfinished_operation_evidence` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 2 | 今回予定Importと未完了OperationのProducer/Value矛盾はAWS読取前にBLOCKED | Synthetic offline |
 | `export-scope::retained-proof` | `test_no_planned_imports_keep_unfinished_operation_export_proof` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 今回Importなしでも未完了Operationの保存済みValueとAWS実値を比較してBLOCKED | Synthetic offline |
+
+## Explicit Model literal shapes
+
+配列形式の条件組合せは共通UTに集約する。呼出し元UTは保存・取得・Review・比較・変更選択への接続を検証する。ITの入力条件・ケース数は増やさず、既存の取得候補fixtureが取得レコードのvalueShapeを引き継ぐ。
+
+| Case ID | Function | Level | Entrypoint | Mode / count | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `literal-shapes::normalize` | `test_normalize` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 9 | 親選択階層だけ展開し、配列leaf・空の親・末端選択・順序を保持 | Native values |
+| `literal-shapes::hierarchy` | `test_invalid_hierarchy` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 5 | 不正親階層・形式・配列のないprojectionを拒否 | Native values |
+| `literal-shapes::actions` | `test_actions` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 11 | leaf/projection成功、配列型・要素型・空・31件・余分/不足階層を拒否 | Pinned provider schema |
+| `literal-shapes::deep-terminal` | `test_deep_projection_and_terminal_selection` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 1 | 2階層と末端[]の意味を区別 | Pinned provider schema |
+| `literal-shapes::columns` | `test_column_constraints` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 9 | Change UTからboolean/enum/階層の重複条件を移管 | Pinned provider schema |
+| `literal-shapes::empty` | `test_empty_parent_uses_its_schema` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 1 | 空leafと空親の異なるschema制約、件数、不正な末端パス | Synthetic schema |
+| `literal-shapes::terminal` | `test_terminal_projection_constraints` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 10 | 既存比較UTから末端配列のJSON・要素型の重複条件を移管 | Pinned provider schema |
+| `literal-shapes::items` | `test_provider_items` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 7 | 要素型/enum/pattern/数値/union/object/入れ子、$ref、minItems/maxItems | Synthetic schema |
+| `literal-shapes::dynamic` | `test_dynamic_reference_in_array` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 1 | 配列要素でもdynamic referenceの既存検証を維持 | Synthetic schema |
+| `literal-shapes::decode` | `test_decoding_is_explicit` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 1 | 文字列の見た目で形式を推測しない | Explicit row metadata |
+| `literal-shapes::property` | `test_property_projection_retains_array_leaf_and_rejects_ambiguous_groups` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 1 | 取得形式への比較投影、親子所属の推測を拒否 | Explicit rows |
+| `literal-shapes::tree` | `test_projection_tree_retains_membership` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 1 | SDK選択結果の階層を再構築、列の長さ不一致を拒否 | Native projection |
+| `literal-shapes::conflicts` | `test_projection_row_conflicts` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 1 | leaf/projection混在・重複列の曖昧な比較を拒否 | Explicit rows |
+| `literal-shapes::roundtrip` | `check_shape_round_trip_and_display` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 保存/再読込/runtimeで形式情報保持、表示列へ非出力 | Synthetic Model |
+| `literal-shapes::import` | `check_import_array_leaf_comparison` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 2 | leaf/projection候補を取得値と比較 | Synthetic acquisition |
+| `literal-shapes::invalid-metadata` | `check_invalid_shape_is_rejected` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | readerが未知valueShapeを拒否 | Synthetic Model |
+| `literal-shapes::aws` | `check_explicit_array_shape_comparison` | UT | [units/check-model-aws-unit.checks.py](units/check-model-aws-unit.checks.py) | pytest / 2 | 共通parseと実比較処理でleaf/projectionが同じAWS投影に一致 | Offline acquired value |
+| `literal-shapes::iac` | `test_parent_projection_comparison` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | 1/2階層の投影をIaCとの共通比較で保持 | Synthetic template |
+| `literal-shapes::terminal-caller` | `test_terminal_string_array_comparison` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | leaf/projection成功・差分・共通検証エラーの伝播 | Synthetic template |

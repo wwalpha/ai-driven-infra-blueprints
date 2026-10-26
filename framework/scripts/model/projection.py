@@ -273,7 +273,7 @@ def resource_rows(
     rows = []
     for row_id, row in _resource_row_entries(values, identity):
         if (
-            set(row) - {"property", "value", "comment", "document"}
+            set(row) - {"property", "value", "comment", "document", "valueShape"}
             or not {"property", "value", "comment"} <= row.keys()
         ):
             raise ValueError(f"invalid resource row: {row_id}")

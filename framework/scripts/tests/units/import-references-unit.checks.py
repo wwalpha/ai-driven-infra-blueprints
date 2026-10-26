@@ -338,6 +338,7 @@ def check_publication_mixed_array_and_physical_value(tmp_path):
     new = values(
         "CodeBuild.Project", {"VpcConfig.Subnets[]": raw}, rid="009", anchor="consumer"
     )
+    new["desired.row.009-001.valueShape"] = "projection"
     new["observed.row.009-001.value"] = '["subnet-confirmed","subnet-external"]'
     after, before = Expansion(new, {}, {}), Expansion({}, {}, {})
     record = {

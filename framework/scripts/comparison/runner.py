@@ -14,11 +14,12 @@ from design.layout import resource_mode
 from design.layout_schema import GROUPED
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from model.core import ReferenceResolutionError
+from model.literal_values import value_shape
 from model.sources import project_root
 from task_contract_core import task_reads
 from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import Blocked, condition_active
-from utils.comparison_rows import Unresolved, put_row, select
+from utils.comparison_rows import Unresolved, project, put_row, select
 from utils.iac_values import Expression, ResourceReference
 from utils.type_contracts import JsonObject, JsonValue
 
@@ -627,7 +628,10 @@ class Comparison(Inputs):
                         value = Expression("Unverified", [])
                 if "." not in short and not short.endswith("[]"):
                     settings.exact.add(short)
-                put_row(settings.desired, short, value)
+                if value_shape(row) == "projection":
+                    project(settings.desired, short, value)
+                else:
+                    put_row(settings.desired, short, value)
                 settings.sources.setdefault(
                     re.sub(r"\[\d*\]", "", short.split(".", 1)[0]), []
                 ).append(source)

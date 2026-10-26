@@ -65,6 +65,7 @@ from model.importing.sources import (
     selection_records,
     verify_values,
 )
+from model.literal_values import array_paths, normalize, validation_errors
 from model.operations import prepare_edit, publish_edit
 from model.render import owned_artifacts, view_plan
 from model.sources import (
@@ -336,7 +337,13 @@ def _normalize_records(ctx, service, records):
                         seed_rows.append(
                             (
                                 record_id + "-" + str(len(seed_rows) + 1).zfill(3),
-                                {"property": prop, "value": model_literal(raw)},
+                                {
+                                    "property": prop,
+                                    "value": model_literal(raw),
+                                    "valueShape": "projection"
+                                    if array_paths(prop)
+                                    else "leaf",
+                                },
                             )
                         )
                     except ValueError:
@@ -349,7 +356,13 @@ def _normalize_records(ctx, service, records):
                     seed_rows.append(
                         (
                             record_id + "-" + str(len(seed_rows) + 1).zfill(3),
-                            {"property": prop, "value": model_literal(raw)},
+                            {
+                                "property": prop,
+                                "value": model_literal(raw),
+                                "valueShape": "projection"
+                                if array_paths(prop)
+                                else "leaf",
+                            },
                         )
                     )
                 except ValueError:
@@ -436,42 +449,21 @@ def _normalize_records(ctx, service, records):
                         "reason": "AWS optional value not retrieved",
                     }
                     continue
-                expected = inventory_for(ctx).property_schema(prop).get("type")
-                types = {
-                    "string": (str,),
-                    "integer": (int,),
-                    "number": (int, float),
-                    "boolean": (bool,),
-                    "object": (dict,),
-                    "array": (list,),
-                    "null": (type(None),),
-                }
-                allowed = (
-                    expected
-                    if isinstance(expected, list)
-                    else [expected]
-                    if expected
-                    else []
-                )
-                extracted = [value]
-                for _ in range(prop.count("[]")):
-                    if any(not isinstance(item, list) for item in extracted):
-                        raise ValueError(
-                            "AWS array projection does not match the Property path"
-                        )
-                    extracted = [leaf for item in extracted for leaf in item]
-                for item in extracted:
+                shape = "projection" if array_paths(prop) else "leaf"
+                field_path = schema_property(kind, prop)
+                extracted = normalize(field_path, value, shape)
+                for item in extracted.values:
                     if item == m.MISSING or unsafe(item):
                         raise ValueError("sensitive or unresolved AWS value")
-                    if allowed and not any(
-                        type(item) in types.get(name, ()) for name in allowed
-                    ):
-                        raise ValueError(
-                            "AWS value type does not match the registered schema"
-                        )
+                errors = validation_errors(
+                    property_catalog(), kind, field_path, extracted
+                )
+                if errors:
+                    raise ValueError("; ".join(errors))
                 captured[prop] = {
                     "status": "captured",
                     "value": value,
+                    "valueShape": shape,
                     "source": properties[prop].source if prop in properties else "aws",
                 }
             except (

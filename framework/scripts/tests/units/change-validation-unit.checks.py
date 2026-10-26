@@ -329,28 +329,40 @@ def check_prepare_save_resource_contracts(project_workspace, action, case):
 
 
 @pytest.mark.parametrize(
-    "prop,value,valid",
-    [
-        ("EventSelectors[].IncludeManagementEvents", "`[true,false]`", True),
-        ("EventSelectors[].IncludeManagementEvents", '`[true,"false"]`', False),
-        ("EventSelectors[].ReadWriteType", '`["All","ReadOnly"]`', True),
-        ("EventSelectors[].ReadWriteType", '`["All","bad"]`', False),
-        ("EventSelectors[].DataResources[].Type", '`[["AWS::S3::Object"]]`', True),
-        ("EventSelectors[].DataResources[].Values", '`[[["arn:aws:s3"]]]`', True),
-    ],
+    "shape,value",
+    [("leaf", "true"), ("projection", "[true,false]")],
 )
-def check_changed_column_array(project_workspace, prop, value, valid):
-    before = resource("001", "CloudTrail.Trail", "trail", [("Name", "fixture-trail")])
+def check_changed_column_array(project_workspace, shape, value):
+    before = {
+        **service_values("cloudtrail", ["CloudTrail.Trail"]),
+        **resource(
+            "001",
+            "CloudTrail.Trail",
+            "trail",
+            [
+                ("TrailName", "fixture-trail"),
+                ("S3BucketName", "fixture-trail-bucket"),
+                ("IsLogging", "true"),
+            ],
+        ),
+    }
     after = dict(before)
     after.update(
         {
-            "desired.row.001-002.property": "CloudTrail.Trail." + prop,
-            "desired.row.001-002.value": value,
-            "desired.row.001-002.comment": "取得した配列",
+            "desired.row.001-004.property": "CloudTrail.Trail.EventSelectors[].IncludeManagementEvents",
+            "desired.row.001-004.value": value,
+            "desired.row.001-004.valueShape": shape,
+            "desired.row.001-004.comment": "取得した配列",
         }
     )
     result = evaluate(project_workspace, before, after, "cloudtrail")
-    assert (not result.errors) == valid, result.errors
+    assert not result.errors, result.errors
+    full = validation.check_model_inputs(
+        snapshot(project_workspace, after, "cloudtrail").scope.path,
+        after,
+        project_workspace,
+    )
+    assert not full.errors, full.errors
 
 
 @pytest.mark.parametrize(
@@ -1410,19 +1422,28 @@ def check_save_preparation_rejects_incoming_reference_break(
         change.validate_save(old, sources.raw_model(path, reads), reads)
 
 
-@pytest.mark.parametrize(
-    "value,valid", [('`["All"]`', True), ('`["bad"]`', False), ('`[["All"]]`', False)]
-)
-def check_wildcard_occurrence_keeps_scalar_constraints(project_workspace, value, valid):
+def check_shape_only_change_is_validated(project_workspace):
     before = resource(
         "001",
         "CloudTrail.Trail",
         "trail",
         [("EventSelectors[].ReadWriteType", '`["ReadOnly"]`')],
     )
-    after = dict(before, **{"desired.row.001-001.value": value})
+    after = dict(before, **{"desired.row.001-001.valueShape": "projection"})
+    plan = change_plan.compare(
+        snapshot(project_workspace, before, "cloudtrail"),
+        snapshot(project_workspace, after, "cloudtrail"),
+    )
+    assert plan.rows == {"001-001"}
     result = evaluate(project_workspace, before, after, "cloudtrail")
-    assert (not result.errors) == valid, result.errors
+    assert not result.errors, result.errors
+    invalid = dict(after, **{"desired.row.001-001.valueShape": "leaf"})
+    assert evaluate(project_workspace, after, invalid, "cloudtrail").errors
+    assert validation.check_model_inputs(
+        snapshot(project_workspace, invalid, "cloudtrail").scope.path,
+        invalid,
+        project_workspace,
+    ).errors
 
 
 @pytest.mark.parametrize("comment_only", [False, True])

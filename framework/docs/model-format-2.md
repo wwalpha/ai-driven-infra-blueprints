@@ -86,6 +86,40 @@ desired.row.007-002.document={ \
 reader は記号を除き、行間へ JSON 空白を入れて strict JSON を検査します。
 重複 object key、不正定数、構文不正を拒否し、native type と配列順序を保持します。
 
+### Row の値形式
+
+`desired.row.<id>.valueShape` は `leaf`（省略時）または `projection` です。
+`leaf` は正式 Property 自体の1件の値で、Property 自体が配列なら配列のまま検証します。
+`projection` は取得時の Property パスの `[]` 選択階層を保持した列形式です。
+`resourceMode=IMPORT`、値の見た目、schema 検証の成否から形式を推測・再解釈しません。
+
+```properties
+desired.row.001-002.property=QuickSight.DataSource.Permissions[].Actions
+desired.row.001-002.value=`["ActionA","ActionB"]`
+desired.row.001-002.valueShape=leaf
+desired.row.001-002.comment=一つの Permission の Actions
+desired.row.001-003.property=QuickSight.DataSource.Permissions[].Actions
+desired.row.001-003.value=`[["ActionA","ActionB"]]`
+desired.row.001-003.valueShape=projection
+desired.row.001-003.comment=取得した Permissions 全体の Actions 列
+```
+
+検証では projection の選択階層だけを展開します。末端の Property 自体の配列は展開しません。
+末端 `SubnetIds[]` は schema の要素を指すため、leaf は1要素、配列全体は projection です。
+`EventSelectors[].DataResources[].Values` の projection は `[[["arn:aws:s3"]]]` となり、
+検証する末端値は `["arn:aws:s3"]` です。親階層の不正な型はエラーです。
+leaf の空配列は末端 schema、projection の空の親配列は該当する親 schema の件数制約で判定します。
+
+Acquire は取得値ごとに `valueShape` を明示します。候補 Model には取得値と形式情報を併せて記載し、
+Review は保存値・形式・取得値を保持します。観測値も同じ Row の形式契約に従います。
+比較時は leaf を取得形式に揃えますが、多階層の複数 leaf 行から親子所属を推測しません。
+`valueShape` は保存・再読込と変更検出で保持し、Markdown の列には表示しません。
+
+既存の列形式の Row は、取得記録または明示した構築元から projection と確認した場合に限り、
+保存値を変えず `valueShape=projection` を追加します。leaf は移行不要です。
+意味を断定できない Row は未確認として個別に確認し、再取得は `/import` の権限と同意に従います。
+reader・検証・保存による自動移行や legacy fallback はありません。
+
 ## 参照宣言
 
 `desired.reference.<refid>.*` は保存された参照断片の意味を記録します。
