@@ -25,34 +25,6 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
-def check_workflow_contract():
-    prompt = ROOT / "framework/prompts/codex/04_deploy.md"
-    text = prompt.read_text(encoding="utf-8")
-    reading = M.markdown_sections(text)["read-before-changing-files"].split(
-        "\n### Conditional rule readings", 1
-    )[0]
-    rules = M.rule_readings(ROOT, prompt, reading, engine="cloudformation")
-    assert {
-        "task-contract.md",
-        "project-configuration.md",
-        "cloudformation.md",
-        "observed-values.md",
-        "model-information.md",
-        "detailed-design.md",
-        "loop-engineering.md",
-    } <= {p.name for p in rules}
-    assert (
-        rules[ROOT / "framework/rules/task-contract.md"]["text"]
-        == (ROOT / "framework/rules/task-contract.md").read_text()
-    )
-    assert (
-        rules[ROOT / "framework/rules/observed-values.md"]["text"]
-        == (ROOT / "framework/rules/observed-values.md").read_text()
-    )
-    skill = (ROOT / ".agents/skills/deploy/SKILL.md").read_text()
-    assert "in full" in skill and "UTC epoch" not in skill
-
-
 def check_dependencies_and_timing():
     with (
         patch.object(M.importlib, "import_module", side_effect=ImportError),
@@ -99,35 +71,6 @@ def check_dependencies_and_timing():
             pass
         event = json.loads(path.read_text())
         assert event["result"] == "FAIL" and event["phase"] == "authenticationContext"
-
-
-def check_rule_section_boundaries():
-    text = "# Rules\r\n\r\n## Required\r\nkeep\r\n```md\r\n## Required\r\n```\r\n### Child\r\nchild\r\n## Unrelated\r\nomit\r\n"
-    text = text.replace(
-        "## Required\r\nkeep", '<a id="explicit"></a>\r\n\r\n## Required\r\nkeep'
-    )
-    sections = M.markdown_sections(text)
-    assert sections["explicit"] == sections["required"]
-    assert "child" in sections["required"] and "omit" not in sections["required"]
-    for ambiguous in (
-        "## Duplicate\nsame\n## Duplicate\nsame\n",
-        '<a id="shared"></a>\n## One\nfirst\n<a id="shared"></a>\n## Two\nsecond\n',
-    ):
-        try:
-            M.markdown_sections(ambiguous)
-        except ValueError as error:
-            assert "ambiguous rule section" in str(error)
-        else:
-            raise AssertionError("duplicate heading/anchor accepted")
-    assert "same" in M.markdown_sections('<a id="same"></a>\n## Same\nrule\n')
-    # Required child exceptions and stop conditions remain inside the selected range.
-    nested = (
-        "## Required\nrule\n### Exception\nstop on missing input\n## Optional\nomit\n"
-    )
-    assert (
-        M.markdown_sections(nested)["required"]
-        == "## Required\nrule\n### Exception\nstop on missing input\n"
-    )
 
 
 def check_identity_failure_precedes_preparation(tmp_path):

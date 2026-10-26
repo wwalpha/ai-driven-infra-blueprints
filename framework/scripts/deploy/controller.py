@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import sys
 import time
 from collections.abc import Iterable, Sequence
@@ -24,6 +25,7 @@ from utils.type_contracts import JsonValue as JsonValue
 import deploy.failures as _imports_deploy_failures
 from deploy import (
     change_sets,
+    cli_guidance,
     delivery,
     inputs,
     observed,
@@ -719,7 +721,11 @@ def controller_main(
     root: Path | None = None,
     timing: Timing | None = None,
 ) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Deploy the current authorized CloudFormation scope independently.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=cli_guidance.CONTROLLER_HELP,
+    )
     parser.add_argument("--environment", required=True)
     selector = parser.add_mutually_exclusive_group(required=True)
     selector.add_argument("--alias")
@@ -736,7 +742,12 @@ def controller_main(
         help="external JSONL phase durations, including authentication and AWS calls",
     )
     parser.add_argument("--profile")
-    parser.add_argument("--approve-change-set", action="append", default=[])
+    parser.add_argument(
+        "--approve-change-set",
+        action="append",
+        default=[],
+        help="actual current ChangeSet ID explicitly approved by the Human; repeat per approved ID",
+    )
     parser.add_argument(
         "--recover-operations",
         action="store_true",
@@ -764,14 +775,23 @@ def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
     parser.add_argument("--timing-log", type=Path)
     args, _ = parser.parse_known_args(argv)
     root = (root if root is not None else Path.cwd()).resolve()
+    reported = False
     try:
         timing = Timing(root, args.timing_log)
         with timing.phase("controller"):
             result = controller_main(argv, root, timing)
+            reported = True
             # A nonzero result is a failed invocation even when handled internally.
             if result:
                 raise Blocked("controller stopped; see operation journal/diagnostics")
             return result
     except (OSError, ValueError, Blocked) as error:
+        if not reported:
+            print(
+                json.dumps(
+                    {"result": "STOPPED", **cli_guidance.stopped("CONTROLLER", error)},
+                    indent=2,
+                )
+            )
         print(f"CloudFormation controller: BLOCKED ({error})", file=sys.stderr)
         return 2

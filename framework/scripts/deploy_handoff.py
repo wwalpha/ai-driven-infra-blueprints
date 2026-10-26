@@ -7,13 +7,17 @@ import sys
 from pathlib import Path
 
 import worktree_task
-from deploy import handoff
+from deploy import cli_guidance, handoff
 from task_contract_core import task_snapshot
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=cli_guidance.HANDOFF_HELP,
+    )
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
     parser.add_argument("--failure", type=Path, required=True)
     parser.add_argument("--discard-failure", action="store_true")
@@ -29,7 +33,14 @@ def main(argv=None):
     try:
         if args.discard_failure:
             handoff.discard_failure(root, args.failure)
-            print(json.dumps({"discardedFailure": str(args.failure)}))
+            print(
+                json.dumps(
+                    {
+                        "discardedFailure": str(args.failure),
+                        **cli_guidance.handoff_result(discarded=True),
+                    }
+                )
+            )
             return 0
         failure = read_sealed(root, handoff.external(root, args.failure))
         with (
@@ -56,9 +67,23 @@ def main(argv=None):
         request = worktree_task.deploy_checkpoint(
             root, Path(task_snapshot(root).name).stem, request_path
         )
-        print(json.dumps(request, indent=2))
+        print(
+            json.dumps(
+                {
+                    **request,
+                    **cli_guidance.handoff_result(request),
+                },
+                indent=2,
+            )
+        )
         return 0
     except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+        print(
+            json.dumps(
+                {"result": "STOPPED", **cli_guidance.stopped("HANDOFF", error)},
+                indent=2,
+            )
+        )
         print(f"Deploy handoff: BLOCKED: {error}", file=sys.stderr)
         return 2
 

@@ -24,7 +24,13 @@ from utils.type_contracts import JsonValue as JsonValue
 
 import deploy.context as context
 import deploy.observed as _dependency_deploy_observed
-from deploy import generation_resume, handoff, operation_journal, temporary
+from deploy import (
+    cli_guidance,
+    generation_resume,
+    handoff,
+    operation_journal,
+    temporary,
+)
 from deploy.model_cache import RunModels
 from deploy.scheduler import run_group
 from deploy.timing import Timing
@@ -123,6 +129,9 @@ def _callback_run_deploy_sync_once(backend, save, run_context, units, /):
         return True
     except Exception as error:
         backend.sync_failed = True
+        run_context[
+            "generationFailure" if stage == "GENERATION" else "observedFailure"
+        ] = cli_guidance.safe_error(error)
         if stage == "GENERATION":
             if backend._generation_finalized and not run_context.get("generationError"):
                 run_context["generationReportError"] = str(error)
@@ -387,10 +396,12 @@ def run(
     resources = ExitStack()
     backend = None
     journal = None
+    stage = "TARGET_SELECTION"
     try:
         selected = context.load_target(
             root, args.environment, args.aws_account_id, args.alias
         )
+        stage = "TASK_AUTHORITY"
         initial_task = task_snapshot(root, live=True)
         with task_reads(root, snapshot=initial_task):
             phase = active_scope(
@@ -403,6 +414,7 @@ def run(
             )
             if args.pause_after_group and phase != "update":
                 raise Blocked("--pause-after-group requires the explicit update phase")
+            stage = "AUTHENTICATION"
             with timing.phase("authenticationContext"):
                 target = context.check_deploy_context(
                     root,
@@ -413,6 +425,7 @@ def run(
                 )
             if target["iacEngine"] != "cloudformation":
                 raise Blocked("controller requires CloudFormation target")
+            stage = "RECOVERY"
             directory = args.alias or args.aws_account_id
             journal = operation_journal.location(target)
             resources.enter_context(operation_journal.locked(journal))
@@ -433,6 +446,17 @@ def run(
             operation_journal.recover(backend, journal, initial_task, args.stack)
             operation_journal.publication_conflicts(backend, initial_task)
             if args.recover_operations and not backend.pending_publication:
+                print(
+                    json.dumps(
+                        {
+                            "result": "RECOVERED",
+                            **cli_guidance.controller_result(
+                                "RECOVERED", {}, args, root
+                            ),
+                        },
+                        indent=2,
+                    )
+                )
                 return 0
             run_context = {"modelInputs": {}, **backend.pending_publication}
             models = getattr(backend, "recovered_models", None)
@@ -442,6 +466,7 @@ def run(
                 run_context["modelInputs"].update(models.run_context["modelInputs"])
                 models.run_context = run_context
             resources.enter_context(model_session(models))
+            stage = "INPUTS"
             limit, units = load_units(root, args.environment, directory, args.stack)
             if args.sequential:
                 limit = 1
@@ -481,8 +506,22 @@ def run(
                 if run_context.get("pendingGeneration"):
                     generation_resume.run(backend)
                 backend.save()
+                print(
+                    json.dumps(
+                        {
+                            "result": "STOPPED"
+                            if run_context.get("pendingGeneration")
+                            else "RECOVERED",
+                            **cli_guidance.controller_result(
+                                "RECOVERED", run_context, args, root
+                            ),
+                        },
+                        indent=2,
+                    )
+                )
                 return 2 if run_context.get("pendingGeneration") else 0
             operation_journal.adopt_prepared(backend, journal, args.approve_change_set)
+        stage = "CONTROLLER"
         result = run_deploy(
             units, limit, run_context, backend, backend.save, args.pause_after_group
         )
@@ -492,6 +531,14 @@ def run(
             json.dumps(
                 {
                     "result": result,
+                    **cli_guidance.controller_result(
+                        result,
+                        run_context,
+                        args,
+                        root,
+                        repair_failure=failure,
+                        task_text=initial_task.text,
+                    ),
                     "repairFailure": failure,
                     "states": {
                         name: {
@@ -516,6 +563,11 @@ def run(
         RuntimeError,
         subprocess.SubprocessError,
     ) as error:
+        print(
+            json.dumps(
+                {"result": "STOPPED", **cli_guidance.stopped(stage, error)}, indent=2
+            )
+        )
         print(f"CloudFormation controller: BLOCKED: {error}", file=sys.stderr)
         return 2
     finally:

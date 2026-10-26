@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from deploy import cli_guidance
 from utils.aws.identity import (
     IdentityError,
     execution_account,
@@ -74,7 +75,11 @@ def check_deploy_context(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=cli_guidance.CONTEXT_HELP,
+    )
     parser.add_argument("--environment", required=True)
     selector = parser.add_mutually_exclusive_group(required=True)
     selector.add_argument("--aws-account-id")

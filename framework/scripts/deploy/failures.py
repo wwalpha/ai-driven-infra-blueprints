@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import re
 
+from model.core import ReferenceDiagnosticError
+from utils.cloudformation.environment import EnvironmentValuePending
 from utils.json_format import fingerprint
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
@@ -23,6 +25,16 @@ AUTH_CODES = {
     "InvalidClientTokenId",
     "UnrecognizedClientException",
 }
+
+
+def dependency_wait(error):
+    return isinstance(error, EnvironmentValuePending) or (
+        isinstance(error, ReferenceDiagnosticError)
+        and bool(error.diagnostics)
+        and all(
+            d.get("category") == "REFERENCE_PENDING_DEPLOY" for d in error.diagnostics
+        )
+    )
 
 
 def exception(state: StackState, error: Exception, stage: str) -> None:
@@ -55,6 +67,9 @@ def exception(state: StackState, error: Exception, stage: str) -> None:
         if state.get("status") == "RUNNING"
         else "NOT_EXECUTED",
     }
+
+    if dependency_wait(error):
+        state["failure"]["dependencyWait"] = True
 
 
 def event(event: AwsResponse, document: AwsResponse) -> JsonObject:

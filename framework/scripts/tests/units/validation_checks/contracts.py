@@ -200,7 +200,7 @@ def _callback_check_update_flow_prompt_validate(prompt):
     assert len(cfn_commands) == 1 and cfn_commands[0][1].endswith(
         "/cloudformation-deploy.py"
     )
-    for option in ("--environment", "--alias", "--stack", "--state", "--profile"):
+    for option in ("--environment", "--alias", "--stack", "--profile"):
         assert option in cfn_commands[0], option
     for token in (
         "responsible for final preflight",
@@ -211,9 +211,10 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "validate-template",
         "MaxConcurrentStacks",
         "COMPLETE",
-        "--resume",
+        "independent run",
     ):
         assert token in cfn, token
+    assert "--state" not in cfn and "--resume" not in cfn
     terraform = engine(deploy, "Terraform preflight and apply")
     tf_commands = commands(terraform)
     assert len(tf_commands) == 2 and all(
@@ -252,6 +253,9 @@ def _callback_check_update_flow_prompt_validate(prompt):
     assert all(
         "must not rerun" in line for line in cfn_post.splitlines() if "--write" in line
     )
+    assert (
+        "--recover-operations" in cfn_post and "same controller session" not in cfn_post
+    )
     tf_post = engine(post, "Terraform")
     for token in (
         "Terraform output",
@@ -274,6 +278,7 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "Do not reuse prior approval",
     ):
         assert token in approval, token
+    assert "--resume" not in approval and "independent invocation" in approval
     finish = sections["Verify and finish"]
     loop = commands(finish)
     assert len(loop) == 1 and loop[0][1].endswith("/blueprint-loop.py")

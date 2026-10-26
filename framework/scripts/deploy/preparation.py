@@ -23,10 +23,11 @@ from model.sources import stack_snapshot
 from utils.aws.identity import execution_account, select_profile
 from utils.aws_mappings import definition_root
 from utils.file_operations import sha
-from utils.markdown_format import markdown_sections, rule_readings
 from utils.project_targets import load_target
 
+from deploy import cli_guidance
 from deploy.inputs import deployment_input_paths, load_units, paths
+from deploy.required_readings import required_readings
 from deploy.timing import Timing
 
 
@@ -189,18 +190,10 @@ def prepare(root, args, run, timing):
         contract = run / "contract.md"
         contract.write_text(text, encoding="utf-8")
     with timing.phase("documentRead"):
-        prompt = definition_root(root) / "framework/prompts/codex/04_deploy.md"
-        reading = markdown_sections(prompt.read_text(encoding="utf-8"))[
-            "read-before-changing-files"
-        ]
-        reading = reading.split("\n### Conditional rule readings", 1)[0]
-        rules = rule_readings(root, prompt, reading, engine="cloudformation")
-        if not rules:
-            raise ValueError("deployment prompt has no required rule readings")
+        rules = required_readings(root)
         required = [
             "AGENTS.md",
             "project.json",
-            "framework/prompts/codex/04_deploy.md",
             ".agents/skills/deploy/SKILL.md",
         ]
         sources.update(rules)
@@ -369,7 +362,7 @@ def model_input_paths(root, scope):
 def register(root, path, timing):
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["runtime"]["python"] != sys.executable:
-        raise ValueError(
+        raise cli_guidance.InputChanged(
             "use the same repository and Python interpreter as preparation"
         )
     if any(
@@ -377,13 +370,13 @@ def register(root, path, timing):
         for key, value in plan["environment"].items()
         if key in {"PATH", "PYTHONPATH"}
     ):
-        raise ValueError("prepared runtime environment changed")
+        raise cli_guidance.InputChanged("prepared runtime environment changed")
     if time.perf_counter() < plan["reviewStarted"]:
-        raise ValueError("preparation clock reset; prepare again")
+        raise cli_guidance.InputChanged("preparation clock reset; prepare again")
     if {name: shutil.which(name) for name in plan["runtime"]["tools"]} != plan[
         "runtime"
     ]["tools"]:
-        raise ValueError("prepared command paths changed")
+        raise cli_guidance.InputChanged("prepared command paths changed")
     with timing.phase("documentReview", started=plan["reviewStarted"]):
         safe_path = _imports_task_contract.safe_path
         for relative, digest in plan["inputs"].items():
@@ -394,21 +387,23 @@ def register(root, path, timing):
             )
             safe_path(base, relative)
             if not (base / relative).is_file() or sha(base / relative) != digest:
-                raise ValueError(
+                raise cli_guidance.InputChanged(
                     f"preparation input changed or deleted; review the change and necessary inputs, then prepare again: {relative}"
                 )
         if any(
             file_revision(root / p) != identity
             for p, identity in plan["inputIdentities"].items()
         ):
-            raise ValueError("deferred deployment input changed; prepare again")
+            raise cli_guidance.InputChanged(
+                "deferred deployment input changed; prepare again"
+            )
         if model_input_paths(root, plan["scope"]) != plan["modelInputPaths"]:
-            raise ValueError(
+            raise cli_guidance.InputChanged(
                 "preparation Model dependency file set changed; prepare again"
             )
         contract = Path(plan["contract"]).resolve()
         if contract.is_relative_to(root) or sha(contract) != plan["contractDigest"]:
-            raise ValueError("contract candidate changed; prepare again")
+            raise cli_guidance.InputChanged("contract candidate changed; prepare again")
     with timing.phase("contractRegistration"):
         result = subprocess.run(
             [
@@ -473,7 +468,11 @@ def run_controller(root, path):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=cli_guidance.PREPARATION_HELP,
+    )
     parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -552,6 +551,9 @@ def main(argv=None):
             json.dumps(
                 {
                     "result": "REGISTERED" if args.register else "PREPARED_OFFLINE",
+                    **cli_guidance.preparation_result(
+                        root, run / "preparation.json", bool(args.register)
+                    ),
                     "plan": str(run / "preparation.json"),
                     "timing": str(timing.path),
                     "preparationSeconds": plan["preparationSeconds"],
@@ -562,6 +564,22 @@ def main(argv=None):
         )
         return 0
     except (OSError, ValueError, RuntimeError, ImportError, KeyError) as error:
+        print(
+            json.dumps(
+                {
+                    "result": "STOPPED",
+                    **cli_guidance.stopped(
+                        "CONTROLLER_LAUNCH"
+                        if args.run_controller
+                        else "REGISTRATION"
+                        if args.register
+                        else "PREPARATION",
+                        error,
+                    ),
+                },
+                indent=2,
+            )
+        )
         print(
             f"Deployment preparation: BLOCKED ({error}); timing: {timing.path}",
             file=sys.stderr,

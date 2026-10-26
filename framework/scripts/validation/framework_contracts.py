@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+import deploy.required_readings as _imports_deploy_readings
 import utils.markdown_format as _imports_utils_markdown_format
 from task_contract_core import TASK_TYPES
 from utils.aws_mappings import definition_root
@@ -198,6 +199,9 @@ def check_framework_rule_readings(findings, root):
                     )
                 }
                 readings = rule_readings(root, source, reading)
+                if source.name == "04_deploy.md":
+                    # Deploy execution selects Rules in Python; prose links are static references only.
+                    readings = _imports_deploy_readings.required_readings(root)
                 if source.name == "08_import.md":
                     worktree = root / ".agents/skills/worktree/SKILL.md"
                     if worktree in readings:

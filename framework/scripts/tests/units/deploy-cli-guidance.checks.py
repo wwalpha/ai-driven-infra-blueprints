@@ -1,0 +1,560 @@
+#!/usr/bin/env python3
+"""Presentation contracts: no AWS calls, mutation, inferred approval or normal retries."""
+
+import ast
+import copy
+import json
+import re
+import shlex
+import subprocess
+import sys
+from argparse import Namespace
+from contextlib import nullcontext
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import deploy_handoff
+import pytest
+from deploy import cli_guidance as G
+from deploy import controller, failures, preparation, run_context
+from deploy.timing import Timing
+from model.core import ReferenceResolutionError
+from utils.aws.identity import IdentityError
+from utils.cloudformation.environment import EnvironmentValuePending
+
+ROOT = Path(__file__).resolve().parents[4]
+ARGS = Namespace(
+    environment="dev",
+    alias="app",
+    aws_account_id=None,
+    stack=["app-network", "app-worker"],
+    profile="app dev",
+    sequential=True,
+)
+
+
+@pytest.mark.parametrize(
+    ("result", "context", "kind", "stage"),
+    [
+        ("COMPLETE", {}, "VERIFY_TASK", "COMPLETE"),
+        ("GROUP_COMPLETE", {}, "UPDATE_HANDOFF", "GROUP_COMPLETE"),
+        ("RECOVERED", {}, "REVIEW_CURRENT_INPUTS", "RECOVERY"),
+        (
+            "STOPPED",
+            {
+                "states": {
+                    "a": {
+                        "status": "BLOCKED",
+                        "failure": {"classification": "APPROVAL"},
+                    }
+                }
+            },
+            "HUMAN_APPROVAL",
+            "CHANGESET_REVIEW",
+        ),
+        (
+            "STOPPED",
+            {
+                "states": {
+                    "a": {
+                        "status": "BLOCKED",
+                        "failure": {"classification": "AUTHORIZATION"},
+                    }
+                }
+            },
+            "CONTEXT_REVIEW",
+            "AWS_AUTHORIZATION",
+        ),
+        (
+            "STOPPED",
+            {
+                "states": {
+                    "a": {
+                        "status": "BLOCKED",
+                        "failure": {
+                            "classification": "NEEDS_HUMAN",
+                            "dependencyWait": True,
+                        },
+                    }
+                }
+            },
+            "DEPENDENCY_WAIT",
+            "PREPARATION",
+        ),
+        (
+            "STOPPED",
+            {
+                "states": {
+                    "a": {
+                        "status": "BLOCKED",
+                        "failure": {
+                            "stage": "CHANGESET_REVIEW",
+                            "classification": "NEEDS_HUMAN",
+                        },
+                    }
+                }
+            },
+            "HUMAN_REVIEW",
+            "CHANGESET_REVIEW",
+        ),
+        (
+            "STOPPED",
+            {
+                "states": {
+                    "a": {
+                        "status": "FAILED",
+                        "failure": {
+                            "stage": "EXECUTE",
+                            "classification": "NEEDS_HUMAN",
+                        },
+                    }
+                }
+            },
+            "HUMAN_REVIEW",
+            "EXECUTE",
+        ),
+        (
+            "STOPPED",
+            {"observedError": "secret=never-return"},
+            "HUMAN_REVIEW",
+            "OBSERVED",
+        ),
+        (
+            "STOPPED",
+            {"generationError": "secret=never-return"},
+            "HUMAN_REVIEW",
+            "GENERATION",
+        ),
+        (
+            "STOPPED",
+            {"pendingGeneration": {"ec2.md": {"reason": "REFERENCE_PENDING_DEPLOY"}}},
+            "DEPENDENCY_WAIT",
+            "GENERATION",
+        ),
+        (
+            "STOPPED",
+            {
+                "states": {
+                    "a": {
+                        "status": "BLOCKED",
+                        "reason": "PENDING_DEPLOY approval recover execute repair",
+                    }
+                }
+            },
+            "HUMAN_REVIEW",
+            "CONTROLLER",
+        ),
+    ],
+)
+def check_controller_routes(result, context, kind, stage):
+    original = copy.deepcopy(context)
+    report = G.controller_result(
+        result, context, ARGS, ROOT, repair_failure="/tmp/failure.json"
+    )
+    assert report["nextAction"]["type"] == kind and report["stage"] == stage
+    assert report["nextAction"]["command"] is None
+    assert "never-return" not in json.dumps(report)
+    assert context == original
+
+
+@pytest.mark.parametrize("authority", [False, True])
+@pytest.mark.parametrize(
+    "classification",
+    ["IAC_CANDIDATE", "NEEDS_HUMAN", "APPROVAL", "AUTHORIZATION", "DEPENDENCY_WAIT"],
+)
+def check_repair_candidate_requires_structured_cause_and_authority(
+    authority, classification
+):
+    context = {
+        "states": {
+            "a": {"status": "BLOCKED", "failure": {"classification": classification}}
+        }
+    }
+    report = G.controller_result(
+        "STOPPED",
+        context,
+        ARGS,
+        ROOT,
+        repair_failure="/tmp/failure.json",
+        task_text="- External IaC repair: `allowed`" if authority else "",
+    )
+    assert (report["nextAction"]["type"] == "INVESTIGATE_IAC") == (
+        authority and classification == "IAC_CANDIDATE"
+    )
+    assert report["nextAction"]["command"] is None
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"status": "RUNNING"},
+        {"status": "BLOCKED", "failure": {"executionState": "UNKNOWN"}},
+    ],
+)
+def check_unknown_execution_only_proposes_original_recovery(tmp_path, state):
+    root = tmp_path / "repo with spaces"
+    context = {"taskFile": "tasks/current-task.md", "states": {"a": state}}
+    report = G.controller_result("STOPPED", context, ARGS, root)
+    command = report["nextAction"]["command"]
+    argv = shlex.split(command.split(" && ", 1)[1])
+    assert argv[0:2] == ["env", "BLUEPRINT_TASK_FILE=tasks/current-task.md"]
+    assert argv[argv.index("--profile") + 1] == "app dev"
+    assert argv.count("--stack") == 2 and argv[-1] == "--recover-operations"
+    assert "--approve-change-set" not in argv and "--resume" not in argv
+    context.pop("taskFile")
+    assert (
+        G.controller_result("STOPPED", context, ARGS, root)["nextAction"]["command"]
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage", "error", "kind"),
+    [
+        ("PREPARATION", ValueError("private-secret"), "HUMAN_REVIEW"),
+        ("REGISTRATION", G.InputChanged("private-secret"), "PREPARE_AGAIN"),
+        ("REGISTRATION", OSError("private-secret"), "HUMAN_REVIEW"),
+        ("TASK_AUTHORITY", ValueError("private-secret"), "CONTEXT_REVIEW"),
+        ("AUTHENTICATION", IdentityError("private-secret"), "CONTEXT_REVIEW"),
+        ("TARGET_SELECTION", RuntimeError("private-secret"), "CONTEXT_REVIEW"),
+        ("HANDOFF", ValueError("private-secret"), "HUMAN_REVIEW"),
+    ],
+)
+def check_exception_routes_do_not_echo_secrets(stage, error, kind):
+    report = G.stopped(stage, error)
+    assert (
+        report["nextAction"]["type"] == kind and report["nextAction"]["command"] is None
+    )
+    assert "private-secret" not in json.dumps(report)
+    assert report["cause"]["detailDigest"]
+
+
+def check_pending_failure_uses_type_not_prose():
+    state = {"status": "BLOCKED"}
+    failures.exception(state, EnvironmentValuePending("secret"), "PREPARATION")
+    assert state["failure"]["classification"] == "NEEDS_HUMAN"
+    assert state["failure"]["dependencyWait"] is True
+    failures.exception(state, ValueError("PENDING_DEPLOY"), "PREPARATION")
+    assert state["failure"]["classification"] == "NEEDS_HUMAN"
+
+
+@pytest.mark.parametrize(
+    ("script", "module", "tokens"),
+    [
+        (
+            "deploy_preparation.py",
+            "deploy/preparation.py",
+            ["Offline Preparation", "--register", "--run-controller", "--service"],
+        ),
+        (
+            "cloudformation-deploy.py",
+            "deploy/controller.py",
+            [
+                "--pause-after-group",
+                "--recover-operations",
+                "--approve-change-set",
+                "MaxConcurrentStacks",
+                "GROUP_COMPLETE",
+            ],
+        ),
+        (
+            "deploy_handoff.py",
+            "deploy_handoff.py",
+            ["inputRefs", "modelRefs", "--discard-failure", "repair-validate"],
+        ),
+        (
+            "check-deploy-context.py",
+            "aws_context.py",
+            [
+                "terraform init",
+                "terraform plan -out=",
+                "terraform apply",
+                "partial",
+                "AWS_PROFILE",
+            ],
+        ),
+    ],
+)
+def check_cli_help_and_example_options(script, module, tokens):
+    result = subprocess.run(
+        [sys.executable, "-B", str(ROOT / "framework/scripts" / script), "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert all(token in result.stdout for token in tokens)
+    tree = ast.parse((ROOT / "framework/scripts" / module).read_text())
+    options = {"--help"} | {
+        a.value
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "add_argument"
+        for a in n.args
+        if isinstance(a, ast.Constant)
+        and isinstance(a.value, str)
+        and a.value.startswith("--")
+    }
+    for line in result.stdout.splitlines():
+        if script in line and line.strip().startswith(("python3 ", "env ")):
+            for option in re.findall(r"--[a-z][a-z-]+", line):
+                assert option in options, (script, option)
+    if script == "cloudformation-deploy.py":
+        assert all(
+            old not in result.stdout
+            for old in ["--state", "--resume", "--repair-result", "--observe-only"]
+        )
+
+
+@pytest.mark.parametrize("registered", [False, True])
+def check_preparation_success_output(tmp_path, capsys, registered):
+    root, logs = tmp_path / "repo", tmp_path / "logs"
+    root.mkdir()
+    logs.mkdir()
+    plan = logs / "preparation.json"
+    with patch.object(
+        preparation,
+        "register" if registered else "prepare",
+        return_value={"preparationSeconds": 0, "within60Seconds": True},
+    ):
+        args = ["--repository-root", str(root)]
+        args += (
+            ["--register", str(plan)]
+            if registered
+            else [
+                "--environment",
+                "dev",
+                "--alias",
+                "app",
+                "--stack",
+                "App",
+                "--service",
+                "ec2",
+                "--task-file",
+                "tasks/deploy-app.md",
+                "--log-dir",
+                str(logs),
+            ]
+        )
+        assert preparation.main(args) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["result"] == ("REGISTERED" if registered else "PREPARED_OFFLINE")
+    assert {"plan", "timing", "preparationSeconds", "within60Seconds"} <= report.keys()
+    if registered:
+        argv = shlex.split(report["nextAction"]["command"])
+        assert argv[-2:] == ["--run-controller", str(plan)]
+    else:
+        assert report["nextAction"]["command"] is None
+
+
+def check_preparation_and_handoff_keep_failure_exit_codes(tmp_path, capsys):
+    with patch.object(preparation, "register", side_effect=G.InputChanged("secret")):
+        assert (
+            preparation.main(
+                [
+                    "--repository-root",
+                    str(tmp_path / "repo"),
+                    "--register",
+                    str(tmp_path / "plan.json"),
+                ]
+            )
+            == 1
+        )
+    assert json.loads(capsys.readouterr().out)["nextAction"]["type"] == "PREPARE_AGAIN"
+    with patch.object(
+        deploy_handoff.handoff, "discard_failure", side_effect=ValueError("secret")
+    ):
+        assert (
+            deploy_handoff.main(
+                [
+                    "--repository-root",
+                    str(tmp_path / "repo"),
+                    "--failure",
+                    str(tmp_path / "failure.json"),
+                    "--discard-failure",
+                ]
+            )
+            == 2
+        )
+    assert json.loads(capsys.readouterr().out)["nextAction"]["command"] is None
+
+
+@pytest.mark.parametrize("blocked", [False, True])
+def check_recovery_exit_reports_no_new_deploy(tmp_path, capsys, blocked):
+    target = {
+        "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+        "iacEngine": "cloudformation",
+    }
+    args = Namespace(
+        **vars(ARGS),
+        recover_operations=True,
+        pause_after_group=False,
+        approve_change_set=[],
+    )
+    backend = SimpleNamespace(workdir=None, pending_publication={})
+    with (
+        patch.object(run_context.context, "load_target", return_value=target),
+        patch.object(run_context.context, "check_deploy_context", return_value=target),
+        patch.object(
+            run_context, "task_snapshot", return_value=SimpleNamespace(text="")
+        ),
+        patch.object(run_context, "task_reads", return_value=nullcontext()),
+        patch.object(run_context, "active_scope", return_value="deploy"),
+        patch.object(
+            run_context.operation_journal, "locked", return_value=nullcontext()
+        ),
+        patch.object(run_context.temporary, "reclaim"),
+        patch.object(run_context.temporary, "create"),
+        patch.object(
+            run_context.operation_journal,
+            "recover",
+            side_effect=ValueError("private-secret") if blocked else None,
+        ),
+        patch.object(run_context.operation_journal, "publication_conflicts"),
+        patch.object(run_context, "run_deploy") as deploy,
+    ):
+        assert run_context.run(
+            args, tmp_path, Timing(tmp_path), ROOT, Mock(return_value=backend), Mock()
+        ) == (2 if blocked else 0)
+        deploy.assert_not_called()
+    report = json.loads(capsys.readouterr().out)
+    assert report["result"] == ("STOPPED" if blocked else "RECOVERED")
+    assert report["nextAction"]["command"] is None
+    assert "private-secret" not in json.dumps(report)
+
+
+@pytest.mark.parametrize(
+    ("result", "extra", "stage"),
+    [
+        ("COMPLETE", {}, "COMPLETE"),
+        ("GROUP_COMPLETE", {}, "GROUP_COMPLETE"),
+        ("STOPPED", {"observedError": "private-secret"}, "OBSERVED"),
+        ("STOPPED", {"generationError": "private-secret"}, "GENERATION"),
+    ],
+)
+def check_controller_final_json_keeps_state_and_exit_code(
+    tmp_path, capsys, result, extra, stage
+):
+    target = {
+        "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+        "iacEngine": "cloudformation",
+    }
+    args = Namespace(
+        **vars(ARGS),
+        recover_operations=False,
+        pause_after_group=False,
+        approve_change_set=[],
+    )
+    backend = SimpleNamespace(workdir=None, pending_publication={})
+    context = {
+        "taskFile": "tasks/current.md",
+        "states": {
+            "a": {
+                "status": "SUCCESS",
+                "observedSynced": True,
+                "approvedChangeDigest": "omit",
+            }
+        },
+        "metrics": {"example": 1},
+        "inputDigests": {},
+        **extra,
+    }
+    with (
+        patch.object(run_context.context, "load_target", return_value=target),
+        patch.object(run_context.context, "check_deploy_context", return_value=target),
+        patch.object(
+            run_context, "task_snapshot", return_value=SimpleNamespace(text="")
+        ),
+        patch.object(run_context, "task_reads", return_value=nullcontext()),
+        patch.object(run_context, "active_scope", return_value="deploy"),
+        patch.object(
+            run_context.operation_journal, "locked", return_value=nullcontext()
+        ),
+        patch.object(run_context.temporary, "reclaim"),
+        patch.object(run_context.temporary, "create"),
+        patch.object(run_context.operation_journal, "recover"),
+        patch.object(run_context.operation_journal, "publication_conflicts"),
+        patch.object(run_context.operation_journal, "save"),
+        patch.object(run_context.operation_journal, "adopt_recovered"),
+        patch.object(run_context.operation_journal, "adopt_prepared"),
+        patch.object(run_context, "RunModels"),
+        patch.object(run_context, "model_session", return_value=nullcontext()),
+        patch.object(run_context, "new_context", return_value=context),
+        patch.object(run_context, "run_deploy", return_value=result),
+        patch.object(
+            run_context.handoff, "record_failure", return_value="/tmp/failure.json"
+        ),
+    ):
+        assert run_context.run(
+            args,
+            tmp_path,
+            Timing(tmp_path),
+            ROOT,
+            Mock(return_value=backend),
+            Mock(return_value=(2, [])),
+        ) == (2 if result == "STOPPED" else 0)
+    report = json.loads(capsys.readouterr().out)
+    assert report["result"] == result and report["stage"] == stage
+    assert report["states"]["a"] == {"status": "SUCCESS", "observedSynced": True}
+    assert report["metrics"] == {"example": 1}
+    assert report["repairFailure"] == (
+        "/tmp/failure.json" if result == "STOPPED" else None
+    )
+    assert "private-secret" not in json.dumps(report)
+
+
+def check_handled_controller_stop_prints_one_json(tmp_path, capsys):
+    with patch.object(
+        controller.run_ops.context,
+        "load_target",
+        side_effect=ValueError("private-secret"),
+    ):
+        assert (
+            controller.main(
+                ["--environment", "dev", "--alias", "app", "--stack", "app"],
+                root=tmp_path,
+            )
+            == 2
+        )
+    report = json.loads(capsys.readouterr().out)
+    assert report["result"] == "STOPPED" and report["stage"] == "TARGET_SELECTION"
+
+
+def check_structured_reference_cause_and_handoff_command(tmp_path):
+    error = ReferenceResolutionError(
+        "private-secret", category="REFERENCE_PENDING_DEPLOY"
+    )
+    report = G.stopped("GENERATION", error)
+    assert report["nextAction"]["type"] == "DEPENDENCY_WAIT"
+    assert report["cause"]["diagnosticCategories"] == ["REFERENCE_PENDING_DEPLOY"]
+    state = {"status": "BLOCKED"}
+    failures.exception(state, error, "PREPARATION")
+    assert state["failure"]["classification"] == "NEEDS_HUMAN"
+    assert state["failure"]["dependencyWait"] is True
+    report = G.handoff_result(
+        {
+            "requestId": "current-id",
+            "taskFile": "tasks/parent.md",
+            "repository": str(tmp_path),
+        }
+    )
+    argv = shlex.split(report["nextAction"]["command"])
+    assert argv[-4:] == [
+        "--task-file",
+        "tasks/parent.md",
+        "--suspend-reason",
+        "one-shot implement repair current-id",
+    ]
+    assert "--resume" not in argv and "--repair-request" not in argv
+
+
+if __name__ == "__main__":
+    from support.pytest_cli import run
+
+    raise SystemExit(run(__file__))
