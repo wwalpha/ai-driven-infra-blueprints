@@ -3,6 +3,7 @@
 import shutil
 import sys
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -231,15 +232,14 @@ def check_display_and_authorization_results(project):
     generated = render.generate_markdown(path, values, root)
     assert generated == path.read_text()
     for check in (False, True):
-
-        def compare(check=check):
-            return model_reference_tables(
-                path,
-                generated.replace("`owner`", "`changed`"),
-                tuple(values.items()),
-                root,
-                check_document=check,
-            )
+        compare = partial(
+            model_reference_tables,
+            path,
+            generated.replace("`owner`", "`changed`"),
+            tuple(values.items()),
+            root,
+            check_document=check,
+        )
 
         actual = outcome(compare)
         with tasks.task_reads(root):
