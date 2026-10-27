@@ -4165,3 +4165,13 @@ Markdown and JSON writes; pending deployment never schedules artifact deletion.
 | `generated-json::nested` | `test_artifact_nested_and_encoded_references` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 2 | Normal/strict Artifact generation resolves Object/Array/encoded references without changing Model | Synthetic Models |
 | `generated-json::pending-literal` | `test_artifact_literal_pending_is_not_success` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 3 | Scalar/nested/encoded PENDING_DEPLOY is classified and cannot become successful AWS JSON | Synthetic JSON |
 | `generated-json::independent-save` | `check_pending_artifact_does_not_gate_model_save` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | Real prepare/publish saves Model with pending reference before and after failed Artifact generation | Authorized synthetic Model edit |
+
+## Resource表示名のProjectionフォールバック
+
+単独の無名Resourceは共通のType名表示を優先し、一覧・詳細・参照のAnchorを保持する。未確定Nameだけのfallbackは既存 `model-generation-validation-unit::test_unconfirmed_names_keep_anchor_and_model`、GROUPED・Policy・配列表示は既存 `model-reference-display-unit` / `model_design-unit` のケースを再利用し重複追加しない。
+
+| Origin | Case | Level | Entry | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `projection-name::nameless` | `check_nameless_projection_display` | UT | [units/model-reference-display-unit.checks.py](units/model-reference-display-unit.checks.py) | pytest / 12 | GuardDuty.Detector/KMS.Key/SecurityHub.Hub/Macie.Session/EC2.EIP/SQS.QueuePolicy × CREATE/IMPORTのModelから一覧・詳細・hidden ID・Anchorを実生成。明示ラベル優先と同一Type複数件のlogicalId fallback | Synthetic Models |
+| `projection-name::label` | `check_named_projection_fallback` | UT | [units/model-reference-display-unit.checks.py](units/model-reference-display-unit.checks.py) | pytest / 3 | 確定Nameがlabelに優先、未確定Nameの有効label保持、未確定labelとNameでlogicalId fallback、Model不変 | Synthetic SQS |
+| `projection-name::reference` | `check_nameless_projection_reference` | UT | [units/model-reference-display-unit.checks.py](units/model-reference-display-unit.checks.py) | pytest / 4 | KMS→IAMの一覧・詳細・Policy内参照label一致、保存Anchor解決とMarkdown参照テーブル復元、PENDING_DEPLOY時の$modelRef宣言保持 | Synthetic KMS/IAM |

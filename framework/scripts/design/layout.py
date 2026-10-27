@@ -339,22 +339,20 @@ def resource_display_selection(
         for row in rows
         if row[1].removeprefix(resource_type + ".") in names
     ]
-    if fallback is not None:
-        configured = resource_display_name(resource_type, rows, label, mode, root=root)
-        if configured is not None and confirmed_display_name(configured):
-            return configured, configured
-        return label if label and confirmed_display_name(label) else fallback, None
-    catalog = DesignSchemaCatalog(root)
-    for field, raw in selected:
-        if not confirmed_display_name(raw):
-            raise InputValidationError(
-                f"resource display name must be confirmed and non-empty: {resource_type}.{field}"
-            )
+    if fallback is None:
+        for field, raw in selected:
+            if not confirmed_display_name(raw):
+                raise InputValidationError(
+                    f"resource display name must be confirmed and non-empty: {resource_type}.{field}"
+                )
     configured = resource_display_name(resource_type, rows, label, mode, root=root)
-    if configured is not None:
+    if configured is not None and (
+        fallback is None or confirmed_display_name(configured)
+    ):
         return configured, configured
     has_name = resource_has_name_property(root, resource_type, mode)
-    if has_name:
+    if has_name and fallback is None:
+        catalog = DesignSchemaCatalog(root)
         if mode != "IMPORT" or resource_type in {"IAM.Role", "CodeBuild.Project"}:
             raise InputValidationError(
                 f"required Name is not selected; display label substitution is not allowed: {resource_type}"
@@ -375,7 +373,11 @@ def resource_display_selection(
                 f"required provider schema property missing: {resource_type}."
                 + ", ".join(sorted(missing))
             )
-    if label is not None and label != resource_type:
+    if (
+        label is not None
+        and label != resource_type
+        and (fallback is None or confirmed_display_name(label))
+    ):
         if not label.strip() or label in {"UNSET", "PENDING_DEPLOY"}:
             raise InputValidationError(
                 f"confirmed resource display label is missing: {resource_type}"
@@ -383,6 +385,8 @@ def resource_display_selection(
         return label, None
     if not has_name and count == 1 and resource_type not in GROUPED:
         return resource_type, None
+    if fallback is not None:
+        return fallback, None
     if has_name:
         raise InputValidationError(
             f"confirmed resource display label is missing: {resource_type}"

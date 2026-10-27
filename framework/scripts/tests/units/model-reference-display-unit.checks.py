@@ -11,6 +11,7 @@ from generation_inputs import GenerationInputs
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import model.projection as projection
 import model.sources as sources
 import pytest
 from design.catalog import DesignSchemaCatalog
@@ -127,6 +128,120 @@ def pipeline(tmp_path):
         save(scope, values)
         path = tmp_path / "docs/designs/qa/team/codepipeline.md"
         yield tmp_path, scope, path, values, row_table(golden)
+
+
+@pytest.mark.parametrize(
+    "service,kind,field,value",
+    [
+        ("guardduty", "GuardDuty.Detector", "Enable", "`true`"),
+        ("kms", "KMS.Key", "KeySpec", "`SYMMETRIC_DEFAULT`"),
+        (
+            "securityhub",
+            "SecurityHub.Hub",
+            "ControlFindingGenerator",
+            "`SECURITY_CONTROL`",
+        ),
+        ("macie", "Macie.Session", "Status", "`ENABLED`"),
+        ("ec2", "EC2.EIP", "Domain", "`vpc`"),
+        (
+            "sqs",
+            "SQS.QueuePolicy",
+            "Queues[]",
+            "`https://sqs.ap-northeast-1.amazonaws.com/123456789012/queue`",
+        ),
+    ],
+)
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+def check_nameless_projection_display(tmp_path, service, kind, field, value, mode):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        _, values = resource(tmp_path, service, kind, attribute=field)
+        values["desired.row.001-001.value"] = value
+        values["desired.resource.001.resourceMode"] = mode
+        before = dict(values)
+        path = tmp_path / "docs/designs/qa/team" / (service + ".md")
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        assert f"| 1 | [{kind}](#saved-001) | 合成 |" in markdown
+        assert f'<a id="saved-001"></a>\n\n### {kind}\n' in markdown
+        assert f"<!-- resource-logical-id: {kind.replace('.', '_')}_001 -->" in markdown
+        assert values == before
+        assert DesignIndex(FRAMEWORK).get(
+            path, text=markdown, values=values
+        ).raw.logical_ids == {"saved-001": kind.replace(".", "_") + "_001"}
+
+        values["display.resource.001.label"] = "primary"
+        labeled = generate_markdown(path, values, FRAMEWORK)
+        assert "[primary](#saved-001)" in labeled
+        assert f"### {kind}: primary\n" in labeled
+
+        values.pop("display.resource.001.label")
+        _, second = resource(tmp_path, service, kind, attribute=field, number="002")
+        second["desired.row.002-001.value"] = value
+        second["desired.resource.002.resourceMode"] = mode
+        values.update(second)
+        multiple = generate_markdown(path, values, FRAMEWORK)
+        for number in ("001", "002"):
+            logical = kind.replace(".", "_") + "_" + number
+            assert f"[{logical}](#saved-{number})" in multiple
+            assert f"### {kind}: {logical}\n" in multiple
+
+
+@pytest.mark.parametrize(
+    "name,label,expected",
+    [
+        ("confirmed-queue", "selected-label", "confirmed-queue"),
+        ("PENDING_DEPLOY", "selected-label", "selected-label"),
+        ("UNSET", "PENDING_DEPLOY", "SQS_Queue_001"),
+    ],
+)
+def check_named_projection_fallback(tmp_path, name, label, expected):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        _, values = resource(tmp_path, "sqs", "SQS.Queue", attribute="QueueName")
+        values["desired.row.001-001.value"] = "`" + name + "`"
+        values["display.resource.001.label"] = label
+        before = dict(values)
+        markdown = generate_markdown(
+            tmp_path / "docs/designs/qa/team/sqs.md", values, FRAMEWORK
+        )
+        assert f"[{expected}](#saved-001)" in markdown
+        assert f"### SQS.Queue: {expected}\n" in markdown
+        assert values == before
+
+
+@pytest.mark.parametrize("label", [None, "primary-key"])
+@pytest.mark.parametrize(
+    "observed", ["PENDING_DEPLOY", "12345678-1234-1234-1234-123456789012"]
+)
+def check_nameless_projection_reference(tmp_path, label, observed):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        producer, key, consumer, policy = project(tmp_path)
+        key["desired.row.001-001.property"] = "KMS.Key.KeyId"
+        key["observed.row.001-001.value"] = "`" + observed + "`"
+        if label is not None:
+            key["display.resource.001.label"] = label
+        save(producer, key)
+        before = dict(policy)
+        path = tmp_path / "docs/designs/qa/team/iam.md"
+        producer_path = path.with_name("kms.md")
+        producer_markdown = generate_markdown(producer_path, key, FRAMEWORK)
+        name = label or "KMS.Key"
+        assert f"[{name}](#saved-001)" in producer_markdown
+        heading = "### KMS.Key" + (": " + label if label else "")
+        assert f'<a id="saved-001"></a>\n\n{heading}\n' in producer_markdown
+        markdown = generate_markdown(path, policy, FRAMEWORK)
+        if observed == "PENDING_DEPLOY":
+            assert "$modelRef" in markdown
+        else:
+            link = f"[{name}](kms.md#saved-001)"
+            assert link in markdown
+            resolved = projection.reference_resolver(
+                policy, consumer, tmp_path
+            ).resolve(link, consumer)
+            assert resolved[2]["logicalId"] == "KMS_Key_001"
+            assert model_reference_tables(
+                path, markdown, tuple(policy.items()), FRAMEWORK
+            )
+        assert "$modelRef" in policy["desired.row.001-002.document"]
+        assert policy == before
 
 
 def check_pipeline_visible_baseline(pipeline):
