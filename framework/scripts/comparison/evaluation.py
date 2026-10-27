@@ -110,6 +110,47 @@ def _visit_actual(
             and not isinstance(value, ResourceReference)
             and not intrinsic(value)
         ):
+            rule = rules.get(path[:-2]) if path.endswith("[]") else None
+            if not exact and rule and rule.selected == "KEYED":
+                key = rule.key
+                value = dict(value)
+                if key in value:
+                    key_pointer = (
+                        pointer + "/" + key.replace("~", "~0").replace("/", "~1")
+                    )
+                    value[key] = _visit_actual(
+                        value[key],
+                        None,
+                        path + "." + key,
+                        key_pointer,
+                        evaluate,
+                        True,
+                        warnings,
+                        failures,
+                        property_name,
+                        model_path,
+                        rules,
+                        evaluated,
+                    )
+                    evaluated[key_pointer] = value[key]
+                matches = (
+                    [
+                        candidate
+                        for candidate in selected or []
+                        if isinstance(candidate, dict)
+                        and key in candidate
+                        and key in value
+                        and isinstance(value[key], Hashable)
+                        and isinstance(candidate[key], Hashable)
+                        and not unknown_value(value[key])
+                        and not unknown_value(candidate[key])
+                        and candidate[key] == value[key]
+                    ]
+                    if isinstance(selected, list)
+                    else []
+                )
+                selected = matches[0] if len(matches) == 1 else {}
+                selected = {**selected, key: value.get(key)}
             projected = {}
             for key, child in value.items():
                 if not exact and isinstance(selected, dict) and key not in selected:
@@ -142,50 +183,8 @@ def _visit_actual(
                     if isinstance(selected, list) and len(projected) < len(selected)
                     else None
                 )
-                if mode == "KEYED" and not exact and isinstance(child, dict):
-                    key = rule.key
-                    child = dict(child)
-                    if key in child:
-                        key_pointer = (
-                            pointer
-                            + "/"
-                            + str(index)
-                            + "/"
-                            + key.replace("~", "~0").replace("/", "~1")
-                        )
-                        child[key] = _visit_actual(
-                            child[key],
-                            None,
-                            path + "[]." + key,
-                            key_pointer,
-                            evaluate,
-                            True,
-                            warnings,
-                            failures,
-                            property_name,
-                            model_path,
-                            rules,
-                            evaluated,
-                        )
-                        evaluated[key_pointer] = child[key]
-                    matches = (
-                        [
-                            candidate
-                            for candidate in selected or []
-                            if isinstance(candidate, dict)
-                            and key in candidate
-                            and key in child
-                            and isinstance(child[key], Hashable)
-                            and isinstance(candidate[key], Hashable)
-                            and not unknown_value(child[key])
-                            and not unknown_value(candidate[key])
-                            and candidate[key] == child[key]
-                        ]
-                        if isinstance(selected, list)
-                        else []
-                    )
-                    selected_child = matches[0] if len(matches) == 1 else {}
-                    selected_child = {**selected_child, key: child.get(key)}
+                if mode == "KEYED" and not exact:
+                    selected_child = selected
                 item = _visit_actual(
                     child,
                     selected_child,

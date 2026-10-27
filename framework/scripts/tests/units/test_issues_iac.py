@@ -17,6 +17,8 @@ import comparison.references as _imports_comparison_references
 import issues.aggregate as _imports_issues_aggregate
 import pytest
 import utils.json_format as _imports_utils_json_format
+from comparison.evaluation import project_actual
+from comparison.methods import keyed
 from comparison.values import PreparedValue, desired_value
 from design.catalog import DesignSchemaCatalog
 from issues.inputs import Comparison as IssueComparison
@@ -360,7 +362,7 @@ class BooleanValueTests(unittest.TestCase):
             "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-northeast-1"}},
         }
         statement_b = {"Sid": "B", "Effect": "Allow", "Action": "c", "Resource": "*"}
-        for policy_order, statement_order, sid, change in [
+        cases = [
             (False, False, True, None),
             (True, False, True, None),
             (True, False, True, "literal"),
@@ -373,19 +375,42 @@ class BooleanValueTests(unittest.TestCase):
             (True, True, True, "unresolved-and-action"),
             (True, False, True, "duplicate"),
             (True, False, True, "unknown"),
-        ]:
+        ]
+        cases += [
+            (order, False, True, change, wrap, kind)
+            for kind in ("User", "Role")
+            for order in (False, True)
+            for wrap in ("if", "nested", "key", "removed", "unknown-if")
+            for change in (None, "condition", "action")
+        ]
+        cases += [
+            (True, statement_order, True, change, wrap, kind)
+            for kind in ("User", "Role")
+            for statement_order, change, wrap in (
+                (False, None, None),
+                (True, None, "if"),
+                (False, "duplicate", "if"),
+                (False, "unknown", "if"),
+                (False, "missing", "if"),
+            )
+        ]
+        for case in cases:
+            policy_order, statement_order, sid, change = case[:4]
+            wrap, kind = case[4:] if len(case) > 4 else (None, "User")
             with (
                 self.subTest(
                     policy_order=policy_order,
                     statement_order=statement_order,
                     sid=sid,
                     change=change,
+                    wrap=wrap,
+                    kind=kind,
                 ),
                 tempfile.TemporaryDirectory() as directory,
             ):
                 comparison = legacy_comparison(Path(directory), count=1, stacks=1)
                 comparison.resources["service-0"]["0000"].update(
-                    resourceType="IAM.User", **{"cfn-logicalId": "stack0-Log0"}
+                    resourceType="IAM." + kind, **{"cfn-logicalId": "stack0-Log0"}
                 )
                 a, b = (
                     json.loads(json.dumps(statement_a)),
@@ -403,7 +428,7 @@ class BooleanValueTests(unittest.TestCase):
                 values = comparison.models["service-0"].values
                 values.update(
                     {
-                        "desired.resource.0000.resourceType": "IAM.User",
+                        "desired.resource.0000.resourceType": "IAM." + kind,
                         "desired.resource.0000.cfn-logicalId": "stack0-Log0",
                     }
                 )
@@ -417,7 +442,7 @@ class BooleanValueTests(unittest.TestCase):
                     ):
                         rid = f"0000-{len(rows) + 1:03d}"
                         row = {
-                            "property": "IAM.User.Policies[]." + suffix,
+                            "property": "IAM." + kind + ".Policies[]." + suffix,
                             "value": value,
                         }
                         rows.append((rid, row))
@@ -450,6 +475,8 @@ class BooleanValueTests(unittest.TestCase):
                     actual[0]["PolicyDocument"]["Statement"].reverse()
                 if change == "duplicate":
                     actual[1]["PolicyName"] = "one"
+                if change == "missing":
+                    del actual[0]["PolicyName"]
                 if change == "unknown":
                     actual[0]["PolicyName"] = {"Ref": "MissingParameter"}
                 actual[1]["Unselected"] = {"Ref": "MissingParameter"}
@@ -459,18 +486,51 @@ class BooleanValueTests(unittest.TestCase):
                         "PolicyDocument": {"Ref": "MissingParameter"},
                     }
                 )
+                if wrap == "key":
+                    actual[0]["PolicyName"] = {
+                        "Fn::If": ["Yes", "one", {"Ref": "MissingParameter"}]
+                    }
+                elif wrap in {"if", "nested", "unknown-if"}:
+                    active = actual[0]
+                    if wrap == "nested":
+                        active = {
+                            "Fn::If": ["Yes", active, {"Ref": "MissingParameter"}]
+                        }
+                    actual[0] = {
+                        "Fn::If": [
+                            "Missing" if wrap == "unknown-if" else "Yes",
+                            active,
+                            {"Ref": "MissingParameter"},
+                        ]
+                    }
+                elif wrap == "removed":
+                    actual.append(
+                        {
+                            "Fn::If": [
+                                "No",
+                                {"Ref": "MissingParameter"},
+                                {"Ref": "AWS::NoValue"},
+                            ]
+                        }
+                    )
                 if policy_order:
                     actual.reverse()
                 _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
+                document["Conditions"] = {
+                    "Yes": {"Fn::Equals": [1, 1]},
+                    "No": {"Fn::Equals": [1, 2]},
+                }
                 document["Resources"]["Log0"] = {
-                    "Type": "AWS::IAM::User",
+                    "Type": "AWS::IAM::" + kind,
                     "Properties": {"Policies": actual},
                 }
                 records = comparison.run()
                 summary = _imports_issues_aggregate.iac_summary(
                     records, "fixture", "team", ["service-0"]
                 )
-                if change in {None, "literal"}:
+                if wrap == "unknown-if":
+                    self.assertNotEqual(records[0]["category"], "matched", records)
+                elif change in {None, "literal"}:
                     self.assertEqual(
                         [item["category"] for item in records], ["matched"], records
                     )
@@ -486,6 +546,37 @@ class BooleanValueTests(unittest.TestCase):
                             "Condition" if change == "condition" else "Action", details
                         )
                         self.assertNotIn("Unselected", details)
+
+    def test_keyed_tags_resolve_only_active_selected_values(self):
+        evaluate = Mock(side_effect=[True, "tag", "resolved"])
+
+        result = project_actual(
+            [
+                {
+                    "Fn::If": [
+                        "Yes",
+                        {
+                            "Key": "tag",
+                            "Value": {"Ref": "Selected"},
+                            "Extra": {"Ref": "Missing"},
+                        },
+                        {"Ref": "Missing"},
+                    ]
+                }
+            ],
+            evaluate=evaluate,
+            property_name="Tags",
+            model_path="model",
+            desired=[{"Key": "tag", "Value": "resolved"}],
+            exact=False,
+            rules={"Tags": keyed("Key")},
+        )
+        self.assertEqual(result.value[0]["Value"], "resolved")
+        self.assertEqual(result.value[0]["Extra"], {"Ref": "Missing"})
+        self.assertEqual(evaluate.call_count, 3)
+        evaluate.assert_any_call({"Condition": "Yes"})
+        evaluate.assert_any_call("tag")
+        self.assertEqual(result.failures, ())
 
     def test_ordered_array_still_checks_position(self):
         with tempfile.TemporaryDirectory() as directory:
