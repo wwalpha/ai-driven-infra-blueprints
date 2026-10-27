@@ -878,6 +878,143 @@ def test_policy_name_unselected_uses_selected_unordered_comparison(kind):
     )
 
 
+@pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
+@pytest.mark.parametrize("projected", [False, True])
+@pytest.mark.parametrize(
+    "named,name,action,expected",
+    [
+        (False, "only", "a", True),
+        (False, {"Ref": "MissingPolicyName"}, "a", True),
+        (False, {"Fn::Sub": 42}, "a", True),
+        (False, Expression("Sub", ["symbolic"]), "a", True),
+        (False, ResourceReference({"$resource": ["iam", "001"]}), "a", True),
+        (False, {"Ref": "MissingPolicyName"}, "b", False),
+        (False, {"Ref": "MissingPolicyName"}, {"Ref": "MissingAction"}, None),
+        (True, {"Ref": "MissingPolicyName"}, "a", None),
+        (True, "other", "a", False),
+        ("mixed", {"Ref": "MissingPolicyName"}, "a", None),
+        ("mixed", "other", "a", False),
+    ],
+)
+def test_policy_key_selection_uncertainty(
+    kind, projected, named, name, action, expected
+):
+    model = [{"PolicyDocument": {"Statement": [{"Action": "a"}]}}]
+    if named:
+        model[0]["PolicyName"] = "only"
+    rules = registry.rules(kind)
+    evaluate = Mock(side_effect=policy_selection_intrinsic)
+    raw = [{"PolicyName": name, "PolicyDocument": {"Statement": [{"Action": action}]}}]
+    if named == "mixed":
+        other = {"PolicyDocument": {"Statement": [{"Action": "z"}]}}
+        model.append(other)
+        raw.append(dict(other, PolicyName="extra"))
+    if projected:
+        prepared = project_actual(
+            raw,
+            evaluate=evaluate,
+            property_name="Policies",
+            model_path="model",
+            desired=model,
+            exact=False,
+            rules=rules,
+        )
+        actual = prepared.value
+    else:
+        actual = [
+            {
+                "PolicyName": Expression("Unverified", [])
+                if type(name) is dict
+                else name,
+                "PolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": Expression("Unverified", [])
+                            if isinstance(action, dict)
+                            else action
+                        }
+                    ]
+                },
+            }
+        ]
+        if named == "mixed":
+            actual.append(raw[1])
+    reference = Mock(side_effect=uncertain)
+    result = compare_values(model, actual, "Policies", rules=rules, reference=reference)
+    assert result.equal is expected
+    assert bool(result.differences) is (expected is False)
+    if not named:
+        assert not result.diagnostics
+        assert not any(
+            call.args[2].endswith(".PolicyName") for call in reference.call_args_list
+        )
+        assert not any(call.args[0] == name for call in evaluate.call_args_list)
+        assert not any(
+            path.endswith(".PolicyName") for path, _, _ in result.candidate_failures
+        )
+        assert not any(
+            warning["pointer"].endswith("/PolicyName")
+            for warning in result.candidate_warnings
+        )
+        if projected:
+            assert not prepared.warnings and not prepared.failures
+            if isinstance(action, dict):
+                assert result.candidate_failures[0][:2] == (
+                    "Policies[].PolicyDocument.Statement[].Action",
+                    "/0/PolicyDocument/Statement/0/Action",
+                )
+            else:
+                assert not result.candidate_failures
+    elif projected and expected is None:
+        assert any(
+            path.endswith(".PolicyName")
+            for path, _, _ in (*prepared.failures, *result.candidate_failures)
+        )
+
+
+def policy_selection_intrinsic(value):
+    if isinstance(value, dict) and "Ref" in value:
+        raise KeyError(value["Ref"])
+    return policy_test_intrinsic(value)
+
+
+@pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
+@pytest.mark.parametrize("named", [False, True])
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_keyless_projected_names_preserve_duplicate_detection(kind, named, duplicate):
+    a = {"PolicyDocument": {"Statement": [{"Action": "a"}]}}
+    b = {"PolicyDocument": {"Statement": [{"Action": "b"}]}}
+    model = [dict(a, PolicyName="one") if named else a, b]
+    raw = [
+        dict(b, PolicyName="one" if duplicate else {"Ref": "MissingPolicyName"}),
+        dict(a, PolicyName={"Fn::Sub": "one"} if named else "one"),
+    ]
+    rules = registry.rules(kind)
+    evaluate = Mock(side_effect=policy_selection_intrinsic)
+    prepared = project_actual(
+        raw,
+        evaluate=evaluate,
+        property_name="Policies",
+        model_path="model",
+        desired=model,
+        exact=False,
+        rules=rules,
+    )
+    result = compare_values(
+        model, prepared.value, "Policies", rules=rules, reference=uncertain
+    )
+    assert result.equal is (False if duplicate else True)
+    assert not result.diagnostics
+    assert not result.candidate_warnings and not result.candidate_failures
+    assert not prepared.warnings and not prepared.failures
+    assert sum(
+        call.args[0] == {"Ref": "MissingPolicyName"} for call in evaluate.call_args_list
+    ) == int(not duplicate)
+    assert sum(
+        call.args[0] == {"Fn::Sub": "one"} for call in evaluate.call_args_list
+    ) == int(named)
+
+
 def candidate_diagnostic(left, right, path):
     if isinstance(left, str) and isinstance(right, str) and left != right:
         return ReferenceDecision(NotImplemented, ({"reason": "rejected candidate"},))

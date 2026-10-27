@@ -376,21 +376,15 @@ def _keyless_same(state, left, right, path, key):
         else False
     )
     named = [item.get(key) for item in left if isinstance(item, dict) and key in item]
+    # Multiple candidates still need resolved names to detect duplicate keys.
     actual_names = [
         right.key_value(j, key)
-        if hasattr(right, "key_value")
+        if len(right) > 1 and hasattr(right, "key_value")
         else item.get(key)
         if isinstance(item, dict)
         else item
         for j, item in enumerate(right)
     ]
-    unknown_names = [
-        j
-        for j, name in enumerate(actual_names)
-        if unknown_value(name) or not isinstance(name, Hashable)
-    ]
-    if equal is True and unknown_names:
-        equal = None
     if any(
         names.count(name) > 1
         for names in (named, actual_names)
@@ -411,10 +405,6 @@ def _keyless_same(state, left, right, path, key):
         selected = clean if len(clean) == len(left) else possible
         for j, i in selected.items():
             warnings, failures = right.evidence.get((i, j), ((), ()))
-            state.candidate_warnings.extend(warnings)
-            state.candidate_failures.extend(failures)
-        for j in unknown_names:
-            warnings, failures = right.key_evidence[j]
             state.candidate_warnings.extend(warnings)
             state.candidate_failures.extend(failures)
     for j, i in selected.items():

@@ -416,11 +416,11 @@ class BooleanValueTests(unittest.TestCase):
                 ],
                 "difference",
             ),
-            ("unknown-key", ["one", {"Ref": "Missing"}], "uncompared"),
+            ("unknown-key", ["one", {"Ref": "Missing"}], "matched"),
             (
                 "unknown-condition",
                 ["one", {"Fn::If": ["Missing", "one", "two"]}],
-                "uncompared",
+                "matched",
             ),
         ]
         for kind in ("User", "Role"):
@@ -987,35 +987,6 @@ class BooleanValueTests(unittest.TestCase):
         self.assertIsNone(result.equal)
         self.assertEqual(len(result.candidate_failures), 1)
         self.assertIsInstance(result.candidate_failures[0][2], ValueError)
-
-        for kind in ("IAM.User", "IAM.Role"):
-            for name, failures in (
-                ({"Fn::Sub": 42}, 1),
-                ({"Ref": "Missing"}, 1),
-                (Expression("Sub", ["symbolic"]), 0),
-                (ResourceReference({"$resource": ["iam", "001"]}), 0),
-            ):
-                rules = registry.rules(kind)
-                actual = [{"PolicyName": name, **desired[0]}]
-                prepared = project_actual(
-                    actual,
-                    evaluate=resolve_keyless_policy_test,
-                    property_name="Policies",
-                    model_path="model",
-                    desired=desired,
-                    exact=False,
-                    rules=rules,
-                )
-                result = compare_values(
-                    desired, prepared.value, "Policies", rules=rules
-                )
-                self.assertIsNone(result.equal)
-                self.assertEqual(len(result.candidate_failures), failures)
-                if failures:
-                    self.assertEqual(
-                        result.candidate_failures[0][0], "Policies[].PolicyName"
-                    )
-                self.assertFalse(result.differences)
 
     def test_keyless_difference_uses_proven_name_and_projected_values(self):
         desired = [
