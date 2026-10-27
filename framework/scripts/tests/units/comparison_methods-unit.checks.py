@@ -1,5 +1,6 @@
 """One algorithm suite and static rule coverage; only synthetic comparison values."""
 
+import random
 import sys
 from collections import Counter
 from dataclasses import replace
@@ -21,6 +22,8 @@ from comparison.methods import (
     SCALAR,
     UNORDERED,
     CompareOutcome,
+    _Comparison,
+    _select_unordered_diagnostics,
     compare_values,
     keyed,
 )
@@ -36,6 +39,7 @@ from utils.iac_values import (
     comparison_result,
     safe_value,
     same,
+    unordered_matching,
     unordered_same,
 )
 from utils.reference_contracts import KMS_FORMS
@@ -1567,3 +1571,53 @@ def test_unordered_unequal_length_unknown_direction():
     outcome = compare(left, right, UNORDERED, reference=uncertain_candidate)
     assert outcome.equal is None
     assert all(d.get("correspondence") == "unproven" for d in outcome.diagnostics)
+
+
+def test_unordered_possible_edges_match_rematching_oracle():
+    rng = random.Random(713)
+    for rows in range(1, 6):
+        for columns in range(rows, 7):
+            for _ in range(40):
+                matrix = [
+                    [rng.choice((True, False, None)) for _ in range(columns)]
+                    for _ in range(rows)
+                ]
+                if len(unordered_matching(matrix, allow_unknown=True)) != rows:
+                    continue
+                candidates = [
+                    (value, (({"edge": [i, j]},), False, (), ()))
+                    for i, row in enumerate(matrix)
+                    for j, value in enumerate(row)
+                ]
+                state = _Comparison({}, None, False)
+                _select_unordered_diagnostics(
+                    state,
+                    list(range(columns)) if rows != columns else list(range(rows)),
+                    list(range(rows)) if rows != columns else list(range(columns)),
+                    UNORDERED,
+                    None,
+                    candidates,
+                    [
+                        (
+                            matrix,
+                            unordered_matching(matrix),
+                            unordered_matching(matrix, allow_unknown=True),
+                        )
+                    ],
+                )
+                selected = {tuple(item["edge"]) for item in state.diagnostics}
+                expected = set()
+                for i, row in enumerate(matrix):
+                    for j, value in enumerate(row):
+                        if value is not False:
+                            rest = [
+                                [v for k, v in enumerate(r) if k != j]
+                                for n, r in enumerate(matrix)
+                                if n != i
+                            ]
+                            if (
+                                len(unordered_matching(rest, allow_unknown=True))
+                                == rows - 1
+                            ):
+                                expected.add((i, j))
+                assert selected == expected

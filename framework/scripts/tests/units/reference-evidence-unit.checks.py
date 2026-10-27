@@ -13,7 +13,7 @@ import pytest
 from comparison import Comparison
 from comparison.deferral import ImportReferenceDeferred, failure_category
 from comparison.evaluation import project_actual
-from comparison.methods import ORDERED, compare_values
+from comparison.methods import ORDERED, CompareOutcome, compare_values
 from comparison.reference_evidence import Evidence
 from comparison.registry import rules
 from comparison.resource import inactive_evidence, inline_owner
@@ -6129,9 +6129,112 @@ def test_iac_reference_display_runner_decisions_unchanged(desired, expected):
         after = comparison.compare_setting(*args)
     assert before.records == after.records
     assert [item["category"] for item in after.records] == [expected], after.records
-    assert resolve.call_count == (1 if expected == "difference" else 0)
+    assert resolve.call_count == (0 if expected == "matched" else 1)
     if expected == "difference":
         assert (
             "参照: s3/001.BucketName"
             in next(iter(after.display_differences.values()))[0]["iac"]
         )
+
+
+@pytest.mark.parametrize("observed", [KEY_ID, None])
+def test_codebuild_uncompared_reference_display_real_path(observed):
+    comparison = fixture()
+    resource(
+        comparison,
+        "kms",
+        "007",
+        "KMS.Key",
+        "Key",
+        [("KeyId", "PENDING_DEPLOY", observed)],
+    )
+    desired = {
+        "EnvironmentVariables": [
+            {"Name": "FIRST", "Type": "PLAINTEXT", "Value": "same"},
+            {"Name": "SECOND", "Type": "PLAINTEXT", "Value": "same"},
+            {
+                "Name": "KEY",
+                "Type": "PLAINTEXT",
+                "Value": "alias/venusinf-stg-material",
+            },
+        ]
+    }
+    actual = copy.deepcopy(desired)
+    actual["EnvironmentVariables"][2]["Value"] = {"Fn::GetAtt": ["Key", "KeyId"]}
+    settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
+    args = (
+        "codebuild",
+        "002",
+        "CodeBuild.Project",
+        "Environment",
+        desired,
+        settings,
+        "producer",
+        {"Properties": {"Environment": actual}},
+        ROOT / "synthetic.yaml",
+    )
+    with patch.object(comparison, "display_reference", None):
+        before = comparison.compare_setting(*args)
+    with patch("socket.socket", side_effect=AssertionError("network forbidden")):
+        after = comparison.compare_setting(*args)
+    assert before.records == after.records
+    (record,) = after.records
+    assert record["category"] == "uncompared"
+    (field,) = after.display_differences[identifier(record)]
+    assert "EnvironmentVariables[2].Value" in field["path"]
+    assert "比較未確定" in field["path"] and field["model"] == "対応未確定"
+    assert "kms/007.KeyId" in field["iac"] and "AliasName" not in field["iac"]
+    assert (KEY_ID in field["iac"]) == (observed == KEY_ID)
+    assert ("理由:" in field["iac"]) == (observed is None)
+    args = ("fixture", "team", ["codebuild"])
+    old = iac_dataset(before.records, *args, before.display_differences)
+    new = iac_dataset(after.records, *args, after.display_differences)
+    assert old[:2] == new[:2]
+    summary = iac_summary(after.records, *args, dataset=new)
+    assert summary["groups"][0]["examples"][0]["fields"] == [field]
+    artifact = dict(
+        version=6, **aggregate(after.records, *args, after.display_differences)
+    )
+    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == [field]
+
+
+@pytest.mark.parametrize("shape", ["nested", "expression", "secret", "sensitive"])
+def test_uncompared_reference_display_preserves_redaction(shape):
+    comparison = fixture()
+    resource(
+        comparison,
+        "kms",
+        "007",
+        "KMS.Key",
+        "Key",
+        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
+    )
+    ref = ResourceReference({"$resource": ["kms", "007"], "$attribute": "KeyId"})
+    actual = {"Items": [ref]}
+    prop = "Setting"
+    if shape == "expression":
+        actual = Expression("Join", ["/", ["prefix", ref]])
+    elif shape == "secret":
+        actual = {"Name": "SECRET_TOKEN", "Value": ref}
+    elif shape == "sensitive":
+        comparison.sensitive_values.add(KEY_ID)
+    batch = setting_result(
+        "codebuild",
+        "002",
+        prop,
+        "unknown",
+        actual,
+        CompareOutcome(None),
+        "producer",
+        [{}],
+        {},
+        actual_error=None,
+        redact=comparison.redacted,
+        display_reference=comparison.display_reference,
+    )
+    rendered = json.dumps(batch.display_differences, ensure_ascii=False)
+    if shape == "secret":
+        assert KEY_ID not in rendered and "kms/007" not in rendered
+    else:
+        assert "kms/007.KeyId" in rendered
+        assert (KEY_ID not in rendered) == (shape == "sensitive")

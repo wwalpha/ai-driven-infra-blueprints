@@ -552,12 +552,16 @@ def iac_summary(
                 example["omitted_reference_fields"] = max(
                     0, len(diagnostics) - MAX_FIELDS
                 )
-            if item["category"] == "difference" and item["reason"] in {
-                "value mismatch",
-                "property missing",
-                "property omitted by AWS::NoValue",
-            }:
-                fields = shown.get(entries[i]["record_id"])
+            fields = shown.get(entries[i]["record_id"])
+            if (
+                item["category"] == "difference"
+                and item["reason"]
+                in {
+                    "value mismatch",
+                    "property missing",
+                    "property omitted by AWS::NoValue",
+                }
+            ) or (item["category"] == "uncompared" and fields):
                 example["fields"] = [
                     {name: brief(field[name]) for name in ("path", "model", "iac")}
                     for field in (fields or [])[:MAX_FIELDS]

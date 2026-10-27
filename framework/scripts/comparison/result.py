@@ -154,6 +154,37 @@ def value_differences(
     return fields
 
 
+def unconfirmed_references(actual, prop, *, redact, display_reference):
+    """Show IaC references independently when element correspondence is unproven."""
+    if display_reference is None:
+        return []
+    safe = _reference_types(actual, redact(actual, prop))
+    fields = []
+
+    def visit(value, path, property_name):
+        if isinstance(value, (ResourceReference, Expression)) and references(value):
+            fields.append(
+                {
+                    "path": safe_text("IaC:" + (path or prop) + "（比較未確定）"),
+                    "model": "対応未確定",
+                    "iac": _display_value(
+                        value, property_name, display_reference, redact
+                    ),
+                }
+            )
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                visit(
+                    item, path + ("." if path else "") + key, property_name + "." + key
+                )
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                visit(item, path + f"[{index}]", property_name)
+
+    visit(safe, "", prop)
+    return fields
+
+
 def redacted(value, prop="", *, sensitive_values=()):
     value = safe_value(value, prop)
     if prop in {
@@ -268,7 +299,12 @@ def setting_result(
             redact=redact,
             reference_diagnostics=list(decision.diagnostics),
         )
-        return RowResult([item])
+        fields = unconfirmed_references(
+            actual, prop, redact=redact, display_reference=display_reference
+        )
+        return RowResult(
+            [item], display_differences={identifier(item): fields} if fields else {}
+        )
     if decision.equal:
         return RowResult(
             [

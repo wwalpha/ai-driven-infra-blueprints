@@ -276,10 +276,12 @@ def _decision(state, whole, left, right, path):
         path=path,
         reference=partial(_decision, state, True),
         trace=partial(_trace, state.negative, True),
-        evidence=lambda matrix, owners: evidence.append((matrix, owners)),
+        evidence=lambda matrix, owners, possible: evidence.append(
+            (matrix, owners, possible)
+        ),
         candidate=partial(_whole_candidate, state, candidates, path + "[]"),
     )
-    _select_unordered_diagnostics(state, left, right, rule, equal, candidates)
+    _select_unordered_diagnostics(state, left, right, rule, equal, candidates, evidence)
     if equal is False and original_left is left and original_right is right:
         pairs = []
         known, _ = array_presence(right)
@@ -297,7 +299,9 @@ def _decision(state, whole, left, right, path):
                     _detect(state, left[i], right[j], path + "[]", True)
                     pairs.append((i, j))
         state.unordered[path, id(left), id(right), whole] = (
-            evidence[0] if evidence else (None, pairs)
+            evidence[0][:2]
+            if evidence and evidence[0][1] is not None
+            else (None, pairs)
         )
     return equal
 
@@ -325,7 +329,9 @@ def _whole_candidate(state, candidates, path, left, right):
     return result
 
 
-def _select_unordered_diagnostics(state, left, right, rule, equal, candidates):
+def _select_unordered_diagnostics(
+    state, left, right, rule, equal, candidates, evidence
+):
     if not candidates:
         return
     reversed_order = len(left) != len(right)
@@ -337,7 +343,9 @@ def _select_unordered_diagnostics(state, left, right, rule, equal, candidates):
         [candidates[i * len(columns) + j][0] for j in range(len(columns))]
         for i in range(len(rows))
     ]
-    owners = unordered_matching(matrix)
+    owners = evidence[0][1] if evidence and evidence[0][1] is not None else {}
+    if equal is False and not owners:
+        owners = unordered_matching(matrix)
     selected = (
         {(i, j) for j, i in owners.items()}
         if equal is True or equal is False
@@ -355,20 +363,31 @@ def _select_unordered_diagnostics(state, left, right, rule, equal, candidates):
     ):
         selected.add((0, 0))
     if equal is None:
-        for i, row in enumerate(matrix):
-            for j, value in enumerate(row):
-                if value is False:
-                    continue
-                remaining = [
-                    [cell for k, cell in enumerate(other) if k != j]
-                    for n, other in enumerate(matrix)
-                    if n != i
-                ]
-                if (
-                    len(unordered_matching(remaining, allow_unknown=True))
-                    == len(rows) - 1
-                ):
-                    selected.add((i, j))
+        possible = evidence[0][2]
+        if len(possible) == len(rows):
+            matched = {i: j for j, i in possible.items()}
+            graph = {
+                matched[i]: {j for j, value in enumerate(row) if value is not False}
+                for i, row in enumerate(matrix)
+            }
+            reach = {}
+            for column in range(len(columns)):
+                seen, pending = set(), [column]
+                while pending:
+                    node = pending.pop()
+                    if node not in seen:
+                        seen.add(node)
+                        pending.extend(
+                            graph.get(node, ()) - seen if node in graph else ()
+                        )
+                reach[column] = seen
+            free = set(range(len(columns))) - set(possible)
+            selected = {
+                (i, j)
+                for i, row in enumerate(matrix)
+                for j, value in enumerate(row)
+                if value is not False and (matched[i] in reach[j] or reach[j] & free)
+            }
     if equal is False and rule.key and not reversed_order:
         for i, item in enumerate(left):
             if i in owners.values():

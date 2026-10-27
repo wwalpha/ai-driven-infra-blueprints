@@ -202,23 +202,23 @@ def unordered_same(
             return False
         confirmed = [item for item in right if not unknown_value(item)]
         matrix = [[compare(a, b) for b in left] for a in confirmed]
-        return (
-            None
-            if len(unordered_matching(matrix, allow_unknown=True)) == len(confirmed)
-            else False
-        )
+        possible = unordered_matching(matrix, allow_unknown=True)
+        if evidence is not None:
+            evidence(matrix, None, possible)
+        return None if len(possible) == len(confirmed) else False
     matrix = [[compare(a, b) for b in right] for a in left]
 
     owners = unordered_matching(matrix)
+    possible = (
+        owners
+        if len(owners) == len(left)
+        else unordered_matching(matrix, allow_unknown=True)
+    )
     if evidence is not None:
-        evidence(matrix, owners)
+        evidence(matrix, owners, possible)
     if len(owners) == len(left):
         return True
-    return (
-        None
-        if len(unordered_matching(matrix, allow_unknown=True)) == len(left)
-        else False
-    )
+    return None if len(possible) == len(left) else False
 
 
 def selected_same(
