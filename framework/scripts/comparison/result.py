@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -167,15 +168,7 @@ def _visit_unconfirmed(
     pointer=(),
 ):
     if isinstance(value, (ResourceReference, Expression)) and references(value):
-        fields.append(
-            {
-                "path": safe_text("IaC:" + (path or prop) + "（比較未確定）"),
-                "model": _formatted(_shown_value(None, pointers[pointer], model))
-                if pointer in pointers
-                else "対応未確定",
-                "iac": _display_value(value, property_name, display_reference, redact),
-            }
-        )
+        fields.append((value, path, property_name, pointer))
     elif isinstance(value, dict):
         for key, item in value.items():
             _visit_unconfirmed(
@@ -213,18 +206,72 @@ def unconfirmed_references(
     if display_reference is None:
         return []
     safe = _reference_types(actual, redact(actual, prop))
-    fields = []
+    candidates = []
+    pointers = dict(decision.correspondence)
+    model = redact(desired, prop)
     _visit_unconfirmed(
         safe,
         "",
         prop,
         prop,
-        fields,
+        candidates,
         redact,
         display_reference,
-        dict(decision.correspondence),
-        redact(desired, prop),
+        pointers,
+        model,
     )
+
+    def key(path, left, right):
+        return (
+            re.sub(
+                r"\[\d+\]",
+                "[]",
+                prop + ("." if path and not path.startswith("[") else "") + path,
+            ),
+            json.dumps([left, right], sort_keys=True, ensure_ascii=False),
+        )
+
+    evidence = {}
+    for item in decision.diagnostics:
+        if item.get("local_comparison") in {"matched", "uncompared", "difference"}:
+            identity = (
+                item.get("path"),
+                json.dumps(
+                    [item.get("model"), item.get("iac")],
+                    sort_keys=True,
+                    ensure_ascii=False,
+                ),
+            )
+            evidence.setdefault(identity, set()).add(item["local_comparison"])
+    keys = [
+        key(path, _shown_value(None, pointers[pointer], model), value)
+        if pointer in pointers
+        else None
+        for value, path, _, pointer in candidates
+    ]
+    counts = Counter(keys)
+    fields = []
+    for (value, path, property_name, pointer), identity in zip(
+        candidates, keys, strict=True
+    ):
+        statuses = (
+            evidence.get(identity, set())
+            if identity is not None and counts[identity] == 1
+            else set()
+        )
+        if statuses != {"uncompared"} and not (
+            pointer == () and decision.equal is None
+        ):
+            continue
+        fields.append(
+            {
+                "path": safe_text("IaC:" + (path or prop) + "（比較未確定）"),
+                "model": _formatted(_shown_value(None, pointers[pointer], model))
+                if pointer in pointers
+                else "対応未確定",
+                "iac": _display_value(value, property_name, display_reference, redact),
+            }
+        )
     return fields
 
 
@@ -324,6 +371,29 @@ def setting_result(
 ):
     unverified = _imports_comparison_values.unverified
     source = sources[0] or default_source
+    warnings = []
+
+    def display(symbol):
+        try:
+            return display_reference(symbol)
+        except Blocked:
+            raise
+        except Exception as error:
+            warning = redact(
+                {
+                    "service": service,
+                    "resource": identity,
+                    "property": prop,
+                    "code": "comparison.display_reference",
+                    "message": f"{type(error).__name__}: {safe_text(str(error))}",
+                }
+            )
+            warnings.append(warning)
+            raise Blocked(warning["message"]) from error
+
+    resolver = (
+        display if display_reference is not None and actual_error is None else None
+    )
     if decision.equal is None:
         item = record(
             failure_category(actual_error)
@@ -342,16 +412,32 @@ def setting_result(
             redact=redact,
             reference_diagnostics=list(decision.diagnostics),
         )
-        fields = unconfirmed_references(
-            desired,
-            actual,
-            decision,
-            prop,
-            redact=redact,
-            display_reference=display_reference,
-        )
+        try:
+            fields = unconfirmed_references(
+                desired,
+                actual,
+                decision,
+                prop,
+                redact=redact,
+                display_reference=resolver,
+            )
+        except Exception as error:
+            fields = []
+            warnings.append(
+                redact(
+                    {
+                        "service": service,
+                        "resource": identity,
+                        "property": prop,
+                        "code": "comparison.display_reference",
+                        "message": f"{type(error).__name__}: {safe_text(str(error))}",
+                    }
+                )
+            )
         return RowResult(
-            [item], display_differences={identifier(item): fields} if fields else {}
+            [item],
+            warnings,
+            display_differences={identifier(item): fields} if fields else {},
         )
     if decision.equal:
         return RowResult(
@@ -391,14 +477,28 @@ def setting_result(
         if errors:
             reason = "; ".join(dict.fromkeys(errors))
     # The predicate sees raw values; masking is applied only to emitted evidence.
-    differences = value_differences(
-        decision,
-        desired,
-        actual,
-        prop,
-        redact=redact,
-        display_reference=display_reference,
-    )
+    try:
+        differences = value_differences(
+            decision,
+            desired,
+            actual,
+            prop,
+            redact=redact,
+            display_reference=resolver,
+        )
+    except Exception as error:
+        differences = value_differences(decision, desired, actual, prop, redact=redact)
+        warnings.append(
+            redact(
+                {
+                    "service": service,
+                    "resource": identity,
+                    "property": prop,
+                    "code": "comparison.display_reference",
+                    "message": f"{type(error).__name__}: {safe_text(str(error))}",
+                }
+            )
+        )
     item = record(
         "difference",
         service,
@@ -431,4 +531,6 @@ def setting_result(
                 redact=redact,
             )
         )
-    return RowResult(records, display_differences={identifier(item): differences})
+    return RowResult(
+        records, warnings, display_differences={identifier(item): differences}
+    )

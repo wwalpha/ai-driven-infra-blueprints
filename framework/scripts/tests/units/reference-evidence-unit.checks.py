@@ -34,6 +34,7 @@ from utils.comparison_rows import put_row
 from utils.iac_values import (
     Expression,
     ResourceReference,
+    safe_value,
     same,
     unordered_same,
 )
@@ -6181,23 +6182,18 @@ def test_codebuild_uncompared_reference_display_real_path(observed):
     assert before.records == after.records
     (record,) = after.records
     assert record["category"] == "uncompared"
-    (field,) = after.display_differences[identifier(record)]
-    assert "EnvironmentVariables[2].Value" in field["path"]
-    assert "比較未確定" in field["path"]
-    assert field["model"] == "alias/venusinf-stg-material"
-    assert "kms/007.KeyId" in field["iac"] and "AliasName" not in field["iac"]
-    assert (KEY_ID in field["iac"]) == (observed == KEY_ID)
-    assert ("理由:" in field["iac"]) == (observed is None)
+    assert not record["reference_diagnostics"]
+    assert not after.display_differences
     args = ("fixture", "team", ["codebuild"])
     old = iac_dataset(before.records, *args, before.display_differences)
     new = iac_dataset(after.records, *args, after.display_differences)
     assert old[:2] == new[:2]
     summary = iac_summary(after.records, *args, dataset=new)
-    assert summary["groups"][0]["examples"][0]["fields"] == [field]
+    assert not summary["groups"][0]["examples"][0].get("fields")
     artifact = dict(
         version=6, **aggregate(after.records, *args, after.display_differences)
     )
-    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == [field]
+    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == []
 
 
 @pytest.mark.parametrize("shape", ["nested", "expression", "secret", "sensitive"])
@@ -6235,7 +6231,7 @@ def test_uncompared_reference_display_preserves_redaction(shape):
         display_reference=comparison.display_reference,
     )
     rendered = json.dumps(batch.display_differences, ensure_ascii=False)
-    if shape == "secret":
+    if shape in {"secret", "nested", "sensitive"}:
         assert KEY_ID not in rendered and "kms/007" not in rendered
     else:
         assert "kms/007.KeyId" in rendered
@@ -6263,9 +6259,20 @@ def test_uncompared_shows_only_proven_model_correspondence(mode):
             actual = [{"Value": ref}, {"Value": ref}]
 
     def reference(left, right, path):
-        return ReferenceDecision(
-            None if isinstance(right, ResourceReference) else NotImplemented
-        )
+        if isinstance(right, ResourceReference):
+            return ReferenceDecision(
+                None,
+                (
+                    {
+                        "path": path,
+                        "model": left,
+                        "iac": right,
+                        "local_comparison": "uncompared",
+                        "reason": "unproven",
+                    },
+                ),
+            )
+        return ReferenceDecision(NotImplemented)
 
     decision = compare_values(
         desired, actual, "Setting", rules={"Setting": rule}, reference=reference
@@ -6285,10 +6292,11 @@ def test_uncompared_shows_only_proven_model_correspondence(mode):
         redact=lambda v, *args: v,
         display_reference=lambda ref: ("resolved", "fixture"),
     )
-    fields = next(iter(batch.display_differences.values()))
-    assert [field["model"] for field in fields] == (
-        ["対応未確定", "対応未確定"] if mode == "ambiguous" else ["model-value"]
-    )
+    if mode == "ambiguous":
+        assert not batch.display_differences
+    else:
+        fields = next(iter(batch.display_differences.values()))
+        assert [field["model"] for field in fields] == ["model-value"]
 
 
 def test_uncompared_model_correspondence_respects_sensitive_redaction():
@@ -6304,8 +6312,21 @@ def test_uncompared_model_correspondence_respects_sensitive_redaction():
         "Setting",
         rules={"Setting": ORDERED},
         reference=lambda left, right, path: ReferenceDecision(
-            None if isinstance(right, ResourceReference) else NotImplemented
-        ),
+            None,
+            (
+                comparison.redacted(
+                    {
+                        "path": path,
+                        "model": left,
+                        "iac": right,
+                        "local_comparison": "uncompared",
+                        "reason": "unproven",
+                    }
+                ),
+            ),
+        )
+        if isinstance(right, ResourceReference)
+        else ReferenceDecision(NotImplemented),
     )
     batch = setting_result(
         "test",
@@ -6324,3 +6345,144 @@ def test_uncompared_model_correspondence_respects_sensitive_redaction():
     field = next(iter(batch.display_differences.values()))[0]
     assert "model-secret" not in json.dumps(field)
     assert "masked" in field["model"]
+
+
+@pytest.mark.parametrize(
+    "equal,actual_error",
+    [
+        (None, None),
+        (False, None),
+        (None, Blocked("original error")),
+        (False, Blocked("original error")),
+    ],
+)
+def test_display_failure_does_not_change_comparison(equal, actual_error):
+    ref = ResourceReference({"$resource": ["s3", "001"], "$attribute": "BucketName"})
+    decision = CompareOutcome(equal, diagnostics=({"reason": "original evidence"},))
+    if equal is False:
+        decision = compare_values("other", ref, "Setting", rules={"Setting": ORDERED})
+    args = ("s3", "001", "Setting", "other", ref, decision, "stack", [{}], {})
+    before = setting_result(*args, actual_error=actual_error, redact=safe_value)
+    resolver = Mock(side_effect=ValueError("display bug"))
+    after = setting_result(
+        *args, actual_error=actual_error, redact=safe_value, display_reference=resolver
+    )
+    assert after.records == before.records
+    if actual_error is not None:
+        resolver.assert_not_called()
+        assert not after.warnings
+    else:
+        assert "ValueError: display bug" in after.warnings[0]["message"]
+        if equal is False:
+            field = next(iter(after.display_differences.values()))[0]
+            assert "未解決" in field["iac"] and "s3/001.BucketName" in field["iac"]
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_unordered_uncompared_displays_only_diagnosed_reference(nested):
+    refs = [
+        ResourceReference({"$resource": ["kms", f"00{i}"], "$attribute": "KeyId"})
+        for i in (1, 2)
+    ]
+    desired = ["confirmed", "pending"]
+    actual = refs
+    ruleset = {"Setting": UNORDERED}
+    if nested:
+        desired = [{"Value": value} for value in desired]
+        actual = [{"Value": value} for value in refs]
+
+    def reference(left, right, path):
+        if not isinstance(right, ResourceReference):
+            return ReferenceDecision(NotImplemented)
+        if right == refs[0]:
+            equal = True if left == "confirmed" else False
+        else:
+            equal = None if left == "pending" else False
+        return ReferenceDecision(
+            equal,
+            (
+                {
+                    "path": path,
+                    "model": left,
+                    "iac": right,
+                    "local_comparison": "matched"
+                    if equal is True
+                    else "uncompared"
+                    if equal is None
+                    else "difference",
+                    "reason": "fixture",
+                },
+            ),
+        )
+
+    decision = compare_values(
+        desired, actual, "Setting", rules=ruleset, reference=reference
+    )
+    assert decision.equal is None
+    resolver = Mock(return_value=("resolved", "fixture"))
+    args = ("test", "001", "Setting", desired, actual, decision, "stack", [{}], {})
+    before = setting_result(*args, actual_error=None, redact=safe_value)
+    after = setting_result(
+        *args, actual_error=None, redact=safe_value, display_reference=resolver
+    )
+    assert after.records == before.records
+    fields = after.display_differences[identifier(after.records[0])]
+    assert len(fields) == 1 and "kms/002.KeyId" in fields[0]["iac"]
+    assert fields[0]["model"] == "pending"
+    resolver.assert_called_once_with(refs[1])
+    old = iac_dataset(
+        before.records, "fixture", "team", ["test"], before.display_differences
+    )
+    new = iac_dataset(
+        after.records, "fixture", "team", ["test"], after.display_differences
+    )
+    assert old[:2] == new[:2]
+
+
+def test_unordered_ambiguous_reference_has_no_individual_claim():
+    refs = [
+        ResourceReference({"$resource": ["kms", f"00{i}"], "$attribute": "KeyId"})
+        for i in (1, 2)
+    ]
+
+    def reference(left, right, path):
+        if isinstance(right, ResourceReference):
+            return ReferenceDecision(
+                None,
+                (
+                    {
+                        "path": path,
+                        "model": left,
+                        "iac": right,
+                        "local_comparison": "uncompared",
+                        "reason": "unproven",
+                    },
+                ),
+            )
+        return ReferenceDecision(NotImplemented)
+
+    decision = compare_values(
+        ["one", "two"],
+        refs,
+        "Setting",
+        rules={"Setting": UNORDERED},
+        reference=reference,
+    )
+    resolver = Mock(return_value=("resolved", "fixture"))
+    result = setting_result(
+        "test",
+        "001",
+        "Setting",
+        ["one", "two"],
+        refs,
+        decision,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=safe_value,
+        display_reference=resolver,
+    )
+    assert decision.equal is None and result.records[0]["category"] == "uncompared"
+    assert not result.display_differences
+    resolver.assert_not_called()
