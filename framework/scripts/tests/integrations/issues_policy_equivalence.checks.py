@@ -118,10 +118,14 @@ def main_checks():
                 comparison, result = record(changed)
                 assert result["category"] == "difference", result
                 fields = comparison.display_differences[identifier(result)]
-                assert len(fields) == 2, fields
-                assert all(".Statement[" in item["path"] for item in fields), fields
-                assert any(item["iac"] == "欠落" for item in fields), fields
-                assert any(json.dumps(value) in item["iac"] for item in fields), fields
+                assert fields == [
+                    {
+                        "path": "Policies[PolicyName=ReadResults].PolicyDocument.Statement[0]."
+                        + field,
+                        "model": policy["Statement"][0][field],
+                        "iac": json.dumps(value) if isinstance(value, list) else value,
+                    }
+                ], fields
             changed = deepcopy(original)
             changed["Resources"]["Role"]["Properties"]["Policies"][0]["PolicyDocument"][
                 "Statement"

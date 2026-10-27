@@ -10,6 +10,7 @@ import aws_mapping_display as mapping_display
 from model.core import literal
 from utils.input_cache import input_scope
 
+from design.common import cells as cells
 from design.common import row_table, table
 from design.layout_schema import ALIGNMENT, HEADER, RESOURCE
 from design.services.definitions.ec2 import COMMENTS as COMMENTS
@@ -25,10 +26,6 @@ from design.services.definitions.ec2 import TAGS_PREFIX as TAGS_PREFIX
 ROOT = Path(__file__).resolve().parents[5]
 
 OVERVIEW_COLUMNS = ["No.", "ResourceName", "Comment"]
-
-
-def cells(line: str) -> list[str]:
-    return [cell.strip() for cell in line.strip("|").split("|")]
 
 
 def port_properties(value: str, protocol: str) -> dict[str, str]:

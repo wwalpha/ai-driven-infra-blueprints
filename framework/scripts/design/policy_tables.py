@@ -38,6 +38,7 @@ from utils.markdown_format import markdown_prose
 import design.document as _design_document
 import design.layout as _module_design_layout
 from design.common import cell as cell
+from design.common import cells as cells
 from design.common import code as code
 from design.common import resource_heading_lines
 from design.common import table as table
@@ -46,7 +47,6 @@ from design.services.definitions.iam import IAM_END as IAM_END
 from design.services.definitions.iam import IAM_START as IAM_START
 from design.services.definitions.iam import INLINE_POLICY_DOCUMENTS
 from design.services.definitions.registry import POLICY_FORMATS as POLICY_FORMATS
-from design.services.ec2.security_groups import cells
 
 START = "<!-- policy-tables:start -->"
 END = "<!-- policy-tables:end -->"

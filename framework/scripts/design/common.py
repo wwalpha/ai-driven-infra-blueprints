@@ -14,6 +14,10 @@ from design.services import secrets_manager
 from design.services.definitions.secrets_manager import ROTATION_SUBNETS
 
 
+def cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip("|").split("|")]
+
+
 def resource_heading_lines(lines: list[str]) -> list[str]:
     """Normalize type-only detail headings; overview type headings stay unchanged."""
     result = []
