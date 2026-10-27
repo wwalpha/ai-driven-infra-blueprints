@@ -8,6 +8,7 @@ import model.sources as _imports_model_sources
 from design.layout import resource_mode
 from model.core import entries
 from utils.cfn_lint import POLICY, lint_session, validate_template
+from utils.cloudformation.format import decode_file
 from utils.iac_values import cfn_resource_identity
 
 from .records import identifier, safe_text
@@ -210,6 +211,32 @@ def owner(comparison, job, match):
     return None, False
 
 
+def snowflake_enum_false_positive(match, template):
+    path = match.get("Location", {}).get("Path")
+    if (
+        match.get("Rule", {}).get("Id") != "E3030"
+        or match.get("Level") != "Error"
+        or not isinstance(path, list)
+        or len(path) != 5
+        or path[0] != "Resources"
+        or not isinstance(path[1], str)
+        or path[2:] != ["Properties", "ConnectionInput", "ConnectionType"]
+        or not str(match.get("Message", "")).startswith("'SNOWFLAKE' is not one of [")
+    ):
+        return False
+    try:
+        document, errors = decode_file(template)
+        resource = document["Resources"][path[1]]
+        return (
+            not errors
+            and resource["Type"] == "AWS::Glue::Connection"
+            and resource["Properties"]["ConnectionInput"]["ConnectionType"]
+            == "SNOWFLAKE"
+        )
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
+
+
 def run_lint(comparison, *, result=None):
     jobs, coverage = plan(comparison)
     channels = {
@@ -257,6 +284,8 @@ def run_lint(comparison, *, result=None):
                 job["diagnostic_ids"].append(value["id"])
             counts = {}
             for match in result["matches"]:
+                if snowflake_enum_false_positive(match, job["template"]):
+                    continue
                 channel = classify(match, result)
                 service, outside = owner(comparison, job, match)
                 if channel == "processing_errors":

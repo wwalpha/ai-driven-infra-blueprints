@@ -834,7 +834,7 @@ def check_schema_failure_classification(
 
 
 def run_config_fixture(request, emit):
-    # Restore the process-only pinned API changes without launching a Worker.
+    # Restore the process-only API changes without launching a Worker.
     with ExitStack() as stack:
         stack.enter_context(patch.object(lint_worker.sys, "addaudithook"))
         stack.enter_context(patch.dict(lint_worker.manager.__dict__, clear=False))
@@ -874,6 +874,20 @@ def run_config_fixture(request, emit):
                         patch.object(target, name, getattr(target, name))
                     )
         return lint_worker.structured(request, emit)
+
+
+def check_runtime_version_is_not_a_gate(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    template = tmp_path / "app.yaml"
+    template.write_text("Resources: [broken", encoding="utf-8")
+    runtime_info = dict(lint_worker.runtime(str(tmp_path)), cfn_lint="other-version")
+    with patch("utils.cfn_lint_worker.runtime", return_value=runtime_info):
+        result = run_config_fixture(
+            dict(cwd=str(tmp_path), template=str(template), region="ap-northeast-1"),
+            None,
+        )
+    assert result["completed"] and not result["processing_errors"]
+    assert result["dependencies"]["runtime"]["cfn_lint"] == "other-version"
 
 
 @pytest.mark.parametrize(
@@ -1008,6 +1022,152 @@ def check_lint_jobs_accept_changed_dependencies(dependency):
     assert lint.call_count == 2 and result["status"] == "checked"
     assert all(item["status"] == "completed" for item in result["coverage"])
     assert "lint_dependencies" not in result
+
+
+@pytest.mark.parametrize(
+    "resource_type,property_name,value,rule,message,path_complete,excluded",
+    [
+        (
+            "AWS::Glue::Connection",
+            "ConnectionType",
+            "SNOWFLAKE",
+            "E3030",
+            "'SNOWFLAKE' is not one of ['JDBC']",
+            True,
+            True,
+        ),
+        (
+            "AWS::Glue::Connection",
+            "ConnectionType",
+            "INVALID",
+            "E3030",
+            "'INVALID' is not one of ['JDBC']",
+            True,
+            False,
+        ),
+        (
+            "AWS::Glue::Connection",
+            "Other",
+            "SNOWFLAKE",
+            "E3030",
+            "'SNOWFLAKE' is not one of ['JDBC']",
+            True,
+            False,
+        ),
+        (
+            "AWS::Other::Resource",
+            "ConnectionType",
+            "SNOWFLAKE",
+            "E3030",
+            "'SNOWFLAKE' is not one of ['JDBC']",
+            True,
+            False,
+        ),
+        (
+            "AWS::Glue::Connection",
+            "ConnectionType",
+            "SNOWFLAKE",
+            "E3002",
+            "other error",
+            True,
+            False,
+        ),
+        (
+            "AWS::Glue::Connection",
+            "ConnectionType",
+            "SNOWFLAKE",
+            "E3030",
+            "'SNOWFLAKE' is not one of ['JDBC']",
+            False,
+            False,
+        ),
+        (
+            "AWS::Glue::Connection",
+            "ConnectionType",
+            "SNOWFLAKE",
+            "E3030",
+            "'SNOWFLAKE_OTHER' is not one of ['JDBC']",
+            True,
+            False,
+        ),
+    ],
+)
+def check_snowflake_enum_filter(
+    resource_type, property_name, value, rule, message, path_complete, excluded
+):
+    with tempfile.TemporaryDirectory() as tmp:
+        template = Path(tmp) / "template.yaml"
+        template.write_text(
+            json.dumps(
+                {
+                    "Resources": {
+                        "Connection": {
+                            "Type": resource_type,
+                            "Properties": {"ConnectionInput": {property_name: value}},
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        path = [
+            "Resources",
+            "Connection",
+            "Properties",
+            "ConnectionInput",
+            property_name,
+        ]
+        match = {
+            "Rule": {"Id": rule},
+            "Level": "Error",
+            "Message": message,
+            "Location": {"Path": path if path_complete else path[:-1]},
+        }
+        job = dict(
+            id="job", template=str(template), region="ap-northeast-1", status="planned"
+        )
+        result = dict(
+            status="completed",
+            completed=True,
+            decode_complete=True,
+            matches=[match],
+            processing_errors=[],
+            unverified=[],
+        )
+        comparison = SimpleNamespace(
+            root=Path(tmp),
+            environment="dev",
+            directory="team",
+            sensitive_values=set(),
+            redacted=lambda v: v,
+        )
+        with (
+            patch("issues.cfn_lint.plan", return_value=([job], [])),
+            patch("issues.cfn_lint.lint_session"),
+            patch("issues.cfn_lint.validate_template", return_value=result),
+            patch("issues.cfn_lint.owner", return_value=("glue", False)),
+        ):
+            lint = run_lint(comparison)
+        expected = 0 if excluded else 1
+        assert len(lint["ordinary"]) == expected
+        assert len(job["diagnostic_ids"]) == expected
+        assert sum(job["counts"].values()) == expected
+        assert all(
+            not lint[channel]
+            for channel in (
+                "judgments",
+                "warnings",
+                "information",
+                "processing_errors",
+                "unverified",
+            )
+        )
+        assert (
+            lint["status"] == "checked" and lint["coverage"][0]["status"] == "completed"
+        )
+        artifact = dict(lint, **aggregate([], "dev", "team", ["glue"]))
+        assert artifact["overview"]["issue_count"] == 0
+        assert scan_exit_code(artifact) == (0 if excluded else 1)
 
 
 if __name__ == "__main__":

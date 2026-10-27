@@ -22,7 +22,6 @@ from yaml.parser import ParserError
 from yaml.scanner import ScannerError
 
 from utils.cfn_lint import (
-    VERSION,
     directory_state,
     failure,
     file_state,
@@ -372,8 +371,8 @@ def structured(request, emit=None):
         for name in (".cfnlintrc", ".cfnlintrc.yaml", ".cfnlintrc.yml"):
             track(base / name)
     track(request["template"])
-    if dependencies["runtime"]["cfn_lint"] != VERSION:
-        result = failure("lint.runtime_version_unavailable", fatal=True)
+    if CFN_RUNTIME_ERROR or dependencies["runtime"]["cfn_lint"] is None:
+        result = failure("lint.runtime_unavailable", fatal=True)
         return dict(
             response, **{k: v for k, v in result.items() if k != "dependencies"}
         )

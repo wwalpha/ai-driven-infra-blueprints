@@ -1,4 +1,4 @@
-"""Isolated cfn-lint 1.57.2 adapter. All version-specific private API stays here."""
+"""Isolated cfn-lint adapter. All version-specific private API stays here."""
 
 import glob
 import hashlib
@@ -15,7 +15,6 @@ from contextlib import contextmanager
 from pathlib import Path
 
 POLICY = "issues-raw-offline-v1"
-VERSION = "1.57.2"
 
 
 def runtime(cwd):

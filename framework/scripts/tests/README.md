@@ -130,9 +130,9 @@ loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体
 
 ## Issues Artifact v5 / Immutable Snapshot / cfn-lint
 
-issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。現行 `issues-lint-unit.checks.py` はlint/Artifact境界を、`issues-lint.checks.py` は4関数5条件の接続を検証する。旧report notice保持UTはSnapshot UTへ置換した。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
+issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。現行 `issues-lint-unit.checks.py` はlint/Artifact境界を、`issues-lint.checks.py` は4関数5条件の接続を検証する。旧report notice保持UTはSnapshot UTへ置換した。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。CLI同等性・状態隔離の検証結果は実行時に使用したcfn-lintについてのみ適用する。
 
-ITは固定版CLI一致（正常/異常の各代表1件）、Worker設定隔離、schema障害と新Worker復旧、実OS Timeout回収の4契約。
+ITは実行環境のCLI一致（正常/異常の各代表1件）、Worker設定隔離、schema障害と新Worker復旧、実OS Timeout回収の4契約。
 設定隔離の4連続要求でHOME/cwd設定、custom ruleの状態、registry/overrideの再読込、NoEcho、output非書込をまとめる。
 Scan→Lint→Artifact→Review→Saveと入力変更後の保存許容の実接続は既存 `issues_scan::check_scan_publish_mismatch` に一本化し、重いケースを他suiteへ追加しない。
 View障害別分類・独立Service継続・非Cache・入力変更許容は `issues_scan-unit`、設定/入力/schema分類・期限/protocol/fatal・終了エスカレーションは `issues-lint-unit` が受け持つ。
