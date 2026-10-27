@@ -14,7 +14,20 @@ Mapping, Catalog and Schema before rendering once. Validate generated views for
 structure, links, artifacts and consistency, then save or compare them with existing
 outputs using the existing generation comparison. Whole-model reverse projection
 from Markdown is not required and must not be used as a publication gate.
-The field/identity/display rules below apply to canonical Models, runtime projections and generated views.
+The field/identity/display rules below apply to canonical Models, runtime projections and generated views according to their respective responsibilities.
+
+Keep Resource relationships in existing formal references such as `$modelRef`. Do not
+persist reference-derived generated ARNs as concrete values in Model authority or
+`observed.*`; runtime projections never become authority. Human-specified external ARNs,
+AWS managed-policy ARNs and formally acquired IMPORT values retain their existing
+permission conditions; ARN-shaped text alone does not determine provenance or validity.
+Generated Markdown/JSON Views may persist ARNs resolved from formal Model references,
+including AWS-required IAM Policy JSON values. Their presence alone is not a storage-rule
+violation. Markdown retains existing Resource links/display names rather than requiring
+literal ARN display. Preserve `HIDDEN_PROPERTIES` Model exclusions and identifier-row
+display restrictions. Never guess unresolved ARNs; retain existing PENDING_DEPLOY and
+reference-resolution failure controls. Do not display or save passwords, secrets, tokens,
+or credentials in Models or generated Views.
 
 If updating the model fails, do not update Markdown/JSON. The model is authoritative for design values, names, and descriptions.
 
@@ -40,7 +53,7 @@ If updating the model fails, do not update Markdown/JSON. The model is authorita
 - Retain Name tags for `EC2.VPCEndpoint`/`EC2.Instance` in desired rows using each resource type's formal `Tags[].Key=Name` and corresponding `Tags[].Value`. Do not add design-only `.Name`. Name tags are mandatory for CREATE; reject case differences, missing Values, empty or unconfirmed values, and do not substitute display labels. Listings, headings and ordinary reference link labels use that Value; anchors retain their saved values; retain internal logical IDs in hidden metadata and the separation of existing desired logical references/observed IDs for identifier references. Retain VPC/Subnet/RouteTable/Flow Log .Name displays.
 
 - Retain Security Groups and their Ingress/Egress in `security-group.properties`, and generate `security-group.md`. Use `security-group` for service metadata and anchor prefixes. Do not mix other EC2 resources into this model.
-- Retain ConfigurationRecorder RoleName displays and KDF BucketARN/RoleARN in desired as resource links displaying confirmed names of referenced resources. If a referenced IAM role name starts with `AWSService` (example: `AWSServiceRoleForConfig`), do not require an IAM Role design or link; retain the role name literal in the formal ARN property's desired value. Do not change formal ARN properties to name properties or generate/save ARNs. Separate KDF KeyARN into a logical reference to the actual KMS Key in desired and the displayed KeyId/PENDING_DEPLOY in observed according to existing identifier reference rules.
+- Retain ConfigurationRecorder RoleName displays and KDF BucketARN/RoleARN in desired as resource links displaying confirmed names of referenced resources. If a referenced IAM role name starts with `AWSService` (example: `AWSServiceRoleForConfig`), do not require an IAM Role design or link; retain the role name literal in the formal ARN property's desired value. Do not change formal ARN properties to name properties or save derived ARNs in Model authority; retain Resource links/names in these Markdown displays. Separate KDF KeyARN into a logical reference to the actual KMS Key in desired and the displayed KeyId/PENDING_DEPLOY in observed according to existing identifier reference rules.
 
 For `Config.ConfigurationRecorder.RoleARN`, an IMPORT resource may retain an acquired,
 valid IAM Role ARN with its full partition, account ID, path and role name. Display
@@ -199,7 +212,7 @@ reusable Definitions with necessary inputs/composition; only a selected overwrit
 Instance may switch binding Definition. Other consumers, common inputs and other
 Environment inputs stay unchanged. Preserve native value types, arrays and formal
 references. Use the existing physical Reference Resolver only for captured Properties
-of selected resources. Do not infer/generated ARNs or persist secrets.
+of selected resources. Do not infer ARNs, persist reference-derived generated ARNs in Model authority, or persist secrets.
 
 For replace/bind, existing incoming-reference analysis reads registered same-target services
 as preservation evidence and returns non-self incoming usages and unresolved analysis as warnings.
@@ -300,7 +313,7 @@ identifiers; never invent physical IDs or resolve confirmed literals again. Exis
 producer integrity, change-impact analysis and warnings still apply. Source publication
 and generation reject embedded Resource links with Model, Resource, Property and JSON
 Pointer diagnostics. Do not automatically migrate/overwrite existing Models, introduce
-new reference syntax, or save generated ARNs.
+new reference syntax, or save reference-derived generated ARNs in Model authority.
 Ordinary URLs and legitimate non-Resource JSON strings remain valid. Resource links and
 JSON artifact links outside JSON bodies remain supported.
 
@@ -385,7 +398,7 @@ CFn evaluator may locally resolve supported expressions; unproven expressions re
 design structure and warning and do not certify AWS readiness. Unresolved Model nodes fail
 artifact generation for that service, reporting Model path, consumer/producer logicalId,
 attribute, Property, JSON Pointer, status and cause. Other services continue; failed services
-retain saved artifacts. Never guess missing values or persist generated ARNs.
+retain saved artifacts. Never guess missing values or persist reference-derived generated ARNs in Model authority; resolved ARNs remain valid generated Artifact values.
 Generation and policy display use the corresponding projected document;
 validate candidates before publication. IAM Resource/NotResource must be strings or arrays
 of strings. Legitimate IAM variables such as `${aws:username}` remain literal strings.
@@ -503,7 +516,7 @@ python framework/scripts/sync-model.py --write --environment <environment> --aws
 - Determine API outputs from each catalog's `IDENTIFIER_OUTPUT`; retain logical references to self-anchors in desired and current non-ARN identifiers or `PENDING_DEPLOY` in observed. Ordinary Markdown links referencing API identifiers also use existing identifier reference processing. QuickSight Group `Arn` is hidden from persisted model rows; `PrincipalId` is a persisted non-ARN output.
 - Retain inline JSON object/array values as-is, and retain existing paths for JSON artifacts. Do not add `clientToken`, `jobArn`, CFn mapping information, or creator information to models.
 - For `bucketDefinitions`-type Macie Jobs, `bucketDefinitions` within model `desired.row.*.document` is authoritative for Job/account/bucket mappings. Generate same-service `S3JobDefinition` JSON artifacts and bucket mapping tables from model `desired.row.*.document`; do not save tables themselves as `desired.note.*` or additional resources. Models retain existing JSON links. Retain `scoping` as selected configuration within JSON; do not generate mapping tables for `bucketCriteria`-type Jobs.
-- Do not use API resources' presence in service models to determine whether they can be created with CFn or are implemented. Resolve implementation availability from resource types to corresponding catalogs/schemas. QuickSight `Permissions[].Principal` may reference a Group anchor; the link represents its ARN output without persisting the ARN.
+- Do not use API resources' presence in service models to determine whether they can be created with CFn or are implemented. Resolve implementation availability from resource types to corresponding catalogs/schemas. QuickSight `Permissions[].Principal` may reference a Group anchor; the link represents its ARN output without persisting the derived ARN in Model authority. A resolved Principal ARN may be saved in generated JSON while Group `Arn` remains hidden from Model rows and identifier displays.
 
 ## Grouping
 

@@ -43,6 +43,9 @@ from support.model_reference_fixtures import (
 from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context
 from utils.json_format import validate_aws_document
+from validation.design_links import check_design_artifacts as validate_design_artifacts
+from validation.diagnostics import ArtifactReferences
+from validation.findings import Findings
 
 from model import dependency_index
 
@@ -342,6 +345,13 @@ def test_design_projection_preserves_structure(fixture, document):
 @pytest.mark.parametrize("strict", [False, True])
 def test_sync_design_structure_matches_normal_generation(fixture, tmp_path, strict):
     _, _, consumer, policy = fixture
+    resource(
+        consumer.root,
+        "kms",
+        "KMS.Key",
+        attribute="KeyId",
+        observed="12345678-1234-1234-1234-123456789abc",
+    )
     document = json.loads(policy["desired.row.001-002.document"])
     document["Statement"][0]["Action"] = "s3:GetObject"
     document["Statement"][0]["Resource"] = {
@@ -354,16 +364,27 @@ def test_sync_design_structure_matches_normal_generation(fixture, tmp_path, stri
             "Resource": {"Fn::Join": ["", ["arn:aws:s3:::", "my-bucket", "/*"]]},
         }
     )
+    document["Statement"].append(
+        {
+            "Effect": "Allow",
+            "Action": "kms:Decrypt",
+            "Resource": reference("KMS_Key_001"),
+        }
+    )
     policy["desired.row.001-002.document"] = json.dumps(document)
     save(consumer, policy)
     root, stage = consumer.root, tmp_path / "stage"
     view = root / "docs/designs/qa/team/iam.md"
     artifact = view.with_suffix("") / "policy.json"
-    before = consumer.path.read_bytes()
+    before = {p: p.read_bytes() for p in root.glob("model/**/*.properties")}
     files = generate_files(view, load_model(consumer).values, root)
     expected = copy.deepcopy(document)
     expected["Statement"][0]["Resource"] = "arn:aws:s3:::fixture-materials/*"
     expected["Statement"][1]["Resource"] = "arn:aws:s3:::my-bucket/*"
+    expected["Statement"][2]["Resource"] = (
+        "arn:aws:kms:ap-northeast-1:123456789012:key/"
+        "12345678-1234-1234-1234-123456789abc"
+    )
     assert json.loads(files[artifact]) == expected
     failures, warnings, unavailable = [], [], {}
     with (
@@ -384,7 +405,25 @@ def test_sync_design_structure_matches_normal_generation(fixture, tmp_path, stri
     assert (stage / artifact.relative_to(root)).read_text(encoding="utf-8") == files[
         artifact
     ]
-    assert consumer.path.read_bytes() == before
+    saved_artifact = stage / artifact.relative_to(root)
+    saved_view = stage / view.relative_to(root)
+    validate_aws_document(json.loads(saved_artifact.read_text(encoding="utf-8")))
+    references = ArtifactReferences()
+    references.add(saved_artifact, saved_view, ("qa", "team", "iam"))
+    findings = Findings(stage)
+    validate_design_artifacts(
+        scope={("qa", "team", "iam")},
+        accounts={("qa", "team"): {}},
+        findings=findings,
+        markdown_design_artifacts=references,
+        root=stage,
+    )
+    assert not findings.errors, findings.errors
+    assert {p: p.read_bytes() for p in before} == before
+    assert (
+        "$modelRef"
+        in load_model(consumer).authoritative["desired.row.001-002.document"]
+    )
 
 
 def test_generated_json_keeps_authority(fixture):

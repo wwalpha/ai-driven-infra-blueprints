@@ -363,7 +363,9 @@ def check_framework_design_handoff(findings, root):
         "The retrieval/copy steps below apply\nto CREATE only": "service design prompt lacks IMPORT delegation boundary",
         "delete optional property rows absent from AWS current values": "service design prompt lacks absent optional-property removal",
         "Do not display or save passwords, secrets, tokens, or credentials": "service design prompt lacks sensitive-value exclusion",
-        "do not save generated ARNs in Markdown, JSON artifacts, or models": "service design prompt may persist generated ARNs",
+        "Do not persist reference-derived generated ARNs as concrete values in Model authority or `observed.*`": "service design prompt lacks Model generated-ARN storage prohibition",
+        "Generated Markdown/JSON Views may persist ARNs resolved from formal Model references": "service design prompt forbids resolved ARNs in generated Views",
+        "Their presence alone is not a storage-rule violation": "service design prompt treats resolved View ARNs as storage violations",
         "Do not add resource creator, administrator, or externally created provenance to artifacts": "service design prompt persists or omits the no-provenance contract",
     }
     for literal, error in required_existing_resource_contract.items():

@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 import shlex
 from pathlib import Path
+from unittest.mock import patch
 
 import utils.markdown_format as _imports_utils_markdown_format
 from support.validator import MODULE, SCRIPT
+from validation import framework_contracts
 
 
 def check_optional_alias_contract() -> None:
@@ -454,6 +456,19 @@ def check_design_handoff_prompt() -> None:
     assert "AWS::<Service>::<Resource>" in prompt
     assert "VPC-specific" not in prompt
     assert "Management owner" not in prompt
+    for required in (
+        "Do not persist reference-derived generated ARNs as concrete values in Model authority or `observed.*`",
+        "Generated Markdown/JSON Views may persist ARNs resolved from formal Model references",
+        "Their presence alone is not a storage-rule violation",
+        "Do not display or save passwords, secrets, tokens, or credentials",
+    ):
+        assert required in prompt
+        with patch.object(
+            framework_contracts, "input_text", return_value=prompt.replace(required, "")
+        ):
+            invalid = MODULE.Validator(SCRIPT.parents[2])
+            invalid.check_framework_design_handoff()
+        assert invalid.errors, required
 
 
 def check_rule_reading_contract() -> None:
