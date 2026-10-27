@@ -11,7 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison import registry
+from comparison.evaluation import project_actual
 from comparison.methods import (
+    MISSING,
     OBJECT,
     ORDERED,
     REFERENCE,
@@ -308,7 +310,10 @@ def test_iam_rules(kind, path):
     fields = value_differences(
         compare_values(a, b, path, rules=registry.rules(kind), whole=True), a, b, path
     )
-    assert len(fields) == 2 and all(".Action" not in item["path"] for item in fields)
+    assert fields == [
+        {"path": "Statement[0].Action[0]", "model": "a", "iac": "欠落"},
+        {"path": "Statement[0].Action[IaC:1]", "model": "欠落", "iac": "c"},
+    ]
 
     if kind in ("IAM.Role", "IAM.User"):
         policies = [
@@ -398,14 +403,14 @@ def test_iam_rules(kind, path):
         )
         assert fields == [
             {
-                "path": "Policies[PolicyName=one].PolicyDocument.Statement[0]",
-                "model": '{"Action":["a","b"]}',
+                "path": "Policies[PolicyName=one].PolicyDocument.Statement[0].Action[1]",
+                "model": "b",
                 "iac": "欠落",
             },
             {
-                "path": "Policies[PolicyName=one].PolicyDocument.Statement[IaC:0]",
+                "path": "Policies[PolicyName=one].PolicyDocument.Statement[0].Action[IaC:1]",
                 "model": "欠落",
-                "iac": '{"Action":["a","c"]}',
+                "iac": "c",
             },
         ]
 
@@ -575,6 +580,8 @@ def test_codebuild_nested_reference_proof_is_reused():
     assert resolve.call_count == 1
 
 
+@pytest.mark.parametrize("attribute", ["Name", "Id"])
+@pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize(
     "selector,actual,expected",
     [
@@ -586,12 +593,24 @@ def test_codebuild_nested_reference_proof_is_reused():
         ),
         ("SECRETS_MANAGER", "app/other", False),
         ("SECRETS_MANAGER", "app/secret:key", False),
+        ("SECRETS_MANAGER", "app/secret::AWSCURRENT", False),
+        ("SECRETS_MANAGER", "app/secret:::version", False),
+        (
+            "SECRETS_MANAGER",
+            "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:app/secret:key",
+            False,
+        ),
+        ("UNKNOWN", "app/secret", None),
         ("PLAINTEXT", "app/secret", None),
         (None, "app/secret", None),
     ],
 )
-def test_contextual_secret_comparison(selector, actual, expected):
-    symbol = ResourceReference({"$resource": ["secrets", "001"], "$attribute": "Id"})
+def test_contextual_secret_comparison(selector, actual, expected, attribute, reverse):
+    symbol = ResourceReference(
+        {"$resource": ["secrets", "001"], "$attribute": attribute}
+    )
+    if attribute == "Name" and actual.startswith("arn:") and expected is True:
+        expected = False
     values = {
         "Name": "app/secret",
         "Id": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:app/secret",
@@ -599,6 +618,10 @@ def test_contextual_secret_comparison(selector, actual, expected):
     resolver = Mock(side_effect=lambda ref: values[ref["$attribute"]])
     left = {"Type": selector, "Value": symbol}
     right = {"Type": selector, "Value": actual}
+    if selector is None:
+        del left["Type"], right["Type"]
+    if reverse:
+        left, right = right, left
     outcome = compare_values(
         left,
         right,
@@ -608,13 +631,28 @@ def test_contextual_secret_comparison(selector, actual, expected):
         whole=True,
     )
     assert outcome.equal is expected
+    calls = resolver.call_count
     if expected is False:
         assert [difference.path for difference in outcome.differences] == ["Value"]
+        assert [(d.model_pointer, d.iac_pointer) for d in outcome.differences] == [
+            (("Value",), ("Value",))
+        ]
+        value_differences(outcome, left, right)
+    assert resolver.call_count == calls
+    if attribute == "Name":
+        assert all(
+            call.args[0]["$attribute"] == "Name" for call in resolver.call_args_list
+        )
 
 
-def test_contextual_reference_identity_and_unknown():
-    symbol = ResourceReference({"$resource": ["secrets", "001"], "$attribute": "Id"})
-    other = ResourceReference({"$resource": ["secrets", "002"], "$attribute": "Id"})
+@pytest.mark.parametrize("attribute", ["Name", "Id"])
+def test_contextual_reference_identity_and_unknown(attribute):
+    symbol = ResourceReference(
+        {"$resource": ["secrets", "001"], "$attribute": attribute}
+    )
+    other = ResourceReference(
+        {"$resource": ["secrets", "002"], "$attribute": attribute}
+    )
     resolve = Mock(side_effect=KeyError("unresolved"))
     callback = partial(codebuild_reference, resolve)
     rule = registry.rules("CodeBuild.Project")
@@ -644,6 +682,34 @@ def test_contextual_reference_identity_and_unknown():
         ).equal
         is None
     )
+
+
+@pytest.mark.parametrize("left_attribute", ["Name", "Id"])
+@pytest.mark.parametrize("right_attribute", ["Name", "Id"])
+@pytest.mark.parametrize("selector", ["SECRETS_MANAGER", "PLAINTEXT", None, "UNKNOWN"])
+def test_contextual_symbol_attributes_are_not_rewritten(
+    left_attribute, right_attribute, selector
+):
+    left = ResourceReference(
+        {"$resource": ["secrets", "001"], "$attribute": left_attribute}
+    )
+    right = ResourceReference(
+        {"$resource": ["secrets", "001"], "$attribute": right_attribute}
+    )
+    resolve = Mock(
+        side_effect=AssertionError("symbol identity must not resolve literals")
+    )
+    result = codebuild_reference(
+        resolve,
+        left,
+        right,
+        "Environment.EnvironmentVariables[].Value",
+        context={"Type": selector},
+    )
+    assert result.equal is (
+        left_attribute == right_attribute if selector == "SECRETS_MANAGER" else None
+    )
+    resolve.assert_not_called()
 
 
 def test_contextual_parameter_name():
@@ -793,6 +859,13 @@ def test_policy_name_unselected_uses_selected_unordered_comparison(kind):
         is False
     )
     assert compare_values(model, actual * 2, "Policies", rules=rules).equal is False
+    duplicates = compare_values(
+        model * 2,
+        [actual[0], dict(actual[0], PolicyName="Other")],
+        "Policies",
+        rules=rules,
+    )
+    assert duplicates.equal is True and not duplicates.differences
     assert (
         compare_values(
             model,
@@ -893,6 +966,208 @@ def test_keyless_policy_matching_and_actual_differences(kind):
         assert outcome.equal is False and outcome.differences
 
 
+@pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
+@pytest.mark.parametrize("named", [False, True])
+@pytest.mark.parametrize(
+    "field,left,right,suffix",
+    [
+        ("Action", "a", "b", ()),
+        ("Resource", "one", "two", ()),
+        (
+            "Condition",
+            {"StringEquals": {"x": "y"}},
+            {"StringEquals": {"x": "z"}},
+            ("StringEquals", "x"),
+        ),
+    ],
+)
+def test_policy_unique_attribute_evidence(kind, named, field, left, right, suffix):
+    model = [{"PolicyDocument": {"Statement": [{field: left}]}}]
+    actual = [{"PolicyName": "only", "PolicyDocument": {"Statement": [{field: right}]}}]
+    if named:
+        model[0]["PolicyName"] = "only"
+    reference = Mock(side_effect=uncertain)
+    outcome = compare_values(
+        model, actual, "Policies", rules=registry.rules(kind), reference=reference
+    )
+    calls = reference.call_count
+    assert outcome.equal is False
+    pointer = (0, "PolicyDocument", "Statement", 0, field, *suffix)
+    assert [(d.model_pointer, d.iac_pointer) for d in outcome.differences] == [
+        (pointer, pointer)
+    ]
+    path = (
+        ("Policies[PolicyName=only]" if named else "Policies[0]")
+        + ".PolicyDocument.Statement[0]."
+        + ".".join((field, *suffix))
+    )
+    assert value_differences(outcome, model, actual) == [
+        {
+            "path": path,
+            "model": "y" if suffix else left,
+            "iac": "z" if suffix else right,
+        }
+    ]
+    assert reference.call_count == calls
+
+
+def test_keyless_unique_remainder_after_reordered_matches():
+    a = {"PolicyDocument": {"Statement": [{"Action": "a"}]}}
+    b = {"PolicyDocument": {"Statement": [{"Action": "b"}]}}
+    c = {"PolicyDocument": {"Statement": [{"Action": "c"}]}}
+    actual = [dict(b, PolicyName="second"), dict(c, PolicyName="first")]
+    result = compare_values(
+        [a, b], actual, "Policies", rules=registry.rules("IAM.Role")
+    )
+    assert result.equal is False
+    assert [(d.model_pointer, d.iac_pointer) for d in result.differences] == [
+        (
+            (0, "PolicyDocument", "Statement", 0, "Action"),
+            (1, "PolicyDocument", "Statement", 0, "Action"),
+        )
+    ]
+    assert value_differences(result, [a, b], actual) == [
+        {
+            "path": "Policies[0].PolicyDocument.Statement[0].Action",
+            "model": "a",
+            "iac": "c",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "case", ["ambiguous", "duplicate", "missing", "selected-name-missing", "unknown"]
+)
+def test_keyless_unproven_pairs_remain_missing(case):
+    a = {"PolicyDocument": {"Statement": [{"Action": "a"}]}}
+    b = {"PolicyDocument": {"Statement": [{"Action": "b"}]}}
+    c = {"PolicyDocument": {"Statement": [{"Action": "c"}]}}
+    model, actual = [a, b], [dict(c, PolicyName="one"), dict(c, PolicyName="two")]
+    if case == "duplicate":
+        model, actual = [a, a], [dict(a, PolicyName="one"), dict(b, PolicyName="two")]
+    elif case == "missing":
+        actual = [dict(a, PolicyName="one")]
+    elif case == "selected-name-missing":
+        model, actual = (
+            [dict(a, PolicyName="missing"), b],
+            [dict(c, PolicyName="other"), dict(b, PolicyName="two")],
+        )
+    elif case == "unknown":
+        actual = [Expression("Unverified", []), Expression("Unverified", [])]
+    result = compare_values(
+        model, actual, "Policies", rules=registry.rules("IAM.User"), reference=uncertain
+    )
+    assert result.equal is (None if case == "unknown" else False)
+    if case == "unknown":
+        assert not result.differences
+    else:
+        assert result.differences
+        missing = [d for d in result.differences if d.iac is MISSING]
+        candidates = [d for d in result.differences if d.model is MISSING]
+        assert missing and len(missing) + len(candidates) == len(result.differences)
+        assert all(
+            d.iac_pointer is None and d.model_pointer in {(0,), (1,)} for d in missing
+        )
+        assert all(
+            d.model_pointer is None and d.iac_pointer in {(0,), (1,)}
+            for d in candidates
+        )
+        assert all("差分未確定" in d.path for d in candidates)
+
+
+def policy_test_intrinsic(value):
+    if value == {"Condition": "Active"}:
+        return True
+    if value == {"Ref": "AWS::NoValue"}:
+        return {"$noValue": True}
+    if isinstance(value, dict) and "Fn::Sub" in value:
+        return value["Fn::Sub"]
+    return value
+
+
+def test_keyless_conditional_projection_and_masking_use_cached_evidence():
+    model = [
+        {
+            "PolicyDocument": {
+                "Statement": [{"Action": "a", "Condition": {"Password": "secret-one"}}]
+            }
+        }
+    ]
+    changed = {
+        "PolicyName": "active",
+        "PolicyDocument": {
+            "Statement": [
+                {"Action": {"Fn::Sub": "b"}, "Condition": {"Password": "secret-two"}}
+            ]
+        },
+    }
+    raw = [
+        {"Fn::If": ["Active", {"Ref": "AWS::NoValue"}, changed]},
+        {"Fn::If": ["Active", changed, {"Ref": "AWS::NoValue"}]},
+    ]
+    evaluate = Mock(side_effect=policy_test_intrinsic)
+    rules = registry.rules("IAM.Role")
+    actual = project_actual(
+        raw,
+        evaluate=evaluate,
+        property_name="Policies",
+        model_path="model",
+        desired=model,
+        exact=False,
+        rules=rules,
+    ).value
+    reference = Mock(side_effect=uncertain)
+    result = compare_values(model, actual, "Policies", rules=rules, reference=reference)
+    calls = evaluate.call_count, reference.call_count
+    assert result.equal is False
+    details = value_differences(result, model, actual)
+    assert details == [
+        {
+            "path": "Policies[0].PolicyDocument.Statement[0].Action",
+            "model": "a",
+            "iac": "b",
+        },
+        {
+            "path": "Policies[0].PolicyDocument.Statement[0].Condition.Password",
+            "model": '"<masked>"',
+            "iac": '"<masked>"',
+        },
+    ]
+    assert all(
+        d.model_pointer == d.iac_pointer and d.iac_pointer[0] == 0
+        for d in result.differences
+    )
+    assert calls == (evaluate.call_count, reference.call_count)
+
+
+def test_keyless_policy_unresolved_sibling_keeps_known_difference():
+    unknown = Expression("Unverified", [])
+    model = [{"PolicyDocument": {"Statement": [{"Action": "a", "Resource": "one"}]}}]
+    actual = [
+        {
+            "PolicyName": "only",
+            "PolicyDocument": {"Statement": [{"Action": unknown, "Resource": "two"}]},
+        }
+    ]
+    result = compare_values(
+        model, actual, "Policies", rules=registry.rules("IAM.Role"), reference=uncertain
+    )
+    assert result.equal is False
+    assert [(d.model_pointer, d.iac_pointer) for d in result.differences] == [
+        (
+            (0, "PolicyDocument", "Statement", 0, "Resource"),
+            (0, "PolicyDocument", "Statement", 0, "Resource"),
+        )
+    ]
+    assert value_differences(result, model, actual) == [
+        {
+            "path": "Policies[0].PolicyDocument.Statement[0].Resource",
+            "model": "one",
+            "iac": "two",
+        }
+    ]
+
+
 def test_unordered_length_difference_retains_proven_sid_and_pointers():
     path = "PolicyDocument"
     rules = registry.rules("IAM.ManagedPolicy")
@@ -907,7 +1182,8 @@ def test_unordered_length_difference_retains_proven_sid_and_pointers():
     assert value_differences(result, left, right, path)[1]["iac"] == "Deny"
 
 
-def test_nested_policy_reference_difference_keeps_keyed_path_and_values():
+@pytest.mark.parametrize("named", [True, False])
+def test_nested_policy_reference_difference_keeps_keyed_path_and_values(named):
     rules = registry.rules("IAM.Role")
     model = [
         {
@@ -934,15 +1210,10 @@ def test_nested_policy_reference_difference_keeps_keyed_path_and_values():
         },
     ]
 
-    def reference(left, right, path):
-        if path == "Policies[].PolicyDocument.Statement[].Resource" and left != right:
-            return ReferenceDecision(False)
-        if path == "Policies[].PolicyDocument" and left != right:
-            return ReferenceDecision(False)
-        return ReferenceDecision(NotImplemented)
-
+    if not named:
+        del model[0]["PolicyName"]
     decision = compare_values(
-        model, actual, "Policies", rules=rules, reference=reference
+        model, actual, "Policies", rules=rules, reference=nested_policy_reference
     )
     batch = setting_result(
         "iam",
@@ -958,9 +1229,18 @@ def test_nested_policy_reference_difference_keeps_keyed_path_and_values():
         redact=safe_value,
     )
     assert batch.records[0]["category"] == "difference"
+    assert [(d.model_pointer, d.iac_pointer) for d in decision.differences] == [
+        (
+            (0, "PolicyDocument", "Statement", 0, "Resource"),
+            (1, "PolicyDocument", "Statement", 1, "Resource"),
+        )
+    ]
     assert value_differences(decision, model, actual) == [
         {
-            "path": "Policies[PolicyName=IfInboundGlueAccess].PolicyDocument.Statement[0].Resource",
+            "path": (
+                "Policies[PolicyName=IfInboundGlueAccess]" if named else "Policies[0]"
+            )
+            + ".PolicyDocument.Statement[0].Resource",
             "model": "alias-arn",
             "iac": "key-arn",
         }
@@ -984,3 +1264,11 @@ def test_nested_policy_reference_difference_keeps_keyed_path_and_values():
         ).records[0]["category"]
         == "matched"
     )
+
+
+def nested_policy_reference(left, right, path):
+    if path == "Policies[].PolicyDocument.Statement[].Resource" and left != right:
+        return ReferenceDecision(False)
+    if path == "Policies[].PolicyDocument" and left != right:
+        return ReferenceDecision(False)
+    return ReferenceDecision(NotImplemented)

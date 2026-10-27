@@ -8,6 +8,7 @@ from model.projection import reference_attribute
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
 from utils.reference_contracts import (
+    REFERENCE_EQUIVALENT_FORMS,
     REFERENCE_FORMS,
     REFERENCE_PROPERTIES,
     VALUE_IDENTITIES,
@@ -224,8 +225,16 @@ def reference_same(
             return decision(None)
         symbol = symbols[0]
         refkind = resource_type(symbol)
+        alternatives = REFERENCE_EQUIVALENT_FORMS.get(
+            (prop, refkind, symbol["$attribute"]), ()
+        )
         unknown = False
         for form in declared[refkind]:
+            if (
+                reference_attribute(refkind, form) != symbol["$attribute"]
+                and form not in alternatives
+            ):
+                continue
             pattern = VALUE_IDENTITIES.get((refkind, form))
             if pattern and not re.fullmatch(pattern, other):
                 continue

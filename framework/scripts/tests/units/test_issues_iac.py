@@ -1077,11 +1077,11 @@ class BooleanValueTests(unittest.TestCase):
             result = compare_values(keyless, projected.value, "Policies", rules=rules)
             self.assertIs(result.equal, False)
             details = value_differences(result, keyless, projected.value, "Policies")
-            self.assertEqual(len(details), 2, details)
-            self.assertEqual(details[0]["iac"], "欠落")
-            self.assertIn("IaC候補:1", details[1]["path"])
-            self.assertIn("差分未確定", details[1]["path"])
-            self.assertIn('"Action":"b"', details[1]["iac"])
+            self.assertEqual(len(details), 1, details)
+            self.assertEqual(
+                details[0]["path"], "Policies[0].PolicyDocument.Statement[0].Action"
+            )
+            self.assertEqual(details[0]["iac"], "b")
             self.assertNotIn("Fn::Sub", str(details))
             self.assertNotIn("other", str(details))
             self.assertEqual(
@@ -1094,7 +1094,7 @@ class BooleanValueTests(unittest.TestCase):
                 "Policies",
                 redact=_bind_framework_callback(redacted, sensitive_values=("b",)),
             )
-            self.assertIn("<masked sensitive parameter>", masked[1]["iac"])
+            self.assertIn("<masked sensitive parameter>", masked[0]["iac"])
             self.assertNotIn('"Action":"b"', str(masked))
 
     def test_ordered_array_still_checks_position(self):

@@ -622,17 +622,32 @@ def _keyed_evidence(state, left, right, typed, shown, lp, rp, whole, corresponde
     return differences
 
 
+def _unique_remainder(matrix, matched_left, matched_right):
+    unmatched = [i for i in range(len(matrix)) if i not in matched_left]
+    available = [
+        j for j in range(len(matrix[0]) if matrix else 0) if j not in matched_right
+    ]
+    if len(unmatched) == len(available) == 1:
+        i, j = unmatched[0], available[0]
+        # A greedy maximum match must not choose which duplicate/unknown is changed.
+        if all(value is False for value in matrix[i]) and all(
+            row[j] is False for row in matrix
+        ):
+            return i, j
+    return None
+
+
 def _keyless_evidence(state, left, right, typed, shown, lp, rp, evidence):
     matrix, owners, projected = evidence
     matched = set(owners.values())
-    paired = set(owners)
     differences = []
     candidates = {}
     key = state.rules[typed].key
-    for i, item in enumerate(left):
+    pairs = dict(owners)
+    names = [item.get(key) if isinstance(item, dict) else None for item in left]
+    for i, name in enumerate(names):
         if i in matched or any(result is None for result in matrix[i]):
             continue
-        name = item.get(key) if isinstance(item, dict) else None
         partners = (
             [
                 j
@@ -640,12 +655,26 @@ def _keyless_evidence(state, left, right, typed, shown, lp, rp, evidence):
                 if isinstance(projected[i, j], dict)
                 and projected[i, j].get(key) == name
             ]
-            if name is not None
+            if name is not None and names.count(name) == 1
             else []
         )
-        if len(partners) == 1 and partners[0] not in owners:
-            j = partners[0]
-            paired.add(j)
+        if len(partners) == 1 and partners[0] not in pairs:
+            pairs[partners[0]] = i
+    remainder = _unique_remainder(matrix, set(pairs.values()), set(pairs))
+    if (
+        remainder is not None
+        and names[remainder[0]] is None
+        and isinstance(left[remainder[0]], dict)
+        and isinstance(projected[remainder], dict)
+    ):
+        i, j = remainder
+        pairs[j] = i
+    partners = {i: j for j, i in pairs.items()}
+    for i, item in enumerate(left):
+        if i in matched or any(result is None for result in matrix[i]):
+            continue
+        if i in partners:
+            j = partners[i]
             if hasattr(right, "candidate"):
                 right[j] = projected[i, j]
             differences.extend(
@@ -654,7 +683,9 @@ def _keyless_evidence(state, left, right, typed, shown, lp, rp, evidence):
                     item,
                     projected[i, j],
                     typed + "[]",
-                    (shown, key, name),
+                    (shown, key, names[i])
+                    if names[i] is not None
+                    else _path(shown, f"[{i}]"),
                     lp + (i,),
                     rp + (j,),
                     False,
@@ -668,7 +699,7 @@ def _keyless_evidence(state, left, right, typed, shown, lp, rp, evidence):
                 if j not in owners and (i, j) in projected:
                     candidates.setdefault(j, projected[i, j])
     for j, candidate in candidates.items():
-        if j in paired:
+        if j in pairs:
             continue
         if hasattr(right, "candidate"):
             right[j] = candidate
@@ -743,6 +774,28 @@ def _unordered_evidence(state, left, right, typed, shown, lp, rp, evidence):
                         True,
                     )
                 )
+    remainder = _unique_remainder(matrix, matched_left, matched_right)
+    if remainder is not None:
+        i, j = remainder
+        if (
+            left_sids[i] is None
+            and isinstance(left[i], dict)
+            and isinstance(right[j], dict)
+        ):
+            matched_left.add(i)
+            matched_right.add(j)
+            differences.extend(
+                _evidence(
+                    state,
+                    left[i],
+                    right[j],
+                    typed + "[]",
+                    _path(shown, f"[{i}]"),
+                    lp + (i,),
+                    rp + (j,),
+                    True,
+                )
+            )
     for i, item in enumerate(left):
         if i not in matched_left and not any(value is None for value in matrix[i]):
             differences.append(

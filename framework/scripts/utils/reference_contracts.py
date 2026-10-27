@@ -1070,6 +1070,15 @@ VALUE_IDENTITIES = {
         "Id",
     ): r"(?P<id>arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:\d{12}:secret:[^:]+)(?::[^:]*){0,3}",
 }
+# Allowed consumer forms do not replace an explicit Model attribute. Retain the
+# established Secret Id-to-name literal comparison only in this consumer context.
+REFERENCE_EQUIVALENT_FORMS = {
+    (
+        "CodeBuild.Project.Environment.EnvironmentVariables[].Value",
+        "SecretsManager.Secret",
+        "Id",
+    ): {"Name"},
+}
 TYPE_FORMS = {"KMS.Key": {"KeyId", "Arn"}, "KMS.Alias": {"AliasName", "Arn"}}
 # Existing Framework format policies, shared by the Resolver and comparison.
 KMS_FORMS = {
