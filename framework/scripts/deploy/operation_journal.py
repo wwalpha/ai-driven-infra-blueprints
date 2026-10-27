@@ -874,12 +874,18 @@ def aws_unfinished(target, name, operation, aws, *, boundary=None):
         if not isinstance(evidence, dict) or not no_change_candidate(operation):
             raise Blocked("invalid no-change success evidence: " + name)
         change_sets.verify_no_change(name, state, evidence)
-        change_sets.verify_no_change_completion(aws, operation["unit"], state, evidence)
-        if not isinstance(state.get("expectedOutputs"), dict):
-            raise Blocked("no-change Output evidence is incomplete: " + name)
-        change_sets.verify_outputs(
-            aws, operation["unit"], state, state["expectedOutputs"]
-        )
+        try:
+            change_sets.verify_no_change_completion(
+                aws, operation["unit"], state, evidence
+            )
+            if not isinstance(state.get("expectedOutputs"), dict):
+                raise Blocked("no-change Output evidence is incomplete: " + name)
+            change_sets.verify_outputs(
+                aws, operation["unit"], state, state["expectedOutputs"]
+            )
+        except AwsError:
+            cache[name] = True
+            return True
         cache[name] = False
         return False
     if not no_change_candidate(operation):
@@ -903,10 +909,14 @@ def aws_unfinished(target, name, operation, aws, *, boundary=None):
         return True
     if not isinstance(state.get("expectedOutputs"), dict):
         raise Blocked("no-change Output evidence is incomplete: " + name)
-    state["stackStatus"] = change_sets.verify_no_change_completion(
-        aws, operation["unit"], state, change
-    )
-    record_no_change(aws, operation["unit"], state, change)
+    try:
+        state["stackStatus"] = change_sets.verify_no_change_completion(
+            aws, operation["unit"], state, change
+        )
+        record_no_change(aws, operation["unit"], state, change)
+    except AwsError:
+        cache[name] = True
+        return True
     cache[name] = False
     return False
 

@@ -1691,3 +1691,191 @@ def test_normal_review_persists_verified_output_evidence_for_restart(tmp_path):
     )
     assert any(call.args[0] == "get_template" for call in backend.aws.call_args_list)
     backend.execute.assert_not_called()
+
+
+class FailAwsRead:
+    def __init__(self, response, operation, *, skip=0, failures=1):
+        self.response, self.operation = response, operation
+        self.skip, self.failures = skip, failures
+
+    def __call__(self, operation, **kwargs):
+        if operation == self.operation:
+            if self.skip:
+                self.skip -= 1
+            elif self.failures:
+                self.failures -= 1
+                raise AwsError("cloudformation", operation, "Throttling")
+        return self.response(operation, **kwargs)
+
+
+def test_saved_no_change_read_failure_allows_proved_independent_stack(tmp_path):
+    backend, task, _, path, _, _ = no_change_fixture(tmp_path)
+    J.save(path, backend)
+    J.recover(backend, path, task, ["S3"])
+    saved = J.read(path)
+    evidence = saved[0]["operations"]["Kms"]["state"]["noChangeEvidence"]
+    backend = create_runtime(backend.root, "dev", TARGET["awsAccountId"], TARGET)
+    backend.execute = Mock(side_effect=AssertionError("recovery must never Execute"))
+    export = {"Name": "KmsExport", "Value": "key", "ExportingStackId": STACK}
+    backend.aws = Mock(
+        side_effect=FailAwsRead(
+            partial(dependency_response, [export], [], ""), "describe_stacks"
+        )
+    )
+    J.recover(backend, path, task, ["S3"])
+    assert J.read(path) == saved
+    pending = {
+        name: operation["state"]
+        for record in backend.retained_records
+        for name, operation in record["operations"].items()
+    }
+    J.require_independent(pending, {"S3"}, backend.aws, imports={"S3": set()})
+    assert backend.aws.side_effect.failures == 0
+    assert any(call.args[0] == "list_imports" for call in backend.aws.call_args_list)
+    assert pending["Kms"]["noChangeEvidence"] == evidence
+    assert not backend.prepared_operations
+    backend.execute.assert_not_called()
+
+
+def no_change_output_fixture(tmp_path):
+    backend, task, unit, path, change, _ = no_change_fixture(tmp_path)
+    document = {
+        "Outputs": {"Bucket": {"Value": "bucket", "Export": {"Name": "BucketExport"}}}
+    }
+    backend.states["Kms"]["expectedOutputs"] = change_sets.required_outputs(
+        document, {}, TARGET, "Kms"
+    )
+    backend.aws = Mock(side_effect=partial(verified_output_response, change, document))
+    return backend, task, unit, path, change, document
+
+
+@pytest.mark.parametrize("saved", [False, True])
+@pytest.mark.parametrize(
+    ("operation", "skip"),
+    [
+        ("describe_change_set", 0),
+        ("describe_stacks", 0),
+        ("describe_stacks", 1),
+        ("get_template", 0),
+    ],
+)
+def test_no_change_read_errors_stay_pending_and_cached(
+    tmp_path, saved, operation, skip
+):
+    backend, task, _, path, _, _ = no_change_output_fixture(tmp_path)
+    J.save(path, backend)
+    if saved:
+        J.recover(backend, path, task, ["S3"])
+    before = J.read(path)
+    failure = FailAwsRead(backend.aws.side_effect, operation, skip=skip)
+    backend.aws.side_effect = failure
+    J.recover(backend, path, task, ["S3"])
+    record = J.read(path)[0]
+    state = record["operations"]["Kms"]["state"]
+    if saved:
+        assert J.read(path) == before
+    else:
+        assert state["status"] == "BLOCKED"
+        assert "noChangeEvidence" not in state
+    if saved and operation == "describe_change_set":
+        assert failure.failures == 1
+        assert state["noChangeEvidence"]
+    else:
+        assert failure.failures == 0
+        failure.skip, failure.failures = skip, 1
+        boundary = {}
+        assert J.aws_unfinished(
+            TARGET, "Kms", record["operations"]["Kms"], backend.aws, boundary=boundary
+        )
+        calls = backend.aws.call_count
+        assert boundary["journalStates"] == {"Kms": True}
+        assert J.aws_unfinished(
+            TARGET, "Kms", record["operations"]["Kms"], backend.aws, boundary=boundary
+        )
+        assert backend.aws.call_count == calls
+    assert record["publication"] == before[0]["publication"]
+    backend.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("relation", ["independent", "consumer", "unavailable"])
+def test_saved_no_change_read_error_uses_real_dependency_boundary(tmp_path, relation):
+    backend, task, _, path, _, _ = no_change_fixture(tmp_path)
+    J.save(path, backend)
+    J.recover(backend, path, task, ["S3"])
+    before = J.read(path)
+    export = {"Name": "KmsExport", "Value": "key", "ExportingStackId": STACK}
+    edges = [("S3", "KmsExport")] if relation == "consumer" else []
+    backend.aws = Mock(
+        side_effect=FailAwsRead(
+            partial(dependency_response, [export], edges, ""),
+            "describe_stacks",
+            failures=20 if relation == "unavailable" else 2,
+        )
+    )
+    J.recover(backend, path, task, ["S3"])
+    backend.states = {"S3": {"status": "NOT_STARTED"}}
+    boundary = {}
+    if relation == "independent":
+        states = J.dependency_states(
+            backend, {"name": "S3"}, imports=set(), hints={}, boundary=boundary
+        )
+        assert states["Kms"]["status"] == "RUNNING"
+        assert any(
+            call.args[0] == "list_imports" for call in backend.aws.call_args_list
+        )
+    else:
+        with pytest.raises(
+            Blocked,
+            match="dependency conflicts"
+            if relation == "consumer"
+            else "describe_stacks failed",
+        ):
+            J.dependency_states(
+                backend, {"name": "S3"}, imports=set(), hints={}, boundary=boundary
+            )
+    assert boundary["journalStates"] == {"Kms": True}
+    assert J.read(path) == before
+    backend.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("operation", ["describe_stacks", "get_template"])
+def test_saved_no_change_read_error_cannot_complete_scoped_publication(
+    tmp_path, operation
+):
+    backend, task, _, path, _, _ = no_change_output_fixture(tmp_path)
+    J.save(path, backend)
+    J.recover(backend, path, task, ["S3"])
+    before = path.read_bytes()
+    backend.aws.side_effect = FailAwsRead(backend.aws.side_effect, operation)
+    with (
+        patch.object(J, "from_run_sync") as publish,
+        pytest.raises(Blocked, match="unverified no-change success"),
+    ):
+        J.recover(backend, path, task, ["Kms"])
+    assert path.read_bytes() == before
+    publish.assert_not_called()
+    backend.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("saved", [False, True])
+@pytest.mark.parametrize("defect", ["value", "export"])
+def test_no_change_output_contradictions_still_stop(tmp_path, saved, defect):
+    backend, task, _, path, change, document = no_change_output_fixture(tmp_path)
+    J.save(path, backend)
+    if saved:
+        J.recover(backend, path, task, ["S3"])
+    before = path.read_bytes()
+    stack = verified_output_response(change, document, "describe_stacks")["Stacks"][0]
+    stack["Outputs"][0]["OutputValue" if defect == "value" else "ExportName"] = (
+        "different"
+    )
+    backend.aws.side_effect = [
+        *([] if saved else [change]),
+        {"Stacks": [stack]},
+        {"Stacks": [stack]},
+        {"TemplateBody": document},
+    ]
+    with pytest.raises(change_sets.OutputNotReflected):
+        J.recover(backend, path, task, ["S3"])
+    assert path.read_bytes() == before
+    backend.execute.assert_not_called()
