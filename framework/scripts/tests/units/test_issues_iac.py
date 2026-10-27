@@ -20,7 +20,7 @@ import utils.json_format as _imports_utils_json_format
 from comparison import registry
 from comparison.evaluation import project_actual
 from comparison.methods import compare_values, keyed
-from comparison.result import value_differences
+from comparison.result import redacted, value_differences
 from comparison.values import PreparedValue, desired_value
 from design.catalog import DesignSchemaCatalog
 from issues.inputs import Comparison as IssueComparison
@@ -51,6 +51,8 @@ def resolve_keyless_policy_test(value):
         return "b"
     if isinstance(value, dict) and "Ref" in value:
         raise KeyError(value["Ref"])
+    if value == {"Fn::Sub": 42}:
+        raise ValueError("invalid Fn::Sub")
     return value
 
 
@@ -378,66 +380,186 @@ class BooleanValueTests(unittest.TestCase):
             self.assertEqual(summary["issue_count"], 1)
 
     def test_keyless_policies_reordered_issue_summary(self):
-        for kind in ("User", "Role"):
-            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
-                comparison = legacy_comparison(Path(directory), count=1, stacks=1)
-                resource_type = "IAM." + kind
-                comparison.resources["service-0"]["0000"].update(
-                    resourceType=resource_type, **{"cfn-logicalId": "stack0-Log0"}
-                )
-                policies = [
+        names = [
+            ("literal", ["one", "two"], "matched"),
+            ("sub-distinct", [{"Fn::Sub": "one"}, {"Fn::Sub": "two"}], "matched"),
+            (
+                "ref-distinct",
+                [{"Ref": "AWS::Region"}, {"Ref": "AWS::AccountId"}],
+                "matched",
+            ),
+            (
+                "key-no-value",
+                ["one", {"Fn::If": ["Yes", {"Ref": "AWS::NoValue"}, "one"]}],
+                "matched",
+            ),
+            ("literal-duplicate", ["same", "same"], "difference"),
+            ("sub-duplicate", [{"Fn::Sub": "same"}] * 2, "difference"),
+            ("mixed-duplicate", ["same", {"Fn::Sub": "same"}], "difference"),
+            ("ref-duplicate", ["ap-northeast-1", {"Ref": "AWS::Region"}], "difference"),
+            (
+                "if-duplicate",
+                ["same", {"Fn::If": ["Yes", "same", {"Ref": "Inactive"}]}],
+                "difference",
+            ),
+            (
+                "nested-if-duplicate",
+                [
+                    "same",
                     {
-                        "PolicyDocument": {
-                            "Statement": [
-                                {"Effect": "Allow", "Action": action, "Resource": "*"}
-                            ]
-                        }
-                    }
-                    for action in ("s3:GetObject", "s3:PutObject")
-                ]
-                values = comparison.models["service-0"].values
-                values.update(
-                    {
-                        "desired.resource.0000.resourceType": resource_type,
-                        "desired.resource.0000.cfn-logicalId": "stack0-Log0",
-                    }
-                )
-                rows = []
-                for index, policy in enumerate(policies, 1):
-                    rid = f"0000-{index:03d}"
-                    row = {
-                        "property": resource_type + ".Policies[].PolicyDocument",
-                        "value": "`" + json.dumps(policy["PolicyDocument"]) + "`",
-                    }
-                    rows.append((rid, row))
-                    values[f"desired.row.{rid}.property"] = row["property"]
-                    values[f"desired.row.{rid}.value"] = row["value"]
-                comparison.rows["service-0"]["0000"] = rows
-                _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
-                document["Resources"]["Log0"] = {
-                    "Type": "AWS::IAM::" + kind,
-                    "Properties": {
-                        "Policies": [
-                            {"PolicyName": "two", **policies[1]},
-                            {"PolicyName": "one", **policies[0]},
+                        "Fn::If": [
+                            "No",
+                            {"Ref": "Inactive"},
+                            {"Fn::If": ["Yes", "same", "other"]},
                         ]
                     },
-                }
-                records = comparison.run()
-                summary = _imports_issues_aggregate.iac_summary(
-                    records, "fixture", "team", ["service-0"]
-                )
-                self.assertEqual([item["category"] for item in records], ["matched"])
-                self.assertEqual(summary["issue_count"], 0)
-                document["Resources"]["Log0"]["Properties"]["Policies"][0][
-                    "PolicyDocument"
-                ]["Statement"][0]["Action"] = "s3:DeleteObject"
-                records = comparison.run()[1:]
-                summary = _imports_issues_aggregate.iac_summary(
-                    records, "fixture", "team", ["service-0"]
-                )
-                self.assertEqual([item["category"] for item in records], ["difference"])
-                self.assertEqual(summary["issue_count"], 1)
+                ],
+                "difference",
+            ),
+            ("unknown-key", ["one", {"Ref": "Missing"}], "uncompared"),
+            (
+                "unknown-condition",
+                ["one", {"Fn::If": ["Missing", "one", "two"]}],
+                "uncompared",
+            ),
+        ]
+        for kind in ("User", "Role"):
+            for label, policy_names, expected in names:
+                with (
+                    self.subTest(kind=kind, names=label),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+                    resource_type = "IAM." + kind
+                    comparison.resources["service-0"]["0000"].update(
+                        resourceType=resource_type, **{"cfn-logicalId": "stack0-Log0"}
+                    )
+                    policies = [
+                        {
+                            "PolicyDocument": {
+                                "Statement": [
+                                    {
+                                        "Effect": "Allow",
+                                        "Action": action,
+                                        "Resource": "*",
+                                        "Condition": {"StringEquals": {"x": "y"}},
+                                    }
+                                ]
+                            }
+                        }
+                        for action in ("s3:GetObject", "s3:PutObject")
+                    ]
+                    values = comparison.models["service-0"].values
+                    values.update(
+                        {
+                            "desired.resource.0000.resourceType": resource_type,
+                            "desired.resource.0000.cfn-logicalId": "stack0-Log0",
+                        }
+                    )
+                    rows = []
+                    for index, policy in enumerate(policies, 1):
+                        rid = f"0000-{index:03d}"
+                        row = {
+                            "property": resource_type + ".Policies[].PolicyDocument",
+                            "value": "`" + json.dumps(policy["PolicyDocument"]) + "`",
+                        }
+                        rows.append((rid, row))
+                        values[f"desired.row.{rid}.property"] = row["property"]
+                        values[f"desired.row.{rid}.value"] = row["value"]
+                    comparison.rows["service-0"]["0000"] = rows
+                    _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
+                    document["Conditions"] = {
+                        "Yes": {"Fn::Equals": [1, 1]},
+                        "No": {"Fn::Equals": [1, 2]},
+                    }
+                    actual = [
+                        {"PolicyName": name, **json.loads(json.dumps(policy))}
+                        for name, policy in reversed(
+                            list(zip(policy_names, policies, strict=True))
+                        )
+                    ]
+                    actual.extend(
+                        [
+                            {
+                                "PolicyName": "extra",
+                                "PolicyDocument": {"Ref": "Unrelated"},
+                            },
+                            {
+                                "Fn::If": [
+                                    "No",
+                                    {"Ref": "Inactive"},
+                                    {"Ref": "AWS::NoValue"},
+                                ]
+                            },
+                        ]
+                    )
+                    document["Resources"]["Log0"] = {
+                        "Type": "AWS::IAM::" + kind,
+                        "Properties": {"Policies": actual},
+                    }
+                    records = comparison.run()
+                    summary = _imports_issues_aggregate.iac_summary(
+                        records, "fixture", "team", ["service-0"]
+                    )
+                    self.assertEqual(
+                        [item["category"] for item in records], [expected], records
+                    )
+                    self.assertEqual(
+                        summary["issue_count"], 0 if expected == "matched" else 1
+                    )
+                    if expected == "difference":
+                        continue
+                    actual[2]["PolicyDocument"] = {"Statement": []}
+                    for field, replacement in (
+                        ("Action", "s3:DeleteObject"),
+                        ("Resource", "other"),
+                        ("Condition", {"StringEquals": {"x": "z"}}),
+                    ):
+                        with self.subTest(field=field):
+                            original = actual[0]["PolicyDocument"]["Statement"][0][
+                                field
+                            ]
+                            actual[0]["PolicyDocument"]["Statement"][0][field] = (
+                                replacement
+                            )
+                            start = len(comparison.results)
+                            records = comparison.run()[start:]
+                            summary = _imports_issues_aggregate.iac_summary(
+                                records, "fixture", "team", ["service-0"]
+                            )
+                            self.assertEqual(
+                                [item["category"] for item in records],
+                                ["difference"],
+                                records,
+                            )
+                            self.assertEqual(summary["issue_count"], 1)
+                            details = [
+                                item
+                                for group in comparison.display_differences.values()
+                                for item in group
+                            ]
+                            candidates = [
+                                item for item in details if "IaC候補" in item["path"]
+                            ]
+                            self.assertTrue(candidates, details)
+                            self.assertTrue(
+                                all("差分未確定" in item["path"] for item in candidates)
+                            )
+                            self.assertIn(
+                                replacement if isinstance(replacement, str) else '"z"',
+                                str(candidates),
+                            )
+                            self.assertFalse(
+                                any(
+                                    item["path"].endswith("." + field)
+                                    for item in details
+                                ),
+                                details,
+                            )
+                            self.assertNotIn("Unrelated", str(details))
+                            actual[0]["PolicyDocument"]["Statement"][0][field] = (
+                                original
+                            )
 
     def test_keyless_candidate_errors_in_issue_results(self):
         for kind in ("User", "Role"):
@@ -797,7 +919,7 @@ class BooleanValueTests(unittest.TestCase):
                 "Fn::If": [
                     "Yes",
                     {
-                        "PolicyName": "b",
+                        "PolicyName": {"Fn::Sub": "variable"},
                         "PolicyDocument": {
                             "Statement": [{"Action": {"Fn::Sub": "${B}"}}]
                         },
@@ -830,6 +952,16 @@ class BooleanValueTests(unittest.TestCase):
             self.assertNotIn(call({"Ref": "Unselected"}), evaluate.call_args_list)
             self.assertNotIn(call({"Ref": "Inactive"}), evaluate.call_args_list)
             self.assertNotIn(call({"Ref": "Unrelated"}), evaluate.call_args_list)
+            self.assertEqual(
+                evaluate.call_args_list.count(call({"Fn::Sub": "variable"})), 1
+            )
+            self.assertIs(
+                compare_values(desired, projected.value, "Policies", rules=rules).equal,
+                True,
+            )
+            self.assertEqual(
+                evaluate.call_args_list.count(call({"Fn::Sub": "variable"})), 1
+            )
 
     def test_keyless_candidate_evaluation_retains_errors(self):
         desired = [{"PolicyDocument": {"Statement": [{"Action": "a"}]}}]
@@ -855,6 +987,35 @@ class BooleanValueTests(unittest.TestCase):
         self.assertIsNone(result.equal)
         self.assertEqual(len(result.candidate_failures), 1)
         self.assertIsInstance(result.candidate_failures[0][2], ValueError)
+
+        for kind in ("IAM.User", "IAM.Role"):
+            for name, failures in (
+                ({"Fn::Sub": 42}, 1),
+                ({"Ref": "Missing"}, 1),
+                (Expression("Sub", ["symbolic"]), 0),
+                (ResourceReference({"$resource": ["iam", "001"]}), 0),
+            ):
+                rules = registry.rules(kind)
+                actual = [{"PolicyName": name, **desired[0]}]
+                prepared = project_actual(
+                    actual,
+                    evaluate=resolve_keyless_policy_test,
+                    property_name="Policies",
+                    model_path="model",
+                    desired=desired,
+                    exact=False,
+                    rules=rules,
+                )
+                result = compare_values(
+                    desired, prepared.value, "Policies", rules=rules
+                )
+                self.assertIsNone(result.equal)
+                self.assertEqual(len(result.candidate_failures), failures)
+                if failures:
+                    self.assertEqual(
+                        result.candidate_failures[0][0], "Policies[].PolicyName"
+                    )
+                self.assertFalse(result.differences)
 
     def test_keyless_difference_uses_proven_name_and_projected_values(self):
         desired = [
@@ -899,6 +1060,42 @@ class BooleanValueTests(unittest.TestCase):
         )
         self.assertNotIn("other", str(details))
         self.assertIn("Action", str(details))
+
+        keyless = [{"PolicyDocument": desired[0]["PolicyDocument"]}, desired[1]]
+        for kind in ("IAM.User", "IAM.Role"):
+            rules = registry.rules(kind)
+            evaluate = Mock(side_effect=resolve_keyless_policy_test)
+            projected = project_actual(
+                actual,
+                evaluate=evaluate,
+                property_name="Policies",
+                model_path="model",
+                desired=keyless,
+                exact=False,
+                rules=rules,
+            )
+            result = compare_values(keyless, projected.value, "Policies", rules=rules)
+            self.assertIs(result.equal, False)
+            details = value_differences(result, keyless, projected.value, "Policies")
+            self.assertEqual(len(details), 2, details)
+            self.assertEqual(details[0]["iac"], "欠落")
+            self.assertIn("IaC候補:1", details[1]["path"])
+            self.assertIn("差分未確定", details[1]["path"])
+            self.assertIn('"Action":"b"', details[1]["iac"])
+            self.assertNotIn("Fn::Sub", str(details))
+            self.assertNotIn("other", str(details))
+            self.assertEqual(
+                evaluate.call_args_list.count(call({"Fn::Sub": "variable"})), 1
+            )
+            masked = value_differences(
+                result,
+                keyless,
+                projected.value,
+                "Policies",
+                redact=_bind_framework_callback(redacted, sensitive_values=("b",)),
+            )
+            self.assertIn("<masked sensitive parameter>", masked[1]["iac"])
+            self.assertNotIn('"Action":"b"', str(masked))
 
     def test_ordered_array_still_checks_position(self):
         with tempfile.TemporaryDirectory() as directory:

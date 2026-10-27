@@ -378,13 +378,18 @@ def _keyless_same(state, left, right, path, key):
     named = [item.get(key) for item in left if isinstance(item, dict) and key in item]
     actual_names = [
         right.key_value(j, key)
-        if named and hasattr(right, "key_value")
+        if hasattr(right, "key_value")
         else item.get(key)
         if isinstance(item, dict)
         else item
         for j, item in enumerate(right)
     ]
-    if named and equal is True and any(unknown_value(name) for name in actual_names):
+    unknown_names = [
+        j
+        for j, name in enumerate(actual_names)
+        if unknown_value(name) or not isinstance(name, Hashable)
+    ]
+    if equal is True and unknown_names:
         equal = None
     if any(
         names.count(name) > 1
@@ -408,12 +413,10 @@ def _keyless_same(state, left, right, path, key):
             warnings, failures = right.evidence.get((i, j), ((), ()))
             state.candidate_warnings.extend(warnings)
             state.candidate_failures.extend(failures)
-        if named:
-            for j, name in enumerate(actual_names):
-                if unknown_value(name):
-                    warnings, failures = right.key_evidence[j]
-                    state.candidate_warnings.extend(warnings)
-                    state.candidate_failures.extend(failures)
+        for j in unknown_names:
+            warnings, failures = right.key_evidence[j]
+            state.candidate_warnings.extend(warnings)
+            state.candidate_failures.extend(failures)
     for j, i in selected.items():
         diagnostics, equivalent = details[i, j]
         state.diagnostics.extend(diagnostics)
@@ -622,7 +625,9 @@ def _keyed_evidence(state, left, right, typed, shown, lp, rp, whole, corresponde
 def _keyless_evidence(state, left, right, typed, shown, lp, rp, evidence):
     matrix, owners, projected = evidence
     matched = set(owners.values())
+    paired = set(owners)
     differences = []
+    candidates = {}
     key = state.rules[typed].key
     for i, item in enumerate(left):
         if i in matched or any(result is None for result in matrix[i]):
@@ -640,6 +645,7 @@ def _keyless_evidence(state, left, right, typed, shown, lp, rp, evidence):
         )
         if len(partners) == 1 and partners[0] not in owners:
             j = partners[0]
+            paired.add(j)
             if hasattr(right, "candidate"):
                 right[j] = projected[i, j]
             differences.extend(
@@ -658,6 +664,23 @@ def _keyless_evidence(state, left, right, typed, shown, lp, rp, evidence):
             differences.append(
                 Difference(_path(shown, f"[{i}]"), item, MISSING, lp + (i,), None)
             )
+            for j in range(len(right)):
+                if j not in owners and (i, j) in projected:
+                    candidates.setdefault(j, projected[i, j])
+    for j, candidate in candidates.items():
+        if j in paired:
+            continue
+        if hasattr(right, "candidate"):
+            right[j] = candidate
+        differences.append(
+            Difference(
+                _path(shown, f"[IaC候補:{j}（対応・差分未確定）]"),
+                MISSING,
+                candidate,
+                None,
+                rp + (j,),
+            )
+        )
     return differences or [Difference(shown, left, right, lp, rp)]
 
 
