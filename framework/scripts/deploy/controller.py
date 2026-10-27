@@ -300,7 +300,7 @@ def exports_for(
                 for record in getattr(runtime, "retained_records", [])
                 for name, operation in record["operations"].items()
                 if operation_journal.aws_unfinished(
-                    runtime.target, name, operation, runtime.aws
+                    runtime.target, name, operation, runtime.aws, boundary=boundary
                 )
             ),
         ]
@@ -469,8 +469,8 @@ def review_prepared(
         change_set,
     )
     if result == "SUCCESS":
-        change_sets.verify_outputs(
-            runtime.aws, unit, state, state.get("expectedOutputs", {})
+        operation_journal.record_no_change(
+            runtime.aws, unit, state, state.pop("noChangeCandidate")
         )
     return result
 

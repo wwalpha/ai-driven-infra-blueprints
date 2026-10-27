@@ -393,6 +393,7 @@ def no_change_inputs():
             "changeSetId": "change",
             "operationType": "UPDATE",
             "absentBeforeCreate": False,
+            "expectedOutputs": {},
         },
         {
             "Status": "FAILED",

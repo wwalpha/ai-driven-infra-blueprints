@@ -336,6 +336,7 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
     )
     if no_changes(change_set):
         state["stackStatus"] = verify_no_change_completion(aws, unit, state, change_set)
+        state["noChangeCandidate"] = change_set
         state["reason"] = "no changes; existing stack terminal success"
         return "SUCCESS"
     if (

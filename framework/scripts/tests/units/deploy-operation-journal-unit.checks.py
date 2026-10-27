@@ -17,6 +17,7 @@ from deploy import change_sets, handoff, run_context
 from deploy import operation_journal as J
 from deploy.controller import create_runtime
 from support.pytest_cli import run
+from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
@@ -1534,4 +1535,159 @@ def test_handoff_uses_same_no_change_classification(tmp_path):
     ):
         handoff.require_settled(backend.root, request)
         load_units.assert_not_called()
+    backend.execute.assert_not_called()
+
+
+def unavailable_change_response(exports, edges, operation, **kwargs):
+    if operation == "describe_change_set":
+        raise AwsError("cloudformation", operation, "ChangeSetNotFound")
+    return dependency_response(exports, edges, "", operation, **kwargs)
+
+
+def test_verified_no_change_survives_missing_changeset(tmp_path):
+    backend, task, _, path, _, _ = no_change_fixture(tmp_path)
+    J.save(path, backend)
+    J.recover(backend, path, task, ["Consumer"])
+    backend.aws = Mock(side_effect=partial(unavailable_change_response, [], []))
+    J.recover(backend, path, task, ["Consumer"])
+    assert J.read(path)[0]["operations"]["Kms"]["state"]["status"] == "SUCCESS"
+    backend.execute.assert_not_called()
+
+
+def test_unverified_missing_changeset_allows_independent_stack(tmp_path):
+    backend, task, _, path, _, _ = no_change_fixture(tmp_path)
+    J.save(path, backend)
+    backend.aws = Mock(side_effect=partial(unavailable_change_response, [], []))
+    J.recover(backend, path, task, ["S3"])
+    backend.states = {"S3": {"status": "NOT_STARTED"}}
+    J.dependency_states(backend, {"name": "S3"}, imports=set(), hints={}, boundary={})
+    assert J.read(path)[0]["operations"]["Kms"]["state"]["status"] == "BLOCKED"
+    backend.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("defect", ["stack-id", "in-progress", "outputs", "evidence"])
+def test_saved_no_change_requires_current_and_consistent_evidence(tmp_path, defect):
+    backend, task, _, path, change, stack = no_change_fixture(tmp_path)
+    J.save(path, backend)
+    J.recover(backend, path, task, ["Consumer"])
+    record = J.read(path)[0]
+    state = record["operations"]["Kms"]["state"]
+    if defect == "stack-id":
+        stack["StackId"] += "-changed"
+    elif defect == "in-progress":
+        stack["StackStatus"] = "UPDATE_IN_PROGRESS"
+    elif defect == "outputs":
+        state["expectedOutputs"] = {
+            "missing": {"export": "X", "definitionDigest": "bad", "valueDigest": None}
+        }
+        backend.aws.side_effect = partial(no_change_output_response, change, stack)
+    else:
+        state["noChangeEvidence"]["ChangeSetId"] += "-changed"
+    J.write_records(path, [record])
+    with pytest.raises(Blocked):
+        J.recover(backend, path, task, ["Consumer"])
+    assert path.exists()
+    backend.execute.assert_not_called()
+
+
+def test_unverified_missing_changeset_blocks_s3_export_consumer(tmp_path):
+    backend, task, _, path, _, _ = no_change_fixture(tmp_path)
+    J.save(path, backend)
+    export = {"Name": "BucketExport", "Value": "bucket", "ExportingStackId": STACK}
+    backend.aws = Mock(side_effect=partial(unavailable_change_response, [export], []))
+    J.recover(backend, path, task, ["S3"])
+    backend.states = {"S3": {"status": "NOT_STARTED"}}
+    with pytest.raises(Blocked, match="dependency conflicts"):
+        J.dependency_states(
+            backend, {"name": "S3"}, imports={"BucketExport"}, hints={}, boundary={}
+        )
+    assert J.read(path)[0]["operations"]["Kms"]["state"]["status"] == "BLOCKED"
+    backend.execute.assert_not_called()
+
+
+def test_unverified_old_success_cannot_publish_when_changeset_missing(tmp_path):
+    backend, task, _, path, _, _ = no_change_fixture(tmp_path)
+    backend.states["Kms"]["status"] = "SUCCESS"
+    J.save(path, backend)
+    backend.aws = Mock(side_effect=partial(unavailable_change_response, [], []))
+    with pytest.raises(Blocked, match="unverified no-change"):
+        J.recover(backend, path, task, ["Kms"])
+    assert path.exists()
+    backend.execute.assert_not_called()
+
+
+def test_unverified_s3_export_blocks_consumer(tmp_path):
+    backend, task, unit, path, _, _ = no_change_fixture(tmp_path)
+    unit["name"] = "S3"
+    state = backend.states.pop("Kms")
+    state["stackId"] = STACK.replace("/Kms/", "/S3/")
+    backend.states["S3"] = state
+    backend.run_context["inputDigests"]["S3"] = "input"
+    J.save(path, backend)
+    export = {
+        "Name": "BucketExport",
+        "Value": "bucket",
+        "ExportingStackId": state["stackId"],
+    }
+    backend.aws = Mock(side_effect=partial(unavailable_change_response, [export], []))
+    J.recover(backend, path, task, ["Consumer"])
+    backend.states = {"Consumer": {"status": "NOT_STARTED"}}
+    with pytest.raises(Blocked, match="dependency conflicts"):
+        J.dependency_states(
+            backend,
+            {"name": "Consumer"},
+            imports={"BucketExport"},
+            hints={},
+            boundary={},
+        )
+    backend.execute.assert_not_called()
+
+
+def verified_output_response(change, document, operation, **kwargs):
+    if operation == "describe_change_set":
+        return change
+    if operation == "describe_stacks":
+        return {
+            "Stacks": [
+                {
+                    "StackId": STACK,
+                    "StackStatus": "UPDATE_COMPLETE",
+                    "Outputs": [
+                        {
+                            "OutputKey": "Bucket",
+                            "OutputValue": "bucket",
+                            "ExportName": "BucketExport",
+                        }
+                    ],
+                }
+            ]
+        }
+    if operation == "get_template":
+        return {"TemplateBody": document}
+    if operation == "list_exports":
+        return {
+            "Exports": [
+                {"Name": "BucketExport", "Value": "bucket", "ExportingStackId": STACK}
+            ]
+        }
+    raise AssertionError(operation)
+
+
+def test_normal_review_persists_verified_output_evidence_for_restart(tmp_path):
+    backend, task, unit, path, change, _ = no_change_fixture(tmp_path)
+    document = {
+        "Outputs": {"Bucket": {"Value": "bucket", "Export": {"Name": "BucketExport"}}}
+    }
+    state = backend.states["Kms"]
+    state["expectedOutputs"] = change_sets.required_outputs(document, {}, TARGET, "Kms")
+    backend.aws = Mock(side_effect=partial(verified_output_response, change, document))
+    state["status"] = backend.review_prepared(unit, state, change)
+    J.save(path, backend)
+    backend.aws.reset_mock()
+    J.recover(backend, path, task, ["Consumer"])
+    assert J.read(path)[0]["operations"]["Kms"]["state"]["noChangeEvidence"]
+    assert all(
+        call.args[0] != "describe_change_set" for call in backend.aws.call_args_list
+    )
+    assert any(call.args[0] == "get_template" for call in backend.aws.call_args_list)
     backend.execute.assert_not_called()

@@ -339,11 +339,9 @@ def require_settled(
         for name, op in record["operations"].items():
             if not operation_journal.unfinished(op["state"]):
                 continue
-            if operation_journal.no_change_candidate(op):
-                reader = reader or dependency_reader(root, request)
-                if not operation_journal.aws_unfinished(target, name, op, reader):
-                    continue
-            pending[name] = op["state"]
+            reader = reader or dependency_reader(root, request)
+            if operation_journal.aws_unfinished(target, name, op, reader):
+                pending[name] = op["state"]
     if not pending:
         return
     if pending.keys() & stacks:

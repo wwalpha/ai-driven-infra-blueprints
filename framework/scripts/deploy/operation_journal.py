@@ -62,6 +62,7 @@ OPERATION_FIELDS = {
     "changeSetStarted",
     "changeSetCreateSeconds",
     "expectedOutputs",
+    "noChangeEvidence",
     "preExecutionRecovery",
     "delivery",
 }
@@ -620,8 +621,11 @@ def _recover_record(backend, path, task, scope, record, same_destination):
             continue
         state, unit = operation["state"], operation["unit"]
         validate_operation(record["target"], name, operation)
-        if not aws_unfinished(record["target"], name, operation, backend.aws):
+        pending = aws_unfinished(record["target"], name, operation, backend.aws)
+        if not pending:
             state["status"] = "SUCCESS"
+        elif state.get("status") == "SUCCESS" and no_change_candidate(operation):
+            raise Blocked("unverified no-change success cannot be recovered: " + name)
         context["inputDigests"][name] = operation["inputDigest"]
         running = state.get("status") == "RUNNING"
         if running:
@@ -833,27 +837,77 @@ def no_change_candidate(operation):
     )
 
 
-def aws_unfinished(target, name, operation, aws):
-    """Classify only after rechecking the original unexecuted no-change evidence."""
+def record_no_change(aws, unit, state, change):
+    if not isinstance(state.get("expectedOutputs"), dict):
+        raise Blocked("no-change Output evidence is incomplete: " + unit["name"])
+    change_sets.verify_no_change(unit["name"], state, change)
+    change_sets.verify_outputs(aws, unit, state, state["expectedOutputs"])
+    state["noChangeEvidence"] = {
+        key: copy.deepcopy(change.get(key))
+        for key in (
+            "Status",
+            "StatusReason",
+            "ExecutionStatus",
+            "Changes",
+            "StackName",
+            "StackId",
+            "ChangeSetId",
+            "NextToken",
+        )
+    }
+
+
+def aws_unfinished(target, name, operation, aws, *, boundary=None):
+    """Keep unknown AWS operations pending; never infer completion from read errors."""
+    cache = boundary.setdefault("journalStates", {}) if boundary is not None else {}
+    if name in cache:
+        return cache[name]
     state = operation["state"]
-    if state.get("executionEvidence"):
+    evidence = state.get("noChangeEvidence")
+    if (
+        evidence is not None
+        or state.get("executionEvidence")
+        or no_change_candidate(operation)
+    ):
         validate_operation(target, name, operation)
+    if evidence is not None:
+        if not isinstance(evidence, dict) or not no_change_candidate(operation):
+            raise Blocked("invalid no-change success evidence: " + name)
+        change_sets.verify_no_change(name, state, evidence)
+        change_sets.verify_no_change_completion(aws, operation["unit"], state, evidence)
+        if not isinstance(state.get("expectedOutputs"), dict):
+            raise Blocked("no-change Output evidence is incomplete: " + name)
+        change_sets.verify_outputs(
+            aws, operation["unit"], state, state["expectedOutputs"]
+        )
+        cache[name] = False
+        return False
     if not no_change_candidate(operation):
+        cache[name] = True
         return True
-    validate_operation(target, name, operation)
-    change = change_sets.describe_change_set(aws, operation["unit"], state)
+    try:
+        change = change_sets.describe_change_set(aws, operation["unit"], state)
+    except AwsError:
+        cache[name] = True
+        return True
+    if (
+        change.get("ChangeSetId") != state["changeSetId"]
+        or change.get("StackId") != state["stackId"]
+        or change.get("StackName") != name
+    ):
+        raise Blocked("unfinished ChangeSet identity changed: " + name)
     if not change_sets.no_changes(change):
         if state.get("status") == "SUCCESS":
             raise Blocked("saved no-change success cannot be confirmed: " + name)
+        cache[name] = True
         return True
     if not isinstance(state.get("expectedOutputs"), dict):
         raise Blocked("no-change Output evidence is incomplete: " + name)
     state["stackStatus"] = change_sets.verify_no_change_completion(
         aws, operation["unit"], state, change
     )
-    change_sets.verify_outputs(
-        aws, operation["unit"], state, state.get("expectedOutputs", {})
-    )
+    record_no_change(aws, operation["unit"], state, change)
+    cache[name] = False
     return False
 
 
@@ -863,7 +917,9 @@ def dependency_states(backend, unit, *, imports, hints, boundary):
         name: operation["state"]
         for record in getattr(backend, "retained_records", [])
         for name, operation in record["operations"].items()
-        if aws_unfinished(backend.target, name, operation, backend.aws)
+        if aws_unfinished(
+            backend.target, name, operation, backend.aws, boundary=boundary
+        )
     }
     require_independent(
         pending,
