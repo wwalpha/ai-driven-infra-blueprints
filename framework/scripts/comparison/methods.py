@@ -12,6 +12,7 @@ from utils.iac_values import (
     same,
     selected_same,
     unknown_value,
+    unordered_matching,
     unordered_same,
 )
 
@@ -35,6 +36,7 @@ class Rule:
     form_compare: object = None
     direct_attribute: str | None = None
     singleton: bool = False
+    keyless_unordered: bool = False
 
 
 SCALAR = Rule("SCALAR", "SCALAR")
@@ -102,6 +104,8 @@ class CompareOutcome:
     diagnostics: tuple = ()
     equivalent: bool = False
     differences: tuple = ()
+    candidate_failures: tuple = ()
+    candidate_warnings: tuple = ()
 
 
 EQUAL = CompareOutcome(True)
@@ -119,6 +123,8 @@ class _Comparison:
     diagnostics: list = field(default_factory=list)
     contexts: dict = field(default_factory=dict)
     equivalent: bool = False
+    candidate_failures: list = field(default_factory=list)
+    candidate_warnings: list = field(default_factory=list)
 
 
 def _trace(negative, whole, left, right, path, equal):
@@ -199,7 +205,12 @@ def compare_values(
         else ()
     )
     return CompareOutcome(
-        equal, tuple(state.diagnostics), state.equivalent, tuple(differences)
+        equal,
+        tuple(state.diagnostics),
+        state.equivalent,
+        tuple(differences),
+        tuple(state.candidate_failures),
+        tuple(state.candidate_warnings),
     )
 
 
@@ -250,6 +261,12 @@ def _decision(state, whole, left, right, path):
     if not isinstance(left, list) or not isinstance(right, list):
         return NotImplemented
     if mode == "KEYED":
+        if (
+            not whole
+            and rule.keyless_unordered
+            and any(isinstance(item, dict) and rule.key not in item for item in left)
+        ):
+            return _keyless_same(state, left, right, path, rule.key)
         return _keyed_same(state, left, right, path, whole, rule.key)
     evidence = []
     equal = unordered_same(
@@ -307,6 +324,103 @@ def _proof(state, left, right, path, whole, comparisons):
     _detect(nested, left, right, path, whole)
     differences = _evidence(nested, left, right, path, "", (), (), whole)
     return differences or [Difference("", left, right, (), ())]
+
+
+def _candidate_same(state, left, right, path):
+    start = len(state.diagnostics)
+    equivalent = state.equivalent
+    result = (
+        None
+        if unknown_value(left) or unknown_value(right)
+        else _detect(state, left, right, path, False)
+    )
+    details = tuple(state.diagnostics[start:]), state.equivalent and not equivalent
+    del state.diagnostics[start:]
+    state.equivalent = equivalent
+    return result, details
+
+
+def _keyless_same(state, left, right, path, key):
+    matrix = [[False] * len(right) for _ in left]
+    projected = {}
+    details = {}
+    for i, item in enumerate(left):
+        for j, candidate in enumerate(right):
+            actual = right.candidate(i, j) if hasattr(right, "candidate") else candidate
+            projected[i, j] = actual
+            matrix[i][j], details[i, j] = _candidate_same(
+                state, item, actual, path + "[]"
+            )
+            if len(unordered_matching(matrix[: i + 1])) == i + 1:
+                break
+    owners = unordered_matching(matrix)
+    if len(owners) != len(left):
+        for i, item in enumerate(left):
+            for j, candidate in enumerate(right):
+                if (i, j) in projected:
+                    continue
+                actual = (
+                    right.candidate(i, j) if hasattr(right, "candidate") else candidate
+                )
+                projected[i, j] = actual
+                matrix[i][j], details[i, j] = _candidate_same(
+                    state, item, actual, path + "[]"
+                )
+        owners = unordered_matching(matrix)
+    possible = unordered_matching(matrix, allow_unknown=True)
+    equal = (
+        True
+        if len(owners) == len(left)
+        else None
+        if len(possible) == len(left)
+        else False
+    )
+    named = [item.get(key) for item in left if isinstance(item, dict) and key in item]
+    actual_names = [
+        right.key_value(j, key)
+        if named and hasattr(right, "key_value")
+        else item.get(key)
+        if isinstance(item, dict)
+        else item
+        for j, item in enumerate(right)
+    ]
+    if named and equal is True and any(unknown_value(name) for name in actual_names):
+        equal = None
+    if any(
+        names.count(name) > 1
+        for names in (named, actual_names)
+        for name in names
+        if isinstance(name, str)
+    ):
+        equal = False
+    selected = owners if equal is not None else possible
+    if equal is None and hasattr(right, "evidence"):
+        clean_matrix = [
+            [
+                result if not right.evidence.get((i, j), ((), ()))[1] else False
+                for j, result in enumerate(row)
+            ]
+            for i, row in enumerate(matrix)
+        ]
+        clean = unordered_matching(clean_matrix, allow_unknown=True)
+        selected = clean if len(clean) == len(left) else possible
+        for j, i in selected.items():
+            warnings, failures = right.evidence.get((i, j), ((), ()))
+            state.candidate_warnings.extend(warnings)
+            state.candidate_failures.extend(failures)
+        if named:
+            for j, name in enumerate(actual_names):
+                if unknown_value(name):
+                    warnings, failures = right.key_evidence[j]
+                    state.candidate_warnings.extend(warnings)
+                    state.candidate_failures.extend(failures)
+    for j, i in selected.items():
+        diagnostics, equivalent = details[i, j]
+        state.diagnostics.extend(diagnostics)
+        state.equivalent |= equivalent
+    if equal is False:
+        state.unordered[path, id(left), id(right), False] = (matrix, owners, projected)
+    return equal
 
 
 def _keyed_same(state, left, right, path, whole, key):
@@ -506,8 +620,52 @@ def _keyed_evidence(state, left, right, typed, shown, lp, rp, whole, corresponde
     return differences
 
 
+def _keyless_evidence(state, left, right, typed, shown, lp, rp, evidence):
+    matrix, owners, projected = evidence
+    matched = set(owners.values())
+    differences = []
+    key = state.rules[typed].key
+    for i, item in enumerate(left):
+        if i in matched or any(result is None for result in matrix[i]):
+            continue
+        name = item.get(key) if isinstance(item, dict) else None
+        partners = (
+            [
+                j
+                for j, candidate in enumerate(right)
+                if isinstance(projected[i, j], dict)
+                and projected[i, j].get(key) == name
+            ]
+            if name is not None
+            else []
+        )
+        if len(partners) == 1 and partners[0] not in owners:
+            j = partners[0]
+            if hasattr(right, "candidate"):
+                right[j] = projected[i, j]
+            differences.extend(
+                _evidence(
+                    state,
+                    item,
+                    projected[i, j],
+                    typed + "[]",
+                    (shown, key, name),
+                    lp + (i,),
+                    rp + (j,),
+                    False,
+                )
+            )
+        else:
+            differences.append(
+                Difference(_path(shown, f"[{i}]"), item, MISSING, lp + (i,), None)
+            )
+    return differences or [Difference(shown, left, right, lp, rp)]
+
+
 def _unordered_evidence(state, left, right, typed, shown, lp, rp, evidence):
-    matrix, owners = evidence
+    matrix, owners = evidence[:2]
+    if len(evidence) == 3:
+        return _keyless_evidence(state, left, right, typed, shown, lp, rp, evidence)
     if matrix is None:
         known, _ = array_presence(right)
         if known <= len(left) <= len(right):

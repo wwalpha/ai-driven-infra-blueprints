@@ -730,6 +730,7 @@ class Comparison(Inputs):
         )
         warnings, actual_error = [], None
         failures = []
+        prepared = None
         raw_actual = actual
         try:
             if actual_provider:
@@ -748,37 +749,6 @@ class Comparison(Inputs):
                     )
                     warnings.extend(prepared.warnings)
                     actual = prepared.value
-                    for _path, pointer, error in prepared.failures:
-                        if isinstance(error, (Blocked, KeyError)) and not isinstance(
-                            error, ImportReferenceDeferred
-                        ):
-                            actual_error = actual_error or error
-                            continue
-                        location = dict(iac_source, pointer=pointer)
-                        node = raw_actual
-                        for token in pointer.lstrip("/").split("/") if pointer else []:
-                            token = token.replace("~1", "/").replace("~0", "~")
-                            key_or_index = (
-                                int(token) if isinstance(node, list) else token
-                            )
-                            if line := self.template_locations.get(id(node), {}).get(
-                                key_or_index
-                            ):
-                                location["line"] = line
-                            node = node[key_or_index]
-                        failures.append(
-                            self.make_record(
-                                failure_category(error),
-                                service,
-                                identity,
-                                prop + ("#" + pointer if pointer else ""),
-                                str(error),
-                                source=sources[0],
-                                stack=name,
-                                template=location,
-                                cause=getattr(error, "iac_cause", None),
-                            )
-                        )
                 else:
                     actual = self.evaluate(name, actual)
         except (Blocked, KeyError, ValueError, TypeError, IndexError) as error:
@@ -842,6 +812,40 @@ class Comparison(Inputs):
             local=self.local_comparison,
             missing=bool(missing),
         )
+        warnings.extend(decision.candidate_warnings)
+        if prepared is not None:
+            for _path, pointer, error in (
+                *prepared.failures,
+                *decision.candidate_failures,
+            ):
+                if isinstance(error, (Blocked, KeyError)) and not isinstance(
+                    error, ImportReferenceDeferred
+                ):
+                    actual_error = actual_error or error
+                    continue
+                location = dict(iac_source, pointer=pointer)
+                node = raw_actual
+                for token in pointer.lstrip("/").split("/") if pointer else []:
+                    token = token.replace("~1", "/").replace("~0", "~")
+                    key_or_index = int(token) if isinstance(node, list) else token
+                    if line := self.template_locations.get(id(node), {}).get(
+                        key_or_index
+                    ):
+                        location["line"] = line
+                    node = node[key_or_index]
+                failures.append(
+                    self.make_record(
+                        failure_category(error),
+                        service,
+                        identity,
+                        prop + ("#" + pointer if pointer else ""),
+                        str(error),
+                        source=sources[0],
+                        stack=name,
+                        template=location,
+                        cause=getattr(error, "iac_cause", None),
+                    )
+                )
         if actual_error is not None and decision.equal is True:
             decision = replace(decision, equal=None, differences=())
         if failures and decision.equal is not False:

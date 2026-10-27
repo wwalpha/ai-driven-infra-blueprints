@@ -34,6 +34,112 @@ def evaluator(
     )
 
 
+class SelectedCandidates(list):
+    """Project each candidate only for the Model element being compared."""
+
+    def __init__(
+        self,
+        values,
+        desired,
+        path,
+        evaluate,
+        property_name,
+        model_path,
+        rules,
+        locations,
+        initial,
+    ):
+        super().__init__(values)
+        self.desired = desired
+        self.path = path
+        self.evaluate = evaluate
+        self.property_name = property_name
+        self.model_path = model_path
+        self.rules = rules
+        self.cache = {}
+        self.values = {}
+        self.locations = locations
+        self.initial = initial
+        self.evidence = {}
+        self.key_evidence = {}
+
+    def evaluate_cached(self, value):
+        identity = id(value)
+        if identity not in self.values:
+            try:
+                result = self.evaluate(value)
+            except (Blocked, KeyError, ValueError, TypeError, IndexError) as error:
+                self.values[identity] = (value, error, True)
+            else:
+                self.values[identity] = (value, result, False)
+        _, result, failed = self.values[identity]
+        if failed:
+            raise result
+        return result
+
+    def candidate(self, i, j):
+        if (i, j) not in self.cache:
+            warnings, failures = self.initial[j]
+            warnings, failures = list(warnings), list(failures)
+            self.cache[i, j] = _visit_actual(
+                self[j],
+                self.desired[i],
+                self.path + "[]",
+                self.locations[j],
+                self.evaluate_cached,
+                False,
+                warnings,
+                failures,
+                self.property_name,
+                self.model_path,
+                self.rules,
+                {},
+            )
+            self.evidence[i, j] = warnings, failures
+        return self.cache[i, j]
+
+    def key_value(self, j, key):
+        warnings, failures = self.initial[j]
+        warnings, failures = list(warnings), list(failures)
+        candidate = _visit_actual(
+            self[j],
+            {key: None},
+            self.path + "[]",
+            self.locations[j],
+            self.evaluate_cached,
+            False,
+            warnings,
+            failures,
+            self.property_name,
+            self.model_path,
+            self.rules,
+            {},
+        )
+        self.key_evidence[j] = warnings, failures
+        return candidate.get(key) if isinstance(candidate, dict) else candidate
+
+
+def _candidate_root(value, pointer, evaluate):
+    while (
+        isinstance(value, dict)
+        and len(value) == 1
+        and isinstance(value.get("Fn::If"), list)
+        and len(value["Fn::If"]) == 3
+    ):
+        argument = value["Fn::If"]
+        try:
+            index = 1 if evaluate({"Condition": argument[0]}) else 2
+        except (Blocked, KeyError, ValueError, TypeError, IndexError) as error:
+            return value, pointer, error
+        value = argument[index]
+        pointer += "/Fn::If/" + str(index)
+    return value, pointer, None
+
+
+def _raise_candidate_error(error, value):
+    raise error
+
+
 def project_actual(
     value,
     *,
@@ -182,6 +288,50 @@ def _visit_actual(
             projected = []
             rule = rules.get(path)
             mode = (rule.whole if exact else rule.selected) if rule else "ORDERED"
+            if (
+                not exact
+                and rule
+                and rule.keyless_unordered
+                and isinstance(selected, list)
+                and any(
+                    isinstance(item, dict) and rule.key not in item for item in selected
+                )
+            ):
+                locations, initial = [], []
+                for index, child in enumerate(value):
+                    child, location, error = _candidate_root(
+                        child, pointer + "/" + str(index), evaluate
+                    )
+                    candidate_warnings, candidate_failures = [], []
+                    item = _visit_actual(
+                        child,
+                        {},
+                        path + "[]",
+                        location,
+                        partial(_raise_candidate_error, error) if error else evaluate,
+                        False,
+                        candidate_warnings,
+                        candidate_failures,
+                        property_name,
+                        model_path,
+                        rules,
+                        evaluated,
+                    )
+                    if item != {"$noValue": True}:
+                        projected.append(item)
+                        locations.append(location)
+                        initial.append((candidate_warnings, candidate_failures))
+                return SelectedCandidates(
+                    projected,
+                    selected,
+                    path,
+                    evaluate,
+                    property_name,
+                    model_path,
+                    rules,
+                    locations,
+                    initial,
+                )
             for index, child in enumerate(value):
                 selected_child = (
                     selected[len(projected)]

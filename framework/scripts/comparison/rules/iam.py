@@ -157,7 +157,9 @@ for _kind, _path in (
         )
 
 for _kind in ("IAM.Role", "IAM.User"):
-    RULES[_kind]["Policies"] = Rule("KEYED", "KEYED", key="PolicyName")
+    RULES[_kind]["Policies"] = Rule(
+        "KEYED", "KEYED", key="PolicyName", keyless_unordered=True
+    )
 
 RULES["IAM.ManagedPolicy"]["Roles"] = Rule(
     "UNORDERED", "UNORDERED", actual=roles_actual, local=True

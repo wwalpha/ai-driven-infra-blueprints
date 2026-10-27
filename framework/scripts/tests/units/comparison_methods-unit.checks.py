@@ -355,16 +355,13 @@ def test_iam_rules(kind, path):
                 ).equal
                 is False
             )
-            assert (
-                compare_values(
-                    [{"PolicyDocument": {}}],
-                    actual,
-                    "Policies",
-                    rules=rules,
-                    whole=whole,
-                ).equal
-                is False
-            )
+            assert compare_values(
+                [{"PolicyDocument": {}}],
+                actual,
+                "Policies",
+                rules=rules,
+                whole=whole,
+            ).equal is (not whole)
             assert (
                 compare_values(
                     policies,
@@ -785,7 +782,7 @@ def test_unordered_length_mismatch_does_not_compare_pairs(size):
 
 
 @pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
-def test_policy_name_unselected_uses_selected_positional_comparison(kind):
+def test_policy_name_unselected_uses_selected_unordered_comparison(kind):
     rules = registry.rules(kind)
     model = [{"PolicyDocument": {"Statement": []}}]
     actual = [{"PolicyName": "OnlyOne", "PolicyDocument": {"Statement": []}}]
@@ -805,6 +802,94 @@ def test_policy_name_unselected_uses_selected_positional_comparison(kind):
         ).equal
         is None
     )
+
+
+def candidate_diagnostic(left, right, path):
+    if isinstance(left, str) and isinstance(right, str) and left != right:
+        return ReferenceDecision(NotImplemented, ({"reason": "rejected candidate"},))
+    return ReferenceDecision(NotImplemented)
+
+
+def test_keyless_match_ignores_rejected_candidate_diagnostics():
+    rules = registry.rules("IAM.User")
+    model = [
+        {"PolicyDocument": {"Statement": [{"Action": value}]}} for value in ("a", "b")
+    ]
+    actual = [
+        {"PolicyName": value, **item}
+        for value, item in zip(("two", "one"), reversed(model), strict=True)
+    ]
+    result = compare_values(
+        model, actual, "Policies", rules=rules, reference=candidate_diagnostic
+    )
+    assert result.equal is True
+    assert not result.diagnostics
+
+
+@pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
+def test_keyless_policy_matching_and_actual_differences(kind):
+    rules = registry.rules(kind)
+    a = {
+        "PolicyDocument": {
+            "Statement": [
+                {
+                    "Action": ["a", "b"],
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"x": "y"}},
+                }
+            ]
+        }
+    }
+    b = {"PolicyDocument": {"Statement": [{"Action": "c", "Resource": "*"}]}}
+    model = [a, b]
+    actual = [{"PolicyName": "two", **b}, {"PolicyName": "one", **a}]
+    assert compare_values(model, actual, "Policies", rules=rules).equal is True
+    assert (
+        compare_values(
+            [dict(a, PolicyName="one"), b], actual, "Policies", rules=rules
+        ).equal
+        is True
+    )
+    assert (
+        compare_values(
+            [dict(a, PolicyName="wrong"), b], actual, "Policies", rules=rules
+        ).equal
+        is False
+    )
+    assert compare_values([a, a], [actual[1]], "Policies", rules=rules).equal is False
+    assert (
+        compare_values(model, [actual[1], actual[1]], "Policies", rules=rules).equal
+        is False
+    )
+    assert (
+        compare_values(
+            model,
+            [actual[1], Expression("Unverified", [])],
+            "Policies",
+            rules=rules,
+            reference=uncertain,
+        ).equal
+        is None
+    )
+    assert (
+        compare_values(model, actual, "Policies", rules=rules, whole=True).equal
+        is False
+    )
+    for field, replacement in (
+        ("Action", ["a"]),
+        ("Resource", "different"),
+        ("Condition", {"StringEquals": {"x": "z"}}),
+    ):
+        changed = {
+            "PolicyName": "one",
+            "PolicyDocument": {
+                "Statement": [
+                    dict(a["PolicyDocument"]["Statement"][0], **{field: replacement})
+                ]
+            },
+        }
+        outcome = compare_values(model, [actual[0], changed], "Policies", rules=rules)
+        assert outcome.equal is False and outcome.differences
 
 
 def test_unordered_length_difference_retains_proven_sid_and_pointers():
