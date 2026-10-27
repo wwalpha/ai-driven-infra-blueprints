@@ -370,11 +370,27 @@ def generate_views(
             warnings.extend(d for d in diagnostics if d not in warnings)
             save_files(artifacts)
             staged.parent.mkdir(parents=True, exist_ok=True)
+            display_warnings = []
             staged.write_text(
-                markdown_for(staged, values, stage, definitions_root=definitions_root),
+                markdown_for(
+                    staged,
+                    values,
+                    stage,
+                    definitions_root=definitions_root,
+                    warnings=display_warnings,
+                ),
                 encoding="utf-8",
                 newline="",
             )
+            for warning in display_warnings:
+                model_path = warning.get("model")
+                if model_path and Path(model_path).is_relative_to(stage):
+                    warning = {
+                        **warning,
+                        "model": str(root / Path(model_path).relative_to(stage)),
+                    }
+                if warning not in warnings:
+                    warnings.append(warning)
             generated[path] = [*artifacts, staged]
         except ReferenceDiagnosticError as error:
             warnings.extend(
@@ -894,7 +910,8 @@ def generation_metadata(plan):
         "unverified": [
             diagnostic
             for diagnostic in plan.reference_warnings
-            if diagnostic.get("category") == "REFERENCE_PENDING_DEPLOY"
+            if diagnostic.get("category")
+            in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
         ],
         "warnings": plan.reference_warnings,
     }

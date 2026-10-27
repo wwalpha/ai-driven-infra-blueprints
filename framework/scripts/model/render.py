@@ -543,9 +543,12 @@ def markdown_for(
     root: Path,
     *,
     definitions_root: Path | None = None,
+    warnings=None,
 ) -> str:
     """Generate a View; Model quality belongs to Change or Full Validation."""
-    return render_validated_model(path, values, root, definitions_root=definitions_root)
+    return render_validated_model(
+        path, values, root, definitions_root=definitions_root, warnings=warnings
+    )
 
 
 @task_read_scope(root=_task_root)
@@ -555,9 +558,10 @@ def render_validated_model(
     root: Path,
     *,
     definitions_root: Path | None = None,
+    warnings=None,
 ) -> str:
     """Render structure and references without Model quality validation."""
-    return generate_markdown(path, values, definitions_root or root)
+    return generate_markdown(path, values, definitions_root or root, warnings=warnings)
 
 
 @task_read_scope(root=_task_root)
@@ -569,6 +573,7 @@ def generate_markdown(
     *,
     reference_tables=None,
     reference_values=None,
+    warnings=None,
 ) -> str:
     """Render selected values; reference_values supplies the complete candidate context."""
     reference_values = values if reference_values is None else reference_values
@@ -580,6 +585,7 @@ def generate_markdown(
         root,
         reference_tables=reference_tables,
         reference_values=reference_values,
+        warnings=warnings,
     )
 
 

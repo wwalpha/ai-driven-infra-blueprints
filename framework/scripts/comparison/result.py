@@ -199,6 +199,17 @@ def _visit_unconfirmed(
             )
 
 
+def _unconfirmed_key(prop, path, left, right):
+    return (
+        re.sub(
+            r"\[\d+\]",
+            "[]",
+            prop + ("." if path and not path.startswith("[") else "") + path,
+        ),
+        json.dumps([left, right], sort_keys=True, ensure_ascii=False),
+    )
+
+
 def unconfirmed_references(
     desired, actual, decision, prop, *, redact, display_reference
 ):
@@ -221,16 +232,6 @@ def unconfirmed_references(
         model,
     )
 
-    def key(path, left, right):
-        return (
-            re.sub(
-                r"\[\d+\]",
-                "[]",
-                prop + ("." if path and not path.startswith("[") else "") + path,
-            ),
-            json.dumps([left, right], sort_keys=True, ensure_ascii=False),
-        )
-
     evidence = {}
     for item in decision.diagnostics:
         if item.get("local_comparison") in {"matched", "uncompared", "difference"}:
@@ -244,7 +245,9 @@ def unconfirmed_references(
             )
             evidence.setdefault(identity, set()).add(item["local_comparison"])
     keys = [
-        key(path, _shown_value(None, pointers[pointer], model), value)
+        _unconfirmed_key(
+            prop, path, _shown_value(None, pointers[pointer], model), value
+        )
         if pointer in pointers
         else None
         for value, path, _, pointer in candidates
@@ -350,6 +353,27 @@ class RowResult:
     failure: Exception | None = None
 
 
+def _display_reference(
+    symbol, *, display_reference, redact, warnings, service, identity, prop
+):
+    try:
+        return display_reference(symbol)
+    except Blocked:
+        raise
+    except Exception as error:
+        warning = redact(
+            {
+                "service": service,
+                "resource": identity,
+                "property": prop,
+                "code": "comparison.display_reference",
+                "message": f"{type(error).__name__}: {safe_text(str(error))}",
+            }
+        )
+        warnings.append(warning)
+        raise Blocked(warning["message"]) from error
+
+
 def setting_result(
     service,
     identity,
@@ -373,26 +397,18 @@ def setting_result(
     source = sources[0] or default_source
     warnings = []
 
-    def display(symbol):
-        try:
-            return display_reference(symbol)
-        except Blocked:
-            raise
-        except Exception as error:
-            warning = redact(
-                {
-                    "service": service,
-                    "resource": identity,
-                    "property": prop,
-                    "code": "comparison.display_reference",
-                    "message": f"{type(error).__name__}: {safe_text(str(error))}",
-                }
-            )
-            warnings.append(warning)
-            raise Blocked(warning["message"]) from error
-
     resolver = (
-        display if display_reference is not None and actual_error is None else None
+        partial(
+            _display_reference,
+            display_reference=display_reference,
+            redact=redact,
+            warnings=warnings,
+            service=service,
+            identity=identity,
+            prop=prop,
+        )
+        if display_reference is not None and actual_error is None
+        else None
     )
     if decision.equal is None:
         item = record(

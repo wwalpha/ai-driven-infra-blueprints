@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import model.sources as sources
 import pytest
+import sync_runtime
 from comparison.deferral import ImportReferenceDeferred
 from comparison.methods import compare_values
 from comparison.registry import rules
@@ -43,7 +44,7 @@ from model.projection import (
 from model.reference_nodes import nodes, parse, resolve
 from model.reference_nodes import project as display
 from model.references import Usage, incoming, symbolic, usages
-from model.render import generate_markdown
+from model.render import generate_files, generate_markdown
 from model.sources import load_model
 from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
@@ -178,6 +179,76 @@ def check_identifier_link_projection(models, kind, service, attribute, prop, obs
         resource_rows(displayed, "001", ".".join(prop.split(".")[:2]), root)[0][2]
         == f"[{observed}]({service}.md#saved-001)"
     )
+
+
+@pytest.mark.parametrize(
+    "state", ["pending", "unobserved", "confirmed", "missing", "ambiguous"]
+)
+def check_identifier_generation_diagnostics(models, state):
+    root = models[0].root
+    producer, target = resource(
+        root,
+        "security-group",
+        "EC2.SecurityGroup",
+        attribute="Id",
+        observed={"pending": "PENDING_DEPLOY", "confirmed": "sg-123"}.get(state),
+    )
+    if state == "ambiguous":
+        _, second = resource(
+            root, "security-group", "EC2.SecurityGroup", attribute="Id", number="002"
+        )
+        target.update(second)
+        target["desired.resource.002.anchor"] = "saved-001"
+        save(producer, target)
+    consumer, values = resource(
+        root, "lambda", "Lambda.Function", attribute="FunctionName"
+    )
+    link = (
+        "[original](security-group.md#"
+        + ("missing" if state == "missing" else "saved-001")
+        + ")"
+    )
+    values["desired.row.001-001.property"] = (
+        "Lambda.Function.VpcConfig.SecurityGroupIds"
+    )
+    values["desired.row.001-001.value"] = link
+    save(consumer, values)
+    original = (producer.path.read_bytes(), consumer.path.read_bytes())
+    view = root / "docs/designs/qa/team/lambda.md"
+    warnings = []
+    files = generate_files(view, load_model(consumer).values, root, warnings=warnings)
+    plan = sync_runtime.prepare_generation(
+        root, {("qa", "team", "lambda")}, write=False, definitions_root=FRAMEWORK
+    )
+    try:
+        metadata = sync_runtime.generation_metadata(plan)
+        assert metadata["status"] == "PASS", metadata
+        assert plan.generated[view]
+        assert [
+            w
+            for w in plan.reference_warnings
+            if w.get("category") == "REFERENCE_UNRESOLVED"
+        ] == warnings
+        assert metadata["warnings"] == plan.reference_warnings
+        assert metadata["unverified"] == [
+            w
+            for w in plan.reference_warnings
+            if w.get("category") in {"REFERENCE_UNRESOLVED", "REFERENCE_PENDING_DEPLOY"}
+        ]
+        assert len(warnings) == len({json.dumps(w, sort_keys=True) for w in warnings})
+        expected = {"pending": "PENDING_DEPLOY", "confirmed": "sg-123"}.get(
+            state, "original"
+        )
+        assert f"[{expected}](security-group.md#" in files[view]
+        assert bool(warnings) == (state in {"unobserved", "missing", "ambiguous"})
+        if warnings:
+            assert warnings[0]["category"] == "REFERENCE_UNRESOLVED"
+        pending = {"category": "REFERENCE_PENDING_DEPLOY", "message": "pending"}
+        plan.reference_warnings.append(pending)
+        assert pending in sync_runtime.generation_metadata(plan)["unverified"]
+    finally:
+        plan.close()
+    assert (producer.path.read_bytes(), consumer.path.read_bytes()) == original
 
 
 def check_name_reference_is_not_identifier_projection(models):
