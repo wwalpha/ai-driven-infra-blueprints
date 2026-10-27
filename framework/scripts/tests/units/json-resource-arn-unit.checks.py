@@ -16,7 +16,7 @@ import pytest
 from design.catalog import DesignSchemaCatalog
 from design.policy_tables import Policy, validate_policy_document
 from generation_inputs import GenerationInputs
-from json_intrinsics import project_document
+from json_intrinsics import project_document, validate_document
 from model.format import serialize
 from model.identity import COUNTERS
 from model.operations import prepare_edit, publish_edit, validate_candidates
@@ -410,6 +410,10 @@ def check_invalid_intrinsic_structure(tmp_path, expression):
         validate_json_settings(policy, scope.path)
     with pytest.raises(ValueError, match="JSON Pointer"):
         execution_document(json.loads(policy[key]), tmp_path)
+    with pytest.raises(ValueError, match="JSON Pointer"):
+        validate_document(json.loads(policy[key]))
+    with pytest.raises(ValueError, match="JSON Pointer"):
+        validate_document({"encoded": policy[key]})
     policy[key] = '{"invalid":'
     with pytest.raises(ValueError):
         validate_json_settings(policy, scope.path)

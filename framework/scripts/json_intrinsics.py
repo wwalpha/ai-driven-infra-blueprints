@@ -250,3 +250,8 @@ def project_document(
     if not template:
         syntax(document, pointer)
     return visit(document, pointer)
+
+
+def validate_document(document, **context):
+    """Check authored JSON without evaluating even locally resolvable intrinsics."""
+    project_document(document, evaluate=_project_document_pending, **context)

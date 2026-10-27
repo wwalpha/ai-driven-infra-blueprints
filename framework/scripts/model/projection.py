@@ -562,14 +562,21 @@ def design_document(document, root, *, warnings=None, **contract):
         require_reference_diagnostics(diagnostics)
     if warnings is not None:
         warnings.extend(d for d in diagnostics if d not in warnings)
-    return execution_document(
-        document,
-        root,
-        property_name=contract.get("property_name"),
-        scope=contract["scope"],
-        logical_id=contract.get("logical_id"),
-        warnings=warnings,
-    )
+    scope = contract["scope"]
+    try:
+        _imports_json_intrinsics.validate_document(
+            document,
+            property_name=contract.get("property_name"),
+            model_path=scope.path,
+            logical_id=contract.get("logical_id"),
+            warnings=warnings,
+        )
+    except _imports_utils_json_format.AwsDocumentError as error:
+        raise ValueError(
+            f"Model={scope.path}, Resource logicalId={contract.get('logical_id')}, "
+            f"Property={contract.get('property_name')}; {error}"
+        ) from error
+    return document
 
 
 def generated_document(
@@ -753,8 +760,7 @@ def validate_json_documents(
                         f"Resource={resource} ({number}), Property={row['property']}, "
                         f"JSON Pointer={pointer!r}; use confirmed AWS values and external desired.reference metadata"
                     )
-            project_document = _imports_json_intrinsics.project_document
-            project_document(
+            _imports_json_intrinsics.validate_document(
                 value,
                 warnings=warnings,
                 model_path=model_path,

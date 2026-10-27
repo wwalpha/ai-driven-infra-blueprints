@@ -383,11 +383,19 @@ def generate_views(
                     continue
                 if strict:
                     # Readiness checks must not materialize physical values in saved designs.
-                    document = _imports_model_projection.execution_document(
+                    document = _imports_model_projection.design_document(
                         raw_document,
                         root,
                         property_name=row["property"],
                         scope=model.scope,
+                        resolver=resolver,
+                        logical_id=values.get(
+                            f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
+                        ),
+                        model_key=f"desired.row.{identity}.document",
+                        context=_imports_model_validation.reference_context_for(
+                            values, identity, row, raw_document, "", root
+                        ),
                         warnings=warnings,
                     )
                 if not isinstance(document, dict) or "$modelRef" in document:

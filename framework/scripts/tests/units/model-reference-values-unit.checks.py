@@ -285,6 +285,91 @@ def test_refuses_unproven_values(fixture, fault):
         )
 
 
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"Resource": {"Fn::Join": ["", ["arn:aws:s3:::", "my-bucket", "/*"]]}},
+        {
+            "Resource": [
+                reference("S3_Bucket_001"),
+                {"Fn::Join": ["", [reference("S3_Bucket_001"), "/*"]]},
+            ]
+        },
+        {
+            "Encoded": ' { "Resource": { "Fn::Join": ["", ["arn:aws:s3:::", "my-bucket", "/*"]] }, "items": [3, true, "keep"] } '
+        },
+        {"Items": ["3", 3, 2.5, True, False, None, {"Nested": [2, 1]}]},
+        {"Fn::Select": [4, ["authored"]]},
+    ],
+)
+def test_design_projection_preserves_structure(fixture, document):
+    _, _, consumer, policy = fixture
+    before = copy.deepcopy(document)
+    warnings = []
+    with patch.object(
+        projection._imports_json_intrinsics._imports_iac_evaluation,
+        "Evaluation",
+        side_effect=AssertionError("design validation must not evaluate intrinsics"),
+    ):
+        assert (
+            design_document(
+                document,
+                consumer.root,
+                resolver=reference_resolver(policy, consumer, consumer.root),
+                scope=consumer,
+                warnings=warnings,
+            )
+            == before
+        )
+    assert document == before
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_sync_design_structure_matches_normal_generation(fixture, tmp_path, strict):
+    _, _, consumer, policy = fixture
+    document = json.loads(policy["desired.row.001-002.document"])
+    document["Statement"][0]["Action"] = "s3:GetObject"
+    document["Statement"][0]["Resource"] = {
+        "Fn::Join": ["", [reference("S3_Bucket_001"), "/*"]]
+    }
+    document["Statement"].append(
+        {
+            "Effect": "Allow",
+            "Action": "s3:GetObject",
+            "Resource": {"Fn::Join": ["", ["arn:aws:s3:::", "my-bucket", "/*"]]},
+        }
+    )
+    policy["desired.row.001-002.document"] = json.dumps(document)
+    save(consumer, policy)
+    root, stage = consumer.root, tmp_path / "stage"
+    view = root / "docs/designs/qa/team/iam.md"
+    artifact = view.with_suffix("") / "policy.json"
+    before = consumer.path.read_bytes()
+    files = generate_files(view, load_model(consumer).values, root)
+    assert json.loads(files[artifact]) == document
+    failures, warnings, unavailable = [], [], {}
+    with (
+        patch.object(sync_runtime, "markdown_for", return_value="# Generated\n"),
+        patch.object(sync_runtime, "rendered_design", return_value="# Generated\n"),
+    ):
+        generated = sync_runtime.generate_views(
+            stage,
+            root,
+            {view: load_model(consumer).values},
+            failures,
+            definitions_root=FRAMEWORK,
+            warnings=warnings,
+            unavailable=unavailable,
+            strict=strict,
+        )
+    assert not failures and not unavailable, (failures, unavailable)
+    assert view in generated
+    assert (stage / artifact.relative_to(root)).read_text(encoding="utf-8") == files[
+        artifact
+    ]
+    assert consumer.path.read_bytes() == before
+
+
 def test_generated_json_keeps_authority(fixture):
     producer, values, consumer, policy = fixture
     node = reference("S3_Bucket_001")
