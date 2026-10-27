@@ -747,6 +747,41 @@ class Inputs:
             raise Blocked("reference name is unresolved")
         return result
 
+    def display_reference(self, value):
+        """Resolve one displayed symbol using this run's proof and input caches."""
+        service, identity = value["$resource"]
+        attribute = value["$attribute"]
+        key = service, identity, attribute
+        if not hasattr(self, "_display_reference_cache"):
+            self._display_reference_cache = {}
+        cache = self._display_reference_cache
+        if key not in cache:
+            proof = reference_evidence.Evidence(self)
+            try:
+                if identity not in self.resources.get(service, {}):
+                    raise Blocked(
+                        "reference Producer is unavailable in comparison inputs"
+                    )
+                if not self.reference_models_loaded:
+                    raise Blocked("reference comparison context is unavailable")
+                literal = proof.resolve(value)
+            except Blocked as error:
+                cache[key] = None, None, str(error)
+            else:
+                cache[key] = (
+                    literal,
+                    "Observed（記録値・現在AWS未確認）"
+                    if proof.observed
+                    else "IaC（ローカル評価）",
+                    None,
+                )
+        literal, source, error = cache[key]
+        if error is not None:
+            raise Blocked(error)
+        return self.redacted(
+            literal, self.resource_type(value) + "." + attribute
+        ), source
+
     def reference_context(self, value):
         service, identity = value["$resource"]
         resource = self.resources[service][identity]

@@ -5,12 +5,15 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from utils.iac_values import safe_value
+from utils.cloudformation.inputs import Blocked
+from utils.iac_values import Expression, ResourceReference, safe_value
 
 import comparison.values as _imports_comparison_values
 
 from .deferral import failure_category
+from .expressions import references
 from .methods import MISSING
+from .references import literal_expression
 
 
 def identifier(value):
@@ -62,19 +65,89 @@ def _shown_value(raw, pointer, shown):
     return shown
 
 
-def value_differences(
-    decision, desired, actual, property_name="", *, redact=safe_value
-):
-    """Render the detector's evidence; never compare values or resolve references."""
-    left, right = redact(desired, property_name), redact(actual, property_name)
-    return [
-        {
-            "path": safe_text(_difference_path(item.path) or property_name),
-            "model": _formatted(_shown_value(item.model, item.model_pointer, left)),
-            "iac": _formatted(_shown_value(item.iac, item.iac_pointer, right)),
+def _reference_types(raw, shown):
+    """Keep symbolic types only where the enclosing redaction permits display."""
+    if isinstance(raw, ResourceReference) and isinstance(shown, dict):
+        return ResourceReference(shown)
+    if isinstance(raw, Expression) and isinstance(shown, dict):
+        return Expression(
+            raw.operation, _reference_types(raw.operands, shown["$operands"])
+        )
+    if isinstance(raw, dict) and isinstance(shown, dict):
+        return {key: _reference_types(raw[key], item) for key, item in shown.items()}
+    if isinstance(raw, list) and isinstance(shown, list):
+        return [_reference_types(a, b) for a, b in zip(raw, shown, strict=True)]
+    return shown
+
+
+def _display_value(value, prop, resolve, redact):
+    if isinstance(value, (ResourceReference, Expression)) and references(value):
+        sources = []
+
+        def literal(symbol):
+            if isinstance(symbol, Expression):
+                return literal_expression(symbol, resolve_literal=literal)
+            concrete, source = resolve(symbol)
+            if source not in sources:
+                sources.append(source)
+            return concrete
+
+        targets = ", ".join(
+            dict.fromkeys(
+                "/".join(ref["$resource"]) + "." + ref["$attribute"]
+                for ref in references(value)
+            )
+        )
+        try:
+            concrete = literal(value)
+        except Blocked as error:
+            return redact(f"未解決 (参照: {targets}、理由: {error})", prop)
+        return redact(
+            f"{_formatted(redact(concrete, prop))} (参照: {targets}、取得元: {', '.join(sources)})",
+            prop,
+        )
+    if isinstance(value, dict):
+        return {
+            key: _display_value(item, prop + "." + key, resolve, redact)
+            for key, item in value.items()
         }
-        for item in decision.differences
-    ]
+    if isinstance(value, list):
+        return [_display_value(item, prop, resolve, redact) for item in value]
+    return redact(value, prop) if isinstance(value, Expression) else value
+
+
+def value_differences(
+    decision,
+    desired,
+    actual,
+    property_name="",
+    *,
+    redact=safe_value,
+    display_reference=None,
+):
+    """Render detector evidence; optional local resolution changes display only."""
+    left, right = redact(desired, property_name), redact(actual, property_name)
+    fields = []
+    for item in decision.differences:
+        shown = _shown_value(item.iac, item.iac_pointer, right)
+        iac = _formatted(shown)
+        if display_reference is not None and item.iac is not MISSING:
+            value = _reference_types(item.iac, shown)
+            displayed = _display_value(value, property_name, display_reference, redact)
+            iac = (
+                displayed
+                if isinstance(value, (ResourceReference, Expression))
+                and isinstance(displayed, str)
+                else _formatted(displayed)
+            )
+        fields.append(
+            {
+                "path": safe_text(_difference_path(item.path) or property_name),
+                "model": _formatted(_shown_value(item.model, item.model_pointer, left)),
+                "iac": iac,
+            }
+        )
+    return fields
 
 
 def redacted(value, prop="", *, sensitive_values=()):
@@ -169,6 +242,7 @@ def setting_result(
     default_source=None,
     missing=None,
     deferred_children=(),
+    display_reference=None,
 ):
     unverified = _imports_comparison_values.unverified
     source = sources[0] or default_source
@@ -229,7 +303,14 @@ def setting_result(
         if errors:
             reason = "; ".join(dict.fromkeys(errors))
     # The predicate sees raw values; masking is applied only to emitted evidence.
-    differences = value_differences(decision, desired, actual, prop, redact=redact)
+    differences = value_differences(
+        decision,
+        desired,
+        actual,
+        prop,
+        redact=redact,
+        display_reference=display_reference,
+    )
     item = record(
         "difference",
         service,

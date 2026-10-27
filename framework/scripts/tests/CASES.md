@@ -4185,3 +4185,14 @@ states. AWS execution input checks remain independent of JSON Views.
 | --- | --- | --- | --- | --- | --- | --- |
 | `generated-json::vpc-view` | `test_vpc_json_view_and_saved_policy` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 3 | VpcId pending/resolved/unresolved, mixed confirmed reference, nested/encoded arrays, saved-policy equality and real mismatch, unchanged authority | Synthetic Models |
 | `generated-json::pending-composite` | `test_pending_composite_view_is_not_a_physical_identifier` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 4 | Join/Sub/nested Join/Select with Pending never assemble a false identifier, including encoded JSON | Synthetic JSON |
+
+## IaC reference difference display
+
+| Case ID | Function | Layer | File | Mode / count | Coverage | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `iac-reference-display::pipeline` | `test_iac_reference_display_pipeline_preserves_comparison_and_issues` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 3 | KeyIdとAliasNameの分離、記録Observed/未記録/pending、dataset/summary/detail伝搬、判定・分類・ID・原因・件数不変 | Added |
+| `iac-reference-display::expressions` | `test_iac_reference_display_local_expression_and_cache` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 5 | 直接/ネスト/Sub/Join/SplitSelect、明示値の取得元、重複参照を1回解決、元値不変 | Added |
+| `iac-reference-display::masking` | `test_iac_reference_display_retains_masks` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 5 | secret Property/環境変数/参照先、sensitive parameter、Expression内部のマスクをdetailまで保持 | Added |
+| `iac-reference-display::failures` | `test_iac_reference_display_expected_failures_only` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | Producer/比較context欠落・Blockedを未解決表示、失敗キャッシュ、予期しないバグを伝播 | Added |
+| `iac-reference-display::ordinary` | `test_iac_reference_display_preserves_nonreferences_and_missing` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | 非参照値、参照を持たないExpression、MISSING表示を維持し解決を呼ばない | Added |
+| `iac-reference-display::runner` | `test_iac_reference_display_runner_decisions_unchanged` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 3 | runnerから差分だけを解決、matched/difference/uncomparedのレコード完全一致 | Added |

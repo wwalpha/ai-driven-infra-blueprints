@@ -17,11 +17,14 @@ from comparison.methods import ORDERED, compare_values
 from comparison.reference_evidence import Evidence
 from comparison.registry import rules
 from comparison.resource import inactive_evidence, inline_owner
+from comparison.result import identifier, setting_result, value_differences
 from comparison.rows import validated_rows
 from comparison.rules.iam import managed_policy_roles
+from comparison.runner import Settings
 from comparison.values import PreparedValue
 from design.catalog import DesignSchemaCatalog
-from issues.aggregate import aggregate, comparison_status
+from issues.aggregate import aggregate, comparison_status, iac_dataset, iac_summary
+from issues.artifact import detail_payload
 from issues.materials import naming_materials
 from model.references import declarations
 from model.sources import ModelSnapshot, Scope
@@ -5813,3 +5816,324 @@ def test_deferred_intrinsic_does_not_hide_other_operand_failures(unknown, observ
     assert not any(
         item["category"] in {"matched", "difference"} for item in batch.records
     ), batch.records
+
+
+@pytest.mark.parametrize("observed", [KEY_ID, None, "PENDING_DEPLOY"])
+def test_iac_reference_display_pipeline_preserves_comparison_and_issues(observed):
+    comparison = fixture()
+    resource(
+        comparison,
+        "kms",
+        "007",
+        "KMS.Key",
+        "Key",
+        [("KeyId", "PENDING_DEPLOY", observed)],
+    )
+    resource(
+        comparison,
+        "kms",
+        "008",
+        "KMS.Alias",
+        "Alias",
+        [("AliasName", "alias/fixture", None)],
+        properties={"AliasName": "alias/fixture", "TargetKeyId": {"Ref": "Key"}},
+    )
+    desired = {
+        "EnvironmentVariables": [
+            {"Name": "FIRST", "Type": "PLAINTEXT", "Value": "same"},
+            {"Name": "SECOND", "Type": "PLAINTEXT", "Value": "same"},
+            {"Name": "KEY_ID", "Type": "PLAINTEXT", "Value": "alias/fixture"},
+        ]
+    }
+    actual = copy.deepcopy(desired)
+    actual["EnvironmentVariables"][2]["Value"] = {"Fn::GetAtt": ["Key", "KeyId"]}
+    actual = comparison.evaluate("producer", actual)
+    decision = compare_values(
+        desired, actual, "Environment", rules=rules("CodeBuild.Project")
+    )
+
+    # This boundary receives an already detected difference; service decisions stay upstream.
+    def render(resolver):
+        return setting_result(
+            "codebuild",
+            "002",
+            "CodeBuild.Project.Environment",
+            desired,
+            actual,
+            decision,
+            "producer",
+            [{}],
+            {},
+            actual_error=None,
+            redact=comparison.redacted,
+            display_reference=resolver,
+        )
+
+    before = render(None)
+    authority = copy.deepcopy(comparison.models["kms"].authoritative)
+    with patch("socket.socket", side_effect=AssertionError("network forbidden")):
+        after = render(comparison.display_reference)
+    assert after.failure is None, after.failure
+    assert before.records == after.records and before.warnings == after.warnings
+    assert authority == comparison.models["kms"].authoritative
+    (record,) = after.records
+    assert record["category"] == "difference", record
+    (field,) = after.display_differences[identifier(record)]
+    assert field["path"] == "EnvironmentVariables[2].Value"
+    assert field["model"] == "alias/fixture"
+    assert "参照: kms/007.KeyId" in field["iac"]
+    assert "alias/fixture" not in field["iac"]
+    if observed == KEY_ID:
+        assert field["iac"].startswith(json.dumps(KEY_ID) + " (参照:"), field
+        assert "Observed（記録値・現在AWS未確認）" in field["iac"]
+    else:
+        assert field["iac"].startswith("未解決")
+        assert "理由: identifier_unobserved" in field["iac"]
+    args = ("fixture", "team", ["codebuild"])
+    old_dataset = iac_dataset(before.records, *args, before.display_differences)
+    dataset = iac_dataset(after.records, *args, after.display_differences)
+    assert (
+        old_dataset[:2] == dataset[:2]
+    )  # Record IDs, Issue IDs, causes and categories.
+    assert dataset[2] == after.display_differences
+    old_summary = iac_summary(before.records, *args, dataset=old_dataset)
+    summary = iac_summary(after.records, *args, dataset=dataset)
+    assert summary["groups"][0]["examples"][0]["fields"][0]["iac"]
+    for report in (old_summary, summary):
+        for group in report["groups"]:
+            for example in group["examples"]:
+                example["fields"] = []
+    assert (
+        old_summary == summary
+    )  # Includes all Issue/record counts and cause summaries.
+    artifact = dict(
+        version=6, **aggregate(after.records, *args, after.display_differences)
+    )
+    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == [field]
+
+
+@pytest.mark.parametrize("shape", ["direct", "nested", "join", "sub", "select"])
+def test_iac_reference_display_local_expression_and_cache(shape):
+    comparison = fixture()
+    resource(
+        comparison,
+        "s3",
+        "001",
+        "S3.Bucket",
+        "Bucket",
+        [("BucketName", "fixture-bucket", None)],
+        properties={"BucketName": "fixture-bucket"},
+    )
+    ref = ResourceReference({"$resource": ["s3", "001"], "$attribute": "BucketName"})
+    actual = {
+        "direct": ref,
+        "nested": {"Items": [ref, ref]},
+        "join": Expression("Join", ["/", [ref, ref]]),
+        "sub": Expression("Sub", ["prefix/${bucket}", {"bucket": ref}]),
+        "select": Expression(
+            "Select",
+            [0, Expression("Split", ["/", Expression("Join", ["/", [ref, "tail"]])])],
+        ),
+    }[shape]
+    decision = compare_values(
+        "different", actual, "Setting", rules={"Setting": ORDERED}
+    )
+    original = copy.deepcopy(actual)
+    with patch.object(
+        comparison, "reference_literal", wraps=comparison.reference_literal
+    ) as resolve:
+        fields = value_differences(
+            decision,
+            "different",
+            actual,
+            "Setting",
+            redact=comparison.redacted,
+            display_reference=comparison.display_reference,
+        )
+        assert resolve.call_count == 1
+    assert actual == original
+    shown = fields[0]["iac"]
+    assert "fixture-bucket" in shown and "s3/001.BucketName" in shown
+    assert "IaC（ローカル評価）" in shown and "Observed" not in shown
+    assert "$resource" not in shown and "$expression" not in shown
+    if shape == "join":
+        assert shown.startswith("fixture-bucket/fixture-bucket")
+    if shape == "sub":
+        assert shown.startswith("prefix/fixture-bucket")
+
+
+@pytest.mark.parametrize(
+    "mask", ["property", "environment", "sensitive", "producer", "expression"]
+)
+def test_iac_reference_display_retains_masks(mask):
+    comparison = fixture()
+    resource(
+        comparison,
+        "kms",
+        "007",
+        "KMS.Key",
+        "Key",
+        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
+    )
+    ref = ResourceReference({"$resource": ["kms", "007"], "$attribute": "KeyId"})
+    prop, actual = "Setting", ref
+    if mask == "property":
+        prop = "SecretString"
+    elif mask == "environment":
+        actual = {"Name": "SECRET_TOKEN", "Value": ref}
+    elif mask == "sensitive":
+        comparison.sensitive_values.add(KEY_ID)
+    elif mask == "producer":
+        ref["$attribute"] = "SecretString"
+    elif mask == "expression":
+        actual = Expression(
+            "Sub", ["${Password}/${key}", {"Password": "never-expose", "key": ref}]
+        )
+    decision = compare_values("different", actual, prop, rules={prop: ORDERED})
+    with patch.object(comparison, "reference_literal", return_value=KEY_ID) as resolve:
+        fields = value_differences(
+            decision,
+            "different",
+            actual,
+            prop,
+            redact=comparison.redacted,
+            display_reference=comparison.display_reference,
+        )
+    text = json.dumps(fields, ensure_ascii=False)
+    assert "never-expose" not in text
+    if mask != "expression":
+        assert KEY_ID not in text and "masked" in text
+    if mask in {"property", "environment"}:
+        resolve.assert_not_called()
+    batch = setting_result(
+        "codebuild",
+        "002",
+        prop,
+        "different",
+        actual,
+        decision,
+        "producer",
+        [{}],
+        {},
+        actual_error=None,
+        redact=comparison.redacted,
+        display_reference=comparison.display_reference,
+    )
+    artifact = dict(
+        version=6,
+        **aggregate(
+            batch.records,
+            "fixture",
+            "team",
+            ["codebuild"],
+            batch.display_differences,
+            redact=comparison.redacted,
+        ),
+    )
+    text = json.dumps(detail_payload(artifact, "iac"), ensure_ascii=False)
+    assert "never-expose" not in text
+    if mask != "expression":
+        assert KEY_ID not in text
+
+
+@pytest.mark.parametrize("failure", ["absent", "context", "blocked", "bug"])
+def test_iac_reference_display_expected_failures_only(failure):
+    comparison = fixture()
+    vpc(comparison)
+    ref = ResourceReference({"$resource": ["vpc", "001"], "$attribute": "VpcId"})
+    if failure == "absent":
+        ref["$resource"][1] = "999"
+    if failure == "context":
+        comparison.reference_models_loaded = False
+    decision = compare_values("different", ref, "Setting", rules={"Setting": ORDERED})
+    error = (
+        ValueError("implementation bug")
+        if failure == "bug"
+        else Blocked("identifier_unobserved")
+    )
+    with patch.object(comparison, "reference_literal", side_effect=error) as resolve:
+        if failure == "bug":
+            with pytest.raises(ValueError, match="implementation bug"):
+                value_differences(
+                    decision,
+                    "different",
+                    ref,
+                    display_reference=comparison.display_reference,
+                )
+            return
+        for _ in range(2):
+            fields = value_differences(
+                decision,
+                "different",
+                ref,
+                display_reference=comparison.display_reference,
+            )
+            assert "未解決" in fields[0]["iac"] and "理由:" in fields[0]["iac"]
+            assert "vpc/" in fields[0]["iac"]
+        assert resolve.call_count == (1 if failure == "blocked" else 0)
+
+
+@pytest.mark.parametrize(
+    "actual", [None, "ordinary", {}, Expression("Join", ["/", ["a", "b"]])]
+)
+def test_iac_reference_display_preserves_nonreferences_and_missing(actual):
+    decision = compare_values({"a": 1}, actual, "Setting", rules={"Setting": ORDERED})
+    expected = value_differences(decision, {"a": 1}, actual)
+    resolver = Mock(side_effect=AssertionError("non-reference must not resolve"))
+    assert (
+        value_differences(decision, {"a": 1}, actual, display_reference=resolver)
+        == expected
+    )
+    resolver.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "desired,expected",
+    [
+        ("fixture-bucket", "matched"),
+        ("different", "difference"),
+        ("vpc-literal", "uncompared"),
+    ],
+)
+def test_iac_reference_display_runner_decisions_unchanged(desired, expected):
+    comparison = fixture()
+    resource(
+        comparison,
+        "s3",
+        "001",
+        "S3.Bucket",
+        "Bucket",
+        [("BucketName", "fixture-bucket", None)],
+        properties={"BucketName": "fixture-bucket"},
+    )
+    vpc(comparison)
+    actual = {"Ref": "Vpc" if expected == "uncompared" else "Bucket"}
+    settings = Settings(desired={"Description": desired}, sources={"Description": [{}]})
+
+    def compare():
+        return comparison.compare_setting(
+            "iam",
+            "002",
+            "IAM.Role",
+            "Description",
+            desired,
+            settings,
+            "producer",
+            {"Properties": {"Description": actual}},
+            ROOT / "synthetic.yaml",
+        )
+
+    with patch.object(comparison, "display_reference", None):
+        before = compare()
+    with patch.object(
+        comparison, "display_reference", wraps=comparison.display_reference
+    ) as resolve:
+        after = compare()
+    assert before.records == after.records
+    assert [item["category"] for item in after.records] == [expected], after.records
+    assert resolve.call_count == (1 if expected == "difference" else 0)
+    if expected == "difference":
+        assert (
+            "参照: s3/001.BucketName"
+            in next(iter(after.display_differences.values()))[0]["iac"]
+        )

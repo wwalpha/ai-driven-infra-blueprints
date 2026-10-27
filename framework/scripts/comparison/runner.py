@@ -159,6 +159,7 @@ class Comparison(Inputs):
 
     def _run(self) -> list[JsonObject]:
         self.local_comparison = True
+        self._display_reference_cache = {}
         self.symbols.clear()
         for service, message in self.reference_unavailable.items():
             self.record(
@@ -959,6 +960,7 @@ class Comparison(Inputs):
             default_source=self.source(
                 service, f"desired.resource.{identity}.resourceType"
             ),
+            display_reference=self.display_reference if self.local_comparison else None,
             missing=missing,
             deferred_children=[
                 item
