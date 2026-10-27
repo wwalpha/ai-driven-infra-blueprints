@@ -609,17 +609,13 @@ if __name__ == "__main__":
 
 @pytest.mark.parametrize("size", [10, 40, 100])
 def test_unordered_length_mismatch_does_not_compare_pairs(size):
-    calls = []
-
-    def callback(left, right, path):
-        calls.append(path)
-        return ReferenceDecision(NotImplemented)
+    callback = Mock(return_value=ReferenceDecision(NotImplemented))
 
     left = [{"value": i} for i in range(size)]
     right = left + [{"value": size}]
     outcome = compare(left, right, UNORDERED, reference=callback)
     assert outcome.equal is False
-    assert len(calls) == 1
+    assert callback.call_count == 1
     assert len(outcome.differences) == 1
     assert outcome.differences[0].model == size
     assert outcome.differences[0].iac == size + 1
