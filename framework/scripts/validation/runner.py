@@ -37,7 +37,13 @@ from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import contract_reads as contract_reads
 from task_contract_core import contract_snapshot, task_reads
 from task_contract_core import verify_contract_reads as verify_contract_reads
-from utils.input_cache import input_is_file, input_scope, input_text, recording_inputs
+from utils.input_cache import (
+    input_context,
+    input_is_file,
+    input_scope,
+    input_text,
+    recording_inputs,
+)
 from validation import (
     cloudformation,
     design,
@@ -81,37 +87,12 @@ def _callback_Validator_generate_and_validate_generated(plan, self, snapshot, /)
     for diagnostic in plan.failure_records:
         if diagnostic.code != "generation.reference":
             self.findings.add_diagnostic(diagnostic)
-    for findings in plan.validation.values():
-        if findings is not None:
-            self.checks += findings.checks
-            self.warnings.extend(findings.warnings)
     return {
         "inputs": snapshot,
         "candidates": plan.expected_outputs,
-        "validation": plan.validation,
         "complete": not plan.unavailable and not plan.failures,
         "reference_unavailable": plan.unavailable,
     }
-
-
-def _callback_Validator_generate_and_validate_policy_result(plan, self, /):
-    common = plan.validation.get(None)
-    actual = (
-        None
-        if common is None
-        else common.result("framework.policy-tables", plan.generated_scope)
-    )
-    if actual is None and plan.unavailable and not plan.failures:
-        ReferenceResolutionError = _imports_model_core.ReferenceResolutionError
-        raise ReferenceResolutionError(
-            "policy views unavailable because reference resolution failed"
-        )
-    self.check(
-        actual is not None
-        and actual.model_completion_allowed
-        and (self.scope is None or actual.scope == frozenset(plan.generated_scope)),
-        "candidate policy validation is FAIL or NOT_RUN for the required scope",
-    )
 
 
 def _callback_Validator_check_scoped_designs_validate(self, snapshot, /, scope):
@@ -132,7 +113,7 @@ def _callback_Validator_check_scoped_designs_validate(self, snapshot, /, scope):
         validator.findings.evaluate(
             "design.service", scope, validator.check_designs, isolate=True
         )
-        if not self.check_display or validator.findings.processing_errors:
+        if validator.findings.processing_errors:
             validator.check_source_inputs(next(iter(scope)))
         validator.findings.evaluate(
             "design.observed-values",
@@ -602,7 +583,6 @@ class Validator:
             definitions_root=self.definitions_root,
         )
         try:
-            plan.accounts = self.accounts
             validate_generation(plan, jobs=self.workers)
             common_ids = {
                 name
@@ -610,7 +590,7 @@ class Validator:
                 if phase == "common"
             }
             self.findings.bind_candidate(plan.candidate, common_ids)
-            # Candidate validation is the content authority for this exact input/final stage.
+            # Generation reports projection outcomes independently of View quality.
             generated = _bind_framework_callback(
                 _callback_Validator_generate_and_validate_generated,
                 plan,
@@ -620,26 +600,7 @@ class Validator:
             self.findings.evaluate(
                 "framework.generated-service-model", self.scope, generated
             )
-            # Reuse the actual scope-wide policy result, never infer it from generation.
-            policy_result = _bind_framework_callback(
-                _callback_Validator_generate_and_validate_policy_result, plan, self
-            )
-            self.findings.evaluate("framework.policy-tables", self.scope, policy_result)
             candidate_error_count = len(self.errors)
-            # Resolve every registered content handler before the first repository write.
-            for _, kind, value in self.acceptance_checks:
-                if kind == "check":
-                    self.findings.evaluate(
-                        value,
-                        self.scope,
-                        lambda value=value: self.input_check(
-                            snapshot, registered[value]
-                        ),
-                    )
-            # Independent invalid candidates retain partial success. Common/contract
-            # failures prevent every save; candidate failures are reported after publication.
-            if len(self.errors) != candidate_error_count:
-                return
             if self.infrastructure_phase != "destroy":
                 self.input_check(snapshot, self.check_iac_selection)
             if self.infrastructure_phase != "destroy" and (
@@ -707,6 +668,16 @@ class Validator:
                 and not publication_errors
             ):
                 self.cache.save(*self.catalog_pending)
+            # Explicit content Acceptance reports quality after publication, independently.
+            if not publication_errors:
+                with input_context(fresh=True, read_only=True), recording_inputs(None):
+                    for _, kind, value in self.acceptance_checks:
+                        if kind == "check":
+                            self.findings.evaluate(
+                                value,
+                                self.scope,
+                                lambda value=value: registered[value](),
+                            )
             self.task.changed_paths = self.task.final_paths()
             self.check_task_type_requirements()
             self.check_acceptance_checks()
@@ -1081,6 +1052,14 @@ class Validator:
             for path in scoped_files(self.root, "model", ".properties", self.scope)
             if path.stem != Path(STACK_DESIGN).stem
         ]
+        if self.model_validation == "full":
+            for entry in sorted(
+                {
+                    (*path.relative_to(self.root / "model").parts[:2], path.stem)
+                    for path in properties_paths
+                }
+            ):
+                self.check_source_inputs(entry)
         markdown = {
             path.relative_to(self.root / "docs" / "designs").with_suffix("").as_posix()
             for path in markdown_paths
@@ -1569,19 +1548,16 @@ class Validator:
         )
 
     def candidate_stacks(self, plan):
-        findings = plan.validation.get(None)
-        if findings is None:
-            return None
-        result = findings.get_result("design.stacks", plan.generated_scope)
-        if result is None or result.status != "PASS":
-            return None
-        definitions = result.metadata.get("stack_definitions")
-        if definitions is None:
-            return None
-        return {
-            self.root / path.relative_to(plan.stage): stacks
-            for path, stacks in definitions.items()
+        """Read selected Stack inputs from the Model, independently of View quality."""
+        definitions = {
+            path: [
+                stack
+                for _, stack in _imports_model_core.entries(values, "desired.stack.")
+            ]
+            for path, values in plan.destinations.items()
+            if path.name == STACK_DESIGN and path in plan.generated
         }
+        return definitions or None
 
     def check_cloudformation_environment_parameters(
         self, stack_definitions=None

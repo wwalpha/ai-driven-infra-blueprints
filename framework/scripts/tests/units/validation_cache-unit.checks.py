@@ -14,10 +14,7 @@ from types import SimpleNamespace as _CallbackState
 
 import model.sources as model_sources
 import pytest
-import sync_runtime
-import sync_views
 import task_contract_core as tasks
-import utils.aws_mappings as mapping_state
 import utils.input_cache as input_cache
 from model.files import read_model
 from model.format import FORMAT, INDEX
@@ -38,7 +35,6 @@ from support.validation_cache_fixtures import (
     write_model,
 )
 from support.validator import MODULE as validator_module
-from utils.aws_mappings import mapping_alias, mappings_for
 from utils.function_wrapper import BoundCallback
 from utils.input_cache import input_context, memoized
 
@@ -363,105 +359,6 @@ def check_read_scope_lifetime(tmp_path):
         with pytest.raises(ValueError, match="injected"):
             read_model(model)
     assert input_cache.memo_table() is None
-
-
-def _callback_check_single_and_parallel_threads_validate(
-    barrier, provider, stage, threads, /, *args, **kwargs
-):
-    assert mappings_for(stage) is provider
-    assert mappings_for(stage).get("iam") is provider.get("iam")
-    threads.append((threading.get_ident(), input_cache.memo_table()))
-    if barrier:
-        barrier.wait(timeout=10)
-
-
-def _callback_check_single_and_parallel_threads_run_candidates(
-    _state_check_single_and_parallel_threads_259, main, paths, root, stage, /
-):
-    scope = input_cache.memo_table()
-    scope["candidate-local"] = object()
-    failures = []
-    with patch.object(
-        sync_views,
-        "validate_views",
-        side_effect=_state_check_single_and_parallel_threads_259.validate,
-    ):
-        sync_runtime.validate_candidates(
-            stage,
-            root,
-            {
-                p: []
-                for p in paths[: _state_check_single_and_parallel_threads_259.count]
-            },
-            {
-                p: {}
-                for p in paths[: _state_check_single_and_parallel_threads_259.count]
-            },
-            failures,
-            4,
-            False,
-        )
-    assert not failures
-    assert all(
-        inputs is not scope and "candidate-local" not in inputs
-        for _, inputs in _state_check_single_and_parallel_threads_259.threads
-    )
-    if _state_check_single_and_parallel_threads_259.count == 1:
-        assert [
-            thread for thread, _ in _state_check_single_and_parallel_threads_259.threads
-        ] == [main]
-    else:
-        assert (
-            len(
-                {
-                    thread
-                    for thread, _ in _state_check_single_and_parallel_threads_259.threads
-                }
-            )
-            == 2
-        )
-        assert all(
-            thread != main
-            for thread, _ in _state_check_single_and_parallel_threads_259.threads
-        )
-
-
-def check_single_and_parallel_threads(tmp_path):
-    _state_check_single_and_parallel_threads_259 = _CallbackState()
-    root, stage = tmp_path / "root", tmp_path / "stage"
-    provider = mappings_for(root)
-    paths = [root / "docs/designs/dev/team" / (s + ".md") for s in ("iam", "s3")]
-    main = threading.get_ident()
-    for _state_check_single_and_parallel_threads_259.count in (1, 2):
-        _state_check_single_and_parallel_threads_259.threads = []
-        barrier = (
-            threading.Barrier(2)
-            if _state_check_single_and_parallel_threads_259.count == 2
-            else None
-        )
-        _state_check_single_and_parallel_threads_259.validate = BoundCallback(
-            _callback_check_single_and_parallel_threads_validate,
-            barrier,
-            provider,
-            stage,
-            _state_check_single_and_parallel_threads_259.threads,
-        )
-        run_candidates = (input_cache.input_scope)(
-            BoundCallback(
-                _callback_check_single_and_parallel_threads_run_candidates,
-                _state_check_single_and_parallel_threads_259,
-                main,
-                paths,
-                root,
-                stage,
-            )
-        )
-        with mapping_alias(root, stage):
-            run_candidates()
-        assert (
-            stage not in mapping_state._aliases
-            and stage not in mapping_state._instances
-        )
 
 
 def _callback_check_scoped_validation_threads_and_failures_designs(

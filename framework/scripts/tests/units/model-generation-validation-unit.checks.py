@@ -1,4 +1,4 @@
-"""Public generation checks JSON once and never imports Model quality validation."""
+"""Public generation projects JSON without quality gates and never imports Model quality validation."""
 
 import ast
 import copy
@@ -120,7 +120,7 @@ def generate(entry, scope, values, view):
 
 
 @pytest.mark.parametrize("entry", ENTRIES)
-def test_public_entry_checks_once_and_keeps_outputs(model, entry):
+def test_public_entry_skips_quality_checks_and_keeps_outputs(model, entry):
     scope, values, view = model
     before = copy.deepcopy(values)
     expected = render.generate_markdown(view, values, scope.root)
@@ -128,7 +128,7 @@ def test_public_entry_checks_once_and_keeps_outputs(model, entry):
         projection, "validate_json_documents", wraps=projection.validate_json_documents
     ) as checks:
         actual = generate(entry, scope, values, view)
-    assert checks.call_count == 1
+    assert checks.call_count == 0
     assert (actual[view] if isinstance(actual, dict) else actual) == expected
     assert "[synthetic-function](#saved-001)" in expected
     assert values == before
@@ -154,10 +154,11 @@ def test_invalid_resource_reference_keeps_diagnostics(model, entry):
         + json.dumps({"SELF": reference("Missing_Function_001", "FunctionName")})
         + "`"
     )
-    with pytest.raises(ModelNeedsFixError) as failure:
-        generate(entry, scope, values, view)
-    assert failure.value.diagnostics
-    assert "Missing_Function_001" in str(failure.value)
+    actual = generate(entry, scope, values, view)
+    markdown = actual[view] if isinstance(actual, dict) else actual
+    assert "$modelRef" in markdown and "Missing_Function_001" in markdown
+    with pytest.raises(ModelNeedsFixError):
+        validation.validate_json_documents(values, scope.path)
 
 
 @pytest.mark.parametrize("intrinsic", (False, True))
@@ -196,17 +197,13 @@ def test_files_keep_json_artifacts_warnings_and_input_tracking(model, intrinsic)
             files = render.generate_files(
                 view, from_values, scope.root, warnings=warnings
             )
-    assert checks.call_count == 1
-    assert warnings == expected_warnings
-    assert bool(warnings) == intrinsic
+    assert checks.call_count == 0
+    assert warnings == []
+    assert bool(expected_warnings) == intrinsic
     if not intrinsic:
         assert producer_scope.path in recorder.contents
     artifact = view.with_suffix("") / "policy.json"
     expected = json.loads(from_values["desired.row.001-002.document"])
-    if not intrinsic:
-        expected["Statement"][0]["Resource"] = (
-            "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012"
-        )
     assert files[artifact] == json.dumps(expected, ensure_ascii=False, indent=2) + "\n"
     assert files[view] == render.generate_markdown(view, from_values, scope.root)
     assert from_values == before
@@ -223,7 +220,7 @@ def test_snapshots_and_partial_reference_context_are_not_reused(model):
     ) as checks:
         a = render.generate_files(view, first, scope.root)
         b = render.generate_files(view, second, scope.root)
-    assert checks.call_count == 2
+    assert checks.call_count == 0
     assert "synthetic-function" in a[view] and "changed-function" in b[view]
     _, consumer = resource(
         scope.root, "lambda", "Lambda.Function", attribute="FunctionName", number="002"
@@ -243,9 +240,26 @@ def test_snapshots_and_partial_reference_context_are_not_reused(model):
         partial = render.generate_markdown(
             view, consumer, scope.root, reference_values=complete
         )
-    assert checks.call_count == 1
-    assert checks.call_args.kwargs["reference_values"] is complete
+    assert checks.call_count == 0
     assert "[changed-function](#saved-001)" in partial
+
+
+@pytest.mark.parametrize("name", [None, "PENDING_DEPLOY", "UNSET"])
+def test_unconfirmed_names_keep_anchor_and_model(model, name):
+    scope, values, view = model
+    if name is None:
+        for key in list(values):
+            if key.startswith("desired.row.001-001."):
+                del values[key]
+    else:
+        values["desired.row.001-001.value"] = "`" + name + "`"
+    before = copy.deepcopy(values)
+    view.parent.mkdir(parents=True, exist_ok=True)
+    view.write_text("# obsolete\n[broken](missing.md#missing)\n", encoding="utf-8")
+    files = render.generate_files(view, values, scope.root)
+    assert "### Lambda.Function: Lambda_Function_001" in files[view]
+    assert '<a id="saved-001"></a>' in files[view]
+    assert values == before
 
 
 if __name__ == "__main__":

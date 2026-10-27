@@ -23,7 +23,7 @@ from validation import runner as validator_runner
 from validation.design_links import check_design_artifacts as validate_artifacts
 from validation.design_links import check_local_links as validate_links
 from validation.diagnostics import ArtifactReferences, Diagnostic
-from validation.findings import Findings, FindingsError
+from validation.findings import Findings
 from validation.runner import Validator
 
 if not __debug__:
@@ -535,17 +535,16 @@ def check_iac_stack_lookup_and_file_fallback(tmp_path, stack_status, environment
     )
     findings = validator.findings
     plan = SimpleNamespace(
-        stage=tmp_path / "stage", generated_scope=None, validation={None: findings}
+        destinations={
+            design: {
+                "desired.stack.001.template": "role.yaml",
+                "desired.stack.001.parameters": "role.json",
+            }
+        },
+        generated={design: []} if stack_status is not None else {},
     )
     if stack_status is not None:
-        result = findings.result("design.stacks", None)
-        result.status = stack_status
-        if stack_status == "PASS":
-            result.metadata["stack_definitions"] = {
-                plan.stage / design.relative_to(tmp_path): [
-                    {"template": "role.yaml", "parameters": "role.json"}
-                ]
-            }
+        findings.result("design.stacks", None).status = stack_status
     before = dict(findings.results)
     definitions = validator.candidate_stacks(plan)
     assert findings.results == before
@@ -566,12 +565,10 @@ def check_iac_stack_lookup_and_file_fallback(tmp_path, stack_status, environment
     assert findings.status == (
         "FAIL" if environment != "dev" else stack_status or "PASS"
     )
-    assert read_design.call_count == (0 if stack_status == "PASS" else 1)
+    assert read_design.call_count == int(stack_status is None)
     assert findings.get_result("design.stacks", None) is before.get(
         ("design.stacks", None, findings.candidate)
     )
-    plan.validation = {}
-    assert validator.candidate_stacks(plan) is None
 
 
 @pytest.mark.parametrize(
@@ -698,39 +695,6 @@ def check_policy_fail_retains_other_service_unverified_scope(tmp_path):
         "dev/team/sqs": {"reason": "reference"}
     }
     assert result.metadata["unverified"] == [{"code": "reference-wait"}]
-
-
-@pytest.mark.parametrize("wrapped", [False, True])
-def check_candidate_failure_preserves_each_artifact_diagnostic(tmp_path, wrapped):
-    view = tmp_path / "docs/designs/dev/team/iam.md"
-    stage = tmp_path / "stage"
-    findings = Findings(stage)
-    for name in ("one.json", "two.json"):
-        findings.add_diagnostic(
-            Diagnostic.create(
-                stage,
-                code="design.artifact.missing",
-                check_id="design.artifacts",
-                service=("dev", "team", "iam"),
-                source_path="docs/designs/dev/team/iam.md",
-                target_path=f"docs/designs/dev/team/iam/{name}",
-                message=f"missing {name}",
-            ),
-            display_error=("wrapper: " if wrapped else "") + f"missing {name}",
-        )
-    failures, generated = [], {view: []}
-    with (
-        patch.object(
-            sync_runtime.sync_views,
-            "validate_views",
-            side_effect=FindingsError(findings),
-        ),
-        patch.object(sync_runtime, "restore_view"),
-    ):
-        sync_runtime.validate_candidates(
-            stage, tmp_path, generated, {view: {}}, failures, 1, False
-        )
-    assert not generated and failures == findings.diagnostics
 
 
 def mechanical_fixture(validator, *args, validator_out, **kwargs):

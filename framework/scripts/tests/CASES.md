@@ -116,7 +116,7 @@ remain unchanged.
 | `arn-pending::named` | `test_named_arn_with_pending_output` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 5 | CodeBuild Id待ち、IAM Path、Lambda、Glue複合識別、Events EventBusの既存計算 | 追加 |
 | `arn-pending::identity` | `test_only_generated_identity_waits` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 3 | KMS・EC2・SecretのAWS生成識別子待ちと大文字表示 | 追加 |
 | `arn-pending::policy` | `test_pending_policy_display_keeps_resolved_positions` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 1 | Policyの確定位置維持・部分Pending・論理JSON/リンク保持・厳格実行投影 | 追加 |
-| `arn-pending::transaction` | `check_pending_artifact_transaction` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 3 | 実Stage/必須Validation、Pending論理JSONとリンク保存、Markdown/JSON書込失敗の完全Rollback、解消後も論理JSON保持 | 追加 |
+| `arn-pending::transaction` | `check_pending_artifact_transaction` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 3 | 実Stage/Projection、Pending論理JSONとリンク保存、Markdown/JSON書込失敗の完全Rollback、解消後も論理JSON保持 | 追加 |
 
 S3の計算可能なArn Pendingは既存test_explicit_pendingを更新。分類/表示UTは必要構成要素の待ちを証明できる合成入力へ修正し、未確認値/矛盾はReferenceResolutionErrorとして維持。Import strict、ARN組立、JSON整合性、Model/IaC比較は既存関連UTを利用。長時間ITと全ITは実行しない。
 
@@ -138,9 +138,9 @@ S3の計算可能なArn Pendingは既存test_explicit_pendingを更新。分類/
 | `saved-markdown-links::typed-display` | `check_saved_typed_reference_display_difference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 1 | typed Model参照を含む保存済みCodePipelineの表示差分をwrite候補の参照先として許容し、read-onlyではERROR/NOT_RUNへ隔離。headings単独は生成せず、展開では厳密拒否 | 追加 |
 | `saved-markdown-links::indexed-model` | `check_candidate_indexed_saved_reference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 8 | Glue配列・RotationSchedule親子配列、選択前生成・Snapshot再利用、別Resource/注記/見出し差分除外、参照対象改変FAIL、Model欠落NOT_RUN、実IAM候補の全必須検証と保存可否 | 追加 |
 | `saved-markdown-links::import-sg` | `check_scoped_import_security_group_reference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 1 | IMPORTのmode/bound anchorを維持し、SG親のみ参照では水平ruleを照合/解析前に除外、参照View再利用 | 追加 |
-| `saved-markdown-links::candidate-completion` | `check_candidate_completion_matches_executed_view_checks` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 20 | 必須共通/サービスcheckとcandidate一致の保存条件維持、複数FAIL/NOT_RUNのCandidate・check・参照先・phase・例外・原因・診断ID表示 | 拡張 |
+| `saved-markdown-links::candidate-completion` | `check_candidate_completion_matches_executed_view_checks` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 14 | 7品質checkのFAIL/NOT_RUNを通常生成が呼ばず、候補bytesを保持 | 拡張 |
 | `saved-markdown-links::new-warning` | `check_saved_link_snapshot_and_new_warnings` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | 旧形式参照元の軽量Snapshot、既存破損の除外、新規anchor破損と保存先限定警告、コメント内リンク除外、対象外不変 | 追加 |
-| `saved-markdown-links::fallback` | `check_publication_legacy_fallback` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 2 | JSON書込み失敗注入による既存Markdown/JSON復元、部分成功維持、依存候補Rollback分岐と最終参照状態。候補ValidatorはMock | 追加 |
+| `saved-markdown-links::fallback` | `check_publication_failure_preserves_success` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 2 | JSON書込み失敗時の対象サービス復元と他サービスの保存維持。品質Validatorの再実行なし | 追加 |
 
 既存 `check_stage_dependency_selection` のwrite/read-only 2条件を拡張し、旧形式の保存済み参照元が生成準備を阻害しないことを実軽量検査で確認する。`check_readonly_stale_views` に旧形式差分を追加する。候補のProperty/値/anchor等の改変拒否は既存model-reference-display UT::`check_actual_markdown_must_match`、旧形式拒否は同`check_obsolete_metadata_requires_regeneration`で維持し重複追加しない。
 
@@ -1923,7 +1923,6 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `model-validation-reuse` | `check_read_scope_lifetime` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py#L288) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
 | `model-validation-reuse` | `check_deferred_guard_and_cleanup` | IT | [integrations/model-validation-reuse.checks.py](integrations/model-validation-reuse.checks.py#L181) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
 | `model-validation-reuse` | `check_generation_failures_never_pass` | IT | [integrations/model-validation-reuse.checks.py](integrations/model-validation-reuse.checks.py#L217) | pytest / 4 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
-| `model-validation-reuse` | `check_single_and_parallel_threads` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py#L332) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
 | `model-validation-reuse` | `check_authorization_before_memo_and_publication` | IT | [integrations/model-validation-reuse.checks.py](integrations/model-validation-reuse.checks.py#L261) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
 | `model-validation-reuse` | `check_scoped_validation_threads_and_failures` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py#L374) | pytest / 1 | Model入力・生成候補・保存済み設計の連携 | 新規合成回帰 |
 
@@ -2442,7 +2441,7 @@ Humanが明示許可した例外として `integrations/sync-existing-files.chec
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
 | `json-settings::values` | `check_json_settings` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L38) | pytest / 1 | document/inline JSONのResourceリンク拒否、escaped Pointer、URLとJSON外部リンク保持、identifierメタデータ再利用、物理値非解決 | Model |
-| `json-settings::boundaries` | `check_json_boundaries` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L70) | pytest / 1 | 共通候補検証、独立Model検証、生成前拒否と正本不変 | Model |
+| `json-settings::boundaries` | `check_json_boundaries` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L70) | pytest / 1 | 共通候補/独立Model検証の拒否、View Projectionの生成継続と正本不変 | Model |
 
 import-references のSubnet配列とCodePipeline Configuration生成fixtureは確認済みliteralを使用する。ConfigurationのProjectNameは既存外部name参照とJSON Pointerで追跡し、IMPORTがリンク要求warningを出さず取得値の相違は拒否することを確認。入口/展開数は維持。
 
@@ -2672,7 +2671,7 @@ import-model/import-cli/Worktree/Full IT、cProfile、性能用追加実行は�
 
 既存 `units/import-model-unit.checks.py::check_repair_invalid_model` は旧Snapshotのraw差分取得を許可し、変更後だけの `load_model`、旧syntax/identity/encoding不正の修復、権限・scope・race・rollback・anchor拒否の全40展開を維持する。旧Modelを完全検証することを要求しない。
 
-`integrations/sync-model.checks.py::check_integrated_validator` の2展開はImpact再計算3回の旧期待を、共通Snapshotによる計算1回の期待へ変更。生成・候補検証・入力比較各1回と保存後readbackなしのassertionは保持。
+`integrations/sync-model.checks.py::check_integrated_validator` の2展開はImpact再計算3回の旧期待を、共通Snapshotによる計算1回の期待へ変更。生成・入力比較各1回を保持し、候補品質Gateは呼ばず、明示的content Acceptanceのみ保存後に独立実行する。
 
 | `resource-impact::design-source` | `check_design_requires_changed_authority` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py#L79) | pytest / 1 | 共通Impactがあってもproject変更だけでdesign Taskを許可しない | Resource impact |
 
@@ -3306,7 +3305,7 @@ UTはGit init/commit・実Sync・全Model生成・全Frameworkコピーを行わ
 | `check_generation_output_compatibility` | 1 → 0 | 既存ITへ統合 | normal_writerでstdout/progress、unchanged_sidecarで既存bytes、two_consumer_cliでread/write同値。2回の重複Syncを廃止。 |
 | `check_multiple_targets_barrier` | 5 → 5 | IT維持 | none/input/candidate/io/rollbackを維持。candidateとlate I/Oの部分成功、rollback不能Journal保持→実lock復旧を別々にassert。 |
 | `check_incoming_reference_models` | 2 → 1 | 直接判定＋IT | read-onlyのincoming除外はcheck_stage_dependency_selectionをread/writeに拡張。実write側のincoming Model配置とlink readerへの受渡しはIT。 |
-| `check_stage_definition_sources` | 1 → 1 | IT維持 | 最小Stageの定義source共有、実生成bytes、独立cold workerの参照正本とjobs=1/4の同値、元入力不変。 |
+| `check_stage_definition_sources` | 1 → 1 | IT維持 | 最小Stageの定義source共有、実生成bytesと元入力不変。 |
 | `check_stage_cloudformation_definitions` | 1 → 1 | IT維持 | Stage Stackの候補正本とValidator→IaC metadata接続、古い保存Stackへのfallback拒否。 |
 | `check_publication_lock_wait` | 1 → 1 | IT維持 | 実lock競合・再入と通知接続。 |
 | `check_two_consumer_cli` | 1 → 1 | IT維持 | 複数環境CLI write/check・スコープ拒否・出力/完了数の実接続。 |
@@ -3333,11 +3332,11 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `sync-15::check_stage_definition_sources` | `check_stage_definition_sources` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L96) | pytest / 1 | 元Framework定義を共有した最小stage・同一生成bytes・独立cold workerのKMS参照（jobs=1/4）・元定義不変 | 統合境界 |
+| `sync-15::check_stage_definition_sources` | `check_stage_definition_sources` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L96) | pytest / 1 | 元Framework定義を共有した最小stage・同一生成bytes・元定義不変 | 統合境界 |
 | `sync-15::check_stage_candidate_isolation` | `check_stage_candidate_isolation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L204) | pytest / 1 | 実stageのModel不整合と壊れたリンクを個別に検出し、元の正常Model/成果物を保持・stage絶対パスを診断に漏らさない | 統合境界 |
 | `sync-15::check_stage_cloudformation_definitions` | `check_stage_cloudformation_definitions` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L230) | pytest / 1 | Stage Stack正本・生成・候補Validator・IaCへのmetadata受渡し、古い保存Stackへのfallback禁止 | 統合境界 |
 | `sync-15::check_publication_boundary` | `check_publication_boundary` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L300) | pytest / 1 | 候補Validation後の入力変更を公開前に拒否し、Markdown/JSONと外部変更を保護 | 統合境界 |
-| `sync-15::check_normal_writer_contents` | `check_normal_writer_contents` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L327) | pytest / 1 | 実生成/候補検証/照合各1回・no post-save readback・Markdown/JSON内容・stdoutとprogress接続 | 統合境界 |
+| `sync-15::check_normal_writer_contents` | `check_normal_writer_contents` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L327) | pytest / 1 | 実生成/照合各1回・品質Gate呼出し0・Markdown/JSON内容・stdoutとprogress接続 | 統合境界 |
 | `sync-15::check_unchanged_sidecar` | `check_unchanged_sidecar` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L369) | pytest / 2 | 全no-op/Markdownだけ変更の2境界、候補Validation維持・JSON再保存なし・bytes/mtime保護 | 統合境界 |
 | `sync-15::check_changed_sidecar_publication` | `check_changed_sidecar_publication` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L390) | pytest / 1 | 表示に影響しないPolicy Idだけの更新を実公開し、Markdownは不変・JSON内容は正しい | 統合境界 |
 | `sync-15::check_publication_rechecks_excluded_outputs` | `check_publication_rechecks_excluded_outputs` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L412) | pytest / 2 | 全no-op/Markdownだけ変更の2境界で、公開対象外Sidecarの競合を拒否・外部変更保持 | 統合境界 |
@@ -3350,7 +3349,7 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 | `sync-15::check_two_consumer_cli` | `check_two_consumer_cli` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L649) | pytest / 1 | 2環境の実CLI write/check・保存bytes・不正Scope拒否・診断チャネルと完了数 | 統合境界 |
 | `sync-15::check_internal_sync_isolation` | `check_internal_sync_isolation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L740) | pytest / 1 | 実Runnerの2 target並列barrier・成功→失敗→成功の再取得、親memo/ContextVar/progress/保存bytes保護 | 統合境界 |
 | `sync-15::check_internal_sync_real_diagnostics` | `check_internal_sync_real_diagnostics` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L769) | pytest / 1 | consumer不足・古い生成物の実Runner診断をValidatorに伝達し、復元後に成功 | 統合境界 |
-| `sync-15::check_integrated_validator` | `check_integrated_validator` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L818) | pytest / 2 | 実Validatorから生成・候補検証・照合・Publication・Acceptance3件までの新規/更新の正常接続、originals=None/旧bytes・JSON生成/未再保存・正本保護、各1回とreadback禁止 | 統合境界 |
+| `sync-15::check_integrated_validator` | `check_integrated_validator` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L818) | pytest / 2 | 実Validatorから生成・照合・Publication・独立Acceptance3件までの新規/更新の正常接続、originals=None/旧bytes・JSON生成/未再保存・正本保護 | 統合境界 |
 | `sync-15::check_integrated_validator_publication_failure` | `check_integrated_validator_publication_failure` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L876) | pytest / 1 | 実Validatorの部分書込失敗・Rollback・Acceptance不成立、正本と旧Markdown/JSON保持 | 統合境界 |
 | `sync-15::check_multiple_targets_barrier` | `check_multiple_targets_barrier` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L951) | pytest / 5 | 正常/入力競合/候補不採用/後続I/O/復元不能の独立5境界。部分成功、Recovery Journal保持と次lock時復旧 | 統合境界 |
 
@@ -3848,7 +3847,6 @@ verification_targets復元・resolved互換ProjectionのUTを削除した。部�
 | `validation-diagnostics::unavailable-orphans` | `check_unavailable_services_still_scan_orphans` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | 親子ValidatorでMarkdown欠落時も孤立JSONを検出、未検証情報を保持 | Synthetic JSON |
 | `validation-diagnostics::invalid-links` | `check_invalid_json_links_continue_without_external_reads` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 4 | サービス外/リポジトリ外/絶対/外部symlinkの配置違反、正常参照継続、外部ファイル非読込、正常索引への不正パス非登録 | Synthetic Markdown/JSON |
 | `validation-diagnostics::child-correspondence` | `check_child_validator_keeps_diagnostic_correspondence` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | 親子統合で診断IDと表示エラー対応を維持、独立した文字列エラーを保持 | Synthetic Findings |
-| `validation-diagnostics::candidate-correspondence` | `check_candidate_failure_preserves_each_artifact_diagnostic` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 2 | FindingsError集約でwrapper付き表示も同一診断として保持 | Existing UT extended |
 | `validation-diagnostics::scan-correspondence` | `check_scan_artifact_keeps_diagnostics_and_incomplete_metadata` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 8 | 同文/ラッパー/親子伝搬/独立同文/ReferenceDiagnostic/PLAINTEXTで二重Issueを防止、v5と未検証metadataを保持 | Existing UT extended |
 
 ## Deploy lazy inputs and session Model reuse
@@ -4095,7 +4093,6 @@ These UTs exercise cache units and execution boundaries; existing generation/imp
 | `comparison-reuse::stage_and_original_snapshots_remain_separate` | `check_stage_and_original_snapshots_remain_separate` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 1 | stage and original snapshots remain separate | Synthetic fixed bytes and Model snapshots |
 | `comparison-reuse::comparison_keeps_saved_bytes_and_still_reports_difference` | `check_comparison_keeps_saved_bytes_and_still_reports_difference` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 1 | comparison keeps saved bytes and still reports difference | Synthetic fixed bytes and Model snapshots |
 | `comparison-reuse::policy_batch_evaluates_documents_once` | `check_policy_batch_evaluates_documents_once` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 1 | policy batch evaluates documents once | Synthetic fixed bytes and Model snapshots |
-| `comparison-reuse::candidate_restore_replaces_only_view_cache` | `check_candidate_restore_replaces_only_view_cache` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 2 | candidate restore replaces only view cache | Synthetic fixed bytes and Model snapshots |
 | `comparison-reuse::independent_comparison_scope_cleanup` | `check_independent_comparison_scope_cleanup` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 2 | independent comparison scope cleanup | Synthetic fixed bytes and Model snapshots |
 | `comparison-reuse::update_reads_are_live_inside_input_context` | `check_update_reads_are_live_inside_input_context` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 1 | 同一input_context内の作成・更新・削除をexists/parts/raw/checked読込に反映 | 通常更新の回帰 |
 | `comparison-reuse::index_rebuild_is_live_inside_input_context` | `check_index_rebuild_is_live_inside_input_context` | UT | [units/comparison-reuse-unit.checks.py](units/comparison-reuse-unit.checks.py) | pytest / 1 | rebuild後のrevision・logicalIdとpublication読込 | 通常更新の回帰 |

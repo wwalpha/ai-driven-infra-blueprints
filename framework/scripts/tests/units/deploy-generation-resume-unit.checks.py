@@ -37,8 +37,6 @@ from support.pytest_cli import run
 from task_contract_core import selected_task
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
-from validation.diagnostics import Diagnostic
-from validation.findings import Findings
 
 from model import dependency_index, sources
 
@@ -432,48 +430,6 @@ def check_startup_recovery_is_reused_by_first_run(owned):
         check.assert_not_called()
         manifests.assert_not_called()
         reconcile.assert_not_called()
-
-
-@pytest.mark.parametrize("identified", [False, True])
-def check_common_validation_uses_structured_ownership(owned, identified):
-    backend, views, _ = owned
-    stage = backend.root.parent / "stage"
-    generated = {v: [] for v in views.values()}
-    failures, validation = [], {}
-    findings = Findings(backend.root)
-    if identified:
-        findings.add_diagnostic(
-            Diagnostic.create(
-                backend.root,
-                code="fixture.common",
-                check_id="design.ownership",
-                service=("dev", "team", "kms"),
-                source_path=None,
-                message=str(views["iam"]) + " is text, not ownership",
-            )
-        )
-    else:
-        findings.errors.append(str(views["kms"]) + " unknown scope")
-    contexts = [SimpleNamespace(findings=findings, errors=findings.errors)]
-    if identified:
-        contexts.append(SimpleNamespace(findings=Findings(backend.root), errors=[]))
-    with (
-        patch.object(
-            M.sync_runtime.sync_views, "validation_context", side_effect=contexts
-        ),
-        patch.object(
-            M.sync_runtime.sync_views,
-            "validate_views",
-            return_value=Findings(backend.root),
-        ),
-        patch.object(M.sync_runtime, "restore_view"),
-        patch.object(M.sync_runtime, "DesignIndex"),
-    ):
-        M.sync_runtime.validate_candidates(
-            stage, backend.root, generated, {}, failures, 1, True, validation
-        )
-    assert set(generated) == ({views["iam"], views["athena"]} if identified else set())
-    assert failures
 
 
 def check_partial_generation_then_dependency_completion(owned):

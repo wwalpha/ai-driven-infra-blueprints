@@ -363,7 +363,7 @@ def check_pending_intrinsic_generation(tmp_path, expression):
         assert json.loads(files[design.with_suffix("") / "policy.json"]) == json.loads(
             policy[key]
         )
-        assert warnings and all(w["severity"] == "WARNING" for w in warnings)
+        assert not warnings
         failures, warnings, unavailable = [], [], {}
         assert generate_views(
             stage,
@@ -375,7 +375,7 @@ def check_pending_intrinsic_generation(tmp_path, expression):
             unavailable=unavailable,
         )
         assert not failures and not unavailable, (failures, unavailable)
-        assert any(w["code"] == "json.intrinsic.unresolved" for w in warnings)
+        assert not warnings
         assert scope.path.read_bytes() == before
         with pytest.raises(ValueError, match="CloudFormation"):
             validate_aws_document(

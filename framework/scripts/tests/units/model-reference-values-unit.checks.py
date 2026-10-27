@@ -350,7 +350,6 @@ def test_sync_design_structure_matches_normal_generation(fixture, tmp_path, stri
     failures, warnings, unavailable = [], [], {}
     with (
         patch.object(sync_runtime, "markdown_for", return_value="# Generated\n"),
-        patch.object(sync_runtime, "rendered_design", return_value="# Generated\n"),
     ):
         generated = sync_runtime.generate_views(
             stage,
@@ -543,7 +542,6 @@ def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
             ),
         ),
         patch.object(sync_runtime, "markdown_for", return_value="# Generated\n"),
-        patch.object(sync_runtime, "rendered_design", return_value="# Generated\n"),
     ):
         generated = sync_runtime.generate_views(
             stage,
@@ -552,13 +550,10 @@ def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
             failures,
             unavailable=unavailable,
         )
-    assert list(generated) == [good]
-    assert not failures and bad in unavailable
-    assert unavailable[bad]["status"] == "NOT_RUN"
+    assert set(generated) == {bad, good}
+    assert not failures and not unavailable
     assert {path: path.read_bytes() for path in original} == original
-    assert {(stage / path.relative_to(root)).read_bytes() for path in original} == set(
-        original.values()
-    )
+    assert "$modelRef" in (stage / artifact.relative_to(root)).read_text()
 
 
 @pytest.mark.parametrize("empty_snapshot", [False, True])

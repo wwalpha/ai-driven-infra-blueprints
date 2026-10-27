@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-import sync_runtime
 import task_contract_core as tasks
 from deploy import guards
 from deploy import run_context as session
@@ -436,47 +435,6 @@ def check_selected_verify_reads_live_once(tmp_path, monkeypatch):
         with pytest.raises(ValueError, match="selection changed"):
             tasks.verify_snapshot(snapshot)
         assert io == {"reads": 2}
-
-
-def worker_views(stage, root, files, destinations, **kwargs):
-    assert tasks.active_scope(root) == {("dev", "cde", "s3")}
-    return None
-
-
-def check_generation_workers_reuse_task_snapshot(tmp_path, monkeypatch):
-    make_tasks(tmp_path)
-    monkeypatch.setenv(tasks.SELECTOR, "tasks/one.md")
-    paths = [
-        tmp_path / "docs/designs/dev/cde/s3.md",
-        tmp_path / "docs/designs/dev/cde/iam.md",
-    ]
-    state = SimpleNamespace(
-        design_index=None,
-        candidate_paths=None,
-        model_inputs={},
-        metadata={},
-        recorder=None,
-    )
-    with tasks.task_reads(tmp_path):
-        captured = tasks.task_snapshot(tmp_path)
-        with (
-            patch.object(sync_runtime.sync_views, "validate_views", worker_views),
-            TaskIO() as io,
-        ):
-            validate = partial(
-                sync_runtime._callback_validate_candidates_validate,
-                state,
-                tmp_path,
-                paths,
-                tmp_path,
-                tmp_path / "stage",
-                None,
-                captured,
-            )
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                results = list(executor.map(validate, paths))
-            assert all(error is None for _, error in results)
-            assert io == {}
 
 
 def check_model_publication_task_revision_reuses_original_read(tmp_path):

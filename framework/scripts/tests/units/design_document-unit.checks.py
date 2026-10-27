@@ -825,26 +825,9 @@ def check_candidate_indexed_saved_reference(tmp_path, service, kind, field, faul
         snapshot=None,
         saved_paths=[],
     )
-    if fault == "model":
-        with pytest.raises(
-            ValueError, match="required candidate validation"
-        ) as rejected:
-            _imports_sync_runtime.validate_generation(plan, jobs=1)
-        assert "design.links" in str(rejected.value)
-        assert service + ".md" in str(rejected.value)
-        assert "indexed array display requires Model source rows" in str(rejected.value)
-        assert not plan.expected_outputs
-    else:
-        _imports_sync_runtime.validate_generation(plan, jobs=1)
-        assert bool(plan.expected_outputs) == (fault != "table"), plan.failure_records
-        if fault != "table":
-            assert plan.validation[None].status == "PASS"
-            assert plan.validation[source].status == "PASS"
-            assert source in plan.expected_outputs
-        else:
-            assert any(
-                item.code == "design.display.mismatch" for item in plan.failure_records
-            )
+    _imports_sync_runtime.validate_generation(plan, jobs=1)
+    assert source in plan.expected_outputs
+    assert not plan.failure_records
     assert target.read_text(encoding="utf-8") == text
 
 

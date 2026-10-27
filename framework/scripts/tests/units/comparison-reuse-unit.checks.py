@@ -630,18 +630,6 @@ def check_policy_batch_evaluates_documents_once(tmp_path):
             "desired.row.001-001.document": '{"Statement":[]}',
         }
     )
-    policies = [
-        policy_tables.Policy(
-            "Policy",
-            "logs/policy.json",
-            "policy",
-            "policy",
-            "Logs.ResourcePolicy.PolicyDocument",
-        )
-    ] * 8
-    resource = policy_tables.Resource(
-        "Logs.ResourcePolicy", "resource", "resource", policies, 1
-    )
     with (
         patch.object(
             policy_tables._module_design_layout,
@@ -650,63 +638,16 @@ def check_policy_batch_evaluates_documents_once(tmp_path):
         ),
         patch.object(
             policy_tables._model_render, "generate_markdown", return_value="# fixture\n"
-        ),
-        patch.object(policy_tables._design_document, "require_saved_identity"),
+        ) as generate,
+        patch.object(policy_tables, "resources_in") as saved,
         patch.object(
-            policy_tables._reference_presentation,
-            "Presentation",
-            return_value=SimpleNamespace(
-                values=values, scope=sources.scope_for(path), root=tmp_path
-            ),
-        ),
-        patch.object(policy_tables, "resources_in", return_value=[resource]),
-        patch.object(policy_tables, "policy_lines", return_value=[]) as lines,
+            policy_tables._design_document, "require_saved_identity"
+        ) as identity,
     ):
-        policy_tables.rendered_design(view)
-    assert lines.call_count == 8
-    indexes = [call.kwargs["policy_rows"] for call in lines.call_args_list]
-    assert all(index is indexes[0] for index in indexes)
-    assert (
-        indexes[0][("Logs.ResourcePolicy.PolicyDocument", "logs/policy.json")][0][0]
-        == "001-001"
-    )
-
-
-class CandidateProbe:
-    def __init__(self, stage, peer):
-        self.stage, self.peer, self.seen = stage, peer, []
-
-    def __call__(self, stage, root, paths, sources, *, design_index, **kwargs):
-        path = paths[0]
-        if path == self.peer:
-            raise ValueError("fixture candidate rejected")
-        self.seen.append(design_index.get(self.peer).text)
-        return None
-
-
-@pytest.mark.parametrize("jobs", [1, 2])
-def check_candidate_restore_replaces_only_view_cache(tmp_path, jobs):
-    stage = tmp_path / "stage"
-    first = tmp_path / "docs/designs/dev/team/logs.md"
-    peer = first.with_name("peer.md")
-    for path in (first, peer):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("saved\n", encoding="utf-8")
-        staged = stage / path.relative_to(tmp_path)
-        staged.parent.mkdir(parents=True, exist_ok=True)
-        staged.write_text("candidate\n", encoding="utf-8")
-    generated, failures = {first: [], peer: []}, []
-    probe = CandidateProbe(stage, stage / peer.relative_to(tmp_path))
-    with (
-        input_context(fresh=True, read_only=True),
-        patch.object(sync_runtime.sync_views, "validate_views", probe),
-    ):
-        sync_runtime.validate_candidates(
-            stage, tmp_path, generated, {first: {}, peer: {}}, failures, jobs, False
-        )
-    assert set(generated) == {first}
-    assert probe.seen == ["candidate\n", "saved\n"]
-    assert len(failures) == 1 and failures[0].code == "generation.candidate"
+        assert policy_tables.rendered_design(view) == "# fixture\n"
+    generate.assert_called_once()
+    saved.assert_not_called()
+    identity.assert_not_called()
 
 
 class ComparisonProbe:

@@ -599,10 +599,10 @@ def check_sync(root):
                 )
             assert view.read_bytes() == content.encode()
         saved = path.read_bytes()
-        real = sync_runtime.validate_candidates
+        real = sync_runtime.validate_generation
         drift = _bind_framework_callback(_callback_check_sync_drift, path, real, saved)
         with (
-            patch.object(sync_runtime, "validate_candidates", drift),
+            patch.object(sync_runtime, "validate_generation", drift),
             redirect_stdout(io.StringIO()),
         ):
             rejected(

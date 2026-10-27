@@ -33,8 +33,6 @@ import sync_views
 import task_contract as tasks
 from design.document import DesignIndex
 from model.files import load_model, read_model
-from model.format import serialize
-from model.sources import json_text
 from support.model_reference_fixtures import reference, resource, save
 from support.model_sources import allocate_fixture as allocate
 from support.model_sources import write_model as write_model
@@ -57,52 +55,6 @@ if not __debug__:
 generated_policy = _fixture_generated_policy.generated_policy
 
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
-
-
-def _callback_check_stage_definition_sources_read(
-    original_reader, references, stage, /, scope, reads=None
-):
-    result = original_reader(scope, reads)
-    scope = result.scope
-    if scope.service == "kms":
-        assert scope.path.is_relative_to(stage)
-        assert result.authoritative["observed.row.001-001.value"] == "`stage-key`"
-        references.append(scope.path)
-    return result
-
-
-def _callback_check_stage_definition_sources_validate_verify_reference(args, stage, /):
-    model = (
-        stage
-        / "model"
-        / args[2][0].relative_to(stage / "docs/designs").with_suffix(".properties")
-    )
-    snapshot = load_model(model)
-    assert any(
-        "differs from saved text" in warning["message"] for warning in snapshot.warnings
-    )
-
-
-def _callback_check_stage_definition_sources_validate(
-    barrier, original_validate, stage, workers, /, *args, **kwargs
-):
-    assert all(
-        not reads.models
-        for reads in memo_table().values()
-        if isinstance(reads, model_sources.FileReads)
-    ), "candidate must start without expanded Model cache"
-    workers.add(threading.get_ident())
-    if barrier is not None:
-        barrier.wait(timeout=30)
-    verify_reference = (input_scope)(
-        _bind_framework_callback(
-            _callback_check_stage_definition_sources_validate_verify_reference,
-            args,
-            stage,
-        )
-    )
-    verify_reference()
-    return original_validate(*args, **kwargs)
 
 
 def _callback_check_stage_definition_sources_inspect(
@@ -143,10 +95,7 @@ def check_stage_definition_sources(generated_policy, tmp_path):
         )
         assert mappings_for(stage) is mappings_for(root)
         failures = []
-        generated = sync_runtime.generate_views(stage, root, {design: values}, failures)
-        sync_runtime.validate_candidates(
-            stage, root, generated, {design: values}, failures, 1, False
-        )
+        sync_runtime.generate_views(stage, root, {design: values}, failures)
         assert not failures, failures
         assert (
             not (stage / "framework").exists()
@@ -206,156 +155,6 @@ def check_stage_definition_sources(generated_policy, tmp_path):
         )
     assert {p: p.read_bytes() for p in definitions} == definitions
     assert values["desired.note.001.text"] in design.read_text()
-
-    # Four IAM candidates resolve KMS identifiers through real cold validation workers.
-    project = json.loads((root / "project.json").read_text(encoding="utf-8"))
-    sources, models = {}, []
-    for number in range(4):
-        environment = "ref" + str(number)
-        project["targets"].append({**project["targets"][0], "environment": environment})
-        (root / "project.json").write_text(json_text(project) + "\n", encoding="utf-8")
-        producer = root / "model" / environment / "123456789012/kms.properties"
-        write_model(
-            producer,
-            {
-                "desired.service.kms.serviceId": "kms",
-                "desired.resource.001.resourceType": "KMS.Key",
-                "desired.resource.001.logicalId": "KMS_Key_001",
-                "desired.resource.001.anchor": "resource-KMS_Key_001",
-                "desired.service.identity.lastAllocated": '{"KMS.Key":1}',
-                "desired.row.001-001.property": "KMS.Key.KeyId",
-                "desired.row.001-001.value": "[Key](#resource-KMS_Key_001)",
-                "desired.row.001-001.comment": "合成識別子",
-                "observed.row.001-001.value": "`source-key`",
-            },
-        )
-        consumer = producer.with_name("iam.properties")
-        candidate = dict(values)
-        document = json.loads(candidate["desired.row.001-002.document"])
-        document["Statement"][0]["Condition"] = {
-            "StringEquals": {"kms:KeyId": "source-key"}
-        }
-        candidate["desired.row.001-002.document"] = json_text(document)
-        write_model(
-            consumer.with_name("cloudformation-stacks.properties"),
-            dict(
-                load_model(
-                    model.with_name("cloudformation-stacks.properties")
-                ).authoritative
-            ),
-        )
-        write_model(consumer, candidate)
-        fields = {
-            "consumerKey": "desired.row.001-002.document",
-            "pointer": "/Statement/0/Condition/StringEquals/kms:KeyId",
-            "text": "source-key",
-            "occurrence": "1",
-            "producerKind": "resource",
-            "producerScope": environment + "/123456789012/kms",
-            "producerLogicalId": "KMS_Key_001",
-            "resourceType": "KMS.Key",
-            "format": "identifier",
-            "property": "KMS.Key.KeyId",
-            "labelPolicy": "none",
-        }
-        candidate.update(
-            {"desired.reference.key-id." + key: value for key, value in fields.items()}
-        )
-        write_model(
-            consumer.with_name("cloudformation-stacks.properties"),
-            dict(
-                load_model(
-                    model.with_name("cloudformation-stacks.properties")
-                ).authoritative
-            ),
-        )
-        write_model(consumer, candidate)
-        destination = root / "docs/designs" / environment / "123456789012/iam.md"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text("", encoding="utf-8")
-        sources[destination] = load_model(consumer).values
-        models.append(consumer)
-    (root / "project.json").write_text(json_text(project) + "\n", encoding="utf-8")
-    results = []
-    original_validate = sync_views.validate_views
-    original_reader = model_sources.raw_model
-    for jobs in (1, 4):
-        stage = tmp_path / ("identifier-stage-" + str(jobs))
-        with mapping_alias(root, stage):
-            sync_runtime.stage_inputs(
-                stage, root, sources, models, list(sources), ["iam"], False
-            )
-            assert not (stage / "framework").exists()
-            for consumer in models:
-                producer = stage / consumer.with_name("kms.properties").relative_to(
-                    root
-                )
-                snapshot = load_model(producer)
-                producer.write_text(
-                    serialize(
-                        {
-                            **snapshot.authoritative,
-                            "observed.row.001-001.value": "`stage-key`",
-                        }
-                    )
-                )
-            candidates = {
-                path: load_model(stage / model.relative_to(root)).values
-                for path, model in zip(sources, models, strict=False)
-            }
-            failures = []
-            generated = sync_runtime.generate_views(stage, root, candidates, failures)
-            assert not failures and len(generated) == 4, failures
-            before = {
-                p.relative_to(stage): p.read_bytes()
-                for files in generated.values()
-                for p in files
-            }
-            workers, references = set(), []
-            barrier = threading.Barrier(4) if jobs == 4 else None
-            _state_check_stage_definition_sources_90.validate = (
-                _bind_framework_callback(
-                    _callback_check_stage_definition_sources_validate,
-                    barrier,
-                    original_validate,
-                    stage,
-                    workers,
-                )
-            )
-            read = _bind_framework_callback(
-                _callback_check_stage_definition_sources_read,
-                original_reader,
-                references,
-                stage,
-            )
-            with (
-                patch.object(
-                    sync_views,
-                    "validate_views",
-                    side_effect=_state_check_stage_definition_sources_90.validate,
-                ),
-                patch.object(model_sources, "raw_model", side_effect=read),
-            ):
-                sync_runtime.validate_candidates(
-                    stage, root, generated, candidates, failures, jobs, False
-                )
-            assert not failures and len(generated) == 4, failures
-            assert len(workers) == jobs and len(references) >= 4, (
-                jobs,
-                workers,
-                references,
-            )
-            assert before == {
-                p.relative_to(stage): p.read_bytes()
-                for files in generated.values()
-                for p in files
-            }
-            results.append(before)
-    assert results[0] == results[1]
-    assert all(
-        "source-key" in load_model(model).values["desired.row.001-002.document"]
-        for model in models
-    )
 
 
 def check_stage_candidate_isolation(generated_policy, tmp_path):
@@ -433,10 +232,8 @@ def check_stage_cloudformation_definitions(generated_policy, tmp_path):
         )
         failures = []
         generated = sync_runtime.generate_views(stage, root, sources, failures)
-        validation = {}
-        sync_runtime.validate_candidates(
-            stage, root, generated, sources, failures, 1, True, validation
-        )
+        context = sync_views.validation_context(stage, root, generated, sources)
+        validation = {None: context.findings}
         assert not failures, failures
         assert (
             staged.read_bytes() == expected
@@ -530,7 +327,7 @@ def check_publication_boundary(generated_policy):
     write_model(model, values)
     env = register([design, artifact])
     originals = {file: file.read_bytes() for file in (design, artifact)}
-    validate = sync_runtime.validate_candidates
+    validate = sync_runtime.validate_generation
     _state_check_publication_boundary_349.concurrent = None
 
     mutate_before_save = _bind_framework_callback(
@@ -542,7 +339,7 @@ def check_publication_boundary(generated_policy):
     with (
         patch.dict(os.environ, env),
         patch.object(
-            sync_runtime, "validate_candidates", side_effect=mutate_before_save
+            sync_runtime, "validate_generation", side_effect=mutate_before_save
         ),
         patch.object(
             sync_runtime,
@@ -635,31 +432,15 @@ def check_normal_writer_contents(generated_policy):
                 )
             )
             assert generate_cli() == 0
-        assert (
-            len(set(stages))
-            == generate.call_count
-            == validate.call_count
-            == verify.call_count
-            == 1
-        )
+        assert len(set(stages)) == generate.call_count == verify.call_count == 1
+        validate.assert_not_called()
         contexts = [
             (call.args[0], id(call.args[1]))
             for call in expand.call_args_list
             if call.args[0].service == "iam"
         ]
         assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
-        assert [counter.call_count for counter in counters] == [
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1,
-            1,
-            1,
-            1,
-        ], [counter.call_count for counter in counters]
+        assert all(counter.call_count == 0 for counter in counters)
     assert stdout.getvalue() == (
         "Design Markdown sync: PASS (docs/designs/dev/123456789012/iam.md)\n"
         "Design Markdown generation: 1 services succeeded; 0 services failed; 0 services NOT_RUN\n"
@@ -670,7 +451,6 @@ def check_normal_writer_contents(generated_policy):
         "dependency-model",
         "stage-placement",
         "candidate-generation",
-        "candidate-validation",
         "publication",
         "completed=1/1",
     ):
@@ -698,11 +478,11 @@ def check_unchanged_sidecar(generated_policy, note):
             wraps=sync_runtime._publish_transaction,
         ) as publish,
         patch.object(
-            sync_runtime, "validate_candidates", wraps=sync_runtime.validate_candidates
+            sync_runtime, "validate_generation", wraps=sync_runtime.validate_generation
         ) as validate,
     ):
         assert MODULE.sync(root, True, "dev", "123456789012", ["iam"]) == 0
-    assert validate.call_count == 1, "no-op outputs still require candidate validation"
+    assert validate.call_count == 1, "no-op outputs still require frozen bytes"
     assert publish.call_count == int(note)
     if not note:
         assert design.read_bytes() == original_design
@@ -780,15 +560,14 @@ def check_pending_artifact_transaction(generated_policy, failure):
                 sync_runtime.validate_generation(plan, jobs=1)
                 metadata = sync_runtime.generation_metadata(plan)
                 assert metadata["status"] == "PASS" and metadata["complete"] is True
-                assert len(metadata["unverified"]) == 1
-                assert metadata["unverified"][0]["status"] == "NOT_RUN"
+                assert not metadata["unverified"]
                 candidate = plan.expected_outputs[design]
                 assert (
                     json.loads(candidate[artifact]) == document and trust in candidate
                 )
                 assert "iam/iam-role-001-pending.json" in candidate[design]
                 assert (
-                    "PENDING_DEPLOY" in candidate[design]
+                    "$modelRef" in candidate[design]
                     and "confirmed-bucket" in candidate[design]
                 )
                 with ExitStack() as injections:
@@ -852,7 +631,7 @@ def check_changed_sidecar_publication(generated_policy):
     values["desired.row.001-002.document"] = json.dumps(document)
     write_model(model, values)
     before = design.read_bytes()
-    env = register([design])
+    env = register([design, artifact])
     with (
         patch.dict(os.environ, env),
         patch.object(
@@ -886,7 +665,7 @@ def check_publication_rechecks_excluded_outputs(generated_policy, note):
     env = register([design] if note else [])
     original = design.read_bytes()
     changed, content = artifact, "{}\n"
-    validate = sync_runtime.validate_candidates
+    validate = sync_runtime.validate_generation
     mutate = _bind_framework_callback(
         _callback_check_publication_rechecks_excluded_outputs_mutate,
         changed,
@@ -895,7 +674,7 @@ def check_publication_rechecks_excluded_outputs(generated_policy, note):
     )
     with (
         patch.dict(os.environ, env),
-        patch.object(sync_runtime, "validate_candidates", side_effect=mutate),
+        patch.object(sync_runtime, "validate_generation", side_effect=mutate),
     ):
         with pytest.raises(ValueError, match="inputs changed"):
             MODULE.sync(root, True, "dev", "123456789012", ["iam"])
@@ -1019,7 +798,7 @@ def check_incoming_reference_models(project_workspace, tmp_path) -> None:
     with patch.object(
         sync_views, "broken_design_links", side_effect=check_snapshot
     ) as check:
-        saved, _ = sync_runtime.stage_inputs(
+        saved = sync_runtime.stage_inputs(
             stage,
             root,
             {selected: {}},
@@ -1029,7 +808,7 @@ def check_incoming_reference_models(project_workspace, tmp_path) -> None:
             True,
         )
     assert incoming not in saved
-    assert check.call_count == 1
+    assert check.call_count == 0
     assert not (stage / incoming.relative_to(root)).exists()
     assert not (stage / (models / "kms.properties").relative_to(root)).exists()
 
@@ -1573,8 +1352,6 @@ def _callback_check_integrated_validator_candidate_policy_check(
 def _callback_check_integrated_validator_read(
     _state_check_integrated_validator_1251, read_bytes, root, /, path
 ):
-    if _state_check_integrated_validator_1251.published and path.is_relative_to(root):
-        raise AssertionError("normal post-save readback: " + str(path))
     return read_bytes(path)
 
 
@@ -1689,7 +1466,8 @@ def check_integrated_validator(generated_policy, initial):
         assert validator.run() == 0, validator.errors
         assert len(validator.acceptance_results) == 3
         assert _state_check_integrated_validator_1251.published
-    assert generate.call_count == validate.call_count == verify.call_count == 1
+    assert generate.call_count == verify.call_count == 1
+    validate.assert_not_called()
     assert publication.call_count == 1
     assert publication.call_args.kwargs["originals"] == (
         {design: None, artifact: None} if initial else {design: originals[design]}
@@ -1697,7 +1475,7 @@ def check_integrated_validator(generated_policy, initial):
     contexts = [(call.args[0], id(call.args[1])) for call in expand.call_args_list]
     assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
     print(
-        "integrated write counts: Model once per input/permission context; generation=1, candidate validation=1, guard=1, post-save readback=0"
+        "integrated write counts: Model once per input/permission context; generation=1, candidate quality gate=0, guard=1, explicit quality checks after save"
     )
     assert import_check.call_count == 1 and impact.call_count == 0, (
         impact.call_count,

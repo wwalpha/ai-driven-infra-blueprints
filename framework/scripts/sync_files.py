@@ -52,10 +52,8 @@ def markdown_newlines(path, content):
         return content
     original = input_bytes(path)
     bare = original.replace(b"\r\n", b"")
-    if b"\r" in bare:
-        raise ValueError(f"unsupported Markdown newline: {path}")
-    if b"\r\n" in original and b"\n" in bare:
-        raise ValueError(f"mixed Markdown newlines: {path}")
+    if b"\r" in bare or b"\r\n" in original and b"\n" in bare:
+        return content.replace("\r\n", "\n").replace("\r", "\n")
     content = content.replace("\r\n", "\n")
     if not original.endswith(b"\n") and content.endswith("\n"):
         content = content[:-1]

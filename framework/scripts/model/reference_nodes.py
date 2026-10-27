@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from utils.json_format import strict_json
 from utils.reference_contracts import reference_context
 
-from model.core import ModelNeedsFixError, literal
+from model.core import ModelNeedsFixError
 from model.reference_values import reference_value
 from model.reference_values import resolve as resolve
 
@@ -113,6 +113,11 @@ def context_at(value, property_name, pointer, context=None):
     return context
 
 
+def reference_document(node):
+    """Reproduce the existing Model reference declaration for a display leaf."""
+    return {"$modelRef": {"logicalId": node.logical_id, "attribute": node.attribute}}
+
+
 def project(value, render=None, pointer=""):
     """Copy a tree for display; never alter Desired or design JSON."""
     if is_reference(value):
@@ -140,23 +145,6 @@ def project(value, render=None, pointer=""):
             value if displayed == encoded else json.dumps(displayed, ensure_ascii=False)
         )
     return value
-
-
-def project_text(value):
-    raw = literal(value)
-    try:
-        parsed = strict_json(raw)
-    except ValueError:
-        return value
-    if not any(nodes(parsed)):
-        return value
-    displayed = project(parsed)
-    text = (
-        displayed
-        if isinstance(displayed, str)
-        else json.dumps(displayed, ensure_ascii=False)
-    )
-    return "`" + text + "`" if value.startswith("`") else text
 
 
 def display_value(resolver, scope, node):

@@ -33,6 +33,7 @@ from issues.reports import ordinary_report
 from issues.review import review_snapshot
 from issues.runner import validation_issues
 from model.core import ReferenceDiagnosticError
+from model.projection import validate_json_documents
 from model.render import generate_markdown
 from support.issues_scan_fixtures import review_for, snapshot_artifact
 from support.model_design_fixtures import model
@@ -410,13 +411,12 @@ def test_missing_producer_stays_missing(pipeline):
         key: value.replace('"CodeBuild_Project_001"', '"CodeBuild_Project_999"')
         for key, value in values.items()
     }
-    with input_context(fresh=True), pytest.raises(ReferenceDiagnosticError) as caught:
+    with input_context(fresh=True), pytest.raises(DisplayMismatchError):
         model_reference_tables(path, saved, tuple(values.items()), FRAMEWORK)
-    assert "MODEL_REF_TARGET_MISSING" in {
-        item["code"] for item in caught.value.diagnostics
-    }
-    assert not isinstance(caught.value, DisplayMismatchError)
+    with pytest.raises(ReferenceDiagnosticError) as caught:
+        validate_json_documents(values, root / "model/qa/team/codepipeline.properties")
     findings = Findings(root)
+    findings.warn(caught.value)
     design.check_resource_names(
         {},
         [path],
@@ -426,10 +426,10 @@ def test_missing_producer_stays_missing(pipeline):
         scope={("qa", "team", "codepipeline")},
         definitions_root=FRAMEWORK,
     )
-    assert findings.status == "FAIL" and all(
-        d.cause_kind == "check_failure" for d in findings.diagnostics
-    )
+    assert findings.status == "FAIL"
+    assert any(d.code == "design.display.mismatch" for d in findings.diagnostics)
     assert "MODEL_REF_TARGET_MISSING" in {d["code"] for d in findings.reference_errors}
+    previous = list(findings.diagnostics)
     for handler in (
         lambda: design_tables.design_dependency_not_run(
             path, "document", "references", caught.value, findings=findings
@@ -439,7 +439,7 @@ def test_missing_producer_stays_missing(pipeline):
         ),
     ):
         handler()
-    assert not findings.diagnostics
+    assert findings.diagnostics == previous
 
 
 def collect_display(root, findings, path, error):

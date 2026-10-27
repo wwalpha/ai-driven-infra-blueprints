@@ -33,7 +33,6 @@ from model.core import LINK, ReferenceResolutionError, entries, literal
 from model.reference_nodes import (
     ReferenceNode,
     nodes,
-    project_text,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -147,22 +146,22 @@ def display_rows(
     references=None,
 ) -> list[list[str]]:
     rows = _display_aws_mapping_display.selected_rows(rows, root)
-    references = set(references or ())
-    projected = []
-    for row in rows:
-        shown = list(row)
-        if any(nodes(literal(row[2]))):
-            references.add(row[0])
-            shown[2] = project_text(row[2])
-        projected.append(shown)
+    if any(any(nodes(literal(row[2]))) for row in rows):
+        # Preserve symbolic rows before compact displays require physical strings.
+        if consumed is not None:
+            consumed.extend(row[0] for row in rows)
+        return [
+            [identity, prop.removeprefix(kind + "."), value, comment]
+            for identity, prop, value, comment in rows
+        ]
     return _display_rows(
         kind,
-        projected,
+        rows,
         root,
         mode=mode,
         _counts=_counts,
         consumed=consumed,
-        references=references,
+        references=set(references or ()),
     )
 
 

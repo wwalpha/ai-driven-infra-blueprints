@@ -231,14 +231,14 @@ def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
         warnings=warnings,
         unavailable=unavailable,
     )
-    assert generated == {} and failures == [] and warnings
-    assert unavailable[path]["status"] == "NOT_RUN"
+    assert generated == {} and failures and warnings
+    assert not unavailable
     assert (stage / path.relative_to(root)).read_text() == "saved view"
     assert (stage / artifact.relative_to(root)).read_text() == '{"original":true}'
     io_fail = _check_reference_view_retained_but_io_still_fails_io_fail
     monkeypatch.setattr(runtime, "markdown_for", io_fail)
     runtime.generate_views(stage, root, {path: {}}, failures, definitions_root=root)
-    assert failures and "write denied" in failures[0].message
+    assert any("write denied" in failure.message for failure in failures)
 
 
 def _callback_check_completion_only_waives_reference_not_run_mixed(findings, /):
@@ -483,8 +483,8 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
         )
         == {}
     )
-    assert not failures
-    assert warnings and unverified
+    assert failures
+    assert warnings and not unverified
     assert not (stage / path.relative_to(root)).exists()
 
 
@@ -612,13 +612,10 @@ def check_analysis_generation_keeps_independent_checks(
         definitions_root=Path(__file__).resolve().parents[4],
     )
     try:
-        assert bool(plan.failures) is missing_name, plan.failures
+        assert not plan.failures, plan.failures
         assert plan.reference_warnings
         view = tmp_path / "docs/designs/dev/target/codebuild.md"
-        if missing_name:
-            assert not plan.unavailable and view not in plan.generated
-        else:
-            assert view in plan.generated and view not in plan.unavailable
+        assert view in plan.generated and view not in plan.unavailable
         assert load_model(model).authoritative == snapshot.authoritative
     finally:
         plan.close()

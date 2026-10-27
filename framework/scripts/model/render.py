@@ -128,7 +128,7 @@ def stack_markdown(
     )
 
 
-def display_name(values, identity, resource, rows, root):
+def display_name(values, identity, resource, rows, root, *, projection=False):
     """Pure final display selection, shared by rendering and reference diagnostics."""
     kind = resource["resourceType"]
     label = values.get(f"display.resource.{identity}.label")
@@ -166,11 +166,19 @@ def display_name(values, identity, resource, rows, root):
         item["resourceType"] == kind for _, item in entries(values, "desired.resource.")
     )
     return _dependency_design_layout.resource_display_selection(
-        root, kind, rows, label, mode, count
+        root,
+        kind,
+        rows,
+        label,
+        mode,
+        count,
+        fallback=resource["logicalId"] if projection else None,
     )
 
 
-def resource_presentation(values, identity, resource, root, *, scope=None):
+def resource_presentation(
+    values, identity, resource, root, *, scope=None, projection=False
+):
     kind = resource["resourceType"]
     rows = _dependency_model_display.catalog_display_rows(
         _dependency_model_projection.resource_rows(values, identity, kind, root),
@@ -186,6 +194,7 @@ def resource_presentation(values, identity, resource, root, *, scope=None):
                 values, identity, resource, root, scope=scope
             ),
             root,
+            projection=projection,
         )
     except InputValidationError as error:
         if scope is not None:
@@ -526,52 +535,7 @@ def render_validated_model(
     definitions_root: Path | None = None,
 ) -> str:
     """Render structure and references without Model quality validation."""
-    _imports_model_projection.validate_json_documents(
-        values,
-        (
-            path.parents[4]
-            / "model"
-            / path.relative_to(path.parents[4] / "docs/designs")
-        ).with_suffix(".properties"),
-    )
-    reference_display = _imports_model_projection.reference_display
-    scope_for = _imports_model_sources.scope_for
-    if path.stem == "cloudformation-stacks":
-        return stack_markdown(path, values, root, definitions_root=definitions_root)
-    references = _dependency_model_display.reference_rows(values)
-    presentation = _reference_presentation.Presentation(values, path, root)
-    values = reference_display(values, path, root)
-    service = path.stem
-    if values.get(f"desired.service.{service}.serviceId") != service:
-        raise InputValidationError(f"service ID must equal file stem: {path.name}")
-    owned = values[f"desired.service.{service}.ownedCatalogResourceTypes"].split(",")
-    resources = entries(values, "desired.resource.")
-    if not resources:
-        raise InputValidationError(f"service model has no resources: {path.name}")
-    scope = scope_for(
-        (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
-            ".properties"
-        )
-    )
-    details, by_anchor = resource_details(
-        values,
-        definitions_root or root,
-        service,
-        owned,
-        resources,
-        _dependency_model_projection.bound_resource_anchors(path),
-        scope=scope,
-    )
-    return render_markdown(
-        path,
-        values,
-        definitions_root or root,
-        owned,
-        details,
-        grouped_resources(values, details, by_anchor, scope=scope),
-        references=references,
-        presentation=presentation,
-    )
+    return generate_markdown(path, values, definitions_root or root)
 
 
 @task_read_scope(root=_task_root)
@@ -586,15 +550,8 @@ def generate_markdown(
 ) -> str:
     """Render selected values; reference_values supplies the complete candidate context."""
     reference_values = values if reference_values is None else reference_values
-    _imports_model_projection.validate_json_documents(
-        values,
-        (
-            path.parents[4]
-            / "model"
-            / path.relative_to(path.parents[4] / "docs/designs")
-        ).with_suffix(".properties"),
-        reference_values=reference_values,
-    )
+    if path.stem == "cloudformation-stacks":
+        return stack_markdown(path, values, path.parents[4], validate_delivery=False)
     return _generate_markdown(
         path,
         values,
@@ -630,7 +587,7 @@ def _generate_markdown(
             path.parents[4], path.parent.parent.name, path.parent.name, path.stem
         )
         name, _, rows = resource_presentation(
-            values, identity, resource, root, scope=scope
+            values, identity, resource, root, scope=scope, projection=True
         )
         name = name or kind
         display_anchor = _imports_model_identity.display_anchor
@@ -895,16 +852,7 @@ def model_policy_views(values, *, presentation=None):
 @task_read_scope(root=_task_root)
 @change_reads()
 def generate_files(path, values, root, *, warnings=None):
-    """Check JSON structure/references and generate one service in memory."""
-    _imports_model_projection.validate_json_documents(
-        values,
-        (
-            path.parents[4]
-            / "model"
-            / path.relative_to(path.parents[4] / "docs/designs")
-        ).with_suffix(".properties"),
-        warnings=warnings,
-    )
+    """Project one service in memory, retaining logical JSON reference declarations."""
     safe = _imports_model_sources.safe
     scope_for = _imports_model_sources.scope_for
     scope = scope_for(
@@ -941,14 +889,14 @@ def generate_files(path, values, root, *, warnings=None):
             ),
             warnings=warnings,
         )
-        if not isinstance(document, dict) or "$modelRef" in document:
+        if not isinstance(document, dict):
             raise ValueError("JSON document must be an object: " + identity)
         content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
         if artifact in artifacts and artifacts[artifact] != content:
             raise ValueError("conflicting authoritative JSON documents")
         artifacts[artifact] = content
     artifacts[path] = (
-        stack_markdown(path, values, root)
+        stack_markdown(path, values, root, validate_delivery=False)
         if entries(values, "desired.stack.")
         else _generate_markdown(path, values, root, reference_values=values)
     )

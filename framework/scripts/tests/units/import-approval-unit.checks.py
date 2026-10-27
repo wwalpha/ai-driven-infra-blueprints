@@ -10,7 +10,7 @@ import copy
 import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import import_guard
 import model.format as _imports_model_format
@@ -580,7 +580,6 @@ def check_preflight_before_any_save(tmp_path, failure):
         ):
             if failure in {
                 "load",
-                "render",
                 "property",
                 "selection",
                 "baseline",
@@ -604,6 +603,40 @@ def check_preflight_before_any_save(tmp_path, failure):
         case.source.read_bytes() == case.original
         and case.evidence.read_text() == "retained acquisition"
     )
+
+
+@pytest.mark.parametrize("receipt_failure", [False, True])
+def check_view_failure_does_not_block_approved_source_save(tmp_path, receipt_failure):
+    case = source_review_case(tmp_path)
+    context = Mock()
+    with (
+        patch.object(m, "target_for", return_value={"directory": "cde"}),
+        patch.object(m, "read_acquisition", return_value=case.acquisition),
+        patch.object(m, "property_schema", side_effect=schema),
+        patch.object(m, "view_plan", side_effect=OSError("synthetic View failure")),
+        patch.object(m, "record_outputs"),
+        patch.object(m, "proof_path", return_value=case.root / "receipt.json"),
+        patch.object(m.SourceWriteContext, "_authorized", return_value=context),
+        patch.object(m, "prepare_edit", return_value="approved-source") as prepare,
+        patch.object(m, "publish_edit") as save,
+        patch.object(m, "recover_display") as recover,
+        patch.object(
+            m,
+            "finish_import",
+            side_effect=OSError("receipt failure") if receipt_failure else None,
+        ),
+    ):
+        m.review_acquisition(case.root, "dev", "vpc", case.evidence, "cde")
+        result = m.publish_acquisition(case.root, "dev", "vpc", case.evidence, "cde")
+    prepare.assert_called_once()
+    save.assert_called_once_with("approved-source", context)
+    recover.assert_not_called()
+    assert result["model"] == "reflected" and result["status"] == "display-failed"
+    assert (
+        result["viewComplete"] is False
+        and "synthetic View failure" in result["displayError"]
+    )
+    assert ("receipt failure" in result["displayError"]) == receipt_failure
 
 
 @pytest.mark.parametrize(

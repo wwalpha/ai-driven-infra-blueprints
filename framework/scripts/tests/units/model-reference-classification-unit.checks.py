@@ -548,7 +548,6 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
             ),
         ),
         patch.object(sync_runtime, "markdown_for", return_value="# Generated\n"),
-        patch.object(sync_runtime, "rendered_design", return_value="# Generated\n"),
     ):
         generated = sync_runtime.generate_views(
             stage,
@@ -558,25 +557,10 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
             warnings=warnings,
             unavailable=unavailable,
         )
-    assert set(generated) == ({good} if invalid else {good, bad})
-    assert len(failures) == int(invalid), failures
-    assert not unavailable
-    assert not any("UNKNOWN" in str(d) for d in warnings)
-    assert {d["category"] for d in warnings} == (
-        {"MODEL_NEEDS_FIX", "REFERENCE_PENDING_DEPLOY"}
-        if state == "mixed"
-        else {"MODEL_NEEDS_FIX"}
-        if invalid
-        else {"REFERENCE_PENDING_DEPLOY"}
-    )
+    assert set(generated) == {good, bad}
+    assert not failures and not unavailable
     assert {path: path.read_bytes() for path in original} == original
-    if invalid:
-        assert {
-            (stage / path.relative_to(root)).read_bytes() for path in original
-        } == set(original.values())
-    else:
-        assert json.loads((stage / artifact.relative_to(root)).read_text()) == document
-    # The existing publisher receives only healthy candidates.
+    assert json.loads((stage / artifact.relative_to(root)).read_text()) == document
     sync_runtime.save_files(
         {
             root / path.relative_to(stage): path.read_text(encoding="utf-8")
@@ -585,12 +569,8 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         }
     )
     assert good.read_text(encoding="utf-8") == "# Generated\n"
-    assert (
-        artifact.read_bytes() == original[artifact]
-        if invalid
-        else json.loads(artifact.read_bytes()) == document
-    )
-    assert bad.read_bytes() == (original[bad] if invalid else b"# Generated\n")
+    assert json.loads(artifact.read_text()) == document
+    assert bad.read_bytes() == b"# Generated\n"
     plan = SimpleNamespace(
         root=root,
         generated_scope={("qa", "team", path.stem) for path in generated},
@@ -606,17 +586,10 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         baseline_links={},
     )
     metadata = sync_runtime.generation_metadata(plan)
-    assert metadata["status"] == ("FAIL" if invalid else "PASS") and metadata[
-        "complete"
-    ] == (not invalid)
+    assert metadata["status"] == "PASS" and metadata["complete"]
     assert not metadata["unavailable_services"]
-    assert len(metadata["unverified"]) == int(state != "invalid")
     assert metadata["warnings"] == warnings
-    if invalid:
-        with pytest.raises(ValueError, match="1 services failed; 0 services NOT_RUN"):
-            sync_runtime.report_generation(plan)
-    else:
-        sync_runtime.report_generation(plan)
+    sync_runtime.report_generation(plan)
 
 
 def test_conflicting_design_documents_fail_before_saving(models):
@@ -653,7 +626,7 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     )
     projected = json.loads(displayed["desired.row.070-004.document"])
     assert projected["Statement"][0]["Resource"] == "arn:aws:s3:::confirmed-bucket"
-    assert projected["Statement"][6]["Resource"] == "PENDING_DEPLOY"
+    assert projected["Statement"][6]["Resource"] == document["Statement"][6]["Resource"]
     assert displayed["desired.row.070-004.value"] == role["desired.row.070-004.value"]
     assert "desired.row.070-004.artifactSha256" not in displayed
     path = consumer.root / "docs/designs/qa/team/iam.md"
@@ -665,7 +638,7 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     artifact.write_text(json.dumps(document), encoding="utf-8")
     markdown = generate_markdown(path, load_model(consumer).values, FRAMEWORK)
     path.write_text(markdown, encoding="utf-8")
-    assert "confirmed-bucket" in markdown and "PENDING_DEPLOY" in markdown
+    assert "confirmed-bucket" in markdown and "$modelRef" in markdown
     assert "iam/iam-role-070-synthetic-policy.json" in markdown
     assert "iam/iam-role-070-trust-policy.json" in markdown
     assert "pending_deploy" not in markdown
@@ -688,8 +661,7 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     document["Statement"][6]["Resource"] = "*"
     role["desired.row.070-004.document"] = json.dumps(document)
     save(consumer, role)
-    with pytest.raises(ValueError, match="differs from authoritative Model"):
-        rendered_design(path, definitions_root=FRAMEWORK)
+    assert rendered_design(path, definitions_root=FRAMEWORK) != markdown
 
 
 def test_real_input_validation_does_not_invent_pending_errors(models):
@@ -778,13 +750,9 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, state
         consumer.root, {("qa", "team", "iam")}, write=False, definitions_root=FRAMEWORK
     )
     try:
-        assert bool(plan.failures) == invalid, plan.failures
+        assert not plan.failures, plan.failures
         assert not plan.unavailable
-        assert bool(plan.generated) == (not invalid)
-        assert any(
-            d.get("category") == "REFERENCE_PENDING_DEPLOY"
-            for d in plan.reference_warnings
-        ) == (state != "producer-invalid")
+        assert plan.generated
     finally:
         plan.close()
     lint = dict(

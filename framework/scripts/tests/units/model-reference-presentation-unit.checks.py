@@ -14,7 +14,7 @@ from design.common import code
 from design.document import DesignIndex
 from design.layout import expanded_display_rows
 from design.policy_tables import Policy, policy_document_lines, rendered_design
-from model.core import ModelNeedsFixError, ReferenceResolutionError, literal
+from model.core import literal
 from model.identity import COUNTERS
 from model.projection import reference_display
 from model.reference_presentation import Position, Presentation
@@ -258,23 +258,16 @@ def test_no_guessed_destination(models, fault):
         "DefaultArguments",
         {"--input": reference(logical, attribute)},
     )
-    if fault in {"missing", "duplicate", "invalid-attribute"}:
-        with pytest.raises(ModelNeedsFixError):
-            Presentation(values, path, models)
-        with pytest.raises(ModelNeedsFixError):
-            generate_markdown(path, values, FRAMEWORK)
+    presentation = Presentation(values, path, models)
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    assert "[shared-name]" not in markdown
+    if fault in {"missing", "duplicate", "invalid-attribute", "unconfirmed-name"}:
+        assert "$modelRef" in markdown
     else:
-        presentation = Presentation(values, path, models)
         ref = presentation.references[Position(rid, "value", "/--input")]
         assert ref.link is None
         if fault == "pending":
             assert ref.value == "shared-name"
-        if fault == "unconfirmed-name":
-            with pytest.raises(ReferenceResolutionError):
-                generate_markdown(path, values, FRAMEWORK)
-            return
-        markdown = generate_markdown(path, values, FRAMEWORK)
-        assert "[shared-name]" not in markdown
 
 
 def test_array_indexes_duplicates_and_generic_service(models):
@@ -356,10 +349,7 @@ def test_codebuild_variable_connection(models, variable_type, logical, attribute
             number=number,
         )
     if variable_type == "PARAMETER_STORE":
-        with pytest.raises(
-            ValueError, match="unsupported producer ResourceType: SSM.Parameter"
-        ):
-            generate_markdown(path, values, FRAMEWORK)
+        assert "$modelRef" in generate_markdown(path, values, FRAMEWORK)
         return
     markdown = generate_markdown(path, values, FRAMEWORK)
     line = next(

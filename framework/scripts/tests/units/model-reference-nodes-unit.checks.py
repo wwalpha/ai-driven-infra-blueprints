@@ -26,7 +26,7 @@ from design.policy_tables import (
 from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from json_intrinsics import project_document
 from model.adapters.observed import observed_destinations, propagate_references
-from model.core import ReferenceResolutionError, entries
+from model.core import entries
 from model.identity import Resolver
 from model.impact_graph import Graph
 from model.importing.sources import has_reference
@@ -353,43 +353,26 @@ def check_display_and_stable_design(tmp_path, models, observed, expected):
         if observed == "PENDING_DEPLOY"
         else []
     )
-    if observed is None:
-        with pytest.raises(ReferenceResolutionError):
-            reference_display(policy, consumer.path, tmp_path)
-    else:
-        displayed = reference_display(policy, consumer.path, tmp_path)
-        assert (
-            json.loads(displayed["desired.row.001-002.document"])["Statement"][0][
-                "Resource"
-            ]
-            == expected
+    displayed = reference_display(policy, consumer.path, tmp_path)
+    assert json.loads(displayed["desired.row.001-002.document"])["Statement"][0][
+        "Resource"
+    ] == (reference() if observed in (None, "PENDING_DEPLOY") else expected)
+    warnings = []
+    mixed = {
+        "json": json.dumps(document),
+        "values": [True, False, None, 3, 1.25, "literal"],
+    }
+    assert (
+        design_document(
+            mixed,
+            tmp_path,
+            resolver=reference_resolver(policy, consumer, tmp_path),
+            scope=consumer,
+            warnings=warnings,
         )
-        assert "$modelRef" not in displayed["desired.row.001-002.document"]
-    if observed is None:
-        with pytest.raises(ReferenceResolutionError):
-            design_document(
-                document,
-                tmp_path,
-                resolver=reference_resolver(policy, consumer, tmp_path),
-                scope=consumer,
-            )
-    else:
-        warnings = []
-        mixed = {
-            "json": json.dumps(document),
-            "values": [True, False, None, 3, 1.25, "literal"],
-        }
-        assert (
-            design_document(
-                mixed,
-                tmp_path,
-                resolver=reference_resolver(policy, consumer, tmp_path),
-                scope=consumer,
-                warnings=warnings,
-            )
-            == mixed
-        )
-        assert bool(warnings) == (observed == "PENDING_DEPLOY")
+        == mixed
+    )
+    assert not warnings
     assert policy == original
     with pytest.raises(ValueError, match="Model reference"):
         validate_aws_document(document)
@@ -423,7 +406,7 @@ def check_every_markdown_fallback_and_schema(tmp_path, models):
     ):
         for render in (policy_document_lines, raw_policy_lines):
             output = "\n".join(render(candidate, p))
-            assert "$modelRef" not in output and "unresolved" in output
+            assert "$modelRef" in output and "logicalId" in output
     with pytest.raises(ValueError):
         validate_policy_document(json.loads(policy["desired.row.001-002.document"]), p)
     catalog = DesignSchemaCatalog(tmp_path)
@@ -610,7 +593,7 @@ def check_return_attribute_mapping_and_identifier_pending(tmp_path, models):
     values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
     save(producer, values)
     assert (
-        "PENDING_DEPLOY"
+        "$modelRef"
         in reference_display(policy, consumer.path, tmp_path)[
             "desired.row.001-002.document"
         ]
@@ -689,7 +672,7 @@ def check_scalar_value_and_json_are_stable(tmp_path, models, mode):
                 "desired.row.001-002.document"
             ]
         )["Statement"][0]["Resource"]
-        == "PENDING_DEPLOY"
+        == reference()
     )
     with pytest.raises(ValueError, match="change comparison unavailable"):
         validate_candidates(
@@ -1218,10 +1201,7 @@ def check_pipeline_configuration_display_and_roundtrip(
     ]
     view = tmp_path / "docs/designs/qa/team/codepipeline.md"
     if observed == "confirmed-build":
-        with pytest.raises(
-            ReferenceResolutionError, match="Desired and Observed differ"
-        ):
-            generate_markdown(view, values, tmp_path)
+        assert "$modelRef" in generate_markdown(view, values, tmp_path)
         return
     if observed == "PENDING_DEPLOY":
         expected = "synthetic-codebuild-a"

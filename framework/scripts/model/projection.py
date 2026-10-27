@@ -45,6 +45,7 @@ from model.reference_nodes import (
     nodes,
     project,
     receiving_property,
+    reference_document,
 )
 from model.reference_values import reference_value
 
@@ -421,15 +422,17 @@ def _resolved_document_value(resolutions, node):
 
 
 def _display_document_value(resolutions, node):
-    result = resolutions[node]
-    return "PENDING_DEPLOY" if result.status == "pending_deploy" else result.value
+    result = resolutions.get(node)
+    return (
+        result.value
+        if result is not None and result.status == "resolved"
+        else reference_document(node)
+    )
 
 
 def display_document(document, root, *, pending=None, **contract):
-    """Allow proven deployment waits only in the display projection."""
+    """Display resolved values where available; retain every unresolved declaration."""
     resolutions, diagnostics = document_references(document, **contract)
-    if any(d["category"] != "REFERENCE_PENDING_DEPLOY" for d in diagnostics):
-        require_reference_diagnostics(diagnostics)
     if pending is not None:
         pending.extend(diagnostics)
     # Check the authored structure before replacing reference leaves for display.
@@ -556,26 +559,7 @@ def document_references(
 
 
 def design_document(document, root, *, warnings=None, **contract):
-    """Validate logical references while preserving authored design JSON nodes."""
-    _, diagnostics = document_references(document, **contract)
-    if any(d["category"] != "REFERENCE_PENDING_DEPLOY" for d in diagnostics):
-        require_reference_diagnostics(diagnostics)
-    if warnings is not None:
-        warnings.extend(d for d in diagnostics if d not in warnings)
-    scope = contract["scope"]
-    try:
-        _imports_json_intrinsics.validate_document(
-            document,
-            property_name=contract.get("property_name"),
-            model_path=scope.path,
-            logical_id=contract.get("logical_id"),
-            warnings=warnings,
-        )
-    except _imports_utils_json_format.AwsDocumentError as error:
-        raise ValueError(
-            f"Model={scope.path}, Resource logicalId={contract.get('logical_id')}, "
-            f"Property={contract.get('property_name')}; {error}"
-        ) from error
+    """Keep authored design JSON; Model validation owns its reference contracts."""
     return document
 
 

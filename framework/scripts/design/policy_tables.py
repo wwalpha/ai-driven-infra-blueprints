@@ -13,13 +13,11 @@ from pathlib import Path
 
 import json_intrinsics as _imports_json_intrinsics
 import model.projection as _model_projection
-import model.reference_presentation as _reference_presentation
 import model.render as _model_render
 import utils.aws_mappings as _imports_utils_aws_mappings
-from model.core import entries, literal
-from model.format import JSON_LINK as MODEL_JSON_LINK
+from model.core import literal
 from model.identity import Resolver
-from model.reference_nodes import is_reference, nodes, project
+from model.reference_nodes import is_reference, nodes, project, reference_document
 from model.sources import scope_for
 from utils.input_cache import input_scope
 from utils.json_format import (
@@ -520,7 +518,7 @@ def validate_policy_document(document, policy, *, design=False):
 
 
 def raw_policy_lines(document, policy):
-    document = project(document)
+    document = project(document, reference_document)
     return [
         f'<a id="{policy.anchor}"></a>',
         "",
@@ -534,7 +532,7 @@ def raw_policy_lines(document, policy):
 
 def policy_document_lines(document, policy):
     """Lossless display conversion; unsupported table shapes retain the entire JSON."""
-    document = project(document)
+    document = project(document, reference_document)
     original = document
     if not isinstance(document, dict):
         return raw_policy_lines(original, policy)
@@ -659,18 +657,9 @@ def rendered_design(
         values = _module_design_layout.design_model_values(path, path.parents[4])
         if values is not None:
             reference_tables = []
-            expected = _model_render.generate_markdown(
+            return _model_render.generate_markdown(
                 path, values, root, reference_tables=reference_tables
             )
-            _design_document.require_saved_identity(original, expected)
-            presentation = _reference_presentation.Presentation(
-                values, path, path.parents[4]
-            )
-            for rid, row in entries(values, "desired.row."):
-                if link := MODEL_JSON_LINK.fullmatch(row.get("value", "")):
-                    policy_rows.setdefault((row["property"], link[1]), []).append(
-                        (rid, row)
-                    )
     resources = resources_in(
         lines,
         root,

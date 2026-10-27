@@ -190,7 +190,9 @@ def check_task_change_rolls_back_publication(tmp_path, monkeypatch, change):
 @pytest.mark.parametrize("state", ["running", "completed", "suspend"])
 def check_publication_preserves_contract(tmp_path, monkeypatch, state):
     name = "tasks/example.md"
-    text = contract("example", ["file.txt"])
+    text = contract("example", ["docs/designs/dev/team/iam.md"]).replace(
+        "- `framework`", "- `dev/team/iam`"
+    )
     if state is None:
         text = text.replace("- Task status: `running`\n", "")
     else:
@@ -201,7 +203,8 @@ def check_publication_preserves_contract(tmp_path, monkeypatch, state):
     own.parent.mkdir()
     own.write_text(text)
     monkeypatch.setenv(tasks.SELECTOR, name)
-    file = tmp_path / "file.txt"
+    file = tmp_path / "docs/designs/dev/team/iam.md"
+    file.parent.mkdir(parents=True)
     file.write_text("original")
     new = tmp_path / "new.txt"
     obsolete = tmp_path / "obsolete.txt"
@@ -221,6 +224,11 @@ def check_publication_preserves_contract(tmp_path, monkeypatch, state):
         assert tasks.task_path(tmp_path) == own
         publish_generation(generation_plan(tmp_path, {file: "saved"}))
         assert file.read_text() == "saved"
+        with pytest.raises(ValueError, match="outside task scope"):
+            publish_generation(
+                generation_plan(tmp_path, {file.with_name("other.md"): "denied"})
+            )
+        assert not file.with_name("other.md").exists()
     assert own.read_text() == text
     monkeypatch.delenv(tasks.SELECTOR)
     standalone = tmp_path / "standalone"

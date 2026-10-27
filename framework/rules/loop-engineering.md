@@ -124,8 +124,10 @@ Producer reads validate
 only the required attributes/context. Read-only producers need no additional write rights
 or quality scope. Consumers join generation only when their reference inputs change;
 actual changed output paths still require Modified files, Allowed paths and publication
-scope. Generation checks structure, references, ownership and generated-artifact integrity,
-without Model quality preflight. Model save and partial View synchronization have separate
+scope. Generation projects the Model without revalidating Model/View quality or requiring
+resolved physical values. Unresolved references retain their existing declarations;
+Task/path/JSON ownership, Snapshot and publication integrity remain mandatory.
+Model save and partial View synchronization have separate
 results; incomplete generation does not complete a Task. Snapshot, publication-lock,
 input-comparison, atomic-save/rollback and Import/Deploy authority boundaries remain.
 
@@ -138,19 +140,21 @@ python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-fi
 ```
 
 Explicit `--write` is passed to the leading validator. It evaluates common preconditions
-once, prepares all selected targets in one stage, validates each candidate responsibility
-once using retained expanded Models/results, compares consumed input bytes/file sets/the
-selected contract once under the publication lock, and saves only changed validated bytes.
+once, prepares all selected targets in one stage, projects each candidate once using
+retained expanded Models, compares consumed input bytes/file sets/the
+selected contract once under the publication lock, and saves only changed projected bytes.
 Unresolved Issues do not block this generation/publication. Preserve each successful
-service's outputs alongside failed services' saved artifacts; report actual generation
-failures and reference NOT_RUN separately, with neither treated as complete generation
-success. Common integrity failures still stop all saves; Model/IaC checks remain required.
+service's outputs alongside failed services' saved artifacts. Report only technical
+generation failures; pending/unresolved Model references do not fail ordinary View
+projection. Deploy independently retains strict readiness checks. Common integrity
+failures still stop all saves; Model/IaC checks remain required.
 It then refreshes Git changed paths once for output-dependent Task conditions and
-`changed`/`exists`/`absent` Acceptance. Registered content checks reuse their exact
-scope/candidate PASS or FAIL; NOT_RUN checks run before publication. Unknown check IDs
-or undefined execution stages fail before saving. No post-save content readback,
-regeneration or full input rescan occurs. Changed fallback/rollback states require their
-own necessary reference checks and are not normal-path duplication.
+`changed`/`exists`/`absent` Acceptance. Explicit content Acceptance checks run
+independently after successful publication
+and never roll back successful Views for quality findings. Unknown check IDs
+or undefined execution stages fail before saving. Ordinary generation performs no
+post-save quality readback or regeneration. An I/O
+failure rolls back only that service; a retained recovery journal safely stops publication.
 
 `--staged --write` and framework-only `--write` are rejected before Model discovery.
 `--mode full` does not expand generation scope. On a nonzero integrated validator exit,
@@ -362,7 +366,7 @@ Before design questions, on resume, target changes, before design contract regis
 
 1. Update authoritative environment-specific properties inputs specified by the active prompt. Only when existing-resource retrieval is specified, validate read-only AWS context before repository changes and directly reflect differences in selected properties of human-selected resources to current values.
 2. For existing-resource retrieval, reflect only necessary non-ARN current identifiers in observed.row.*.value. Do not save secrets, generated ARNs, or resource provenance.
-3. Save confirmed design values in the corresponding properties through Change Validation. New Resources require mandatory root properties; existing Resources select only rules related to changed fields and affected reference contracts. The integrated task loop with `--write` generates the required Views after checking their structure, references and artifacts, without Full Model quality validation. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for services whose generation fails and save successful services in the same coherent change. Report Model save and View synchronization separately; unresolved required Views prevent Task completion.
+3. Save confirmed design values in the corresponding properties through Change Validation. New Resources require mandatory root properties; existing Resources select only rules related to changed fields and affected reference contracts. The integrated task loop with `--write` projects the required Views without View quality gates or physical-value readiness requirements. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for services whose generation fails and save successful services in the same coherent change. Report Model save and View synchronization separately; unresolved required Views prevent Task completion.
 4. Run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` once to generate and perform final validation.
 5. Finish the task without changing IaC, AWS mutation, scenarios, or results.
 

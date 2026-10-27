@@ -46,7 +46,6 @@ from utils.input_cache import (
     recording_inputs,
 )
 from utils.script_loader import module
-from validation.diagnostics import Diagnostic, stable_id
 from validation.findings import CheckResult, Findings
 from validation.task import TaskValidation
 from validation_cache import PassCache
@@ -89,11 +88,9 @@ def check_markdown_newlines(tmp_path, newline, final):
     assert changed_files({path: "# 日本語\nvalue\n"}) == {}
     assert set(changed_files({path: "# 日本語\nchanged\n"})) == {path}
     path.write_bytes(b"one\r\ntwo\n")
-    with pytest.raises(ValueError, match="mixed Markdown newlines"):
-        markdown_newlines(path, "one\ntwo\n")
+    assert markdown_newlines(path, "one\ntwo\n") == "one\ntwo\n"
     path.write_bytes(b"one\rtwo")
-    with pytest.raises(ValueError, match="unsupported Markdown newline"):
-        markdown_newlines(path, "one\ntwo\n")
+    assert markdown_newlines(path, "one\ntwo\n") == "one\ntwo\n"
 
 
 def _callback_check_internal_sync_concurrent_output_execute(
@@ -442,7 +439,6 @@ def check_stage_dependency_selection(tmp_path, write):
         plan = sync_runtime.prepare_generation(
             root, {("dev", "team", "iam")}, snapshot=inputs, write=write
         )
-        assert not plan.baseline_links
         plan.close()
         assert not close.called
     assert inputs.contents[authority] == b"# model-format: 2\n# required\n"
@@ -850,9 +846,6 @@ def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys
                 "status": "NOT_RUN",
                 "retainedView": str(rejected),
             }
-        common = Findings(stage)
-        common.result("framework.policy-tables", plan.generated_scope).status = "PASS"
-        plan.validation[None] = common
         validator = load("validate-blueprint").Validator(tmp_path, scope, write=True)
         validator.task_type = "migration"
         validator.task.contract_text = snapshot.expected_task[1]
@@ -1295,10 +1288,7 @@ def check_saved_link_snapshot_and_new_warnings(tmp_path, capsys):
     )
     sync_runtime.report_generation(plan)
     warnings = capsys.readouterr().err
-    assert (
-        warnings.count("saved reference needs repair") == 1 and "kms.md#key" in warnings
-    )
-    assert "#missing" not in warnings
+    assert not warnings
     # A changed target that was rolled back is not a successfully saved service.
     plan.saved = {}
     plan.markdown_paths = []
@@ -1313,9 +1303,9 @@ def _fail_publication_artifact(original, failed, /, path, text, *args, **kwargs)
 
 
 @pytest.mark.parametrize("reject_saved", [False, True])
-def check_publication_legacy_fallback(tmp_path, reject_saved):
+def check_publication_failure_preserves_success(tmp_path, reject_saved):
     root, stage = tmp_path / "root", tmp_path / "stage"
-    good = root / "docs/designs/dev/team/kms.md"
+    good = root / "docs/designs/dev/123456789012/kms.md"
     failed = good.with_name("iam.md")
     artifact = failed.with_suffix("") / "policy.json"
     original = {
@@ -1335,7 +1325,14 @@ def check_publication_legacy_fallback(tmp_path, reject_saved):
         staged.write_text(
             expected[failed].get(path, expected[good].get(path)), encoding="utf-8"
         )
-    with closing(sync_runtime.GenerationInputs(root)) as snapshot:
+    with (
+        issue_task(
+            root,
+            ["iam", "kms"],
+            allowed=[path.relative_to(root).as_posix() for path in original],
+        ),
+        closing(sync_runtime.GenerationInputs(root)) as snapshot,
+    ):
         for path in original:
             snapshot.read(path)
         plan = sync_runtime.Generation(
@@ -1350,12 +1347,9 @@ def check_publication_legacy_fallback(tmp_path, reject_saved):
             saved={},
             generated={good: [], failed: []},
             failure_records=[],
-            validation={},
             candidate=object(),
             destinations={good: {}, failed: {}},
-            accounts={},
             definitions_root=root,
-            warnings={},
             reference_warnings=[],
         )
         fail_write = _bind_framework_callback(
@@ -1383,30 +1377,12 @@ def check_publication_legacy_fallback(tmp_path, reject_saved):
             ) as validate,
         ):
             sync_runtime.publish_generation(plan)
-        assert validate.call_args.kwargs["candidate_paths"] == {
-            stage / good.relative_to(root)
-        }
-        assert (
-            failed.read_bytes() == original[failed].encode()
-            and artifact.read_bytes() == original[artifact].encode()
-        )
-        assert (stage / failed.relative_to(root)).read_bytes() == failed.read_bytes()
-        assert (
-            stage / artifact.relative_to(root)
-        ).read_bytes() == artifact.read_bytes()
-        if reject_saved:
-            assert not plan.saved and not plan.warnings
-            assert good.read_bytes() == original[good].encode()
-        else:
-            assert (
-                set(plan.saved) == {good}
-                and good.read_text(encoding="utf-8") == expected[good][good]
-            )
-            assert plan.warnings == {
-                "docs/designs/dev/team/iam.md: kms.md#old-key": good
-            }
-            assert plan.reference_warnings == checked.warnings
-        assert len(plan.failures) == (2 if reject_saved else 1)
+        validate.assert_not_called()
+        assert failed.read_text(encoding="utf-8") == original[failed]
+        assert artifact.read_text(encoding="utf-8") == original[artifact]
+        assert set(plan.saved) == {good}
+        assert good.read_text(encoding="utf-8") == expected[good][good]
+        assert len(plan.failures) == 1
 
 
 @pytest.mark.parametrize("location", ["file", "parent"])
@@ -1533,7 +1509,7 @@ def check_failure_counts(tmp_path, capsys, extra_inputs, write, unavailable):
     assert len(str(error.value).splitlines()) == failed + not_run + 1
     assert "saved reference" not in str(error.value)
     output = capsys.readouterr()
-    assert output.err.count("saved reference needs repair") == (5 if write else 0)
+    assert not output.err
     assert output.out.count("Design Markdown sync: PASS") == 8
     assert "generation: 8 services succeeded" in output.out
     assert (
@@ -1721,9 +1697,8 @@ def check_generation_input_failures(tmp_path, fault):
 
 @pytest.mark.parametrize("status", ["FAIL", "NOT_RUN"])
 @pytest.mark.parametrize(
-    "fault",
+    "check",
     [
-        None,
         "design.collections",
         "design.ownership",
         "design.stacks",
@@ -1731,107 +1706,31 @@ def check_generation_input_failures(tmp_path, fault):
         "design.overviews",
         "design.links",
         "design.artifacts",
-        "candidate",
-        "multiple",
     ],
 )
-def check_candidate_completion_matches_executed_view_checks(tmp_path, fault, status):
-    root, stage = tmp_path / "root", tmp_path / "stage"
-    path = root / "docs/designs/dev/team/logs.md"
-    staged = stage / path.relative_to(root)
+def check_candidate_completion_matches_executed_view_checks(tmp_path, check, status):
+    path = tmp_path / "docs/designs/dev/team/logs.md"
+    stage = tmp_path / "stage"
+    staged = stage / path.relative_to(tmp_path)
     staged.parent.mkdir(parents=True)
     staged.write_text("# 候補\n", encoding="utf-8")
-    scope = {("dev", "team", "logs")}
-    common, service = Findings(root), Findings(root)
-    service.candidate = common.candidate
-    common_checks = {
-        "design.collections",
-        "design.ownership",
-        "design.stacks",
-        "framework.policy-tables",
-    }
-    service_checks = {"design.overviews", "design.links", "design.artifacts"}
-    for checked, names in ((common, common_checks), (service, service_checks)):
-        for name in names:
-            checked.result(name, scope).status = status if name == fault else "PASS"
-    if fault == "multiple":
-        for checked, name in (
-            (common, "design.stacks"),
-            (service, "design.links"),
-            (service, "design.artifacts"),
-        ):
-            checked.result(name, scope).status = status
-        diagnostic = Diagnostic.create(
-            root,
-            code="design.display.mismatch",
-            check_id="design.links.view-build",
-            service=("dev", "team", "glue"),
-            source_path="docs/designs/dev/team/glue.md",
-            cause_key="synthetic-cause",
-            message="synthetic table mismatch",
-        )
-        service.diagnostics.append(diagnostic)
-        service.result("design.links", scope).metadata = dict(
-            complete=False,
-            unverified=[
-                dict(
-                    path="docs/designs/dev/team/glue.md",
-                    phase="view-build",
-                    exception="DisplayMismatchError",
-                    message="synthetic table mismatch",
-                    cause_keys=[diagnostic.cause_key],
-                    status="NOT_RUN",
-                )
-            ],
-        )
-    if fault == "candidate":
-        service.candidate = object()
+    checked = Findings(tmp_path)
+    checked.result(check, {("dev", "team", "logs")}).status = status
     plan = SimpleNamespace(
-        root=root,
+        root=tmp_path,
         stage=stage,
         generated={path: [staged]},
-        destinations={},
-        failure_records=[],
-        failures=[],
-        markdown_paths=[path],
-        model_paths=[],
-        unavailable={},
-        validation={None: common, path: service},
-        accounts={},
-        generated_scope=scope,
-        definitions_root=root,
-        reference_warnings=[],
         expected_outputs={},
         snapshot=None,
-        saved_paths=[],
     )
-    with patch.object(sync_runtime, "validate_candidates"):
-        if fault is None:
-            sync_runtime.validate_generation(plan, jobs=1)
-            assert plan.expected_outputs == {path: {path: "# 候補\n"}}
-        else:
-            with pytest.raises(ValueError, match="required candidate") as rejected:
-                sync_runtime.validate_generation(plan, jobs=1)
-            if fault == "multiple":
-                message = str(rejected.value)
-                assert all(
-                    item in message
-                    for item in (
-                        str(path),
-                        "design.stacks",
-                        "design.links",
-                        "design.artifacts",
-                        status,
-                        "docs/designs/dev/team/glue.md",
-                        "view-build",
-                        "DisplayMismatchError",
-                        "synthetic table mismatch",
-                        stable_id(diagnostic.identity),
-                    )
-                ), message
-            else:
-                assert "synthetic table mismatch" not in str(rejected.value)
-    assert {key[0] for key in service.results} == service_checks
+    with (
+        patch.object(sync_views, "validate_views", return_value=checked) as service,
+        patch.object(sync_views, "validation_context", return_value=checked) as common,
+    ):
+        sync_runtime.validate_generation(plan)
+    service.assert_not_called()
+    common.assert_not_called()
+    assert plan.expected_outputs == {path: {path: "# 候補\n"}}
 
 
 if __name__ == "__main__":

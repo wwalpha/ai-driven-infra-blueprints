@@ -15,8 +15,7 @@ import model.references as references
 import model.render as render
 import model.sources as sources
 from model.core import LINK, literal
-from model.reference_nodes import nodes, project, receiving_property
-from model.reference_values import reference_value
+from model.reference_nodes import project, reference_document
 
 
 @dataclass(frozen=True)
@@ -78,26 +77,23 @@ class Presentation:
                     )
                     if not structured:
                         continue
-                    occurrences = tuple(nodes(raw))
-                    for node in occurrences:
-                        result = reference_value(
-                            self.resolver,
-                            self.scope,
-                            node,
-                            field=receiving_property(prop, node.pointer),
-                            property_name=prop,
-                            context=projection.reference_context_for(
-                                values, rid, row, raw, node.pointer, root
-                            ),
-                        )
+                    resolutions, _ = projection.document_references(
+                        raw,
+                        resolver=self.resolver,
+                        scope=self.scope,
+                        property_name=prop,
+                        model_key=f"desired.row.{rid}.{field}",
+                        context=projection.reference_context_for(
+                            values, rid, row, raw, "", root
+                        ),
+                    )
+                    for node, result in resolutions.items():
                         position = Position(rid, field, node.pointer)
                         self.references[position] = Reference(
                             position,
                             result.value
                             if result.status == "resolved"
-                            else "PENDING_DEPLOY"
-                            if result.status == "pending_deploy"
-                            else result.status,
+                            else reference_document(node),
                             self.link(node) if result.status == "resolved" else None,
                         )
 
@@ -134,6 +130,7 @@ class Presentation:
                 resource,
                 self.root,
                 scope=snapshot.scope,
+                projection=True,
             )
             if (
                 not name
@@ -154,7 +151,11 @@ class Presentation:
 
     def node_value(self, row_id, field, node):
         position = Position(row_id, field, node.pointer)
-        return self.markers.get(position, self.references[position].value)
+        reference = self.references.get(position)
+        return self.markers.get(
+            position,
+            reference.value if reference is not None else reference_document(node),
+        )
 
     def document(self, row_id, field, baseline):
         selected = [

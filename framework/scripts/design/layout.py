@@ -293,6 +293,29 @@ def stack_deployment_policy(path: Path) -> int:
     return positive_integer(match.group(1), "MaxConcurrentStacks")
 
 
+def confirmed_display_name(raw):
+    value = raw.strip('`"')
+    return (
+        bool(value.strip())
+        and value.strip().lower()
+        not in {
+            "unset",
+            "pending",
+            "pending_deploy",
+            "tbd",
+            "n/a",
+            "none",
+            "not-used",
+            "not used",
+            "unused",
+            "未使用",
+            "未確定",
+        }
+        and not value.startswith("[")
+        and "{{" not in value
+    )
+
+
 def resource_display_selection(
     root: Path,
     resource_type: str,
@@ -300,6 +323,8 @@ def resource_display_selection(
     label: str | None,
     mode: str,
     count: int,
+    *,
+    fallback: str | None = None,
 ) -> tuple[str | None, str | None]:
     """Select a configured name, confirmed label or existing nameless-type display."""
     DesignSchemaCatalog = _imports_design_catalog.DesignSchemaCatalog
@@ -313,28 +338,14 @@ def resource_display_selection(
         for row in rows
         if row[1].removeprefix(resource_type + ".") in names
     ]
+    if fallback is not None:
+        configured = resource_display_name(resource_type, rows, label, mode, root=root)
+        if configured is not None and confirmed_display_name(configured):
+            return configured, configured
+        return label if label and confirmed_display_name(label) else fallback, None
     catalog = DesignSchemaCatalog(root)
     for field, raw in selected:
-        value = raw.strip('`"')
-        if (
-            not value.strip()
-            or value.strip().lower()
-            in {
-                "unset",
-                "pending",
-                "pending_deploy",
-                "tbd",
-                "n/a",
-                "none",
-                "not-used",
-                "not used",
-                "unused",
-                "未使用",
-                "未確定",
-            }
-            or value.startswith("[")
-            or "{{" in value
-        ):
+        if not confirmed_display_name(raw):
             raise InputValidationError(
                 f"resource display name must be confirmed and non-empty: {resource_type}.{field}"
             )

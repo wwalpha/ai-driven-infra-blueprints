@@ -127,6 +127,13 @@ def check_json_boundaries(tmp_path):
     values["desired.row.008-001.document"] = json.dumps(
         {"Resource": "[missing](vpc.md#missing)"}
     )
+    values.update(
+        {
+            "desired.service.vpc-endpoint.serviceId": "vpc-endpoint",
+            "desired.service.vpc-endpoint.ownedCatalogResourceTypes": "EC2.VPCEndpoint",
+            "display.service.title": "# Synthetic endpoints",
+        }
+    )
     write_model(path, values)
     before = path.read_bytes()
     findings = model_findings(path, values, tmp_path)
@@ -134,8 +141,11 @@ def check_json_boundaries(tmp_path):
         findings.errors
     )
     for render in (generate_files, generate_markdown, render_validated_model):
-        with pytest.raises(ValueError, match="JSON setting contains"):
-            render(view, values, tmp_path)
+        output = render(view, values, tmp_path)
+        assert output
+    assert json.loads(
+        generate_files(view, values, tmp_path)[view.with_suffix("") / "policy.json"]
+    ) == {"Resource": "[missing](vpc.md#missing)"}
     with pytest.raises(ValueError, match="before snapshot"):
         validate_candidates(
             tmp_path,

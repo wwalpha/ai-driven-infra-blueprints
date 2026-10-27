@@ -41,7 +41,6 @@ import model.importing.scope as _exports_model_importing_scope
 import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
-from model.core import ReferenceResolutionError
 from model.core import entries as entries
 from model.importing import approval as import_approval
 from model.importing.evidence import (
@@ -980,12 +979,12 @@ def publish_acquisition(
                     / (identity[2] + ".md")
                 )
                 managed = owned_artifacts(document, before.values)
-                display_warning = None
+                display_error = None
                 try:
                     views, _ = view_plan(document, after.values, root, managed)
-                except ReferenceResolutionError as error:
+                except (OSError, ValueError, KeyError, TypeError) as error:
                     views = {}
-                    display_warning = error.diagnostic
+                    display_error = str(error)
                 inputs.verify()
             if dry_run:
                 return {
@@ -1064,19 +1063,17 @@ def publish_acquisition(
                 "warnings": list(after.warnings),
                 "changes": changes,
             }
-            if display_warning is not None:
-                result["warnings"].append(display_warning)
+            if display_error is None:
+                try:
+                    result.update(recover_display(root, environment, service, selector))
+                except (OSError, ValueError) as error:
+                    display_error = str(error)
+            if display_error is not None:
                 result.update(
-                    status="incomplete",
+                    status="display-failed",
                     markdown="retained" if document.is_file() else "not-generated",
                     viewComplete=False,
-                )
-                return result
-            try:
-                result.update(recover_display(root, environment, service, selector))
-            except (OSError, ValueError) as error:
-                result.update(
-                    status="display-failed", markdown="failed", displayError=str(error)
+                    displayError=display_error,
                 )
                 try:
                     finish_import(root, markdown="failed")

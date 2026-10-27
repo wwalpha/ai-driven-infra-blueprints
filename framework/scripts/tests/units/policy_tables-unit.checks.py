@@ -954,7 +954,7 @@ def check_model_service_note_boundary(tmp_path, service):
             reference_tables=projections,
             model_values=values,
         )
-        assert rendered_design(path, definitions_root=REPOSITORY) == with_independent
+        assert rendered_design(path, definitions_root=REPOSITORY) == text
     if service == "security-group":
         for gap in ("<!-- comment -->", "#### Extra ingress", '<a id="extra"></a>'):
             extra = f"\n\n{gap}\n\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n| Inbound | `tcp` | `123` |"
@@ -967,8 +967,7 @@ def check_model_service_note_boundary(tmp_path, service):
                     reference_tables=projections,
                     model_values=values,
                 )
-            with pytest.raises(ValueError):
-                rendered_design(path, definitions_root=REPOSITORY)
+            assert rendered_design(path, definitions_root=REPOSITORY) == text
 
 
 @pytest.mark.parametrize(
@@ -1011,11 +1010,7 @@ def check_model_resource_trailing_table_structure(tmp_path, extra, fence):
         extra = fence + "\n" + extra + "\n" + fence.removesuffix("markdown")
     changed = text + "\n#### Documentation\n\n" + extra + "\n"
     path.write_text(changed, encoding="utf-8")
-    if fence:
-        assert rendered_design(path, definitions_root=REPOSITORY) == changed
-    else:
-        with pytest.raises(ValueError, match="differs from Model expected display"):
-            rendered_design(path, definitions_root=REPOSITORY)
+    assert rendered_design(path, definitions_root=REPOSITORY) == text
 
 
 def check_macie_resource_additional_display(tmp_path):
