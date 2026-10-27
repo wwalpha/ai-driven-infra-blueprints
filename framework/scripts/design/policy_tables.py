@@ -134,11 +134,13 @@ def resources_in(
     *,
     pending_links=None,
     reference_tables=(),
+    model_values=None,
 ) -> list[Resource]:
     lines = resource_heading_lines(lines)
+    comparison_lines = _design_document.resource_lines("\n".join(lines), model_values)
+    blocks = _design_document.resource_blocks(comparison_lines)
     resources = []
     current_type = logical_id = anchor = pending_anchor = ""
-    display_start = 0
     compared = set()
     index = 0
     while index < len(lines):
@@ -148,9 +150,6 @@ def resources_in(
         if match := RESOURCE.fullmatch(line):
             current_type, logical_id = match.groups()
             anchor, pending_anchor = pending_anchor, ""
-            display_start = index + 1
-            while display_start < len(lines) and not lines[display_start]:
-                display_start += 1
         elif line.startswith("#"):
             current_type = ""
         if line != HEADER or not current_type:
@@ -170,17 +169,23 @@ def resources_in(
             (item for item in reference_tables if item.anchor == anchor), None
         )
         if projection is not None:
-            display_end = index
-            while display_end < len(lines):
-                next_table = display_end
-                while next_table < len(lines) and not lines[next_table]:
-                    next_table += 1
-                if next_table == len(lines) or not lines[next_table].startswith("|"):
-                    break
-                display_end = next_table
-                while display_end < len(lines) and lines[display_end].startswith("|"):
-                    display_end += 1
-            if tuple(lines[display_start:display_end]) != projection.expected:
+            block = next(
+                (part for part in blocks if f'<a id="{anchor}"></a>' in part), []
+            )
+            start = next(
+                (pos + 1 for pos, line in enumerate(block) if RESOURCE.fullmatch(line)),
+                len(block),
+            )
+            while start < len(block) and not block[start]:
+                start += 1
+            end = start
+            while end < len(block) and not (
+                block[end].startswith("#") or ANCHOR.fullmatch(block[end])
+            ):
+                end += 1
+            while end > start and not block[end - 1]:
+                end -= 1
+            if tuple(block[start:end]) != projection.expected:
                 raise ValueError(
                     "Markdown table differs from Model expected display: " + anchor
                 )
@@ -618,6 +623,7 @@ def rendered_design(
     lines = without_policy_tables(original.splitlines())
     root = definitions_root or definition_root(path.resolve().parent)
     presentation = None
+    values = None
     pending_links, pending, policy_rows = {}, {}, {}
     reference_tables = list(reference_tables)
     if (
@@ -647,7 +653,11 @@ def rendered_design(
                         (rid, row)
                     )
     resources = resources_in(
-        lines, root, pending_links=pending_links, reference_tables=reference_tables
+        lines,
+        root,
+        pending_links=pending_links,
+        reference_tables=reference_tables,
+        model_values=values,
     )
     if not resources:
         if START in original or IAM_START in original:

@@ -23,8 +23,11 @@ from design.policy_tables import (
 from model.core import properties
 from model.display import ReferenceTable
 from model.render import generate_markdown
-from model.sources import runtime_values
+from model.sources import load_model, runtime_values
 from support import design_layout_fixtures as layout_fixture
+from support.model_reference_fixtures import project, save
+from support.model_reference_fixtures import resource as model_resource
+from support.model_sources import write_model
 from support.policy_tables_fixtures import (
     ALIGNMENT,
     END,
@@ -858,8 +861,16 @@ def check_security_group_reference_display(tmp_path):
         text.replace(HEADER, "missing header", 1),
         text.replace("\n".join(first.expected), "", 1),
     ]
+    extra = "| Direction | IpProtocol | Port |\n| --- | --- | --- |\n| Inbound | `tcp` | `123` |"
+    for gap in ("<!-- comment -->\n\n", "   \n\n"):
+        changes.append(text.replace(outbound, outbound + "\n\n" + gap + extra, 1))
     for changed in changes:
         assert changed != text
+        path.write_text(changed, encoding="utf-8")
+        with pytest.raises(ValueError):
+            rendered_design(
+                path, definitions_root=REPOSITORY, reference_tables=projections
+            )
         with pytest.raises(ValueError):
             resources_in(changed.splitlines(), REPOSITORY, reference_tables=projections)
     with pytest.raises(ValueError):
@@ -870,6 +881,72 @@ def check_security_group_reference_display(tmp_path):
             REPOSITORY,
             reference_tables=projections,
         )
+
+
+@pytest.mark.parametrize("service", ["vpc", "security-group"])
+def check_model_service_note_boundary(tmp_path, service):
+    project(tmp_path)
+    if service == "vpc":
+        scope, values = model_resource(
+            tmp_path, service, "EC2.VPC", attribute="CidrBlock"
+        )
+        values["desired.row.001-001.value"] = "`10.0.0.0/16`"
+        values.update(
+            {
+                "desired.row.001-002.property": "EC2.VPC.Name",
+                "desired.row.001-002.value": "`fixture-vpc`",
+                "desired.row.001-002.comment": "合成",
+            }
+        )
+        values["desired.note.001.text"] = "| Important |"
+        save(scope, values)
+        model_path = scope.path
+    else:
+        values = properties(GENERATED_MODEL)
+        values["display.service.title"] = "# Security Group"
+        values.update(
+            {
+                f"display.resource.{number:03d}.comment": "fixture"
+                for number in range(1, 7)
+            }
+        )
+        values["desired.note.001.text"] = "| Important |"
+        model_path = tmp_path / "model/qa/team/security-group.properties"
+        write_model(model_path, values)
+    values = load_model(model_path).values
+    path = (
+        tmp_path
+        / "docs/designs"
+        / model_path.relative_to(tmp_path / "model").with_suffix(".md")
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    projections = []
+    text = generate_markdown(path, values, REPOSITORY, reference_tables=projections)
+    path.write_text(text, encoding="utf-8")
+    assert all("| Important |" not in table.expected for table in projections)
+    assert resources_in(
+        text.splitlines(), REPOSITORY, reference_tables=projections, model_values=values
+    )
+    assert rendered_design(path, definitions_root=REPOSITORY) == text
+    independent = "\n\n#### Independent display\n\n| Column |\n| --- |\n| Value |"
+    with_independent = text.replace(
+        "\n\n| Important |", independent + "\n\n| Important |"
+    )
+    path.write_text(with_independent, encoding="utf-8")
+    assert rendered_design(path, definitions_root=REPOSITORY) == with_independent
+    if service == "security-group":
+        extra = "\n\n<!-- comment -->\n\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n| Inbound | `tcp` | `123` |"
+        changed = text.replace("\n\n| Important |", extra + "\n\n| Important |")
+        path.write_text(changed, encoding="utf-8")
+        with pytest.raises(ValueError):
+            resources_in(
+                changed.splitlines(),
+                REPOSITORY,
+                reference_tables=projections,
+                model_values=values,
+            )
+        with pytest.raises(ValueError):
+            rendered_design(path, definitions_root=REPOSITORY)
 
 
 if __name__ == "__main__":
