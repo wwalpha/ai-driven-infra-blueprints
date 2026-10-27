@@ -10,15 +10,16 @@ import json
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import comparison as issues_iac
 import comparison.references as _imports_comparison_references
 import issues.aggregate as _imports_issues_aggregate
 import pytest
 import utils.json_format as _imports_utils_json_format
+from comparison import registry
 from comparison.evaluation import project_actual
-from comparison.methods import keyed
+from comparison.methods import compare_values, keyed
 from comparison.values import PreparedValue, desired_value
 from design.catalog import DesignSchemaCatalog
 from issues.inputs import Comparison as IssueComparison
@@ -577,6 +578,53 @@ class BooleanValueTests(unittest.TestCase):
         evaluate.assert_any_call({"Condition": "Yes"})
         evaluate.assert_any_call("tag")
         self.assertEqual(result.failures, ())
+
+    def test_keyed_unselected_key_projects_by_position(self):
+        evaluate = Mock(
+            side_effect=lambda value: {"Ref": "Selected"} == value
+            and "resolved"
+            or value
+        )
+        result = project_actual(
+            [{"Key": {"Ref": "Unselected"}, "Value": {"Ref": "Selected"}}],
+            evaluate=evaluate,
+            property_name="Tags",
+            model_path="model",
+            desired=[{"Value": "resolved"}],
+            exact=False,
+            rules={"Tags": keyed("Key")},
+        )
+        self.assertEqual(result.value[0]["Value"], "resolved")
+        self.assertEqual(evaluate.call_args_list, [call({"Ref": "Selected"})])
+        self.assertEqual(result.failures, ())
+
+    def test_iam_policy_without_name_evaluates_selected_document(self):
+        desired = [{"PolicyDocument": {"Statement": [{"Effect": "Allow"}]}}]
+        actual = [
+            {
+                "PolicyName": "OnlyOne",
+                "PolicyDocument": {"Statement": [{"Effect": {"Ref": "Effect"}}]},
+            }
+        ]
+        evaluate = Mock(
+            side_effect=lambda value: "Allow" if value == {"Ref": "Effect"} else value
+        )
+        for kind in ("IAM.User", "IAM.Role"):
+            rules = registry.rules(kind)
+            result = project_actual(
+                actual,
+                evaluate=evaluate,
+                property_name="Policies",
+                model_path="model",
+                desired=desired,
+                exact=False,
+                rules=rules,
+            )
+            self.assertEqual(result.failures, ())
+            self.assertIs(
+                compare_values(desired, result.value, "Policies", rules=rules).equal,
+                True,
+            )
 
     def test_ordered_array_still_checks_position(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -605,3 +605,58 @@ def test_nested_array_rule_and_unknown_prefix():
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+@pytest.mark.parametrize("size", [10, 40, 100])
+def test_unordered_length_mismatch_does_not_compare_pairs(size):
+    calls = []
+
+    def callback(left, right, path):
+        calls.append(path)
+        return ReferenceDecision(NotImplemented)
+
+    left = [{"value": i} for i in range(size)]
+    right = left + [{"value": size}]
+    outcome = compare(left, right, UNORDERED, reference=callback)
+    assert outcome.equal is False
+    assert len(calls) == 1
+    assert len(outcome.differences) == 1
+    assert outcome.differences[0].model == size
+    assert outcome.differences[0].iac == size + 1
+
+
+@pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
+def test_policy_name_unselected_uses_selected_positional_comparison(kind):
+    rules = registry.rules(kind)
+    model = [{"PolicyDocument": {"Statement": []}}]
+    actual = [{"PolicyName": "OnlyOne", "PolicyDocument": {"Statement": []}}]
+    assert compare_values(model, actual, "Policies", rules=rules).equal is True
+    assert (
+        compare_values(model, actual, "Policies", rules=rules, whole=True).equal
+        is False
+    )
+    assert compare_values(model, actual * 2, "Policies", rules=rules).equal is False
+    assert (
+        compare_values(
+            model,
+            [Expression("Unverified", [])],
+            "Policies",
+            rules=rules,
+            reference=uncertain,
+        ).equal
+        is None
+    )
+
+
+def test_unordered_length_difference_retains_proven_sid_and_pointers():
+    path = "PolicyDocument"
+    rules = registry.rules("IAM.ManagedPolicy")
+    left = {"Statement": [{"Sid": "a", "Effect": "Allow"}]}
+    right = {"Statement": [{"Sid": "b"}, {"Sid": "a", "Effect": "Deny"}]}
+    result = compare_values(left, right, path, rules=rules, whole=True)
+    assert result.equal is False
+    assert [(d.path, d.model_pointer, d.iac_pointer) for d in result.differences] == [
+        ("Statement.要素数", None, None),
+        ("Statement[0].Effect", ("Statement", 0, "Effect"), ("Statement", 1, "Effect")),
+    ]
+    assert value_differences(result, left, right, path)[1]["iac"] == "Deny"

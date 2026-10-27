@@ -177,15 +177,17 @@ def _recursive_unordered_same_matching_assign(
     return False
 
 
-def _callback_unordered_same_matching(left, matrix, /, allow_unknown):
+def unordered_matching(matrix, *, allow_unknown=False):
     owners = {}
     assign = _bind_framework_callback(
         _recursive_unordered_same_matching_assign, allow_unknown, matrix, owners
     )
-    return all(assign(row, set()) for row in range(len(left)))
+    for row in range(len(matrix)):
+        assign(row, set())
+    return owners
 
 
-def unordered_same(left, right, *, reference=None, path="", trace=None):
+def unordered_same(left, right, *, reference=None, path="", trace=None, evidence=None):
     """Prove a multiset match, retaining uncertainty and duplicate multiplicity."""
     if not isinstance(left, list) or not isinstance(right, list):
         return False
@@ -203,7 +205,7 @@ def unordered_same(left, right, *, reference=None, path="", trace=None):
         ]
         return (
             None
-            if _callback_unordered_same_matching(confirmed, matrix, True)
+            if len(unordered_matching(matrix, allow_unknown=True)) == len(confirmed)
             else False
         )
     matrix = [
@@ -211,11 +213,16 @@ def unordered_same(left, right, *, reference=None, path="", trace=None):
         for a in left
     ]
 
-    matching = _bind_framework_callback(_callback_unordered_same_matching, left, matrix)
-
-    if matching(False):
+    owners = unordered_matching(matrix)
+    if evidence is not None:
+        evidence(matrix, owners)
+    if len(owners) == len(left):
         return True
-    return None if matching(True) else False
+    return (
+        None
+        if len(unordered_matching(matrix, allow_unknown=True)) == len(left)
+        else False
+    )
 
 
 def selected_same(

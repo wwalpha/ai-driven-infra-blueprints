@@ -111,7 +111,12 @@ def _visit_actual(
             and not intrinsic(value)
         ):
             rule = rules.get(path[:-2]) if path.endswith("[]") else None
-            if not exact and rule and rule.selected == "KEYED":
+            if (
+                not exact
+                and rule
+                and rule.selected == "KEYED"
+                and isinstance(selected, list)
+            ):
                 key = rule.key
                 value = dict(value)
                 if key in value:
@@ -183,7 +188,14 @@ def _visit_actual(
                     if isinstance(selected, list) and len(projected) < len(selected)
                     else None
                 )
-                if mode == "KEYED" and not exact:
+                if (
+                    mode == "KEYED"
+                    and not exact
+                    and isinstance(selected, list)
+                    and all(
+                        isinstance(item, dict) and rule.key in item for item in selected
+                    )
+                ):
                     selected_child = selected
                 item = _visit_actual(
                     child,
