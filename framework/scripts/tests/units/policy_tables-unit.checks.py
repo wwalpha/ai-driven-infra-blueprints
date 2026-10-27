@@ -938,12 +938,23 @@ def check_model_service_note_boundary(tmp_path, service):
         text.splitlines(), REPOSITORY, reference_tables=projections, model_values=values
     )
     assert rendered_design(path, definitions_root=REPOSITORY) == text
-    independent = "\n\n#### Independent display\n\n| Column |\n| --- |\n| Value |"
-    with_independent = text.replace(
-        "\n\n| Important |", independent + "\n\n| Important |"
-    )
-    path.write_text(with_independent, encoding="utf-8")
-    assert rendered_design(path, definitions_root=REPOSITORY) == with_independent
+    for independent in (
+        "#### Independent display\n\n| Column |\n| --- |\n| Value |",
+        "#### Direction Glossary\n\n| Direction | Meaning |\n| --- | --- |\n| Inbound | Incoming connections |",
+        "#### Direction Glossary\n\n  | **Direction** | Meaning |\n  | :--- | ---: |\n  | Inbound | Incoming connections |",
+        "#### Direction Glossary\n\n| _Direction_ | IpProtocol | Meaning |\n| --- | --- | --- |\n| Inbound | tcp | Incoming connections |",
+    ):
+        with_independent = text.replace(
+            "\n\n| Important |", "\n\n" + independent + "\n\n| Important |"
+        )
+        path.write_text(with_independent, encoding="utf-8")
+        assert resources_in(
+            with_independent.splitlines(),
+            REPOSITORY,
+            reference_tables=projections,
+            model_values=values,
+        )
+        assert rendered_design(path, definitions_root=REPOSITORY) == with_independent
     if service == "security-group":
         for gap in ("<!-- comment -->", "#### Extra ingress", '<a id="extra"></a>'):
             extra = f"\n\n{gap}\n\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n| Inbound | `tcp` | `123` |"

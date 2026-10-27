@@ -144,7 +144,11 @@ def _has_resource_table(lines: list[str]) -> bool:
         if len(columns) == len(alignment) and all(
             re.fullmatch(r":?-+:?", value) for value in alignment
         ):
-            if columns == cells(HEADER) or columns[:1] == ["Direction"]:
+            if columns == cells(HEADER) or columns[:3] == [
+                "Direction",
+                "IpProtocol",
+                "Port",
+            ]:
                 return True
     return False
 
