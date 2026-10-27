@@ -49,7 +49,7 @@ all declarations together; retain both producers. No merge
 pair, transfer/delete or value-preserving detach authority is implied. Generate through
 the existing APIs and finalize the running parent on the latest-base candidate.
 
-Follow [JSON settings](../../../framework/rules/model-information.md) and
+For JSON settings, references or generation, read [Properties-first updates and display generation](../../../framework/rules/model-information.md#properties-first-updates-and-display-generation); for derived Policy/Configuration JSON, also read [Policy derived views](../../../framework/rules/model-information.md#policy-derived-views). Read additional sections required by the selected operation. Follow
 [Resource identity](../../../framework/docs/model-identity.md): JSON stores AWS configuration
 values without Markdown Resource links, including `$resource`. Reuse external
 `desired.reference.*` metadata with `format=identifier` and JSON Pointers for confirmed

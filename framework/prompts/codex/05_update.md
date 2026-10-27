@@ -14,7 +14,7 @@ Read dependencies grant no write paths. Read with the shared Model loader before
 matching IaC/issues/diff. Generation across environments grants no Deployment scope
 or AWS permission.
 
-Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
+Follow [Task transition](../../rules/task-contract.md#task-transition), [Task boundary](../../rules/task-contract.md#task-boundary), [Acceptance contract](../../rules/task-contract.md#acceptance-contract), and [Retry and stop](../../rules/task-contract.md#retry-and-stop) for Task selection, registration, authority, acceptance, stopping and resuming.
 
 Model-only branches require an explicit request and forbid AWS API execution and deploy/apply. Infrastructure update requires explicit authority to reflect the requested Model change into IaC and AWS; an ambiguous request or an Issue does not grant it. Read only the selected branch and its required references.
 
@@ -93,7 +93,7 @@ conflicts remain errors; retain the candidate on actual failure. No IT requireme
 
 Use this branch for an explicit human Model-only request. Register one running design
 Task with Workflow update, Model operation import-merge/import-delete, forbidden AWS
-and deploy/apply. Read [Task transition, boundary and Acceptance](../../rules/task-contract.md),
+and deploy/apply. Apply the common Task sections already read; read
 [Model sources](../../rules/model-templates.md)
 and [IMPORT authority](../../rules/model-information.md#import-configuration-authority).
 The [Model-only contract](../../rules/task-contract.md#model-only-import-operation-contract)
@@ -180,7 +180,7 @@ Do not automatically interpret existing StackName deletions/renames in stack des
 ## Read before changing files
 
 1. `AGENTS.md`
-2. [task-contract](../../rules/task-contract.md)
+2. Apply the common Task sections already read. Add applicable infrastructure-specific Task contracts and recovery rules only when needed.
 3. `tasks/<task-name>.md` if present. Otherwise treat as idle and create it first under Create active task contract.
 4. `project.json`
 5. `git status --short` and Design scope diffs identified from repository changes
