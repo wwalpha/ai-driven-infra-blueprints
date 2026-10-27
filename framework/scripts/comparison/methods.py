@@ -474,26 +474,19 @@ def _select_unordered_diagnostics(
                     value = identity_fields.get(side)
                     if not isinstance(value, dict) or "$resource" not in value:
                         identity_fields.pop(side, None)
-            identity = repr(identity_fields)
-            bucket = seen.setdefault(identity, [])
-            existing = next(
-                (
-                    item
-                    for item in bucket
-                    if all(
-                        item.get(name) == value
-                        for name, value in identity_fields.items()
-                    )
-                ),
-                None,
+            bucket = seen.setdefault(
+                (diagnostic.get("path"), diagnostic.get("reason")), []
             )
-            if existing is None:
-                bucket.append(diagnostic)
+            for fields, existing in bucket:
+                if fields == identity_fields:
+                    if equal is None:
+                        for side in ("model", "iac"):
+                            if existing.get(side) != diagnostic.get(side):
+                                existing[side] = "候補複数（未確定）"
+                    break
+            else:
+                bucket.append((identity_fields, diagnostic))
                 state.diagnostics.append(diagnostic)
-            elif equal is None:
-                for side in ("model", "iac"):
-                    if existing.get(side) != diagnostic.get(side):
-                        existing[side] = "候補複数（未確定）"
 
         state.equivalent |= equivalent
         state.candidate_warnings.extend(warnings)

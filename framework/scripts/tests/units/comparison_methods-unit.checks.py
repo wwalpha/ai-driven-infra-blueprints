@@ -1775,3 +1775,31 @@ def test_unordered_ambiguous_repeated_reason_is_aggregated():
         == result.diagnostics[0]["iac"]
         == "候補複数（未確定）"
     )
+
+
+def test_unordered_aggregation_keeps_distinct_reference_targets():
+    left = [{"Resource": ["first", "second"]}]
+    right = [
+        {
+            "Resource": [
+                ResourceReference({"$resource": ["kms", "003"], "$attribute": "KeyId"}),
+                ResourceReference({"$resource": ["kms", "004"], "$attribute": "KeyId"}),
+            ]
+        }
+    ]
+    result = compare_values(
+        left,
+        right,
+        "Statement",
+        rules={"Statement": UNORDERED, "Statement[].Resource": UNORDERED},
+        reference=nested_uncertain_reference,
+    )
+    assert result.equal is None
+    assert {tuple(item["iac"]["$resource"]) for item in result.diagnostics} == {
+        ("kms", "003"),
+        ("kms", "004"),
+    }
+    assert all(
+        item["reason"] == "recorded_identifier_mismatch" for item in result.diagnostics
+    )
+    assert all(item["model"] == "候補複数（未確定）" for item in result.diagnostics)
