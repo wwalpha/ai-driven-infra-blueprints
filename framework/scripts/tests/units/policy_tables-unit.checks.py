@@ -862,8 +862,14 @@ def check_security_group_reference_display(tmp_path):
         text.replace("\n".join(first.expected), "", 1),
     ]
     extra = "| Direction | IpProtocol | Port |\n| --- | --- | --- |\n| Inbound | `tcp` | `123` |"
-    for gap in ("<!-- comment -->\n\n", "   \n\n"):
+    for gap in (
+        "<!-- comment -->\n\n",
+        "   \n\n",
+        "#### Extra ingress\n\n",
+        '<a id="extra"></a>\n\n',
+    ):
         changes.append(text.replace(outbound, outbound + "\n\n" + gap + extra, 1))
+    changes.append(text.replace(outbound, outbound + "\n\n#### Extra\n\n" + HEADER, 1))
     for changed in changes:
         assert changed != text
         path.write_text(changed, encoding="utf-8")
@@ -935,18 +941,48 @@ def check_model_service_note_boundary(tmp_path, service):
     path.write_text(with_independent, encoding="utf-8")
     assert rendered_design(path, definitions_root=REPOSITORY) == with_independent
     if service == "security-group":
-        extra = "\n\n<!-- comment -->\n\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n| Inbound | `tcp` | `123` |"
-        changed = text.replace("\n\n| Important |", extra + "\n\n| Important |")
-        path.write_text(changed, encoding="utf-8")
-        with pytest.raises(ValueError):
-            resources_in(
-                changed.splitlines(),
-                REPOSITORY,
-                reference_tables=projections,
-                model_values=values,
-            )
-        with pytest.raises(ValueError):
-            rendered_design(path, definitions_root=REPOSITORY)
+        for gap in ("<!-- comment -->", "#### Extra ingress", '<a id="extra"></a>'):
+            extra = f"\n\n{gap}\n\n| Direction | IpProtocol | Port |\n| --- | --- | --- |\n| Inbound | `tcp` | `123` |"
+            changed = text.replace("\n\n| Important |", extra + "\n\n| Important |")
+            path.write_text(changed, encoding="utf-8")
+            with pytest.raises(ValueError):
+                resources_in(
+                    changed.splitlines(),
+                    REPOSITORY,
+                    reference_tables=projections,
+                    model_values=values,
+                )
+            with pytest.raises(ValueError):
+                rendered_design(path, definitions_root=REPOSITORY)
+
+
+def check_macie_resource_additional_display(tmp_path):
+    project(tmp_path)
+    scope, values = model_resource(
+        tmp_path, "macie", "Macie.ClassificationJob", attribute="name"
+    )
+    values["desired.row.001-001.value"] = "`fixture-job`"
+    values.update(
+        {
+            "desired.row.001-002.property": "Macie.ClassificationJob.s3JobDefinition",
+            "desired.row.001-002.value": "[definition](macie/definition.json)",
+            "desired.row.001-002.comment": "fixture",
+            "desired.row.001-002.document": json.dumps(
+                {
+                    "bucketDefinitions": [
+                        {"accountId": "123456789012", "buckets": ["fixture"]}
+                    ]
+                }
+            ),
+        }
+    )
+    save(scope, values)
+    path = tmp_path / "docs/designs/qa/team/macie.md"
+    path.parent.mkdir(parents=True)
+    text = generate_markdown(path, load_model(scope.path).values, REPOSITORY)
+    path.write_text(text, encoding="utf-8")
+    assert "#### 対象S3 bucket" in text
+    assert rendered_design(path, definitions_root=REPOSITORY) == text
 
 
 if __name__ == "__main__":

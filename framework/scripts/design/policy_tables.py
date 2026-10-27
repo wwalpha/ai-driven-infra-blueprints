@@ -185,7 +185,10 @@ def resources_in(
                 end += 1
             while end > start and not block[end - 1]:
                 end -= 1
-            if tuple(block[start:end]) != projection.expected:
+            if tuple(block[start:end]) != projection.expected or any(
+                line == HEADER or line.startswith("| Direction |")
+                for line in block[end:]
+            ):
                 raise ValueError(
                     "Markdown table differs from Model expected display: " + anchor
                 )
