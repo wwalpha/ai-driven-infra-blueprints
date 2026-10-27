@@ -166,6 +166,10 @@ def check_unrelated_group_generation_failure(sqs):
         }
     )
     markdown = generate_markdown(path, candidate, FRAMEWORK)
+    assert "### SQS.QueuePolicy: SQS_QueuePolicy_001" in markdown
+    tables, error = policy_result(path, markdown, candidate)
+    assert error is None, error
+    assert tables
     candidate["desired.row.003-001.extra"] = "invalid display row"
     with pytest.raises(ValueError, match="invalid resource row"):
         generate_markdown(path, candidate, FRAMEWORK)

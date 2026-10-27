@@ -20,6 +20,7 @@ import support.model_reference_fixtures as reference_models
 import support.model_sources as _imports_support_model_sources
 import sync_runtime as _imports_sync_runtime
 import validation.design_links as _imports_validation_design_links
+from model.core import properties
 from support.design_document_fixtures import (
     DesignIndex,
     Path,
@@ -35,6 +36,7 @@ from support.design_document_fixtures import (
     tempfile,
 )
 from support.rotation_schedule_fixtures import fixture as rotation_fixture
+from support.security_group_tables_fixtures import GENERATED_MODEL
 from support.validator import diagnostics, load
 from utils.aws_mappings import mapping_alias
 from validation.findings import Findings
@@ -873,6 +875,125 @@ def check_scoped_import_security_group_reference(tmp_path):
     assert "invalid unrelated rule" not in "\n".join(view.lines)
     assert "sg-11111111" in "\n".join(view.expanded[0])
     assert document.reference_view(frozenset({"saved-001"})) is view
+
+
+@pytest.mark.parametrize(
+    "anchor,fault",
+    [
+        ("EC2_SecurityGroup_001", None),
+        ("EC2_SecurityGroup_002", None),
+        ("EC2_SecurityGroup_001", "basic"),
+        ("EC2_SecurityGroup_001", "omitted"),
+        ("EC2_SecurityGroup_002", "omitted"),
+        ("EC2_SecurityGroup_001", "unrelated"),
+        ("EC2_SecurityGroupIngress_001", None),
+        ("EC2_SecurityGroupEgress_001", None),
+        ("EC2_SecurityGroupIngress_001", "rule"),
+        ("EC2_SecurityGroupEgress_001", "rule"),
+    ],
+)
+def check_scoped_security_group_model_reference(
+    tmp_path: Path, anchor: str, fault: str | None
+) -> None:
+    reference_models.project(tmp_path)
+    model = tmp_path / "model/qa/team/security-group.properties"
+    values = properties(GENERATED_MODEL)
+    values["display.service.title"] = "# 合成Security Group"
+    for identity, _ in documents._model_display.entries(values, "desired.resource."):
+        values[f"display.resource.{identity}.comment"] = "合成SG"
+    for row in ("001-004", "006-008"):
+        values[f"desired.row.{row}.value"] = "`vpc-00000001`"
+        values.pop(f"observed.row.{row}.value", None)
+    _imports_support_model_sources.write_model(model, values)
+    reference_models.dependency_index.rebuild(tmp_path)
+    values = _imports_support_model_sources.load_model(model).values
+    path = tmp_path / "docs/designs/qa/team/security-group.md"
+    path.parent.mkdir(parents=True)
+    markdown = model_design.generate_markdown(path, values, reference_models.FRAMEWORK)
+    text = markdown
+    assert "| Direction |" in text and "<!-- security-group-tags:" in text
+    if fault == "basic":
+        text = text.replace("`group-one`", "`tampered`")
+    elif fault == "omitted":
+        tags = next(
+            line
+            for line in text.splitlines()
+            if line.startswith("<!-- security-group-tags:")
+        )
+        text = text.replace("`tcp`", "`tampered`").replace(
+            tags, "<!-- security-group-tags: invalid -->"
+        )
+    elif fault == "unrelated":
+        text = text.replace("`No selected rules`", "`tampered`")
+    elif fault == "rule":
+        rule = next(
+            line for line in text.splitlines() if f'id="resource-{anchor}"' in line
+        )
+        text = text.replace(
+            rule,
+            rule.replace("`tcp`", "`udp`")
+            if "Ingress" in anchor
+            else rule.replace("`-1`", "`tcp`"),
+        )
+    if fault is not None:
+        assert text != markdown
+    path.write_text(text, encoding="utf-8")
+    document = DesignIndex(reference_models.FRAMEWORK).get(path)
+    fragments = frozenset({"resource-" + anchor})
+    if fault in {"basic", "rule"}:
+        with pytest.raises(documents.DisplayMismatchError):
+            document.reference_view(fragments)
+    else:
+        view = document.reference_view(fragments)
+        lines, children = view.expanded
+        expanded = "\n".join(lines)
+        if "SecurityGroup_" in anchor:
+            assert not children
+            assert "SecurityGroupIngress" not in expanded
+            assert "SecurityGroupEgress" not in expanded
+            assert "Tags[]" not in expanded
+        else:
+            assert "resource-" + anchor in children
+            assert "IpProtocol" in expanded
+        assert document.reference_view(fragments) is view
+
+    source = path.with_name("iam.md")
+    iam_scope, iam = reference_models.resource(
+        tmp_path, "iam", "IAM.Role", attribute="RoleName"
+    )
+    iam["desired.row.001-001.value"] = "`consumer`"
+    iam.update(
+        {
+            "desired.row.001-002.property": "IAM.Role.Description",
+            "desired.row.001-002.value": f"[target](security-group.md#resource-{anchor})",
+            "desired.row.001-002.comment": "合成SG参照",
+        }
+    )
+    reference_models.save(iam_scope, iam)
+    source.write_text(
+        model_design.generate_markdown(source, iam, reference_models.FRAMEWORK),
+        encoding="utf-8",
+    )
+    findings = Findings(tmp_path)
+    result = findings.evaluate(
+        "design.links",
+        {("qa", "team", "iam")},
+        _bind_framework_callback(
+            _imports_validation_design_links.check_design_links,
+            {},
+            [source],
+            design_sources={source: iam},
+            findings=findings,
+            root=tmp_path,
+            scope=None,
+            definitions_root=reference_models.FRAMEWORK,
+            candidate_paths={source},
+        ),
+    )
+    assert result.status == ("FAIL" if fault in {"basic", "rule"} else "PASS"), (
+        findings.errors,
+        findings.unverified,
+    )
 
 
 if __name__ == "__main__":

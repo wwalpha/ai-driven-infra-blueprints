@@ -128,7 +128,16 @@ def stack_markdown(
     )
 
 
-def display_name(values, identity, resource, rows, root, *, projection=False):
+def display_name(
+    values,
+    identity,
+    resource,
+    rows,
+    root,
+    *,
+    projection=False,
+    resource_count: int | None = None,
+) -> tuple[str | None, str | None]:
     """Pure final display selection, shared by rendering and reference diagnostics."""
     kind = resource["resourceType"]
     label = values.get(f"display.resource.{identity}.label")
@@ -162,8 +171,13 @@ def display_name(values, identity, resource, rows, root, *, projection=False):
                 ]
                 if len(matches) == 1:
                     row[2] = values.get(f"observed.row.{matches[0]}.value", row[2])
-    count = sum(
-        item["resourceType"] == kind for _, item in entries(values, "desired.resource.")
+    count = (
+        sum(
+            item["resourceType"] == kind
+            for _, item in entries(values, "desired.resource.")
+        )
+        if resource_count is None
+        else resource_count
     )
     return _dependency_design_layout.resource_display_selection(
         root,
@@ -177,7 +191,14 @@ def display_name(values, identity, resource, rows, root, *, projection=False):
 
 
 def resource_presentation(
-    values, identity, resource, root, *, scope=None, projection=False
+    values,
+    identity,
+    resource,
+    root,
+    *,
+    scope=None,
+    projection=False,
+    resource_count: int | None = None,
 ):
     kind = resource["resourceType"]
     rows = _dependency_model_display.catalog_display_rows(
@@ -195,6 +216,7 @@ def resource_presentation(
             ),
             root,
             projection=projection,
+            resource_count=resource_count,
         )
     except InputValidationError as error:
         if scope is not None:
@@ -580,6 +602,14 @@ def _generate_markdown(
         f"desired.service.{service}.ownedCatalogResourceTypes", ""
     ).split(",")
     details = []
+    # Partial Views retain the full candidate's naming context without rendering its other rows.
+    resource_counts = Counter(
+        resource["resourceType"]
+        for _, resource in entries(
+            values if reference_values is None else reference_values,
+            "desired.resource.",
+        )
+    )
     for identity, resource in entries(values, "desired.resource."):
         kind = resource["resourceType"]
         Scope = _imports_model_sources.Scope
@@ -587,7 +617,13 @@ def _generate_markdown(
             path.parents[4], path.parent.parent.name, path.parent.name, path.stem
         )
         name, _, rows = resource_presentation(
-            values, identity, resource, root, scope=scope, projection=True
+            values,
+            identity,
+            resource,
+            root,
+            scope=scope,
+            projection=True,
+            resource_count=resource_counts[kind],
         )
         name = name or kind
         display_anchor = _imports_model_identity.display_anchor

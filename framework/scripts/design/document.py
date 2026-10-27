@@ -251,10 +251,16 @@ def _model_reference_display(
 
 
 def _normalized_reference_tables(
-    tables: tuple[_model_display.ReferenceTable, ...], expected: str, root: Path
+    tables: tuple[_model_display.ReferenceTable, ...],
+    expected: str,
+    root: Path,
+    *,
+    reference_scope: tuple[Path, frozenset[str]] | None = None,
 ) -> tuple[_model_display.ReferenceTable, ...]:
     return tuple(
-        _security_group_reference_table(table, expected, root)
+        _security_group_reference_table(
+            table, expected, root, reference_scope=reference_scope
+        )
         if table.resources[0].kind == "EC2.SecurityGroup"
         else table
         for table in tables
@@ -431,7 +437,13 @@ def model_resource_reference_tables(path, text, values, root):
     return results
 
 
-def _security_group_reference_table(table, document, root):
+def _security_group_reference_table(
+    table: _model_display.ReferenceTable,
+    document: str,
+    root: Path,
+    *,
+    reference_scope: tuple[Path, frozenset[str]] | None = None,
+) -> _model_display.ReferenceTable:
     """Match the parser's existing horizontal-rule normalization, including sources."""
     start = document.index(f'<a id="{table.anchor}"></a>')
     table_start = document.index("\n".join(table.expected), start)
@@ -439,8 +451,17 @@ def _security_group_reference_table(table, document, root):
     normalized = []
     for rows in (table.expected, table.baseline, table.semantic):
         candidate = document[:table_start] + "\n".join(rows) + document[table_end:]
+        lines = candidate.splitlines()
+        if reference_scope is not None:
+            path, fragments = reference_scope
+            # Apply the same parent/child selection before expanding every Model projection.
+            lines = _dependency_validation_scope.reference_lines(
+                path,
+                fragments,
+                lines=_dependency_design_layout.resource_heading_lines(lines),
+            )
         lines = _dependency_security_group_tables.security_group_table_lines(
-            candidate.splitlines(), root
+            lines, root
         )
         anchor = lines.index(f'<a id="{table.anchor}"></a>')
         first = lines.index(HEADER, anchor)
@@ -713,7 +734,9 @@ class DesignDocument:
                     expected, tables = _model_reference_display(
                         self.path, selected, root, reference_values=source
                     )
-                    tables = _normalized_reference_tables(tables, expected, root)
+                    tables = _normalized_reference_tables(
+                        tables, expected, root, reference_scope=(self.path, fragments)
+                    )
                     _require_reference_tables(self.path, lines, tables, root)
                 self._reference_views[lines] = DesignView(
                     lines,
