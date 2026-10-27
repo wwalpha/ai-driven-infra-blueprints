@@ -2913,6 +2913,38 @@ def check_six_categories_and_comparison_priority():
         assert comparison_status(counts) == expected
 
 
+def check_model_indexed_property_mechanical(tmp_path):
+    fixture = _exports_support_issues_scan_fixtures
+    fixture.fixture(tmp_path, services=("s3",))
+    model = tmp_path / "model/dev/123456789012/s3.properties"
+    values = dict(real_load(model).authoritative)
+    values.update(
+        {
+            "desired.row.001-900.property": "S3.Bucket.LifecycleConfiguration.Rules[1].Status",
+            "desired.row.001-900.value": "`Enabled`",
+            "desired.row.001-900.comment": "indexed",
+        }
+    )
+    fixture.write_model(model, values)
+    view = tmp_path / "docs/designs/dev/123456789012/s3.md"
+    view.write_text(fixture.markdown_for(view, values, tmp_path), encoding="utf-8")
+    validators = []
+    errors, checks, _ = scan_runner.mechanical(
+        tmp_path, {("dev", "123456789012", "s3")}, jobs=1, validator_out=validators
+    )
+    assert checks > 0
+    assert not any(
+        "invalid grouped design" in error
+        or "indexed array display requires Model source rows" in error
+        for error in errors
+    ), errors
+    assert not validators[0].findings.processing_errors
+    assert not any(
+        item.code.startswith("design.identity")
+        for item in validators[0].findings.diagnostics
+    ), errors
+
+
 @pytest.fixture
 def reference_design(tmp_path):
     fixture = _exports_support_issues_scan_fixtures

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from design.common import code
 from design.document import DesignIndex
+from design.layout import expanded_display_rows
 from design.policy_tables import Policy, policy_document_lines, rendered_design
 from model.core import ModelNeedsFixError, ReferenceResolutionError, literal
 from model.identity import COUNTERS
@@ -551,6 +552,95 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     assert "[shared-name](s3.md#s3-saved-anchor)" not in rendered_design(
         path, definitions_root=FRAMEWORK
     )
+
+
+@pytest.mark.parametrize(
+    ("service", "kind", "attribute", "fields"),
+    [
+        ("s3", "S3.Bucket", "BucketName", ["LifecycleConfiguration.Rules[1].Status"]),
+        (
+            "cloudtrail",
+            "CloudTrail.Trail",
+            "TrailName",
+            ["EventSelectors[1].ReadWriteType"],
+        ),
+        ("quicksight", "QuickSight.DataSource", "Name", ["Permissions[1].Principal"]),
+        ("codepipeline", "CodePipeline.Pipeline", "Name", ["Stages[1].Name"]),
+        (
+            "codepipeline",
+            "CodePipeline.Pipeline",
+            "Name",
+            ["Stages[1].Actions[1].Name", "Stages[1].Actions[2].Name"],
+        ),
+        (
+            "s3",
+            "S3.Bucket",
+            "BucketName",
+            [
+                "BucketEncryption.ServerSideEncryptionConfiguration[1].BucketKeyEnabled",
+                "BucketEncryption.ServerSideEncryptionConfiguration[2].BucketKeyEnabled",
+            ],
+        ),
+    ],
+)
+def test_indexed_model_reference_tables(models, service, kind, attribute, fields):
+    scope, values = resource(models, service, kind, attribute=attribute)
+    values["desired.row.001-001.value"] = "`example`"
+    for number, field in enumerate(fields, 2):
+        add(values, kind, field, "value-" + str(number), number=number)
+    save(scope, values)
+    path = models / "docs/designs/qa/team" / (service + ".md")
+    tables = []
+    markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
+    assert len(tables) == 1
+    if "BucketEncryption" in fields[0]:
+        assert any(
+            "BucketEncryption[1].BucketKeyEnabled" in line
+            for line in tables[0].expected
+        )
+        assert any(
+            "BucketEncryption[2].BucketKeyEnabled" in line
+            for line in tables[0].expected
+        )
+    semantic = "\n".join(tables[0].semantic)
+    for number, field in enumerate(fields, 2):
+        assert kind + "." + field in semantic
+        assert "value-" + str(number) in semantic
+    expanded = "\n".join(
+        expanded_display_rows(markdown.splitlines(), FRAMEWORK, reference_tables=tables)
+    )
+    assert semantic in expanded
+    assert semantic in restore(path, markdown, values)
+    expected_row = next(line for line in tables[0].expected if "value-2" in line)
+    for changed in (
+        expected_row.replace("value-2", "changed"),
+        expected_row.replace(expected_row.split(" | ")[1], "Altered.Property", 1),
+        "",
+        expected_row + "\n" + expected_row,
+    ):
+        with pytest.raises(ValueError, match="Model expected display"):
+            expanded_display_rows(
+                markdown.replace(expected_row, changed, 1).splitlines(),
+                FRAMEWORK,
+                reference_tables=tables,
+            )
+    if service == "s3" and len(fields) == 1:
+        indexed = [
+            "### " + kind + ": example",
+            *tables[0].baseline[:2],
+            "| 1 | " + kind + "." + fields[0] + " | `value` | |",
+        ]
+        with pytest.raises(
+            ValueError, match="indexed array display requires Model source rows"
+        ):
+            expanded_display_rows(indexed, FRAMEWORK)
+
+
+def test_undefined_indexed_property_is_rejected(models):
+    scope, values = resource(models, "s3", "S3.Bucket", attribute="BucketName")
+    add(values, "S3.Bucket", "LifecycleConfiguration.Rules[1].Missing", "value")
+    with pytest.raises(ValueError):
+        generate_markdown(models / "docs/designs/qa/team/s3.md", values, FRAMEWORK)
 
 
 def test_security_group_horizontal_display_and_restoration(models):
