@@ -351,6 +351,167 @@ class BooleanValueTests(unittest.TestCase):
             )
             self.assertEqual(summary["issue_count"], 1)
 
+    def test_selected_policy_evaluation_follows_membership(self):
+        statement_a = {
+            "Sid": "A",
+            "Effect": "Allow",
+            "Action": ["a", "b"],
+            "Resource": "*",
+            "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-northeast-1"}},
+        }
+        statement_b = {"Sid": "B", "Effect": "Allow", "Action": "c", "Resource": "*"}
+        for policy_order, statement_order, sid, change in [
+            (False, False, True, None),
+            (True, False, True, None),
+            (True, False, True, "literal"),
+            (False, True, True, None),
+            (False, True, False, None),
+            (True, True, "duplicate", None),
+            (True, True, True, "condition"),
+            (True, True, True, "action"),
+            (True, True, True, "unresolved-condition"),
+            (True, True, True, "unresolved-and-action"),
+            (True, False, True, "duplicate"),
+            (True, False, True, "unknown"),
+        ]:
+            with (
+                self.subTest(
+                    policy_order=policy_order,
+                    statement_order=statement_order,
+                    sid=sid,
+                    change=change,
+                ),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+                comparison.resources["service-0"]["0000"].update(
+                    resourceType="IAM.User", **{"cfn-logicalId": "stack0-Log0"}
+                )
+                a, b = (
+                    json.loads(json.dumps(statement_a)),
+                    json.loads(json.dumps(statement_b)),
+                )
+                if not sid:
+                    del a["Sid"], b["Sid"]
+                elif sid == "duplicate":
+                    b["Sid"] = a["Sid"]
+                policies = [
+                    {"PolicyName": "one", "PolicyDocument": {"Statement": [a, b]}},
+                    {"PolicyName": "two", "PolicyDocument": {"Statement": [b]}},
+                ]
+                rows = []
+                values = comparison.models["service-0"].values
+                values.update(
+                    {
+                        "desired.resource.0000.resourceType": "IAM.User",
+                        "desired.resource.0000.cfn-logicalId": "stack0-Log0",
+                    }
+                )
+                for policy in policies:
+                    for suffix, value in (
+                        ("PolicyName", "`" + policy["PolicyName"] + "`"),
+                        (
+                            "PolicyDocument",
+                            "`" + json.dumps(policy["PolicyDocument"]) + "`",
+                        ),
+                    ):
+                        rid = f"0000-{len(rows) + 1:03d}"
+                        row = {
+                            "property": "IAM.User.Policies[]." + suffix,
+                            "value": value,
+                        }
+                        rows.append((rid, row))
+                        values.update(
+                            {
+                                f"desired.row.{rid}.property": row["property"],
+                                f"desired.row.{rid}.value": value,
+                            }
+                        )
+                comparison.rows["service-0"]["0000"] = rows
+                actual = json.loads(json.dumps(policies))
+                actual[0]["PolicyDocument"]["Statement"][0]["Condition"][
+                    "StringEquals"
+                ]["aws:RequestedRegion"] = {"Fn::Sub": "${AWS::Region}"}
+                if change == "literal":
+                    actual[0]["PolicyDocument"]["Statement"][0]["Condition"][
+                        "StringEquals"
+                    ]["aws:RequestedRegion"] = "ap-northeast-1"
+                if change == "condition":
+                    actual[0]["PolicyDocument"]["Statement"][0]["Condition"][
+                        "StringEquals"
+                    ]["aws:RequestedRegion"] = "elsewhere"
+                if change in {"unresolved-condition", "unresolved-and-action"}:
+                    actual[0]["PolicyDocument"]["Statement"][0]["Condition"][
+                        "StringEquals"
+                    ]["aws:RequestedRegion"] = {"Ref": "MissingParameter"}
+                if change in {"action", "unresolved-and-action"}:
+                    actual[0]["PolicyDocument"]["Statement"][0]["Action"] = ["a"]
+                if statement_order:
+                    actual[0]["PolicyDocument"]["Statement"].reverse()
+                if change == "duplicate":
+                    actual[1]["PolicyName"] = "one"
+                if change == "unknown":
+                    actual[0]["PolicyName"] = {"Ref": "MissingParameter"}
+                actual[1]["Unselected"] = {"Ref": "MissingParameter"}
+                actual.append(
+                    {
+                        "PolicyName": "extra",
+                        "PolicyDocument": {"Ref": "MissingParameter"},
+                    }
+                )
+                if policy_order:
+                    actual.reverse()
+                _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
+                document["Resources"]["Log0"] = {
+                    "Type": "AWS::IAM::User",
+                    "Properties": {"Policies": actual},
+                }
+                records = comparison.run()
+                summary = _imports_issues_aggregate.iac_summary(
+                    records, "fixture", "team", ["service-0"]
+                )
+                if change in {None, "literal"}:
+                    self.assertEqual(
+                        [item["category"] for item in records], ["matched"], records
+                    )
+                    self.assertEqual(summary["issue_count"], 0)
+                else:
+                    self.assertNotEqual(records[0]["category"], "matched", records)
+                    if change in {"condition", "action", "unresolved-and-action"}:
+                        self.assertEqual(records[0]["category"], "difference", records)
+                        if change != "unresolved-and-action":
+                            self.assertEqual(summary["issue_count"], 1)
+                        details = str(comparison.display_differences)
+                        self.assertIn(
+                            "Condition" if change == "condition" else "Action", details
+                        )
+                        self.assertNotIn("Unselected", details)
+
+    def test_ordered_array_still_checks_position(self):
+        with tempfile.TemporaryDirectory() as directory:
+            comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+            comparison.resources["service-0"]["0000"].update(
+                resourceType="IAM.User", **{"cfn-logicalId": "stack0-Log0"}
+            )
+            row = {"property": "IAM.User.Groups", "value": '`["one", "two"]`'}
+            comparison.models["service-0"].values.update(
+                {
+                    "desired.resource.0000.resourceType": "IAM.User",
+                    "desired.resource.0000.cfn-logicalId": "stack0-Log0",
+                    "desired.row.0000-001.property": row["property"],
+                    "desired.row.0000-001.value": row["value"],
+                }
+            )
+            comparison.rows["service-0"]["0000"] = [("0000-001", row)]
+            _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
+            document["Resources"]["Log0"] = {
+                "Type": "AWS::IAM::User",
+                "Properties": {"Groups": ["two", "one"]},
+            }
+            self.assertEqual(
+                [item["category"] for item in comparison.run()], ["difference"]
+            )
+
     def test_other_types_and_union_conversion_stay_unchanged(self):
         cases = [
             ("string", "False", "False"),

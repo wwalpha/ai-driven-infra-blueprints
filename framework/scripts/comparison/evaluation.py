@@ -1,11 +1,12 @@
 """Connect the shared evaluator to tracked comparison lookups."""
 
+from collections.abc import Hashable
 from functools import partial
 
 from iac_evaluation import Evaluation
 from json_intrinsics import intrinsic, project_document
 from utils.cloudformation.inputs import Blocked
-from utils.iac_values import Expression, ResourceReference
+from utils.iac_values import Expression, ResourceReference, unknown_value
 
 from .deferral import ImportReferenceDeferred
 from .values import PreparedValue
@@ -34,14 +35,22 @@ def evaluator(
 
 
 def project_actual(
-    value, *, evaluate, property_name, model_path, desired=None, exact=True
+    value,
+    *,
+    evaluate,
+    property_name,
+    model_path,
+    desired=None,
+    exact=True,
+    rules=None,
+    rule_path=None,
 ):
     """Project selected containers; evaluate each intrinsic with the existing evaluator."""
     warnings, failures = [], []
     projected = _visit_actual(
         value,
         desired,
-        property_name,
+        rule_path or property_name,
         "",
         evaluate,
         exact,
@@ -49,6 +58,8 @@ def project_actual(
         failures,
         property_name,
         model_path,
+        rules or {},
+        {},
     )
     return PreparedValue(projected, warnings, failures=tuple(failures))
 
@@ -64,7 +75,11 @@ def _visit_actual(
     failures,
     property_name,
     model_path,
+    rules,
+    evaluated,
 ):
+    if pointer in evaluated:
+        return evaluated.pop(pointer)
     try:
         if (
             isinstance(value, dict)
@@ -87,6 +102,8 @@ def _visit_actual(
                 failures,
                 property_name,
                 model_path,
+                rules,
+                evaluated,
             )
         if (
             isinstance(value, dict)
@@ -109,29 +126,79 @@ def _visit_actual(
                     failures,
                     property_name,
                     model_path,
+                    rules,
+                    evaluated,
                 )
                 if item != {"$noValue": True}:
                     projected[key] = item
             return projected
         if isinstance(value, list):
             projected = []
+            rule = rules.get(path)
+            mode = (rule.whole if exact else rule.selected) if rule else "ORDERED"
             for index, child in enumerate(value):
                 selected_child = (
                     selected[len(projected)]
                     if isinstance(selected, list) and len(projected) < len(selected)
                     else None
                 )
+                if mode == "KEYED" and not exact and isinstance(child, dict):
+                    key = rule.key
+                    child = dict(child)
+                    if key in child:
+                        key_pointer = (
+                            pointer
+                            + "/"
+                            + str(index)
+                            + "/"
+                            + key.replace("~", "~0").replace("/", "~1")
+                        )
+                        child[key] = _visit_actual(
+                            child[key],
+                            None,
+                            path + "[]." + key,
+                            key_pointer,
+                            evaluate,
+                            True,
+                            warnings,
+                            failures,
+                            property_name,
+                            model_path,
+                            rules,
+                            evaluated,
+                        )
+                        evaluated[key_pointer] = child[key]
+                    matches = (
+                        [
+                            candidate
+                            for candidate in selected or []
+                            if isinstance(candidate, dict)
+                            and key in candidate
+                            and key in child
+                            and isinstance(child[key], Hashable)
+                            and isinstance(candidate[key], Hashable)
+                            and not unknown_value(child[key])
+                            and not unknown_value(candidate[key])
+                            and candidate[key] == child[key]
+                        ]
+                        if isinstance(selected, list)
+                        else []
+                    )
+                    selected_child = matches[0] if len(matches) == 1 else {}
+                    selected_child = {**selected_child, key: child.get(key)}
                 item = _visit_actual(
                     child,
                     selected_child,
                     path + "[]",
                     pointer + "/" + str(index),
                     evaluate,
-                    exact,
+                    exact or mode == "UNORDERED",
                     warnings,
                     failures,
                     property_name,
                     model_path,
+                    rules,
+                    evaluated,
                 )
                 if item != {"$noValue": True}:
                     projected.append(item)

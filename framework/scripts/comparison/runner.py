@@ -743,6 +743,8 @@ class Comparison(Inputs):
                         model_path=template,
                         desired=value,
                         exact=key in settings.exact,
+                        rules=registry.rules(kind),
+                        rule_path=key,
                     )
                     warnings.extend(prepared.warnings)
                     actual = prepared.value
