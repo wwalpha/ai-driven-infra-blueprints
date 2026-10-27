@@ -355,5 +355,38 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
     assert not directory.exists()
 
 
+def check_inline_failure_template_does_not_block_reclamation(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    template = root / "template.yaml"
+    template.write_text("Resources: {}", encoding="utf-8")
+    failure = evidence_store(root) / "deploy-failure-inline.json"
+    write_sealed(
+        root,
+        failure,
+        {
+            "repository": str(root),
+            "target": TARGET,
+            "states": {"App": {"delivery": {"path": str(template), "arguments": {"inline": True}}}},
+        },
+    )
+    assert temporary.handoff.failure_templates(root, TARGET) == set()
+    assert template.exists() and failure.exists()
+    external = tmp_path / "external.json"
+    external.write_text("{}", encoding="utf-8")
+    external.chmod(0o600)
+    write_sealed(
+        root,
+        failure,
+        {
+            "repository": str(root),
+            "target": TARGET,
+            "states": {"App": {"delivery": {"path": str(external), "arguments": {"inline": True}}}},
+        },
+    )
+    assert temporary.handoff.failure_templates(root, TARGET) == {external}
+
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

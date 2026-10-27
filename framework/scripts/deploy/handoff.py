@@ -120,6 +120,12 @@ def failure_templates(root: Path, target: dict[str, str]) -> set[Path]:
             delivery = state.get("delivery", {})
             if delivery:
                 template = Path(delivery["path"])
+                if (
+                    template.is_absolute()
+                    and not any(p.is_symlink() for p in (template, *template.parents))
+                    and template.resolve().is_relative_to(root.resolve())
+                ):
+                    continue
                 operation_journal.private_path(
                     external(root, template), permissions=0o022
                 )

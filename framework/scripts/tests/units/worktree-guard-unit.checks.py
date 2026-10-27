@@ -862,7 +862,10 @@ def check_checkpoint_observed_barrier(tmp_path, pending):
         "publication": publication,
         "operations": {"Peer": {"state": state}},
     }
-    with patch.object(journal, "read", return_value=[record]):
+    with (
+        patch.object(journal, "read", return_value=[record]),
+        patch.object(handoff, "dependency_reader", return_value=lambda *a, **kw: None),
+    ):
         if pending == "generation-only":
             handoff.require_settled(tmp_path, request)
         else:

@@ -436,6 +436,7 @@ def _callback_clients_request(
                 result = {
                     "ChangeSetId": change["id"],
                     "StackId": change["stackId"],
+                    "StackName": name,
                     "Status": "CREATE_COMPLETE",
                     "ExecutionStatus": "EXECUTE_COMPLETE"
                     if change["executed"]
