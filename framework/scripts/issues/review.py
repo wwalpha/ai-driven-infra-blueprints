@@ -4,11 +4,13 @@ import json
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from task_contract_core import safe_path
 from utils.yaml_format import yaml_read
 
 from .integrity import selected_scope
+from .records import identifier
 
 
 @dataclass(frozen=True)
@@ -138,7 +140,21 @@ def reviewed_ids(values, expected, channel):
         raise ValueError(f"all {channel} IDs require explicit review")
 
 
-def review_snapshot(artifact, review):
+def diagnostic_index(
+    ordinary: list[dict[str, Any]], services: list[str]
+) -> dict[str, dict[str, Any]]:
+    for item in ordinary:
+        required_text(item, "id")
+        required_text(item, "message")
+        if item.get("service") not in services:
+            raise ValueError("current diagnostic is outside selected services")
+    by_id = {item["id"]: item for item in ordinary}
+    if len(by_id) != len(ordinary):
+        raise ValueError("duplicate current diagnostic ID")
+    return by_id
+
+
+def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapshot:
     if artifact.get("version") != 6:
         raise ValueError("unsupported scan artifact version; version 6 required")
     required = {
@@ -223,14 +239,7 @@ def review_snapshot(artifact, review):
     decisions = review["diagnostic_decisions"]
     if not isinstance(decisions, list):
         raise ValueError("diagnostic_decisions must be a list")
-    for item in ordinary:
-        required_text(item, "id")
-        required_text(item, "message")
-        if item.get("service") not in services:
-            raise ValueError("current diagnostic is outside selected services")
-    by_id = {item["id"]: item for item in ordinary}
-    if len(by_id) != len(ordinary):
-        raise ValueError("duplicate current diagnostic ID")
+    by_id = diagnostic_index(ordinary, services)
     seen, excluded, conflicts = set(), set(), []
     for decision in decisions:
         if not isinstance(decision, dict):
@@ -316,6 +325,10 @@ def review_snapshot(artifact, review):
         ):
             raise ValueError("review Issue ownership requires explicit scoped service")
         required_text(item, "message")
+    additions = [
+        dict(item, id=identifier(["issues.review", item])) for item in additions
+    ]
+    diagnostic_index([*ordinary, *additions], services)
     unverified = review["unverified"]
     if not isinstance(unverified, list):
         raise ValueError("review unverified must be a list")
@@ -350,7 +363,7 @@ def review_snapshot(artifact, review):
                 failure.update(deepcopy(item))
     data["ordinary"] = [
         item for item in ordinary if item["id"] not in excluded
-    ] + deepcopy(additions)
+    ] + additions
     data["unverified"].extend(conflicts)
     data["unverified"].extend(
         dict(code="service.not_run", **result)

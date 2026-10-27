@@ -122,6 +122,86 @@ def check_snapshot_replaces_inventory(tmp_path):
     assert original["ordinary"][0]["message"] == "latest finding"
 
 
+def check_review_additions_have_stable_ids_and_save(tmp_path):
+    data = snapshot_artifact(
+        tmp_path,
+        ordinary=[
+            dict(id=f"machine-{i}", service="s3", message=f"Machine finding {i}")
+            for i in range(16)
+        ],
+    )
+    review = review_for(data)
+    review["issues"] = [
+        dict(
+            service="s3",
+            resource=f"{i:03d}",
+            property="S3.Bucket.BucketName",
+            rule="review.naming",
+            source=dict(path="model/dev/123456789012/s3.properties", line=i + 1),
+            message=f"Review finding {i}",
+        )
+        for i in range(9)
+    ]
+    original_data, original_review = deepcopy(data), deepcopy(review)
+    with task(tmp_path, ["s3"]):
+        outputs, snapshot, _ = save_scan(tmp_path, data, review)
+    ordinary = json.loads(snapshot.data)["ordinary"]
+    assert len(ordinary) == 25
+    assert all(isinstance(item["id"], str) and item["id"].strip() for item in ordinary)
+    assert len({item["id"] for item in ordinary}) == 25
+    assert ordinary[:16] == original_data["ordinary"]
+    assert data == original_data and review == original_review
+    assert review_snapshot(data, review) == snapshot
+    review["issues"] = [
+        dict(reversed(item.items())) for item in reversed(review["issues"])
+    ]
+    reordered = review_snapshot(data, review)
+    assert {
+        item["message"]: item["id"] for item in json.loads(reordered.data)["ordinary"]
+    } == {item["message"]: item["id"] for item in ordinary}
+    rendered = render_snapshot(tmp_path, snapshot)
+    assert render_snapshot(tmp_path, reordered) == rendered
+    assert [path.name for path in outputs] == ["issues.md", "iac-issues.md"]
+    assert tuple(path.read_text(encoding="utf-8") for path in outputs) == rendered
+    for item in ordinary[16:]:
+        assert item["message"] in rendered[0]
+        assert f"<!-- issue-id: {item['id']} -->" in rendered[0]
+    data["scan_id"] = review["scan_id"] = "b" * 32
+    data["executed_at"] = "2026-10-26T00:00:00Z"
+    assert (
+        json.loads(review_snapshot(data, review).data)["ordinary"]
+        == json.loads(reordered.data)["ordinary"]
+    )
+
+
+@pytest.mark.parametrize("fault", ["review_duplicate", "machine_collision"])
+def check_review_duplicate_ids_rejected_before_rendering(tmp_path, fault):
+    data = snapshot_artifact(tmp_path)
+    review = review_for(data)
+    review["issues"] = [dict(service="s3", message="Review finding")]
+    if fault == "review_duplicate":
+        review["issues"].append(deepcopy(review["issues"][0]))
+    else:
+        issue = json.loads(review_snapshot(data, review).data)["ordinary"][0]
+        data["ordinary"] = [dict(issue, message="Machine finding")]
+        review["diagnostic_decisions"] = review_for(data)["diagnostic_decisions"]
+    directory = tmp_path / "issues/dev/123456789012"
+    reports = [directory / name for name in ("issues.md", "iac-issues.md")]
+    for report in reports:
+        write(report, "original-" + report.name)
+    before = {report: report.read_bytes() for report in reports}
+    with (
+        task(tmp_path, ["s3"]),
+        patch("issues.publication.render_snapshot") as render,
+        patch("issues.publication.atomic_files") as publish,
+    ):
+        with pytest.raises(ValueError, match="duplicate current diagnostic ID"):
+            save_scan(tmp_path, data, review)
+        render.assert_not_called()
+        publish.assert_not_called()
+    assert {report: report.read_bytes() for report in reports} == before
+
+
 @pytest.mark.parametrize(
     "change",
     ["unchanged", "completed", "allowed", "modified", "scope", "type", "grant"],
@@ -496,6 +576,11 @@ def check_reviewed_sources_are_not_reread(tmp_path):
         "source_path",
         "source_line",
         "unverified_owner",
+        "missing_id",
+        "empty_id",
+        "non_string_id",
+        "duplicate_id",
+        "review_id",
     ],
 )
 def check_snapshot_rejects_invalid_current_values(tmp_path, fault):
@@ -521,6 +606,14 @@ def check_snapshot_rejects_invalid_current_values(tmp_path, fault):
         data["ordinary"][0]["source"] = dict(path="../outside", line=1)
     elif fault == "source_line":
         data["ordinary"][0]["source"] = dict(path="model/s3.properties", line=0)
+    elif fault == "missing_id":
+        data["ordinary"][0].pop("id")
+    elif fault in {"empty_id", "non_string_id"}:
+        data["ordinary"][0]["id"] = " " if fault == "empty_id" else 42
+    elif fault == "duplicate_id":
+        data["ordinary"].append(deepcopy(data["ordinary"][0]))
+    elif fault == "review_id":
+        review["issues"] = [dict(id="not-allowed", service="s3", message="Finding")]
     else:
         review["unverified"] = [dict(service="sqs", check="naming", reason="unknown")]
     with task(tmp_path, ["s3"]), patch("issues.publication.atomic_files") as publish:
