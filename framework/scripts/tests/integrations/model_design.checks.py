@@ -6,8 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-import model.validation as model_validation
+import model.validations.policies as _model_validation_policies
 import support.model_design_fixtures as fixtures
 from design.document import DesignIndex
 from model.format import FORMAT
@@ -313,7 +312,7 @@ def check_kms_policy_execution_account(root):
     }
     write_model(source, text(invalid))
     with pytest.raises(ValueError, match=f"must use AWS execution account {execution}"):
-        model_validation.validate_kms_policy_accounts(invalid, target)
+        _model_validation_policies.validate_kms_policy_accounts(invalid, target)
     assert (path.read_bytes(), artifact.read_bytes()) == saved
     assert properties(read_model(source)) == properties(text(invalid))
     # Account rejection also protects a matching authored view.
@@ -323,7 +322,7 @@ def check_kms_policy_execution_account(root):
     saved = path.read_bytes(), artifact.read_bytes()
     for _write in (False, True):
         with pytest.raises(ValueError) as error:
-            model_validation.validate_kms_policy_accounts(invalid, target)
+            _model_validation_policies.validate_kms_policy_accounts(invalid, target)
         assert "Principal.AWS" in str(error.value) and execution in str(error.value), (
             str(error.value)
         )

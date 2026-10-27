@@ -11,9 +11,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
+import design.catalog as _model_validation_catalog
 import design.policy_tables as policy_tables
 import import_guard
+import model.validations.change_inputs as _model_validation_change_inputs
+import model.validations.full_inputs as _model_validation_full_inputs
+import model.validations.schema as _model_validation_schema
 import pytest
 import sync_runtime
 from generation_inputs import GenerationInputs
@@ -30,7 +33,7 @@ from task_contract_core import selected_task, start
 from validation import change
 from validation.runner import Validator, run_validation
 
-from model import change_plan, dependency_index, reference_metadata, sources, validation
+from model import change_plan, dependency_index, reference_metadata, sources
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -57,11 +60,13 @@ def evaluate(root, before, after, service="logs"):
     old, new = snapshot(root, before, service), snapshot(root, after, service)
     selected = change_plan.compare(old, new)
     with patch.object(
-        validation,
+        _model_validation_full_inputs,
         "check_model_inputs",
         side_effect=AssertionError("Full Validation called"),
     ) as full:
-        result = validation.check_change_inputs(new.scope.path, after, root, selected)
+        result = _model_validation_change_inputs.check_change_inputs(
+            new.scope.path, after, root, selected
+        )
         full.assert_not_called()
     return result
 
@@ -89,12 +94,16 @@ def check_indexed_full_and_change_validation(project_workspace, value, valid):
     new = snapshot(project_workspace, after, "cloudtrail")
     selected = change_plan.compare(old, new)
     with patch.object(
-        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        _model_validation_full_inputs,
+        "check_model_inputs",
+        side_effect=AssertionError("Full called"),
     ):
-        changed = validation.check_change_inputs(
+        changed = _model_validation_change_inputs.check_change_inputs(
             new.scope.path, after, project_workspace, selected
         )
-    full = validation.check_model_inputs(new.scope.path, after, project_workspace)
+    full = _model_validation_full_inputs.check_model_inputs(
+        new.scope.path, after, project_workspace
+    )
     assert (not any("ReadWriteType" in error for error in full.errors)) == valid, (
         full.errors
     )
@@ -111,12 +120,14 @@ def check_indexed_required_ancestors(project_workspace):
     )
     required = {"Stages", "Stages[]", "Stages[].Name"}
     with patch.object(
-        validation.DesignSchemaCatalog,
+        _model_validation_catalog.DesignSchemaCatalog,
         "required_design_properties",
         return_value=required,
     ):
-        assert not validation.validate_required_properties(values, project_workspace)
-        assert not validation.validate_required_properties(
+        assert not _model_validation_schema.validate_required_properties(
+            values, project_workspace
+        )
+        assert not _model_validation_schema.validate_required_properties(
             values,
             project_workspace,
             properties_scope={"CodePipeline.Pipeline.Stages[1].Name"},
@@ -124,7 +135,7 @@ def check_indexed_required_ancestors(project_workspace):
         with pytest.raises(
             ValueError, match="required provider schema property missing"
         ):
-            validation.validate_required_properties(
+            _model_validation_schema.validate_required_properties(
                 {**values, "desired.row.001-001.value": ""},
                 project_workspace,
                 properties_scope={"CodePipeline.Pipeline.Stages[1].Name"},
@@ -136,7 +147,7 @@ def check_unrelated_property_and_resource(project_workspace):
     after = dict(before, **{"desired.row.001-001.value": "changed-name"})
     result = evaluate(project_workspace, before, after)
     assert not result.errors, result.errors
-    full = validation.check_model_inputs(
+    full = _model_validation_full_inputs.check_model_inputs(
         snapshot(project_workspace, after).scope.path, after, project_workspace
     )
     assert full.errors  # Full still reports the old errors.
@@ -200,7 +211,7 @@ def check_save_delegates_without_full(project_workspace):
         path, sources.CandidateReads(sources.FileReads(), {path: serialize(after)})
     )
     with patch.object(
-        validation,
+        _model_validation_full_inputs,
         "check_model_inputs",
         side_effect=AssertionError("Full Validation called"),
     ) as full:
@@ -280,10 +291,12 @@ def check_prepare_save_change_validation(project_workspace, action, case, error)
         read_consumers({("preview", "team", "codebuild")}),
         closing(GenerationInputs(root)) as reads,
         patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ),
         patch.object(
-            validation,
+            _model_validation_full_inputs,
             "_check_model_inputs",
             side_effect=AssertionError("Full internal called"),
         ),
@@ -356,10 +369,12 @@ def check_prepare_save_resource_contracts(project_workspace, action, case):
         read_consumers({identity}),
         closing(GenerationInputs(root)) as reads,
         patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ),
         patch.object(
-            validation,
+            _model_validation_full_inputs,
             "_check_model_inputs",
             side_effect=AssertionError("Full internal called"),
         ),
@@ -417,7 +432,7 @@ def check_changed_column_array(project_workspace, shape, value, field):
     )
     result = evaluate(project_workspace, before, after, "cloudtrail")
     assert not result.errors, result.errors
-    full = validation.check_model_inputs(
+    full = _model_validation_full_inputs.check_model_inputs(
         snapshot(project_workspace, after, "cloudtrail").scope.path,
         after,
         project_workspace,
@@ -478,7 +493,7 @@ def check_indexed_incoming_contract(
     write_model(old_root / producer.relative_to(project_workspace), values)
     write_model(producer, dict(values, **{"desired.row.001-002.value": "new"}))
     with patch.object(
-        validation,
+        _model_validation_full_inputs,
         "check_model_inputs",
         side_effect=AssertionError("Full Validation called"),
     ) as full:
@@ -539,7 +554,9 @@ def check_reference_value_reads_only_required_property(project_workspace):
     reads = sources.CandidateReads(sources.FileReads(), {path: serialize(candidate)})
     after = sources.raw_model(path, reads)
     with patch.object(
-        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        _model_validation_full_inputs,
+        "check_model_inputs",
+        side_effect=AssertionError("Full called"),
     ) as full:
         change.validate_save(old, after, reads)
         full.assert_not_called()
@@ -566,7 +583,9 @@ def check_new_link_missing_target(project_workspace, typed):
     }
     reads = sources.CandidateReads(sources.FileReads(), {path: serialize(candidate)})
     with patch.object(
-        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        _model_validation_full_inputs,
+        "check_model_inputs",
+        side_effect=AssertionError("Full called"),
     ) as full:
         with pytest.raises(ValueError):
             change.validate_save(
@@ -626,10 +645,12 @@ def check_generation_and_task_checks_never_call_full(project_workspace):
     )
     with (
         patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ) as full,
         patch.object(
-            validation,
+            _model_validation_full_inputs,
             "_check_model_inputs",
             side_effect=AssertionError("Full internal called"),
         ) as internal,
@@ -684,7 +705,9 @@ def check_runner_selects_change_for_task_and_final(project_workspace, final):
             return_value=[],
         ),
         patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ) as full,
     ):
         result = run_validation(root, options, final_candidate=candidate)
@@ -707,7 +730,9 @@ def check_issue_scan_explicitly_keeps_full(project_workspace):
             side_effect=AssertionError("Issue Scan must not inspect Git differences"),
         ),
         patch.object(
-            validation, "check_model_inputs", wraps=validation.check_model_inputs
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            wraps=_model_validation_full_inputs.check_model_inputs,
         ) as full,
     ):
         errors, _, _ = mechanical(root, {("preview", "team", "logs")}, jobs=1)
@@ -793,7 +818,9 @@ def check_stale_dependency_metadata_refreshes_without_full(project_workspace):
     consumer.write_text(consumer.read_text() + "# external Model edit\n")
     write_model(producer, dict(values, **{"desired.row.001-001.value": "changed-data"}))
     with patch.object(
-        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        _model_validation_full_inputs,
+        "check_model_inputs",
+        side_effect=AssertionError("Full called"),
     ) as full:
         plan = change_plan.assemble(
             root, {("preview", "team", "s3")}, old, sources.FileReads()
@@ -866,13 +893,17 @@ def check_generation_does_not_validate_unchanged_policy_quality(project_workspac
             side_effect=AssertionError("policy quality ran during generation"),
         ) as quality,
         patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ) as full,
     ):
         selected = change_plan.compare(
             snapshot(root, values, "iam"), snapshot(root, after, "iam")
         )
-        findings = validation.check_change_inputs(path, after, root, selected)
+        findings = _model_validation_change_inputs.check_change_inputs(
+            path, after, root, selected
+        )
         assert not findings.errors, findings.errors
         generated = sync_runtime.prepare_generation(
             root, {("preview", "team", "iam")}, write=False
@@ -884,7 +915,7 @@ def check_generation_does_not_validate_unchanged_policy_quality(project_workspac
             generated.close()
         quality.assert_not_called()
         full.assert_not_called()
-    findings = validation.check_model_inputs(path, values, root)
+    findings = _model_validation_full_inputs.check_model_inputs(path, values, root)
     assert any("Statement Effect" in error for error in findings.errors), (
         findings.errors
     )
@@ -939,7 +970,9 @@ def check_write_validator_checks_changes_before_generation(project_workspace):
             side_effect=AssertionError("invalid change reached generation"),
         ),
         patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ) as full,
     ):
         validator.generate_and_validate(
@@ -1004,10 +1037,12 @@ def check_real_final_candidate_guard_never_calls_full(project_workspace, workflo
         selected_task(root, name),
         patch.object(import_guard, "read_proof", return_value=proof),
         patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ) as full,
         patch.object(
-            validation,
+            _model_validation_full_inputs,
             "_check_model_inputs",
             side_effect=AssertionError("Full internal called"),
         ) as internal,
@@ -1057,11 +1092,13 @@ def check_unrelated_resource_identity_defect(project_workspace, defect):
     )
     new = sources.raw_model(path, current_reads)
     with patch.object(
-        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        _model_validation_full_inputs,
+        "check_model_inputs",
+        side_effect=AssertionError("Full called"),
     ):
         change.validate_save(old, new, current_reads)
     with pytest.raises(ValueError):
-        validation.check_model_inputs(path, candidate, root)
+        _model_validation_full_inputs.check_model_inputs(path, candidate, root)
 
 
 @pytest.mark.parametrize("field", ["cfn-logicalId", "deploymentEncryption"])
@@ -1126,10 +1163,12 @@ def check_dependency_discovery_and_broken_consumer(
     write_model(producer, after)
     with (
         patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ),
         patch.object(
-            validation,
+            _model_validation_full_inputs,
             "_check_model_inputs",
             side_effect=AssertionError("Full internal called"),
         ),
@@ -1484,12 +1523,12 @@ def check_save_preparation_uses_change_validation(
         )
         with (
             patch.object(
-                validation,
+                _model_validation_full_inputs,
                 "check_model_inputs",
                 side_effect=AssertionError("Full called"),
             ) as full,
             patch.object(
-                validation,
+                _model_validation_full_inputs,
                 "_check_model_inputs",
                 side_effect=AssertionError("Full internal called"),
             ) as internal,
@@ -1525,7 +1564,9 @@ def check_same_resource_old_metadata_does_not_block_property(project_workspace, 
     candidate = dict(before, **{"desired.row.001-002.value": "14"})
     reads = sources.CandidateReads(sources.FileReads(), {path: serialize(candidate)})
     with patch.object(
-        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        _model_validation_full_inputs,
+        "check_model_inputs",
+        side_effect=AssertionError("Full called"),
     ):
         change.validate_save(
             sources.raw_model(path), sources.raw_model(path, reads), reads
@@ -1564,7 +1605,9 @@ def check_save_preparation_rejects_incoming_reference_break(
     reads = sources.CandidateReads(sources.FileReads(), {path: serialize(candidate)})
     with (
         patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ),
         pytest.raises(ValueError, match="producer Resource is absent"),
     ):
@@ -1588,7 +1631,7 @@ def check_shape_only_change_is_validated(project_workspace):
     assert not result.errors, result.errors
     invalid = dict(after, **{"desired.row.001-001.valueShape": "leaf"})
     assert evaluate(project_workspace, after, invalid, "cloudtrail").errors
-    assert validation.check_model_inputs(
+    assert _model_validation_full_inputs.check_model_inputs(
         snapshot(project_workspace, invalid, "cloudtrail").scope.path,
         invalid,
         project_workspace,
@@ -1673,7 +1716,9 @@ def check_incomplete_incoming_contract_is_not_lost(
             {path: serialize(dict(before, **{f"desired.row.{field}.value": value}))},
         )
         with patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ):
             if valid:
                 change.validate_save(old, sources.raw_model(path, reads), reads)
@@ -1800,7 +1845,9 @@ def check_unrelated_reference_does_not_block_change(
         sources.FileReads(), {path: serialize(logs(retention="14"))}
     )
     with patch.object(
-        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+        _model_validation_full_inputs,
+        "check_model_inputs",
+        side_effect=AssertionError("Full called"),
     ):
         plan = change_plan.ChangePlan(
             changes={
@@ -1815,7 +1862,7 @@ def check_unrelated_reference_does_not_block_change(
         assert not change.validate_plan(root, plan).errors
     # Unchanged quality errors remain visible to independent quality validation.
     if reference.startswith("[text](/"):
-        assert validation.check_model_inputs(
+        assert _model_validation_full_inputs.check_model_inputs(
             peer, sources.raw_model(peer).authoritative, root
         ).errors
 
@@ -2064,7 +2111,9 @@ def check_broken_unrelated_model_save(project_workspace, defect, index_state):
             frozenset({path}),
         )
         with patch.object(
-            validation, "check_model_inputs", side_effect=AssertionError("Full called")
+            _model_validation_full_inputs,
+            "check_model_inputs",
+            side_effect=AssertionError("Full called"),
         ) as full:
             plan = prepare_edit(
                 path,
@@ -2147,13 +2196,13 @@ def check_outside_link_still_fails_quality(project_workspace, existing):
     )
     write_model(path, invalid if existing else valid)
     if existing:
-        result = validation.check_model_inputs(path, invalid, root)
+        result = _model_validation_full_inputs.check_model_inputs(path, invalid, root)
         assert result.errors
     else:
         reads = sources.CandidateReads(sources.FileReads(), {path: serialize(invalid)})
         with (
             patch.object(
-                validation,
+                _model_validation_full_inputs,
                 "check_model_inputs",
                 side_effect=AssertionError("Full called"),
             ),

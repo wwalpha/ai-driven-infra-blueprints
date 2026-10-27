@@ -32,7 +32,7 @@ from model.reference_presentation import Presentation
 from model.reference_values import reference_value
 from model.render import generate_files
 from model.sources import load_model
-from model.validation import validate_json_settings
+from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -657,7 +657,7 @@ def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
     failures, unavailable = [], {}
     with (
         patch(
-            "model.validation.check_model_inputs",
+            "model.validations.full_inputs.check_model_inputs",
             return_value=SimpleNamespace(
                 errors=(), warnings=(), diagnostics=[], unverified=False
             ),

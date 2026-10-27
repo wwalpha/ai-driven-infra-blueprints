@@ -39,14 +39,14 @@ from model.display import catalog_display_rows, display_rows, row_table
 from model.files import load_model, read_model
 from model.projection import resource_rows
 from model.render import markdown_for
-from model.validation import (
+from model.validations.naming import (
     design_naming_errors,
     naming_errors,
     naming_rule_files,
     naming_target_matches,
     naming_targets,
-    validate_kms_policy_accounts,
 )
+from model.validations.policies import validate_kms_policy_accounts
 from support.model_sources import snapshot_model, write_fixture_files, write_model
 from support.pytest_cli import Diagnostics, run
 from support.validator import load

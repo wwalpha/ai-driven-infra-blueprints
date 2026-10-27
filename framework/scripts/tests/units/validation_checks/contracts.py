@@ -44,7 +44,7 @@ def check_implementation_preflight_prompt() -> None:
     for required in (
         "before active contract creation or IaC generation",
         "Do not execute AWS APIs, IaC generation, or deploy",
-        "model.validation.validate_required_properties",
+        "model.validations.schema.validate_required_properties",
         "DesignSchemaCatalog.literal_errors",
         "necessary dependency properties",
         "authoritative stack registration",

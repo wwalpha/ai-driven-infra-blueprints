@@ -23,7 +23,7 @@ from model.operations import prepare_edit, publish_edit, validate_candidates
 from model.projection import execution_document, reference_display
 from model.render import generate_files
 from model.sources import Scope, SourceWriteContext, load_model, runtime_values
-from model.validation import validate_json_settings
+from model.validations.json_settings import validate_json_settings
 from sync_runtime import generate_views
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.format import decode_file as decode

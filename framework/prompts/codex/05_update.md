@@ -224,7 +224,7 @@ Add [Framework regression](../../rules/loop-engineering.md#framework-regression)
 - Stop if IaC or generated Markdown/JSON artifacts have uncommitted changes predating task start. Human diffs in authoritative model properties are permitted.
 - Do not repair, supplement, or roll back human-edited intended design in this task.
 - Stop for detailed design deficiencies, contradictions, placeholders, schema violations, or unconfirmed human decisions.
-- Apply schema validation such as existing `model.validation.validate_required_properties` and `DesignSchemaCatalog.literal_errors` to target properties to confirm CREATE/IMPORT, formal types, required properties, types/constraints, and necessary dependencies. Do not automatically supplement scope or intended design.
+- Apply schema validation such as existing `model.validations.schema.validate_required_properties` and `DesignSchemaCatalog.literal_errors` to target properties to confirm CREATE/IMPORT, formal types, required properties, types/constraints, and necessary dependencies. Do not automatically supplement scope or intended design.
 - For CloudFormation, resolve target types with `design_catalog.py --cloudformation-type <catalog-resource-type>`. Do not silently exclude CFn-unsupported types such as `Macie.ClassificationJob` and `QuickSight.Group` and call update complete; report unapplied items and stop. Do not incorrectly convert to CFn, run APIs, add Custom Resources, or mutate API-only resources. Retain engine rule resourceMode boundaries.
 
 Retain Design scope diffs at task start and confirm they remain identical through completion except for generated current value updates after deploy success.

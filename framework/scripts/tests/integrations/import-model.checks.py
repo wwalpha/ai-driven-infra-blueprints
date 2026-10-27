@@ -511,11 +511,11 @@ def check_reflection_validation_boundary(tmp_path):
             wraps=import_guard.snapshots,
         ) as snapshots,
         patch(
-            "model.validation.check_model_inputs",
+            "model.validations.full_inputs.check_model_inputs",
             side_effect=AssertionError("no whole design validation"),
         ),
         patch(
-            "model.validation._check_model_inputs",
+            "model.validations.full_inputs._check_model_inputs",
             side_effect=AssertionError("no internal whole design validation"),
         ),
         patch.object(
@@ -1305,11 +1305,11 @@ def check_import_rejects_acquired_schema_violation_before_save(tmp_path):
     with (
         patch.object(change, "validate_save", wraps=change.validate_save) as saving,
         patch(
-            "model.validation.check_model_inputs",
+            "model.validations.full_inputs.check_model_inputs",
             side_effect=AssertionError("Full called"),
         ),
         patch(
-            "model.validation._check_model_inputs",
+            "model.validations.full_inputs._check_model_inputs",
             side_effect=AssertionError("Full internal called"),
         ),
         pytest.raises(ValueError, match="RetentionInDays"),
@@ -1331,11 +1331,11 @@ def check_import_refreshes_reference_metadata_without_full(tmp_path, index_state
         path.touch()  # Stale revision with unchanged approved authoritative bytes.
     with (
         patch(
-            "model.validation.check_model_inputs",
+            "model.validations.full_inputs.check_model_inputs",
             side_effect=AssertionError("Full called"),
         ),
         patch(
-            "model.validation._check_model_inputs",
+            "model.validations.full_inputs._check_model_inputs",
             side_effect=AssertionError("Full internal called"),
         ),
     ):

@@ -8,7 +8,7 @@ from design.layout import (
 )
 from design.policy_tables import literal
 from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
-from model.validation import (
+from model.validations.naming import (
     NAMING_EXEMPT_PROPERTIES,
     naming_rule_files,
     naming_target_matches,

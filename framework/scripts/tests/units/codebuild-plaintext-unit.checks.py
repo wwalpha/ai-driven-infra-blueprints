@@ -21,13 +21,9 @@ from issues.publication import save_scan
 from issues.runner import codebuild_plaintext_diagnostics, scan
 from model.core import entries
 from model.display import display_rows
+from model.references import codebuild_reference_errors
 from model.render import generate_markdown, markdown_for
-from model.validation import (
-    check_model_inputs as _check_model_inputs,
-)
-from model.validation import (
-    codebuild_reference_errors,
-)
+from model.validations.full_inputs import check_model_inputs as _check_model_inputs
 from support.issues_scan_fixtures import fixture, task, write
 from support.model_sources import write_model
 from support.pytest_cli import run

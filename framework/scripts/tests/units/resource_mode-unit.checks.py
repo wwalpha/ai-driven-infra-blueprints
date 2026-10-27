@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from model.sources import model_parts
-from model.validation import check_model_inputs as _check_model_inputs
+from model.validations.full_inputs import check_model_inputs as _check_model_inputs
 from support.resource_mode_fixtures import (
     ROOT,
     Path,

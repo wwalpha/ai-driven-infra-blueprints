@@ -16,7 +16,7 @@ from contextlib import redirect_stderr
 from unittest.mock import Mock, patch
 
 import import_guard
-import model.validation as model_validation
+import model.validations.naming as _model_validation_naming
 import pytest
 import sync_progress as progress
 import sync_runtime
@@ -1596,7 +1596,7 @@ def check_definition_read_errors(tmp_path, definition):
                 elif definition == "schema":
                     assert aws_schemas.Schemas(definitions).resource_types
                 else:
-                    model_validation.naming_errors(
+                    _model_validation_naming.naming_errors(
                         definitions,
                         "IAM.Role",
                         [["1", "RoleName", "`app-dev-role`", "名前"]],

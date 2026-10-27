@@ -7,10 +7,14 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import model.core as _model_validation_core
+import model.validations.full_inputs as _model_validation_full_inputs
+import model.validations.naming as _model_validation_naming
+import model.validations.schema as _model_validation_schema
 import pytest
 from model.core import ReferenceResolutionError, SnapshotValues
 
-from model import format, operations, validation
+from model import format, operations
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -32,7 +36,7 @@ def _callback_selection_mapping(mapped, /, v, *a):
 def _callback_selection_run_60(tmp_path, _default_v, /, v=_CALLBACK_DEFAULT):
     if v is _CALLBACK_DEFAULT:
         v = _default_v
-    return validation.check_model_inputs(
+    return _model_validation_full_inputs.check_model_inputs(
         tmp_path / "model/dev/target/sample.properties", v, tmp_path
     )
 
@@ -63,25 +67,33 @@ def selection(tmp_path, monkeypatch):
     monkeypatch.setattr("model.core.validate_runtime_keys", lambda v: None)
     monkeypatch.setattr("model.files.resource_row_index", lambda v: None)
     monkeypatch.setattr(
-        validation,
+        _model_validation_full_inputs,
         "DesignSchemaCatalog",
         lambda root: type(
             "Catalog", (), {"literal_errors": lambda self, *a: ["literal failure"]}
         )(),
     )
-    monkeypatch.setattr(validation, "validate_api_constraints", lambda *a, **k: None)
-    monkeypatch.setattr(validation, "resource_rows", lambda *a: [])
     monkeypatch.setattr(
-        validation, "validate_resource_identities", lambda *a, **k: None
+        _model_validation_full_inputs, "validate_api_constraints", lambda *a, **k: None
+    )
+    monkeypatch.setattr(_model_validation_naming, "resource_rows", lambda *a: [])
+    monkeypatch.setattr(
+        _model_validation_full_inputs,
+        "validate_resource_identities",
+        lambda *a, **k: None,
     )
     monkeypatch.setattr("model.render.resource_details", lambda *a, **k: None)
     monkeypatch.setattr("validation.design.check_observed_values", lambda *a, **k: None)
-    monkeypatch.setattr(validation, "catalog_outputs", lambda *a: set())
-    monkeypatch.setattr(validation, "is_import_expression", lambda *a: False)
+    monkeypatch.setattr(_model_validation_schema, "catalog_outputs", lambda *a: set())
+    monkeypatch.setattr(
+        _model_validation_schema, "is_import_expression", lambda *a: False
+    )
     selected, mapped = [], []
     required = _bind_framework_callback(_callback_selection_required, selected)
     mapping = _bind_framework_callback(_callback_selection_mapping, mapped)
-    monkeypatch.setattr(validation, "validate_required_properties", required)
+    monkeypatch.setattr(
+        _model_validation_full_inputs, "validate_required_properties", required
+    )
     monkeypatch.setattr("aws_mapping_display.validate_mappings", mapping)
     run = _bind_framework_callback(_callback_selection_run_60, tmp_path, values)
     return values, selected, mapped, run
@@ -100,7 +112,9 @@ def check_selection_order_findings_and_fresh_calls(selection):
         if key.startswith("desired.reference."):
             expected.append(values["desired.reference.ref.consumerKey"])
     assert top == expected
-    numbers = [n for n, _ in validation.entries(values, "desired.resource.")]
+    numbers = [
+        n for n, _ in _model_validation_core.entries(values, "desired.resource.")
+    ]
     assert [list(v.items()) for v in selected] == [
         list(operations.operation_values(values, n).items()) for n in numbers
     ]
@@ -152,7 +166,7 @@ def _check_catalog_failure_precedes_owner_fail(*a):
 def check_catalog_failure_precedes_owner(selection, monkeypatch):
     _, selected, _, run = selection
     fail = _check_catalog_failure_precedes_owner_fail
-    monkeypatch.setattr(validation, "DesignSchemaCatalog", fail)
+    monkeypatch.setattr(_model_validation_full_inputs, "DesignSchemaCatalog", fail)
     with patch.object(format, "owner", side_effect=AssertionError("too early")):
         findings = run()
         assert findings.errors == ["model.catalog: catalog first"]
@@ -210,7 +224,9 @@ def check_selected_mutation_is_isolated(selection, monkeypatch, fixed):
         values = SnapshotValues(values)
     before = dict(values)
     mutate = _check_selected_mutation_is_isolated_mutate
-    monkeypatch.setattr(validation, "validate_required_properties", mutate)
+    monkeypatch.setattr(
+        _model_validation_full_inputs, "validate_required_properties", mutate
+    )
     run(values)
     assert values == before
     assert len(mapped) == 2 and mapped[0] is not mapped[1]

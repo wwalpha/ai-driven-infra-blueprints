@@ -39,7 +39,7 @@ from model.core import entries, properties
 from model.files import load_model, model_file_contents, read_model, resource_row_index
 from model.render import markdown_for
 from model.sources import model_parts
-from model.validation import naming_target_matches, naming_targets
+from model.validations.naming import naming_target_matches, naming_targets
 from support.model_sources import snapshot_model, write_fixture_files, write_model
 from support.pytest_cli import run
 from task_contract_core import SELECTOR

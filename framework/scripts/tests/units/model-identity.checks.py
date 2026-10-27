@@ -22,7 +22,7 @@ from model.identity import (
     resource_index,
 )
 from model.sources import Scope
-from model.validation import validate_resource_identities
+from model.validations.identity import validate_resource_identities
 from utils.aws_mappings import mapping_alias
 
 if not __debug__:

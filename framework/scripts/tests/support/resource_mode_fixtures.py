@@ -17,7 +17,7 @@ from design.layout_schema import resource_anchor
 from model.core import properties
 from model.files import read_model
 from model.render import markdown_for
-from model.validation import naming_errors
+from model.validations.naming import naming_errors
 from support.model_sources import snapshot_model, write_model
 
 if not __debug__:

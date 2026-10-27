@@ -36,15 +36,11 @@ from model.operations import validate_candidates
 from model.projection import generated_document, reference_display, reference_resolver
 from model.reference_nodes import parse
 from model.reference_values import ProducerValues, reference_value
+from model.references import codebuild_reference_errors
 from model.sources import load_model
-from model.validation import (
-    check_model_inputs as model_inputs,
-)
-from model.validation import (
-    codebuild_reference_errors,
-    validate_environment_settings,
-    validate_json_settings,
-)
+from model.validations.environment import validate_environment_settings
+from model.validations.full_inputs import check_model_inputs as model_inputs
+from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,

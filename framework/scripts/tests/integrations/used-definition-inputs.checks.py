@@ -79,7 +79,7 @@ def check(root):
             before = load_model(model, context.snapshot)
             plan = prepare_edit(before, {model: text}, context)
             with patch(
-                "model.validation.check_model_inputs",
+                "model.validations.full_inputs.check_model_inputs",
                 side_effect=AssertionError(
                     "ordinary save must not run Full Validation"
                 ),

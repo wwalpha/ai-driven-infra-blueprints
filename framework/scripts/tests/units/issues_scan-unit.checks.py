@@ -1207,7 +1207,7 @@ def check_view_read_failure_policy(tmp_path):
             "model.sources.load_model",
             return_value=SimpleNamespace(authoritative={}, warnings=[]),
         ),
-        patch("model.validation.check_model_inputs", source_checks),
+        patch("model.validations.full_inputs.check_model_inputs", source_checks),
     ):
         validator.check_scoped_designs(view_errors=comparison.view_errors)
         assert "independent sqs diagnostic" in validator.errors
@@ -1934,7 +1934,7 @@ def check_service_worker_isolation(tmp_path, failure):
             "load_model",
             return_value=SimpleNamespace(authoritative={}, warnings=[]),
         ),
-        patch("model.validation.check_model_inputs", source),
+        patch("model.validations.full_inputs.check_model_inputs", source),
         patch.object(
             validation_runner,
             "_callback_Validator_check_scoped_designs_validate",

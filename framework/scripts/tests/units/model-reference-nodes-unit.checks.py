@@ -45,7 +45,7 @@ from model.reference_nodes import project as display
 from model.references import Usage, incoming, symbolic, usages
 from model.render import generate_markdown
 from model.sources import load_model
-from model.validation import validate_json_settings
+from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,

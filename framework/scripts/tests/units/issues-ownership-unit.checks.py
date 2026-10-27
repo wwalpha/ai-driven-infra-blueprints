@@ -24,8 +24,8 @@ from model.core import (
 )
 from model.format import parse
 from model.sources import load_model
-from model.validation import check_model_inputs as validate_model_inputs
-from model.validation import validate_required_properties
+from model.validations.full_inputs import check_model_inputs as validate_model_inputs
+from model.validations.schema import validate_required_properties
 from support.issues_scan_fixtures import (
     fixture,
     mechanical,

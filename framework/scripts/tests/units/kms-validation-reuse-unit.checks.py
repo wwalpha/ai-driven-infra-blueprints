@@ -8,7 +8,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import aws_mapping_display
-import model.validation as validation
+import model.validations.full_inputs as _model_validation_full_inputs
+import model.validations.identity as _model_validation_identity
+import model.validations.naming as _model_validation_naming
+import model.validations.policies as _model_validation_policies
+import model.validations.presentation as _model_validation_presentation
+import model.validations.schema as _model_validation_schema
 import pytest
 import validation.design as design
 
@@ -33,11 +38,11 @@ def inputs():
 
 def check_success_invalidation_and_scope():
     values, target = inputs()
-    check = validation._kms_policy_account_check()
+    check = _model_validation_policies._kms_policy_account_check()
     with patch.object(
-        validation,
+        _model_validation_policies,
         "validate_kms_policy_accounts",
-        wraps=validation.validate_kms_policy_accounts,
+        wraps=_model_validation_policies.validate_kms_policy_accounts,
     ) as actual:
         check(values, target)
         check(dict(values), dict(target))
@@ -48,7 +53,7 @@ def check_success_invalidation_and_scope():
         check(values, target)
         check(dict(reversed(list(values.items()))), target)
         check(values, dict(reversed(list(target.items()))))
-        validation._kms_policy_account_check()(values, target)
+        _model_validation_policies._kms_policy_account_check()(values, target)
         assert actual.call_count == 6
         target["awsExecutionAccountId"] = "333333333333"
         for _ in range(2):
@@ -76,9 +81,13 @@ def check_success_invalidation_and_scope():
 def check_strict_documents_repeat_failure(document):
     values, target = inputs()
     values["desired.row.001-001.document"] = document
-    check = validation._kms_policy_account_check()
+    check = _model_validation_policies._kms_policy_account_check()
     errors = []
-    for function in (validation.validate_kms_policy_accounts, check, check):
+    for function in (
+        _model_validation_policies.validate_kms_policy_accounts,
+        check,
+        check,
+    ):
         with pytest.raises(ValueError) as error:
             function(values, target)
         errors.append(str(error.value))
@@ -88,8 +97,12 @@ def check_strict_documents_repeat_failure(document):
 def check_no_kms_still_parses_malformed_rows():
     values = {"desired.row.001-001": "malformed"}
     target = {"awsAccountId": "111111111111"}
-    check = validation._kms_policy_account_check()
-    for function in (validation.validate_kms_policy_accounts, check, check):
+    check = _model_validation_policies._kms_policy_account_check()
+    for function in (
+        _model_validation_policies.validate_kms_policy_accounts,
+        check,
+        check,
+    ):
         with pytest.raises(ValueError):
             function(values, target)
 
@@ -109,34 +122,50 @@ def check_service_reuse_and_direct_call_diagnostics(tmp_path, monkeypatch):
     monkeypatch.setattr(model.sources, "runtime_values", lambda v: v)
     monkeypatch.setattr(model.files, "resource_row_index", lambda *a: None)
     monkeypatch.setattr(
-        validation, "validate_required_properties", lambda *a, **k: None
+        _model_validation_full_inputs,
+        "validate_required_properties",
+        lambda *a, **k: None,
     )
     monkeypatch.setattr(aws_mapping_display, "validate_mappings", lambda *a: None)
-    monkeypatch.setattr(validation, "resource_rows", lambda *a: [])
-    monkeypatch.setattr(validation, "naming_errors", lambda *a: [])
-    monkeypatch.setattr(validation, "catalog_outputs", lambda *a: {"KMS.Key.KeyPolicy"})
-    monkeypatch.setattr(validation, "DesignSchemaCatalog", lambda *a: None)
-    monkeypatch.setattr(validation, "validate_api_constraints", lambda *a, **k: None)
+    monkeypatch.setattr(_model_validation_naming, "resource_rows", lambda *a: [])
+    monkeypatch.setattr(_model_validation_naming, "naming_errors", lambda *a: [])
+    monkeypatch.setattr(
+        _model_validation_schema, "catalog_outputs", lambda *a: {"KMS.Key.KeyPolicy"}
+    )
+    monkeypatch.setattr(
+        _model_validation_full_inputs, "DesignSchemaCatalog", lambda *a: None
+    )
+    monkeypatch.setattr(
+        _model_validation_full_inputs, "validate_api_constraints", lambda *a, **k: None
+    )
     monkeypatch.setattr(design, "check_observed_values", lambda *a, **k: None)
     monkeypatch.setattr(model.render, "resource_details", lambda *a, **k: None)
-    monkeypatch.setattr(validation, "bound_resource_anchors", lambda *a: {})
-    monkeypatch.setattr(validation, "design_target", lambda *a: dict(target))
+    monkeypatch.setattr(
+        _model_validation_presentation, "bound_resource_anchors", lambda *a: {}
+    )
+    monkeypatch.setattr(
+        _model_validation_identity, "design_target", lambda *a: dict(target)
+    )
     path = tmp_path / "model/dev/target/kms.properties"
     with patch.object(
-        validation,
+        _model_validation_policies,
         "validate_kms_policy_accounts",
-        wraps=validation.validate_kms_policy_accounts,
+        wraps=_model_validation_policies.validate_kms_policy_accounts,
     ) as actual:
-        first = validation.check_model_inputs(path, values, tmp_path)
+        first = _model_validation_full_inputs.check_model_inputs(path, values, tmp_path)
         assert not first.errors, first.errors
         assert actual.call_count == 1
-        validation.check_model_inputs(path, values, tmp_path)
+        _model_validation_full_inputs.check_model_inputs(path, values, tmp_path)
         assert actual.call_count == 2
         for _ in range(2):
-            validation.validate_resource_identities(path, values, tmp_path, [])
+            _model_validation_identity.validate_resource_identities(
+                path, values, tmp_path, []
+            )
         assert actual.call_count == 4
         target["awsExecutionAccountId"] = "333333333333"
-        findings = validation.check_model_inputs(path, values, tmp_path)
+        findings = _model_validation_full_inputs.check_model_inputs(
+            path, values, tmp_path
+        )
         assert actual.call_count == 6
         assert len(findings.errors) == 1
         assert len(findings.diagnostics) == 1
@@ -147,11 +176,13 @@ def check_service_reuse_and_direct_call_diagnostics(tmp_path, monkeypatch):
             if result.check_id.startswith("model.identity.")
         )
         with patch.object(
-            validation,
+            _model_validation_full_inputs,
             "_kms_policy_account_check",
-            return_value=validation.validate_kms_policy_accounts,
+            return_value=_model_validation_policies.validate_kms_policy_accounts,
         ):
-            baseline = validation.check_model_inputs(path, values, tmp_path)
+            baseline = _model_validation_full_inputs.check_model_inputs(
+                path, values, tmp_path
+            )
         assert (
             findings.errors == baseline.errors
             and findings.warnings == baseline.warnings

@@ -25,7 +25,9 @@ from model.adapters import observed
 from model.core import entries, properties
 from model.files import read_model
 from model.render import markdown_for
-from model.validation import validate_resource_identities as validate_identities
+from model.validations.identity import (
+    validate_resource_identities as validate_identities,
+)
 from support.cloudformation_destroy_fixtures import (
     TARGET,
     Fake,

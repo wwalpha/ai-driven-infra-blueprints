@@ -7,7 +7,7 @@ from contextlib import contextmanager, redirect_stdout
 from functools import partial
 
 from model.core import ReferenceResolutionError, entries
-from model.validation import codebuild_reference_errors
+from model.references import codebuild_reference_errors
 from task_contract_core import task_read_scope
 from utils.input_cache import input_scope
 from utils.reference_contracts import reference_error

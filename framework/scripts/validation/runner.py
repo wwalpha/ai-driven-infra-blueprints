@@ -20,7 +20,7 @@ import model.change_plan as change_plan
 import model.core as _exports_model_core
 import model.core as _imports_model_core
 import model.sources as _imports_model_sources
-import model.validation as _imports_model_validation
+import model.validations.full_inputs as _model_validation_full_inputs
 import sync_runtime as _imports_sync_runtime
 import sync_views as _imports_sync_views
 import task_contract_core as _imports_task_contract
@@ -696,7 +696,7 @@ class Validator:
             _bind_framework_callback(
                 _callback_Validator_check_scoped_designs_source_checks,
                 _CallbackState(entry=entry),
-                _imports_model_validation.check_model_inputs,
+                _model_validation_full_inputs.check_model_inputs,
                 _imports_model_sources.load_model,
                 self,
             ),

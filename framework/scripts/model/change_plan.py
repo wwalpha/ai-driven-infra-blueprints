@@ -19,8 +19,8 @@ from utils.reference_contracts import (
 
 import model.identity as model_identity
 import model.impact_changes as impact_changes
+import model.projection as _model_validation_projection
 import model.references as references
-import model.validation as model_validation
 from model import dependency_index, environment_values, reference_metadata, sources
 from model.change_scope import change_reads
 from model.core import resource_groups
@@ -127,7 +127,7 @@ def context_changes(old, new, old_number, number, kind, root):
     ):
         for rid, row in indexed.values():
             if "value" in row and requires_context(row["property"]):
-                contexts[rid] = model_validation.reference_context_for(
+                contexts[rid] = _model_validation_projection.reference_context_for(
                     values, rid, row, row["value"], "", root
                 )
     return {

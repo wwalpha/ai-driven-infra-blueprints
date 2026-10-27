@@ -12,11 +12,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import pytest
 from generation_inputs import GenerationInputs
 from model.core import ModelNeedsFixError, SnapshotValues
 from model.sources import Scope
+from model.validations import json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -28,7 +28,7 @@ from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context, recording_inputs
 
-from model import projection, render, validation
+from model import projection, render
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -40,10 +40,10 @@ ENTRIES = ("generate_files", "generate_markdown", "render_validated_model")
 @pytest.mark.parametrize(
     "statement",
     (
-        "import model.validation",
+        "import model.validations.full_inputs",
         "import model.render",
-        "import model.validation; import model.render",
-        "import model.render; import model.validation",
+        "import model.validations.full_inputs; import model.render",
+        "import model.render; import model.validations.full_inputs",
     ),
 )
 def test_fresh_process_imports(statement):
@@ -79,7 +79,7 @@ def test_render_has_no_direct_or_indirect_validation_dependency():
     while pending:
         chain = pending.pop()
         name = chain[-1]
-        assert name != "model.validation", chain
+        assert not name.startswith("model.validations"), chain
         if name in seen:
             continue
         seen.add(name)
@@ -132,7 +132,7 @@ def test_public_entry_skips_quality_checks_and_keeps_outputs(model, entry):
     assert (actual[view] if isinstance(actual, dict) else actual) == expected
     assert "[synthetic-function](#saved-001)" in expected
     assert values == before
-    assert validation.validate_json_documents is projection.validate_json_documents
+    assert json_settings.validate_json_documents is projection.validate_json_documents
 
 
 @pytest.mark.parametrize("entry", ENTRIES)
@@ -158,7 +158,7 @@ def test_invalid_resource_reference_keeps_diagnostics(model, entry):
     markdown = actual[view] if isinstance(actual, dict) else actual
     assert "$modelRef" in markdown and "Missing_Function_001" in markdown
     with pytest.raises(ModelNeedsFixError):
-        validation.validate_json_documents(values, scope.path)
+        projection.validate_json_documents(values, scope.path)
 
 
 @pytest.mark.parametrize("intrinsic", (False, True))

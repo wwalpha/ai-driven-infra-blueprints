@@ -9,7 +9,6 @@ from types import SimpleNamespace as _CallbackState
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 import io
 import json
 import os
@@ -19,11 +18,13 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 import import_guard
+import model.core as _model_validation_core
 import model.impact as model_impact
 import model.render as model_design
 import model.sources as _imports_model_sources
 import model.sources as model_sources
-import model.validation as model_validation
+import model.validations.full_inputs as _model_validation_full_inputs
+import model.validations.identity as _model_validation_identity
 import pytest
 import support.sync_model_fixtures as _fixture_generated_policy
 import sync_files as _imports_sync_files
@@ -280,11 +281,11 @@ def check_stage_cloudformation_definitions(generated_policy, tmp_path):
             stacks | {"desired.stack.001.name": "cfn-stack-other-dev-iam"},
         )
         with pytest.raises(ValueError, match="undeclared stack"):
-            model_validation.validate_resource_identities(
+            _model_validation_identity.validate_resource_identities(
                 staged,
                 values,
                 stage,
-                model_validation.entries(values, "desired.resource."),
+                _model_validation_core.entries(values, "desired.resource."),
                 definitions_root=definition_root(root),
             )
         validator = sync_views.view_validator(stage, root)
@@ -894,7 +895,9 @@ def check_required_preflight(project_workspace) -> None:
     artifact.parent.mkdir(parents=True)
     design.write_text("existing Markdown\n")
     artifact.write_text("existing JSON\n")
-    checked = model_validation.check_model_inputs(model, load_model(model).values, root)
+    checked = _model_validation_full_inputs.check_model_inputs(
+        model, load_model(model).values, root
+    )
     assert any("QuickSight.DataSource.Type" in error for error in checked.errors), (
         checked.errors
     )
@@ -903,7 +906,7 @@ def check_required_preflight(project_workspace) -> None:
         and artifact.read_text() == "existing JSON\n"
     )
     with patch.object(
-        model_validation,
+        _model_validation_full_inputs,
         "check_model_inputs",
         side_effect=AssertionError("generation ran Full quality validation"),
     ):

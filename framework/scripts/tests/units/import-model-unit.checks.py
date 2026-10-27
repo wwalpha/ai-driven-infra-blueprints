@@ -3430,7 +3430,7 @@ def check_refactor_json_value_structure(tmp_path, field, document, allowed):
     "change", ["comment", "value", "reference", "mode", "warning", "invalid"]
 )
 @patch(
-    "model.validation.check_change_inputs",
+    "model.validations.change_inputs.check_change_inputs",
     return_value=SimpleNamespace(
         errors=[],
         warnings=[],
@@ -3531,7 +3531,7 @@ def _callback_check_repair_invalid_model_final_only(
     ],
 )
 @patch(
-    "model.validation.check_change_inputs",
+    "model.validations.change_inputs.check_change_inputs",
     return_value=SimpleNamespace(
         errors=[],
         warnings=[],

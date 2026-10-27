@@ -19,7 +19,9 @@ from model.format import serialize
 from model.operations import CandidateReads
 from model.projection import bound_stack_names
 from model.sources import design_source_digest, load_model
-from model.validation import validate_resource_identities as validate_identities
+from model.validations.identity import (
+    validate_resource_identities as validate_identities,
+)
 from support.it_case_receipt import it_case
 from support.model_design_fixtures import model
 from support.model_sources import declare_outputs, write_model

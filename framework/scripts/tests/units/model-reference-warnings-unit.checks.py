@@ -31,7 +31,7 @@ from model.operations import _mask_references, _same
 from model.projection import deployment_bucket, reference_display
 from model.references import Usage, diagnose, incoming, usages
 from model.sources import Scope, _source_snapshot, load_model
-from model.validation import check_model_inputs as _check_model_inputs
+from model.validations.full_inputs import check_model_inputs as _check_model_inputs
 from support.import_model_fixtures import dependency_fixture
 from support.model_sources import write_model
 from support.model_v2_fixtures import logs_fixture

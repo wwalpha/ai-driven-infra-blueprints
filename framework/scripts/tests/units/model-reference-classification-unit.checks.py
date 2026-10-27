@@ -32,8 +32,8 @@ from model.reference_nodes import parse
 from model.reference_values import reference_value
 from model.render import generate_files, generate_markdown
 from model.sources import load_model
-from model.validation import check_model_inputs as model_inputs
-from model.validation import validate_json_settings
+from model.validations.full_inputs import check_model_inputs as model_inputs
+from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -544,7 +544,7 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
     # Service presentation is independent of the common reference transaction under test.
     with (
         patch(
-            "model.validation.check_model_inputs",
+            "model.validations.full_inputs.check_model_inputs",
             return_value=SimpleNamespace(
                 errors=(), warnings=(), diagnostics=[], unverified=()
             ),

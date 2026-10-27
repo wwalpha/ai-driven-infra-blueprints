@@ -374,7 +374,10 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
     with (
         patch("model.importing.repository.task_start_commit", return_value=base),
         patch("validation.change.validate_producer_inputs"),
-        patch("model.validation.check_change_inputs", return_value=Findings(before)),
+        patch(
+            "model.validations.change_inputs.check_change_inputs",
+            return_value=Findings(before),
+        ),
         mapping_alias(Path(__file__).resolve().parents[4], before),
         selected_task(before, name),
     ):
@@ -506,7 +509,10 @@ def check_final_candidate_uses_latest_base(tmp_path):
         mapping_alias(Path(__file__).resolve().parents[4], before),
         selected_task(before, name),
         patch("validation.change.validate_producer_inputs"),
-        patch("model.validation.check_change_inputs", return_value=Findings(before)),
+        patch(
+            "model.validations.change_inputs.check_change_inputs",
+            return_value=Findings(before),
+        ),
         patch(
             "model.importing.repository.task_start_commit", return_value=original_base
         ),

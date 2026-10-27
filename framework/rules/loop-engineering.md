@@ -101,7 +101,7 @@ contracts and required Views. Unreadable old authorities retain raw comparison f
 old Model validity is not a save prerequisite. A missing before snapshot for an existing
 persisted Model is an explicit comparison error, never a Full-validation fallback.
 
-`model.validation.check_model_inputs` remains the independent full-quality entrypoint;
+`model.validations.full_inputs.check_model_inputs` remains the independent full-quality entrypoint;
 Issue Scan explicitly selects `model_validation="full"` and inspects every current
 Resource, Property and Link in its requested scope without Task/Git differences or
 previous PASS results. The two entries reuse naming, schema, required-property, policy

@@ -2,6 +2,8 @@
 
 from functools import partial
 
+import model.projection as _model_validation_projection
+import model.validations.change_inputs as _model_validation_change_inputs
 from design.catalog import DesignSchemaCatalog
 from model.change_scope import change_reads
 from model.core import structural_entries as entries
@@ -10,7 +12,7 @@ from model.reference_values import ProducerValues
 from utils.reference_contracts import contract, reference_attribute
 from validation.findings import Findings
 
-from model import change_plan, references, validation
+from model import change_plan, references
 
 BROKEN_REFERENCES = {
     "producer Model is absent",
@@ -106,7 +108,7 @@ def validate_plan(root, plan, scope=None, *, definitions_root=None):
                 anchor = display_anchor(resource)
                 if anchors.count(anchor) != 1:
                     raise ValueError("duplicate Resource anchor: " + anchor)
-            result = validation.check_change_inputs(
+            result = _model_validation_change_inputs.check_change_inputs(
                 change.after.scope.path,
                 change.after.authoritative,
                 root,
@@ -125,7 +127,7 @@ def validate_plan(root, plan, scope=None, *, definitions_root=None):
                 "change.incoming-reference",
                 {identity_for(snapshot)},
                 partial(
-                    validation.validate_json_documents,
+                    _model_validation_projection.validate_json_documents,
                     selected.authoritative,
                     snapshot.scope.path,
                     warnings=findings.warnings,
@@ -213,7 +215,7 @@ def validate_producer_inputs(snapshot, details, reads, findings, *, context_valu
         if usage.consumer_key.startswith("desired.row."):
             rid = usage.consumer_key.split(".")[2]
             row = dict(entries(context_values, "desired.row."))[rid]
-            context = validation.reference_context_for(
+            context = _model_validation_projection.reference_context_for(
                 context_values, rid, row, row.get("value"), "", snapshot.scope.root
             )
         forms = contract(prop, context).get(resource["resourceType"], ())

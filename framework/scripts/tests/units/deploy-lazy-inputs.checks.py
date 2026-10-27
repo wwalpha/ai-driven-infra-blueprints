@@ -11,10 +11,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 import model.observed as model_observed
 import model.sources as sources
-import model.validation as model_validation
+import model.validations.full_inputs as _model_validation_full_inputs
 import pytest
 from deploy import (
     controller,
@@ -340,15 +339,17 @@ def check_reference_dependent_validation_invalidated_after_observed(
     with (
         sources.model_session(cache),
         patch.object(
-            model_validation, "_check_model_inputs", return_value=Findings(tmp_path)
+            _model_validation_full_inputs,
+            "_check_model_inputs",
+            return_value=Findings(tmp_path),
         ) as validate,
     ):
         for value in ("vpc-one", "vpc-two"):
             snapshot = sources.load_model(scope.path)
-            model_validation.check_model_inputs(
+            _model_validation_full_inputs.check_model_inputs(
                 scope.path, snapshot.authoritative, tmp_path
             )
-            model_validation.check_model_inputs(
+            _model_validation_full_inputs.check_model_inputs(
                 scope.path, snapshot.authoritative, tmp_path
             )
             text = patch_properties(
@@ -357,7 +358,7 @@ def check_reference_dependent_validation_invalidated_after_observed(
             )
             scope.path.write_text(text)
             cache.apply_observed({scope.path: text})
-        model_validation.check_model_inputs(
+        _model_validation_full_inputs.check_model_inputs(
             scope.path, sources.load_model(scope.path).authoritative, tmp_path
         )
         assert validate.call_count == 3
@@ -368,21 +369,23 @@ def check_reference_dependent_validation_invalidated_after_observed(
                 "desired.row.007-001.comment": "changed",
             }
         )
-        model_validation.check_model_inputs(
+        _model_validation_full_inputs.check_model_inputs(
             scope.path, candidate.authoritative, tmp_path
         )
         assert validate.call_count == 4
         mutable = dict(current.authoritative)
         for value in ("first", "second"):
             mutable["desired.row.007-001.comment"] = value
-            model_validation.check_model_inputs(scope.path, mutable, tmp_path)
+            _model_validation_full_inputs.check_model_inputs(
+                scope.path, mutable, tmp_path
+            )
         assert validate.call_count == 6
         for _ in range(2):
             with input_context():
-                model_validation.check_model_inputs(
+                _model_validation_full_inputs.check_model_inputs(
                     scope.path, current.authoritative, tmp_path
                 )
-                model_validation.check_model_inputs(
+                _model_validation_full_inputs.check_model_inputs(
                     scope.path, current.authoritative, tmp_path
                 )
         assert validate.call_count == 8

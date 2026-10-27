@@ -15,7 +15,8 @@ import model.identity as _imports_model_identity
 import model.importing.references as _imports_model_importing_references
 import model.render as _imports_model_render
 import model.sources as _imports_model_sources
-import model.validation as _imports_model_validation
+import model.validations.full_inputs as _model_validation_full_inputs
+import model.validations.json_settings as _model_validation_json_settings
 from design.array_display import indexed_rows, verified_rows
 from design.document import DesignIndex
 from model.core import (
@@ -49,8 +50,8 @@ if not __debug__:
 
 
 def check_receiving_contracts(root):
-    check_model_inputs = _imports_model_validation.check_model_inputs
-    validate_json_settings = _imports_model_validation.validate_json_settings
+    check_model_inputs = _model_validation_full_inputs.check_model_inputs
+    validate_json_settings = _model_validation_json_settings.validate_json_settings
 
     definitions = Path(__file__).resolve().parents[4]
     scope = Scope(root, "dev", "cde", "glue")

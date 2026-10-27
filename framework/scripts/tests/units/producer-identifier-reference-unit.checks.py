@@ -14,8 +14,8 @@ import pytest
 from model.operations import prepare_edit, validate_candidates
 from model.render import generate_files, generate_markdown, render_validated_model
 from model.sources import Scope, SourceWriteContext
-from model.validation import check_model_inputs as model_findings
-from model.validation import validate_json_settings
+from model.validations.full_inputs import check_model_inputs as model_findings
+from model.validations.json_settings import validate_json_settings
 from support.producer_identifier_reference_fixtures import (
     FileReads,
     Path,

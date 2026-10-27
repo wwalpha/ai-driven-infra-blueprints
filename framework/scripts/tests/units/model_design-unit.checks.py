@@ -38,11 +38,9 @@ from model.format import parse, serialize
 from model.identity import resource_index
 from model.projection import resource_rows
 from model.render import markdown_for
-from model.validation import (
-    validate_kms_policy_accounts,
-    validate_required_properties,
-    validate_resource_identities,
-)
+from model.validations.identity import validate_resource_identities
+from model.validations.policies import validate_kms_policy_accounts
+from model.validations.schema import validate_required_properties
 from support.model_design_fixtures import (
     ALIGNMENT,
     CODEBUILD_VPC_PROPERTIES,
@@ -63,7 +61,6 @@ from support.model_design_fixtures import (
     model,
     naming_errors,
     naming_rule_files,
-    naming_target_matches,
     naming_targets,
     patch,
     properties,
@@ -75,7 +72,6 @@ from support.model_design_fixtures import (
 from support.model_design_fixtures import pytestmark as pytestmark
 from support.model_sources import write_model
 from support.rotation_schedule_fixtures import fixture as rotation_fixture
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.iac_values import cfn_resource_identity
 from utils.json_format import policy_json, validate_aws_document
 from validation.design_links import check_design_links as validate_design_links
@@ -421,59 +417,6 @@ def check_security_naming():
     )
 
 
-def _callback_check_service_scoped_naming_scoped_read(
-    read_text, /, path, *args, **kwargs
-):
-    if path.parent.name == "aws-resource-naming":
-        assert path.name == "S3.md", f"unselected naming rule read: {path}"
-    return read_text(path, *args, **kwargs)
-
-
-def check_service_scoped_naming(tmp_path):
-    datazone_targets = naming_targets(ROOT, "DataZone")
-    for kind in ("DataZone.Domain", "DataZone.Project", "DataZone.DataSource"):
-        assert datazone_targets[kind] == {"Name"}, kind
-        assert not design_naming_errors(ROOT, kind), kind
-    selected = naming_rule_files(ROOT, "S3")
-    assert [path.name for path in selected] == ["aws-resource-naming.md", "S3.md"]
-    read_text = Path.read_text
-
-    scoped_read = _bind_framework_callback(
-        _callback_check_service_scoped_naming_scoped_read, read_text
-    )
-
-    with patch.object(Path, "read_text", scoped_read):
-        assert not naming_errors(
-            ROOT,
-            "S3.Bucket",
-            [["1", "BucketName", "`app-dev-data-123456789012`", "名前"]],
-        )
-        assert set(naming_targets(ROOT, "S3")) == {"S3.Bucket"}
-
-
-def check_naming_target_paths():
-    targets = naming_targets(ROOT, "CodeBuild")["CodeBuild.Project"]
-    assert naming_target_matches("Name", targets, "CodeBuild.Project")
-    assert not naming_target_matches(
-        "Environment.EnvironmentVariables[].Name", targets, "CodeBuild.Project"
-    )
-    assert not naming_target_matches("Artifacts.Name", targets, "CodeBuild.Project")
-    pipeline = naming_targets(ROOT, "CodePipeline")["CodePipeline.Pipeline"]
-    assert naming_target_matches("Name", pipeline, "CodePipeline.Pipeline")
-    for field in ("Stages[].Name", "Stages[].Actions[].Name", "Variables[].Name"):
-        assert not naming_target_matches(field, pipeline, "CodePipeline.Pipeline"), (
-            field
-        )
-    glue = naming_targets(ROOT, "Glue")["Glue.Job"]
-    assert naming_target_matches("Name", glue, "Glue.Job")
-    assert not naming_target_matches("Command.Name", glue, "Glue.Job")
-    # An explicitly declared nested target remains exact and valid.
-    s3 = naming_targets(ROOT, "S3")["S3.Bucket"]
-    assert naming_target_matches("LifecycleConfiguration.Rules[].Id", s3, "S3.Bucket")
-    assert not naming_target_matches("Other.Rules[].Id", s3, "S3.Bucket")
-    print("Naming Target paths: PASS (root-only implicit match, exact nested target)")
-
-
 def check_security_group_and_glue_catalog_naming():
     text = "\n".join(
         path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT)
@@ -509,65 +452,6 @@ def check_security_group_and_glue_catalog_naming():
     assert not naming_errors(ROOT, "EC2.SecurityGroup", [])
     print(
         "Security Group and Glue Catalog naming: PASS (exact patterns, optional number, formal/short properties, optional Name tag)"
-    )
-
-
-@pytest.mark.parametrize(
-    "kind, field",
-    [
-        ("Logs.LogGroup", "LogGroupName"),
-        ("Scheduler.Schedule", "Name"),
-        ("EC2.VPC", "Name"),
-        ("Athena.WorkGroup", "Name"),
-        ("CloudTrail.Trail", "TrailName"),
-    ],
-)
-def check_naming_coverage(kind, field):
-    assert not naming_errors(ROOT, kind, [["1", field, "`example`", "名前"]])
-
-
-def check_naming_edges():
-    assert naming_errors(
-        ROOT,
-        "CloudFront.CachePolicy",
-        [["1", "CachePolicyConfig.Name", "`example`", "名前"]],
-    )
-    assert not naming_errors(
-        ROOT, "Glue.Connection", [["1", "Name", "`PENDING_DEPLOY`", "生成される名前"]]
-    )
-    assert not naming_errors(
-        ROOT,
-        "Glue.Connection",
-        [["1", "ConnectionInput.Name", "`example`", "作成する接続の名前"]],
-    )
-    assert not naming_errors(
-        ROOT, "Scheduler.Schedule", [["1", "GroupName", "`default`", "所属先"]]
-    )
-    assert not naming_errors(
-        ROOT,
-        "SecurityHub.Hub",
-        [["1", "EnableDefaultStandards", "`true`", "標準を有効化"]],
-    )
-    assert not naming_errors(
-        ROOT,
-        "SecurityHub.Hub",
-        [
-            ["1", "Tags[].Key", '"purpose"', "タグ"],
-            ["2", "Tags[].Value", '"security"', "用途"],
-        ],
-    )
-    assert naming_errors(
-        ROOT,
-        "SecurityHub.Hub",
-        [
-            ["1", "Tags[].Key", '"Name"', "タグ"],
-            ["2", "Tags[].Value", '"security"', "名前"],
-        ],
-    )
-    assert not naming_errors(
-        ROOT,
-        "EC2.Instance",
-        [["1", "Tags[].Key", '"Name"', "タグ"], ["2", "Tags[].Value", '"app"', "名前"]],
     )
 
 
@@ -1285,7 +1169,7 @@ def check_secret_naming_values():
             )
     name = "Legacy_Secret.Name"
     rows = [["1", "Name", f"`{name}`", "既存の名前"]]
-    with patch("model.validation.naming_targets", return_value={}):
+    with patch("model.validations.naming.naming_targets", return_value={}):
         assert naming_errors(ROOT, "SecretsManager.Secret", rows) == [
             "naming rule missing: SecretsManager.Secret: Name"
         ]
@@ -2010,7 +1894,7 @@ def check_cfn_identity_inputs(tmp_path):
     path = tmp_path / "docs/designs/dev/team/vpc.md"
     resources = list(entries(values, "desired.resource."))
     with patch(
-        "model.validation.design_target",
+        "model.validations.identity.design_target",
         return_value={"iacEngine": "terraform", "awsAccountId": "123456789012"},
     ):
         with pytest.raises(ValueError, match="forbidden for Terraform"):
@@ -2037,13 +1921,13 @@ def check_cfn_identity_inputs(tmp_path):
     }
     with (
         patch(
-            "model.validation.design_target",
+            "model.validations.identity.design_target",
             return_value={
                 "iacEngine": "cloudformation",
                 "awsAccountId": "123456789012",
             },
         ),
-        patch("model.validation.input_is_file", return_value=True),
+        patch("model.validations.identity.input_is_file", return_value=True),
         patch("model.files.read_model", return_value=serialize(stacks)),
         patch("model.projection.bound_stack_names", return_value={"existing-stack"}),
     ):

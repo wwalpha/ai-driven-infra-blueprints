@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-import model.validation as _imports_model_validation
+import model.validations.full_inputs as _model_validation_full_inputs
 from comparison import Comparison
 from design.catalog import DesignSchemaCatalog
 from generation_inputs import GenerationInputs
@@ -152,7 +152,7 @@ def check_authority_display_and_references(project_workspace):
         patch_model(parse(serialize(bucket)), {ROW: bucket[ROW]}), encoding="utf-8"
     )
     assert load_model(scope, FileReads()).authoritative[ROW] == bucket[ROW]
-    check_model_inputs = _imports_model_validation.check_model_inputs
+    check_model_inputs = _model_validation_full_inputs.check_model_inputs
     schema = check_model_inputs(
         scope.path, bucket, scope.root, definitions_root=FRAMEWORK
     )

@@ -77,7 +77,7 @@ resource_logical_ids = _exports_support_design_layout_fixtures.resource_logical_
         "design.services.ec2.security_groups",
         "design.document",
         "model.display",
-        "model.validation",
+        "model.validations.full_inputs",
         "model.render",
         "model.change_plan",
         "design.array_display",

@@ -18,7 +18,7 @@ from model.identity import Resolver
 from model.projection import reference_display
 from model.reference_nodes import parse, resolve
 from model.render import generate_markdown
-from model.validation import validate_json_settings
+from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,

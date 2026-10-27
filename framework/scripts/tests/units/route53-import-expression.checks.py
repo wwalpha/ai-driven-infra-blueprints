@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from model.projection import is_import_expression
 from model.render import markdown_for
-from model.validation import check_model_inputs as _check_model_inputs
+from model.validations.full_inputs import check_model_inputs as _check_model_inputs
 from support.model_design_fixtures import ROOT, model
 from support.validator import schema_validator
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
