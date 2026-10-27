@@ -5853,26 +5853,26 @@ def test_iac_reference_display_pipeline_preserves_comparison_and_issues(observed
     )
 
     # This boundary receives an already detected difference; service decisions stay upstream.
-    def render(resolver):
-        return setting_result(
-            "codebuild",
-            "002",
-            "CodeBuild.Project.Environment",
-            desired,
-            actual,
-            decision,
-            "producer",
-            [{}],
-            {},
-            actual_error=None,
-            redact=comparison.redacted,
-            display_reference=resolver,
-        )
-
-    before = render(None)
+    args = (
+        "codebuild",
+        "002",
+        "CodeBuild.Project.Environment",
+        desired,
+        actual,
+        decision,
+        "producer",
+        [{}],
+        {},
+    )
+    before = setting_result(*args, actual_error=None, redact=comparison.redacted)
     authority = copy.deepcopy(comparison.models["kms"].authoritative)
     with patch("socket.socket", side_effect=AssertionError("network forbidden")):
-        after = render(comparison.display_reference)
+        after = setting_result(
+            *args,
+            actual_error=None,
+            redact=comparison.redacted,
+            display_reference=comparison.display_reference,
+        )
     assert after.failure is None, after.failure
     assert before.records == after.records and before.warnings == after.warnings
     assert authority == comparison.models["kms"].authoritative
@@ -6110,25 +6110,23 @@ def test_iac_reference_display_runner_decisions_unchanged(desired, expected):
     actual = {"Ref": "Vpc" if expected == "uncompared" else "Bucket"}
     settings = Settings(desired={"Description": desired}, sources={"Description": [{}]})
 
-    def compare():
-        return comparison.compare_setting(
-            "iam",
-            "002",
-            "IAM.Role",
-            "Description",
-            desired,
-            settings,
-            "producer",
-            {"Properties": {"Description": actual}},
-            ROOT / "synthetic.yaml",
-        )
-
+    args = (
+        "iam",
+        "002",
+        "IAM.Role",
+        "Description",
+        desired,
+        settings,
+        "producer",
+        {"Properties": {"Description": actual}},
+        ROOT / "synthetic.yaml",
+    )
     with patch.object(comparison, "display_reference", None):
-        before = compare()
+        before = comparison.compare_setting(*args)
     with patch.object(
         comparison, "display_reference", wraps=comparison.display_reference
     ) as resolve:
-        after = compare()
+        after = comparison.compare_setting(*args)
     assert before.records == after.records
     assert [item["category"] for item in after.records] == [expected], after.records
     assert resolve.call_count == (1 if expected == "difference" else 0)

@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from functools import partial
 
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, safe_value
@@ -80,18 +81,21 @@ def _reference_types(raw, shown):
     return shown
 
 
+def _display_literal(symbol, resolve, sources):
+    if isinstance(symbol, Expression):
+        return literal_expression(
+            symbol,
+            resolve_literal=partial(_display_literal, resolve=resolve, sources=sources),
+        )
+    concrete, source = resolve(symbol)
+    if source not in sources:
+        sources.append(source)
+    return concrete
+
+
 def _display_value(value, prop, resolve, redact):
     if isinstance(value, (ResourceReference, Expression)) and references(value):
         sources = []
-
-        def literal(symbol):
-            if isinstance(symbol, Expression):
-                return literal_expression(symbol, resolve_literal=literal)
-            concrete, source = resolve(symbol)
-            if source not in sources:
-                sources.append(source)
-            return concrete
-
         targets = ", ".join(
             dict.fromkeys(
                 "/".join(ref["$resource"]) + "." + ref["$attribute"]
@@ -99,7 +103,7 @@ def _display_value(value, prop, resolve, redact):
             )
         )
         try:
-            concrete = literal(value)
+            concrete = _display_literal(value, resolve, sources)
         except Blocked as error:
             return redact(f"未解決 (参照: {targets}、理由: {error})", prop)
         return redact(
