@@ -824,7 +824,11 @@ class Comparison(Inputs):
         if actual == {"$noValue": True}:
             missing = "property omitted by AWS::NoValue"
         reference = (
-            (lambda a, b, path: self.reference_decision(a, b, kind, path))
+            (
+                lambda a, b, path, **kwargs: self.reference_decision(
+                    a, b, kind, path, **kwargs
+                )
+            )
             if self.local_comparison
             else None
         )

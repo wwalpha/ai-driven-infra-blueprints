@@ -10,6 +10,10 @@ from utils.iac_values import Expression, ResourceReference, same
 from utils.reference_contracts import (
     REFERENCE_FORMS,
     REFERENCE_PROPERTIES,
+    VALUE_IDENTITIES,
+    contract,
+    reference_error,
+    requires_context,
 )
 
 from . import expressions, registry
@@ -110,63 +114,22 @@ def reference_diagnostic(
     )
 
 
-def _callback_reference_same_reference(
-    diagnostic,
-    evidence,
-    forms_for,
-    kind,
-    kms_format,
-    local_comparison,
-    nested,
-    comparisons,
-    resolve_literal,
-    resource_type,
-    project_arn,
-    /,
-    a,
-    b,
-    p,
-):
-    outcome = reference_same(
-        a,
-        b,
-        kind,
-        p,
-        local_comparison=local_comparison,
-        forms_for=forms_for,
-        resolve_literal=resolve_literal,
-        resource_type=resource_type,
-        kms_format=kms_format,
-        diagnostic=diagnostic,
-        evidence=evidence,
-        project_arn=project_arn,
-    )
-    nested.append(outcome)
-    comparisons.append((a, b, p, outcome.equal))
-    comparisons.extend(outcome.comparisons)
-    return outcome.equal
-
-
 def _callback_reference_same_unproven(
     decision, diagnostic, kind, left, path, right, /, reason
 ):
     return decision(None, [diagnostic(left, right, kind, path, reason)])
 
 
-def _callback_reference_same_decision(
-    nested, comparisons, /, equal, diagnostics=(), equivalent=False
-):
-    return ReferenceDecision(
-        equal,
-        tuple(diagnostics) + tuple(d for result in nested for d in result.diagnostics),
-        equivalent or any(result.equivalent for result in nested),
-        tuple(comparisons),
-    )
+def _decision(equal, diagnostics=(), equivalent=False):
+    return ReferenceDecision(equal, tuple(diagnostics), equivalent)
 
 
-def _record_comparison(comparisons, left, right, path, equal):
-    comparisons.append((left, right, path, equal))
-    return equal
+def _context_reference(root, context, results, compare, kind, /, left, right, path):
+    if path == root:
+        return NotImplemented
+    outcome = compare(left, right, kind, path, context=context)
+    results.append((left, right, path, outcome))
+    return outcome.equal
 
 
 def reference_same(
@@ -183,6 +146,7 @@ def reference_same(
     diagnostic,
     evidence=None,
     project_arn=None,
+    context=None,
 ):
     if evidence is not None and any(
         isinstance(value, Expression) for value in (left, right)
@@ -201,41 +165,87 @@ def reference_same(
         for value in (left, right)
     ):
         return ReferenceDecision(None)
-    nested, comparisons = [], []
-    reference = _bind_framework_callback(
-        _callback_reference_same_reference,
-        diagnostic,
-        evidence,
-        forms_for,
-        kind,
-        kms_format,
-        local_comparison,
-        nested,
-        comparisons,
-        resolve_literal,
-        resource_type,
-        project_arn,
-    )
-    decision = _bind_framework_callback(
-        _callback_reference_same_decision, nested, comparisons
-    )
-    hook = registry.property_rule(kind, path).reference
-    if hook is not None:
-        if local_comparison:
-            result = hook(
-                left,
-                right,
-                path,
-                resolve_literal,
-                kms_format,
-                resource_type,
-                reference,
-                record=_bind_framework_callback(_record_comparison, comparisons),
+    decision = _decision
+    rule = registry.property_rule(kind, path)
+    if (
+        local_comparison
+        and rule.reference_context
+        and rule.whole == "OBJECT"
+        and isinstance(left, dict)
+        and isinstance(right, dict)
+    ):
+        results = []
+        compare = _bind_framework_callback(
+            reference_same,
+            local_comparison=local_comparison,
+            forms_for=forms_for,
+            resolve_literal=resolve_literal,
+            resource_type=resource_type,
+            kms_format=kms_format,
+            diagnostic=diagnostic,
+            evidence=evidence,
+            project_arn=project_arn,
+        )
+        equal = same(
+            left,
+            right,
+            path=path,
+            reference=_bind_framework_callback(
+                _context_reference, path, left, results, compare, kind
+            ),
+        )
+        return ReferenceDecision(
+            equal,
+            tuple(d for _, _, _, result in results for d in result.diagnostics),
+            any(result.equivalent for _, _, _, result in results),
+            tuple((a, b, p, result.equal) for a, b, p, result in results),
+        )
+    symbols = [value for value in (left, right) if isinstance(value, ResourceReference)]
+    prop = kind + "." + path
+    if (
+        local_comparison
+        and context is not None
+        and symbols
+        and (requires_context(prop, context) or reference_error(prop, context))
+    ):
+        declared = contract(prop, context)
+        if reference_error(prop, context) or not declared:
+            return decision(None)
+        for symbol in symbols:
+            refkind = resource_type(symbol)
+            if refkind not in declared or symbol["$attribute"] not in {
+                reference_attribute(refkind, form) for form in declared[refkind]
+            }:
+                return decision(None)
+        if len(symbols) == 2:
+            return decision(same(left, right))
+        other = right if isinstance(left, ResourceReference) else left
+        if not isinstance(other, str) or "{{resolve:" in other or "${" in other:
+            return decision(None)
+        symbol = symbols[0]
+        refkind = resource_type(symbol)
+        unknown = False
+        for form in declared[refkind]:
+            pattern = VALUE_IDENTITIES.get((refkind, form))
+            if pattern and not re.fullmatch(pattern, other):
+                continue
+            candidate = ResourceReference(
+                dict(symbol, **{"$attribute": reference_attribute(refkind, form)})
             )
-        else:
-            result = NotImplemented
-        if result is not NotImplemented:
-            return decision(result)
+            try:
+                concrete = resolve_literal(candidate)
+            except (Blocked, ValueError, KeyError, TypeError, OSError):
+                unknown = True
+                continue
+            if (
+                not isinstance(concrete, str)
+                or "{{resolve:" in concrete
+                or "${" in concrete
+            ):
+                unknown = True
+            elif same(concrete, other) is True:
+                return decision(True, equivalent=True)
+        return decision(None if unknown else False)
     allowed = registry.property_rule(kind, path).forms if local_comparison else None
     if allowed:
         result, reason = registry.property_rule(kind, path).form_compare(

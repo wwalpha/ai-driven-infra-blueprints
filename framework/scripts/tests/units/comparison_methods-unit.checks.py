@@ -498,14 +498,10 @@ def test_rulebook_complete_static_coverage():
         service, resource_type, path = prop.split(".", 2)
         rule = registry.require(service + "." + resource_type, path)
         assert rule.forms is forms and callable(rule.form_compare)
-    assert registry.property_rule("Unknown.Type", "Field").reference is None
     assert registry.resource("Unknown.Type").identity_same is None
-    assert (
-        registry.require(
-            "CodeBuild.Project", "Environment.EnvironmentVariables[].Value"
-        ).reference
-        is not None
-    )
+    assert registry.require(
+        "CodeBuild.Project", "Environment.EnvironmentVariables[]"
+    ).reference_context
     assert (
         registry.require("Route53.RecordSet", "ResourceRecords[]").selected_decision
         is not None
@@ -529,7 +525,15 @@ def test_unregistered_rule_is_framework_error():
     assert CompareOutcome(None).differences == ()
 
 
-def codebuild_reference(resolve_literal, left, right, path):
+def codebuild_reference(
+    resolve_literal,
+    left,
+    right,
+    path,
+    resource_kind="SecretsManager.Secret",
+    *,
+    context=None,
+):
     return reference_same(
         left,
         right,
@@ -538,9 +542,10 @@ def codebuild_reference(resolve_literal, left, right, path):
         local_comparison=True,
         forms_for=lambda *args: None,
         resolve_literal=resolve_literal,
-        resource_type=lambda symbol: "SecretsManager.Secret",
+        resource_type=lambda symbol: resource_kind,
         kms_format=lambda value: None,
         diagnostic=lambda *args: {},
+        context=context,
     )
 
 
@@ -570,6 +575,164 @@ def test_codebuild_nested_reference_proof_is_reused():
         {"path": "EnvironmentVariables[0].Name", "model": "LEFT", "iac": "RIGHT"}
     ]
     assert resolve.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "selector,actual,expected",
+    [
+        ("SECRETS_MANAGER", "app/secret", True),
+        (
+            "SECRETS_MANAGER",
+            "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:app/secret",
+            True,
+        ),
+        ("SECRETS_MANAGER", "app/other", False),
+        ("SECRETS_MANAGER", "app/secret:key", False),
+        ("PLAINTEXT", "app/secret", None),
+        (None, "app/secret", None),
+    ],
+)
+def test_contextual_secret_comparison(selector, actual, expected):
+    symbol = ResourceReference({"$resource": ["secrets", "001"], "$attribute": "Id"})
+    values = {
+        "Name": "app/secret",
+        "Id": "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:app/secret",
+    }
+    resolver = Mock(side_effect=lambda ref: values[ref["$attribute"]])
+    left = {"Type": selector, "Value": symbol}
+    right = {"Type": selector, "Value": actual}
+    outcome = compare_values(
+        left,
+        right,
+        "Environment.EnvironmentVariables[]",
+        rules=registry.rules("CodeBuild.Project"),
+        reference=partial(codebuild_reference, resolver),
+        whole=True,
+    )
+    assert outcome.equal is expected
+    if expected is False:
+        assert [difference.path for difference in outcome.differences] == ["Value"]
+
+
+def test_contextual_reference_identity_and_unknown():
+    symbol = ResourceReference({"$resource": ["secrets", "001"], "$attribute": "Id"})
+    other = ResourceReference({"$resource": ["secrets", "002"], "$attribute": "Id"})
+    resolve = Mock(side_effect=KeyError("unresolved"))
+    callback = partial(codebuild_reference, resolve)
+    rule = registry.rules("CodeBuild.Project")
+    left = {"Type": "SECRETS_MANAGER", "Value": symbol}
+    for value, expected in [(symbol, True), (other, False), ("app/secret", None)]:
+        right = {"Type": "SECRETS_MANAGER", "Value": value}
+        assert (
+            compare_values(
+                left,
+                right,
+                "Environment.EnvironmentVariables[]",
+                rules=rule,
+                reference=callback,
+                whole=True,
+            ).equal
+            is expected
+        )
+    wrong = {"Type": "PARAMETER_STORE", "Value": symbol}
+    assert (
+        compare_values(
+            wrong,
+            {"Type": "PARAMETER_STORE", "Value": "app/secret"},
+            "Environment.EnvironmentVariables[]",
+            rules=rule,
+            reference=callback,
+            whole=True,
+        ).equal
+        is None
+    )
+
+
+def test_contextual_parameter_name():
+    symbol = ResourceReference(
+        {"$resource": ["parameters", "001"], "$attribute": "Name"}
+    )
+    callback = partial(
+        codebuild_reference,
+        Mock(return_value="/app/parameter"),
+        resource_kind="SSM.Parameter",
+    )
+    left = {"Type": "PARAMETER_STORE", "Value": symbol}
+    right = {"Type": "PARAMETER_STORE", "Value": "/app/parameter"}
+    assert (
+        compare_values(
+            left,
+            right,
+            "Environment.EnvironmentVariables[]",
+            rules=registry.rules("CodeBuild.Project"),
+            reference=callback,
+            whole=True,
+        ).equal
+        is True
+    )
+
+
+def test_codebuild_parameter_partial_selection_preserves_extra_fields():
+    symbol = ResourceReference(
+        {"$resource": ["parameters", "001"], "$attribute": "Name"}
+    )
+    callback = partial(
+        codebuild_reference,
+        Mock(return_value="/app/parameter"),
+        resource_kind="SSM.Parameter",
+    )
+    left = {"Type": "PARAMETER_STORE", "Value": symbol}
+    right = {"Type": "PARAMETER_STORE", "Value": "/app/parameter", "Name": "EXTRA"}
+    assert (
+        compare_values(
+            left,
+            right,
+            "Environment.EnvironmentVariables[]",
+            rules=registry.rules("CodeBuild.Project"),
+            reference=callback,
+        ).equal
+        is True
+    )
+
+
+def test_codebuild_full_selection_detects_extra_fields():
+    symbol = ResourceReference(
+        {"$resource": ["parameters", "001"], "$attribute": "Name"}
+    )
+    callback = partial(
+        codebuild_reference,
+        Mock(return_value="/app/parameter"),
+        resource_kind="SSM.Parameter",
+    )
+    left = {"Type": "PARAMETER_STORE", "Value": symbol}
+    right = {"Type": "PARAMETER_STORE", "Value": "/app/parameter", "Name": "EXTRA"}
+    outcome = compare_values(
+        left,
+        right,
+        "Environment.EnvironmentVariables[]",
+        rules=registry.rules("CodeBuild.Project"),
+        reference=callback,
+        whole=True,
+    )
+    assert outcome.equal is False
+    assert [difference.path for difference in outcome.differences] == ["Name"]
+
+
+def test_codebuild_dynamic_literal_is_unresolved():
+    symbol = ResourceReference({"$resource": ["secrets", "001"], "$attribute": "Id"})
+    left = {"Type": "SECRETS_MANAGER", "Value": symbol}
+    right = {"Type": "SECRETS_MANAGER", "Value": "${Unknown}"}
+    assert (
+        compare_values(
+            left,
+            right,
+            "Environment.EnvironmentVariables[]",
+            rules=registry.rules("CodeBuild.Project"),
+            reference=partial(codebuild_reference, Mock(return_value="app/secret")),
+            whole=True,
+        ).equal
+        is None
+    )
 
 
 def test_reference_atomic_difference_path_and_missing():

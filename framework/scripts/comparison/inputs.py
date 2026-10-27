@@ -893,7 +893,7 @@ class Inputs:
             detail["exports"] = self.redacted(origins)
         return detail
 
-    def reference_decision(self, left, right, kind, path):
+    def reference_decision(self, left, right, kind, path, *, context=None):
         selected = None
         if self.local_comparison:
             selected = registry.property_rule(kind, path).selected_decision
@@ -949,6 +949,7 @@ class Inputs:
             diagnostic=self.reference_diagnostic,
             evidence=self.reference_evidence if self.local_comparison else None,
             project_arn=self.project_arn,
+            context=context,
         )
         if deferred:
             detail = self.reference_diagnostic(

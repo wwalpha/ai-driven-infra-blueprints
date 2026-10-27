@@ -28,7 +28,7 @@ class Rule:
     custom: object = None
     actual: object = None
     local: bool = False
-    reference: object = None
+    reference_context: bool = False
     selected_decision: object = None
     selected_reference: object = None
     forms: frozenset | set | None = None
@@ -117,6 +117,7 @@ class _Comparison:
     keyed: dict = field(default_factory=dict)
     unordered: dict = field(default_factory=dict)
     diagnostics: list = field(default_factory=list)
+    contexts: dict = field(default_factory=dict)
     equivalent: bool = False
 
 
@@ -203,8 +204,25 @@ def compare_values(
 
 
 def _decision(state, whole, left, right, path):
+    rule = state.rules.get(path)
+    if (
+        rule
+        and rule.reference_context
+        and rule.whole == "OBJECT"
+        and isinstance(left, dict)
+        and isinstance(right, dict)
+    ):
+        for key in left.keys() & right.keys():
+            state.contexts[path + "." + key, id(left[key]), id(right[key])] = left
+        return NotImplemented
     if state.reference is not None:
-        outcome = state.reference(left, right, path)
+        context = state.contexts.get((path, id(left), id(right)))
+        outcome = (
+            state.reference(left, right, path, context=context)
+            if context is not None
+            and any(isinstance(value, ResourceReference) for value in (left, right))
+            else state.reference(left, right, path)
+        )
         state.diagnostics.extend(outcome.diagnostics)
         state.equivalent |= outcome.equivalent
         if outcome.equal is not NotImplemented:
@@ -264,7 +282,9 @@ def _decision(state, whole, left, right, path):
     return equal
 
 
-def _proof_reference(comparisons, root_left, root_right, root_path, left, right, path):
+def _proof_reference(
+    comparisons, root_left, root_right, root_path, left, right, path, *, context=None
+):
     if left is root_left and right is root_right and path == root_path:
         return CompareOutcome(NotImplemented)
     for a, b, location, equal in comparisons:
