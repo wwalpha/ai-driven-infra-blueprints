@@ -9,16 +9,42 @@ class Unresolved(ValueError):
     pass
 
 
+def segment(part, path):
+    indexed = re.fullmatch(r"(.+)\[(\d+)\]", part)
+    if indexed:
+        index = int(indexed.group(2)) - 1
+        if index < 0:
+            raise Unresolved(f"array indexes are one-based: {path}")
+        return indexed.group(1), index
+    return part.removesuffix("[]"), None
+
+
+def indexed_array(tree, name, index):
+    if not isinstance(tree, dict):
+        raise Unresolved("inconsistent array element structure")
+    array = tree.setdefault(name, [])
+    if not isinstance(array, list):
+        raise Unresolved("inconsistent array type")
+    while len(array) <= index:
+        array.append({})
+    return array
+
+
 def select(value, path):
     if not path:
         return value
     part, _, rest = path.partition(".")
+    name, index = segment(part, path)
     array = part.endswith("[]")
-    child = (
-        value.get(part.removesuffix("[]"), MISSING)
-        if isinstance(value, dict)
-        else MISSING
-    )
+    child = value.get(name, MISSING) if isinstance(value, dict) else MISSING
+    if index is not None:
+        if child == MISSING:
+            return MISSING
+        if not isinstance(child, list):
+            raise Unresolved("SDK response has an invalid array type")
+        child = child[index] if index < len(child) else MISSING
+        if rest and child != MISSING and not isinstance(child, dict):
+            raise Unresolved("inconsistent array element structure")
     if array:
         if child == MISSING:
             return MISSING
@@ -31,8 +57,16 @@ def select(value, path):
 def project(tree, path, value):
     """Put an SDK leaf projection back into a tree without losing array membership."""
     part, _, rest = path.partition(".")
-    if part.endswith("[]"):
-        name = part[:-2]
+    name, index = segment(part, path)
+    if not isinstance(tree, dict):
+        raise Unresolved("inconsistent array element structure")
+    if index is not None:
+        array = indexed_array(tree, name, index)
+        if rest:
+            project(array[index], rest, value)
+        else:
+            array[index] = value
+    elif part.endswith("[]"):
         if value == MISSING:
             tree[name] = MISSING
         elif not rest:
@@ -62,21 +96,20 @@ def put_row(tree, path, value):
                     "row order does not identify parent/child membership or omitted fields"
                 )
     part, _, rest = path.partition(".")
-    indexed = re.fullmatch(r"(.+)\[(\d+)\]", part)
-    if indexed:
-        name, number = indexed.group(1), int(indexed.group(2)) - 1
-        if number < 0:
-            raise Unresolved(f"array indexes are one-based: {path}")
-        array = tree.setdefault(name, [])
-        while len(array) <= number:
-            array.append({})
+    name, index = segment(part, path)
+    if not isinstance(tree, dict):
+        raise Unresolved("inconsistent array element structure")
+    if index is not None:
+        array = indexed_array(tree, name, index)
         if rest:
-            put_row(array[number], rest, value)
+            put_row(array[index], rest, value)
         else:
-            array[number] = value
+            array[index] = value
     elif part.endswith("[]"):
         name = part[:-2]
         array = tree.setdefault(name, [])
+        if not isinstance(array, list):
+            raise Unresolved("inconsistent array type")
         if not rest:
             array.extend(value if isinstance(value, list) else [value])
         else:

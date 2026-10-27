@@ -407,6 +407,48 @@ def test_projection_sibling_comparison(conflicting, selected):
 
 
 @pytest.mark.parametrize(
+    "actual,category", [(["ActionA"], "matched"), (["ActionB"], "difference")]
+)
+def test_indexed_projection_iac_comparison(actual, category):
+    comparison = fixture()
+    kind = "QuickSight.DataSource"
+    rows = resource(
+        comparison,
+        "quicksight",
+        "001",
+        kind,
+        "Projected",
+        [
+            ("Permissions[1].Principal", "principal", None),
+            ("Permissions[1].Actions[]", '["ActionA"]', None),
+        ],
+        properties={"Permissions": [{"Principal": "principal", "Actions": actual}]},
+    )
+    rows[1][1]["valueShape"] = "projection"
+    comparison.models["quicksight"].authoritative["desired.row.001-002.valueShape"] = (
+        "projection"
+    )
+    valid, unresolved = validated_rows(kind, rows)
+    assert valid == rows and not unresolved
+    document = comparison.stack_inputs["producer"][0]
+    batch = comparison.compare_rows(
+        "quicksight",
+        "001",
+        comparison.resources["quicksight"]["001"],
+        "producer",
+        "Projected",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Projected"],
+        document,
+    )
+    assert batch.failure is None, batch.failure
+    assert any(item["category"] == category for item in batch.records), batch.records
+    assert not any(
+        item["category"] in {"error", "uncompared"} for item in batch.records
+    ), batch.records
+
+
+@pytest.mark.parametrize(
     "service,kind,field,encoded,actual",
     [
         (

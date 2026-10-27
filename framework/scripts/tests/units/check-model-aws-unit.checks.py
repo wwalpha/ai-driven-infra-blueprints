@@ -152,6 +152,63 @@ def check_projection_sibling_comparison(tmp_path, conflicting):
     }, records
 
 
+@pytest.mark.parametrize(
+    "actual,status", [(["ActionA"], "match"), (["ActionB"], "difference")]
+)
+def check_indexed_projection_aws_comparison(tmp_path, actual, status):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    kind = "QuickSight.DataSource"
+    mapping, properties = ctx.comparison("quicksight")
+    principal = kind + ".Permissions[1].Principal"
+    actions = kind + ".Permissions[1].Actions[]"
+    ctx.comparisons["quicksight"] = (
+        mapping,
+        {
+            **properties,
+            principal: properties[kind + ".Permissions[].Principal"],
+            actions: properties[kind + ".Permissions[].Actions"],
+        },
+    )
+    model = SimpleNamespace(
+        ctx=ctx,
+        service="quicksight",
+        values={},
+        locations={},
+        path=tmp_path / "model/dev" / ACCOUNT / "quicksight.properties",
+    )
+    selected = m.Resource(
+        model,
+        "001",
+        {"resourceType": kind, "logicalId": "QuickSight_DataSource_001"},
+        [
+            ("001-001", {"property": principal, "value": "`principal`"}),
+            (
+                "001-002",
+                {
+                    "property": actions,
+                    "value": '`["ActionA"]`',
+                    "valueShape": "projection",
+                },
+            ),
+        ],
+    )
+    with patch.object(
+        m._imports_aws_mapping_compare,
+        "value",
+        side_effect=[({}, "principal"), ({}, actual)],
+    ):
+        records = m.compare_resource(ctx, selected)
+    assert {item["propertiesKey"]: item["status"] for item in records} == {
+        principal: "match",
+        actions: status,
+    }, records
+    assert (
+        next(item for item in records if item["propertiesKey"] == actions)["awsValue"]
+        == actual
+    )
+
+
 def check_value_normalization():
     tags = {"Tags": [{"Key": "b", "Value": "2"}, {"Key": "a", "Value": "1"}]}
     check(

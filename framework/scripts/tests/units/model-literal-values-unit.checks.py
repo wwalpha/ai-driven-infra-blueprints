@@ -3,6 +3,7 @@
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -339,6 +340,51 @@ def test_projection_tree_retains_membership():
     assert select(tree, "Groups[].Members[].Values") == value
     with pytest.raises(Unresolved, match="length"):
         project(tree, "Groups[].Name", ["one"])
+
+
+def test_indexed_paths_reconstruct_and_select():
+    tree = {}
+    put_row(tree, "Groups[1].Name", "Name1")
+    project(tree, "Groups[1].Values[]", ["v1"])
+    put_row(tree, "Groups[2].Name", "Name2")
+    project(tree, "Groups[1].Children[1].Values[]", ["child"])
+    put_row(tree, "Groups[1].Children[1].Name", "first")
+    assert tree == {
+        "Groups": [
+            {
+                "Name": "Name1",
+                "Values": ["v1"],
+                "Children": [{"Values": ["child"], "Name": "first"}],
+            },
+            {"Name": "Name2"},
+        ]
+    }
+    assert select(tree, "Groups[1].Values[]") == ["v1"]
+    assert select(tree, "Groups[2].Name") == "Name2"
+    assert select(tree, "Groups[1].Children[1].Name") == "first"
+    assert select(tree, "Groups[3].Name") == {"absent": True}
+    assert select(tree, "Groups[].Name") == ["Name1", "Name2"]
+    for function in (put_row, project):
+        with pytest.raises(Unresolved):
+            function({}, "Groups[0]", "x")
+        with pytest.raises(Unresolved):
+            function({"Groups": "bad"}, "Groups[1].Name", "x")
+        with pytest.raises(Unresolved):
+            function({"Groups": ["bad"]}, "Groups[1].Name", "x")
+    with pytest.raises(Unresolved):
+        select({}, "Groups[0]")
+    with pytest.raises(Unresolved):
+        select({"Groups": "bad"}, "Groups[1]")
+    with pytest.raises(Unresolved):
+        select({"Groups": ["bad"]}, "Groups[1].Name")
+
+
+def test_no_projection_skips_pair_scan():
+    rows = [(str(i), {"property": f"Resource.Field{i}"}) for i in range(1000)]
+    with patch(
+        "model.literal_values.combinations", side_effect=AssertionError("pair scan")
+    ):
+        assert projection_conflicts(rows) == {}
 
 
 @pytest.mark.parametrize(

@@ -317,7 +317,7 @@ def _desired_value(
             errors = row_literal_errors(
                 catalog,
                 kind,
-                re.sub(r"\[\d+\]", "[]", row["property"].removeprefix(kind + ".")),
+                row["property"].removeprefix(kind + "."),
                 value,
                 value_shape(row),
             )

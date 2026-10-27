@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from itertools import combinations
 
 from utils.json_format import strict_json
 
@@ -26,26 +27,29 @@ def projection_conflicts(rows):
         parts = re.findall(r"[^.\[\]]+|\[\d*\]", prop)
         members.append((prop, value_shape(row), parts))
     conflicts = {}
-    for index, (prop, shape, parts) in enumerate(members):
-        for other, other_shape, other_parts in members[index + 1 :]:
-            if "projection" not in (shape, other_shape):
-                continue
-            shared_array, overlaps = False, True
-            for part, other_part in zip(parts, other_parts, strict=False):
-                if part != other_part and not (
-                    part.startswith("[")
-                    and other_part.startswith("[")
-                    and "[]" in (part, other_part)
-                ):
-                    overlaps = False
-                    break
-                shared_array |= "[]" in (part, other_part)
-            if overlaps or (shape != other_shape and shared_array):
-                reason = (
-                    "ambiguous leaf/projection array membership: " + prop + ", " + other
-                )
-                conflicts[prop] = reason
-                conflicts[other] = reason
+    if not any(shape == "projection" for _, shape, _ in members):
+        return conflicts
+    for (prop, shape, parts), (other, other_shape, other_parts) in combinations(
+        members, 2
+    ):
+        if "projection" not in (shape, other_shape):
+            continue
+        shared_array, overlaps = False, True
+        for part, other_part in zip(parts, other_parts, strict=False):
+            if part != other_part and not (
+                part.startswith("[")
+                and other_part.startswith("[")
+                and "[]" in (part, other_part)
+            ):
+                overlaps = False
+                break
+            shared_array |= "[]" in (part, other_part)
+        if overlaps or (shape != other_shape and shared_array):
+            reason = (
+                "ambiguous leaf/projection array membership: " + prop + ", " + other
+            )
+            conflicts[prop] = reason
+            conflicts[other] = reason
     return conflicts
 
 
@@ -136,12 +140,16 @@ def literal_errors(catalog, kind, field, raw, shape="leaf"):
 
 def validation_errors(catalog, kind, field, normalized):
     # Even an empty parent must resolve the complete schema path.
-    catalog.property_schema(kind, field)
+    schema_field = re.sub(r"\[\d+\]", "[]", field)
+    catalog.property_schema(kind, schema_field)
     errors = []
     for path, array in normalized.arrays:
         errors.extend(
-            f"{path}: {error}" for error in catalog.array_errors(kind, path, array)
+            f"{path}: {error}"
+            for error in catalog.array_errors(
+                kind, re.sub(r"\[\d+\]", "[]", path), array
+            )
         )
     for value in normalized.values:
-        errors.extend(catalog.typed_literal_errors(kind, field, value))
+        errors.extend(catalog.typed_literal_errors(kind, schema_field, value))
     return errors
