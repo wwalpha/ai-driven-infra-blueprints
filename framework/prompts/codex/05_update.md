@@ -180,7 +180,7 @@ Do not automatically interpret existing StackName deletions/renames in stack des
 ## Read before changing files
 
 1. `AGENTS.md`
-2. Apply the common Task sections already read. Add applicable infrastructure-specific Task contracts and recovery rules only when needed.
+2. Apply the [common Task sections](../../rules/task-contract.md#task-transition) already read. Add applicable infrastructure-specific Task contracts and recovery rules only when needed.
 3. `tasks/<task-name>.md` if present. Otherwise treat as idle and create it first under Create active task contract.
 4. `project.json`
 5. `git status --short` and Design scope diffs identified from repository changes
