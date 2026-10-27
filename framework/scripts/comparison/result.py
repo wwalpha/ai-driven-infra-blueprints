@@ -154,35 +154,77 @@ def value_differences(
     return fields
 
 
-def _visit_unconfirmed(value, path, property_name, prop, fields, redact, display_reference):
+def _visit_unconfirmed(
+    value,
+    path,
+    property_name,
+    prop,
+    fields,
+    redact,
+    display_reference,
+    pointers,
+    model,
+    pointer=(),
+):
     if isinstance(value, (ResourceReference, Expression)) and references(value):
         fields.append(
             {
                 "path": safe_text("IaC:" + (path or prop) + "（比較未確定）"),
-                "model": "対応未確定",
+                "model": _formatted(_shown_value(None, pointers[pointer], model))
+                if pointer in pointers
+                else "対応未確定",
                 "iac": _display_value(value, property_name, display_reference, redact),
             }
         )
     elif isinstance(value, dict):
         for key, item in value.items():
             _visit_unconfirmed(
-                item, path + ("." if path else "") + key, property_name + "." + key,
-                prop, fields, redact, display_reference,
+                item,
+                path + ("." if path else "") + key,
+                property_name + "." + key,
+                prop,
+                fields,
+                redact,
+                display_reference,
+                pointers,
+                model,
+                pointer + (key,),
             )
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _visit_unconfirmed(
-                item, path + f"[{index}]", property_name, prop, fields, redact, display_reference
+                item,
+                path + f"[{index}]",
+                property_name,
+                prop,
+                fields,
+                redact,
+                display_reference,
+                pointers,
+                model,
+                pointer + (index,),
             )
 
 
-def unconfirmed_references(actual, prop, *, redact, display_reference):
+def unconfirmed_references(
+    desired, actual, decision, prop, *, redact, display_reference
+):
     """Show IaC references independently when element correspondence is unproven."""
     if display_reference is None:
         return []
     safe = _reference_types(actual, redact(actual, prop))
     fields = []
-    _visit_unconfirmed(safe, "", prop, prop, fields, redact, display_reference)
+    _visit_unconfirmed(
+        safe,
+        "",
+        prop,
+        prop,
+        fields,
+        redact,
+        display_reference,
+        dict(decision.correspondence),
+        redact(desired, prop),
+    )
     return fields
 
 
@@ -301,7 +343,12 @@ def setting_result(
             reference_diagnostics=list(decision.diagnostics),
         )
         fields = unconfirmed_references(
-            actual, prop, redact=redact, display_reference=display_reference
+            desired,
+            actual,
+            decision,
+            prop,
+            redact=redact,
+            display_reference=display_reference,
         )
         return RowResult(
             [item], display_differences={identifier(item): fields} if fields else {}

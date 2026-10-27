@@ -13,8 +13,9 @@ import pytest
 from comparison import Comparison
 from comparison.deferral import ImportReferenceDeferred, failure_category
 from comparison.evaluation import project_actual
-from comparison.methods import ORDERED, CompareOutcome, compare_values
+from comparison.methods import ORDERED, UNORDERED, CompareOutcome, compare_values, keyed
 from comparison.reference_evidence import Evidence
+from comparison.references import ReferenceDecision
 from comparison.registry import rules
 from comparison.resource import inactive_evidence, inline_owner
 from comparison.result import identifier, setting_result, value_differences
@@ -6182,7 +6183,8 @@ def test_codebuild_uncompared_reference_display_real_path(observed):
     assert record["category"] == "uncompared"
     (field,) = after.display_differences[identifier(record)]
     assert "EnvironmentVariables[2].Value" in field["path"]
-    assert "比較未確定" in field["path"] and field["model"] == "対応未確定"
+    assert "比較未確定" in field["path"]
+    assert field["model"] == "alias/venusinf-stg-material"
     assert "kms/007.KeyId" in field["iac"] and "AliasName" not in field["iac"]
     assert (KEY_ID in field["iac"]) == (observed == KEY_ID)
     assert ("理由:" in field["iac"]) == (observed is None)
@@ -6238,3 +6240,87 @@ def test_uncompared_reference_display_preserves_redaction(shape):
     else:
         assert "kms/007.KeyId" in rendered
         assert (KEY_ID not in rendered) == (shape == "sensitive")
+
+
+@pytest.mark.parametrize(
+    "mode", ["scalar", "ordered", "keyed", "unordered", "ambiguous"]
+)
+def test_uncompared_shows_only_proven_model_correspondence(mode):
+    ref = ResourceReference({"$resource": ["kms", "007"], "$attribute": "KeyId"})
+    if mode == "scalar":
+        desired, actual, rule = "model-value", ref, ORDERED
+    elif mode == "ordered":
+        desired, actual, rule = [{"Value": "model-value"}], [{"Value": ref}], ORDERED
+    else:
+        desired = [
+            {"Name": "A", "Value": "model-value"},
+            {"Name": "B", "Value": "other"},
+        ]
+        actual = [{"Name": "B", "Value": "other"}, {"Name": "A", "Value": ref}]
+        rule = keyed("Name") if mode == "keyed" else UNORDERED
+        if mode == "ambiguous":
+            desired = [{"Value": "model-value"}, {"Value": "other"}]
+            actual = [{"Value": ref}, {"Value": ref}]
+
+    def reference(left, right, path):
+        return ReferenceDecision(
+            None if isinstance(right, ResourceReference) else NotImplemented
+        )
+
+    decision = compare_values(
+        desired, actual, "Setting", rules={"Setting": rule}, reference=reference
+    )
+    assert decision.equal is None
+    batch = setting_result(
+        "test",
+        "001",
+        "Setting",
+        desired,
+        actual,
+        decision,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=lambda v, *args: v,
+        display_reference=lambda ref: ("resolved", "fixture"),
+    )
+    fields = next(iter(batch.display_differences.values()))
+    assert [field["model"] for field in fields] == (
+        ["対応未確定", "対応未確定"] if mode == "ambiguous" else ["model-value"]
+    )
+
+
+def test_uncompared_model_correspondence_respects_sensitive_redaction():
+    comparison = fixture()
+    comparison.sensitive_values.add("model-secret")
+    desired = {"Value": "model-secret"}
+    actual = {
+        "Value": ResourceReference({"$resource": ["kms", "007"], "$attribute": "KeyId"})
+    }
+    decision = compare_values(
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=lambda left, right, path: ReferenceDecision(
+            None if isinstance(right, ResourceReference) else NotImplemented
+        ),
+    )
+    batch = setting_result(
+        "test",
+        "001",
+        "Setting",
+        desired,
+        actual,
+        decision,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=comparison.redacted,
+        display_reference=lambda ref: ("resolved", "fixture"),
+    )
+    field = next(iter(batch.display_differences.values()))[0]
+    assert "model-secret" not in json.dumps(field)
+    assert "masked" in field["model"]

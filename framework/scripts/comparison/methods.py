@@ -106,6 +106,7 @@ class CompareOutcome:
     differences: tuple = ()
     candidate_failures: tuple = ()
     candidate_warnings: tuple = ()
+    correspondence: tuple = ()
 
 
 EQUAL = CompareOutcome(True)
@@ -122,6 +123,7 @@ class _Comparison:
     unordered: dict = field(default_factory=dict)
     diagnostics: list = field(default_factory=list)
     contexts: dict = field(default_factory=dict)
+    confirmed_pairs: dict = field(default_factory=dict)
     equivalent: bool = False
     candidate_failures: list = field(default_factory=list)
     candidate_warnings: list = field(default_factory=list)
@@ -211,7 +213,57 @@ def compare_values(
         tuple(differences),
         tuple(state.candidate_failures),
         tuple(state.candidate_warnings),
+        tuple(_correspondence(state, desired, actual, key, (), (), scope))
+        if equal is None
+        else (),
     )
+
+
+def _correspondence(state, left, right, typed, lp, rp, whole):
+    key = typed, id(left), id(right), whole
+    if isinstance(right, (ResourceReference, Expression)):
+        yield rp, lp
+    elif isinstance(left, dict) and isinstance(right, dict):
+        for name in left.keys() & right.keys():
+            yield from _correspondence(
+                state,
+                left[name],
+                right[name],
+                typed + "." + name,
+                lp + (name,),
+                rp + (name,),
+                whole,
+            )
+    elif isinstance(left, list) and isinstance(right, list):
+        if key in state.keyed:
+            _, model_keys, iac_keys, _ = state.keyed[key]
+            pairs = [
+                (indexes[0], iac_keys[value][0])
+                for value, indexes in model_keys.items()
+                if len(indexes) == 1 and len(iac_keys.get(value, ())) == 1
+            ]
+        elif _special(state.rules.get(typed), whole, state.local):
+            pairs = state.confirmed_pairs.get(key, ())
+        else:
+            _, prefix = array_presence(right)
+            pairs = ((i, i) for i in range(min(len(left), prefix)))
+        child_scope = whole or (
+            state.rules.get(typed) is not None
+            and (state.rules[typed].whole if whole else state.rules[typed].selected)
+            == "UNORDERED"
+        )
+        for i, j in pairs:
+            yield from _correspondence(
+                state,
+                left[i],
+                right[j],
+                typed + "[]",
+                lp + (i,),
+                rp + (j,),
+                child_scope,
+            )
+    else:
+        yield rp, lp
 
 
 def _decision(state, whole, left, right, path):
@@ -426,6 +478,18 @@ def _select_unordered_diagnostics(
                 for j, value in enumerate(row)
                 if value is not False and (matched[i] in reach[j] or reach[j] & free)
             }
+    if equal is None:
+        row_counts, column_counts = {}, {}
+        for i, j in selected:
+            row_counts[i] = row_counts.get(i, 0) + 1
+            column_counts[j] = column_counts.get(j, 0) + 1
+        pairs = [
+            (j, i) if reversed_order else (i, j)
+            for i, j in selected
+            if row_counts[i] == column_counts[j] == 1
+        ]
+        state.confirmed_pairs[path, id(left), id(right), True] = pairs
+        state.confirmed_pairs[path, id(left), id(right), False] = pairs
     seen = {}
     for i, j in sorted(selected):
         diagnostics, equivalent, warnings, failures = candidates[i * len(columns) + j][
