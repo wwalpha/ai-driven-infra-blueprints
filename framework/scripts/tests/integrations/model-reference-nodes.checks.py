@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from design.policy_tables import rendered_design
-from model.core import ReferenceResolutionError
 from model.projection import generated_document, reference_resolver
 from model.render import generate_files, generate_markdown
 from model.sources import load_model
@@ -60,23 +59,6 @@ def main():
                 else:
                     assert "$modelRef" not in markdown
                     assert "](kms.md#saved-001)" in markdown
-                if observed in (None, "PENDING_DEPLOY"):
-                    try:
-                        generate_files(view, snapshot.values, root)
-                    except ReferenceResolutionError as error:
-                        assert error.diagnostic["category"] == (
-                            "REFERENCE_UNRESOLVED"
-                            if observed is None
-                            else "REFERENCE_PENDING_DEPLOY"
-                        )
-                        assert error.diagnostic["pointer"] == "/Statement/0/Resource"
-                    else:
-                        raise AssertionError(
-                            "unresolved reference generated an artifact"
-                        )
-                    assert not artifact.exists() and not view.exists()
-                    assert consumer.path.read_bytes() == original
-                    continue
                 files = generate_files(view, snapshot.values, root)
                 save_files(files)
                 display = rendered_design(view, definitions_root=FRAMEWORK)
@@ -84,9 +66,16 @@ def main():
                 if observed != "PENDING_DEPLOY":
                     assert expected not in display
                 document = json.loads(artifact.read_bytes())
-                assert document["Statement"][0]["Resource"] == expected
-                assert "$modelRef" not in json.dumps(document)
-                validate_aws_document(document)
+                assert document["Statement"][0]["Resource"] == (
+                    json.loads(policy["desired.row.001-002.document"])["Statement"][0][
+                        "Resource"
+                    ]
+                    if observed is None
+                    else expected
+                )
+                if observed is not None:
+                    assert "$modelRef" not in json.dumps(document)
+                    validate_aws_document(document)
                 contract = dict(
                     resolver=reference_resolver(snapshot.values, consumer, root),
                     scope=consumer,

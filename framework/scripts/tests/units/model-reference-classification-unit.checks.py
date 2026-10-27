@@ -136,7 +136,7 @@ def models(tmp_path, request):
         yield producer, key, consumer, role, document
 
 
-def materialize(consumer, role, document):
+def materialize(consumer, role, document, *, warnings=None):
     return generated_document(
         document,
         consumer.root,
@@ -145,6 +145,7 @@ def materialize(consumer, role, document):
         logical_id="IAM_Role_070",
         property_name="IAM.Role.Policies[].PolicyDocument",
         model_key="desired.row.070-004.document",
+        warnings=warnings,
     )
 
 
@@ -387,9 +388,10 @@ def test_pending_and_every_invalid_sibling_are_collected(models):
 def test_pending_resolves_without_altering_authority(models):
     producer, key, consumer, role, document = models
     original = copy.deepcopy(document)
-    with pytest.raises(ReferenceResolutionError) as caught:
-        materialize(consumer, role, document)
-    diagnostic = caught.value.diagnostics[0]
+    warnings = []
+    pending = materialize(consumer, role, document, warnings=warnings)
+    assert pending["Statement"][6]["Resource"] == "PENDING_DEPLOY"
+    diagnostic = warnings[0]
     assert (
         diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
         and diagnostic["status"] == "NOT_RUN"
@@ -557,11 +559,19 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
             warnings=warnings,
             unavailable=unavailable,
         )
-    assert set(generated) == {good}
+    assert set(generated) == ({good} if invalid else {good, bad})
     assert bool(failures) == invalid
-    assert (bad in unavailable) == (not invalid)
+    assert not unavailable
     assert {path: path.read_bytes() for path in original} == original
-    assert (stage / artifact.relative_to(root)).read_bytes() == original[artifact]
+    if invalid:
+        assert (stage / artifact.relative_to(root)).read_bytes() == original[artifact]
+    else:
+        assert (
+            json.loads((stage / artifact.relative_to(root)).read_bytes())["Statement"][
+                6
+            ]["Resource"]
+            == "PENDING_DEPLOY"
+        )
     sync_runtime.save_files(
         {
             root / path.relative_to(stage): path.read_text(encoding="utf-8")
@@ -570,8 +580,15 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         }
     )
     assert good.read_text(encoding="utf-8") == "# Generated\n"
-    assert artifact.read_bytes() == original[artifact]
-    assert bad.read_bytes() == original[bad]
+    if invalid:
+        assert artifact.read_bytes() == original[artifact]
+        assert bad.read_bytes() == original[bad]
+    else:
+        assert (
+            json.loads(artifact.read_bytes())["Statement"][6]["Resource"]
+            == "PENDING_DEPLOY"
+        )
+        assert bad.read_text(encoding="utf-8") == "# Generated\n"
     plan = SimpleNamespace(
         root=root,
         generated_scope={("qa", "team", path.stem) for path in generated},
@@ -587,11 +604,15 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         baseline_links={},
     )
     metadata = sync_runtime.generation_metadata(plan)
-    assert metadata["status"] == ("FAIL" if invalid else "NOT_RUN")
-    assert not metadata["complete"]
-    assert bool(metadata["unavailable_services"]) == (not invalid)
+    assert metadata["status"] == ("FAIL" if invalid else "PASS")
+    assert metadata["complete"] == (not invalid)
+    assert not metadata["unavailable_services"]
+    assert bool(metadata["unverified"]) == (state != "invalid")
     assert metadata["warnings"] == warnings
-    with pytest.raises(ValueError if invalid else ReferenceResolutionError):
+    if invalid:
+        with pytest.raises(ValueError):
+            sync_runtime.report_generation(plan)
+    else:
         sync_runtime.report_generation(plan)
 
 
@@ -649,9 +670,10 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     assert "pending_deploy" not in markdown
     assert rendered_design(path, definitions_root=FRAMEWORK) == markdown
     assert consumer.path.read_bytes() == original
-    # Import and other strict callers keep the existing execution projection.
-    with pytest.raises(ReferenceResolutionError):
-        materialize(consumer, role, document)
+    assert (
+        materialize(consumer, role, document)["Statement"][6]["Resource"]
+        == "PENDING_DEPLOY"
+    )
     failures, unavailable = [], {}
     strict = sync_runtime.generate_views(
         consumer.root / "strict-stage",
@@ -661,7 +683,7 @@ def test_pending_policy_display_keeps_resolved_positions(models):
         unavailable=unavailable,
         strict=True,
     )
-    assert not strict and not failures and path in unavailable
+    assert path in strict and not failures and not unavailable
     # A display marker alone never authorizes a missing JSON exception.
     document["Statement"][6]["Resource"] = "*"
     role["desired.row.070-004.document"] = json.dumps(document)
@@ -696,26 +718,28 @@ def test_input_and_generation_share_reference_evaluation(models, field):
         checked = []
         validate_json_settings(role, consumer.path, warnings=checked)
         assert evaluate.call_count == 1
-        with pytest.raises(ReferenceResolutionError) as generated:
-            generated_document(
+        generated = []
+        projected = generated_document(
+            document,
+            consumer.root,
+            resolver=reference_resolver(role, consumer, consumer.root),
+            scope=consumer,
+            logical_id="IAM_Role_070",
+            property_name="IAM.Role.Policies[].PolicyDocument",
+            model_key=model_key,
+            context=projection.reference_context_for(
+                role,
+                "070-004",
+                {"property": "IAM.Role.Policies[].PolicyDocument"},
                 document,
+                "",
                 consumer.root,
-                resolver=reference_resolver(role, consumer, consumer.root),
-                scope=consumer,
-                logical_id="IAM_Role_070",
-                property_name="IAM.Role.Policies[].PolicyDocument",
-                model_key=model_key,
-                context=projection.reference_context_for(
-                    role,
-                    "070-004",
-                    {"property": "IAM.Role.Policies[].PolicyDocument"},
-                    document,
-                    "",
-                    consumer.root,
-                ),
-            )
+            ),
+            warnings=generated,
+        )
+        assert projected["Statement"][6]["Resource"] == "PENDING_DEPLOY"
         assert evaluate.call_count == 1
-    assert checked == generated.value.diagnostics
+    assert checked == generated
     assert checked[0]["modelKey"] == model_key
     assert checked[0]["pointer"] == "/Statement/6/Resource"
 
@@ -723,8 +747,16 @@ def test_input_and_generation_share_reference_evaluation(models, field):
 def test_reference_wait_findings_are_not_pass(models):
     _, _, consumer, role, document = models
     findings = Findings(consumer.root)
+    _, diagnostics = projection.document_references(
+        document,
+        resolver=reference_resolver(role, consumer, consumer.root),
+        scope=consumer,
+    )
     result = findings.evaluate(
-        "projection", None, partial(materialize, consumer, role, document), isolate=True
+        "projection",
+        None,
+        partial(require_reference_diagnostics, diagnostics),
+        isolate=True,
     )
     assert result.status == "NOT_RUN" and not result.errors and result.warnings
     assert not findings.reference_errors and not findings.processing_errors
@@ -756,8 +788,8 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, state
     )
     try:
         assert bool(plan.failures) == invalid, plan.failures
-        assert bool(plan.unavailable) == (not invalid)
-        assert not plan.generated
+        assert not plan.unavailable
+        assert bool(plan.generated) == (not invalid)
     finally:
         plan.close()
     lint = dict(

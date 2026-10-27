@@ -4,6 +4,7 @@ import json as _imports_json
 from functools import partial as _bind_framework_callback
 
 import iac_evaluation as _imports_iac_evaluation
+from model.environment_values import _leaves
 from model.reference_nodes import is_reference, nodes, parse
 from utils.cloudformation.format import JSON_INTRINSICS, intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked
@@ -81,6 +82,12 @@ def _recursive_project_document_visit(
             if not template and any(nodes(value)):
                 raise Blocked("logical Model references remain in design JSON")
             result = evaluate(value)
+            if (
+                not bound
+                and not template
+                and any(leaf == "PENDING_DEPLOY" for _, leaf in _leaves(value))
+            ):
+                return "PENDING_DEPLOY"
             if (not bound and isinstance(result, Expression)) or result == {
                 "$noValue": True
             }:

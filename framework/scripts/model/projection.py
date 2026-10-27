@@ -418,7 +418,14 @@ def reference_resolver(values, scope, root):
 
 
 def _resolved_document_value(resolutions, node):
-    return resolutions[node].value
+    result = resolutions.get(node)
+    return (
+        result.value
+        if result is not None and result.status == "resolved"
+        else "PENDING_DEPLOY"
+        if result is not None and result.status == "pending_deploy"
+        else reference_document(node)
+    )
 
 
 def _display_document_value(resolutions, node):
@@ -587,7 +594,7 @@ def generated_document(
     context=None,
     warnings=None,
 ):
-    """Resolve physical values for execution; never modify Model or design JSON."""
+    """Project a JSON View; reference waits never certify or prevent AWS execution."""
     resolutions, diagnostics = document_references(
         document,
         resolver=resolver,
@@ -597,7 +604,13 @@ def generated_document(
         model_key=model_key,
         context=context,
     )
-    require_reference_diagnostics(diagnostics)
+    if any(
+        d["category"] not in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
+        for d in diagnostics
+    ):
+        require_reference_diagnostics(diagnostics)
+    if warnings is not None:
+        warnings.extend(d for d in diagnostics if d not in warnings)
     resolved = project(document, partial(_resolved_document_value, resolutions))
     projected = execution_document(
         resolved,
@@ -607,10 +620,11 @@ def generated_document(
         logical_id=logical_id,
         warnings=warnings,
     )
-    pending = next(_pending_document_values(projected), None)
-    if pending is not None:
-        raise ReferenceResolutionError(
-            "JSON artifact requires confirmed values",
+    for pending in _pending_document_values(projected):
+        if warnings is None or any(d.get("pointer") == pending for d in diagnostics):
+            continue
+        diagnostic = ReferenceResolutionError(
+            "JSON View contains PENDING_DEPLOY",
             category="REFERENCE_PENDING_DEPLOY",
             code="REFERENCE_PENDING_DEPLOY",
             model=str(scope.path),
@@ -619,7 +633,9 @@ def generated_document(
             property=property_name,
             pointer=pending,
             scope=f"{scope.environment}/{scope.target}/{scope.service}",
-        )
+        ).diagnostic
+        if diagnostic not in warnings:
+            warnings.append(diagnostic)
     return projected
 
 

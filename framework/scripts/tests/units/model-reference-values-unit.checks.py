@@ -15,7 +15,8 @@ import model.sources as sources
 import pytest
 import sync_runtime
 from deploy.model_cache import RunModels
-from model.core import ModelNeedsFixError, ReferenceResolutionError
+from design.policy_tables import Policy, policy_lines
+from model.core import ModelNeedsFixError, entries
 from model.format import patch as patch_properties
 from model.format import serialize
 from model.identity import Resolver
@@ -27,6 +28,7 @@ from model.projection import (
     reference_resolver,
 )
 from model.reference_nodes import display_value, parse
+from model.reference_presentation import Presentation
 from model.reference_values import reference_value
 from model.render import generate_files
 from model.sources import load_model
@@ -531,18 +533,22 @@ def test_artifact_nested_and_encoded_references(fixture, tmp_path, strict):
         json.dumps({"items": ["PENDING_DEPLOY"]}),
     ],
 )
-def test_artifact_literal_pending_is_not_success(fixture, value):
+def test_artifact_literal_pending_is_view_warning(fixture, value):
     _, _, consumer, policy = fixture
     document = {"Resource": value}
-    with pytest.raises(ReferenceResolutionError) as caught:
+    warnings = []
+    assert (
         generated_document(
             document,
             consumer.root,
             resolver=reference_resolver(policy, consumer, consumer.root),
             scope=consumer,
+            warnings=warnings,
         )
-    assert caught.value.diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
-    assert caught.value.diagnostic["pointer"].startswith("/Resource")
+        == document
+    )
+    assert warnings[0]["category"] == "REFERENCE_PENDING_DEPLOY"
+    assert warnings[0]["pointer"].startswith("/Resource")
     assert document == {"Resource": value}
 
 
@@ -565,27 +571,29 @@ def test_unconfirmed_path_does_not_use_absence_default(fixture):
 def test_generated_json_reports_every_unresolved_pointer(fixture):
     _, _, consumer, policy = fixture
     document = {
-        "a/b~": [reference("KMS_Key_001"), json.dumps(reference("S3_Bucket_999"))]
+        "a/b~": [reference("KMS_Key_001"), json.dumps(reference("KMS_Key_001"))]
     }
     resolver = reference_resolver(policy, consumer, consumer.root)
-    with pytest.raises(ValueError) as error:
+    warnings = []
+    assert (
         generated_document(
             document,
             consumer.root,
             resolver=resolver,
             scope=consumer,
             logical_id="IAM_ManagedPolicy_001",
+            warnings=warnings,
         )
-    message = str(error.value)
+        == document
+    )
+    message = json.dumps(warnings)
     for expected in (
         "KMS_Key_001",
-        "S3_Bucket_999",
         '"attribute": "Arn"',
         "/a~1b~0/0",
         "/a~1b~0/1",
         "REFERENCE_UNRESOLVED",
         "KeyId",
-        "producer logicalId is absent",
     ):
         assert expected in message
     with pytest.raises(ValueError, match="Model reference"):
@@ -595,6 +603,10 @@ def test_generated_json_reports_every_unresolved_pointer(fixture):
 
 def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
     producer, _, consumer, policy = fixture
+    policy["desired.row.001-002.document"] = json.dumps(
+        {"Resource": reference("KMS_Key_999")}
+    )
+    save(consumer, policy)
     root, stage = consumer.root, tmp_path / "stage"
     bad = root / "docs/designs/qa/team/iam.md"
     good = bad.with_name("s3.md")
@@ -621,8 +633,8 @@ def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
             unavailable=unavailable,
         )
     assert set(generated) == {good}
-    assert not failures and bad in unavailable
-    assert unavailable[bad]["diagnostics"][0]["category"] == "REFERENCE_UNRESOLVED"
+    assert failures and not unavailable
+    assert "MODEL_REF_TARGET_MISSING" in failures[0].message
     assert {path: path.read_bytes() for path in original} == original
     assert (stage / artifact.relative_to(root)).read_bytes() == original[artifact]
 
@@ -844,6 +856,115 @@ def test_reference_cache_candidate_and_rollback(fixture, read_only, expected_cal
             diagnostics[0] == diagnostics[2] and diagnostics[0] and not diagnostics[1]
         )
         assert evaluate.call_count == expected_calls
+
+
+@pytest.mark.parametrize("observed", [None, "PENDING_DEPLOY", "vpc-0123456789abcdef0"])
+def test_vpc_json_view_and_saved_policy(fixture, observed):
+    _, _, consumer, policy = fixture
+    vpc, _ = resource(
+        consumer.root, "vpc", "EC2.VPC", attribute="VpcId", observed=observed
+    )
+    node = reference("EC2_VPC_001", "VpcId")
+    document = {
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "s3:GetObject",
+                "Resource": reference("S3_Bucket_001"),
+                "Condition": {"StringEquals": {"aws:SourceVpc": node}},
+            }
+        ]
+    }
+    policy["desired.row.001-002.document"] = json.dumps(document)
+    save(consumer, policy)
+    before = {p: p.read_bytes() for p in (consumer.path, vpc.path)}
+    view = consumer.root / "docs/designs/qa/team/iam.md"
+    artifact = view.with_suffix("") / "policy.json"
+    warnings = []
+    files = generate_files(
+        view, load_model(consumer).values, consumer.root, warnings=warnings
+    )
+    projected = json.loads(files[artifact])
+    expected = node if observed is None else observed
+    assert (
+        projected["Statement"][0]["Condition"]["StringEquals"]["aws:SourceVpc"]
+        == expected
+    )
+    assert projected["Statement"][0]["Resource"] == "arn:aws:s3:::fixture-materials"
+    assert [w["category"] for w in warnings] == (
+        ["REFERENCE_UNRESOLVED"]
+        if observed is None
+        else ["REFERENCE_PENDING_DEPLOY"]
+        if observed == "PENDING_DEPLOY"
+        else []
+    )
+    nested = {"items": [node, {"encoded": json.dumps([node, "keep", 3])}]}
+    value = generated_document(
+        nested,
+        consumer.root,
+        resolver=reference_resolver(policy, consumer, consumer.root),
+        scope=consumer,
+    )
+    assert value["items"][0] == expected
+    assert json.loads(value["items"][1]["encoded"]) == [expected, "keep", 3]
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text(files[artifact], encoding="utf-8")
+    saved_policy = Policy(
+        "Policy",
+        "iam/policy.json",
+        "saved-policy",
+        "ポリシー",
+        "IAM.ManagedPolicy.PolicyDocument",
+    )
+    presentation = Presentation(policy, view, consumer.root)
+    rows = {
+        (saved_policy.property_name, saved_policy.link): [
+            (rid, row)
+            for rid, row in entries(policy, "desired.row.")
+            if rid == "001-002"
+        ]
+    }
+    assert policy_lines(view, saved_policy, presentation=presentation, policy_rows=rows)
+    artifact.write_text('{"Statement": []}', encoding="utf-8")
+    with pytest.raises(ValueError, match="differs from authoritative Model"):
+        policy_lines(view, saved_policy, presentation=presentation, policy_rows=rows)
+    assert {p: p.read_bytes() for p in before} == before
+    assert (
+        node == document["Statement"][0]["Condition"]["StringEquals"]["aws:SourceVpc"]
+    )
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        {"Fn::Join": ["", [reference(), "/*"]]},
+        {"Fn::Sub": ["${Key}/*", {"Key": reference()}]},
+        {"Fn::Join": ["", ["arn:", {"Fn::Join": ["", [reference(), ":suffix"]]}]]},
+        {"Fn::Select": [0, [reference(), "fixed"]]},
+    ],
+)
+def test_pending_composite_view_is_not_a_physical_identifier(fixture, expression):
+    _, _, consumer, policy = fixture
+    resource(
+        consumer.root, "kms", "KMS.Key", attribute="KeyId", observed="PENDING_DEPLOY"
+    )
+    original = copy.deepcopy(expression)
+    for document in (expression, {"encoded": json.dumps(expression)}):
+        warnings = []
+        projected = generated_document(
+            document,
+            consumer.root,
+            resolver=reference_resolver(policy, consumer, consumer.root),
+            scope=consumer,
+            warnings=warnings,
+        )
+        assert projected == (
+            "PENDING_DEPLOY"
+            if document is expression
+            else {"encoded": json.dumps("PENDING_DEPLOY")}
+        )
+        assert any(w["category"] == "REFERENCE_PENDING_DEPLOY" for w in warnings)
+    assert expression == original
 
 
 if __name__ == "__main__":

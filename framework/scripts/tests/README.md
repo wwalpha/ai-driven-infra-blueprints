@@ -253,16 +253,15 @@ one artifact/Markdown round-trip to the official IT runner; do not run it locall
 
 Desired stores exactly `{"$modelRef":{"logicalId":"…","attribute":"…"}}`. Producer lookup is
 limited to the Consumer's environment/target and rejects duplicate logical IDs. `design_document`
-validates references through `model.reference_values` and uses `execution_document` to retain
-nodes, including JSON encoded inside strings. Both `render.generate_files` and batch
-`sync_runtime.generate_views` use this design path. Pending deployment does not prevent
-JSON generation or remove existing JSON/Markdown links. Confirmed deployment also retains
-logical nodes. Invalid references fail their service with Producer logicalId, attribute,
-JSON Pointer, status and reason; independent services continue and failed services retain
-saved views. `generated_document` is the physical execution projection and requires confirmed
-values before existing CFn evaluation. Strict generation checks readiness without changing
-the design JSON contract. Generation PASS/complete is distinct from reference NOT_RUN.
-The independent AWS JSON boundary still rejects internal nodes and unresolved CFn intrinsics.
+retains authored JSON. Both `render.generate_files` and batch `sync_runtime.generate_views`
+use `generated_document` for JSON Views: resolved references become values, pending references
+become PENDING_DEPLOY, and unresolved references retain their declarations with diagnostics.
+Markdown keeps the existing display contract, anchors and links. Pending and unresolved Views
+can generate and publish with PASS while retaining unverified reference information. Invalid
+references still fail only their service and retain saved views. Strict generation inspects
+inline structured values with the same View contract; it does not certify AWS readiness.
+Saved policy JSON is compared against the same projection. The independent AWS input boundary
+and Deploy's IaC/physical-value checks remain unchanged.
 
 `utils/arn_values.py` owns ARN assembly for comparison and Model resolution. `ARN_SHAPES` and
 `ARN_DEFAULTS` remain the sole format/default definitions; service component guards live in
@@ -279,7 +278,7 @@ neither pending deployment nor absence. The result carries `resolved`, `pending_
 and display/content equality, encoded JSON, diagnostics, authority preservation, per-service
 failure isolation and the existing dependency graph's propagation after BucketName changes.
 Generated artifacts are compared structurally with logical Model documents; Markdown uses
-the existing display projection. Physical execution projection is checked separately with resolved values.
+the existing display projection. JSON View projection is checked with resolved, pending and unresolved values.
 No derived document hash or resolved ARN is saved into authority.
 No automatic Model migration is provided. LLM migration must prove the producer and attribute
 and change only the proved expression under a separately authorized Model Task.
@@ -334,7 +333,7 @@ helperは削除しました。共通 `document_sha256` / `fingerprint` の仕様
 ## Logical design JSON and AWS execution
 
 Existing reference node/value/classification UTs cover pending and confirmed design nodes,
-mixed/encoded literals, stable repeated generation, invalid references and strict execution.
+mixed/encoded literals, stable repeated generation, invalid references and strict View generation.
 Policy/display/schema UTs retain independent literal validation and saved artifact equality.
 `json-format` and `cloudformation-inputs` UTs reject internal nodes before AWS submission,
 including encoded JSON in Templates and Parameters, while permitting ordinary CFn expressions

@@ -20,7 +20,7 @@ from deploy.controller import load_inputs
 from deploy.scheduler import run_group
 from design.catalog import DesignSchemaCatalog
 from design.services.codepipeline import pipeline_display_rows, pipeline_rows
-from model.core import ModelNeedsFixError, ReferenceResolutionError, literal
+from model.core import ModelNeedsFixError, literal
 from model.environment_values import (
     glue_variables,
     identity,
@@ -615,7 +615,7 @@ def check_deploy_snapshot_guard_precedes_aws_and_is_per_stack(models, value):
     )
 
 
-def check_display_retains_pending_and_artifact_rejects(models):
+def check_display_and_artifact_retain_pending(models):
     scope, values = authored(
         models,
         "Lambda.Function",
@@ -629,16 +629,17 @@ def check_display_retains_pending_and_artifact_rejects(models):
         "KEY": "PENDING_DEPLOY",
         "OTHER": "fixed",
     }
-    with pytest.raises(ReferenceResolutionError, match="JSON artifact") as blocked:
-        generated_document(
-            {"KEY": "PENDING_DEPLOY"},
-            models,
-            resolver=resolver,
-            scope=scope,
-            property_name="Lambda.Function.Environment.Variables",
-        )
-    assert blocked.value.diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
-    assert blocked.value.diagnostic["pointer"] == "/KEY"
+    warnings = []
+    assert generated_document(
+        {"KEY": "PENDING_DEPLOY"},
+        models,
+        resolver=resolver,
+        scope=scope,
+        property_name="Lambda.Function.Environment.Variables",
+        warnings=warnings,
+    ) == {"KEY": "PENDING_DEPLOY"}
+    assert warnings[0]["category"] == "REFERENCE_PENDING_DEPLOY"
+    assert warnings[0]["pointer"] == "/KEY"
     assert values == parse_properties(serialize(values)).values
 
 

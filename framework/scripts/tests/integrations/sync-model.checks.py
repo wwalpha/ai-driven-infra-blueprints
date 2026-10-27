@@ -556,18 +556,45 @@ def check_pending_artifact_transaction(generated_policy, failure):
                 root, {("dev", "123456789012", "iam")}
             )
             try:
-                assert not plan.failures and design in plan.unavailable
-                assert not plan.generated
+                assert not plan.failures and not plan.unavailable
+                assert design in plan.generated
                 sync_runtime.validate_generation(plan, jobs=1)
                 metadata = sync_runtime.generation_metadata(plan)
-                assert metadata["status"] == "NOT_RUN" and not metadata["complete"]
+                assert metadata["status"] == "PASS" and metadata["complete"]
                 assert metadata["unverified"]
-                sync_runtime.publish_generation(plan)
-                assert not plan.saved
-                assert {p: p.read_bytes() for p in originals} == originals
+                candidate = plan.expected_outputs[design]
+                assert (
+                    json.loads(candidate[artifact])["Statement"][0]["Resource"][1]
+                    == "PENDING_DEPLOY"
+                )
+                assert "$modelRef" in candidate[design]
+                with ExitStack() as injections:
+                    if failure:
+                        injections.enter_context(
+                            patch.object(
+                                Path,
+                                "write_text",
+                                autospec=True,
+                                side_effect=_bind_framework_callback(
+                                    _fail_pending_write,
+                                    Path.write_text,
+                                    artifact if failure == "artifact" else design,
+                                ),
+                            )
+                        )
+                    sync_runtime.publish_generation(plan)
+                if failure:
+                    assert plan.failures and not plan.saved
+                    assert {p: p.read_bytes() for p in originals} == originals
+                else:
+                    assert not plan.failures and design in plan.saved
+                    assert artifact.read_text(encoding="utf-8") == candidate[artifact]
+                    assert design.read_text(encoding="utf-8") == candidate[design]
+                    assert trust.read_bytes() == originals[trust]
             finally:
                 plan.close()
         assert {p: p.read_bytes() for p in authority} == authority
+        originals = {p: p.read_bytes() for p in originals}
         key["observed.row.001-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
         save(producer, key)
         authority[producer.path] = producer.path.read_bytes()

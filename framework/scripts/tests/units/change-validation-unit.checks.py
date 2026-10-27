@@ -18,7 +18,6 @@ import pytest
 import sync_runtime
 from generation_inputs import GenerationInputs
 from issues.runner import mechanical
-from model.core import ReferenceResolutionError
 from model.format import serialize
 from model.importing.scope import read_consumers, restrict
 from model.operations import prepare_edit, publish_edit
@@ -1371,8 +1370,10 @@ def check_pending_artifact_does_not_gate_model_save(project_workspace):
     )
     view = root / "docs/designs/preview/team/iam.md"
     with selected_task(root, name):
-        with pytest.raises(ReferenceResolutionError):
-            generate_files(view, values, root)
+        assert (
+            "PENDING_DEPLOY"
+            in generate_files(view, values, root)[view.with_suffix("") / "policy.json"]
+        )
         inputs = GenerationInputs(root, task_file=name)
         context = sources.SourceWriteContext._authorized(
             root,
@@ -1389,8 +1390,12 @@ def check_pending_artifact_does_not_gate_model_save(project_workspace):
         plan = prepare_edit(path, {path: serialize(candidate)}, context)
         assert publish_edit(plan, context) == (path,)
         assert sources.raw_model(path).authoritative == candidate
-        with pytest.raises(ReferenceResolutionError):
-            generate_files(view, candidate, root)
+        assert (
+            "PENDING_DEPLOY"
+            in generate_files(view, candidate, root)[
+                view.with_suffix("") / "policy.json"
+            ]
+        )
         assert not view.exists()
         assert (
             node
