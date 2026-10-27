@@ -18,6 +18,7 @@ import issues.runner as scan_runner
 import pytest
 import sync_runtime
 from comparison.result import redacted
+from design.catalog import DesignSchemaCatalog
 from design.document import (
     DisplayMismatchError,
     SavedIdentityError,
@@ -34,6 +35,7 @@ from issues.runner import validation_issues
 from model.core import ReferenceDiagnosticError
 from model.render import generate_markdown
 from support.issues_scan_fixtures import review_for, snapshot_artifact
+from support.model_design_fixtures import model
 from support.model_reference_fixtures import (
     FRAMEWORK,
     project,
@@ -43,6 +45,7 @@ from support.model_reference_fixtures import (
 )
 from support.model_sources import catalog_display
 from support.pytest_cli import run
+from support.validator import load
 from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context
 from validation import design, design_links, design_tables
@@ -1400,6 +1403,179 @@ def test_indexed_name_tags_reject_broken_pairs(indexed_name_tags, damage):
     )
     assert not findings.processing_errors
     assert findings.status in {"FAIL", "NOT_RUN"}, findings.errors
+
+
+@pytest.mark.parametrize(
+    "service,kind,field,value,shape,valid",
+    [
+        (
+            "quicksight",
+            "QuickSight.DataSource",
+            "Permissions[].Actions",
+            '["ActionA","ActionB"]',
+            "leaf",
+            True,
+        ),
+        (
+            "quicksight",
+            "QuickSight.DataSource",
+            "Permissions[].Actions",
+            '[["ActionA","ActionB"]]',
+            "projection",
+            True,
+        ),
+        (
+            "quicksight",
+            "QuickSight.DataSource",
+            "Permissions[1].Actions",
+            '["ActionA","ActionB"]',
+            "leaf",
+            True,
+        ),
+        (
+            "quicksight",
+            "QuickSight.DataSource",
+            "Permissions[].Actions",
+            '[["ActionA",1]]',
+            "projection",
+            False,
+        ),
+        (
+            "quicksight",
+            "QuickSight.DataSource",
+            "Permissions[].Actions",
+            '["ActionA"]',
+            "projection",
+            False,
+        ),
+        (
+            "quicksight",
+            "QuickSight.DataSource",
+            "Permissions[].Actions",
+            "[]",
+            "leaf",
+            False,
+        ),
+        (
+            "quicksight",
+            "QuickSight.DataSource",
+            "Permissions[].Actions",
+            "ActionA",
+            "leaf",
+            False,
+        ),
+        (
+            "quicksight",
+            "QuickSight.DataSource",
+            "Permissions[1].Actions",
+            "[1]",
+            "leaf",
+            False,
+        ),
+        (
+            "cloudtrail",
+            "CloudTrail.Trail",
+            "EventSelectors[].DataResources[].Values",
+            '[[["arn:aws:s3"]]]',
+            "projection",
+            True,
+        ),
+        (
+            "cloudtrail",
+            "CloudTrail.Trail",
+            "EventSelectors[].DataResources[].Values",
+            "[[[1]]]",
+            "projection",
+            False,
+        ),
+    ],
+)
+def test_markdown_projection_schema(
+    tmp_path, service, kind, field, value, shape, valid
+):
+    path = tmp_path / "docs/designs/dev/team" / (service + ".md")
+    rows = [(field, "`" + value + "`", "操作")]
+    if service == "quicksight":
+        rows = [("Name", "`source`", "名前"), ("Type", "`ATHENA`", "種類"), *rows]
+    if service == "cloudtrail":
+        rows = [
+            ("TrailName", "`source`", "名前"),
+            ("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`", "種類"),
+            *rows,
+        ]
+    values = model(service, kind, "source", rows)
+    if service == "cloudtrail":
+        values["desired.resource.001.resourceMode"] = "IMPORT"
+    row = f"desired.row.001-{len(rows):03d}.valueShape"
+    values[row] = shape
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    validator = load("validate-blueprint").Validator(
+        tmp_path, definitions_root=FRAMEWORK
+    )
+    validator.design_sources = {path: values}
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    with (
+        patch.object(
+            design_tables, "row_literal_errors", wraps=design_tables.row_literal_errors
+        ) as checked,
+        patch("validation.design_tables.input_text", return_value=markdown),
+        patch("model.projection.bound_resource_anchors", return_value={}),
+    ):
+        validator.check_design_tables(
+            {path: (service, (kind,))}, *validator.catalog_design_properties(), [path]
+        )
+    calls = [
+        call.args
+        for call in checked.call_args_list
+        if call.args[1] == kind
+        and "Actions" in call.args[2]
+        or call.args[1] == kind
+        and "Values" in call.args[2]
+    ]
+    assert len(calls) == 1, calls
+    assert calls[0][3:] == (value, shape), calls
+
+    violations = [
+        error for error in validator.errors if "provider schema violation" in error
+    ]
+    assert not validator.findings.unverified, validator.findings.unverified
+    assert bool(violations) != valid, (calls, violations)
+
+
+def test_markdown_ambiguous_shape_is_not_silently_validated(tmp_path):
+    path = tmp_path / "docs/designs/dev/team/quicksight.md"
+    kind = "QuickSight.DataSource"
+    values = model(
+        "quicksight",
+        kind,
+        "source",
+        [
+            ("Name", "`source`", "名前"),
+            ("Type", "`ATHENA`", "種類"),
+            ("Permissions[].Actions", '`[["ActionA"]]`', "操作"),
+            ("Permissions[].Actions", '`[["ActionA"]]`', "操作"),
+        ],
+    )
+    values["desired.row.001-004.valueShape"] = "projection"
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    validator = load("validate-blueprint").Validator(
+        tmp_path, definitions_root=FRAMEWORK
+    )
+    validator.design_sources = {path: values}
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    with (
+        patch("validation.design_tables.input_text", return_value=markdown),
+        patch("model.projection.bound_resource_anchors", return_value={}),
+    ):
+        validator.check_design_tables(
+            {path: ("quicksight", (kind,))},
+            *validator.catalog_design_properties(),
+            [path],
+        )
+    assert any(
+        item.get("phase") == "ambiguous Model value shape"
+        for item in validator.findings.unverified
+    ), validator.findings.unverified
 
 
 if __name__ == "__main__":

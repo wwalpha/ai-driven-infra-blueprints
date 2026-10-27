@@ -40,10 +40,12 @@ from design.services.ec2.security_groups import security_group_table_lines, tabl
 from design.services.macie import job_bucket_tables
 from model.core import ReferenceDiagnosticError, ReferenceResolutionError, literal
 from model.core import entries as entries
+from model.literal_values import literal_errors as row_literal_errors
 from model.projection import bound_resource_anchors, is_import_expression
 from model.sources import scope_for
 from utils.input_cache import input_scope as input_scope
 from utils.input_cache import input_text
+from utils.property_path import definition_path
 
 from .design import (
     ANCHOR_PATTERN,
@@ -935,10 +937,20 @@ def check_design_tables(
                 semantic = model_projection.restore_pending_artifact_links(
                     semantic, current_anchor, pending_links
                 )
+                table_source = next(
+                    (
+                        table
+                        for table in reference_tables
+                        if table.anchor == current_anchor
+                    ),
+                    None,
+                )
                 for cells in semantic:
                     if len(cells) == 4:
                         rows.append(cells)
-                        property_owners = catalog_property_owners.get(cells[1], set())
+                        property_owners = catalog_property_owners.get(
+                            definition_path(cells[1]), set()
+                        )
                         allowed_types = {
                             current_resource_type,
                             *GROUPED_RESOURCE_TYPES.get(current_resource_type, set()),
@@ -1031,17 +1043,49 @@ def check_design_tables(
                                     source_path=path,
                                     cause_kind="input_invalid",
                                 )
+                            source_rows = [
+                                (row_id, value)
+                                for resource in (
+                                    table_source.resources if table_source else ()
+                                )
+                                for row_id, prop, value, _ in resource.rows
+                                if resource.kind == schema_type and prop == cells[1]
+                            ]
+                            if len(source_rows) > 1:
+                                source_rows = [
+                                    row
+                                    for row in source_rows
+                                    if unquoted(row[1]) == raw_value
+                                ] or source_rows
+                            shapes = {
+                                values.get(f"desired.row.{row_id}.valueShape", "leaf")
+                                for row_id, _ in source_rows
+                            }
+                            if len(shapes) > 1:
+                                design_dependency_not_run(
+                                    path,
+                                    current_logical_id,
+                                    "ambiguous Model value shape",
+                                    cells[1],
+                                    findings=findings,
+                                    checks=("provider schema",),
+                                )
                             errors = (
                                 []
-                                if pending_reference
+                                if len(shapes) > 1
+                                or pending_reference
                                 or is_service_role_reference(cells[1], cells[2])
                                 or (
                                     cells[1]
                                     in identifier_outputs.get(schema_type, set())
                                     and raw_value == "PENDING_DEPLOY"
                                 )
-                                else schema_catalog.literal_errors(
-                                    schema_type, property_path, raw_value
+                                else row_literal_errors(
+                                    schema_catalog,
+                                    schema_type,
+                                    property_path,
+                                    raw_value,
+                                    next(iter(shapes), "leaf"),
                                 )
                             )
                             for error in errors:

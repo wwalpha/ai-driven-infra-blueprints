@@ -174,7 +174,10 @@ def model_reference_tables(path, text, values, root, *, check_document=True):
         (check_document and item.references)
         or item.kind != "EC2.SecurityGroup"
         and any(
-            "[]" in _array_display.array_template(row[1], item.kind, root)
+            re.search(
+                r"\[(?:[1-9]\d*)?\]",
+                _array_display.array_template(row[1], item.kind, root),
+            )
             and (
                 check_document
                 or not (

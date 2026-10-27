@@ -974,7 +974,7 @@ def expanded_display_rows(
             changed = True
             kind = resource_type
         for row in rows:
-            if re.search(r"\[\d+\]", row[1]):
+            if not _verified_reference and re.search(r"\[\d+\]", row[1]):
                 raise ValueError("indexed array display requires Model source rows")
             owner = ".".join(row[1].split(".")[:2])
             if (
