@@ -138,6 +138,8 @@ def resources_in(
     lines = resource_heading_lines(lines)
     resources = []
     current_type = logical_id = anchor = pending_anchor = ""
+    display_start = 0
+    compared = set()
     index = 0
     while index < len(lines):
         line = lines[index]
@@ -146,6 +148,9 @@ def resources_in(
         if match := RESOURCE.fullmatch(line):
             current_type, logical_id = match.groups()
             anchor, pending_anchor = pending_anchor, ""
+            display_start = index + 1
+            while display_start < len(lines) and not lines[display_start]:
+                display_start += 1
         elif line.startswith("#"):
             current_type = ""
         if line != HEADER or not current_type:
@@ -153,7 +158,6 @@ def resources_in(
             continue
         if not anchor:
             raise ValueError(f"resource lacks an anchor: {logical_id}")
-        table_start = index
         index += 2
         rows = []
         while index < len(lines) and lines[index].startswith("|"):
@@ -166,13 +170,30 @@ def resources_in(
             (item for item in reference_tables if item.anchor == anchor), None
         )
         if projection is not None:
-            if tuple(lines[table_start:index]) != projection.expected:
+            display_end = index
+            while display_end < len(lines):
+                next_table = display_end
+                while next_table < len(lines) and not lines[next_table]:
+                    next_table += 1
+                if next_table == len(lines) or not lines[next_table].startswith("|"):
+                    break
+                display_end = next_table
+                while display_end < len(lines) and lines[display_end].startswith("|"):
+                    display_end += 1
+            if tuple(lines[display_start:display_end]) != projection.expected:
                 raise ValueError(
                     "Markdown table differs from Model expected display: " + anchor
                 )
+            compared.add(anchor)
+            semantic_start = projection.semantic.index(HEADER) + 2
+            semantic_end = semantic_start
+            while semantic_end < len(projection.semantic) and projection.semantic[
+                semantic_end
+            ].startswith("|"):
+                semantic_end += 1
             rows = [
                 [part.strip() for part in line.strip("|").split("|")]
-                for line in projection.semantic[2:]
+                for line in projection.semantic[semantic_start:semantic_end]
             ]
         elif any(
             re.search(r"\[\d+\]", row[1])
@@ -249,6 +270,10 @@ def resources_in(
                 f"duplicate policy anchor; use distinct artifacts for policies in one resource: {logical_id}"
             )
         resources.append(Resource(current_type, logical_id, anchor, policies, index))
+    if {item.anchor for item in reference_tables} - compared:
+        raise ValueError(
+            "Markdown resource or property table missing from Model expected display"
+        )
     if len({resource.anchor for resource in resources}) != len(resources):
         raise ValueError("duplicate resource detail table or anchor")
     return resources

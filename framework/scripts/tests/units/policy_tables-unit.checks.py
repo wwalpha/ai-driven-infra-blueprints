@@ -20,7 +20,10 @@ from design.policy_tables import (
     validate_policy_artifacts,
     validate_policy_document,
 )
+from model.core import properties
 from model.display import ReferenceTable
+from model.render import generate_markdown
+from model.sources import runtime_values
 from support import design_layout_fixtures as layout_fixture
 from support.policy_tables_fixtures import (
     ALIGNMENT,
@@ -46,6 +49,7 @@ from support.policy_tables_fixtures import (
     without_policy_tables,
 )
 from support.policy_tables_fixtures import pytestmark as pytestmark
+from support.security_group_tables_fixtures import GENERATED_MODEL, REPOSITORY
 from support.validator import diagnostics
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
 
@@ -795,6 +799,77 @@ def check_grouping_and_settings_checks():
     print(
         "Policy grouping/settings checks: PASS (KMS aliases, absent policy, multiple formats, nested JSON)"
     )
+
+
+def check_security_group_reference_display(tmp_path):
+    values = {
+        key: value
+        for key, value in properties(GENERATED_MODEL).items()
+        if not (key.startswith("observed.") and key.endswith((".property", ".comment")))
+    }
+    values["display.service.title"] = "# Security Group"
+    values.update(
+        {f"display.resource.{number:03d}.comment": "fixture" for number in range(1, 7)}
+    )
+    path = tmp_path / "docs/designs/dev/team/security-group.md"
+    path.parent.mkdir(parents=True)
+    projections = []
+    text = generate_markdown(
+        path, runtime_values(values), REPOSITORY, reference_tables=projections
+    )
+    path.write_text(text, encoding="utf-8")
+    assert (
+        len(resources_in(text.splitlines(), REPOSITORY, reference_tables=projections))
+        == 2
+    )
+    assert (
+        rendered_design(path, definitions_root=REPOSITORY, reference_tables=projections)
+        == text
+    )
+    first, second = projections
+    assert first.expected[0] == HEADER and second.expected[0].startswith(
+        "<!-- security-group-tags:"
+    )
+    parent = next(line for line in first.expected if "GroupDescription" in line)
+    inbound = next(
+        line
+        for line in first.expected
+        if line.startswith("| Inbound") and "`443`" in line
+    )
+    outbound = next(line for line in first.expected if line.startswith("| Outbound"))
+    direction = next(line for line in first.expected if line.startswith("| Direction"))
+    tag = second.expected[0]
+    changes = [
+        text.replace(parent, parent.replace("Application access", "changed"), 1),
+        text.replace(parent, "", 1),
+        text.replace(parent, parent + "\n" + parent, 1),
+        text.replace(inbound, inbound.replace("443", "444"), 1),
+        text.replace(outbound, outbound.replace("0.0.0.0/0", "1.0.0.0/0"), 1),
+        text.replace(inbound, "", 1),
+        text.replace(inbound, inbound + "\n" + inbound, 1),
+        text.replace(outbound, "", 1),
+        text.replace(outbound, outbound + "\n" + outbound, 1),
+        text.replace(outbound, outbound + "\n\n" + direction + "\n" + outbound, 1),
+        text.replace(
+            "\n".join(first.expected[first.expected.index(direction) :]), "", 1
+        ),
+        text.replace(tag, tag.replace("app", "changed"), 1),
+        text.replace(tag + "\n\n", "", 1),
+        text.replace(HEADER, "missing header", 1),
+        text.replace("\n".join(first.expected), "", 1),
+    ]
+    for changed in changes:
+        assert changed != text
+        with pytest.raises(ValueError):
+            resources_in(changed.splitlines(), REPOSITORY, reference_tables=projections)
+    with pytest.raises(ValueError):
+        resources_in([], REPOSITORY, reference_tables=projections)
+    with pytest.raises(ValueError):
+        resources_in(
+            text.splitlines() + text.splitlines(),
+            REPOSITORY,
+            reference_tables=projections,
+        )
 
 
 if __name__ == "__main__":
