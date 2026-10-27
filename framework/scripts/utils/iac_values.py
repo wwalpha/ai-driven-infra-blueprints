@@ -187,31 +187,27 @@ def unordered_matching(matrix, *, allow_unknown=False):
     return owners
 
 
-def unordered_same(left, right, *, reference=None, path="", trace=None, evidence=None):
+def unordered_same(
+    left, right, *, reference=None, path="", trace=None, evidence=None, candidate=None
+):
     """Prove a multiset match, retaining uncertainty and duplicate multiplicity."""
     if not isinstance(left, list) or not isinstance(right, list):
         return False
+    compare = candidate or _bind_framework_callback(
+        same, reference=reference, path=path + "[]", trace=trace
+    )
     if len(left) != len(right):
         known, _ = array_presence(right)
         if known == len(right) or not known <= len(left) <= len(right):
             return False
         confirmed = [item for item in right if not unknown_value(item)]
-        matrix = [
-            [
-                same(a, b, reference=reference, path=path + "[]", trace=trace)
-                for b in left
-            ]
-            for a in confirmed
-        ]
+        matrix = [[compare(a, b) for b in left] for a in confirmed]
         return (
             None
             if len(unordered_matching(matrix, allow_unknown=True)) == len(confirmed)
             else False
         )
-    matrix = [
-        [same(a, b, reference=reference, path=path + "[]", trace=trace) for b in right]
-        for a in left
-    ]
+    matrix = [[compare(a, b) for b in right] for a in left]
 
     owners = unordered_matching(matrix)
     if evidence is not None:

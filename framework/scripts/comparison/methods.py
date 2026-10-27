@@ -269,6 +269,7 @@ def _decision(state, whole, left, right, path):
             return _keyless_same(state, left, right, path)
         return _keyed_same(state, left, right, path, whole, rule.key)
     evidence = []
+    candidates = []
     equal = unordered_same(
         left,
         right,
@@ -276,7 +277,9 @@ def _decision(state, whole, left, right, path):
         reference=partial(_decision, state, True),
         trace=partial(_trace, state.negative, True),
         evidence=lambda matrix, owners: evidence.append((matrix, owners)),
+        candidate=partial(_whole_candidate, state, candidates, path + "[]"),
     )
+    _select_unordered_diagnostics(state, left, right, rule, equal, candidates)
     if equal is False and original_left is left and original_right is right:
         pairs = []
         known, _ = array_presence(right)
@@ -297,6 +300,107 @@ def _decision(state, whole, left, right, path):
             evidence[0] if evidence else (None, pairs)
         )
     return equal
+
+
+def _whole_candidate(state, candidates, path, left, right):
+    starts = (
+        len(state.diagnostics),
+        len(state.candidate_warnings),
+        len(state.candidate_failures),
+    )
+    equivalent = state.equivalent
+    state.equivalent = False
+    result = _detect(state, left, right, path, True)
+    details = (
+        tuple(state.diagnostics[starts[0] :]),
+        state.equivalent,
+        tuple(state.candidate_warnings[starts[1] :]),
+        tuple(state.candidate_failures[starts[2] :]),
+    )
+    del state.diagnostics[starts[0] :]
+    del state.candidate_warnings[starts[1] :]
+    del state.candidate_failures[starts[2] :]
+    state.equivalent = equivalent
+    candidates.append((result, details))
+    return result
+
+
+def _select_unordered_diagnostics(state, left, right, rule, equal, candidates):
+    if not candidates:
+        return
+    reversed_order = len(left) != len(right)
+    rows = (
+        [item for item in right if not unknown_value(item)] if reversed_order else left
+    )
+    columns = left if reversed_order else right
+    matrix = [
+        [candidates[i * len(columns) + j][0] for j in range(len(columns))]
+        for i in range(len(rows))
+    ]
+    owners = unordered_matching(matrix)
+    selected = (
+        {(i, j) for j, i in owners.items()}
+        if equal is True or equal is False
+        else set()
+    )
+    if equal is None:
+        for i, row in enumerate(matrix):
+            for j, value in enumerate(row):
+                if value is False:
+                    continue
+                remaining = [
+                    [cell for k, cell in enumerate(other) if k != j]
+                    for n, other in enumerate(matrix)
+                    if n != i
+                ]
+                if (
+                    len(unordered_matching(remaining, allow_unknown=True))
+                    == len(rows) - 1
+                ):
+                    selected.add((i, j))
+    if equal is False and rule.key and not reversed_order:
+        for i, item in enumerate(left):
+            if i in owners.values():
+                continue
+            value = item.get(rule.key) if isinstance(item, dict) else None
+            if (
+                isinstance(value, str)
+                and sum(isinstance(x, dict) and x.get(rule.key) == value for x in left)
+                == 1
+            ):
+                matches = [
+                    j
+                    for j, x in enumerate(right)
+                    if isinstance(x, dict) and x.get(rule.key) == value
+                ]
+                if len(matches) == 1 and matches[0] not in owners:
+                    selected.add((i, matches[0]))
+    for i, j in sorted(selected):
+        diagnostics, equivalent, warnings, failures = candidates[i * len(columns) + j][
+            1
+        ]
+        for diagnostic in diagnostics:
+            diagnostic = dict(diagnostic)
+            model, actual = (
+                (columns[j], rows[i]) if reversed_order else (rows[i], columns[j])
+            )
+            key = rule.key
+            value = model.get(key) if key and isinstance(model, dict) else None
+            if (
+                isinstance(value, str)
+                and isinstance(actual, dict)
+                and actual.get(key) == value
+                and sum(isinstance(x, dict) and x.get(key) == value for x in left)
+                == sum(isinstance(x, dict) and x.get(key) == value for x in right)
+                == 1
+            ):
+                diagnostic.setdefault("correspondence", {"key": key, "value": value})
+            elif equal is None:
+                diagnostic.setdefault("correspondence", "unproven")
+            state.diagnostics.append(diagnostic)
+        state.equivalent |= equivalent
+        state.candidate_warnings.extend(warnings)
+        state.candidate_failures.extend(failures)
 
 
 def _proof_reference(

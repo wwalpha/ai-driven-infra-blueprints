@@ -37,6 +37,42 @@ def pending_deploy_count(records):
     )
 
 
+def diagnostic_description(item):
+    children = item.get("deferred_children", [])
+    diagnostics = item.get("reference_diagnostics", [])
+    if children:
+        details = [
+            f"{child['property'].rsplit('.', 1)[-1]}: {child['reason']}"
+            for child in children
+            if child.get("reason")
+        ]
+    else:
+        details = []
+    if not details:
+        for diagnostic in diagnostics:
+            reason = diagnostic.get("reason")
+            if not reason:
+                continue
+            parts = []
+            correspondence = diagnostic.get("correspondence")
+            if isinstance(correspondence, dict):
+                parts.append(str(correspondence.get("value", "")))
+            elif correspondence == "unproven":
+                parts.append("対応未確定")
+            for side in ("model", "iac"):
+                value = diagnostic.get(side)
+                resource = value.get("$resource") if isinstance(value, dict) else None
+                if isinstance(resource, list) and len(resource) == 2:
+                    parts.append("_".join(str(part) for part in resource))
+            parts.append(diagnostic.get("path", item["property"]).rsplit(".", 1)[-1])
+            details.append(" / ".join(dict.fromkeys(parts)) + ": " + reason)
+    return (
+        " / ".join(dict.fromkeys(details))
+        or item.get("reason")
+        or "原因または対応先を確定できない。"
+    )
+
+
 def iac_actions(entries, environment, directory):
     """O(N) grouping by proven cause/repair target/action; unknowns remain separate."""
     groups = {}
@@ -262,26 +298,16 @@ def iac_actions(entries, environment, directory):
                 ),
                 "要調査",
             )
-            children = item.get("deferred_children", [])
-            diagnostic = next(iter(item.get("reference_diagnostics", [])), None)
-            if children:
-                child = children[0]
-                description = (
-                    f"{child['property'].rsplit('.', 1)[-1]}: {child['reason']}"
-                )
-                if len(children) > 1:
-                    description += f"（他{len(children) - 1}子項目、全文はartifact）"
-            elif diagnostic:
-                description = (
-                    f"{diagnostic['path'].rsplit('.', 1)[-1]}: {item['reason']}"
-                )
-            else:
-                description = "原因または対応先を確定できない。"
+            description = diagnostic_description(item)
             remedy = (
                 "Export/Importの参照関係・宣言・有効条件と探索の完了を確認する。直接依存は未確定。"
                 if "ImportValue" in item["reason"]
                 else "記載した検出理由とModel/IaCの対応・検証ルールを確認し、原因と修正先を特定する。"
             )
+        if item.get("deferred_children") and description != diagnostic_description(
+            item
+        ):
+            description += " / " + diagnostic_description(item)
         group_id = "ISSUE-" + identifier(key)
         group = groups.setdefault(
             group_id,

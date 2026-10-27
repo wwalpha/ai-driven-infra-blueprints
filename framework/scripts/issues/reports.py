@@ -263,7 +263,6 @@ def iac_report(
             key=lambda item: item["report_order"],
         ),
     )
-    members = {group["id"]: group["members"] for group in data["iac_issues"]}
     counts = summary["records"]
     unverified_services = (
         [
@@ -325,7 +324,6 @@ def iac_report(
             ]
         )
         for item in visible:
-            record = data["iac"][members[item["id"]][0]]
             lines.append(
                 "| "
                 + " | ".join(
@@ -335,11 +333,7 @@ def iac_report(
                         item["category"],
                         ", ".join(item["services"])
                         + (" / " + item["target"] if item["target"] else ""),
-                        item["problem"]
-                        + "："
-                        + item["cause"]
-                        + " / "
-                        + record["reason"],
+                        item["problem"] + "：" + item["cause"],
                     )
                 )
                 + " |"

@@ -703,7 +703,7 @@ def summary_scale_cases():
     assert "分類:" not in empty and "omitted" not in empty
     single = iac_report("dev", "cde", ["glue"], [base], stamp="fixed")
     assert len(re.findall(r"^\| ISSUE-", single, re.M)) == 1
-    assert "value mismatch" in single and "／省略" not in single
+    assert "設定値が一致しない" in single and "／省略" not in single
     current = dict(
         artifact,
         environment="dev",
@@ -3225,3 +3225,85 @@ def check_issues_quicksight_name_difference(tmp_path, heading, row):
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def test_issue_detail_reason_once():
+    record = dict(
+        category="uncompared",
+        service="iam",
+        resource="001",
+        property="Statement",
+        reason="reference identity or property format is unproven",
+        reference_diagnostics=[
+            dict(
+                path="Statement.KeyId",
+                model="key",
+                iac="ref",
+                identity="unproven",
+                allowed_forms=[],
+                format={},
+                reason="recorded KeyId mismatch",
+            )
+        ],
+    )
+    report = iac_report("dev", "team", ["iam"], [record], stamp="fixed")
+    assert "recorded KeyId mismatch" in report
+    assert report.count(record["reason"]) <= 1
+
+
+def test_issue_reason_not_duplicated():
+    record = dict(
+        category="uncompared",
+        service="iam",
+        resource="001",
+        property="Statement",
+        reason="reference identity or property format is unproven",
+        reference_diagnostics=[
+            dict(
+                path="Statement.KeyId",
+                model="key",
+                iac="ref",
+                identity="unproven",
+                allowed_forms=[],
+                format={},
+                reason="detail",
+            )
+        ],
+    )
+    report = iac_report("dev", "team", ["iam"], [record], stamp="fixed")
+    assert report.count(record["reason"]) <= 1
+
+
+def test_diagnostic_cause_prefers_children_and_preserves_details():
+    record = dict(
+        category="uncompared",
+        service="iam",
+        resource="001",
+        property="Statement",
+        reason="generic",
+        deferred_children=[
+            dict(
+                property="Statement.KeyId", reason="child reason", category="uncompared"
+            )
+        ],
+        reference_diagnostics=[
+            dict(
+                path="Statement.KeyId",
+                model={"$resource": ["kms", "003"]},
+                iac="ref",
+                identity="unproven",
+                allowed_forms=[],
+                format={},
+                reason="reference reason",
+                correspondence={"key": "Sid", "value": "UseKey"},
+            )
+        ],
+    )
+    data = aggregate([record], "dev", "team", ["iam"])
+    assert "child reason" in data["iac_issues"][0]["description"]
+    assert data["iac"][0]["reference_diagnostics"][0]["reason"] == "reference reason"
+    record.pop("deferred_children")
+    report = iac_report("dev", "team", ["iam"], [record], stamp="fixed")
+    assert all(
+        value in report for value in ("UseKey", "kms_003", "KeyId", "reference reason")
+    )

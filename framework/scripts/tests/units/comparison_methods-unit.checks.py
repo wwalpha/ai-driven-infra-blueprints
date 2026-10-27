@@ -2,6 +2,7 @@
 
 import sys
 from collections import Counter
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from unittest.mock import Mock
@@ -1478,3 +1479,76 @@ def nested_policy_reference(left, right, path):
     if path == "Policies[].PolicyDocument" and left != right:
         return ReferenceDecision(False)
     return ReferenceDecision(NotImplemented)
+
+
+def diagnostic_candidate(left, right, path):
+    if path.endswith(".Value"):
+        return ReferenceDecision(
+            left == right, ({"path": path, "reason": str(left) + "/" + str(right)},)
+        )
+    return ReferenceDecision(NotImplemented)
+
+
+def test_unordered_rejected_candidate_diagnostics():
+    outcome = compare(
+        [{"Value": "a"}, {"Value": "b"}],
+        [{"Value": "b"}, {"Value": "a"}],
+        UNORDERED,
+        reference=diagnostic_candidate,
+    )
+    assert outcome.equal is True
+    assert {d["reason"] for d in outcome.diagnostics} == {"a/a", "b/b"}
+
+
+def uncertain_candidate(left, right, path):
+    if path.endswith(".Value"):
+        if left == right:
+            return ReferenceDecision(True)
+        return ReferenceDecision(
+            None, ({"path": path, "reason": str(left) + "/" + str(right)},)
+        )
+    return ReferenceDecision(NotImplemented)
+
+
+def test_unordered_ambiguous_correspondence_is_not_selected():
+    outcome = compare(
+        [{"Value": "a"}, {"Value": "b"}],
+        [{"Value": "x"}, {"Value": "y"}],
+        UNORDERED,
+        reference=uncertain_candidate,
+    )
+    assert outcome.equal is None
+    assert {d["reason"] for d in outcome.diagnostics} == {"a/x", "a/y", "b/x", "b/y"}
+    assert all(d["correspondence"] == "unproven" for d in outcome.diagnostics)
+
+
+def test_unordered_nested_rejected_diagnostics():
+    rules = {"Setting": UNORDERED, "Setting[].Items": UNORDERED}
+    left = [{"Items": [{"Value": "a"}, {"Value": "b"}]}]
+    right = [{"Items": [{"Value": "b"}, {"Value": "a"}]}]
+    outcome = compare_values(
+        left, right, "Setting", rules=rules, reference=diagnostic_candidate
+    )
+    assert outcome.equal is True
+    assert {d["reason"] for d in outcome.diagnostics} == {"a/a", "b/b"}
+
+
+def test_unordered_unique_key_difference_keeps_evidence():
+    rule = replace(UNORDERED, key="Sid")
+    left = [{"Sid": "A", "Value": "a"}, {"Sid": "B", "Value": "b"}]
+    right = [{"Sid": "B", "Value": "b"}, {"Sid": "A", "Value": "x"}]
+    outcome = compare(left, right, rule, reference=diagnostic_candidate)
+    assert outcome.equal is False and outcome.differences
+    assert any(
+        d.get("correspondence", {}).get("value") == "A" and d["reason"] == "a/x"
+        for d in outcome.diagnostics
+    )
+    assert all(d["reason"] not in {"a/b", "b/x"} for d in outcome.diagnostics)
+
+
+def test_unordered_unequal_length_unknown_direction():
+    left = [{"Value": "a"}, {"Value": "b"}]
+    right = [{"Value": "a"}, Expression("Unverified", []), Expression("Unverified", [])]
+    outcome = compare(left, right, UNORDERED, reference=uncertain_candidate)
+    assert outcome.equal is None
+    assert all(d.get("correspondence") == "unproven" for d in outcome.diagnostics)
