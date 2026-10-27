@@ -487,6 +487,11 @@ class Comparison(Inputs):
                     )
                 )
                 return result
+            integrity = self.input_integrity(
+                service, identity, rowkind, name, owner, template
+            )
+            result.records.extend(integrity.records)
+            result.warnings.extend(integrity.warnings)
             settings = self.prepare_settings(
                 service, identity, rowkind, rows, contexts, name, owner, template
             )
@@ -522,6 +527,56 @@ class Comparison(Inputs):
         ) as error:
             result.failure = error
             return result
+
+    def input_integrity(self, service, identity, kind, name, owner, template):
+        result = RowResult()
+        if not self.local_comparison:
+            return result
+        properties = owner.get("Properties", {})
+        for key, rule in registry.rules(kind).items():
+            if not rule.keyless_unordered or key not in properties:
+                continue
+            prepared = evaluation.key_integrity(
+                properties[key],
+                rule=rule,
+                evaluate=lambda child: self.evaluate(name, child),
+                property_name=kind + "." + key,
+                model_path=template,
+            )
+            result.warnings.extend(prepared.warnings)
+            for path, pointer, error in prepared.failures:
+                cause = getattr(error, "iac_cause", None)
+                result.records.append(
+                    self.make_record(
+                        "difference"
+                        if (cause or {}).get("rule") == "unique-key"
+                        else failure_category(error),
+                        service,
+                        identity,
+                        path,
+                        str(error),
+                        stack=name,
+                        template=self.template_location(
+                            properties[key],
+                            pointer,
+                            {"path": template.relative_to(self.root).as_posix()},
+                        ),
+                        cause=cause,
+                        input_integrity=True,
+                    )
+                )
+        return result
+
+    def template_location(self, raw, pointer, source):
+        location = dict(source, pointer=pointer)
+        node = raw
+        for token in pointer.lstrip("/").split("/") if pointer else []:
+            token = token.replace("~1", "/").replace("~0", "~")
+            key = int(token) if isinstance(node, list) else token
+            if line := self.template_locations.get(id(node), {}).get(key):
+                location["line"] = line
+            node = node[key]
+        return location
 
     def prepare_settings(
         self,
@@ -823,16 +878,7 @@ class Comparison(Inputs):
                 ):
                     actual_error = actual_error or error
                     continue
-                location = dict(iac_source, pointer=pointer)
-                node = raw_actual
-                for token in pointer.lstrip("/").split("/") if pointer else []:
-                    token = token.replace("~1", "/").replace("~0", "~")
-                    key_or_index = int(token) if isinstance(node, list) else token
-                    if line := self.template_locations.get(id(node), {}).get(
-                        key_or_index
-                    ):
-                        location["line"] = line
-                    node = node[key_or_index]
+                location = self.template_location(raw_actual, pointer, iac_source)
                 failures.append(
                     self.make_record(
                         failure_category(error),

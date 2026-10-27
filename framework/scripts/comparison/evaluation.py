@@ -61,7 +61,6 @@ class SelectedCandidates(list):
         self.locations = locations
         self.initial = initial
         self.evidence = {}
-        self.key_evidence = {}
 
     def evaluate_cached(self, value):
         identity = id(value)
@@ -98,26 +97,6 @@ class SelectedCandidates(list):
             self.evidence[i, j] = warnings, failures
         return self.cache[i, j]
 
-    def key_value(self, j, key):
-        warnings, failures = self.initial[j]
-        warnings, failures = list(warnings), list(failures)
-        candidate = _visit_actual(
-            self[j],
-            {key: None},
-            self.path + "[]",
-            self.locations[j],
-            self.evaluate_cached,
-            False,
-            warnings,
-            failures,
-            self.property_name,
-            self.model_path,
-            self.rules,
-            {},
-        )
-        self.key_evidence[j] = warnings, failures
-        return candidate.get(key) if isinstance(candidate, dict) else candidate
-
 
 def _candidate_root(value, pointer, evaluate):
     while (
@@ -138,6 +117,65 @@ def _candidate_root(value, pointer, evaluate):
 
 def _raise_candidate_error(error, value):
     raise error
+
+
+def key_integrity(value, *, rule, evaluate, property_name, model_path):
+    """Validate input uniqueness independently of selected-attribute comparison."""
+    warnings, failures, names = [], [], {}
+    value, pointer, error = _candidate_root(value, "", evaluate)
+    if error:
+        return PreparedValue(
+            None, warnings, failures=((property_name, pointer, error),)
+        )
+    if not isinstance(value, list) or len(value) < 2:
+        return PreparedValue(None, warnings)
+    key = rule.key
+    path = property_name + "[]." + key
+    for index, item in enumerate(value):
+        item, location, error = _candidate_root(
+            item, pointer + "/" + str(index), evaluate
+        )
+        if error:
+            failures.append((path, location, error))
+            continue
+        start = len(failures)
+        candidate = _visit_actual(
+            item,
+            {key: None},
+            property_name + "[]",
+            location,
+            evaluate,
+            False,
+            warnings,
+            failures,
+            property_name,
+            model_path,
+            {},
+            {},
+        )
+        name = candidate.get(key) if isinstance(candidate, dict) else candidate
+        if isinstance(candidate, dict) and key in candidate:
+            location += "/" + key.replace("~", "~0").replace("/", "~1")
+        if isinstance(name, str):
+            if name in names:
+                error = ValueError("duplicate input key: " + key)
+                error.iac_cause = dict(
+                    kind="input-invalid",
+                    rule="unique-key",
+                    key=key,
+                    value=name,
+                    pointers=[names[name], location],
+                )
+                failures.append((path, location, error))
+            else:
+                names[name] = location
+        elif (
+            isinstance(name, (Expression, ResourceReference)) and len(failures) == start
+        ):
+            failures.append(
+                (path, location, Blocked("input key uniqueness is unproven"))
+            )
+    return PreparedValue(None, warnings, failures=tuple(failures))
 
 
 def project_actual(

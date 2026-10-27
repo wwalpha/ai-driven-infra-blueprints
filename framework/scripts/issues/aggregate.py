@@ -182,6 +182,13 @@ def iac_actions(entries, environment, directory):
                 if proven
                 else "許可形式と両側の形式を確認し、形式違反の有無と修正先を特定する。"
             )
+        elif cause.get("kind") == "input-invalid":
+            target = (item.get("iac") or {}).get("path")
+            repair_direction = "入力修正"
+            title = f"{item['service']} / {item['resource']} / {item['property']} の入力不正"
+            classification, status = "IaC入力不正", "要修正"
+            description = item["reason"]
+            remedy = "対象ResourceとIaC Pointerの証跡を確認し、重複したキーを修正する。"
         elif item["category"] == "difference" and item["reason"] in {
             "value mismatch",
             "property missing",

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison import registry
-from comparison.evaluation import project_actual
+from comparison.evaluation import key_integrity, project_actual
 from comparison.methods import (
     MISSING,
     OBJECT,
@@ -28,6 +28,7 @@ from comparison.result import setting_result, value_differences
 from design.catalog import DesignSchemaCatalog, property_paths_with_parents
 from support.pytest_cli import run
 from utils.aws_catalogs import catalogs_for
+from utils.cloudformation.inputs import Blocked
 from utils.iac_values import (
     Expression,
     ResourceReference,
@@ -858,7 +859,7 @@ def test_policy_name_unselected_uses_selected_unordered_comparison(kind):
         compare_values(model, actual, "Policies", rules=rules, whole=True).equal
         is False
     )
-    assert compare_values(model, actual * 2, "Policies", rules=rules).equal is False
+    assert compare_values(model, actual * 2, "Policies", rules=rules).equal is True
     duplicates = compare_values(
         model * 2,
         [actual[0], dict(actual[0], PolicyName="Other")],
@@ -890,6 +891,7 @@ def test_policy_name_unselected_uses_selected_unordered_comparison(kind):
         (False, ResourceReference({"$resource": ["iam", "001"]}), "a", True),
         (False, {"Ref": "MissingPolicyName"}, "b", False),
         (False, {"Ref": "MissingPolicyName"}, {"Ref": "MissingAction"}, None),
+        (True, "only", "a", True),
         (True, {"Ref": "MissingPolicyName"}, "a", None),
         (True, "other", "a", False),
         ("mixed", {"Ref": "MissingPolicyName"}, "a", None),
@@ -958,6 +960,16 @@ def test_policy_key_selection_uncertainty(
         )
         if projected:
             assert not prepared.warnings and not prepared.failures
+            integrity_evaluate = Mock(side_effect=policy_integrity_intrinsic)
+            integrity = key_integrity(
+                raw,
+                rule=rules["Policies"],
+                evaluate=integrity_evaluate,
+                property_name=kind + ".Policies",
+                model_path="model",
+            )
+            integrity_evaluate.assert_not_called()
+            assert not integrity.failures and not integrity.warnings
             if isinstance(action, dict):
                 assert result.candidate_failures[0][:2] == (
                     "Policies[].PolicyDocument.Statement[].Action",
@@ -980,15 +992,28 @@ def policy_selection_intrinsic(value):
 
 @pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
 @pytest.mark.parametrize("named", [False, True])
-@pytest.mark.parametrize("duplicate", [False, True])
-def test_keyless_projected_names_preserve_duplicate_detection(kind, named, duplicate):
+@pytest.mark.parametrize(
+    "names", ["distinct", "unknown", "duplicate", "invalid", "symbolic"]
+)
+def test_keyless_comparison_and_separate_key_integrity(kind, named, names):
     a = {"PolicyDocument": {"Statement": [{"Action": "a"}]}}
     b = {"PolicyDocument": {"Statement": [{"Action": "b"}]}}
     model = [dict(a, PolicyName="one") if named else a, b]
     raw = [
-        dict(b, PolicyName="one" if duplicate else {"Ref": "MissingPolicyName"}),
+        dict(
+            b,
+            PolicyName={
+                "distinct": "two",
+                "unknown": {"Ref": "MissingPolicyName"},
+                "duplicate": "one",
+                "invalid": {"Fn::Sub": 42},
+                "symbolic": Expression("Sub", ["symbolic"]),
+            }[names],
+        ),
         dict(a, PolicyName={"Fn::Sub": "one"} if named else "one"),
     ]
+    if names == "duplicate":
+        raw[1] = {"Fn::If": ["Active", raw[1], {"Ref": "Inactive"}]}
     rules = registry.rules(kind)
     evaluate = Mock(side_effect=policy_selection_intrinsic)
     prepared = project_actual(
@@ -1003,16 +1028,59 @@ def test_keyless_projected_names_preserve_duplicate_detection(kind, named, dupli
     result = compare_values(
         model, prepared.value, "Policies", rules=rules, reference=uncertain
     )
-    assert result.equal is (False if duplicate else True)
+    assert result.equal is True
     assert not result.diagnostics
     assert not result.candidate_warnings and not result.candidate_failures
     assert not prepared.warnings and not prepared.failures
     assert sum(
         call.args[0] == {"Ref": "MissingPolicyName"} for call in evaluate.call_args_list
-    ) == int(not duplicate)
+    ) == int(named and names == "unknown")
     assert sum(
         call.args[0] == {"Fn::Sub": "one"} for call in evaluate.call_args_list
     ) == int(named)
+    integrity_evaluate = Mock(side_effect=policy_integrity_intrinsic)
+    integrity = key_integrity(
+        raw,
+        rule=rules["Policies"],
+        evaluate=integrity_evaluate,
+        property_name=kind + ".Policies",
+        model_path="model",
+    )
+    assert bool(integrity.warnings) is (names == "unknown")
+    assert len(integrity.failures) == int(names != "distinct")
+    if integrity.failures:
+        path, pointer, error = integrity.failures[0]
+        assert path == kind + ".Policies[].PolicyName"
+        assert pointer == (
+            "/1/Fn::If/1/PolicyName" if names == "duplicate" else "/0/PolicyName"
+        )
+        if names == "duplicate":
+            assert error.iac_cause == {
+                "kind": "input-invalid",
+                "rule": "unique-key",
+                "key": "PolicyName",
+                "value": "one",
+                "pointers": ["/0/PolicyName", "/1/Fn::If/1/PolicyName"],
+            }
+        else:
+            assert isinstance(
+                error,
+                KeyError
+                if names == "unknown"
+                else Blocked
+                if names == "symbolic"
+                else ValueError,
+            )
+    assert not any(
+        isinstance(call.args[0], dict) and "Statement" in call.args[0]
+        for call in integrity_evaluate.call_args_list
+    )
+
+
+def policy_integrity_intrinsic(value):
+    if value == {"Fn::Sub": 42}:
+        raise ValueError("invalid Fn::Sub")
+    return policy_selection_intrinsic(value)
 
 
 def candidate_diagnostic(left, right, path):
@@ -1172,10 +1240,11 @@ def test_keyless_unique_remainder_after_reordered_matches():
     ]
 
 
+@pytest.mark.parametrize("kind", ["IAM.Role", "IAM.User"])
 @pytest.mark.parametrize(
     "case", ["ambiguous", "duplicate", "missing", "selected-name-missing", "unknown"]
 )
-def test_keyless_unproven_pairs_remain_missing(case):
+def test_keyless_unproven_pairs_remain_missing(kind, case):
     a = {"PolicyDocument": {"Statement": [{"Action": "a"}]}}
     b = {"PolicyDocument": {"Statement": [{"Action": "b"}]}}
     c = {"PolicyDocument": {"Statement": [{"Action": "c"}]}}
@@ -1192,7 +1261,7 @@ def test_keyless_unproven_pairs_remain_missing(case):
     elif case == "unknown":
         actual = [Expression("Unverified", []), Expression("Unverified", [])]
     result = compare_values(
-        model, actual, "Policies", rules=registry.rules("IAM.User"), reference=uncertain
+        model, actual, "Policies", rules=registry.rules(kind), reference=uncertain
     )
     assert result.equal is (None if case == "unknown" else False)
     if case == "unknown":

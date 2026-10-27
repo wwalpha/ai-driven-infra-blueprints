@@ -393,14 +393,14 @@ class BooleanValueTests(unittest.TestCase):
                 ["one", {"Fn::If": ["Yes", {"Ref": "AWS::NoValue"}, "one"]}],
                 "matched",
             ),
-            ("literal-duplicate", ["same", "same"], "difference"),
-            ("sub-duplicate", [{"Fn::Sub": "same"}] * 2, "difference"),
-            ("mixed-duplicate", ["same", {"Fn::Sub": "same"}], "difference"),
-            ("ref-duplicate", ["ap-northeast-1", {"Ref": "AWS::Region"}], "difference"),
+            ("literal-duplicate", ["same", "same"], "invalid"),
+            ("sub-duplicate", [{"Fn::Sub": "same"}] * 2, "invalid"),
+            ("mixed-duplicate", ["same", {"Fn::Sub": "same"}], "invalid"),
+            ("ref-duplicate", ["ap-northeast-1", {"Ref": "AWS::Region"}], "invalid"),
             (
                 "if-duplicate",
                 ["same", {"Fn::If": ["Yes", "same", {"Ref": "Inactive"}]}],
-                "difference",
+                "invalid",
             ),
             (
                 "nested-if-duplicate",
@@ -414,13 +414,13 @@ class BooleanValueTests(unittest.TestCase):
                         ]
                     },
                 ],
-                "difference",
+                "invalid",
             ),
-            ("unknown-key", ["one", {"Ref": "Missing"}], "matched"),
+            ("unknown-key", ["one", {"Ref": "Missing"}], "uncompared"),
             (
                 "unknown-condition",
                 ["one", {"Fn::If": ["Missing", "one", "two"]}],
-                "matched",
+                "uncompared",
             ),
         ]
         for kind in ("User", "Role"):
@@ -501,13 +501,56 @@ class BooleanValueTests(unittest.TestCase):
                     summary = _imports_issues_aggregate.iac_summary(
                         records, "fixture", "team", ["service-0"]
                     )
+                    integrity = [
+                        item for item in records if item.get("input_integrity")
+                    ]
+                    compared = [
+                        item for item in records if not item.get("input_integrity")
+                    ]
                     self.assertEqual(
-                        [item["category"] for item in records], [expected], records
+                        [item["category"] for item in compared], ["matched"]
                     )
+                    self.assertEqual(
+                        [item["category"] for item in integrity],
+                        []
+                        if expected == "matched"
+                        else ["difference" if expected == "invalid" else expected],
+                        records,
+                    )
+                    if integrity:
+                        item = integrity[0]
+                        self.assertEqual(item["resource"], "0000")
+                        self.assertEqual(
+                            item["property"], resource_type + ".Policies[].PolicyName"
+                        )
+                        self.assertEqual(
+                            item["iac"]["path"],
+                            "infra/cloudformation/templates/0.json",
+                        )
+                        self.assertTrue(
+                            item["iac"]["pointer"].startswith(
+                                "/1/PolicyName"
+                                if expected == "invalid"
+                                else "/0/PolicyName"
+                            )
+                        )
+                        self.assertIn("model", item)
+                    if expected == "invalid":
+                        self.assertEqual(item["cause"]["kind"], "input-invalid")
+                        self.assertEqual(
+                            item["cause"]["pointers"],
+                            ["/0/PolicyName", "/1/PolicyName"],
+                        )
+                        self.assertEqual(
+                            _imports_issues_aggregate.iac_dataset(
+                                records, "fixture", "team", ["service-0"]
+                            )[1][0]["classification"],
+                            "IaC入力不正",
+                        )
                     self.assertEqual(
                         summary["issue_count"], 0 if expected == "matched" else 1
                     )
-                    if expected == "difference":
+                    if expected != "matched":
                         continue
                     actual[2]["PolicyDocument"] = {"Statement": []}
                     for field, replacement in (
@@ -953,14 +996,14 @@ class BooleanValueTests(unittest.TestCase):
             self.assertNotIn(call({"Ref": "Inactive"}), evaluate.call_args_list)
             self.assertNotIn(call({"Ref": "Unrelated"}), evaluate.call_args_list)
             self.assertEqual(
-                evaluate.call_args_list.count(call({"Fn::Sub": "variable"})), 1
+                evaluate.call_args_list.count(call({"Fn::Sub": "variable"})), 0
             )
             self.assertIs(
                 compare_values(desired, projected.value, "Policies", rules=rules).equal,
                 True,
             )
             self.assertEqual(
-                evaluate.call_args_list.count(call({"Fn::Sub": "variable"})), 1
+                evaluate.call_args_list.count(call({"Fn::Sub": "variable"})), 0
             )
 
     def test_keyless_candidate_evaluation_retains_errors(self):

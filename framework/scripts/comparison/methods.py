@@ -266,7 +266,7 @@ def _decision(state, whole, left, right, path):
             and rule.keyless_unordered
             and any(isinstance(item, dict) and rule.key not in item for item in left)
         ):
-            return _keyless_same(state, left, right, path, rule.key)
+            return _keyless_same(state, left, right, path)
         return _keyed_same(state, left, right, path, whole, rule.key)
     evidence = []
     equal = unordered_same(
@@ -340,7 +340,7 @@ def _candidate_same(state, left, right, path):
     return result, details
 
 
-def _keyless_same(state, left, right, path, key):
+def _keyless_same(state, left, right, path):
     matrix = [[False] * len(right) for _ in left]
     projected = {}
     details = {}
@@ -375,23 +375,6 @@ def _keyless_same(state, left, right, path, key):
         if len(possible) == len(left)
         else False
     )
-    named = [item.get(key) for item in left if isinstance(item, dict) and key in item]
-    # Multiple candidates still need resolved names to detect duplicate keys.
-    actual_names = [
-        right.key_value(j, key)
-        if len(right) > 1 and hasattr(right, "key_value")
-        else item.get(key)
-        if isinstance(item, dict)
-        else item
-        for j, item in enumerate(right)
-    ]
-    if any(
-        names.count(name) > 1
-        for names in (named, actual_names)
-        for name in names
-        if isinstance(name, str)
-    ):
-        equal = False
     selected = owners if equal is not None else possible
     if equal is None and hasattr(right, "evidence"):
         clean_matrix = [
