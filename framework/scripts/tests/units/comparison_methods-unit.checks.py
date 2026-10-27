@@ -11,6 +11,7 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import comparison.methods as methods
 import pytest
 from comparison import registry
 from comparison.evaluation import key_integrity, project_actual
@@ -1594,6 +1595,7 @@ def test_unordered_possible_edges_match_rematching_oracle():
                     state,
                     list(range(columns)) if rows != columns else list(range(rows)),
                     list(range(rows)) if rows != columns else list(range(columns)),
+                    "Setting",
                     UNORDERED,
                     None,
                     candidates,
@@ -1621,3 +1623,155 @@ def test_unordered_possible_edges_match_rematching_oracle():
                             ):
                                 expected.add((i, j))
                 assert selected == expected
+
+
+def test_unordered_remainder_preserves_diagnostic_and_pointers():
+    left = [{"Value": "a"}, {"Value": "b"}]
+    right = [{"Value": "a"}, {"Value": "x"}]
+    outcome = compare(left, right, UNORDERED, reference=diagnostic_candidate)
+    assert outcome.equal is False
+    assert {d["reason"] for d in outcome.diagnostics} == {"a/a", "b/x"}
+    assert [(d.model_pointer, d.iac_pointer) for d in outcome.differences] == [
+        ((1, "Value"), (1, "Value"))
+    ]
+
+
+def kms_candidate(left, right, path):
+    if path.endswith(".Value"):
+        reason = (
+            "KMS format outside allowed forms: invalid"
+            if (left, right) in {("b", "x"), ("a", "c"), ("a", "x")}
+            else "equal"
+            if left == right
+            else "mismatch"
+        )
+        return ReferenceDecision(left == right, ({"path": path, "reason": reason},))
+    return ReferenceDecision(NotImplemented)
+
+
+def test_unordered_format_classification_uses_only_selected_candidates():
+    for left, right, expected in [
+        (
+            [{"Value": "a"}, {"Value": "b"}],
+            [{"Value": "a"}, {"Value": "x"}],
+            "KMS format outside allowed forms: invalid",
+        ),
+        ([{"Value": "a"}, {"Value": "x"}], [{"Value": "x"}, {"Value": "a"}], "equal"),
+        (
+            [{"Value": "a"}, {"Value": "b"}],
+            [{"Value": "a"}, {"Value": "c"}],
+            "value mismatch",
+        ),
+    ]:
+        outcome = compare(left, right, UNORDERED, reference=kms_candidate)
+        record = setting_result(
+            "iam",
+            "001",
+            "Setting",
+            left,
+            right,
+            outcome,
+            "stack",
+            [{}],
+            {},
+            actual_error=None,
+            redact=safe_value,
+        ).records[0]
+        assert record["reason"] == expected
+        assert any(
+            d["reason"] == "KMS format outside allowed forms: invalid"
+            for d in outcome.diagnostics
+        ) == expected.startswith("KMS format")
+
+
+def nested_uncertain_reference(left, right, path):
+    if path.endswith("Resource[]"):
+        return ReferenceDecision(
+            None,
+            (
+                {
+                    "path": path,
+                    "model": left,
+                    "iac": right,
+                    "reason": "recorded_identifier_mismatch",
+                },
+            ),
+        )
+    return ReferenceDecision(NotImplemented)
+
+
+def test_unordered_nested_correspondence_and_duplicate_keys():
+    rules = {
+        "Statement": replace(UNORDERED, key="Sid"),
+        "Statement[].Resource": UNORDERED,
+    }
+    ref = ResourceReference({"$resource": ["kms", "003"], "$attribute": "KeyId"})
+    left = [{"Sid": "UseMaterialKey", "Resource": ["fixed"]}]
+    right = [{"Sid": "UseMaterialKey", "Resource": [ref]}]
+    outcome = compare_values(
+        left, right, "Statement", rules=rules, reference=nested_uncertain_reference
+    )
+    assert outcome.equal is None
+    diagnostic = outcome.diagnostics[0]
+    assert diagnostic["correspondence_path"][0]["correspondence"] == {
+        "key": "Sid",
+        "value": "UseMaterialKey",
+    }
+    assert diagnostic["correspondence_path"][1]["correspondence"] == "unproven"
+    for key in ("Sid", "missing"):
+        duplicate_left = [{key: "same", "Resource": ["fixed"]}] * 2
+        duplicate_right = [{key: "same", "Resource": [ref]}] * 2
+        result = compare_values(
+            duplicate_left,
+            duplicate_right,
+            "Statement",
+            rules=rules,
+            reference=nested_uncertain_reference,
+        )
+        assert result.equal is None
+        assert all(
+            all(
+                entry["correspondence"] == "unproven"
+                for entry in d["correspondence_path"]
+            )
+            for d in result.diagnostics
+        )
+
+
+def test_unordered_uncertain_matching_does_not_recompute_per_pair(monkeypatch):
+    matching = Mock(wraps=methods.unordered_matching)
+    monkeypatch.setattr(methods, "unordered_matching", matching)
+    values = [{"Value": str(i)} for i in range(36)]
+    outcome = compare(
+        values,
+        [{"Value": "x"} for _ in values],
+        UNORDERED,
+        reference=uncertain_candidate,
+    )
+    assert outcome.equal is None
+    assert matching.call_count <= 1
+    assert len(outcome.diagnostics) == len(values)
+    assert all(d["correspondence"] == "unproven" for d in outcome.diagnostics)
+
+
+def repeated_reason_candidate(left, right, path):
+    if path.endswith(".Value"):
+        return ReferenceDecision(
+            None, ({"path": path, "model": left, "iac": right, "reason": "unresolved"},)
+        )
+    return ReferenceDecision(NotImplemented)
+
+
+def test_unordered_ambiguous_repeated_reason_is_aggregated():
+    left = [{"Value": str(i)} for i in range(12)]
+    right = [{"Value": "x" + str(i)} for i in range(12)]
+    result = compare(left, right, UNORDERED, reference=repeated_reason_candidate)
+    assert result.equal is None
+    assert len(result.diagnostics) == 1
+    assert result.diagnostics[0]["reason"] == "unresolved"
+    assert result.diagnostics[0]["correspondence"] == "unproven"
+    assert (
+        result.diagnostics[0]["model"]
+        == result.diagnostics[0]["iac"]
+        == "候補複数（未確定）"
+    )

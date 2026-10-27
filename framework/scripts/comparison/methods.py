@@ -281,7 +281,9 @@ def _decision(state, whole, left, right, path):
         ),
         candidate=partial(_whole_candidate, state, candidates, path + "[]"),
     )
-    _select_unordered_diagnostics(state, left, right, rule, equal, candidates, evidence)
+    _select_unordered_diagnostics(
+        state, left, right, path, rule, equal, candidates, evidence
+    )
     if equal is False and original_left is left and original_right is right:
         pairs = []
         known, _ = array_presence(right)
@@ -329,8 +331,41 @@ def _whole_candidate(state, candidates, path, left, right):
     return result
 
 
+def _unordered_pairs(left, right, key, matrix, owners):
+    pairs = [(i, j) for j, i in owners.items()]
+    matched_left = set(owners.values())
+    matched_right = set(owners)
+    left_keys = [
+        item.get(key) if key and isinstance(item, dict) else None for item in left
+    ]
+    right_keys = [
+        item.get(key) if key and isinstance(item, dict) else None for item in right
+    ]
+    for i, value in enumerate(left_keys):
+        if (
+            i not in matched_left
+            and isinstance(value, str)
+            and left_keys.count(value) == right_keys.count(value) == 1
+        ):
+            j = right_keys.index(value)
+            if j not in matched_right:
+                pairs.append((i, j))
+                matched_left.add(i)
+                matched_right.add(j)
+    remainder = _unique_remainder(matrix, matched_left, matched_right)
+    if remainder is not None:
+        i, j = remainder
+        if (
+            left_keys[i] is None
+            and isinstance(left[i], dict)
+            and isinstance(right[j], dict)
+        ):
+            pairs.append((i, j))
+    return pairs
+
+
 def _select_unordered_diagnostics(
-    state, left, right, rule, equal, candidates, evidence
+    state, left, right, path, rule, equal, candidates, evidence
 ):
     if not candidates:
         return
@@ -346,11 +381,14 @@ def _select_unordered_diagnostics(
     owners = evidence[0][1] if evidence and evidence[0][1] is not None else {}
     if equal is False and not owners:
         owners = unordered_matching(matrix)
-    selected = (
-        {(i, j) for j, i in owners.items()}
-        if equal is True or equal is False
-        else set()
-    )
+    if equal is False and not reversed_order:
+        selected = set(_unordered_pairs(left, right, rule.key, matrix, owners))
+    else:
+        selected = (
+            {(i, j) for j, i in owners.items()}
+            if equal is True or equal is False
+            else set()
+        )
     if (
         equal is False
         and len(left) == len(right) == 1
@@ -388,23 +426,7 @@ def _select_unordered_diagnostics(
                 for j, value in enumerate(row)
                 if value is not False and (matched[i] in reach[j] or reach[j] & free)
             }
-    if equal is False and rule.key and not reversed_order:
-        for i, item in enumerate(left):
-            if i in owners.values():
-                continue
-            value = item.get(rule.key) if isinstance(item, dict) else None
-            if (
-                isinstance(value, str)
-                and sum(isinstance(x, dict) and x.get(rule.key) == value for x in left)
-                == 1
-            ):
-                matches = [
-                    j
-                    for j, x in enumerate(right)
-                    if isinstance(x, dict) and x.get(rule.key) == value
-                ]
-                if len(matches) == 1 and matches[0] not in owners:
-                    selected.add((i, matches[0]))
+    seen = {}
     for i, j in sorted(selected):
         diagnostics, equivalent, warnings, failures = candidates[i * len(columns) + j][
             1
@@ -424,10 +446,55 @@ def _select_unordered_diagnostics(
                 == sum(isinstance(x, dict) and x.get(key) == value for x in right)
                 == 1
             ):
-                diagnostic.setdefault("correspondence", {"key": key, "value": value})
+                correspondence = {"key": key, "value": value}
             elif equal is None:
-                diagnostic.setdefault("correspondence", "unproven")
-            state.diagnostics.append(diagnostic)
+                correspondence = "unproven"
+            else:
+                correspondence = None
+            if correspondence is not None:
+                previous = diagnostic.get("correspondence")
+                if previous is None:
+                    diagnostic["correspondence"] = correspondence
+                else:
+                    diagnostic["correspondence_path"] = [
+                        {"path": path, "correspondence": correspondence},
+                        *diagnostic.get(
+                            "correspondence_path",
+                            [
+                                {
+                                    "path": diagnostic.get("path"),
+                                    "correspondence": previous,
+                                }
+                            ],
+                        ),
+                    ]
+            identity_fields = dict(diagnostic)
+            if equal is None:
+                for side in ("model", "iac"):
+                    value = identity_fields.get(side)
+                    if not isinstance(value, dict) or "$resource" not in value:
+                        identity_fields.pop(side, None)
+            identity = repr(identity_fields)
+            bucket = seen.setdefault(identity, [])
+            existing = next(
+                (
+                    item
+                    for item in bucket
+                    if all(
+                        item.get(name) == value
+                        for name, value in identity_fields.items()
+                    )
+                ),
+                None,
+            )
+            if existing is None:
+                bucket.append(diagnostic)
+                state.diagnostics.append(diagnostic)
+            elif equal is None:
+                for side in ("model", "iac"):
+                    if existing.get(side) != diagnostic.get(side):
+                        existing[side] = "候補複数（未確定）"
+
         state.equivalent |= equivalent
         state.candidate_warnings.extend(warnings)
         state.candidate_failures.extend(failures)
@@ -848,61 +915,27 @@ def _unordered_evidence(state, left, right, typed, shown, lp, rp, evidence):
                 )
             )
         return differences
-    matched_left = set(owners.values())
-    matched_right = set(owners)
+    pairs = _unordered_pairs(
+        left, right, state.rules.get(typed, UNORDERED).key, matrix, owners
+    )
+    matched_left = {i for i, _ in pairs}
+    matched_right = {j for _, j in pairs}
     differences = []
-    key = state.rules.get(typed, UNORDERED).key
-    left_sids = [
-        item.get(key) if key and isinstance(item, dict) else None for item in left
-    ]
-    right_sids = [
-        item.get(key) if key and isinstance(item, dict) else None for item in right
-    ]
-    for i, sid in enumerate(left_sids):
-        if (
-            i not in matched_left
-            and isinstance(sid, str)
-            and left_sids.count(sid) == 1
-            and right_sids.count(sid) == 1
-        ):
-            j = right_sids.index(sid)
-            if j not in matched_right:
-                matched_left.add(i)
-                matched_right.add(j)
-                differences.extend(
-                    _evidence(
-                        state,
-                        left[i],
-                        right[j],
-                        typed + "[]",
-                        _path(shown, f"[{i}]"),
-                        lp + (i,),
-                        rp + (j,),
-                        True,
-                    )
-                )
-    remainder = _unique_remainder(matrix, matched_left, matched_right)
-    if remainder is not None:
-        i, j = remainder
-        if (
-            left_sids[i] is None
-            and isinstance(left[i], dict)
-            and isinstance(right[j], dict)
-        ):
-            matched_left.add(i)
-            matched_right.add(j)
-            differences.extend(
-                _evidence(
-                    state,
-                    left[i],
-                    right[j],
-                    typed + "[]",
-                    _path(shown, f"[{i}]"),
-                    lp + (i,),
-                    rp + (j,),
-                    True,
-                )
+    for i, j in pairs:
+        if owners.get(j) == i:
+            continue
+        differences.extend(
+            _evidence(
+                state,
+                left[i],
+                right[j],
+                typed + "[]",
+                _path(shown, f"[{i}]"),
+                lp + (i,),
+                rp + (j,),
+                True,
             )
+        )
     for i, item in enumerate(left):
         if i not in matched_left and not any(value is None for value in matrix[i]):
             differences.append(

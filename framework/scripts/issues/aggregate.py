@@ -38,34 +38,43 @@ def pending_deploy_count(records):
 
 
 def diagnostic_description(item):
-    children = item.get("deferred_children", [])
-    diagnostics = item.get("reference_diagnostics", [])
-    if children:
-        details = [
-            f"{child['property'].rsplit('.', 1)[-1]}: {child['reason']}"
-            for child in children
-            if child.get("reason")
+    details = []
+    reasons = set()
+    for diagnostic in item.get("reference_diagnostics", []):
+        reason = diagnostic.get("reason")
+        if not reason:
+            continue
+        parts = []
+        correspondences = diagnostic.get("correspondence_path") or [
+            {"correspondence": diagnostic.get("correspondence")}
         ]
-    else:
-        details = []
-    if not details:
-        for diagnostic in diagnostics:
-            reason = diagnostic.get("reason")
-            if not reason:
-                continue
-            parts = []
-            correspondence = diagnostic.get("correspondence")
-            if isinstance(correspondence, dict):
-                parts.append(str(correspondence.get("value", "")))
+        for entry in correspondences:
+            correspondence = entry.get("correspondence")
+            if isinstance(correspondence, dict) and correspondence.get("value"):
+                parts.append(str(correspondence["value"]))
             elif correspondence == "unproven":
                 parts.append("対応未確定")
-            for side in ("model", "iac"):
-                value = diagnostic.get(side)
-                resource = value.get("$resource") if isinstance(value, dict) else None
-                if isinstance(resource, list) and len(resource) == 2:
-                    parts.append("_".join(str(part) for part in resource))
+        for side in ("model", "iac"):
+            value = diagnostic.get(side)
+            resource = value.get("$resource") if isinstance(value, dict) else None
+            if isinstance(resource, list) and len(resource) == 2:
+                label = "_".join(str(part) for part in resource)
+                if value.get("$attribute"):
+                    label += "." + str(value["$attribute"])
+                parts.append(label)
+        if not any(
+            isinstance(diagnostic.get(side), dict)
+            and diagnostic[side].get("$attribute")
+            for side in ("model", "iac")
+        ):
             parts.append(diagnostic.get("path", item["property"]).rsplit(".", 1)[-1])
-            details.append(" / ".join(dict.fromkeys(parts)) + ": " + reason)
+        details.append(" / ".join(dict.fromkeys(parts)) + ": " + reason)
+        reasons.add(reason)
+    for child in item.get("deferred_children", []):
+        reason = child.get("reason")
+        if reason and reason not in reasons:
+            details.append(f"{child['property'].rsplit('.', 1)[-1]}: {reason}")
+            reasons.add(reason)
     return (
         " / ".join(dict.fromkeys(details))
         or item.get("reason")

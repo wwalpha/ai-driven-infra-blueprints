@@ -4,6 +4,7 @@
 import sys
 from contextlib import nullcontext, redirect_stdout
 from copy import deepcopy
+from dataclasses import replace
 from functools import partial
 from io import StringIO
 from pathlib import Path
@@ -29,6 +30,9 @@ from comparison.deferral import (
     ImportReferenceDeferred,
 )
 from comparison.inputs import Inputs
+from comparison.methods import UNORDERED, compare_values
+from comparison.references import ReferenceDecision
+from comparison.result import setting_result
 from issues.aggregate import MAX_GROUPS, comparison_status, iac_actions
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
@@ -67,6 +71,7 @@ from support.issues_scan_fixtures import (
 from support.issues_scan_fixtures import pytestmark as pytestmark
 from task_contract_core import contract_snapshot, task_reads, task_snapshot
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
+from utils.iac_values import ResourceReference, safe_value
 from utils.input_cache import input_context
 from validation.findings import Findings
 from validation.runner import Validator
@@ -3307,3 +3312,73 @@ def test_diagnostic_cause_prefers_children_and_preserves_details():
     assert all(
         value in report for value in ("UseKey", "kms_003", "KeyId", "reference reason")
     )
+
+
+def test_nested_unordered_reference_cause_through_report():
+    left = [{"Sid": "UseMaterialKey", "Resource": ["fixed"]}]
+    right = [
+        {
+            "Sid": "UseMaterialKey",
+            "Resource": [
+                ResourceReference({"$resource": ["kms", "003"], "$attribute": "KeyId"})
+            ],
+        }
+    ]
+    rules = {
+        "Statement": replace(UNORDERED, key="Sid"),
+        "Statement[].Resource": UNORDERED,
+    }
+    callback = partial(nested_report_reference, decision=ReferenceDecision)
+    decision = compare_values(left, right, "Statement", rules=rules, reference=callback)
+    record = setting_result(
+        "iam",
+        "001",
+        "Statement",
+        left,
+        right,
+        decision,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=safe_value,
+    ).records[0]
+    record["deferred_children"] = [
+        {
+            "property": "Statement.Resource",
+            "reason": "recorded_identifier_mismatch",
+            "category": "uncompared",
+        }
+    ]
+    data = aggregate([record], "dev", "team", ["iam"])
+    report = iac_report("dev", "team", ["iam"], [record], stamp="fixed")
+    description = data["iac_issues"][0]["description"]
+    assert all(
+        value in description and value in report
+        for value in (
+            "UseMaterialKey",
+            "kms_003.KeyId",
+            "対応未確定",
+            "recorded_identifier_mismatch",
+        )
+    )
+    assert description.count("recorded_identifier_mismatch") == 1
+
+
+def nested_report_reference(left, right, path, *, decision):
+    if path.endswith("Resource[]"):
+        return decision(
+            None,
+            (
+                {
+                    "path": path,
+                    "model": left,
+                    "iac": right,
+                    "identity": "unproven",
+                    "allowed_forms": [],
+                    "format": {},
+                    "reason": "recorded_identifier_mismatch",
+                },
+            ),
+        )
+    return decision(NotImplemented)
