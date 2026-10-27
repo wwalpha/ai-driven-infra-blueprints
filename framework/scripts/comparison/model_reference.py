@@ -252,7 +252,10 @@ class ModelReferences:
             prop = inputs.model(self.scope.service).authoritative[
                 key.rsplit(".", 1)[0] + ".property"
             ]
-            project = registry.hook(".".join(prop.split(".")[:2]), "selected_reference")
+            kind = ".".join(prop.split(".")[:2])
+            project = registry.property_rule(
+                kind, prop.removeprefix(kind + ".")
+            ).selected_reference
             if project is None:
                 raise Blocked(
                     "reference valueSelector has no receiving property contract"

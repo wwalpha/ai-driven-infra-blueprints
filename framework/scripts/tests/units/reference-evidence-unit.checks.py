@@ -15,10 +15,10 @@ from comparison.deferral import ImportReferenceDeferred, failure_category
 from comparison.evaluation import project_actual
 from comparison.methods import ORDERED, compare_values
 from comparison.reference_evidence import Evidence
+from comparison.registry import rules
 from comparison.resource import inactive_evidence, inline_owner
 from comparison.rows import validated_rows
-from comparison.rulebook import rules
-from comparison.services.iam import managed_policy_roles
+from comparison.rules.iam import managed_policy_roles
 from comparison.values import PreparedValue
 from design.catalog import DesignSchemaCatalog
 from issues.aggregate import aggregate, comparison_status
@@ -4534,7 +4534,7 @@ def test_sqs_reference_processing_errors_propagate(error):
     comparison, desired, actual = sqs_policy_fixture()
     reference = comparison.evaluate("producer", {"Fn::GetAtt": ["Queue", "Arn"]})
     with patch(
-        "comparison.registry.named_arn",
+        "comparison.inputs.named_arn",
         side_effect=error("synthetic reference evaluation failure"),
     ):
         with pytest.raises(error, match="synthetic reference evaluation failure"):

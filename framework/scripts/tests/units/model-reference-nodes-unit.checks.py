@@ -15,8 +15,7 @@ import model.sources as sources
 import pytest
 from comparison.deferral import ImportReferenceDeferred
 from comparison.methods import compare_values
-from comparison.rulebook import rules
-from comparison.services.codepipeline import contexts as action_contexts
+from comparison.registry import rules
 from design.catalog import DesignSchemaCatalog
 from design.policy_tables import (
     Policy,
@@ -52,6 +51,7 @@ from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 from utils.json_format import validate_aws_document
+from utils.reference_contracts import action_contexts
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

@@ -265,7 +265,7 @@ def sqs_policy_artifact_checks():
             fixtures.mutate_template(root, candidate)
             fault = (
                 patch(
-                    "comparison.registry.named_arn",
+                    "comparison.inputs.named_arn",
                     side_effect=OSError("synthetic ARN I/O failure"),
                 )
                 if category == "error"

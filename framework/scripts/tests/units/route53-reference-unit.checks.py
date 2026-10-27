@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison.methods import compare_values
-from comparison.rulebook import rules
-from comparison.services import route53
+from comparison.registry import rules
+from comparison.rules import route53
 from model.core import entries
 from model.references import declarations, symbolic
 from model.sources import load_model
@@ -302,7 +302,13 @@ def test_cname_only(models, record_type):
     with pytest.raises(Blocked, match="Type=CNAME"):
         prepared.require_value()
     assert (
-        route53.selected_decision(inputs, "literal", "literal", "ResourceRecords[]")
+        route53.selected_decision(
+            inputs,
+            "literal",
+            "literal",
+            "ResourceRecords[]",
+            export_origins=lambda *args: [],
+        )
         is NotImplemented
     )
 

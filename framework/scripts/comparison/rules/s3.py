@@ -1,9 +1,11 @@
 """Static S3 comparison methods; container rules include their recursive contents."""
 
+from ..contracts import ResourceContract
 from ..methods import properties
 
 RULES = {
     "S3.Bucket": properties(
+        resource=ResourceContract(design_only=frozenset({"Region"})),
         objects="""
             BucketEncryption
             BucketEncryption.ServerSideEncryptionConfiguration[]

@@ -25,7 +25,7 @@ class ReferenceDecision:
 
 def reference_forms(kind, path, *, local_comparison, property_schema):
     key = kind + "." + path
-    override = registry.kms_forms(kind, path)
+    override = registry.property_rule(kind, path).forms
     if local_comparison and override is not None:
         return override
     try:
@@ -48,7 +48,7 @@ def reference_forms(kind, path, *, local_comparison, property_schema):
 def _callback_reference_diagnostic_format_status(
     forms, kind, kms_format, local_comparison, path, resource_type, /, value
 ):
-    if local_comparison and registry.kms_forms(kind, path) is not None:
+    if local_comparison and registry.property_rule(kind, path).forms is not None:
         form = kms_format(value)
         return (
             "unproven"
@@ -219,7 +219,7 @@ def reference_same(
     decision = _bind_framework_callback(
         _callback_reference_same_decision, nested, comparisons
     )
-    hook = registry.hook(kind, "reference_compare")
+    hook = registry.property_rule(kind, path).reference
     if hook is not None:
         if local_comparison:
             result = hook(
@@ -236,9 +236,9 @@ def reference_same(
             result = NotImplemented
         if result is not NotImplemented:
             return decision(result)
-    allowed = registry.kms_forms(kind, path) if local_comparison else None
+    allowed = registry.property_rule(kind, path).forms if local_comparison else None
     if allowed:
-        result, reason = registry.compare_kms_forms(
+        result, reason = registry.property_rule(kind, path).form_compare(
             left,
             right,
             allowed,
@@ -322,8 +322,7 @@ def reference_same(
     if not symbols:
         return decision(NotImplemented)
     if not any(
-        resource_type(value)
-        in getattr(registry.rules(resource_type(value)), "IDENTITY_KINDS", set())
+        registry.resource(resource_type(value)).identity_same is not None
         for value in symbols
     ):
         if len(symbols) == 2:
@@ -360,8 +359,9 @@ def reference_same(
         return unproven(
             "literal versus symbolic reference; no observed value proves identity or format"
         )
-    provider = registry.hook(resource_type(left), "identity_same") or registry.hook(
-        resource_type(right), "identity_same"
+    provider = (
+        registry.resource(resource_type(left)).identity_same
+        or registry.resource(resource_type(right)).identity_same
     )
     forms = forms_for(kind, path)
     forms = (

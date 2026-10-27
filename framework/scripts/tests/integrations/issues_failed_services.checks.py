@@ -11,7 +11,6 @@ import json
 import tempfile
 from unittest.mock import patch
 
-from comparison.registry import SERVICES
 from issues.aggregate import aggregate, iac_actions
 from issues.artifact import detail_payload, summary
 from issues.records import identifier
@@ -23,12 +22,6 @@ from support.validator import load as load
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
-
-KMS_COMPARISON_FORMS = {
-    key: forms
-    for rules in set(SERVICES.values())
-    for key, forms in getattr(rules, "KMS_FORMS", {}).items()
-}
 
 
 def _callback_main_checks_publish(models, root, template, /):

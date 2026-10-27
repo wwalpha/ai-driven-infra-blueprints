@@ -1,93 +1,148 @@
-"""Explicit comparison rule ownership; no dynamic discovery or service cross-imports."""
+"""Static service rules; runtime comparison never reads Catalogs or schemas.
 
-from utils.arn_values import context_value as context_value
-from utils.arn_values import named_arn as named_arn
-from utils.reference_contracts import REF_ATTRIBUTES
+Named container rules declare recursive typed contents. Named descendant paths
+(including [] elements) override the method without expanding Model selection.
+"""
 
-from .services import (
+import re
+
+from .contracts import ResourceContract
+from .methods import OBJECT
+from .rules import (
+    api_gateway,
+    api_gatewayv2,
     athena,
-    cloudtrail,
-    cloudwatch_logs,
-    codebuild,
-    codepipeline,
+    auto_scaling,
+    certificate_manager,
+    cloud_front,
+    cloud_trail,
+    cloud_watch,
+    code_build,
+    code_commit,
+    code_pipeline,
+    config,
+    data_zone,
+    dynamodb,
+    ec2,
+    ecr,
+    ecs,
+    elastic_load_balancingv2,
+    events,
+    fms,
     glue,
+    guard_duty,
     iam,
+    kinesis_firehose,
     kms,
-    quicksight,
+    lake_formation,
+    lambda_function,
+    logs,
+    macie,
+    mwaa,
+    network_firewall,
+    organizations,
+    quick_sight,
+    rds,
     route53,
+    route53_resolver,
     s3,
+    sage_maker,
+    scheduler,
     secrets_manager,
-    security_group,
-    vpc,
+    security_hub,
+    sns,
+    sqs,
+    ssm,
+    sso,
+    wafv2,
 )
 
-SERVICES = {
-    "S3.Bucket": s3,
-    "Logs.LogGroup": cloudwatch_logs,
-    "KMS.Key": kms,
-    "KMS.Alias": kms,
-    "IAM.Role": iam,
-    "IAM.InstanceProfile": iam,
-    "IAM.ManagedPolicy": iam,
-    "IAM.Policy": iam,
-    "IAM.Group": iam,
-    "IAM.User": iam,
-    "EC2.Subnet": vpc,
-    "EC2.VPC": vpc,
-    "EC2.RouteTable": vpc,
-    "EC2.FlowLog": vpc,
-    "EC2.SecurityGroup": security_group,
-    "EC2.SecurityGroupIngress": security_group,
-    "EC2.SecurityGroupEgress": security_group,
-    "CodeBuild.Project": codebuild,
-    "Glue.Connection": glue,
-    "Glue.SecurityConfiguration": glue,
-    "Glue.Job": glue,
-    "Glue.Crawler": glue,
-    "Glue.Database": glue,
-    "Glue.Table": glue,
-    "Athena.WorkGroup": athena,
-    "SecretsManager.Secret": secrets_manager,
-    "CloudTrail.Trail": cloudtrail,
-    "CodePipeline.Pipeline": codepipeline,
-    "QuickSight.Group": quicksight,
-    "QuickSight.DataSource": quicksight,
-    "Route53.RecordSet": route53,
+RULES = {
+    **api_gateway.RULES,
+    **api_gatewayv2.RULES,
+    **athena.RULES,
+    **auto_scaling.RULES,
+    **certificate_manager.RULES,
+    **cloud_front.RULES,
+    **cloud_trail.RULES,
+    **cloud_watch.RULES,
+    **code_build.RULES,
+    **code_commit.RULES,
+    **code_pipeline.RULES,
+    **config.RULES,
+    **data_zone.RULES,
+    **dynamodb.RULES,
+    **ec2.RULES,
+    **ecr.RULES,
+    **ecs.RULES,
+    **elastic_load_balancingv2.RULES,
+    **events.RULES,
+    **fms.RULES,
+    **glue.RULES,
+    **guard_duty.RULES,
+    **iam.RULES,
+    **kms.RULES,
+    **kinesis_firehose.RULES,
+    **lake_formation.RULES,
+    **lambda_function.RULES,
+    **logs.RULES,
+    **mwaa.RULES,
+    **macie.RULES,
+    **network_firewall.RULES,
+    **organizations.RULES,
+    **quick_sight.RULES,
+    **rds.RULES,
+    **route53.RULES,
+    **route53_resolver.RULES,
+    **s3.RULES,
+    **sns.RULES,
+    **sqs.RULES,
+    **ssm.RULES,
+    **sso.RULES,
+    **sage_maker.RULES,
+    **scheduler.RULES,
+    **secrets_manager.RULES,
+    **security_hub.RULES,
+    **wafv2.RULES,
 }
 
 
 def rules(kind):
-    return SERVICES.get(kind)
+    try:
+        return RULES[kind]
+    except KeyError as error:
+        raise ValueError(f"Framework comparison rule missing: {kind}") from error
 
 
-def ref_attribute(kind):
-    return REF_ATTRIBUTES.get(kind)
+def require(kind, path):
+    path = re.sub(r"\[\d+\]", "[]", path)
+    try:
+        return rules(kind)[path]
+    except KeyError as error:
+        raise ValueError(f"Framework comparison rule missing: {kind}.{path}") from error
 
 
-def kms_forms(kind, path):
-    return getattr(rules(kind), "KMS_FORMS", {}).get(kind + "." + path)
+_EMPTY_CONTRACT = ResourceContract()
 
 
-def hook(kind, name):
-    return getattr(rules(kind), name, None)
+def resource(kind):
+    declared = RULES.get(kind)
+    return declared.resource if declared is not None else _EMPTY_CONTRACT
 
 
-def import_consumer(prop, kind, attribute):
-    return (prop, kind, attribute) == hook(kind, "IMPORT_CONSUMER")
+def property_rule(kind, path):
+    """Reference traversals also visit undeclared container/Producer paths."""
+    path = re.sub(r"\[\d+\]", "[]", path)
+    return RULES.get(kind, {}).get(path, OBJECT)
 
 
-def kms_format(value, resources, *, project_arn=None):
-    return kms.kms_format(value, resources, project_arn=project_arn)
-
-
-def compare_kms_forms(
-    left, right, allowed, *, resolve_literal, format_of, project_arn=None
-):
-    return kms.compare_forms(
-        left,
-        right,
-        allowed,
-        resolve_literal=resolve_literal,
-        format_of=format_of,
-        project_arn=project_arn,
-    )
+def consumer(kind, path):
+    path = re.sub(r"\[\d+\]", "[]", path)
+    declared = RULES.get(kind, {})
+    # Object contracts own provider-dependent child fields (e.g. Configuration).
+    while path:
+        rule = declared.get(path)
+        if rule is not None and rule.consumer is not None:
+            return rule.consumer
+        path = path.rpartition(".")[0]
+    return None

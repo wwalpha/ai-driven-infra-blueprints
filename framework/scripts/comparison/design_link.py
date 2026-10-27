@@ -47,25 +47,20 @@ def desired_reference(
     if (
         local_comparison
         and not isinstance(value, ResourceReference)
-        and registry.kms_forms(kind, path) is not None
+        and registry.property_rule(kind, path).forms is not None
     ):
         symbol = reference(service, value, protect_import=False)
         refservice, identity = symbol["$resource"]
         refkind = resource_type(symbol)
-        if registry.kms_forms(kind, path) <= {"KeyArn", "AliasArn"}:
-            select = registry.hook(refkind, "arn_attribute")
-            selected = (
-                select(refkind, symbol["$attribute"])
-                if select
-                else symbol["$attribute"]
-            )
+        if registry.property_rule(kind, path).forms <= {"KeyArn", "AliasArn"}:
+            selected = registry.resource(refkind).arn_attribute or symbol["$attribute"]
             symbol = ResourceReference(dict(symbol, **{"$attribute": selected}))
         value = symbol
         attribute = value["$attribute"] if attribute is None else attribute
     expected_kind = None
     contract = REFERENCE_PROPERTIES.get(kind + "." + path)
     if local_comparison:
-        consumer = registry.hook(kind, "reference_contract")
+        consumer = registry.consumer(kind, path)
         override = consumer(path, attribute, context) if consumer else NotImplemented
         if override is not NotImplemented:
             expected_kind, default_attribute = override
@@ -83,12 +78,9 @@ def desired_reference(
     forms = forms_for(kind, path) if local_comparison else None
     refservice, identity = symbol["$resource"]
     refkind = resource_type(symbol)
-    validator = registry.hook(kind, "validate_reference")
-    if local_comparison and validator:
-        validator(path, attribute, context, refkind)
     if (
         forms
-        and registry.kms_forms(kind, path) is None
+        and registry.property_rule(kind, path).forms is None
         and symbol["$attribute"]
         not in {reference_attribute(refkind, form) for form in forms}
     ):

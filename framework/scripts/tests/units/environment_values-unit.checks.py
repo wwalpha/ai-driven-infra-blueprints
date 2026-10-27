@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from aws_mapping import registry
 from comparison.methods import compare_values
-from comparison.rulebook import rules
+from comparison.registry import rules
 from comparison.values import desired_value
 from deploy.controller import load_inputs
 from deploy.scheduler import run_group

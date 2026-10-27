@@ -1,6 +1,43 @@
 """Static EC2 comparison methods; container rules include their recursive contents."""
 
+import re
+from dataclasses import replace
+from functools import partial
+
+from utils.cloudformation.inputs import Blocked
+from utils.iac_values import ResourceReference
+from utils.reference_contracts import CONTEXT_PROPERTIES, contract, row_contexts
+
+from ..contracts import ResourceContract
 from ..methods import properties
+
+
+def ref_attribute(vpc, resource_type):
+    if isinstance(vpc, ResourceReference):
+        confirmed = resource_type(vpc) == "EC2.VPC" and vpc["$attribute"] == "VpcId"
+    else:
+        confirmed = isinstance(vpc, str) and re.fullmatch(r"vpc-[0-9a-f]+", vpc)
+    if not confirmed:
+        raise Blocked(
+            "SecurityGroup Ref requires a proven explicit VpcId; group name is not a group ID"
+        )
+    return "GroupId"
+
+
+def flowlog_contract(path, attribute, context):
+    declared = contract("EC2.FlowLog." + path, context)
+    if (
+        not declared
+        or attribute is not None
+        and not any(attribute in forms for forms in declared.values())
+    ):
+        raise Blocked(
+            "reference property contract unproven: EC2.FlowLog.ResourceId requires ResourceType=VPC"
+        )
+    (kind,) = declared
+    (form,) = declared[kind]
+    return kind, form
+
 
 RULES = {
     "EC2.EIP": properties(
@@ -19,6 +56,15 @@ RULES = {
         """,
     ),
     "EC2.FlowLog": properties(
+        resource=ResourceContract(
+            name_tag=True,
+            contexts=partial(row_contexts, "EC2.FlowLog"),
+            context_properties={
+                "ResourceId": {
+                    CONTEXT_PROPERTIES["EC2.FlowLog.ResourceId"][0].rsplit(".", 1)[1]
+                }
+            },
+        ),
         objects="""
             DestinationOptions
             TagFieldSpecifications[]
@@ -381,6 +427,7 @@ RULES = {
         """,
     ),
     "EC2.RouteTable": properties(
+        resource=ResourceContract(name_tag=True),
         objects="""
             Tags[]
         """,
@@ -396,6 +443,7 @@ RULES = {
         """,
     ),
     "EC2.SecurityGroup": properties(
+        resource=ResourceContract(ref_attribute=ref_attribute, ref_property="VpcId"),
         objects="""
             SecurityGroupEgress[]
             SecurityGroupIngress[]
@@ -467,6 +515,7 @@ RULES = {
         """,
     ),
     "EC2.Subnet": properties(
+        resource=ResourceContract(name_tag=True),
         objects="""
             PrivateDnsNameOptionsOnLaunch
             Tags[]
@@ -577,6 +626,7 @@ RULES = {
         """,
     ),
     "EC2.VPC": properties(
+        resource=ResourceContract(name_tag=True),
         objects="""
             Tags[]
         """,
@@ -647,3 +697,8 @@ RULES = {
         """,
     ),
 }
+
+
+RULES["EC2.FlowLog"]["ResourceId"] = replace(
+    RULES["EC2.FlowLog"]["ResourceId"], consumer=flowlog_contract
+)

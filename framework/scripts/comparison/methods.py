@@ -14,6 +14,8 @@ from utils.iac_values import (
     unordered_same,
 )
 
+from .contracts import ResourceContract
+
 MISSING = object()
 
 
@@ -25,6 +27,13 @@ class Rule:
     custom: object = None
     actual: object = None
     local: bool = False
+    reference: object = None
+    selected_decision: object = None
+    selected_reference: object = None
+    consumer: object = None
+    forms: frozenset | set | None = None
+    form_compare: object = None
+    direct_attribute: str | None = None
 
 
 SCALAR = Rule("SCALAR", "SCALAR")
@@ -45,9 +54,10 @@ def custom(callback, *, local=False):
 class RuleSet(dict):
     """Index declared method overrides once, without runtime schema acquisition."""
 
-    def __init__(self):
+    def __init__(self, resource=None):
         super().__init__()
         self.special = {}
+        self.resource = resource or ResourceContract()
 
     def __setitem__(self, path, rule):
         super().__setitem__(path, rule)
@@ -57,9 +67,11 @@ class RuleSet(dict):
             self.special.pop(path, None)
 
 
-def properties(*, scalars="", objects="", ordered="", references="", tags=""):
+def properties(
+    *, scalars="", objects="", ordered="", references="", tags="", resource=None
+):
     """Group declarations only; descendants of containers retain typed recursion."""
-    result = RuleSet()
+    result = RuleSet(resource)
     for names, rule in (
         (scalars, SCALAR),
         (objects, OBJECT),

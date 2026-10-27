@@ -1,6 +1,11 @@
 """Static Glue comparison methods; container rules include their recursive contents."""
 
-from ..methods import properties
+from dataclasses import replace
+
+from utils.reference_contracts import KMS_FORMS
+
+from ..methods import REFERENCE, properties
+from .kms import compare_forms
 
 RULES = {
     "Glue.Catalog": properties(
@@ -167,10 +172,6 @@ RULES = {
         ordered="""
             EncryptionConfiguration.S3Encryptions
         """,
-        references="""
-            EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn
-            EncryptionConfiguration.S3Encryptions[].KmsKeyArn
-        """,
         scalars="""
             EncryptionConfiguration.CloudWatchEncryption.CloudWatchEncryptionMode
             EncryptionConfiguration.JobBookmarksEncryption.JobBookmarksEncryptionMode
@@ -224,3 +225,13 @@ RULES = {
         """,
     ),
 }
+
+for _path in (
+    "EncryptionConfiguration.S3Encryptions[].KmsKeyArn",
+    "EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn",
+):
+    RULES["Glue.SecurityConfiguration"][_path] = replace(
+        REFERENCE,
+        forms=KMS_FORMS["Glue.SecurityConfiguration." + _path],
+        form_compare=compare_forms,
+    )

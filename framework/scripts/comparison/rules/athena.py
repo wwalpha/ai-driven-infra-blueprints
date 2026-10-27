@@ -1,6 +1,11 @@
 """Static Athena comparison methods; container rules include their recursive contents."""
 
-from ..methods import properties
+from dataclasses import replace
+
+from utils.reference_contracts import KMS_FORMS
+
+from ..methods import REFERENCE, properties
+from .kms import compare_forms
 
 RULES = {
     "Athena.WorkGroup": properties(
@@ -11,9 +16,6 @@ RULES = {
             WorkGroupConfiguration.ResultConfiguration
             WorkGroupConfiguration.ResultConfiguration.AclConfiguration
             WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration
-        """,
-        references="""
-            WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey
         """,
         scalars="""
             Description
@@ -36,3 +38,8 @@ RULES = {
         """,
     ),
 }
+
+_path = "WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey"
+RULES["Athena.WorkGroup"][_path] = replace(
+    REFERENCE, forms=KMS_FORMS["Athena.WorkGroup." + _path], form_compare=compare_forms
+)

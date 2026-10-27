@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
-from comparison import registry, rulebook
+from comparison import registry
 from comparison.methods import (
     OBJECT,
     ORDERED,
@@ -33,6 +33,7 @@ from utils.iac_values import (
     same,
     unordered_same,
 )
+from utils.reference_contracts import KMS_FORMS
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -234,14 +235,14 @@ def test_iam_rules(kind, path):
     left = {"Statement": [{"Action": "a", "Effect": "Allow"}, {"Action": ["b"]}]}
     right = {"Statement": [{"Action": "b"}, {"Action": ["a"], "Effect": "Allow"}]}
     assert (
-        compare_values(left, right, path, rules=rulebook.rules(kind), whole=True).equal
+        compare_values(left, right, path, rules=registry.rules(kind), whole=True).equal
         is True
     )
     right["Statement"][0]["Action"] = ["wrong"]
-    outcome = compare_values(left, right, path, rules=rulebook.rules(kind), whole=True)
+    outcome = compare_values(left, right, path, rules=registry.rules(kind), whole=True)
     assert outcome.equal is False and outcome.differences
     assert (
-        compare_values(left, left, path, rules=rulebook.rules(kind), local=False).equal
+        compare_values(left, left, path, rules=registry.rules(kind), local=False).equal
         is True
     )
 
@@ -249,7 +250,7 @@ def test_iam_rules(kind, path):
 @pytest.mark.parametrize("whole", [True, False])
 def test_action_string_list_and_scope(whole):
     path = "Policies[].PolicyDocument.Statement[].Action"
-    declared = rulebook.rules("IAM.Role")
+    declared = registry.rules("IAM.Role")
     for left, right in [("a", ["a"]), (["a"], "a")]:
         assert (
             compare_values(left, right, path, rules=declared, whole=whole).equal is True
@@ -294,7 +295,7 @@ def test_rulebook_complete_static_coverage():
         for path in catalogs.paths
         if path.parent.name == "aws"
     }
-    assert set(rulebook.RULES) == kinds
+    assert {kind for kind, rules in registry.RULES.items() if rules} == kinds
     for kind in sorted(kinds):
         selected = {
             p
@@ -302,11 +303,11 @@ def test_rulebook_complete_static_coverage():
             if kind + "." + p not in catalogs.outputs(kind)
         }
         expected = property_paths_with_parents(selected)
-        assert expected <= rulebook.rules(kind).keys(), (
+        assert expected <= registry.rules(kind).keys(), (
             kind,
-            expected - rulebook.rules(kind).keys(),
+            expected - registry.rules(kind).keys(),
         )
-        for rule in rulebook.rules(kind).values():
+        for rule in registry.rules(kind).values():
             assert {rule.whole, rule.selected} <= {
                 "SCALAR",
                 "OBJECT",
@@ -317,29 +318,59 @@ def test_rulebook_complete_static_coverage():
                 "CUSTOM",
             }
         for path in expected:
-            rule = rulebook.require(kind, path)
+            rule = registry.require(kind, path)
             node = catalog.property_schema(kind, path)
             if node.get("type") == "array":
                 assert rule.whole in {"ORDERED", "UNORDERED"}, (kind, path)
         # Reading the schema here is test-time evidence, never a runtime prerequisite.
         assert catalog.cloudformation_type(kind).startswith("AWS::")
     assert len(kinds) == 176 and len({k.split(".")[0] for k in kinds}) == 46
-    assert {k for k in registry.SERVICES if k not in kinds} == {
-        "IAM.Group",
-        "IAM.Policy",
-        "QuickSight.Group",
-    }
+    assert set(registry.RULES) - kinds == {"QuickSight.Group"}
+    assert registry.resource("QuickSight.Group").imported_arn is not None
+    assert not (ROOT / "framework/scripts/comparison/services").exists()
+    assert not (ROOT / "framework/scripts/comparison/rulebook.py").exists()
+    for prop, forms in KMS_FORMS.items():
+        service, resource_type, path = prop.split(".", 2)
+        rule = registry.require(service + "." + resource_type, path)
+        assert rule.forms is forms and callable(rule.form_compare)
+    assert registry.property_rule("Unknown.Type", "Field").reference is None
+    assert registry.resource("Unknown.Type").identity_same is None
+    assert registry.consumer("EC2.FlowLog", "ResourceId") is not None
+    assert registry.consumer("EC2.FlowLog", "Unregistered") is None
+    assert (
+        registry.consumer(
+            "CodeBuild.Project", "Environment.EnvironmentVariables[1].Value"
+        )
+        is not None
+    )
+    assert (
+        registry.consumer(
+            "CodePipeline.Pipeline", "Stages[1].Actions[2].Configuration.ProjectName"
+        )
+        is not None
+    )
+    assert (
+        registry.require(
+            "CodeBuild.Project", "Environment.EnvironmentVariables[].Value"
+        ).reference
+        is not None
+    )
+    assert (
+        registry.require("Route53.RecordSet", "ResourceRecords[]").selected_decision
+        is not None
+    )
+    assert registry.resource("KMS.Key").identity_same is not None
 
 
 def test_unregistered_rule_is_framework_error():
     with pytest.raises(ValueError, match="Framework comparison rule missing"):
-        rulebook.require("EC2.VPC", "NotImplemented")
+        registry.require("EC2.VPC", "NotImplemented")
     with pytest.raises(ValueError, match="Framework comparison rule missing"):
-        rulebook.require("Unknown.Type", "Value")
+        registry.require("Unknown.Type", "Value")
     with pytest.raises(ValueError, match="Framework comparison rule missing"):
         compare_values("a", "a", "Value", rules={})
     assert (
-        Counter(r.whole for rules in rulebook.RULES.values() for r in rules.values())[
+        Counter(r.whole for rules in registry.RULES.values() for r in rules.values())[
             "SCALAR"
         ]
         > 0
@@ -379,7 +410,7 @@ def test_codebuild_nested_reference_proof_is_reused():
         left,
         right,
         "Environment",
-        rules=rulebook.rules("CodeBuild.Project"),
+        rules=registry.rules("CodeBuild.Project"),
         reference=partial(codebuild_reference, resolve),
     )
     assert outcome.equal is False

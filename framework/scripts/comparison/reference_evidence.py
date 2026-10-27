@@ -228,10 +228,12 @@ def compare_expression(inputs, left, right, kind, path):
             left_concrete = expressions.string(left, proof.resolve)
             right_concrete = expressions.string(right, proof.resolve)
             allowed = (
-                registry.kms_forms(kind, path) if inputs.local_comparison else None
+                registry.property_rule(kind, path).forms
+                if inputs.local_comparison
+                else None
             )
             if allowed:
-                _, format_reason = registry.compare_kms_forms(
+                _, format_reason = registry.property_rule(kind, path).form_compare(
                     left_concrete,
                     right_concrete,
                     allowed,
@@ -417,7 +419,7 @@ def compare(inputs, left, right, kind, path):
                 )
             forms = (
                 inputs.reference_forms(kind, path)
-                if registry.kms_forms(kind, path) is None
+                if registry.property_rule(kind, path).forms is None
                 else None
             )
             if forms and right["$attribute"] not in {
@@ -445,9 +447,13 @@ def compare(inputs, left, right, kind, path):
                     "attribute_format_unproven: alternative allowed literal format"
                 )
         concrete = proof.resolve(right)
-        allowed = registry.kms_forms(kind, path) if inputs.local_comparison else None
+        allowed = (
+            registry.property_rule(kind, path).forms
+            if inputs.local_comparison
+            else None
+        )
         if allowed:
-            result, reason = registry.compare_kms_forms(
+            result, reason = registry.property_rule(kind, path).form_compare(
                 raw,
                 concrete,
                 allowed,

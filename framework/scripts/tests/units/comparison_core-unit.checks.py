@@ -9,7 +9,7 @@ from functools import partial
 from unittest.mock import Mock
 
 from comparison.resource import inactive_evidence
-from comparison.services.cloudtrail import cloudtrail_rows
+from comparison.rules.cloud_trail import cloudtrail_rows
 from design.array_display import indexed_rows
 from iac_evaluation import Evaluation
 from support.cloudformation_inputs_fixtures import condition_document

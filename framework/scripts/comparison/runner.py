@@ -23,7 +23,7 @@ from utils.comparison_rows import Unresolved, project, put_row, select
 from utils.iac_values import Expression, ResourceReference
 from utils.type_contracts import JsonObject, JsonValue
 
-from . import evaluation, registry, rulebook
+from . import evaluation, registry
 from . import resource as resource_rules
 from . import rows as row_rules
 from .deferral import (
@@ -377,19 +377,19 @@ class Comparison(Inputs):
         result = RowResult()
         try:
             if properties is not None:
-                context_properties = registry.hook(rowkind, "CONTEXT_PROPERTIES") or {}
+                context_properties = registry.resource(rowkind).context_properties
                 required = set(properties).union(
                     *(context_properties.get(prop, set()) for prop in properties)
                 )
                 rows = row_rules.selected_rows(rowkind, rows, required)
                 if not rows:
                     return result
-            prepare = registry.hook(rowkind, "prepare_rows")
+            prepare = registry.resource(rowkind).prepare_rows
             if prepare:
                 try:
                     rows = self.project_rows(rowkind, rows)
                 except Unresolved as error:
-                    deferred = registry.hook(rowkind, "DEFERRED_ROWS")
+                    deferred = registry.resource(rowkind).deferred_rows
                     if not deferred:
                         raise
                     result.records.append(
@@ -427,7 +427,7 @@ class Comparison(Inputs):
                             source=self.source(service, f"desired.row.{rid}.property"),
                         )
                     )
-            contexts = registry.hook(rowkind, "contexts")
+            contexts = registry.resource(rowkind).contexts
             contexts = contexts(rows) if self.local_comparison and contexts else {}
             if properties is not None:
                 rows = row_rules.selected_rows(rowkind, rows, properties)
@@ -554,9 +554,7 @@ class Comparison(Inputs):
                     if "document" in row
                     else f"desired.row.{rid}.value",
                 )
-                if prop in outputs or (kind, short) in getattr(
-                    registry.rules(kind), "DESIGN_ONLY", set()
-                ):
+                if prop in outputs or short in registry.resource(kind).design_only:
                     settings.result.records.append(
                         self.make_record(
                             "excluded",
@@ -572,7 +570,7 @@ class Comparison(Inputs):
                     kind,
                     short,
                     row["value"],
-                    getattr(registry.rules(kind), "NAME_TAG_KINDS", set()),
+                    {kind} if registry.resource(kind).name_tag else set(),
                 )
                 if tagged:
                     short, value = tagged
@@ -723,7 +721,7 @@ class Comparison(Inputs):
         if line := marks.get(key, self.template_locations.get(id(owner), {}).get(None)):
             iac_source["line"] = line
         actual = owner.get("Properties", {}).get(key)
-        rule = rulebook.require(kind, key)
+        rule = registry.require(kind, key)
         actual_provider = rule.actual if self.local_comparison else None
         missing = (
             "property missing"
@@ -832,7 +830,7 @@ class Comparison(Inputs):
             value,
             actual,
             key,
-            rules=rulebook.rules(kind),
+            rules=registry.rules(kind),
             whole=key in settings.exact,
             reference=reference,
             local=self.local_comparison,

@@ -1,5 +1,6 @@
 """Static SecretsManager comparison methods; container rules include their recursive contents."""
 
+from ..contracts import ResourceContract
 from ..methods import properties
 
 RULES = {
@@ -47,6 +48,7 @@ RULES = {
         """,
     ),
     "SecretsManager.Secret": properties(
+        resource=ResourceContract(explicit_name="Name"),
         objects="""
             GenerateSecretString
             ReplicaRegions[]

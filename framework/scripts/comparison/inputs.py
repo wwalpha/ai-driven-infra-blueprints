@@ -23,6 +23,7 @@ from model.literal_values import value_shape
 from model.projection import reference_attribute
 from model.sources import _invocation_reads, model_exists, model_paths
 from task_contract_core import task_reads
+from utils.arn_values import context_value, named_arn
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import (
@@ -37,6 +38,7 @@ from utils.project_targets import load_target_directory as load_target
 from utils.reference_contracts import (
     ARN_SHAPES,
     ATTRIBUTE_SUFFIXES,
+    REF_ATTRIBUTES,
     REFERENCE_PROPERTIES,
     getatt_attribute,
     row_contexts,
@@ -54,6 +56,7 @@ from . import (
 )
 from .deferral import defer_import_reference
 from .result import redacted
+from .rules.kms import kms_format
 
 
 class Inputs:
@@ -398,7 +401,7 @@ class Inputs:
         schema = self.catalog.schema(resource["resourceType"])
         primary = schema.get("primaryIdentifier", [])
         if expected_attribute is None:
-            expected_attribute = registry.ref_attribute(resource["resourceType"])
+            expected_attribute = REF_ATTRIBUTES.get(resource["resourceType"])
             if expected_attribute is None:
                 raise Blocked(
                     f"reference attribute is unproven: {resource['resourceType']}; explicit property contract required"
@@ -434,9 +437,7 @@ class Inputs:
         if resource_mode(resource) == "IMPORT":
             if (
                 self.local_comparison
-                and registry.import_consumer(
-                    consumer_property, resource["resourceType"], expected_attribute
-                )
+                and registry.resource(resource["resourceType"]).imported_arn is not None
                 and REFERENCE_PROPERTIES.get(consumer_property)
                 == (resource["resourceType"], expected_attribute)
                 and self.target["iacEngine"] == "cloudformation"
@@ -478,10 +479,8 @@ class Inputs:
             raise
         path, identity, resource, _ = entry
         if attribute is None:
-            ref_rule = registry.hook(resource["resourceType"], "ref_attribute")
-            ref_property = getattr(
-                registry.rules(resource["resourceType"]), "REF_PROPERTIES", {}
-            ).get(resource["resourceType"])
+            ref_rule = registry.resource(resource["resourceType"]).ref_attribute
+            ref_property = registry.resource(resource["resourceType"]).ref_property
             if self.local_comparison and ref_rule and ref_property:
                 self.symbols[cachekey] = None
                 try:
@@ -492,7 +491,7 @@ class Inputs:
                     self.symbols.pop(cachekey, None)
                 attribute = ref_rule(vpc, self.resource_type)
             else:
-                attribute = registry.ref_attribute(resource["resourceType"])
+                attribute = REF_ATTRIBUTES.get(resource["resourceType"])
             if attribute is None:
                 raise Blocked(
                     f"Ref return attribute is unproven: {resource['resourceType']}"
@@ -502,7 +501,7 @@ class Inputs:
             and (
                 attribute == reference_attribute(resource["resourceType"], "Arn")
                 and resource["resourceType"] in ARN_SHAPES
-                or attribute == registry.ref_attribute(resource["resourceType"])
+                or attribute == REF_ATTRIBUTES.get(resource["resourceType"])
             )
         ):
             if self.local_comparison and not getatt_attribute(
@@ -532,7 +531,7 @@ class Inputs:
         if token in seen:
             raise Blocked(f"cyclic ImportValue: {name}")
         scope = tuple(
-            registry.context_value(self.stack_inputs[stack][2], group)
+            context_value(self.stack_inputs[stack][2], group)
             for group in ("partition", "account", "region")
         )
         if self.exports is None:
@@ -554,7 +553,7 @@ class Inputs:
                         ):
                             continue
                         producer_scope = tuple(
-                            registry.context_value(pseudo, group)
+                            context_value(pseudo, group)
                             for group in ("partition", "account", "region")
                         )
                         export = self.evaluate(
@@ -665,12 +664,10 @@ class Inputs:
             return (
                 self.reference_literal(base, recorded=recorded, seen=seen) + suffix[1]
             )
-        imported_arn = registry.hook(resource["resourceType"], "imported_group_arn")
+        imported_arn = registry.resource(resource["resourceType"]).imported_arn
         if (
             self.local_comparison
             and imported_arn
-            and resource["resourceType"]
-            in registry.hook(resource["resourceType"], "IMPORTED_ARN_KINDS")
             and resource_mode(resource) == "IMPORT"
             and value["$attribute"] == "Arn"
             and self.target["iacEngine"] == "cloudformation"
@@ -684,8 +681,8 @@ class Inputs:
             )
         name, logical, document, pseudo = self.reference_context(value)
         attribute = value["$attribute"]
-        secret_name = (resource["resourceType"], attribute) == registry.hook(
-            resource["resourceType"], "EXPLICIT_NAME"
+        secret_name = (
+            attribute == registry.resource(resource["resourceType"]).explicit_name
         )
         evaluator = self.evaluator()
         properties = document["Resources"][logical].get("Properties", {})
@@ -696,7 +693,7 @@ class Inputs:
                 raise Blocked(
                     "named ARN requires CREATE resource correspondence; IMPORT requires approved handoff"
                 )
-            return registry.named_arn(
+            return named_arn(
                 resource["resourceType"],
                 properties,
                 pseudo,
@@ -733,7 +730,7 @@ class Inputs:
         ) in self.catalog.schema(resource["resourceType"]).get("readOnlyProperties", ())
         if (
             (
-                attribute != registry.ref_attribute(resource["resourceType"])
+                attribute != REF_ATTRIBUTES.get(resource["resourceType"])
                 and not secret_name
                 and setting is None
             )
@@ -763,8 +760,8 @@ class Inputs:
             raise Blocked(
                 "opaque Ref requires the same proven Producer; no local literal contract"
             )
-        secret_name = (resource["resourceType"], attribute) == registry.hook(
-            resource["resourceType"], "EXPLICIT_NAME"
+        secret_name = (
+            attribute == registry.resource(resource["resourceType"]).explicit_name
         )
         bound = self.symbol(
             name, logical, None if secret_name else attribute, derived=not secret_name
@@ -786,7 +783,7 @@ class Inputs:
             )
         _, _, _, pseudo = self.reference_context(value)
         return {
-            group: registry.context_value(pseudo, group)
+            group: context_value(pseudo, group)
             for group in ("partition", "region", "account")
         }
 
@@ -843,7 +840,7 @@ class Inputs:
         if not origins:
             return None
         scope = tuple(
-            registry.context_value(self.stack_inputs[stack][2], group)
+            context_value(self.stack_inputs[stack][2], group)
             for group in ("partition", "account", "region")
         )
         if any(origin.get("scope", scope) != scope for origin in origins):
@@ -869,7 +866,7 @@ class Inputs:
         return self.reference_formats[key]
 
     def kms_format(self, value):
-        return registry.kms_format(value, self.resources, project_arn=self.project_arn)
+        return kms_format(value, self.resources, project_arn=self.project_arn)
 
     def reference_diagnostic(self, left, right, kind, path, reason):
         detail = references.reference_diagnostic(
@@ -899,9 +896,15 @@ class Inputs:
     def reference_decision(self, left, right, kind, path):
         selected = None
         if self.local_comparison:
-            selected = registry.hook(kind, "selected_decision")
+            selected = registry.property_rule(kind, path).selected_decision
         if selected is not None:
-            outcome = selected(self, left, right, path)
+            outcome = selected(
+                self,
+                left,
+                right,
+                path,
+                export_origins=reference_evidence.export_origins,
+            )
             if outcome is not NotImplemented:
                 equal, reason = outcome
                 detail = self.reference_diagnostic(left, right, kind, path, reason)
@@ -1067,7 +1070,7 @@ class Inputs:
 
     def project_rows(self, kind, rows):
         indexed_rows = _imports_array_display.indexed_rows
-        prepare = registry.hook(kind, "prepare_rows")
+        prepare = registry.resource(kind).prepare_rows
         if prepare is None:
             return rows
         projected = [

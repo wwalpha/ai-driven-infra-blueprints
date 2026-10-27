@@ -1,9 +1,63 @@
 """Static CodePipeline comparison methods; container rules include their recursive contents."""
 
-from ..methods import properties
+from dataclasses import replace
+
+from design.services.codepipeline import pipeline_rows
+from utils.cloudformation.inputs import Blocked
+from utils.reference_contracts import KMS_FORMS, action_contexts, configuration_contract
+
+from ..contracts import ResourceContract
+from ..methods import REFERENCE, properties
+from .kms import compare_forms
+
+
+def prepare_rows(rows, *, index_rows):
+    kind = "CodePipeline.Pipeline"
+    if not any("Stages[]." in row["property"] for _, row in rows):
+        return rows
+    original = dict(rows)
+    displayed = pipeline_rows(
+        [
+            [
+                rid,
+                row["property"].removeprefix(kind + "."),
+                row["value"],
+                row.get("comment", ""),
+            ]
+            for rid, row in rows
+        ]
+    )
+    prepared, configurations = [], set()
+    for rid, prop, value, _ in index_rows(displayed, kind):
+        row = original[rid]
+        if row["property"].endswith(".Configuration"):
+            if rid in configurations:
+                continue
+            configurations.add(rid)
+            prop = prop.split(".Configuration.", 1)[0] + ".Configuration"
+            value = row["value"]
+        prepared.append((rid, dict(row, property=kind + "." + prop, value=value)))
+    return prepared
+
+
+def reference_contract(path, attribute, context):
+    if not path.startswith("Stages[].Actions[].Configuration."):
+        return NotImplemented
+    contract = configuration_contract("CodePipeline.Pipeline." + path, context)
+    if not contract:
+        raise Blocked(
+            f"CodePipeline {path} reference contract unproven: ActionTypeId={context.get('ActionTypeId')}"
+        )
+    (kind,) = contract
+    (expected,) = contract[kind]
+    if attribute is not None and attribute != expected:
+        raise Blocked(f"CodePipeline {path} reference attribute must be {expected}")
+    return kind, expected
+
 
 RULES = {
     "CodePipeline.Pipeline": properties(
+        resource=ResourceContract(prepare_rows=prepare_rows, contexts=action_contexts),
         objects="""
             ArtifactStore
             ArtifactStore.EncryptionKey
@@ -56,7 +110,6 @@ RULES = {
             Variables
         """,
         references="""
-            ArtifactStore.EncryptionKey.Id
             ArtifactStore.Location
         """,
         scalars="""
@@ -101,3 +154,16 @@ RULES = {
         """,
     ),
 }
+
+
+RULES["CodePipeline.Pipeline"]["Stages[].Actions[].Configuration"] = replace(
+    RULES["CodePipeline.Pipeline"]["Stages[].Actions[].Configuration"],
+    consumer=reference_contract,
+)
+
+_path = "ArtifactStore.EncryptionKey.Id"
+RULES["CodePipeline.Pipeline"][_path] = replace(
+    REFERENCE,
+    forms=KMS_FORMS["CodePipeline.Pipeline." + _path],
+    form_compare=compare_forms,
+)

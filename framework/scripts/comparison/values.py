@@ -286,9 +286,7 @@ def _desired_value(
     elif resource_link(raw):
         prop = re.sub(r"\[\d+\]", "[]", row["property"].removeprefix(kind + "."))
         # A schema-typed ARN property selects the referenced Arn, never a current ARN.
-        attribute = getattr(registry.rules(kind), "DIRECT_ATTRIBUTES", {}).get(
-            row["property"]
-        )
+        attribute = registry.property_rule(kind, prop).direct_attribute
         node = property_schema(kind, prop)
         if normalize is not None:
             selected = normalize(literal(raw), failures)

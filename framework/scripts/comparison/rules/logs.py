@@ -1,6 +1,11 @@
 """Static Logs comparison methods; container rules include their recursive contents."""
 
-from ..methods import properties
+from dataclasses import replace
+
+from utils.reference_contracts import KMS_FORMS
+
+from ..methods import REFERENCE, properties
+from .kms import compare_forms
 
 RULES = {
     "Logs.LogGroup": properties(
@@ -8,9 +13,6 @@ RULES = {
             DataProtectionPolicy
             ResourcePolicyDocument
             Tags[]
-        """,
-        references="""
-            KmsKeyId
         """,
         scalars="""
             DeletionProtectionEnabled
@@ -65,3 +67,8 @@ RULES = {
         """,
     ),
 }
+
+_path = "KmsKeyId"
+RULES["Logs.LogGroup"][_path] = replace(
+    REFERENCE, forms=KMS_FORMS["Logs.LogGroup." + _path], form_compare=compare_forms
+)

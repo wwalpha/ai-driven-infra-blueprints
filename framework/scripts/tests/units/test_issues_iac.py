@@ -17,7 +17,6 @@ import comparison.references as _imports_comparison_references
 import issues.aggregate as _imports_issues_aggregate
 import pytest
 import utils.json_format as _imports_utils_json_format
-from comparison import registry
 from comparison.values import PreparedValue, desired_value
 from design.catalog import DesignSchemaCatalog
 from issues.inputs import Comparison as IssueComparison
@@ -26,6 +25,7 @@ from model.identity import COUNTERS
 from model.sources import Scope
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
+from utils.reference_contracts import KMS_FORMS, REF_ATTRIBUTES
 
 
 class ModelDependencyTests(unittest.TestCase):
@@ -703,7 +703,7 @@ class ImportValueResolutionTests(unittest.TestCase):
                 path,
             )
             self.assertEqual(
-                registry.ref_attribute("CodeCommit.Repository"), "RepositoryId"
+                REF_ATTRIBUTES.get("CodeCommit.Repository"), "RepositoryId"
             )
             self.assertTrue(
                 equal(
@@ -1461,11 +1461,7 @@ class ReferenceValueTests(unittest.TestCase):
             key_id = "12345678-1234-1234-1234-123456789012"
             key_arn = "arn:aws:kms:ap-northeast-1:123456789012:key/" + key_id
             alias_arn = "arn:aws:kms:ap-northeast-1:123456789012:alias/fixture"
-            KMS_COMPARISON_FORMS = {
-                key: forms
-                for rules in set(registry.SERVICES.values())
-                for key, forms in getattr(rules, "KMS_FORMS", {}).items()
-            }
+            KMS_COMPARISON_FORMS = KMS_FORMS
             key = comparison.evaluate(stack, {"Ref": "Key"})
             arn = comparison.evaluate(stack, {"Fn::GetAtt": ["Key", "Arn"]})
             alias = comparison.reference(
