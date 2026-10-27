@@ -335,20 +335,6 @@ def test_rulebook_complete_static_coverage():
         assert rule.forms is forms and callable(rule.form_compare)
     assert registry.property_rule("Unknown.Type", "Field").reference is None
     assert registry.resource("Unknown.Type").identity_same is None
-    assert registry.consumer("EC2.FlowLog", "ResourceId") is not None
-    assert registry.consumer("EC2.FlowLog", "Unregistered") is None
-    assert (
-        registry.consumer(
-            "CodeBuild.Project", "Environment.EnvironmentVariables[1].Value"
-        )
-        is not None
-    )
-    assert (
-        registry.consumer(
-            "CodePipeline.Pipeline", "Stages[1].Actions[2].Configuration.ProjectName"
-        )
-        is not None
-    )
     assert (
         registry.require(
             "CodeBuild.Project", "Environment.EnvironmentVariables[].Value"

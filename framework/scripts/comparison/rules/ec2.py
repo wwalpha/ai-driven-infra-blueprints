@@ -1,12 +1,11 @@
 """Static EC2 comparison methods; container rules include their recursive contents."""
 
 import re
-from dataclasses import replace
 from functools import partial
 
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import ResourceReference
-from utils.reference_contracts import CONTEXT_PROPERTIES, contract, row_contexts
+from utils.reference_contracts import CONTEXT_PROPERTIES, row_contexts
 
 from ..contracts import ResourceContract
 from ..methods import properties
@@ -22,21 +21,6 @@ def ref_attribute(vpc, resource_type):
             "SecurityGroup Ref requires a proven explicit VpcId; group name is not a group ID"
         )
     return "GroupId"
-
-
-def flowlog_contract(path, attribute, context):
-    declared = contract("EC2.FlowLog." + path, context)
-    if (
-        not declared
-        or attribute is not None
-        and not any(attribute in forms for forms in declared.values())
-    ):
-        raise Blocked(
-            "reference property contract unproven: EC2.FlowLog.ResourceId requires ResourceType=VPC"
-        )
-    (kind,) = declared
-    (form,) = declared[kind]
-    return kind, form
 
 
 RULES = {
@@ -697,8 +681,3 @@ RULES = {
         """,
     ),
 }
-
-
-RULES["EC2.FlowLog"]["ResourceId"] = replace(
-    RULES["EC2.FlowLog"]["ResourceId"], consumer=flowlog_contract
-)

@@ -7,28 +7,11 @@ from utils.cloudformation.inputs import Blocked
 from utils.iac_values import ResourceReference, same
 from utils.reference_contracts import (
     IMPORT_PROPERTIES,
-    contract,
-    reference_error,
     row_contexts,
 )
 
 from ..contracts import ResourceContract
 from ..methods import properties
-
-
-def reference_contract(path, attribute, context):
-    if path != "Environment.EnvironmentVariables[].Value":
-        return NotImplemented
-    if error := reference_error("CodeBuild.Project." + path, context):
-        raise Blocked(error)
-    declared = contract("CodeBuild.Project." + path, context)
-    if declared:
-        (kind,) = declared
-        forms = declared[kind]
-        return kind, attribute if attribute in forms else forms[0]
-    raise Blocked(
-        "reference property contract unproven: CodeBuild environment Type is required"
-    )
 
 
 def _callback_reference_compare_secret_value(
@@ -58,8 +41,6 @@ def _callback_reference_compare_secret_value(
 def compare_reference_value(
     left, right, path, resolve_literal, kms_format, resource_type, reference, *, record
 ):
-    if path != "Environment.EnvironmentVariables[].Value":
-        return NotImplemented
     if isinstance(left, ResourceReference) and isinstance(right, ResourceReference):
         return same(left, right)
     if isinstance(left, ResourceReference) != isinstance(right, ResourceReference):
@@ -199,7 +180,6 @@ _path = "Environment.EnvironmentVariables[].Value"
 RULES["CodeBuild.Project"][_path] = replace(
     RULES["CodeBuild.Project"][_path],
     reference=compare_reference_value,
-    consumer=reference_contract,
 )
 RULES["CodeBuild.Project"]["ServiceRole"] = replace(
     RULES["CodeBuild.Project"]["ServiceRole"],

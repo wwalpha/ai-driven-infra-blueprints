@@ -7,7 +7,9 @@ from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 from utils.reference_contracts import (
     ATTRIBUTE_SUFFIXES,
+    CONTEXT_DEFAULT_ON_MISMATCH,
     REFERENCE_PROPERTIES,
+    reference_error,
     requires_context,
 )
 from utils.reference_contracts import (
@@ -44,6 +46,8 @@ def desired_reference(
         raise Blocked(
             f"reference context or receiving property contract unproven: {kind}.{path}"
         )
+    if local_comparison and (error := reference_error(kind + "." + path, context)):
+        raise Blocked(error)
     if (
         local_comparison
         and not isinstance(value, ResourceReference)
@@ -60,12 +64,19 @@ def desired_reference(
     expected_kind = None
     contract = REFERENCE_PROPERTIES.get(kind + "." + path)
     if local_comparison:
-        consumer = registry.consumer(kind, path)
-        override = consumer(path, attribute, context) if consumer else NotImplemented
-        if override is not NotImplemented:
-            expected_kind, default_attribute = override
+        if requires_context(kind + "." + path, context) and declared:
+            (expected_kind,) = declared
+            forms = declared[expected_kind]
             if not isinstance(value, ResourceReference):
-                attribute = default_attribute
+                if attribute is None or (
+                    attribute not in forms
+                    and kind + "." + path in CONTEXT_DEFAULT_ON_MISMATCH
+                ):
+                    attribute = forms[0]
+                elif attribute not in forms:
+                    raise Blocked(
+                        f"reference attribute is outside property contract: {kind}.{path}"
+                    )
         elif contract:
             expected_kind, default_attribute = contract
             if attribute is None:

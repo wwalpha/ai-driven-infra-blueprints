@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from functools import partial
 from unittest.mock import Mock
 
+from comparison.design_link import desired_reference
 from comparison.resource import inactive_evidence
 from comparison.rules.cloud_trail import cloudtrail_rows
 from design.array_display import indexed_rows
@@ -393,3 +394,175 @@ for name, source in [
     assert all(
         cause["inputs"][0]["source"][key] == value for key, value in source.items()
     )
+
+
+# Shared receiving contracts must validate before IMPORT deferral.
+def _mock_reference(service, value, selected, *, protect_import):
+    return (
+        value
+        if isinstance(value, ResourceReference)
+        else ResourceReference(
+            {"$resource": ["producer", "001"], "$attribute": selected}
+        )
+    )
+
+
+def _reference_contract_check(
+    kind, path, context, producer, attribute=None, value="link"
+):
+    protect = Mock(side_effect=lambda symbol, prop: symbol)
+    result = desired_reference(
+        "consumer",
+        value,
+        kind,
+        path,
+        attribute,
+        context,
+        local_comparison=True,
+        reference=_mock_reference,
+        resource_type=lambda symbol: producer,
+        forms_for=lambda kind, path: None,
+        protect_import=protect,
+    )
+    assert protect.call_count == 1
+    assert protect.call_args.args[1] == kind + "." + path
+    return result
+
+
+_build_path = "Environment.EnvironmentVariables[].Value"
+for _value in (
+    "link",
+    ResourceReference({"$resource": ["producer", "001"], "$attribute": "Name"}),
+):
+    for _producer in ("SecretsManager.Secret", "SSM.Parameter"):
+        try:
+            _reference_contract_check(
+                "CodeBuild.Project",
+                _build_path,
+                {"Type": "PLAINTEXT"},
+                _producer,
+                "Name",
+                _value,
+            )
+        except Blocked as _error:
+            assert "PLAINTEXT" in str(_error)
+        else:
+            raise AssertionError("PLAINTEXT link accepted")
+for _kind, _path, _context, _producer, _expected in (
+    (
+        "CodeBuild.Project",
+        _build_path,
+        {"Type": "SECRETS_MANAGER"},
+        "SecretsManager.Secret",
+        "Id",
+    ),
+    (
+        "CodeBuild.Project",
+        _build_path,
+        {"Type": "PARAMETER_STORE"},
+        "SSM.Parameter",
+        "Name",
+    ),
+    (
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Values[]",
+        {"Type": "AWS::Lambda::Function"},
+        "Lambda.Function",
+        "Arn",
+    ),
+    ("EC2.FlowLog", "ResourceId", {"ResourceType": "VPC"}, "EC2.VPC", "VpcId"),
+    (
+        "CodePipeline.Pipeline",
+        "Stages[].Actions[].Configuration.ProjectName",
+        {
+            "ActionTypeId": {
+                "Category": "Build",
+                "Owner": "AWS",
+                "Provider": "CodeBuild",
+                "Version": "1",
+            }
+        },
+        "CodeBuild.Project",
+        "Name",
+    ),
+):
+    _symbol = _reference_contract_check(_kind, _path, _context, _producer)
+    assert _symbol["$attribute"] == _expected
+    try:
+        _reference_contract_check(_kind, _path, _context, "wrong")
+    except Blocked:
+        pass
+    else:
+        raise AssertionError("wrong producer accepted")
+try:
+    _reference_contract_check(
+        "CodeBuild.Project", _build_path, {"Type": "UNKNOWN"}, "SecretsManager.Secret"
+    )
+except Blocked:
+    pass
+else:
+    raise AssertionError("unknown context accepted")
+
+# The existing string-link defaulting behavior is deliberately retained.
+assert (
+    _reference_contract_check(
+        "CodeBuild.Project",
+        _build_path,
+        {"Type": "SECRETS_MANAGER"},
+        "SecretsManager.Secret",
+        "wrong",
+    )["$attribute"]
+    == "Id"
+)
+_trail = "EventSelectors[].DataResources[].Values[]"
+_s3 = _reference_contract_check(
+    "CloudTrail.Trail", _trail, {"Type": "AWS::S3::Object"}, "S3.Bucket", "wrong"
+)
+assert isinstance(_s3, Expression) and _s3.operation == "Join"
+for _kind, _path, _context, _producer in (
+    ("EC2.FlowLog", "ResourceId", {"ResourceType": "VPC"}, "EC2.VPC"),
+    (
+        "CodePipeline.Pipeline",
+        "Stages[].Actions[].Configuration.ProjectName",
+        {
+            "ActionTypeId": {
+                "Category": "Build",
+                "Owner": "AWS",
+                "Provider": "CodeBuild",
+                "Version": "1",
+            }
+        },
+        "CodeBuild.Project",
+    ),
+):
+    try:
+        _reference_contract_check(_kind, _path, _context, _producer, "wrong")
+    except Blocked:
+        pass
+    else:
+        raise AssertionError("invalid explicit attribute accepted")
+
+# A valid contract reaches IMPORT protection; an invalid one never does.
+for _producer, _reason in (
+    ("SSM.Parameter", "pending import"),
+    ("S3.Bucket", "reference target must be"),
+):
+    _protect = Mock(side_effect=Blocked("pending import"))
+    try:
+        desired_reference(
+            "consumer",
+            "link",
+            "CodeBuild.Project",
+            _build_path,
+            context={"Type": "PARAMETER_STORE"},
+            local_comparison=True,
+            reference=_mock_reference,
+            resource_type=Mock(return_value=_producer),
+            forms_for=Mock(return_value=None),
+            protect_import=_protect,
+        )
+    except Blocked as _error:
+        assert _reason in str(_error)
+        assert _protect.called == (_producer == "SSM.Parameter")
+    else:
+        raise AssertionError("invalid or pending reference accepted")

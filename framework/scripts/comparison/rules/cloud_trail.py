@@ -1,13 +1,11 @@
 """Static CloudTrail comparison methods; container rules include their recursive contents."""
 
 import re
-from dataclasses import replace
 from functools import partial
 
 from model.display import display_rows
-from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import Unresolved
-from utils.reference_contracts import contract, row_contexts
+from utils.reference_contracts import row_contexts
 
 from ..contracts import ResourceContract
 from ..methods import OBJECT, properties
@@ -83,19 +81,6 @@ def cloudtrail_rows(rows, *, index_rows):
     ]
 
 
-def reference_contract(path, attribute, context):
-    if path != "EventSelectors[].DataResources[].Values[]":
-        return NotImplemented
-    declared = contract("CloudTrail.Trail." + path, context)
-    if not declared:
-        raise Blocked(
-            "CloudTrail DataResource Type is required; resource/prefix contract unproven"
-        )
-    (kind,) = declared
-    (form,) = declared[kind]
-    return kind, form
-
-
 RULES = {
     "CloudTrail.Trail": properties(
         resource=ResourceContract(
@@ -158,6 +143,4 @@ RULES = {
 }
 
 
-RULES["CloudTrail.Trail"]["EventSelectors[].DataResources[].Values[]"] = replace(
-    OBJECT, consumer=reference_contract
-)
+RULES["CloudTrail.Trail"]["EventSelectors[].DataResources[].Values[]"] = OBJECT

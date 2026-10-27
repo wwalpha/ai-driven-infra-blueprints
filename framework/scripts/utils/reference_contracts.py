@@ -1105,6 +1105,11 @@ CONTEXT_PROPERTIES = {
         {"VPC": ("EC2.VPC", "VpcId")},
     ),
 }
+# Existing link rendering defaults unsupported explicit attributes for these rows.
+CONTEXT_DEFAULT_ON_MISMATCH = {
+    "CodeBuild.Project.Environment.EnvironmentVariables[].Value",
+    "CloudTrail.Trail.EventSelectors[].DataResources[].Values[]",
+}
 ACTION_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
 ACTION_CONFIGURATION_CONTRACTS = {
     ("Source", "AWS", "CodeCommit", "1", "RepositoryName"): (
@@ -1286,15 +1291,12 @@ def requires_context(prop, context=None):
         prop == "CodeBuild.Project.Environment.EnvironmentVariables[].Value"
         and (context or {}).get("Type") == "PLAINTEXT"
     ):
-        # The CodeBuild reference hook rejects PLAINTEXT before resolution.
+        # PLAINTEXT is rejected by reference_error before reference resolution.
         return False
-    return (
-        any(
-            candidate in CONTEXT_PROPERTIES
-            for candidate in (prop, prop + "[]", prop.removesuffix("[]"))
-        )
-        or configuration_contract(prop) is not None
-    )
+    return any(
+        candidate in CONTEXT_PROPERTIES
+        for candidate in (prop, prop + "[]", prop.removesuffix("[]"))
+    ) or prop.startswith(ACTION_CONFIGURATION + ".")
 
 
 @lru_cache(maxsize=None)

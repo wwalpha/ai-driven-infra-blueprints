@@ -3,8 +3,7 @@
 from dataclasses import replace
 
 from design.services.codepipeline import pipeline_rows
-from utils.cloudformation.inputs import Blocked
-from utils.reference_contracts import KMS_FORMS, action_contexts, configuration_contract
+from utils.reference_contracts import KMS_FORMS, action_contexts
 
 from ..contracts import ResourceContract
 from ..methods import REFERENCE, properties
@@ -38,21 +37,6 @@ def prepare_rows(rows, *, index_rows):
             value = row["value"]
         prepared.append((rid, dict(row, property=kind + "." + prop, value=value)))
     return prepared
-
-
-def reference_contract(path, attribute, context):
-    if not path.startswith("Stages[].Actions[].Configuration."):
-        return NotImplemented
-    contract = configuration_contract("CodePipeline.Pipeline." + path, context)
-    if not contract:
-        raise Blocked(
-            f"CodePipeline {path} reference contract unproven: ActionTypeId={context.get('ActionTypeId')}"
-        )
-    (kind,) = contract
-    (expected,) = contract[kind]
-    if attribute is not None and attribute != expected:
-        raise Blocked(f"CodePipeline {path} reference attribute must be {expected}")
-    return kind, expected
 
 
 RULES = {
@@ -155,11 +139,6 @@ RULES = {
     ),
 }
 
-
-RULES["CodePipeline.Pipeline"]["Stages[].Actions[].Configuration"] = replace(
-    RULES["CodePipeline.Pipeline"]["Stages[].Actions[].Configuration"],
-    consumer=reference_contract,
-)
 
 _path = "ArtifactStore.EncryptionKey.Id"
 RULES["CodePipeline.Pipeline"][_path] = replace(

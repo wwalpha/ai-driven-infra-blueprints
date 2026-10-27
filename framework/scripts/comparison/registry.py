@@ -134,15 +134,3 @@ def property_rule(kind, path):
     """Reference traversals also visit undeclared container/Producer paths."""
     path = re.sub(r"\[\d+\]", "[]", path)
     return RULES.get(kind, {}).get(path, OBJECT)
-
-
-def consumer(kind, path):
-    path = re.sub(r"\[\d+\]", "[]", path)
-    declared = RULES.get(kind, {})
-    # Object contracts own provider-dependent child fields (e.g. Configuration).
-    while path:
-        rule = declared.get(path)
-        if rule is not None and rule.consumer is not None:
-            return rule.consumer
-        path = path.rpartition(".")[0]
-    return None

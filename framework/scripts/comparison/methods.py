@@ -30,7 +30,6 @@ class Rule:
     reference: object = None
     selected_decision: object = None
     selected_reference: object = None
-    consumer: object = None
     forms: frozenset | set | None = None
     form_compare: object = None
     direct_attribute: str | None = None
