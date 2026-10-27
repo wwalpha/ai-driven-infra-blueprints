@@ -10,8 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
+from comparison.methods import compare_values
+from comparison.rulebook import rules
 from comparison.services import route53
-from comparison.values import compare_values
 from model.core import entries
 from model.references import declarations, symbolic
 from model.sources import load_model
@@ -209,7 +210,11 @@ def test_selected_row_shapes_and_container_comparison(models, prop, ticked, entr
     if isinstance(desired, Expression):
         desired = [desired]
     result = compare_values(
-        desired, [actual], "ResourceRecords", reference=partial(route_decision, inputs)
+        desired,
+        [actual],
+        "ResourceRecords",
+        rules=rules("Route53.RecordSet"),
+        reference=partial(route_decision, inputs),
     )
     assert result.equal is True
     assert result.equivalent is True

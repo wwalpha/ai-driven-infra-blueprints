@@ -16,9 +16,6 @@ from utils.cloudformation.inputs import Blocked
 from utils.iac_values import (
     Expression,
     ResourceReference,
-    same,
-    selected_same,
-    unordered_same,
 )
 from utils.json_format import policy_json as strict_json
 from utils.reference_contracts import reference_context
@@ -42,13 +39,6 @@ class PreparedValue:
         if self.failures:
             raise self.failures[0][2]
         return self.value
-
-
-@dataclass(frozen=True)
-class ValueDecision:
-    equal: object
-    diagnostics: tuple
-    equivalent: bool
 
 
 def desired_value(
@@ -397,34 +387,6 @@ def _pending_environment(failures, kind, prop, item):
         failures.append((path, item.pointer, DesiredPendingDeployExcluded(prop)))
         return Expression("Unverified", [])
     return item.value
-
-
-def _callback_compare_values_compare(outcomes, reference, /, left, right, path):
-    outcome = reference(left, right, path)
-    outcomes.append(outcome)
-    return outcome.equal
-
-
-def compare_values(
-    desired, actual, key, *, exact=False, unordered=False, reference=None
-):
-    outcomes = []
-    compare = _bind_framework_callback(
-        _callback_compare_values_compare, outcomes, reference
-    )
-    callback = compare if reference else None
-    equal = (
-        unordered_same(desired, actual, reference=callback, path=key)
-        if unordered
-        else same(desired, actual, reference=callback, path=key)
-        if exact
-        else selected_same(desired, actual, key, reference=callback, path=key)
-    )
-    return ValueDecision(
-        equal,
-        tuple(d for outcome in outcomes for d in outcome.diagnostics),
-        any(outcome.equivalent for outcome in outcomes),
-    )
 
 
 def unverified(value, pointer=""):

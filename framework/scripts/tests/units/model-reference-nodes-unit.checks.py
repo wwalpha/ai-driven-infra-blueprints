@@ -14,8 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import model.sources as sources
 import pytest
 from comparison.deferral import ImportReferenceDeferred
+from comparison.methods import compare_values
+from comparison.rulebook import rules
 from comparison.services.codepipeline import contexts as action_contexts
-from comparison.values import compare_values
 from design.catalog import DesignSchemaCatalog
 from design.policy_tables import (
     Policy,
@@ -291,7 +292,8 @@ def check_no_false_matches_and_atomic_missing(tmp_path, models):
         value,
         {},
         "PolicyDocument",
-        exact=True,
+        whole=True,
+        rules=rules("IAM.ManagedPolicy"),
         reference=partial(reference_decision, inputs),
     )
     assert result.equal is False
@@ -300,7 +302,8 @@ def check_no_false_matches_and_atomic_missing(tmp_path, models):
             value,
             copy.deepcopy(value),
             "PolicyDocument",
-            exact=True,
+            whole=True,
+            rules=rules("IAM.ManagedPolicy"),
             reference=partial(reference_decision, inputs),
         ).equal
         is None
@@ -708,7 +711,8 @@ def check_external_metadata_does_not_hide_missing_parent(tmp_path, models):
             value,
             {},
             "PolicyDocument",
-            exact=True,
+            whole=True,
+            rules=rules("IAM.ManagedPolicy"),
             reference=partial(reference_decision, inputs),
         ).equal
         is False

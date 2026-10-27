@@ -1,0 +1,78 @@
+"""Static FMS comparison methods; container rules include their recursive contents."""
+
+from ..methods import properties
+
+RULES = {
+    "FMS.Policy": properties(
+        objects="""
+            ExcludeMap
+            IncludeMap
+            ResourceTags[]
+            SecurityServicePolicyData
+            SecurityServicePolicyData.PolicyOption
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[]
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].IcmpTypeCode
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].PortRange
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[]
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].IcmpTypeCode
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].PortRange
+            SecurityServicePolicyData.PolicyOption.NetworkFirewallPolicy
+            SecurityServicePolicyData.PolicyOption.ThirdPartyFirewallPolicy
+            Tags[]
+        """,
+        ordered="""
+            ExcludeMap.ACCOUNT
+            ExcludeMap.ORGUNIT
+            IncludeMap.ACCOUNT
+            IncludeMap.ORGUNIT
+            ResourceSetIds
+            ResourceTags
+            ResourceTypeList
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries
+        """,
+        scalars="""
+            DeleteAllPolicyResources
+            ExcludeResourceTags
+            PolicyDescription
+            PolicyName
+            RemediationEnabled
+            ResourceTagLogicalOperator
+            ResourceTags[].Key
+            ResourceTags[].Value
+            ResourceType
+            ResourcesCleanUp
+            SecurityServicePolicyData.ManagedServiceData
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].CidrBlock
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Egress
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].IcmpTypeCode.Code
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].IcmpTypeCode.Type
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Ipv6CidrBlock
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].PortRange.From
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].PortRange.To
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].Protocol
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.FirstEntries[].RuleAction
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.ForceRemediateForFirstEntries
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.ForceRemediateForLastEntries
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].CidrBlock
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Egress
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].IcmpTypeCode.Code
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].IcmpTypeCode.Type
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Ipv6CidrBlock
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].PortRange.From
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].PortRange.To
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].Protocol
+            SecurityServicePolicyData.PolicyOption.NetworkAclCommonPolicy.NetworkAclEntrySet.LastEntries[].RuleAction
+            SecurityServicePolicyData.PolicyOption.NetworkFirewallPolicy.FirewallDeploymentModel
+            SecurityServicePolicyData.PolicyOption.ThirdPartyFirewallPolicy.FirewallDeploymentModel
+            SecurityServicePolicyData.Type
+            Tags[].Key
+            Tags[].Value
+        """,
+        tags="""
+            Tags
+        """,
+    ),
+}

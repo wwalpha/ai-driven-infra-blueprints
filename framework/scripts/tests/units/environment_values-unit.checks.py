@@ -13,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from aws_mapping import registry
-from comparison.values import compare_values, desired_value
+from comparison.methods import compare_values
+from comparison.rulebook import rules
+from comparison.values import desired_value
 from deploy.controller import load_inputs
 from deploy.scheduler import run_group
 from design.catalog import DesignSchemaCatalog
@@ -399,7 +401,8 @@ def check_comparison_preserves_confirmed_siblings(models, kind, prop, value, poi
             prepared.value,
             actual,
             prop,
-            exact=True,
+            whole=True,
+            rules=rules(kind),
             reference=partial(_decision, comparison(models), kind),
         ).equal
         is None
@@ -420,7 +423,8 @@ def check_comparison_preserves_confirmed_siblings(models, kind, prop, value, poi
             prepared.value,
             changed,
             prop,
-            exact=True,
+            whole=True,
+            rules=rules(kind),
             reference=partial(_decision, comparison(models), kind),
         ).equal
         is False

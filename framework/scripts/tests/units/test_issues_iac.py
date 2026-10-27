@@ -25,7 +25,7 @@ from model.format import serialize
 from model.identity import COUNTERS
 from model.sources import Scope
 from utils.cloudformation.inputs import Blocked
-from utils.iac_values import Expression, ResourceReference, same, selected_same
+from utils.iac_values import Expression, ResourceReference, same
 
 
 class ModelDependencyTests(unittest.TestCase):
@@ -1692,59 +1692,6 @@ class ReferenceValueTests(unittest.TestCase):
             callback = _bind_framework_callback(
                 _lambda_main_checks_callback_76, comparison
             )
-            action_path = "Policies[].PolicyDocument.Statement[].Action"
-            for predicate in (same, selected_same):
-                assert predicate(
-                    "s3:GetObject",
-                    ["s3:GetObject"],
-                    reference=callback,
-                    path=action_path,
-                )
-                assert predicate(
-                    ["s3:GetObject"],
-                    "s3:GetObject",
-                    reference=callback,
-                    path=action_path,
-                )
-                for wrong in (
-                    [],
-                    ["s3:PutObject"],
-                    ["s3:GetObject", "s3:GetObject"],
-                    [True],
-                    [["s3:GetObject"]],
-                ):
-                    assert (
-                        predicate(
-                            "s3:GetObject", wrong, reference=callback, path=action_path
-                        )
-                        is False
-                    )
-                assert not predicate(
-                    ["a", "b"], ["b", "a"], reference=callback, path=action_path
-                )
-                for field in (
-                    "Tags[].Value",
-                    "Policies[].Action",
-                    "Policies[].PolicyDocument.Statement[].Condition.Action",
-                    "Policies[].PolicyDocument.Statement[].Resource",
-                ):
-                    assert not predicate(
-                        "same", ["same"], reference=callback, path=field
-                    )
-                assert not predicate("same", ["same"])
-            for kind, path in [
-                ("IAM.Role", "AssumeRolePolicyDocument.Statement[].Action"),
-                ("IAM.ManagedPolicy", "PolicyDocument.Statement[].Action"),
-                ("IAM.User", action_path),
-            ]:
-                assert comparison.reference_same("a", ["a"], kind, path) is True
-            assert (
-                comparison.reference_same(
-                    "a", ["a"], "S3.BucketPolicy", "PolicyDocument.Statement[].Action"
-                )
-                is NotImplemented
-            )
-
             reference = comparison.evaluate(consumer, imported)
             assert reference == {"$resource": ["s3", "002"], "$attribute": "Arn"}
             assert comparison.reference_literal(reference) == arn

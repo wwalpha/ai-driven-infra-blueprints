@@ -113,15 +113,17 @@ def ordered_comparison(left, right, compare):
     )
 
 
-def same(left, right, *, reference=None, path=""):
+def same(left, right, *, reference=None, path="", trace=None):
     """Preserve types, array order, duplicates and object membership."""
     if reference:
         result = reference(left, right, path)
         if result is not NotImplemented:
+            if trace is not None and result is not True:
+                trace(left, right, path, result)
             return result
     if type(left) is not type(right):
-        return False
-    if isinstance(left, dict):
+        result = False
+    elif isinstance(left, dict):
         extra = right.keys() - left.keys()
         membership = (
             False
@@ -131,7 +133,7 @@ def same(left, right, *, reference=None, path=""):
             if extra
             else True
         )
-        return comparison_result(
+        result = comparison_result(
             [
                 membership,
                 *(
@@ -140,17 +142,24 @@ def same(left, right, *, reference=None, path=""):
                         right[key],
                         reference=reference,
                         path=f"{path}.{key}" if path else key,
+                        trace=trace,
                     )
                     for key in left
                     if key in right
                 ),
             ]
         )
-    if isinstance(left, list):
-        return ordered_comparison(
-            left, right, lambda a, b: same(a, b, reference=reference, path=path + "[]")
+    elif isinstance(left, list):
+        result = ordered_comparison(
+            left,
+            right,
+            lambda a, b: same(a, b, reference=reference, path=path + "[]", trace=trace),
         )
-    return left == right
+    else:
+        result = left == right
+    if trace is not None and result is not True:
+        trace(left, right, path, result)
+    return result
 
 
 def _recursive_unordered_same_matching_assign(
@@ -176,7 +185,7 @@ def _callback_unordered_same_matching(left, matrix, /, allow_unknown):
     return all(assign(row, set()) for row in range(len(left)))
 
 
-def unordered_same(left, right, *, reference=None, path=""):
+def unordered_same(left, right, *, reference=None, path="", trace=None):
     """Prove a multiset match, retaining uncertainty and duplicate multiplicity."""
     if not isinstance(left, list) or not isinstance(right, list):
         return False
@@ -186,7 +195,10 @@ def unordered_same(left, right, *, reference=None, path=""):
             return False
         confirmed = [item for item in right if not unknown_value(item)]
         matrix = [
-            [same(a, b, reference=reference, path=path + "[]") for b in left]
+            [
+                same(a, b, reference=reference, path=path + "[]", trace=trace)
+                for b in left
+            ]
             for a in confirmed
         ]
         return (
@@ -195,7 +207,8 @@ def unordered_same(left, right, *, reference=None, path=""):
             else False
         )
     matrix = [
-        [same(a, b, reference=reference, path=path + "[]") for b in right] for a in left
+        [same(a, b, reference=reference, path=path + "[]", trace=trace) for b in right]
+        for a in left
     ]
 
     matching = _bind_framework_callback(_callback_unordered_same_matching, left, matrix)
@@ -205,16 +218,20 @@ def unordered_same(left, right, *, reference=None, path=""):
     return None if matching(True) else False
 
 
-def selected_same(desired, actual, property_name="", *, reference=None, path=""):
-    """Only selected nested settings constrain IaC. Tags have confirmed keyed semantics."""
+def selected_same(
+    desired, actual, property_name="", *, reference=None, path="", trace=None
+):
+    """Only selected nested settings constrain IaC; arrays retain order and duplicates."""
     if reference:
         result = reference(desired, actual, path)
         if result is not NotImplemented:
+            if trace is not None and result is not True:
+                trace(desired, actual, path, result)
             return result
     if type(desired) is not type(actual):
-        return False
-    if isinstance(desired, dict):
-        return comparison_result(
+        result = False
+    elif isinstance(desired, dict):
+        result = comparison_result(
             [
                 desired.keys() <= actual.keys(),
                 *(
@@ -224,55 +241,23 @@ def selected_same(desired, actual, property_name="", *, reference=None, path="")
                         key,
                         reference=reference,
                         path=f"{path}.{key}" if path else key,
+                        trace=trace,
                     )
                     for key, item in desired.items()
                     if key in actual
                 ),
             ]
         )
-    if isinstance(desired, list):
-        if property_name in {"Tags", "HostedZoneTags"} and all(
-            isinstance(item, dict) and "Key" in item for item in desired
-        ):
-            keys = [item["Key"] for item in desired]
-            selected = [
-                item
-                for item in actual
-                if isinstance(item, dict) and item.get("Key") in keys
-            ]
-            unknown = sum(
-                unknown_value(item)
-                or isinstance(item, dict)
-                and unknown_value(item.get("Key"))
-                for item in actual
-            )
-            if len(set(keys)) != len(keys) or any(
-                sum(item.get("Key") == key for item in selected) > 1 for key in keys
-            ):
-                return False
-            membership = (
-                False
-                if len(selected) + unknown < len(keys)
-                else None
-                if unknown
-                else len(selected) == len(keys)
-            )
-            return comparison_result(
-                [
-                    membership,
-                    *(
-                        selected_same(
-                            item, candidate, reference=reference, path=path + "[]"
-                        )
-                        for item in desired
-                        for candidate in selected
-                        if item["Key"] == candidate["Key"]
-                    ),
-                ]
-            )
-        return ordered_comparison(
+    elif isinstance(desired, list):
+        result = ordered_comparison(
             desired,
             actual,
-            lambda a, b: selected_same(a, b, reference=reference, path=path + "[]"),
+            lambda a, b: selected_same(
+                a, b, reference=reference, path=path + "[]", trace=trace
+            ),
         )
-    return desired == actual
+    else:
+        result = desired == actual
+    if trace is not None and result is not True:
+        trace(desired, actual, path, result)
+    return result

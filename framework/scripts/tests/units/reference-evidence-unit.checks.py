@@ -13,11 +13,13 @@ import pytest
 from comparison import Comparison
 from comparison.deferral import ImportReferenceDeferred, failure_category
 from comparison.evaluation import project_actual
+from comparison.methods import ORDERED, compare_values
 from comparison.reference_evidence import Evidence
 from comparison.resource import inactive_evidence, inline_owner
 from comparison.rows import validated_rows
+from comparison.rulebook import rules
 from comparison.services.iam import managed_policy_roles
-from comparison.values import PreparedValue, compare_values
+from comparison.values import PreparedValue
 from design.catalog import DesignSchemaCatalog
 from issues.aggregate import aggregate, comparison_status
 from issues.materials import naming_materials
@@ -656,14 +658,24 @@ def test_json_pointer_multiple_references_preserves_siblings_and_order():
     callback = partial(policy_reference, comparison)
     assert (
         compare_values(
-            desired, actual, "AssumeRolePolicyDocument", exact=True, reference=callback
+            desired,
+            actual,
+            "AssumeRolePolicyDocument",
+            whole=True,
+            rules=rules("IAM.Role"),
+            reference=callback,
         ).equal
         is True
     )
     actual["a/b~c"].reverse()
     assert (
         compare_values(
-            desired, actual, "AssumeRolePolicyDocument", exact=True, reference=callback
+            desired,
+            actual,
+            "AssumeRolePolicyDocument",
+            whole=True,
+            rules=rules("IAM.Role"),
+            reference=callback,
         ).equal
         is False
     )
@@ -2831,26 +2843,18 @@ def test_policy_statement_bijection(case, expected):
         ]
         if case == "known-difference":
             right = [dict(second, Effect="Deny"), first]
+    declared = rules("IAM.Role") if case != "unrelated" else {path: ORDERED}
     assert (
-        same(
+        compare_values(
             left,
             right,
-            path=path,
-            reference=partial(reference_for, comparison, "IAM.Role"),
-        )
+            path,
+            rules=declared,
+            whole=True,
+            reference=partial(policy_reference, comparison),
+        ).equal
         is expected
     )
-
-
-def test_unordered_augmenting_paths():
-    pairs = {(1, 3): True, (1, 4): True, (2, 3): True}
-    assert (
-        unordered_same(
-            [1, 2], [3, 4], reference=lambda a, b, p: pairs.get((a, b), False)
-        )
-        is True
-    )
-    assert unordered_same([1, 2], [3, 4], reference=lambda a, b, p: None) is None
 
 
 def reference_for(comparison, kind, left, right, path):

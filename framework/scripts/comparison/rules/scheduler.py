@@ -1,0 +1,81 @@
+"""Static Scheduler comparison methods; container rules include their recursive contents."""
+
+from ..methods import properties
+
+RULES = {
+    "Scheduler.Schedule": properties(
+        objects="""
+            FlexibleTimeWindow
+            Target
+            Target.DeadLetterConfig
+            Target.EcsParameters
+            Target.EcsParameters.CapacityProviderStrategy[]
+            Target.EcsParameters.NetworkConfiguration
+            Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration
+            Target.EcsParameters.PlacementConstraints[]
+            Target.EcsParameters.PlacementStrategy[]
+            Target.EcsParameters.Tags[]
+            Target.EventBridgeParameters
+            Target.KinesisParameters
+            Target.RetryPolicy
+            Target.SageMakerPipelineParameters
+            Target.SageMakerPipelineParameters.PipelineParameterList[]
+            Target.SqsParameters
+        """,
+        ordered="""
+            Target.EcsParameters.CapacityProviderStrategy
+            Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups
+            Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets
+            Target.EcsParameters.PlacementConstraints
+            Target.EcsParameters.PlacementStrategy
+            Target.SageMakerPipelineParameters.PipelineParameterList
+        """,
+        scalars="""
+            Description
+            EndDate
+            FlexibleTimeWindow.MaximumWindowInMinutes
+            FlexibleTimeWindow.Mode
+            GroupName
+            KmsKeyArn
+            Name
+            ScheduleExpression
+            ScheduleExpressionTimezone
+            StartDate
+            State
+            Target.Arn
+            Target.DeadLetterConfig.Arn
+            Target.EcsParameters.CapacityProviderStrategy[].Base
+            Target.EcsParameters.CapacityProviderStrategy[].CapacityProvider
+            Target.EcsParameters.CapacityProviderStrategy[].Weight
+            Target.EcsParameters.EnableECSManagedTags
+            Target.EcsParameters.EnableExecuteCommand
+            Target.EcsParameters.Group
+            Target.EcsParameters.LaunchType
+            Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp
+            Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]
+            Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]
+            Target.EcsParameters.PlacementConstraints[].Expression
+            Target.EcsParameters.PlacementConstraints[].Type
+            Target.EcsParameters.PlacementStrategy[].Field
+            Target.EcsParameters.PlacementStrategy[].Type
+            Target.EcsParameters.PlatformVersion
+            Target.EcsParameters.PropagateTags
+            Target.EcsParameters.ReferenceId
+            Target.EcsParameters.TaskCount
+            Target.EcsParameters.TaskDefinitionArn
+            Target.EventBridgeParameters.DetailType
+            Target.EventBridgeParameters.Source
+            Target.Input
+            Target.KinesisParameters.PartitionKey
+            Target.RetryPolicy.MaximumEventAgeInSeconds
+            Target.RetryPolicy.MaximumRetryAttempts
+            Target.RoleArn
+            Target.SageMakerPipelineParameters.PipelineParameterList[].Name
+            Target.SageMakerPipelineParameters.PipelineParameterList[].Value
+            Target.SqsParameters.MessageGroupId
+        """,
+        tags="""
+            Target.EcsParameters.Tags
+        """,
+    ),
+}

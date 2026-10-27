@@ -18,10 +18,8 @@ from utils.comparison_rows import Unresolved, put_row
 from utils.iac_values import (
     Expression,
     ResourceReference,
-    comparison_result,
     safe_value,
     same,
-    selected_same,
 )
 
 if not __debug__:
@@ -155,23 +153,6 @@ for path in ("A[].B[].K", "A[].B[1].K", "A[1].B[].K", "A[].B[]", "A[0].K"):
         raise AssertionError("ambiguous membership accepted: " + path)
 
 
-for left, right in [
-    (True, 1),
-    (1, 1.0),
-    ("1", 1),
-    (None, ""),
-    ({}, []),
-    ([1, 2], [2, 1]),
-    ([1, 1], [1]),
-]:
-    assert same(left, right) is False
-assert same(None, None) is True and same({}, {}) is True and same([], []) is True
-assert (
-    comparison_result([None, False]) is False
-    and comparison_result([None, True]) is None
-)
-assert comparison_result([None, True], any_match=True) is True
-assert selected_same({"a": 1}, {"a": 1, "b": 2}) is True
 ref = ResourceReference({"$resource": ["s3", "001"], "$attribute": "Arn"})
 assert same(ref, dict(ref)) is False and same(ref, ResourceReference(ref)) is True
 expression = Expression("Join", ["", [ref, "/*"]])

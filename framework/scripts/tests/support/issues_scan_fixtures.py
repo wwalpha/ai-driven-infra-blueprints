@@ -25,7 +25,9 @@ import model.format as _imports_model_format
 import pytest
 import sync_files as _imports_sync_files
 from comparison import Comparison
-from comparison.result import identifier, value_differences
+from comparison.methods import OBJECT, compare_values, keyed
+from comparison.result import identifier
+from comparison.result import value_differences as render_differences
 from design.layout import resource_name_fields
 from issues.aggregate import aggregate, iac_dataset, iac_summary
 from issues.artifact import detail_payload, review_payload, summary
@@ -41,7 +43,7 @@ from model.validation import naming_target_matches, naming_targets
 from support.model_sources import snapshot_model, write_fixture_files, write_model
 from support.pytest_cli import run
 from task_contract_core import SELECTOR
-from utils.iac_values import same, selected_same, strict_json
+from utils.iac_values import safe_value, same, selected_same, strict_json
 from utils.input_cache import input_scope
 from utils.script_loader import module
 
@@ -52,6 +54,14 @@ pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 
 ROOT = Path(__file__).resolve().parents[4]
+
+
+def difference_fields(
+    desired, actual, name="Setting", *, whole=False, redact=safe_value
+):
+    selected = {"Tags": keyed("Key"), "HostedZoneTags": keyed("Key")}.get(name, OBJECT)
+    outcome = compare_values(desired, actual, name, rules={name: selected}, whole=whole)
+    return render_differences(outcome, desired, actual, name, redact=redact)
 
 
 def write(path, text):
@@ -375,7 +385,7 @@ def summary_fixture():
     ]
     records = unknown + incomplete + differences + errors
     display = {
-        identifier(item): value_differences(
+        identifier(item): difference_fields(
             item["desired"], item["actual"], item["property"]
         )
         for item in differences
@@ -517,7 +527,7 @@ __all__ = [
     "task",
     "tempfile",
     "time",
-    "value_differences",
+    "difference_fields",
     "write",
     "write_fixture_files",
     "write_model",

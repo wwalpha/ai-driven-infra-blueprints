@@ -20,6 +20,7 @@ class ReferenceDecision:
     equal: object
     diagnostics: tuple = ()
     equivalent: bool = False
+    comparisons: tuple = ()
 
 
 def reference_forms(kind, path, *, local_comparison, property_schema):
@@ -117,6 +118,7 @@ def _callback_reference_same_reference(
     kms_format,
     local_comparison,
     nested,
+    comparisons,
     resolve_literal,
     resource_type,
     project_arn,
@@ -140,6 +142,8 @@ def _callback_reference_same_reference(
         project_arn=project_arn,
     )
     nested.append(outcome)
+    comparisons.append((a, b, p, outcome.equal))
+    comparisons.extend(outcome.comparisons)
     return outcome.equal
 
 
@@ -150,13 +154,19 @@ def _callback_reference_same_unproven(
 
 
 def _callback_reference_same_decision(
-    nested, /, equal, diagnostics=(), equivalent=False
+    nested, comparisons, /, equal, diagnostics=(), equivalent=False
 ):
     return ReferenceDecision(
         equal,
         tuple(diagnostics) + tuple(d for result in nested for d in result.diagnostics),
         equivalent or any(result.equivalent for result in nested),
+        tuple(comparisons),
     )
+
+
+def _record_comparison(comparisons, left, right, path, equal):
+    comparisons.append((left, right, path, equal))
+    return equal
 
 
 def reference_same(
@@ -191,7 +201,7 @@ def reference_same(
         for value in (left, right)
     ):
         return ReferenceDecision(None)
-    nested = []
+    nested, comparisons = [], []
     reference = _bind_framework_callback(
         _callback_reference_same_reference,
         diagnostic,
@@ -201,18 +211,26 @@ def reference_same(
         kms_format,
         local_comparison,
         nested,
+        comparisons,
         resolve_literal,
         resource_type,
         project_arn,
     )
-    decision = _bind_framework_callback(_callback_reference_same_decision, nested)
+    decision = _bind_framework_callback(
+        _callback_reference_same_decision, nested, comparisons
+    )
     hook = registry.hook(kind, "reference_compare")
     if hook is not None:
-        if registry.hook(kind, "INVERSE_ROLES") is not None:
-            result = hook(kind, left, right, path, reference)
-        elif local_comparison:
+        if local_comparison:
             result = hook(
-                left, right, path, resolve_literal, kms_format, resource_type, reference
+                left,
+                right,
+                path,
+                resolve_literal,
+                kms_format,
+                resource_type,
+                reference,
+                record=_bind_framework_callback(_record_comparison, comparisons),
             )
         else:
             result = NotImplemented

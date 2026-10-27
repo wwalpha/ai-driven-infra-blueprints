@@ -1,5 +1,30 @@
 # UT / IT 全ケース台帳
 
+## Attribute comparison Rulebook and common methods
+
+45 collected UT cases. The shared suite owns typed equality, object selection, ordered/multiset/keyed collections, nested overrides, uncertainty and evidence extraction. Service suites retain reference resolution, preparation, classification and Runner/Issues connections. The Rulebook coverage check reads Catalogs only in this test; runtime rules are static. IAM Action and multiset algorithm assertions were moved from the old core/reference suites.
+
+| Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `comparison-methods::test_scalar` | `test_scalar` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 8 | scalar | Synthetic values / static Framework definitions |
+| `comparison-methods::test_object_scope` | `test_object_scope` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 2 | object scope | Synthetic values / static Framework definitions |
+| `comparison-methods::test_ordered` | `test_ordered` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 4 | ordered | Synthetic values / static Framework definitions |
+| `comparison-methods::test_unordered` | `test_unordered` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 4 | unordered | Synthetic values / static Framework definitions |
+| `comparison-methods::test_unordered_augmenting_paths` | `test_unordered_augmenting_paths` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 1 | unordered augmenting paths | Synthetic values / static Framework definitions |
+| `comparison-methods::test_keyed` | `test_keyed` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 9 | keyed | Synthetic values / static Framework definitions |
+| `comparison-methods::test_unknown_presence` | `test_unknown_presence` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 3 | unknown presence | Synthetic values / static Framework definitions |
+| `comparison-methods::test_reference_diagnostics_once_and_render_masking` | `test_reference_diagnostics_once_and_render_masking` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 1 | reference diagnostics once and render masking | Synthetic values / static Framework definitions |
+| `comparison-methods::test_reference_identity_and_unproven` | `test_reference_identity_and_unproven` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 1 | reference identity and unproven | Synthetic values / static Framework definitions |
+| `comparison-methods::test_iam_rules` | `test_iam_rules` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 4 | iam rules | Synthetic values / static Framework definitions |
+| `comparison-methods::test_action_string_list_and_scope` | `test_action_string_list_and_scope` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 2 | action string list and scope | Synthetic values / static Framework definitions |
+| `comparison-methods::test_nested_override_and_keyed_evidence` | `test_nested_override_and_keyed_evidence` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 1 | nested override and keyed evidence | Synthetic values / static Framework definitions |
+| `comparison-methods::test_rulebook_complete_static_coverage` | `test_rulebook_complete_static_coverage` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 1 | rulebook complete static coverage | Synthetic values / static Framework definitions |
+| `comparison-methods::test_unregistered_rule_is_framework_error` | `test_unregistered_rule_is_framework_error` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 1 | unregistered rule is framework error | Synthetic values / static Framework definitions |
+| `comparison-methods::test_codebuild_nested_reference_proof_is_reused` | `test_codebuild_nested_reference_proof_is_reused` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 1 | codebuild nested reference proof is reused | Synthetic values / static Framework definitions |
+| `comparison-methods::test_reference_atomic_difference_path_and_missing` | `test_reference_atomic_difference_path_and_missing` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 1 | reference atomic difference path and missing | Synthetic values / static Framework definitions |
+| `comparison-methods::test_nested_array_rule_and_unknown_prefix` | `test_nested_array_rule_and_unknown_prefix` | UT | [units/comparison_methods-unit.checks.py](units/comparison_methods-unit.checks.py) | pytest / 1 | nested array rule and unknown prefix | Synthetic values / static Framework definitions |
+
+
 ## Issue cause classification and proven Service ownership
 
 16 UT entrypoints / 47 collected pytest cases. Synthetic inputs only. Ownership proof combinations live in this suite; caller suites verify routing, Reference/Human/PLAINTEXT/cfn-lint integration and v6 publication.
@@ -1357,11 +1382,6 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `unknown/comparison_core.checks.py:94` / `module` | UT | `units/comparison_core-unit.checks.py:94` | `raise AssertionError('ambiguous membership accepted: ' + path)` |
 | `unknown/comparison_core.checks.py:91` / `module` | UT | `units/comparison_core-unit.checks.py:91` | `assert path in str(error)` |
 | `unknown/comparison_core.checks.py:92` / `module` | UT | `units/comparison_core-unit.checks.py:92` | `assert tree == {'Existing': 1}, 'unresolved rows must not partially mutate the tree'` |
-| `unknown/comparison_core.checks.py:99` / `module` | UT | `units/comparison_core-unit.checks.py:99` | `assert same(left, right) is False` |
-| `unknown/comparison_core.checks.py:100` / `module` | UT | `units/comparison_core-unit.checks.py:100` | `assert same(None, None) is True and same({}, {}) is True and (same([], []) is True)` |
-| `unknown/comparison_core.checks.py:101` / `module` | UT | `units/comparison_core-unit.checks.py:101` | `assert comparison_result([None, False]) is False and comparison_result([None, True]) is None` |
-| `unknown/comparison_core.checks.py:102` / `module` | UT | `units/comparison_core-unit.checks.py:102` | `assert comparison_result([None, True], any_match=True) is True` |
-| `unknown/comparison_core.checks.py:103` / `module` | UT | `units/comparison_core-unit.checks.py:103` | `assert selected_same({'a': 1}, {'a': 1, 'b': 2}) is True` |
 | `unknown/comparison_core.checks.py:105` / `module` | UT | `units/comparison_core-unit.checks.py:105` | `assert same(ref, dict(ref)) is False and same(ref, ResourceReference(ref)) is True` |
 | `unknown/comparison_core.checks.py:107` / `module` | UT | `units/comparison_core-unit.checks.py:107` | `assert same(expression, safe_value(expression)) is False` |
 | `unknown/comparison_core.checks.py:108` / `module` | UT | `units/comparison_core-unit.checks.py:108` | `assert safe_value({'Password': 'one', 'Arn': 'arn:aws:s3:::private'}) == {'Password': '<masked>', 'Arn': '<masked ARN/secret>'}` |
@@ -2972,7 +2992,6 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 | `issues19::test_unknown_reference_property_never_infers_from_name` | `test_unknown_reference_property_never_infers_from_name` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1130) | pytest / 8 | unknown reference property never infers from name | 未保証分のみ小入力へ移設 |
 | `issues19::test_codebuild_secret_context` | `test_codebuild_secret_context` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1139) | pytest / 4 | codebuild secret context | 未保証分のみ小入力へ移設 |
 | `issues19::test_policy_statement_bijection` | `test_policy_statement_bijection` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1156) | pytest / 7 | policy statement bijection | 未保証分のみ小入力へ移設 |
-| `issues19::test_unordered_augmenting_paths` | `test_unordered_augmenting_paths` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1178) | pytest / 1 | unordered augmenting paths | 未保証分のみ小入力へ移設 |
 | `issues19::test_nested_diagnostics_retain_format_and_failures` | `test_nested_diagnostics_retain_format_and_failures` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1211) | pytest / 2 | 確定差分とネスト診断・参照失敗・位置・秘匿化を併存 | 未保証分のみ小入力へ移設 |
 | `issues19::test_naming_materials_mode_and_root_targets` | `test_naming_materials_mode_and_root_targets` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1377) | pytest / 1 | naming materials mode and root targets | 未保証分のみ小入力へ移設 |
 | `issues19::test_stack_partition_and_noecho` | `test_stack_partition_and_noecho` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1410) | pytest / 6 | stack partition and noecho | 未保証分のみ小入力へ移設 |

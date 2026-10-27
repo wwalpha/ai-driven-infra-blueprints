@@ -27,7 +27,7 @@ def reference_contract(path, attribute, context):
 
 
 def _callback_reference_compare_secret_value(
-    path, reference, resolve_literal, resource_type, /, a, b, p
+    path, reference, resolve_literal, resource_type, record, /, a, b, p
 ):
     if p == path:
         return NotImplemented
@@ -46,12 +46,12 @@ def _callback_reference_compare_secret_value(
                 )
             except (Blocked, ValueError, KeyError, TypeError, OSError):
                 return None
-            return same(name, text)
+            return record(a, b, p, same(name, text))
     return reference(a, b, p)
 
 
 def reference_compare(
-    left, right, path, resolve_literal, kms_format, resource_type, reference
+    left, right, path, resolve_literal, kms_format, resource_type, reference, *, record
 ):
     if path == "Environment.EnvironmentVariables[].Value":
         if isinstance(left, ResourceReference) and isinstance(right, ResourceReference):
@@ -83,6 +83,7 @@ def reference_compare(
             reference,
             resolve_literal,
             resource_type,
+            record,
         )
         return same(left, right, reference=secret_value, path=path)
     return NotImplemented

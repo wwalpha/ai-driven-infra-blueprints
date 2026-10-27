@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TypeAlias
 
@@ -23,7 +23,7 @@ from utils.comparison_rows import Unresolved, project, put_row, select
 from utils.iac_values import Expression, ResourceReference
 from utils.type_contracts import JsonObject, JsonValue
 
-from . import evaluation, registry
+from . import evaluation, registry, rulebook
 from . import resource as resource_rules
 from . import rows as row_rules
 from .deferral import (
@@ -32,8 +32,9 @@ from .deferral import (
     failure_category,
 )
 from .inputs import Inputs
+from .methods import compare_values
 from .result import RowResult, record, setting_result
-from .values import ValueDecision, compare_values, unverified
+from .values import unverified
 
 ComparisonValue: TypeAlias = (
     JsonValue
@@ -722,29 +723,19 @@ class Comparison(Inputs):
         if line := marks.get(key, self.template_locations.get(id(owner), {}).get(None)):
             iac_source["line"] = line
         actual = owner.get("Properties", {}).get(key)
-        inverse = self.local_comparison and (kind, key) == registry.hook(
-            kind, "INVERSE_ROLES"
-        )
+        rule = rulebook.require(kind, key)
+        actual_provider = rule.actual if self.local_comparison else None
         missing = (
             "property missing"
-            if key not in owner.get("Properties", {}) and not inverse
+            if key not in owner.get("Properties", {}) and not actual_provider
             else None
         )
         warnings, actual_error = [], None
         failures = []
         raw_actual = actual
         try:
-            if inverse:
-                actual = registry.hook(kind, "managed_policy_roles")(
-                    service,
-                    identity,
-                    name,
-                    owner.get("Properties", {}).get(key, []),
-                    stack_inputs=self.stack_inputs,
-                    evaluate=self.evaluate,
-                    reference_same=self.reference_same,
-                    symbol=self.symbol,
-                )
+            if actual_provider:
+                actual = actual_provider(self, service, identity, name, owner, key)
             elif not missing:
                 if self.local_comparison:
                     prepared = evaluation.project_actual(
@@ -837,20 +828,18 @@ class Comparison(Inputs):
             if self.local_comparison
             else None
         )
-        decision = (
-            ValueDecision(False, (), False)
-            if missing
-            else compare_values(
-                value,
-                actual,
-                key,
-                exact=key in settings.exact,
-                unordered=inverse,
-                reference=reference,
-            )
+        decision = compare_values(
+            value,
+            actual,
+            key,
+            rules=rulebook.rules(kind),
+            whole=key in settings.exact,
+            reference=reference,
+            local=self.local_comparison,
+            missing=bool(missing),
         )
         if actual_error is not None and decision.equal is True:
-            decision = ValueDecision(None, decision.diagnostics, decision.equivalent)
+            decision = replace(decision, equal=None, differences=())
         if failures and decision.equal is not False:
             if (
                 actual_error is None
@@ -858,7 +847,7 @@ class Comparison(Inputs):
                 and not list(unverified(value))
             ):
                 return RowResult(failures, warnings)
-            decision = ValueDecision(None, decision.diagnostics, decision.equivalent)
+            decision = replace(decision, equal=None, differences=())
         if key in settings.incomplete and decision.equal is True:
             return RowResult(warnings=warnings)
         if (
@@ -880,10 +869,8 @@ class Comparison(Inputs):
             name,
             sources,
             iac_source,
-            exact=key in settings.exact,
             actual_error=actual_error,
             redact=self.redacted,
-            reference=reference,
             default_source=self.source(
                 service, f"desired.resource.{identity}.resourceType"
             ),

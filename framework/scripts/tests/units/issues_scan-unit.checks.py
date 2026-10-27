@@ -44,6 +44,7 @@ from support.issues_scan_fixtures import (
     Path,
     aggregate,
     detail_payload,
+    difference_fields,
     expect_error,
     hashlib,
     iac_dataset,
@@ -61,7 +62,6 @@ from support.issues_scan_fixtures import (
     summary_fixture,
     sys,
     tempfile,
-    value_differences,
     write,
 )
 from support.issues_scan_fixtures import pytestmark as pytestmark
@@ -84,8 +84,8 @@ _CALLBACK_DEFAULT = object()
 entries = _exports_support_issues_scan_fixtures.entries
 
 
-def _callback_check_mismatch_rendering_fields(left, right, name="Setting", exact=False):
-    return value_differences(left, right, name, exact=exact)
+def _callback_check_mismatch_rendering_fields(left, right, name="Setting", whole=False):
+    return difference_fields(left, right, name, whole=whole)
 
 
 def check_mismatch_rendering():
@@ -105,7 +105,7 @@ def check_mismatch_rendering():
         {"Settings": {"Timeout": 2, "Enabled": True}},
     ) == [{"path": "Settings.Timeout", "model": "1", "iac": "2"}]
     assert fields({"a": 1}, {"a": 1, "extra": 2}) == []
-    assert fields({"a": 1}, {"a": 1, "extra": 2}, exact=True) == [
+    assert fields({"a": 1}, {"a": 1, "extra": 2}, whole=True) == [
         {"path": "extra", "model": "欠落", "iac": "2"}
     ]
     assert fields({"a": None}, {}) == [{"path": "a", "model": "null", "iac": "欠落"}]
@@ -140,7 +140,7 @@ def check_mismatch_rendering():
     ]
     assert fields(tags * 2, tags * 2, "Tags")[0]["model"] == "2"
     assert fields(
-        tags, reordered, "Tags", exact=True
+        tags, reordered, "Tags", whole=True
     )  # Exact whole-property arrays retain order/membership.
     long_value = "x" * 1000
     assert fields({"Config": long_value + "A"}, {"Config": long_value + "B"})[0][
@@ -558,7 +558,7 @@ def summary_scale_cases():
         actual=safe.redacted(secret["actual"]),
     )
     hidden_fields = {
-        identifier(hidden): value_differences(
+        identifier(hidden): difference_fields(
             secret["desired"],
             secret["actual"],
             secret["property"],
@@ -663,7 +663,7 @@ def summary_scale_cases():
         {f"field{i}": i + 1 for i in range(12)},
     )
     record = dict(base, desired=left, actual=right)
-    shown = {identifier(record): value_differences(left, right, "Setting")}
+    shown = {identifier(record): difference_fields(left, right, "Setting")}
     twelve_fields = with_records([record], ["glue"], shown)
     report12 = iac_report("dev", "cde", ["glue"], [record], shown)
     assert "相違項目:" not in report12 and "省略相違フィールド" not in report12
@@ -2207,7 +2207,7 @@ def check_confirmed_difference_direction(reason, mapped):
         iac={"path": "infra/role.yaml"} if mapped else None,
     )
     display = {
-        identifier(record): value_differences(
+        identifier(record): difference_fields(
             record["desired"], record["actual"], record["property"]
         )
     }

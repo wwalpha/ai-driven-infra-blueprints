@@ -2,9 +2,8 @@
 
 import re
 
-from design.policy_tables import POLICY_FORMATS
 from utils.cloudformation.inputs import Blocked, condition_active
-from utils.iac_values import ResourceReference, same, unordered_same
+from utils.iac_values import ResourceReference, same
 
 
 def managed_policy_roles(
@@ -51,25 +50,12 @@ def managed_policy_roles(
     return roles
 
 
-def reference_compare(kind, left, right, path, reference):
+def action_same(left, right):
     if (
-        path.endswith(".Statement")
-        and isinstance(left, list)
+        isinstance(left, str)
         and isinstance(right, list)
-        and POLICY_FORMATS.get(kind + "." + path.removesuffix(".Statement"))
-        == "statement"
-    ):
-        return unordered_same(left, right, path=path, reference=reference)
-    if (
-        path.endswith(".Statement[].Action")
-        and POLICY_FORMATS.get(kind + "." + path.removesuffix(".Statement[].Action"))
-        == "statement"
-        and (
-            isinstance(left, str)
-            and isinstance(right, list)
-            or isinstance(left, list)
-            and isinstance(right, str)
-        )
+        or isinstance(left, list)
+        and isinstance(right, str)
     ):
         return same(
             [left] if isinstance(left, str) else left,
@@ -78,4 +64,14 @@ def reference_compare(kind, left, right, path, reference):
     return NotImplemented
 
 
-INVERSE_ROLES = ("IAM.ManagedPolicy", "Roles")
+def roles_actual(inputs, service, identity, name, owner, key):
+    return managed_policy_roles(
+        service,
+        identity,
+        name,
+        owner.get("Properties", {}).get(key, []),
+        stack_inputs=inputs.stack_inputs,
+        evaluate=inputs.evaluate,
+        reference_same=inputs.reference_same,
+        symbol=inputs.symbol,
+    )
