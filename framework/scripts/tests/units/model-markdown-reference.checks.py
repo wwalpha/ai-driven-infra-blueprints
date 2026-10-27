@@ -454,6 +454,10 @@ def main():
             "assert not m.projection_conflicts(rows); "
             'rows.append(("3", dict(rows[1][1]))); '
             'assert set(m.projection_conflicts(rows)) == {rows[1][1]["property"]}; '
+            'tree={}; m.put_row(tree, "Items[2].Name", "second"); '
+            'assert m.select(tree, "Items[2].Name") == "second"; '
+            'm.project(tree, "Items[1].Name", "first"); '
+            'assert tree == {"Items": [{"Name": "first"}, {"Name": "second"}]}; '
             'assert n["masked"]({"Password": "secret"}) == {"Password": "[REDACTED]"}; '
             'ctx=m.Context(m.ROOT, n["SNAPSHOT"]["target"], None); '
             'model=m.Model(ctx,m.ROOT/"model/dev/cde/lambda.properties"); '

@@ -310,6 +310,7 @@ def generate(root, environment, selector, service):
         "from collections import Counter, defaultdict\nfrom collections.abc import Mapping\n"
         "from copy import deepcopy\nfrom threading import RLock\nfrom concurrent.futures import Future\n"
         "from functools import partial as _bind_framework_callback\n"
+        "from itertools import combinations\n"
         "from dataclasses import dataclass\nfrom pathlib import Path, PurePosixPath\nfrom types import SimpleNamespace\nfrom urllib.parse import unquote\n"
         'ROOT = Path("/model-test-snapshot")\n'
         'LINK = re.compile(r"^\\[([^\\]]+)\\]\\(([^)]*?)#([^)]+)\\)$")\n'
@@ -354,7 +355,7 @@ def generate(root, environment, selector, service):
     )
     engine += definitions(
         scripts / "utils/comparison_rows.py",
-        ["Unresolved", "select", "project", "put_row"],
+        ["Unresolved", "segment", "indexed_array", "select", "project", "put_row"],
     )
     engine += definitions(
         scripts / "model/literal_values.py",

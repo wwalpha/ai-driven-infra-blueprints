@@ -118,19 +118,19 @@ def main_checks():
                 comparison, result = record(changed)
                 assert result["category"] == "difference", result
                 fields = comparison.display_differences[identifier(result)]
-                assert len(fields) == 1 and fields[0]["path"].endswith("." + field), (
-                    fields
-                )
+                assert len(fields) == 2, fields
+                assert all(".Statement[" in item["path"] for item in fields), fields
+                assert any(item["iac"] == "欠落" for item in fields), fields
+                assert any(json.dumps(value) in item["iac"] for item in fields), fields
             changed = deepcopy(original)
             changed["Resources"]["Role"]["Properties"]["Policies"][0]["PolicyDocument"][
                 "Statement"
             ][2]["Resource"]["Fn::Sub"][0] = "${BucketArn}/other/*"
             comparison, result = record(changed)
             assert result["category"] == "difference", result
-            assert any(
-                arn in field["model"] and "other/*" in field["iac"]
-                for field in comparison.display_differences[identifier(result)]
-            )
+            fields = comparison.display_differences[identifier(result)]
+            assert any(arn in field["model"] for field in fields), fields
+            assert any("other/*" in field["iac"] for field in fields), fields
             changed = deepcopy(original)
             changed["Resources"]["Role"]["Properties"]["Policies"][0]["PolicyDocument"][
                 "Statement"
