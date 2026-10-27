@@ -3,9 +3,9 @@
 import re
 
 from utils.cloudformation.inputs import Blocked, condition_active
-from utils.iac_values import ResourceReference, same
+from utils.iac_values import ResourceReference
 
-from ..methods import Rule, custom, properties
+from ..methods import Rule, properties
 
 
 def managed_policy_roles(
@@ -50,20 +50,6 @@ def managed_policy_roles(
             ):
                 roles.append(role)
     return roles
-
-
-def action_same(left, right):
-    if (
-        isinstance(left, str)
-        and isinstance(right, list)
-        or isinstance(left, list)
-        and isinstance(right, str)
-    ):
-        return same(
-            [left] if isinstance(left, str) else left,
-            [right] if isinstance(right, str) else right,
-        )
-    return NotImplemented
 
 
 def roles_actual(inputs, service, identity, name, owner, key):
@@ -113,7 +99,6 @@ RULES = {
         """,
         ordered="""
             ManagedPolicyArns
-            Policies
         """,
         scalars="""
             Description
@@ -139,7 +124,6 @@ RULES = {
         ordered="""
             Groups
             ManagedPolicyArns
-            Policies
         """,
         scalars="""
             LoginProfile.Password
@@ -164,8 +148,18 @@ for _kind, _path in (
     ("IAM.Role", "Policies[].PolicyDocument"),
     ("IAM.User", "Policies[].PolicyDocument"),
 ):
-    RULES[_kind][_path + ".Statement"] = Rule("UNORDERED", "UNORDERED", local=True)
-    RULES[_kind][_path + ".Statement[].Action"] = custom(action_same, local=True)
+    RULES[_kind][_path + ".Statement"] = Rule(
+        "UNORDERED", "UNORDERED", key="Sid", local=True
+    )
+    for _field in ("Action", "NotAction", "Resource", "NotResource"):
+        RULES[_kind][_path + ".Statement[]." + _field] = Rule(
+            "UNORDERED", "UNORDERED", local=True, singleton=True
+        )
+
+for _kind in ("IAM.Role", "IAM.User"):
+    RULES[_kind]["Policies"] = Rule(
+        "KEYED", "KEYED", key="PolicyName", required_key=True
+    )
 
 RULES["IAM.ManagedPolicy"]["Roles"] = Rule(
     "UNORDERED", "UNORDERED", actual=roles_actual, local=True

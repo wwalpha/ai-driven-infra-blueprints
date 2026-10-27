@@ -1,11 +1,13 @@
 """Declared typed comparisons and their evidence. No service, Catalog or I/O knowledge."""
 
+from collections.abc import Hashable
 from dataclasses import dataclass, field, replace
 from functools import partial
 
 from utils.iac_values import (
     Expression,
     ResourceReference,
+    _recursive_unordered_same_matching_assign,
     array_presence,
     comparison_result,
     same,
@@ -33,6 +35,8 @@ class Rule:
     forms: frozenset | set | None = None
     form_compare: object = None
     direct_attribute: str | None = None
+    singleton: bool = False
+    required_key: bool = False
 
 
 SCALAR = Rule("SCALAR", "SCALAR")
@@ -113,6 +117,7 @@ class _Comparison:
     negative: dict = field(default_factory=dict)
     proofs: dict = field(default_factory=dict)
     keyed: dict = field(default_factory=dict)
+    unordered: dict = field(default_factory=dict)
     pairs: set = field(default_factory=set)
     diagnostics: list = field(default_factory=list)
     equivalent: bool = False
@@ -221,10 +226,16 @@ def _decision(state, whole, left, right, path):
     mode = rule.whole if whole else rule.selected
     if mode == "CUSTOM":
         return rule.custom(left, right)
+    original_left, original_right = left, right
+    if rule.singleton:
+        if isinstance(left, str) and isinstance(right, list):
+            left = [left]
+        elif isinstance(right, str) and isinstance(left, list):
+            right = [right]
     if not isinstance(left, list) or not isinstance(right, list):
         return NotImplemented
     if mode == "KEYED":
-        return _keyed_same(state, left, right, path, whole, rule.key)
+        return _keyed_same(state, left, right, path, whole, rule.key, rule.required_key)
     equal = unordered_same(
         left,
         right,
@@ -232,12 +243,13 @@ def _decision(state, whole, left, right, path):
         reference=partial(_unordered_pair, state),
         trace=partial(_trace, state.negative, True),
     )
-    if equal is False and len(left) != len(right):
-        # A count mismatch may have needed no candidates; evaluate only missing evidence.
-        _, prefix = array_presence(right)
-        for a, b in zip(left, right[:prefix], strict=False):
-            if (path + "[]", id(a), id(b), True) not in state.pairs:
-                _detect(state, a, b, path + "[]", True)
+    if equal is False and original_left is left and original_right is right:
+        for a in left:
+            for b in right:
+                if (path + "[]", id(a), id(b), True) not in state.pairs:
+                    _detect(state, a, b, path + "[]", True)
+                    state.pairs.add((path + "[]", id(a), id(b), True))
+        state.unordered[path, id(left), id(right), whole] = True
     return equal
 
 
@@ -271,10 +283,19 @@ def _proof(state, left, right, path, whole, comparisons):
     return differences or [Difference("", left, right, (), ())]
 
 
-def _keyed_same(state, left, right, path, whole, key):
+def _keyed_same(state, left, right, path, whole, key, required_key):
+    if any(unknown_value(item) for item in left):
+        return None
     if not all(isinstance(item, dict) and key in item for item in left):
-        return NotImplemented
-    if any(unknown_value(item[key]) for item in left):
+        if not required_key:
+            return NotImplemented
+        state.proofs[path, id(left), id(right), whole] = [
+            Difference("", left, right, (), ())
+        ]
+        return False
+    if any(
+        unknown_value(item[key]) or not isinstance(item[key], Hashable) for item in left
+    ):
         return None
     model_keys, iac_keys, unknown = {}, {}, 0
     for index, item in enumerate(left):
@@ -284,18 +305,25 @@ def _keyed_same(state, left, right, path, whole, key):
             unknown_value(item)
             or isinstance(item, dict)
             and unknown_value(item.get(key))
+            or isinstance(item, dict)
+            and key in item
+            and not isinstance(item[key], Hashable)
         ):
             unknown += 1
-        elif isinstance(item, dict) and item.get(key) in model_keys:
+        elif isinstance(item, dict) and key in item and isinstance(item[key], Hashable):
             iac_keys.setdefault(item[key], []).append(index)
     state.keyed[path, id(left), id(right), whole] = key, model_keys, iac_keys, unknown
-    count = sum(len(indexes) for indexes in iac_keys.values())
+    count = sum(len(iac_keys.get(value, [])) for value in model_keys)
+    extra = whole and (
+        any(value not in model_keys for value in iac_keys)
+        or len(right) - unknown > len(left)
+    )
     membership = (
         False
-        if count + unknown < len(left)
+        if extra or count + unknown < len(left)
         else None
         if unknown
-        else count == len(left)
+        else count == len(left) and (not whole or len(right) == len(left))
     )
     results = [membership]
     for value, indexes in model_keys.items():
@@ -306,6 +334,8 @@ def _keyed_same(state, left, right, path, whole, key):
             results.append(
                 _detect(state, left[indexes[0]], right[partners[0]], path + "[]", whole)
             )
+    if whole and any(len(indexes) > 1 for indexes in iac_keys.values()):
+        results.append(False)
     return comparison_result(results)
 
 
@@ -343,6 +373,8 @@ def _evidence(state, left, right, typed, shown, lp, rp, whole):
         return _keyed_evidence(
             state, left, right, typed, shown, lp, rp, whole, state.keyed[key]
         )
+    if key in state.unordered:
+        return _unordered_evidence(state, left, right, typed, shown, lp, rp)
     if type(left) is not type(right):
         return [Difference(shown, left, right, lp, rp)]
     differences = []
@@ -429,6 +461,82 @@ def _keyed_evidence(state, left, right, typed, shown, lp, rp, whole, corresponde
                     rp + (j,) if j is not None else (),
                     whole,
                 )
+            )
+    if whole:
+        for value, indexes in iac_keys.items():
+            if value not in model_keys:
+                for j in indexes:
+                    differences.append(
+                        Difference(
+                            (shown, key, value), MISSING, right[j], None, rp + (j,)
+                        )
+                    )
+        for j, item in enumerate(right):
+            if (isinstance(item, dict) and key not in item) or (
+                not isinstance(item, dict) and not unknown_value(item)
+            ):
+                differences.append(
+                    Difference(
+                        _path(shown, f"[IaC:{j}]"), MISSING, item, None, rp + (j,)
+                    )
+                )
+    return differences
+
+
+def _unordered_evidence(state, left, right, typed, shown, lp, rp):
+    matrix = [
+        [state.negative.get((typed + "[]", id(a), id(b), True), True) for b in right]
+        for a in left
+    ]
+    owners = {}
+    for i in range(len(left)):
+        _recursive_unordered_same_matching_assign(False, matrix, owners, i, set())
+    matched_left = set(owners.values())
+    matched_right = set(owners)
+    differences = []
+    key = state.rules.get(typed, UNORDERED).key
+    left_sids = [
+        item.get(key) if key and isinstance(item, dict) else None for item in left
+    ]
+    right_sids = [
+        item.get(key) if key and isinstance(item, dict) else None for item in right
+    ]
+    for i, sid in enumerate(left_sids):
+        if (
+            i not in matched_left
+            and isinstance(sid, str)
+            and left_sids.count(sid) == 1
+            and right_sids.count(sid) == 1
+        ):
+            j = right_sids.index(sid)
+            if j not in matched_right:
+                matched_left.add(i)
+                matched_right.add(j)
+                differences.extend(
+                    _evidence(
+                        state,
+                        left[i],
+                        right[j],
+                        typed + "[]",
+                        _path(shown, f"[{i}]"),
+                        lp + (i,),
+                        rp + (j,),
+                        True,
+                    )
+                )
+    for i, item in enumerate(left):
+        if i not in matched_left and not any(value is None for value in matrix[i]):
+            differences.append(
+                Difference(_path(shown, f"[{i}]"), item, MISSING, lp + (i,), None)
+            )
+    for j, item in enumerate(right):
+        if (
+            j not in matched_right
+            and not unknown_value(item)
+            and not any(row[j] is None for row in matrix)
+        ):
+            differences.append(
+                Difference(_path(shown, f"[IaC:{j}]"), MISSING, item, None, rp + (j,))
             )
     return differences
 

@@ -291,6 +291,66 @@ class BooleanValueTests(unittest.TestCase):
                         summary["issue_count"], int(expected == "difference")
                     )
 
+            comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+            comparison.resources["service-0"]["0000"].update(
+                resourceType="IAM.User", **{"cfn-logicalId": "stack0-Log0"}
+            )
+            policies = [
+                {
+                    "PolicyName": "one",
+                    "PolicyDocument": {
+                        "Statement": [{"Action": ["a", "b"], "Effect": "Allow"}]
+                    },
+                },
+                {
+                    "PolicyName": "two",
+                    "PolicyDocument": {
+                        "Statement": [{"Action": "c", "Effect": "Allow"}]
+                    },
+                },
+            ]
+            value = "`" + json.dumps(policies) + "`"
+            row = {"property": "IAM.User.Policies", "value": value}
+            comparison.models["service-0"].values.update(
+                {
+                    "desired.resource.0000.resourceType": "IAM.User",
+                    "desired.resource.0000.cfn-logicalId": "stack0-Log0",
+                    "desired.row.0000-001.property": row["property"],
+                    "desired.row.0000-001.value": value,
+                }
+            )
+            comparison.rows["service-0"]["0000"] = [("0000-001", row)]
+            _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
+            document["Resources"]["Log0"] = {
+                "Type": "AWS::IAM::User",
+                "Properties": {
+                    "Policies": [
+                        policies[1],
+                        {
+                            "PolicyName": "one",
+                            "PolicyDocument": {
+                                "Statement": [{"Action": ["b", "a"], "Effect": "Allow"}]
+                            },
+                        },
+                    ]
+                },
+            }
+            records = comparison.run()
+            self.assertEqual([item["category"] for item in records], ["matched"])
+            summary = _imports_issues_aggregate.iac_summary(
+                records, "fixture", "team", ["service-0"]
+            )
+            self.assertEqual(summary["issue_count"], 0)
+            document["Resources"]["Log0"]["Properties"]["Policies"][1][
+                "PolicyDocument"
+            ]["Statement"][0]["Action"] = ["b", "different"]
+            records = comparison.run()[1:]
+            self.assertEqual([item["category"] for item in records], ["difference"])
+            summary = _imports_issues_aggregate.iac_summary(
+                records, "fixture", "team", ["service-0"]
+            )
+            self.assertEqual(summary["issue_count"], 1)
+
     def test_other_types_and_union_conversion_stay_unchanged(self):
         cases = [
             ("string", "False", "False"),

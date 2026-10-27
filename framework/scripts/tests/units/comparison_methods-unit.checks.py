@@ -245,6 +245,171 @@ def test_iam_rules(kind, path):
         compare_values(left, left, path, rules=registry.rules(kind), local=False).equal
         is True
     )
+    for field in ("Action", "NotAction", "Resource", "NotResource"):
+        a = {"Statement": [{field: ["a", "b"], "Effect": "Allow"}]}
+        b = {"Statement": [{field: ["b", "a"], "Effect": "Allow"}]}
+        assert (
+            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            is True
+        )
+        b["Statement"][0][field] = ["a"]
+        assert (
+            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            is False
+        )
+        b["Statement"][0][field] = ["a", "a"]
+        assert (
+            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            is False
+        )
+        a["Statement"][0][field] = "a"
+        b["Statement"][0][field] = ["a"]
+        assert (
+            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            is True
+        )
+    for field, value in (
+        ("Effect", "Deny"),
+        ("Condition", {"StringEquals": {"key": "other"}}),
+    ):
+        a = {
+            "Statement": [
+                {"Effect": "Allow", "Condition": {"StringEquals": {"key": "value"}}}
+            ]
+        }
+        b = {"Statement": [dict(a["Statement"][0], **{field: value})]}
+        assert (
+            compare_values(a, b, path, rules=registry.rules(kind), whole=True).equal
+            is False
+        )
+
+    a = {
+        "Statement": [
+            {"Sid": "First", "Action": ["a", "b"]},
+            {"Sid": "Second", "Action": "x"},
+        ]
+    }
+    b = {
+        "Statement": [
+            {"Sid": "Second", "Action": "x"},
+            {"Sid": "First", "Action": ["b", "c"]},
+        ]
+    }
+    outcome = compare_values(a, b, path, rules=registry.rules(kind), whole=True)
+    assert outcome.equal is False
+    fields = value_differences(outcome, a, b, path)
+    assert fields == [
+        {"path": "Statement[0].Action[0]", "model": "a", "iac": "欠落"},
+        {"path": "Statement[0].Action[IaC:1]", "model": "欠落", "iac": "c"},
+    ]
+    del a["Statement"][0]["Sid"]
+    del b["Statement"][1]["Sid"]
+    fields = value_differences(
+        compare_values(a, b, path, rules=registry.rules(kind), whole=True), a, b, path
+    )
+    assert len(fields) == 2 and all(".Action" not in item["path"] for item in fields)
+
+    if kind in ("IAM.Role", "IAM.User"):
+        policies = [
+            {
+                "PolicyName": "one",
+                "PolicyDocument": {"Statement": [{"Action": ["a", "b"]}]},
+            },
+            {"PolicyName": "two", "PolicyDocument": {"Statement": []}},
+        ]
+        actual = list(reversed(policies))
+        rules = registry.rules(kind)
+        for whole in (True, False):
+            assert (
+                compare_values(
+                    policies, actual, "Policies", rules=rules, whole=whole
+                ).equal
+                is True
+            )
+            assert (
+                compare_values(
+                    policies, actual + [actual[0]], "Policies", rules=rules, whole=whole
+                ).equal
+                is False
+            )
+            assert (
+                compare_values(
+                    policies, actual[:1], "Policies", rules=rules, whole=whole
+                ).equal
+                is False
+            )
+            assert (
+                compare_values(
+                    policies,
+                    [Expression("Unverified", []), actual[0]],
+                    "Policies",
+                    rules=rules,
+                    whole=whole,
+                    reference=uncertain,
+                ).equal
+                is None
+            )
+            assert (
+                compare_values(
+                    policies * 2, actual, "Policies", rules=rules, whole=whole
+                ).equal
+                is False
+            )
+            assert (
+                compare_values(
+                    [{"PolicyDocument": {}}],
+                    actual,
+                    "Policies",
+                    rules=rules,
+                    whole=whole,
+                ).equal
+                is False
+            )
+            assert (
+                compare_values(
+                    policies,
+                    [{"PolicyDocument": {}}, actual[0]],
+                    "Policies",
+                    rules=rules,
+                    whole=whole,
+                ).equal
+                is False
+            )
+        extra = actual + [{"PolicyName": "extra"}]
+        assert compare_values(policies, extra, "Policies", rules=rules).equal is True
+        assert (
+            compare_values(policies, extra, "Policies", rules=rules, whole=True).equal
+            is False
+        )
+        changed = [
+            {"PolicyName": "two", "PolicyDocument": {"Statement": []}},
+            {
+                "PolicyName": "one",
+                "PolicyDocument": {"Statement": [{"Action": ["a", "c"]}]},
+            },
+        ]
+        assert (
+            compare_values(policies, changed, "Policies", rules=rules, whole=True).equal
+            is False
+        )
+        fields = value_differences(
+            compare_values(policies, changed, "Policies", rules=rules, whole=True),
+            policies,
+            changed,
+            "Policies",
+        )
+        assert fields == [
+            {
+                "path": "Policies[PolicyName=one].PolicyDocument.Statement[0]",
+                "model": '{"Action":["a","b"]}',
+                "iac": "欠落",
+            },
+            {
+                "path": "Policies[PolicyName=one].PolicyDocument.Statement[IaC:0]",
+                "model": "欠落",
+                "iac": '{"Action":["a","c"]}',
+            },
+        ]
 
 
 @pytest.mark.parametrize("whole", [True, False])
@@ -259,7 +424,7 @@ def test_action_string_list_and_scope(whole):
         assert (
             compare_values("a", right, path, rules=declared, whole=whole).equal is False
         )
-    assert compare_values(["a", "b"], ["b", "a"], path, rules=declared).equal is False
+    assert compare_values(["a", "b"], ["b", "a"], path, rules=declared).equal is True
     assert compare_values("a", ["a"], path, rules=declared, local=False).equal is False
     assert compare("a", ["a"], SCALAR).equal is False
 
@@ -321,7 +486,7 @@ def test_rulebook_complete_static_coverage():
             rule = registry.require(kind, path)
             node = catalog.property_schema(kind, path)
             if node.get("type") == "array":
-                assert rule.whole in {"ORDERED", "UNORDERED"}, (kind, path)
+                assert rule.whole in {"ORDERED", "UNORDERED", "KEYED"}, (kind, path)
         # Reading the schema here is test-time evidence, never a runtime prerequisite.
         assert catalog.cloudformation_type(kind).startswith("AWS::")
     assert len(kinds) == 176 and len({k.split(".")[0] for k in kinds}) == 46
