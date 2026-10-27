@@ -30,6 +30,7 @@ from utils.aws.identity import import_profile
 from utils.file_operations import atomic_files
 from utils.input_cache import input_context, input_scope, memoized, recording_inputs
 from utils.json_format import json_text
+from utils.property_path import definition_path
 from utils.script_loader import module as load_script
 from utils.source_reads import FileReads as FileReads
 from validation_scope import active_scope
@@ -284,7 +285,9 @@ def property_catalog():
 @memoized
 def property_schema(prop):
     kind = ".".join(prop.split(".")[:2])
-    return property_catalog().property_schema(kind, schema_property(kind, prop))
+    return property_catalog().property_schema(
+        kind, definition_path(schema_property(kind, prop))
+    )
 
 
 def normalize_records(ctx, service, records):

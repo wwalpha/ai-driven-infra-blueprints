@@ -15,6 +15,7 @@ import utils.cloudformation.schema as _dependency_cloudformation_schema
 from model.reference_nodes import is_reference, parse
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
 from utils.input_cache import input_select, input_text, memoized
+from utils.property_path import definition_path
 
 from design.services.definitions.macie import MACIE_JOB as MACIE_JOB
 from design.services.definitions.quicksight import QUICKSIGHT_GROUP as QUICKSIGHT_GROUP
@@ -37,6 +38,7 @@ def property_paths_with_parents(paths: set[str]) -> set[str]:
     """Include each dotted ancestor and array container without changing inputs."""
     present = set()
     for path in paths:
+        path = definition_path(path)
         while path:
             present.update((path, path.removesuffix("[]")))
             path = path.rpartition(".")[0]

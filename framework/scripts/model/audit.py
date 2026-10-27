@@ -25,6 +25,7 @@ from task_contract_core import task_revision as task_revision
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.input_cache import input_scope, input_text
+from utils.property_path import definition_path
 from utils.script_loader import module
 
 import model.identity as _imports_model_identity
@@ -284,7 +285,9 @@ def generate(root, environment, selector, service):
             prop = row["property"]
             kind = ".".join(prop.split(".")[:2])
             try:
-                schema = catalog.property_schema(kind, prop[len(kind) + 1 :])
+                schema = catalog.property_schema(
+                    kind, definition_path(prop[len(kind) + 1 :])
+                )
                 schemas[prop] = {
                     k: schema[k] for k in ("type", "minLength") if k in schema
                 }

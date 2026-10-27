@@ -75,6 +75,62 @@ def check_changed_value(project_workspace, old, new, valid):
     assert (not result.errors) == valid, result.errors
 
 
+@pytest.mark.parametrize("value,valid", [("All", True), ("bad", False)])
+def check_indexed_full_and_change_validation(project_workspace, value, valid):
+    before = resource(
+        "001",
+        "CloudTrail.Trail",
+        "trail",
+        [("EventSelectors[1].ReadWriteType", "ReadOnly")],
+    )
+    after = dict(before, **{"desired.row.001-001.value": value})
+    setup(project_workspace, ["cloudtrail"], [])
+    old = snapshot(project_workspace, before, "cloudtrail")
+    new = snapshot(project_workspace, after, "cloudtrail")
+    selected = change_plan.compare(old, new)
+    with patch.object(
+        validation, "check_model_inputs", side_effect=AssertionError("Full called")
+    ):
+        changed = validation.check_change_inputs(
+            new.scope.path, after, project_workspace, selected
+        )
+    full = validation.check_model_inputs(new.scope.path, after, project_workspace)
+    assert (not any("ReadWriteType" in error for error in full.errors)) == valid, (
+        full.errors
+    )
+    assert (not any("ReadWriteType" in error for error in changed.errors)) == valid, (
+        changed.errors
+    )
+    assert not any("mechanical.processing" in str(error) for error in full.errors)
+
+
+def check_indexed_required_ancestors(project_workspace):
+    setup(project_workspace, ["codepipeline"], [])
+    values = resource(
+        "001", "CodePipeline.Pipeline", "pipeline", [("Stages[1].Name", "first")]
+    )
+    required = {"Stages", "Stages[]", "Stages[].Name"}
+    with patch.object(
+        validation.DesignSchemaCatalog,
+        "required_design_properties",
+        return_value=required,
+    ):
+        assert not validation.validate_required_properties(values, project_workspace)
+        assert not validation.validate_required_properties(
+            values,
+            project_workspace,
+            properties_scope={"CodePipeline.Pipeline.Stages[1].Name"},
+        )
+        with pytest.raises(
+            ValueError, match="required provider schema property missing"
+        ):
+            validation.validate_required_properties(
+                {**values, "desired.row.001-001.value": ""},
+                project_workspace,
+                properties_scope={"CodePipeline.Pipeline.Stages[1].Name"},
+            )
+
+
 def check_unrelated_property_and_resource(project_workspace):
     before = {**logs(retention="bad"), **logs("002", "bad")}
     after = dict(before, **{"desired.row.001-001.value": "changed-name"})
@@ -329,10 +385,14 @@ def check_prepare_save_resource_contracts(project_workspace, action, case):
 
 
 @pytest.mark.parametrize(
-    "shape,value",
-    [("leaf", "true"), ("projection", "[true,false]")],
+    "shape,value,field",
+    [
+        ("leaf", "true", "EventSelectors[].IncludeManagementEvents"),
+        ("projection", "[true,false]", "EventSelectors[].IncludeManagementEvents"),
+        ("leaf", "true", "EventSelectors[1].IncludeManagementEvents"),
+    ],
 )
-def check_changed_column_array(project_workspace, shape, value):
+def check_changed_column_array(project_workspace, shape, value, field):
     before = {
         **service_values("cloudtrail", ["CloudTrail.Trail"]),
         **resource(
@@ -349,7 +409,7 @@ def check_changed_column_array(project_workspace, shape, value):
     after = dict(before)
     after.update(
         {
-            "desired.row.001-004.property": "CloudTrail.Trail.EventSelectors[].IncludeManagementEvents",
+            "desired.row.001-004.property": "CloudTrail.Trail." + field,
             "desired.row.001-004.value": value,
             "desired.row.001-004.valueShape": shape,
             "desired.row.001-004.comment": "取得した配列",
@@ -363,6 +423,19 @@ def check_changed_column_array(project_workspace, shape, value):
         project_workspace,
     )
     assert not full.errors, full.errors
+    if "[1]" in field:
+        view = project_workspace / "docs/designs/preview/team/cloudtrail.md"
+        outputs = generate_files(view, after, project_workspace)
+        assert "EventSelectors[1].IncludeManagementEvents" in outputs[view]
+        valid_project(project_workspace)
+        write_model(snapshot(project_workspace, after, "cloudtrail").scope.path, after)
+        save_files(outputs)
+        errors, _, _ = mechanical(
+            project_workspace, {("preview", "team", "cloudtrail")}, jobs=1
+        )
+        assert not any("mechanical.processing" in str(error) for error in errors), (
+            errors
+        )
 
 
 @pytest.mark.parametrize(

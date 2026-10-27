@@ -106,6 +106,25 @@ def check_validation_projection_scope(tmp_path):
             assert display._validation_projections.get() is None
 
 
+def check_indexed_mapping():
+    for kind, field in (
+        ("CodePipeline.Pipeline", "Stages[1].Name"),
+        ("CloudTrail.Trail", "EventSelectors[1].ReadWriteType"),
+        ("Route53.RecordSet", "ResourceRecords[1]"),
+    ):
+        prop = kind + "." + field
+        assert display.rule(prop)
+        assert "[1]" in display.display_name(prop, kind)
+        assert display.selected_rows([["001-001", prop, "value", ""]])
+    for field in ("Stages[0].Name", "Stages[1].Missing", "Name[1]"):
+        try:
+            display.rule("CodePipeline.Pipeline." + field)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(field)
+
+
 if __name__ == "__main__":
     from support.pytest_cli import run
 

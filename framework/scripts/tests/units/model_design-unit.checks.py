@@ -600,6 +600,17 @@ def check_cli_result(result, monkeypatch, capsys):
     assert capsys.readouterr().err == expected
 
 
+def check_indexed_display():
+    for kind, field in (
+        ("CodePipeline.Pipeline", "Stages[1].Name"),
+        ("CloudTrail.Trail", "EventSelectors[1].ReadWriteType"),
+        ("Route53.RecordSet", "ResourceRecords[1]"),
+    ):
+        rows = [["001-001", kind + "." + field, "`value`", ""]]
+        result = display_rows(kind, rows)
+        assert "[1]" in result[0][1], result
+
+
 def check_one_way_model_contract():
     prop = "Config.ConfigurationRecorder.RoleARN"
     arn = "arn:aws:iam::123456789012:role/service-role/path/ConfigRecorderRole"

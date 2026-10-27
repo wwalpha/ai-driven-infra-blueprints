@@ -1,5 +1,6 @@
 """Mapping-owned Markdown names and visibility; formal Model rows stay intact."""
 
+import re
 from collections import defaultdict, deque
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -11,10 +12,12 @@ import design.layout_schema as _imports_design_layout
 import model.display as _imports_model_display
 import model.identity as _imports_model_identity
 import model.projection as _imports_model_projection
+from design.catalog import DesignSchemaCatalog
 from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
 from model.core import entries
 from utils.aws_mappings import mappings_for, owners
 from utils.input_cache import input_scope, memoized
+from utils.property_path import definition_path
 
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_ONLY = frozenset(
@@ -74,9 +77,22 @@ def rule(prop, root=ROOT):
         return None
     kind = ".".join(prop.split(".")[:2])
     result = rules(root, kind)
-    if prop not in result:
+    definition = definition_path(prop)
+    if (
+        definition not in result
+        and re.search(r"\[[1-9][0-9]*\]$", prop)
+        and definition.endswith("[]")
+    ):
+        try:
+            DesignSchemaCatalog(root).property_schema(
+                kind, definition.removeprefix(kind + ".")
+            )
+        except KeyError as error:
+            raise ValueError("display Mapping property missing: " + prop) from error
+        definition = definition.removesuffix("[]")
+    if definition not in result:
         raise ValueError("display Mapping property missing: " + prop)
-    return result[prop]
+    return result[definition]
 
 
 def show(prop, root=ROOT):
@@ -89,6 +105,15 @@ def display_name(prop, heading, root=ROOT):
     RESOURCE_PROPERTY_PREFIXES = _imports_design_layout.RESOURCE_PROPERTY_PREFIXES
     item = rule(prop, root)
     name = item.name if item else prop.removeprefix(heading + ".")
+    for part in prop.split("."):
+        match = re.fullmatch(r"(.+)(\[[1-9][0-9]*\])", part)
+        if match:
+            name = re.sub(
+                r"(?<![A-Za-z0-9_])" + re.escape(match.group(1)) + r"(?:\[\])?(?=\.|$)",
+                match.group(1) + match.group(2),
+                name,
+                count=1,
+            )
     owner = ".".join(prop.split(".")[:2])
     if owner != heading and owner in GROUPED:
         if name.startswith(heading + "."):
@@ -138,6 +163,7 @@ def structural(prop):
 
 def compact_group(prop):
     """Keep existing multi-row producers atomic when one constituent is hidden."""
+    prop = definition_path(prop)
     if prop in {"Glue.Job.DefaultArguments", "Glue.Job.NonOverridableArguments"}:
         return prop
     for prefix in (

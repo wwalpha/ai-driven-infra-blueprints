@@ -4004,7 +4004,7 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | --- | --- | --- | --- | --- | --- | --- |
 | `change-save::prepare` | `check_prepare_save_change_validation` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 24 | 実prepare_editでIMPORT/EDIT共通検証、Name/PENDING_DEPLOY・PLAINTEXTリンク・依存Type変更・JSON参照・Modelツリー外リンク・不在Producerを拒否して旧bytes維持。正常更新・環境変数PENDING_DEPLOY・未変更既存ERROR/参照・コメント・Warning保持と保存、Full呼出禁止 | Synthetic Models / exact IMPORT read scope |
 | `change-save::resource-contracts` | `check_prepare_save_resource_contracts` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 4 | IMPORT/EDITの正常Resource追加を保存、Producer削除で既存Consumerの参照契約を壊す変更を保存前に拒否。IMPORTのConsumer依存読取は権限を拡大せず共通差分抽出を使用 | Synthetic producer/consumer Models |
-| `change-save::column-arrays` | `check_changed_column_array` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | leaf/projectionのChange/Full入口が同じ共通検証へ接続。boolean/enum/深い階層の条件はmodel-literal-values UTへ移管 | Synthetic CloudTrail rows |
+| `change-save::column-arrays` | `check_changed_column_array` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 3 | leaf/projectionのChange/Full入口が同じ共通検証へ接続。boolean/enum/深い階層の条件はmodel-literal-values UTへ移管 | Synthetic CloudTrail rows |
 
 
 ## Deploy CLI guidance and reading authority
@@ -4118,3 +4118,10 @@ These UTs exercise cache units and execution boundaries; existing generation/imp
 | `literal-shapes::aws` | `check_explicit_array_shape_comparison` | UT | [units/check-model-aws-unit.checks.py](units/check-model-aws-unit.checks.py) | pytest / 2 | 共通parseと実比較処理でleaf/projectionが同じAWS投影に一致 | Offline acquired value |
 | `literal-shapes::iac` | `test_parent_projection_comparison` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | 1/2階層の投影をIaCとの共通比較で保持 | Synthetic template |
 | `literal-shapes::terminal-caller` | `test_terminal_string_array_comparison` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | leaf/projection成功・差分・共通検証エラーの伝播 | Synthetic template |
+
+| `indexed-properties::leaf` | `test_indexed_leaf_definition` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 3 | Indexed schema validation | Provider schemas |
+| `indexed-properties::paths` | `test_definition_path_and_parents` | UT | [units/model-literal-values-unit.checks.py](units/model-literal-values-unit.checks.py) | pytest / 1 | Definition paths and invalid indexes | Provider schemas |
+| `indexed-properties::mapping` | `check_indexed_mapping` | UT | [units/aws_mapping_display-unit.checks.py](units/aws_mapping_display-unit.checks.py) | pytest / 1 | Mapping lookup and indexed display | Mappings |
+| `indexed-properties::validation` | `check_indexed_full_and_change_validation` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 2 | Full and Change schema checks | Synthetic Model |
+| `indexed-properties::required` | `check_indexed_required_ancestors` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | Required ancestors and scoped changes | Synthetic Model |
+| `indexed-properties::display` | `check_indexed_display` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | Preserve positions in display rows | Synthetic rows |

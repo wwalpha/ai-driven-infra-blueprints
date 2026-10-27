@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from design.catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog, property_paths_with_parents
 from model.literal_values import (
     array_paths,
     literal_errors,
@@ -22,6 +22,7 @@ from model.literal_values import (
 from support.pytest_cli import run
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
 from utils.comparison_rows import Unresolved, project, put_row, select
+from utils.property_path import definition_path
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -289,6 +290,36 @@ def test_provider_items(items, good, bad):
     assert not catalog.literal_errors("Test.Array", "Values", json.dumps(good))
     for value in [[], good * 3, *bad]:
         assert catalog.literal_errors("Test.Array", "Values", json.dumps(value)), value
+
+
+@pytest.mark.parametrize(
+    "kind,field,good,bad",
+    [
+        ("CodePipeline.Pipeline", "Stages[1].Name", "Stage", None),
+        ("CloudTrail.Trail", "EventSelectors[1].ReadWriteType", "All", "invalid"),
+        ("Route53.RecordSet", "ResourceRecords[1]", "192.0.2.1", None),
+    ],
+)
+def test_indexed_leaf_definition(kind, field, good, bad):
+    catalog = DesignSchemaCatalog(ROOT)
+    assert not literal_errors(catalog, kind, field, good)
+    if bad is not None:
+        assert literal_errors(catalog, kind, field, bad)
+
+
+def test_definition_path_and_parents():
+    assert definition_path("Stages[1].Actions[2].Name") == "Stages[].Actions[].Name"
+    assert definition_path("Stages[0].Name") == "Stages[0].Name"
+    assert definition_path("Stages[01].Name") == "Stages[01].Name"
+    assert property_paths_with_parents({"Stages[1].Name"}) == {
+        "Stages",
+        "Stages[]",
+        "Stages[].Name",
+    }
+    catalog = DesignSchemaCatalog(ROOT)
+    for field in ("Stages[0].Name", "Stages[01].Name", "Stages[1].Missing"):
+        with pytest.raises(KeyError):
+            literal_errors(catalog, "CodePipeline.Pipeline", field, "x")
 
 
 def test_dynamic_reference_in_array():

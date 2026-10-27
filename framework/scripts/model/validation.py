@@ -29,6 +29,7 @@ from utils.aws_mappings import definition_root
 from utils.input_cache import input_is_file, memo_table, memoized
 from utils.input_cache import input_scope as input_scope
 from utils.json_format import policy_json
+from utils.property_path import definition_path
 from validation.diagnostics import Diagnostic, InputValidationError, service_scope
 
 import model.core as _imports_model_core
@@ -441,7 +442,8 @@ def validate_required_properties(
                         changed == schema_kind + "." + prop
                         or changed.startswith(schema_kind + "." + prop + ".")
                         or (schema_kind + "." + prop).startswith(changed + ".")
-                        for changed in properties_scope
+                        for original in properties_scope
+                        for changed in [definition_path(original)]
                     )
                 }
             missing = (

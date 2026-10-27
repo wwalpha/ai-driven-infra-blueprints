@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from itertools import combinations
 
 from utils.json_format import strict_json
+from utils.property_path import definition_path
 
 
 def value_shape(row):
@@ -130,7 +131,7 @@ def literal_errors(catalog, kind, field, raw, shape="leaf"):
     """Validate only projected axes and schema leaves, including empty parents."""
     value_shape({"valueShape": shape})
     if shape == "leaf":
-        return catalog.literal_errors(kind, field, raw)
+        return catalog.literal_errors(kind, definition_path(field), raw)
     try:
         normalized = normalize(field, strict_json(raw), shape)
     except ValueError as error:
@@ -140,15 +141,13 @@ def literal_errors(catalog, kind, field, raw, shape="leaf"):
 
 def validation_errors(catalog, kind, field, normalized):
     # Even an empty parent must resolve the complete schema path.
-    schema_field = re.sub(r"\[\d+\]", "[]", field)
+    schema_field = definition_path(field)
     catalog.property_schema(kind, schema_field)
     errors = []
     for path, array in normalized.arrays:
         errors.extend(
             f"{path}: {error}"
-            for error in catalog.array_errors(
-                kind, re.sub(r"\[\d+\]", "[]", path), array
-            )
+            for error in catalog.array_errors(kind, definition_path(path), array)
         )
     for value in normalized.values:
         errors.extend(catalog.typed_literal_errors(kind, schema_field, value))

@@ -12,6 +12,7 @@ from utils.aws_mappings import owners
 from utils.aws_schemas import schemas_for
 from utils.json_format import policy_json
 from utils.lazy_definitions import load_once
+from utils.property_path import definition_path
 from utils.script_loader import module
 
 import model.identity as _dependency_model_identity
@@ -292,7 +293,7 @@ class ImportInventory:
         return deepcopy(
             self.once(
                 ("property_schema", kind, prop),
-                lambda: self.ctx.catalog.property_schema(kind, path),
+                lambda: self.ctx.catalog.property_schema(kind, definition_path(path)),
             )
         )
 
