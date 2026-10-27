@@ -488,7 +488,7 @@ class Comparison(Inputs):
                 )
                 return result
             integrity = self.input_integrity(
-                service, identity, rowkind, name, owner, template
+                service, identity, rowkind, name, owner, template, properties=properties
             )
             result.records.extend(integrity.records)
             result.warnings.extend(integrity.warnings)
@@ -511,6 +511,7 @@ class Comparison(Inputs):
                     name,
                     owner,
                     template,
+                    integrity=integrity.records,
                 )
                 result.records.extend(batch.records)
                 result.warnings.extend(batch.warnings)
@@ -536,16 +537,24 @@ class Comparison(Inputs):
         name: str,
         owner: JsonObject,
         template: Path,
+        *,
+        properties: set[str] | None = None,
     ) -> RowResult:
         result = RowResult()
         if not self.local_comparison:
             return result
-        properties = owner.get("Properties", {})
+        actual = owner.get("Properties", {})
         for key, rule in registry.rules(kind).items():
-            if not rule.keyless_unordered or key not in properties:
+            if not rule.keyless_unordered or key not in actual:
+                continue
+            if properties is not None and not row_rules.selected_rows(
+                kind,
+                [(key, {"property": kind + "." + key + "[]." + rule.key})],
+                properties,
+            ):
                 continue
             prepared = evaluation.key_integrity(
-                properties[key],
+                actual[key],
                 rule=rule,
                 evaluate=lambda child: self.evaluate(name, child),
                 property_name=kind + "." + key,
@@ -565,7 +574,7 @@ class Comparison(Inputs):
                         str(error),
                         stack=name,
                         template=self.template_location(
-                            properties[key],
+                            actual[key],
                             pointer,
                             {"path": template.relative_to(self.root).as_posix()},
                         ),
@@ -778,6 +787,8 @@ class Comparison(Inputs):
         name: str,
         owner: JsonObject,
         template: Path,
+        *,
+        integrity: Iterable[JsonObject] = (),
     ) -> RowResult:
         prop = kind + "." + key
         sources = settings.sources[key]
@@ -933,6 +944,16 @@ class Comparison(Inputs):
             name,
             sources,
             iac_source,
+            cause=evaluation.duplicate_key_cause(
+                value, actual, key, rules=registry.rules(kind), integrity=integrity
+            )
+            if decision.equal is False
+            and not missing
+            and not decision.diagnostics
+            and actual_error is None
+            and not failures
+            and key not in settings.incomplete
+            else None,
             actual_error=actual_error,
             redact=self.redacted,
             default_source=self.source(

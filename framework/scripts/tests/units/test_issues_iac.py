@@ -259,6 +259,34 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
     return comparison
 
 
+def iam_policy_comparison(root, kind, desired, actual):
+    comparison = legacy_comparison(root, count=1, stacks=1)
+    comparison.local_comparison = True
+    resource_type = "IAM." + kind
+    resource = comparison.resources["service-0"]["0000"]
+    resource.update(resourceType=resource_type, **{"cfn-logicalId": "stack0-Log0"})
+    values = comparison.models["service-0"].values
+    values["desired.resource.0000.resourceType"] = resource_type
+    values["desired.resource.0000.cfn-logicalId"] = "stack0-Log0"
+    rows = []
+    fields = desired.items() if isinstance(desired, dict) else desired
+    for index, (prop, value) in enumerate(fields, 1):
+        rid = f"0000-{index:03d}"
+        row = {
+            "property": resource_type + "." + prop,
+            "value": "`"
+            + (value if isinstance(value, str) else json.dumps(value))
+            + "`",
+        }
+        rows.append((rid, row))
+        values[f"desired.row.{rid}.property"] = row["property"]
+        values[f"desired.row.{rid}.value"] = row["value"]
+    comparison.rows["service-0"]["0000"] = rows
+    _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
+    document["Resources"]["Log0"] = {"Type": "AWS::IAM::" + kind, "Properties": actual}
+    return comparison, resource, document
+
+
 class BooleanValueTests(unittest.TestCase):
     def test_login_profile_boolean_comparison_and_issue_summary(self):
         prop = "LoginProfile.PasswordResetRequired"
@@ -603,6 +631,264 @@ class BooleanValueTests(unittest.TestCase):
                             actual[0]["PolicyDocument"]["Statement"][0][field] = (
                                 original
                             )
+
+    def test_policy_integrity_selection_scope(self):
+        for kind in ("User", "Role"):
+            name = kind + "Name"
+            for selected in (
+                {name},
+                {"Policies"},
+                {"Policies[].PolicyDocument"},
+                {"Policies[].PolicyName"},
+                None,
+            ):
+                for unknown in (False, True):
+                    with (
+                        self.subTest(kind=kind, selected=selected, unknown=unknown),
+                        tempfile.TemporaryDirectory() as directory,
+                    ):
+                        desired = [(name, "Alice")]
+                        for policy_name in ("one", "two"):
+                            desired.extend(
+                                [
+                                    ("Policies[].PolicyName", policy_name),
+                                    ("Policies[].PolicyDocument", {"Statement": []}),
+                                ]
+                            )
+                        if selected == {name}:
+                            desired = [(name, "Alice")]
+                        actual = {
+                            name: "Alice",
+                            "Policies": [
+                                {
+                                    "PolicyName": "dupe",
+                                    "PolicyDocument": {"Statement": []},
+                                },
+                                {
+                                    "PolicyName": {"Ref": "Missing"}
+                                    if unknown
+                                    else "dupe",
+                                    "PolicyDocument": {"Statement": []},
+                                },
+                            ],
+                        }
+                        comparison, resource, document = iam_policy_comparison(
+                            Path(directory), kind, desired, actual
+                        )
+                        owner = document["Resources"]["Log0"]
+                        evaluate = comparison.evaluate
+                        with patch.object(
+                            comparison, "evaluate", wraps=evaluate
+                        ) as evaluated:
+                            batch = comparison.compare_rows(
+                                "service-0",
+                                "0000",
+                                resource,
+                                "stack0",
+                                "Log0",
+                                comparison.root
+                                / "infra/cloudformation/templates/0.json",
+                                owner,
+                                document,
+                                properties=selected,
+                            )
+                        self.assertIsNone(batch.failure)
+                        integrity = [
+                            item
+                            for item in batch.records
+                            if item.get("input_integrity")
+                        ]
+                        expected = selected is None or selected in (
+                            {"Policies"},
+                            {"Policies[].PolicyName"},
+                        )
+                        self.assertEqual(len(integrity), int(expected), batch.records)
+                        if expected:
+                            self.assertEqual(
+                                integrity[0]["category"],
+                                "uncompared" if unknown else "difference",
+                            )
+                        else:
+                            self.assertFalse(
+                                any(
+                                    call.args[1] == {"Ref": "Missing"}
+                                    for call in evaluated.call_args_list
+                                )
+                            )
+                        if selected == {name}:
+                            self.assertEqual(
+                                [
+                                    (item["property"], item["category"])
+                                    for item in batch.records
+                                ],
+                                [("IAM." + kind + "." + name, "matched")],
+                            )
+                        if selected == {"Policies[].PolicyDocument"}:
+                            self.assertEqual(
+                                [item["category"] for item in batch.records],
+                                ["matched"],
+                            )
+
+    def test_duplicate_policy_issue_cause_and_evidence(self):
+        for kind in ("User", "Role"):
+            for change in (
+                "names",
+                "document",
+                "other-name",
+                "size",
+                "unknown",
+                "masked",
+                "reference",
+            ):
+                with (
+                    self.subTest(kind=kind, change=change),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    policies = [
+                        {
+                            "PolicyName": name,
+                            "PolicyDocument": {
+                                "Statement": [{"Effect": "Allow", "Action": ["a", "b"]}]
+                            },
+                        }
+                        for name in (
+                            ("one", "two")
+                            if change == "names"
+                            else ("one", "two", "three")
+                        )
+                    ]
+                    actual = json.loads(json.dumps(policies))
+                    actual[1]["PolicyName"] = "one"
+                    actual[0]["PolicyDocument"]["Statement"][0]["Action"].reverse()
+                    if change in {"document", "masked"}:
+                        actual[2]["PolicyDocument"]["Statement"][0]["Effect"] = "Deny"
+                    if change == "other-name":
+                        actual[2]["PolicyName"] = "four"
+                    if change == "size":
+                        actual.append(json.loads(json.dumps(actual[2])))
+                    if change == "unknown":
+                        actual[2]["PolicyDocument"] = {"Ref": "Missing"}
+                    comparison, _, _ = iam_policy_comparison(
+                        Path(directory),
+                        kind,
+                        {"Policies": policies},
+                        {"Policies": actual},
+                    )
+                    if change == "masked":
+                        comparison.redacted = lambda value, prop="": redacted(
+                            value, prop, sensitive_values=("Allow", "Deny")
+                        )
+                    if change == "reference":
+                        reference = comparison.reference_decision
+                        comparison.reference_decision = (
+                            lambda left,
+                            right,
+                            kind,
+                            path,
+                            reference=reference,
+                            **kwargs: (
+                                _imports_comparison_references.ReferenceDecision(
+                                    False,
+                                    (
+                                        {
+                                            "path": path,
+                                            "reason": "independent reference diagnostic",
+                                        },
+                                    ),
+                                )
+                                if path.endswith(".Effect")
+                                else reference(left, right, kind, path, **kwargs)
+                            )
+                        )
+                    with patch(
+                        "comparison.evaluation.duplicate_key_cause", return_value=None
+                    ):
+                        baseline = json.loads(json.dumps(comparison.run()))
+                    baseline_fields = list(comparison.display_differences.values())
+                    comparison.results.clear()
+                    comparison.display_differences.clear()
+                    records = comparison.run()
+                    self.assertEqual(
+                        [
+                            {
+                                key: value
+                                for key, value in item.items()
+                                if key != "cause" or item.get("input_integrity")
+                            }
+                            for item in records
+                        ],
+                        baseline,
+                    )
+                    self.assertEqual(
+                        list(comparison.display_differences.values()), baseline_fields
+                    )
+                    original = json.loads(json.dumps(records))
+                    display = dict(comparison.display_differences)
+                    entries, actions, shown = _imports_issues_aggregate.iac_dataset(
+                        records, "fixture", "team", ["service-0"], display
+                    )
+                    self.assertEqual(records, original)
+                    self.assertEqual(len(entries), len(records))
+                    self.assertEqual(
+                        sum(len(action["members"]) for action in actions), len(records)
+                    )
+                    self.assertEqual(
+                        len(actions),
+                        1
+                        if change == "names"
+                        else 3
+                        if change in {"size", "unknown"}
+                        else 2,
+                    )
+                    invalid = next(
+                        action
+                        for action in actions
+                        if action["classification"] == "IaC入力不正"
+                        and any(
+                            entries[index]["record"].get("cause", {}).get("value")
+                            == "one"
+                            for index in action["members"]
+                        )
+                    )
+                    self.assertEqual(invalid["repair_direction"], "入力修正")
+                    self.assertEqual(
+                        invalid["target"], "infra/cloudformation/templates/0.json"
+                    )
+                    self.assertEqual(invalid["status"], "要修正")
+                    members = [entries[index]["record"] for index in invalid["members"]]
+                    duplicate = next(
+                        item for item in members if item.get("input_integrity")
+                    )
+                    self.assertEqual(
+                        duplicate["cause"]["pointers"],
+                        ["/0/PolicyName", "/1/PolicyName"],
+                    )
+                    self.assertEqual(duplicate["cause"]["value"], "one")
+                    self.assertEqual(len(shown), 1)
+                    self.assertEqual(len(display), 1)
+                    self.assertEqual(comparison.display_differences, display)
+                    if change == "names":
+                        self.assertEqual(
+                            _imports_issues_aggregate.iac_summary(
+                                baseline, "fixture", "team", ["service-0"]
+                            )["issue_count"],
+                            2,
+                        )
+                        self.assertEqual(len(members), 2)
+                        self.assertEqual(
+                            [action["id"] for action in actions],
+                            [
+                                action["id"]
+                                for action in _imports_issues_aggregate.iac_dataset(
+                                    records[::-1], "fixture", "team", ["service-0"]
+                                )[1]
+                            ],
+                        )
+                        self.assertTrue(
+                            all(item["category"] == "difference" for item in members)
+                        )
+                    if change == "document":
+                        self.assertIn("Deny", str(shown))
 
     def test_keyless_candidate_errors_in_issue_results(self):
         for kind in ("User", "Role"):

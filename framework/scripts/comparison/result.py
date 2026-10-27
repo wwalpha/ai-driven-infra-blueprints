@@ -165,6 +165,7 @@ def setting_result(
     *,
     actual_error,
     redact,
+    cause=None,
     default_source=None,
     missing=None,
     deferred_children=(),
@@ -240,6 +241,7 @@ def setting_result(
         stack,
         source,
         template,
+        cause,
         redact=redact,
         **details,
     )

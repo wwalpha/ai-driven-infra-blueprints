@@ -1,6 +1,7 @@
 """Connect the shared evaluator to tracked comparison lookups."""
 
 from collections.abc import Hashable
+from dataclasses import replace
 from functools import partial
 
 from iac_evaluation import Evaluation
@@ -9,6 +10,8 @@ from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, unknown_value
 
 from .deferral import ImportReferenceDeferred
+from .methods import compare_values
+from .references import ReferenceDecision
 from .values import PreparedValue
 
 
@@ -176,6 +179,72 @@ def key_integrity(value, *, rule, evaluate, property_name, model_path):
                 (path, location, Blocked("input key uniqueness is unproven"))
             )
     return PreparedValue(None, warnings, failures=tuple(failures))
+
+
+def _integrity_reference(left, right, path):
+    return ReferenceDecision(
+        None
+        if any(isinstance(value, Expression) for value in (left, right))
+        else NotImplemented
+    )
+
+
+def duplicate_key_cause(desired, actual, path, *, rules, integrity):
+    """Prove a mismatch is repaired solely by renaming duplicated input keys."""
+    rule = rules.get(path)
+    if not integrity or not rule or not rule.keyless_unordered:
+        return None
+    if not isinstance(desired, list) or not isinstance(actual, list):
+        return None
+    if len(desired) != len(actual):
+        return None
+    key = rule.key
+    names = []
+    for values in (desired, actual):
+        if any(
+            not isinstance(item, dict) or not isinstance(item.get(key), str)
+            for item in values
+        ):
+            return None
+        names.append([item[key] for item in values])
+    model_names, iac_names = names
+    if len(set(model_names)) != len(model_names) or not set(iac_names) <= set(
+        model_names
+    ):
+        return None
+    duplicates = {name for name in iac_names if iac_names.count(name) > 1}
+    for item in integrity:
+        cause = item.get("cause", {})
+        if (
+            cause.get("kind") != "input-invalid"
+            or cause.get("rule") != "unique-key"
+            or cause.get("key") != key
+            or not item["property"].endswith("." + path + "[]." + key)
+            or duplicates != {cause.get("value")}
+        ):
+            continue
+        renamed = duplicates | (set(model_names) - set(iac_names))
+        left, right = [
+            [
+                {field: value for field, value in policy.items() if field != key}
+                if policy[key] in renamed
+                else policy
+                for policy in policies
+            ]
+            for policies in (desired, actual)
+        ]
+        # Exact child comparison keeps independent fields and unresolved values distinct.
+        proof = compare_values(
+            left,
+            right,
+            path,
+            rules=dict(rules, **{path: replace(rule, whole="UNORDERED")}),
+            whole=True,
+            reference=_integrity_reference,
+        )
+        if proof.equal is True:
+            return cause
+    return None
 
 
 def project_actual(

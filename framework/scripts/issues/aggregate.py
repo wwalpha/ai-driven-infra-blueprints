@@ -184,10 +184,26 @@ def iac_actions(entries, environment, directory):
             )
         elif cause.get("kind") == "input-invalid":
             target = (item.get("iac") or {}).get("path")
+            if cause.get("rule") == "unique-key":
+                key = [
+                    environment,
+                    directory,
+                    target,
+                    item.get("stack"),
+                    item["service"],
+                    item["resource"],
+                    item["property"].removesuffix("[]." + cause["key"]),
+                    cause,
+                ]
             repair_direction = "入力修正"
-            title = f"{item['service']} / {item['resource']} / {item['property']} の入力不正"
+            prop = item["property"].removesuffix("[]." + cause.get("key", ""))
+            title = f"{item['service']} / {item['resource']} / {prop} の入力不正"
             classification, status = "IaC入力不正", "要修正"
-            description = item["reason"]
+            description = (
+                "duplicate input key: " + cause["key"]
+                if cause.get("rule") == "unique-key"
+                else item["reason"]
+            )
             remedy = "対象ResourceとIaC Pointerの証跡を確認し、重複したキーを修正する。"
         elif item["category"] == "difference" and item["reason"] in {
             "value mismatch",
