@@ -2,9 +2,9 @@
 
 import json as _imports_json
 from functools import partial as _bind_framework_callback
+from uuid import uuid4
 
 import iac_evaluation as _imports_iac_evaluation
-from model.environment_values import _leaves
 from model.reference_nodes import is_reference, nodes, parse
 from utils.cloudformation.format import JSON_INTRINSICS, intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked
@@ -26,6 +26,79 @@ def _project_document_pending(*args):
     raise Blocked(
         "no confirmed template binding or physical value; not deployed/unresolved"
     )
+
+
+def _contains_marker(value, marker):
+    if isinstance(value, Expression):
+        return _contains_marker(value.operands, marker)
+    if isinstance(value, dict):
+        return any(_contains_marker(child, marker) for child in value.values())
+    if isinstance(value, list):
+        return any(_contains_marker(child, marker) for child in value)
+    return isinstance(value, str) and marker in value
+
+
+def _pending_marker(value, marker, evaluate):
+    if isinstance(value, dict):
+        result = {
+            key: _pending_marker(child, marker, evaluate)
+            for key, child in value.items()
+        }
+        if len(result) == 1:
+            name, argument = next(iter(result.items()))
+            if (
+                name == "Fn::Split"
+                and isinstance(argument, list)
+                and len(argument) == 2
+                and _contains_marker(argument, marker)
+            ):
+                try:
+                    source = evaluate(argument[1])
+                except (Blocked, KeyError, TypeError, ValueError):
+                    return result
+                if _contains_marker(argument[0], marker) or _contains_marker(
+                    source, marker
+                ):
+                    return Expression("Split", [argument[0], marker])
+            if (
+                name == "Fn::Select"
+                and isinstance(argument, list)
+                and len(argument) == 2
+                and isinstance(argument[1], Expression)
+                and _contains_marker(argument[1], marker)
+            ):
+                try:
+                    index = evaluate(argument[0])
+                except (Blocked, KeyError, TypeError, ValueError):
+                    return result
+                if (
+                    _contains_marker(index, marker)
+                    or type(index) is int
+                    and index >= 0
+                    or isinstance(index, str)
+                    and index.isdigit()
+                ):
+                    return marker
+            if name in {
+                "Fn::Equals",
+                "Fn::And",
+                "Fn::Or",
+                "Fn::Not",
+            } and _contains_marker(argument, marker):
+                try:
+                    operands = evaluate(argument)
+                except (Blocked, KeyError, TypeError, ValueError):
+                    return result
+                if _contains_marker(operands, marker):
+                    if name == "Fn::And" and any(value is False for value in operands):
+                        return False
+                    if name == "Fn::Or" and any(value is True for value in operands):
+                        return True
+                    return marker
+        return result
+    if isinstance(value, list):
+        return [_pending_marker(child, marker, evaluate) for child in value]
+    return marker if value == "PENDING_DEPLOY" else value
 
 
 def _recursive_project_document_syntax(fail, /, value, pointer=""):
@@ -81,12 +154,11 @@ def _recursive_project_document_visit(
                 raise Blocked("unsupported function/object syntax; unverified")
             if not template and any(nodes(value)):
                 raise Blocked("logical Model references remain in design JSON")
-            result = evaluate(value)
-            if (
-                not bound
-                and not template
-                and any(leaf == "PENDING_DEPLOY" for _, leaf in _leaves(value))
-            ):
+            marker = uuid4().hex if not bound and not template else None
+            result = evaluate(
+                _pending_marker(value, marker, evaluate) if marker else value
+            )
+            if not bound and not template and _contains_marker(result, marker):
                 return "PENDING_DEPLOY"
             if (not bound and isinstance(result, Expression)) or result == {
                 "$noValue": True

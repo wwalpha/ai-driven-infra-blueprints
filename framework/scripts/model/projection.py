@@ -19,7 +19,7 @@ from design.layout_schema import RESOURCE
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import input_is_file, input_text, memo_table, memoized
-from utils.reference_contracts import action_contexts, row_contexts
+from utils.reference_contracts import action_contexts, contract, row_contexts
 from utils.reference_contracts import reference_attribute as reference_attribute
 
 import model.environment_values as environment_values
@@ -330,7 +330,53 @@ def resource_display_rows(
     return rows
 
 
-def reference_display(values, path, root, *, reference_values=None):
+def _display_identifier_link(resolver, scope, root, row, warnings, match):
+    forms = contract(row["property"])
+    if not forms:
+        return match[0]
+    try:
+        snapshot, number, resource = resolver.resolve(match[0], scope)
+        kind = resource["resourceType"]
+        attributes = forms.get(kind, ())
+        if not attributes:
+            return match[0]
+        mapping = environment_values.mapping_for(root, kind)
+        outputs = [
+            prop
+            for prop in catalog_outputs(root, kind)
+            if prop.removeprefix(kind + ".") in attributes
+            or prop in mapping
+            and mapping[prop].field.path in attributes
+        ]
+        if not outputs:
+            return match[0]
+        candidates = [
+            rid
+            for rid, item in entries(snapshot.authoritative, "desired.row.")
+            if rid.rpartition("-")[0] == number and item.get("property") in outputs
+        ]
+        if len(outputs) != 1 or len(candidates) != 1:
+            raise ReferenceResolutionError("identifier output is absent or ambiguous")
+        observed = snapshot.authoritative.get(f"observed.row.{candidates[0]}.value")
+        if observed is None:
+            raise ReferenceResolutionError("identifier output is unobserved")
+        return f"[{literal(observed)}]({match[2]}#{match[3]})"
+    except ReferenceResolutionError as error:
+        if warnings is not None:
+            diagnostic = {
+                **error.diagnostic,
+                "model": str(scope.path),
+                "property": row["property"],
+                "reference": match[0],
+            }
+            if diagnostic not in warnings:
+                warnings.append(diagnostic)
+        return match[0]
+
+
+def reference_display(
+    values, path, root, *, reference_values=None, resolver=None, warnings=None
+):
     """Preserve saved links/anchors and project only execution documents for display."""
     scope_for = _imports_model_sources.scope_for
     model_path = (
@@ -342,10 +388,16 @@ def reference_display(values, path, root, *, reference_values=None):
     )
     scope = scope_for(model_path)
     result = dict(values)
-    resolver = reference_resolver(
+    resolver = resolver or reference_resolver(
         values if reference_values is None else reference_values, scope, root
     )
     rows = dict(entries(values, "desired.row."))
+    for row_id, row in rows.items():
+        if f"observed.row.{row_id}.value" not in values and "value" in row:
+            result[f"desired.row.{row_id}.value"] = _imports_model_references.LINKS.sub(
+                partial(_display_identifier_link, resolver, scope, root, row, warnings),
+                row["value"],
+            )
     for key, value in values.items():
         if key.startswith("desired.row.") and key.endswith((".document", ".value")):
             raw, structured = _imports_model_references._json(key, value)

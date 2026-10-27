@@ -10,7 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import shutil as _imports_shutil
 
 import support.producer_identifier_reference_fixtures as _exports_support_producer_identifier_reference_fixtures
+from model.projection import identifier_outputs
+from model.render import generate_files
+from support.import_model_fixtures import service_values
 from support.it_case_receipt import it_case
+from support.model_reference_fixtures import FRAMEWORK
 from support.producer_identifier_reference_fixtures import (
     Path,
     affected,
@@ -26,7 +30,10 @@ from support.producer_identifier_reference_fixtures import (
     trace_model,
     write_model,
 )
+from sync_files import save_files
 from utils.aws_mappings import mapping_alias
+from validation.design_links import check_design_links
+from validation.findings import Findings
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -123,6 +130,134 @@ def check(root):
     )
 
 
+@it_case
+def check_reference_views(root):
+    setup(root, ["lambda", "security-group"], ["Lambda.Function", "EC2.SecurityGroup"])
+    producer = root / "model/preview/team/security-group.properties"
+    target = service_values("security-group", ["EC2.SecurityGroup"])
+    target.update(
+        resource(
+            "001",
+            "EC2.SecurityGroup",
+            "sg-one",
+            [
+                ("Id", "[001](#sg-one)"),
+                ("GroupDescription", "`fixture`"),
+                ("GroupName", "`sg-one`"),
+                ("VpcId", "`vpc-001`"),
+            ],
+        )
+    )
+    target["desired.resource.001.resourceMode"] = "CREATE"
+    target["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+    write_model(producer, target)
+    consumer = root / "model/preview/team/lambda.properties"
+    source = service_values("lambda", ["Lambda.Function"])
+    source.update(
+        resource(
+            "001",
+            "Lambda.Function",
+            "lambda-one",
+            [
+                ("FunctionName", "`lambda-one`"),
+                ("VpcConfig.SecurityGroupIds", "[001](security-group.md#sg-one)"),
+            ],
+        )
+    )
+    source["desired.resource.001.resourceMode"] = "CREATE"
+    write_model(consumer, source)
+    policy_path = root / "model/preview/team/iam.properties"
+    policy = service_values("iam", ["IAM.ManagedPolicy"])
+    policy.update(
+        resource(
+            "001",
+            "IAM.ManagedPolicy",
+            "policy-one",
+            [
+                ("ManagedPolicyName", "`policy-one`"),
+                ("PolicyDocument", "[policy](iam/policy.json)"),
+            ],
+        )
+    )
+    policy["desired.row.001-002.document"] = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "s3:GetObject",
+                    "Resource": {
+                        "Fn::Select": [0, ["arn:aws:s3:::example/*", "PENDING_DEPLOY"]]
+                    },
+                }
+            ],
+        }
+    )
+    write_model(policy_path, policy)
+    paths = [
+        root / "docs/designs/preview/team/security-group.md",
+        root / "docs/designs/preview/team/lambda.md",
+    ]
+    before = (consumer.read_bytes(), producer.read_bytes())
+    with mapping_alias(FRAMEWORK, root):
+        policy_view = root / "docs/designs/preview/team/iam.md"
+        save_files(generate_files(policy_view, load_model(policy_path).values, root))
+        assert (
+            json.loads(
+                (policy_view.with_suffix("") / "policy.json").read_text(
+                    encoding="utf-8"
+                )
+            )["Statement"][0]["Resource"]
+            == "arn:aws:s3:::example/*"
+        )
+        for path, model in zip(paths, (producer, consumer), strict=True):
+            save_files(generate_files(path, load_model(model).values, root))
+        assert "[PENDING_DEPLOY](security-group.md#sg-one)" in paths[1].read_text(
+            encoding="utf-8"
+        )
+        findings = Findings(root)
+        check_design_links(
+            identifier_outputs(FRAMEWORK),
+            paths,
+            findings=findings,
+            root=root,
+            scope=None,
+            definitions_root=FRAMEWORK,
+        )
+        assert not findings.errors and not findings.unverified, (
+            findings.errors,
+            findings.unverified,
+        )
+        assert not any(
+            "identifier reference does not match observed target" in str(item)
+            for item in findings.warnings
+        ), findings.warnings
+        assert (consumer.read_bytes(), producer.read_bytes()) == before
+        source["observed.row.001-002.value"] = "`sg-different`"
+        write_model(consumer, source)
+        save_files(generate_files(paths[1], load_model(consumer).values, root))
+        findings = Findings(root)
+        check_design_links(
+            identifier_outputs(FRAMEWORK),
+            paths,
+            findings=findings,
+            root=root,
+            scope=None,
+            definitions_root=FRAMEWORK,
+        )
+        assert not findings.errors and not findings.unverified, (
+            findings.errors,
+            findings.unverified,
+        )
+        assert any(
+            "identifier reference does not match observed target" in str(item)
+            for item in findings.warnings
+        ), findings.warnings
+    assert producer.read_bytes() == before[1]
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as directory:
         check(Path(directory).resolve())
+    with tempfile.TemporaryDirectory() as directory:
+        check_reference_views(Path(directory).resolve())

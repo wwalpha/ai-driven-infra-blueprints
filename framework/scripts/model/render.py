@@ -585,7 +585,7 @@ def generate_markdown(
 
 @input_scope
 def _generate_markdown(
-    path, values, root, *, reference_tables=None, reference_values=None
+    path, values, root, *, reference_tables=None, reference_values=None, warnings=None
 ):
     """Draw only values checked by the enclosing public generation entry."""
     reference_display = _imports_model_projection.reference_display
@@ -595,7 +595,12 @@ def _generate_markdown(
         values, path, path.parents[4], reference_values=reference_values
     )
     values = reference_display(
-        values, path, path.parents[4], reference_values=reference_values
+        values,
+        path,
+        path.parents[4],
+        reference_values=reference_values,
+        resolver=presentation.resolver,
+        warnings=warnings,
     )
     service = path.stem
     owned = values.get(
@@ -934,7 +939,9 @@ def generate_files(path, values, root, *, warnings=None):
     artifacts[path] = (
         stack_markdown(path, values, root, validate_delivery=False)
         if entries(values, "desired.stack.")
-        else _generate_markdown(path, values, root, reference_values=values)
+        else _generate_markdown(
+            path, values, root, reference_values=values, warnings=warnings
+        )
     )
     return artifacts
 

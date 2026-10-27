@@ -24,6 +24,7 @@ from design.policy_tables import (
     validate_policy_document,
 )
 from design.services.codepipeline import pipeline_display_rows, pipeline_rows
+from iac_evaluation import Evaluation
 from json_intrinsics import project_document
 from model.adapters.observed import observed_destinations, propagate_references
 from model.core import entries
@@ -37,6 +38,7 @@ from model.projection import (
     observed_value,
     reference_display,
     reference_resolver,
+    resource_rows,
 )
 from model.reference_nodes import nodes, parse, resolve
 from model.reference_nodes import project as display
@@ -67,6 +69,186 @@ if not __debug__:
 def models(tmp_path):
     with mapping_alias(FRAMEWORK, tmp_path):
         yield project(tmp_path)
+
+
+def check_intrinsic_pending_dependencies():
+    assert (
+        project_document({"Fn::Select": [0, ["confirmed", "PENDING_DEPLOY"]]})
+        == "confirmed"
+    )
+    assert (
+        project_document({"Fn::Select": [1, ["confirmed", "PENDING_DEPLOY"]]})
+        == "PENDING_DEPLOY"
+    )
+    assert (
+        project_document({"Fn::Join": ["", ["arn:example:", "PENDING_DEPLOY"]]})
+        == "PENDING_DEPLOY"
+    )
+    assert (
+        project_document(
+            {"Fn::Select": [0, ["prefix PENDING_DEPLOY", "PENDING_DEPLOY"]]}
+        )
+        == "prefix PENDING_DEPLOY"
+    )
+    nested = {"Fn::Select": [0, ["confirmed", {"Fn::Join": ["", ["PENDING_DEPLOY"]]}]]}
+    assert project_document(nested) == "confirmed"
+    split = {"Fn::Select": [1, {"Fn::Split": ["a", "PENDING_DEPLOY"]}]}
+    assert project_document(split) == "PENDING_DEPLOY"
+    assert (
+        project_document({"Fn::Split": ["PENDING_DEPLOY", "a,b"]}) == "PENDING_DEPLOY"
+    )
+    assert project_document({"Fn::Select": [0, ["confirmed", split]]}) == "confirmed"
+    assert project_document(
+        {"Fn::Split": [",", {"Fn::Select": [0, ["a,b", "PENDING_DEPLOY"]]}]}
+    ) == ["a", "b"]
+    assert (
+        project_document({"Fn::Equals": ["PENDING_DEPLOY", "known"]})
+        == "PENDING_DEPLOY"
+    )
+    assert project_document({"Fn::And": [False, "PENDING_DEPLOY"]}) is False
+    assert project_document({"Fn::Or": [True, "PENDING_DEPLOY"]}) is True
+    unresolved = {"Fn::If": ["unknown", "confirmed", "PENDING_DEPLOY"]}
+    warnings = []
+    assert project_document(unresolved, warnings=warnings) == unresolved
+    assert warnings[0]["code"] == "json.intrinsic.unresolved"
+    evaluator = Evaluation(
+        {"": ({"Conditions": {"yes": {"Fn::Equals": ["x", "x"]}}}, {}, {})},
+        {},
+        None,
+        None,
+        None,
+        True,
+        None,
+    )
+    with patch(
+        "json_intrinsics._imports_iac_evaluation.Evaluation", return_value=evaluator
+    ):
+        assert (
+            project_document({"Fn::If": ["yes", "confirmed", "PENDING_DEPLOY"]})
+            == "confirmed"
+        )
+
+
+@pytest.mark.parametrize(
+    "kind,service,attribute,prop",
+    [
+        (
+            "EC2.SecurityGroup",
+            "security-group",
+            "Id",
+            "Lambda.Function.VpcConfig.SecurityGroupIds",
+        ),
+        ("EC2.Subnet", "subnet", "SubnetId", "Lambda.Function.VpcConfig.SubnetIds"),
+        ("EC2.VPC", "vpc", "VpcId", "EC2.SecurityGroup.VpcId"),
+    ],
+)
+@pytest.mark.parametrize("observed", ["PENDING_DEPLOY", "physical-123"])
+def check_identifier_link_projection(models, kind, service, attribute, prop, observed):
+    root = models[0].root
+    producer, _ = resource(root, service, kind, attribute=attribute, observed=observed)
+    consumer, values = resource(
+        root,
+        "consumer",
+        prop.rsplit(".", 1)[0].split(".")[0] + "." + prop.split(".")[1],
+        attribute="Name",
+    )
+    link = f"[214]({service}.md#saved-001)"
+    values["desired.row.001-001.property"] = prop
+    values["desired.row.001-001.value"] = link
+    save(consumer, values)
+    path = root / "docs/designs/qa/team/consumer.md"
+    assert (
+        reference_display(values, path, root)["desired.row.001-001.value"]
+        == f"[{observed}]({service}.md#saved-001)"
+    )
+    assert (
+        load_model(producer).authoritative["observed.row.001-001.value"]
+        == f"`{observed}`"
+    )
+    values["observed.row.001-001.value"] = "`source-id`"
+    displayed = reference_display(values, path, root)
+    assert displayed["desired.row.001-001.value"] == link
+    assert (
+        resource_rows(displayed, "001", ".".join(prop.split(".")[:2]), root)[0][2]
+        == f"[source-id]({service}.md#saved-001)"
+    )
+    values["observed.row.001-001.value"] = f"`{observed}`"
+    displayed = reference_display(values, path, root)
+    assert (
+        resource_rows(displayed, "001", ".".join(prop.split(".")[:2]), root)[0][2]
+        == f"[{observed}]({service}.md#saved-001)"
+    )
+
+
+def check_name_reference_is_not_identifier_projection(models):
+    root = models[0].root
+    producer, values = resource(
+        root, "iam", "IAM.Role", attribute="RoleName", observed="different"
+    )
+    values["desired.row.001-001.value"] = "`chosen-name`"
+    save(producer, values)
+    consumer, source = resource(root, "glue", "Glue.Job", attribute="Role")
+    source["desired.row.001-001.value"] = "[chosen-name](iam.md#saved-001)"
+    path = root / "docs/designs/qa/team/glue.md"
+    assert (
+        reference_display(source, path, root)["desired.row.001-001.value"]
+        == source["desired.row.001-001.value"]
+    )
+
+
+def check_identifier_links_missing_and_array(models):
+    root = models[0].root
+    scope, first = resource(
+        root,
+        "security-group",
+        "EC2.SecurityGroup",
+        attribute="Id",
+        observed="PENDING_DEPLOY",
+    )
+    _, second = resource(
+        root,
+        "security-group",
+        "EC2.SecurityGroup",
+        attribute="Id",
+        observed="sg-002",
+        number="002",
+    )
+    first.update(second)
+    save(scope, first)
+    consumer, values = resource(
+        root, "lambda", "Lambda.Function", attribute="FunctionName"
+    )
+    values["desired.row.001-001.property"] = (
+        "Lambda.Function.VpcConfig.SecurityGroupIds"
+    )
+    value = "[001](security-group.md#saved-001), [002](security-group.md#saved-002)"
+    values["desired.row.001-001.value"] = value
+    path = root / "docs/designs/qa/team/lambda.md"
+    result = reference_display(values, path, root)
+    assert (
+        result["desired.row.001-001.value"]
+        == "[PENDING_DEPLOY](security-group.md#saved-001), [sg-002](security-group.md#saved-002)"
+    )
+    warnings = []
+    values["desired.row.001-001.value"] = "[missing](security-group.md#missing)"
+    assert (
+        reference_display(values, path, root, warnings=warnings)[
+            "desired.row.001-001.value"
+        ]
+        == values["desired.row.001-001.value"]
+    )
+    assert warnings and warnings[0]["category"] == "REFERENCE_UNRESOLVED"
+    first["desired.resource.002.anchor"] = "saved-001"
+    save(scope, first)
+    warnings = []
+    values["desired.row.001-001.value"] = "[001](security-group.md#saved-001)"
+    assert (
+        reference_display(values, path, root, warnings=warnings)[
+            "desired.row.001-001.value"
+        ]
+        == values["desired.row.001-001.value"]
+    )
+    assert warnings and "ambiguous" in warnings[0]["message"]
 
 
 def check_parse():
