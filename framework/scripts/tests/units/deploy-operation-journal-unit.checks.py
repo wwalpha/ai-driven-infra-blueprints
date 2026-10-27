@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from deploy import change_sets, run_context
+from deploy import change_sets, handoff, run_context
 from deploy import operation_journal as J
 from deploy.controller import create_runtime
 from support.pytest_cli import run
@@ -1352,3 +1352,186 @@ def test_missing_new_iac_export_blocks_without_assuming_independence():
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def test_out_of_scope_no_change_does_not_block_dependent_stack(tmp_path):
+    backend, task, _, path = backend_for(tmp_path)
+    backend.states["Kms"] = {
+        "status": "BLOCKED",
+        "stackId": STACK,
+        "changeSetId": CHANGE,
+        "operationType": "UPDATE",
+        "absentBeforeCreate": False,
+        "expectedOutputs": {},
+        "delivery": {"imports": {}},
+    }
+    backend.describe_change_set.return_value = {
+        "Status": "FAILED",
+        "StatusReason": "The submitted information didn't contain changes",
+        "ExecutionStatus": "UNAVAILABLE",
+        "Changes": [],
+        "StackName": "Kms",
+        "StackId": STACK,
+        "ChangeSetId": CHANGE,
+    }
+    J.save(path, backend)
+    backend.aws = Mock(
+        side_effect=lambda operation, **kwargs: backend.describe_change_set.return_value
+        if operation == "describe_change_set"
+        else {"Stacks": [{"StackId": STACK, "StackStatus": "CREATE_COMPLETE"}]}
+    )
+    J.recover(backend, path, task, ["Consumer"])
+    backend.states = {"Consumer": {"status": "NOT_STARTED"}}
+    with patch.object(J, "require_independent") as independent:
+        states = J.dependency_states(
+            backend, {"name": "Consumer"}, imports={"Export"}, hints={}, boundary={}
+        )
+    assert "Kms" not in independent.call_args.args[0]
+    assert states.get("Kms", {}).get("status") != "RUNNING"
+    assert J.read(path)[0]["operations"]["Kms"]["state"]["status"] == "SUCCESS"
+    backend.execute.assert_not_called()
+
+
+def no_change_fixture(tmp_path):
+    backend, task, unit, path = backend_for(tmp_path)
+    backend.states["Kms"] = {
+        "status": "BLOCKED",
+        "stackId": STACK,
+        "changeSetId": CHANGE,
+        "operationType": "UPDATE",
+        "absentBeforeCreate": False,
+        "expectedOutputs": {},
+        "delivery": {"imports": {}},
+    }
+    change = {
+        "Status": "FAILED",
+        "StatusReason": "No updates are to be performed",
+        "ExecutionStatus": "UNAVAILABLE",
+        "Changes": [],
+        "StackName": "Kms",
+        "StackId": STACK,
+        "ChangeSetId": CHANGE,
+    }
+    stack = {"StackId": STACK, "StackStatus": "CREATE_COMPLETE"}
+    backend.aws = Mock(side_effect=partial(no_change_response, change, stack))
+    return backend, task, unit, path, change, stack
+
+
+def no_change_response(change, stack, operation, **kwargs):
+    if operation == "describe_change_set":
+        return change
+    if operation == "describe_stacks":
+        return {"Stacks": [stack]}
+    raise AssertionError(operation)
+
+
+@pytest.mark.parametrize(
+    "defect", ["in-progress", "stack-id", "changeset-id", "token", "outputs"]
+)
+def test_no_change_evidence_must_be_complete(tmp_path, defect):
+    backend, task, _, path, change, stack = no_change_fixture(tmp_path)
+    state = backend.states["Kms"]
+    if defect == "in-progress":
+        stack["StackStatus"] = "UPDATE_IN_PROGRESS"
+    elif defect == "stack-id":
+        stack["StackId"] += "-different"
+    elif defect == "changeset-id":
+        change["ChangeSetId"] += "-different"
+    elif defect == "token":
+        state["clientToken"] = "contradiction"
+    else:
+        state["expectedOutputs"] = {
+            "missing": {"export": "X", "definitionDigest": "bad", "valueDigest": None}
+        }
+        backend.aws.side_effect = partial(no_change_output_response, change, stack)
+    J.save(path, backend)
+    before = path.read_bytes()
+    with pytest.raises(Blocked):
+        J.recover(backend, path, task, ["Consumer"])
+    assert path.read_bytes() == before
+    backend.execute.assert_not_called()
+
+
+def no_change_output_response(change, stack, operation, **kwargs):
+    if operation == "get_template":
+        return {"TemplateBody": {"Outputs": {}}}
+    return no_change_response(change, stack, operation, **kwargs)
+
+
+def test_no_change_restart_and_owner_publication_recovery(tmp_path):
+    backend, task, _, path, _, _ = no_change_fixture(tmp_path)
+    J.save(path, backend)
+    J.recover(backend, path, task, ["Consumer"])
+    assert J.read(path)[0]["operations"]["Kms"]["state"]["status"] == "SUCCESS"
+    J.recover(backend, path, task, ["Consumer"])
+    with (
+        patch.object(J, "_restore_template"),
+        patch.object(J, "from_run_sync", side_effect=finish_sync),
+    ):
+        J.recover(backend, path, task, ["Kms"])
+    assert not path.exists()
+    backend.execute.assert_not_called()
+
+
+def test_no_change_other_repository_never_publishes(tmp_path):
+    backend, task, _, path, _, _ = no_change_fixture(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    backend.run_context["repository"] = str(other)
+    J.save(path, backend)
+    with patch.object(J, "from_run_sync") as sync:
+        J.recover(backend, path, task, ["Consumer"])
+    sync.assert_not_called()
+    assert J.read(path)[0]["publication"]["repository"] == str(other)
+    assert J.read(path)[0]["operations"]["Kms"]["state"]["status"] == "SUCCESS"
+
+
+def no_change_dependency_response(change, exports, operation, **arguments):
+    if operation == "describe_change_set":
+        return change
+    return dependency_response(exports, [], "", operation, **arguments)
+
+
+def test_consumer_uses_current_export_after_no_change_recovery(tmp_path):
+    backend, task, _, path, change, _ = no_change_fixture(tmp_path)
+    backend.states["Kms"]["delivery"]["imports"] = {
+        "KmsExport": {"Value": "old", "ExportingStackId": STACK}
+    }
+    export = {"Name": "KmsExport", "Value": "current", "ExportingStackId": STACK}
+    backend.aws = Mock(
+        side_effect=partial(no_change_dependency_response, change, [export])
+    )
+    J.save(path, backend)
+    J.recover(backend, path, task, ["Consumer"])
+    backend.states = {"Consumer": {"status": "NOT_STARTED"}}
+    backend.templates = {
+        "Consumer": (
+            {
+                "Resources": {
+                    "R": {"Properties": {"V": {"Fn::ImportValue": "KmsExport"}}}
+                }
+            },
+            {},
+        )
+    }
+    backend.check_imports({"name": "Consumer"})
+    assert J.read(path)[0]["operations"]["Kms"]["state"]["status"] == "SUCCESS"
+    backend.execute.assert_not_called()
+
+
+def test_handoff_uses_same_no_change_classification(tmp_path):
+    backend, _, _, path, _, _ = no_change_fixture(tmp_path)
+    J.save(path, backend)
+    request = {
+        "target": TARGET,
+        "diagnosis": {"Consumer": {"inputRefs": [], "modelRefs": []}},
+        "allowedPaths": [],
+    }
+    with (
+        patch.object(J, "location", return_value=path),
+        patch.object(handoff, "dependency_reader", return_value=backend.aws),
+        patch.object(handoff.inputs, "load_units") as load_units,
+    ):
+        handoff.require_settled(backend.root, request)
+        load_units.assert_not_called()
+    backend.execute.assert_not_called()

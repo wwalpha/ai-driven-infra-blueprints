@@ -308,6 +308,22 @@ def verify_no_change(name, state, change_set):
         raise Blocked("cannot prove the saved unexecuted no-change UPDATE: " + name)
 
 
+def verify_no_change_completion(aws, unit, state, change_set):
+    verify_no_change(unit["name"], state, change_set)
+    response = aws("describe_stacks", StackName=unit["name"])
+    stacks = response.get("Stacks", [])
+    if (
+        response.get("NextToken") is not None
+        or len(stacks) != 1
+        or stacks[0].get("StackStatus") not in SUCCESS
+    ):
+        raise Blocked("no-change stack has no terminal success evidence")
+    stack = stacks[0]
+    if stack.get("StackId") != state["stackId"]:
+        raise Blocked("no-change Stack ID differs from saved ChangeSet target")
+    return stack["StackStatus"]
+
+
 def review_prepared(unit, state, approvals, aws, describe_change_set, change_set=None):
     change_set = describe_change_set(unit, state) if change_set is None else change_set
     if change_set["Status"] in {"CREATE_PENDING", "CREATE_IN_PROGRESS"}:
@@ -319,14 +335,7 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
         - state.get("changeSetCreateSeconds", 0),
     )
     if no_changes(change_set):
-        verify_no_change(unit["name"], state, change_set)
-        stacks = aws("describe_stacks", StackName=unit["name"]).get("Stacks", [])
-        if len(stacks) != 1 or stacks[0].get("StackStatus") not in SUCCESS:
-            raise Blocked("no-change stack has no terminal success evidence")
-        stack = stacks[0]
-        if stack.get("StackId") != state["stackId"]:
-            raise Blocked("no-change Stack ID differs from saved ChangeSet target")
-        state.update(stackId=stack["StackId"], stackStatus=stack["StackStatus"])
+        state["stackStatus"] = verify_no_change_completion(aws, unit, state, change_set)
         state["reason"] = "no changes; existing stack terminal success"
         return "SUCCESS"
     if (

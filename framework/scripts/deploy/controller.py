@@ -298,7 +298,10 @@ def exports_for(
             *(
                 operation["state"]
                 for record in getattr(runtime, "retained_records", [])
-                for operation in record["operations"].values()
+                for name, operation in record["operations"].items()
+                if operation_journal.aws_unfinished(
+                    runtime.target, name, operation, runtime.aws
+                )
             ),
         ]
         hints = []

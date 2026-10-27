@@ -313,6 +313,10 @@ def save(path, backend):
                 "publication": publication,
             }
         )
+    write_records(path, records)
+
+
+def write_records(path, records):
     path = safe_path(path)
     if records:
         payload, *peers = records
@@ -451,6 +455,29 @@ def recover(backend, path, task, scope):
     backend.pending_publication = {}
     backend.retained_records = read(path) or []
     selected = set(scope)
+    for record in backend.retained_records:
+        if target_identity(record["target"]) != target_identity(backend.target):
+            raise Blocked("unfinished operation Account/Region changed")
+        for name, operation in list(record["operations"].items()):
+            validate_operation(record["target"], name, operation)
+            if name not in selected and not aws_unfinished(
+                record["target"], name, operation, backend.aws
+            ):
+                state = operation["state"]
+                state["status"] = "SUCCESS"
+                if state.get("observedSynced") and not (
+                    record["publication"].get("pendingObserved")
+                    or record["publication"].get("pendingGeneration")
+                ):
+                    del record["operations"][name]
+    backend.retained_records = [
+        r
+        for r in backend.retained_records
+        if r["operations"]
+        or r["publication"].get("pendingObserved")
+        or r["publication"].get("pendingGeneration")
+    ]
+    write_records(path, copy.deepcopy(backend.retained_records))
     for record in list(backend.retained_records):
         if target_identity(record["target"]) != target_identity(backend.target):
             raise Blocked("unfinished operation Account/Region changed")
@@ -593,6 +620,8 @@ def _recover_record(backend, path, task, scope, record, same_destination):
             continue
         state, unit = operation["state"], operation["unit"]
         validate_operation(record["target"], name, operation)
+        if not aws_unfinished(record["target"], name, operation, backend.aws):
+            state["status"] = "SUCCESS"
         context["inputDigests"][name] = operation["inputDigest"]
         running = state.get("status") == "RUNNING"
         if running:
@@ -790,12 +819,51 @@ def verify_producer(backend, operation):
         raise Blocked("Producer Observed values no longer match AWS: " + unit["name"])
 
 
+def no_change_candidate(operation):
+    state = operation["state"]
+    return not (
+        state.get("status") == "RUNNING"
+        or state.get("executionEvidence")
+        or state.get("bootstrap")
+        or state.get("cleanupStatus") == "DELETE_INTENT"
+        or state.get("operationType") != "UPDATE"
+        or state.get("absentBeforeCreate") is not False
+        or not state.get("changeSetId")
+        or not state.get("stackId")
+    )
+
+
+def aws_unfinished(target, name, operation, aws):
+    """Classify only after rechecking the original unexecuted no-change evidence."""
+    state = operation["state"]
+    if state.get("executionEvidence"):
+        validate_operation(target, name, operation)
+    if not no_change_candidate(operation):
+        return True
+    validate_operation(target, name, operation)
+    change = change_sets.describe_change_set(aws, operation["unit"], state)
+    if not change_sets.no_changes(change):
+        if state.get("status") == "SUCCESS":
+            raise Blocked("saved no-change success cannot be confirmed: " + name)
+        return True
+    if not isinstance(state.get("expectedOutputs"), dict):
+        raise Blocked("no-change Output evidence is incomplete: " + name)
+    state["stackStatus"] = change_sets.verify_no_change_completion(
+        aws, operation["unit"], state, change
+    )
+    change_sets.verify_outputs(
+        aws, operation["unit"], state, state.get("expectedOutputs", {})
+    )
+    return False
+
+
 def dependency_states(backend, unit, *, imports, hints, boundary):
     """Unrelated unfinished Stacks are allowed only across proved dependency boundaries."""
     pending = {
         name: operation["state"]
         for record in getattr(backend, "retained_records", [])
         for name, operation in record["operations"].items()
+        if aws_unfinished(backend.target, name, operation, backend.aws)
     }
     require_independent(
         pending,

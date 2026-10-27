@@ -265,7 +265,13 @@ def verify_inputs(
 def dependency_read(
     connection: tuple, operation: str, **arguments: JsonValue
 ) -> JsonObject:
-    if operation not in {"describe_stacks", "list_exports", "list_imports"}:
+    if operation not in {
+        "describe_stacks",
+        "describe_change_set",
+        "get_template",
+        "list_exports",
+        "list_imports",
+    }:
         raise Blocked("repair dependency proof permits only Import/Export reads")
     if operation == "describe_stacks" and not arguments.get("StackName"):
         raise Blocked("repair dependency proof requires a scoped StackName")
@@ -304,6 +310,7 @@ def require_settled(
         )
     records = operation_journal.read(operation_journal.location(target)) or []
     pending = {}
+    reader = None
     for record in records:
         if operation_journal.target_identity(
             record["target"]
@@ -329,13 +336,14 @@ def require_settled(
                 raise Blocked(
                     "unfinished publication conflicts with repair/checkpoint files or Producers"
                 )
-        pending.update(
-            {
-                name: op["state"]
-                for name, op in record["operations"].items()
-                if operation_journal.unfinished(op["state"])
-            }
-        )
+        for name, op in record["operations"].items():
+            if not operation_journal.unfinished(op["state"]):
+                continue
+            if operation_journal.no_change_candidate(op):
+                reader = reader or dependency_reader(root, request)
+                if not operation_journal.aws_unfinished(target, name, op, reader):
+                    continue
+            pending[name] = op["state"]
     if not pending:
         return
     if pending.keys() & stacks:
@@ -371,7 +379,7 @@ def require_settled(
     if imports.keys() != stacks:
         raise Blocked("repair dependency Stack scope is incomplete")
     operation_journal.require_independent(
-        pending, stacks, dependency_reader(root, request), imports=imports
+        pending, stacks, reader or dependency_reader(root, request), imports=imports
     )
 
 
