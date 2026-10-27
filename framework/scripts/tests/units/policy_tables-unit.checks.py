@@ -869,7 +869,11 @@ def check_security_group_reference_display(tmp_path):
         '<a id="extra"></a>\n\n',
     ):
         changes.append(text.replace(outbound, outbound + "\n\n" + gap + extra, 1))
-    changes.append(text.replace(outbound, outbound + "\n\n#### Extra\n\n" + HEADER, 1))
+    changes.append(
+        text.replace(
+            outbound, outbound + "\n\n#### Extra\n\n" + HEADER + "\n" + ALIGNMENT, 1
+        )
+    )
     for changed in changes:
         assert changed != text
         path.write_text(changed, encoding="utf-8")
@@ -954,6 +958,53 @@ def check_model_service_note_boundary(tmp_path, service):
                 )
             with pytest.raises(ValueError):
                 rendered_design(path, definitions_root=REPOSITORY)
+
+
+@pytest.mark.parametrize(
+    ("extra", "fence"),
+    [
+        (header, "")
+        for header in (
+            "  | Direction | IpProtocol | Port |\n  | --- | --- | --- |",
+            "| Direction  | IpProtocol | Port |\n| --- | --- | --- |",
+            "| **Direction** | IpProtocol | Port |\n| --- | --- | --- |",
+            "| _Direction_ | IpProtocol | Port |\n| :--- | ---: | :---: |",
+            "Direction | IpProtocol | Port\n--- | --- | ---",
+            "  | **No.** | Property  | Value | Source / Comment |\n  " + ALIGNMENT,
+        )
+    ]
+    + [
+        (header, fence)
+        for header in (
+            "| Direction | IpProtocol | Port |\n| --- | --- | --- |",
+            HEADER + "\n" + ALIGNMENT,
+        )
+        for fence in ("```markdown", "~~~~markdown")
+    ],
+)
+def check_model_resource_trailing_table_structure(tmp_path, extra, fence):
+    project(tmp_path)
+    values = properties(GENERATED_MODEL)
+    values["display.service.title"] = "# Security Group"
+    values.update(
+        {f"display.resource.{number:03d}.comment": "fixture" for number in range(1, 7)}
+    )
+    model_path = tmp_path / "model/qa/team/security-group.properties"
+    write_model(model_path, values)
+    values = load_model(model_path).values
+    path = tmp_path / "docs/designs/qa/team/security-group.md"
+    path.parent.mkdir(parents=True)
+    text = generate_markdown(path, values, REPOSITORY)
+    extra += "\n| Inbound | `tcp` | `123` |"
+    if fence:
+        extra = fence + "\n" + extra + "\n" + fence.removesuffix("markdown")
+    changed = text + "\n#### Documentation\n\n" + extra + "\n"
+    path.write_text(changed, encoding="utf-8")
+    if fence:
+        assert rendered_design(path, definitions_root=REPOSITORY) == changed
+    else:
+        with pytest.raises(ValueError, match="differs from Model expected display"):
+            rendered_design(path, definitions_root=REPOSITORY)
 
 
 def check_macie_resource_additional_display(tmp_path):

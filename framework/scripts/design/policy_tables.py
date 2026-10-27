@@ -33,6 +33,7 @@ from utils.json_format import (
 from utils.json_format import (
     unique_object as unique_object,
 )
+from utils.markdown_format import markdown_prose
 
 import design.document as _design_document
 import design.layout as _module_design_layout
@@ -45,6 +46,7 @@ from design.services.definitions.iam import IAM_END as IAM_END
 from design.services.definitions.iam import IAM_START as IAM_START
 from design.services.definitions.iam import INLINE_POLICY_DOCUMENTS
 from design.services.definitions.registry import POLICY_FORMATS as POLICY_FORMATS
+from design.services.ec2.security_groups import cells
 
 START = "<!-- policy-tables:start -->"
 END = "<!-- policy-tables:end -->"
@@ -127,6 +129,26 @@ class Resource:
     table_end: int
 
 
+def _has_resource_table(lines: list[str]) -> bool:
+    """Identify Resource headers only when followed by a real table delimiter."""
+    prose = list(markdown_prose("\n".join(lines)))
+    for (offset, header), (next_offset, delimiter) in zip(
+        prose, prose[1:], strict=False
+    ):
+        if next_offset != offset + len(header) or not all(
+            re.match(r"^ {0,3}\S", line) and "|" in line for line in (header, delimiter)
+        ):
+            continue
+        columns = [value.strip("*_").strip() for value in cells(header.strip())]
+        alignment = cells(delimiter.strip())
+        if len(columns) == len(alignment) and all(
+            re.fullmatch(r":?-+:?", value) for value in alignment
+        ):
+            if columns == cells(HEADER) or columns[:1] == ["Direction"]:
+                return True
+    return False
+
+
 @input_scope
 def resources_in(
     lines: list[str],
@@ -185,9 +207,8 @@ def resources_in(
                 end += 1
             while end > start and not block[end - 1]:
                 end -= 1
-            if tuple(block[start:end]) != projection.expected or any(
-                line == HEADER or line.startswith("| Direction |")
-                for line in block[end:]
+            if tuple(block[start:end]) != projection.expected or _has_resource_table(
+                block[end:]
             ):
                 raise ValueError(
                     "Markdown table differs from Model expected display: " + anchor
