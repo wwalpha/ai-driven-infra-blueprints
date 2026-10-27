@@ -5,6 +5,8 @@ parents. An index must be discarded or explicitly invalidated after writes;
 it never stores validation results or survives an invocation.
 """
 
+from __future__ import annotations
+
 import re
 from collections import Counter
 from collections.abc import Mapping
@@ -190,29 +192,12 @@ def model_reference_tables(path, text, values, root, *, check_document=True):
         for item in snapshots
     ):
         return ()
-    model_path = (
-        path.parents[4] / "model" / path.relative_to(path.parents[4] / "docs/designs")
-    ).with_suffix(".properties")
-    findings = Findings(path.parents[4])
-    prohibited = _model_references.codebuild_reference_errors(
-        model_path, source, findings=findings
-    )
-    if prohibited:
-        raise FindingsError(findings)
-    tables = []
-    expected = _model_render.generate_markdown(
-        path, source, root, reference_tables=tables
-    )
+    expected, tables = _model_reference_display(path, source, root)
     if text.splitlines() != expected.splitlines():
         require_saved_identity(text, expected)
         if check_document:
             raise DisplayMismatchError(path, text, expected)
-    tables = [
-        _security_group_reference_table(table, expected, root)
-        if table.resources[0].kind == "EC2.SecurityGroup"
-        else table
-        for table in tables
-    ]
+    tables = _normalized_reference_tables(tables, expected, root)
     if not check_document:
         # A skipped document check never grants authority to mismatched table values.
         saved = resource_blocks(
@@ -241,6 +226,60 @@ def model_reference_tables(path, text, values, root, *, check_document=True):
             )
         ]
     return tuple(tables)
+
+
+def _model_reference_display(
+    path: Path,
+    source: SnapshotValues,
+    root: Path,
+    *,
+    reference_values: SnapshotValues | None = None,
+) -> tuple[str, tuple[_model_display.ReferenceTable, ...]]:
+    model_path = (
+        path.parents[4] / "model" / path.relative_to(path.parents[4] / "docs/designs")
+    ).with_suffix(".properties")
+    findings = Findings(path.parents[4])
+    if _model_references.codebuild_reference_errors(
+        model_path, source, findings=findings
+    ):
+        raise FindingsError(findings)
+    tables: list[_model_display.ReferenceTable] = []
+    expected = _model_render.generate_markdown(
+        path, source, root, reference_tables=tables, reference_values=reference_values
+    )
+    return expected, tuple(tables)
+
+
+def _normalized_reference_tables(
+    tables: tuple[_model_display.ReferenceTable, ...], expected: str, root: Path
+) -> tuple[_model_display.ReferenceTable, ...]:
+    return tuple(
+        _security_group_reference_table(table, expected, root)
+        if table.resources[0].kind == "EC2.SecurityGroup"
+        else table
+        for table in tables
+    )
+
+
+def _resource_selections(
+    source: SnapshotValues, groups: Mapping[str, set[str]]
+) -> dict[str, SnapshotValues]:
+    owned = {key: _model_format.owner(key, source) for key in source}
+    parents = {
+        member: parent for parent, members in groups.items() for member in members
+    }
+    selections: dict[str, dict[str, str]] = {parent: {} for parent in groups}
+    for key, value in source.items():
+        if key.startswith("desired.note."):
+            continue
+        if owned[key][0] == "resource":
+            parent = parents.get(owned[key][1])
+            targets = () if parent is None else (parent,)
+        else:
+            targets = groups
+        for parent in targets:
+            selections[parent][key] = value
+    return {parent: SnapshotValues(values) for parent, values in selections.items()}
 
 
 def resource_lines(text, values):
@@ -344,41 +383,15 @@ def model_resource_reference_tables(path, text, values, root):
         if anchor in saved:
             raise ValueError("duplicate saved Resource anchor: " + anchor)
         saved[anchor] = (logical_id, block)
-    owned = {key: _model_format.owner(key, source) for key in source}
-    parents = {
-        member: parent for parent, members in groups.items() for member in members
-    }
-    selections = {parent: {} for parent in groups}
-    for key, value in source.items():
-        if key.startswith("desired.note."):
-            continue
-        if owned[key][0] == "resource":
-            parent = parents.get(owned[key][1])
-            targets = () if parent is None else (parent,)
-        else:
-            targets = groups
-        for parent in targets:
-            selections[parent][key] = value
+    selections = _resource_selections(source, groups)
     results = []
     for parent in groups:
         resource = resources[parent]
         anchor = _model_identity.display_anchor(resource)
-        selected = SnapshotValues(selections[parent])
+        selected = selections[parent]
         try:
-            model_path = (
-                path.parents[4]
-                / "model"
-                / path.relative_to(path.parents[4] / "docs/designs")
-            ).with_suffix(".properties")
-            findings = Findings(path.parents[4])
-            prohibited = _model_references.codebuild_reference_errors(
-                model_path, selected, findings=findings
-            )
-            if prohibited:
-                raise FindingsError(findings)
-            tables = []
-            expected = _model_render.generate_markdown(
-                path, selected, root, reference_tables=tables, reference_values=source
+            expected, tables = _model_reference_display(
+                path, selected, root, reference_values=source
             )
             expected_blocks = resource_blocks(
                 _dependency_design_layout.resource_heading_lines(expected.splitlines())
@@ -408,12 +421,9 @@ def model_resource_reference_tables(path, text, values, root):
                 )
                 require_saved_identity(saved_text, expected_text)
                 raise DisplayMismatchError(path, saved_text, expected_text)
-            normalized = []
-            for table in tables:
-                if table.resources[0].kind == "EC2.SecurityGroup":
-                    table = _security_group_reference_table(table, expected, root)
-                normalized.append(table)
-            results.append((anchor, tuple(normalized), None))
+            results.append(
+                (anchor, _normalized_reference_tables(tables, expected, root), None)
+            )
         except (OSError, ValueError) as error:
             results.append((anchor, None, error))
     if set(saved) != {_model_identity.display_anchor(resources[rid]) for rid in groups}:
@@ -441,6 +451,41 @@ def _security_group_reference_table(table, document, root):
     return replace(
         table, expected=normalized[0], baseline=normalized[1], semantic=normalized[2]
     )
+
+
+def _require_reference_tables(
+    path: Path,
+    lines: tuple[str, ...],
+    tables: tuple[_model_display.ReferenceTable, ...],
+    root: Path,
+) -> None:
+    normalized = _dependency_security_group_tables.security_group_table_lines(
+        list(lines), root
+    )
+    blocks = resource_blocks(normalized)
+    for table in tables:
+        block = next(
+            (block for block in blocks if f'<a id="{table.anchor}"></a>' in block), []
+        )
+        start = next(
+            (index for index, line in enumerate(block) if line == HEADER), len(block)
+        )
+        end = start + 1
+        while end < len(block) and block[end].startswith("|"):
+            end += 1
+        actual = tuple(block[start:end])
+        if actual != table.expected:
+            # Preserve canonical display diagnostics even when dependent link semantics cannot run.
+            prefix = [
+                f"<!-- resource-logical-id: {table.resources[0].logical_id} -->",
+                f'<a id="{table.anchor}"></a>',
+                f"### {table.resources[0].kind}: reference",
+            ]
+            raise DisplayMismatchError(
+                path,
+                "\n".join([*prefix, *actual]),
+                "\n".join([*prefix, *table.expected]),
+            )
 
 
 @dataclass(frozen=True)
@@ -516,6 +561,9 @@ class DesignDocument:
     text: str
     root: Path | None = None
     _views: dict[frozenset[str] | None, DesignView] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+    _reference_views: dict[tuple[str, ...], DesignView] = field(
         default_factory=dict, repr=False, compare=False
     )
     _parses: dict[tuple[str, ...], DesignView] = field(
@@ -630,6 +678,61 @@ class DesignDocument:
                     )
                 self._views[key] = self._view(lines)
             return self._views[key]
+
+    def reference_view(self, fragments: frozenset[str]) -> DesignView:
+        """Bind only referenced Resource tables to this immutable saved snapshot."""
+        with self._lock:
+            lines = tuple(
+                _dependency_validation_scope.reference_lines(
+                    self.path,
+                    fragments,
+                    lines=_dependency_design_layout.resource_heading_lines(
+                        list(self.resource_lines)
+                    ),
+                )
+            )
+            if lines not in self._reference_views:
+                root = self.root or definition_root(self.path.parent)
+                source = self.model_values
+                selected = source
+                tables: tuple[_model_display.ReferenceTable, ...] = ()
+                if source:
+                    anchors = set(ANCHOR.findall("\n".join(lines)))
+                    identities = {
+                        identity
+                        for identity, resource in _model_display.entries(
+                            source, "desired.resource."
+                        )
+                        if _model_identity.display_anchor(resource) in anchors
+                    }
+                    selected = _resource_selections(source, {"reference": identities})[
+                        "reference"
+                    ]
+                    # Ownership checks and rendering see only the selected group, including parents.
+                    model_resource_groups(self.path, selected)
+                    expected, tables = _model_reference_display(
+                        self.path, selected, root, reference_values=source
+                    )
+                    tables = _normalized_reference_tables(tables, expected, root)
+                    _require_reference_tables(self.path, lines, tables, root)
+                self._reference_views[lines] = DesignView(
+                    lines,
+                    root,
+                    bound_anchors={
+                        (
+                            resource["resourceType"],
+                            resource["logicalId"],
+                        ): _model_identity.display_anchor(resource)
+                        for _, resource in _model_display.entries(
+                            selected or {}, "desired.resource."
+                        )
+                    },
+                    modes=_dependency_design_layout.resource_modes(
+                        list(lines), selected
+                    ),
+                    reference_tables=tables,
+                )
+            return self._reference_views[lines]
 
     @property
     def headings(self) -> DesignView:

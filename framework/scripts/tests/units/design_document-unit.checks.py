@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,7 +34,9 @@ from support.design_document_fixtures import (
     sys,
     tempfile,
 )
+from support.rotation_schedule_fixtures import fixture as rotation_fixture
 from support.validator import diagnostics, load
+from utils.aws_mappings import mapping_alias
 from validation.findings import Findings
 
 if not __debug__:
@@ -649,6 +652,244 @@ def check_view_failure_isolation(tmp_path, phase):
         findings.result("design.links", {("dev", "team", "codebuild")}).status
         == "NOT_RUN"
     )
+
+
+@pytest.mark.parametrize(
+    "service,kind,field",
+    [
+        ("glue", "Glue.SecurityConfiguration", "EncryptionConfiguration.S3Encryptions"),
+        (
+            "secretsmanager",
+            "SecretsManager.RotationSchedule",
+            "ExternalSecretRotationMetadata",
+        ),
+    ],
+)
+@pytest.mark.parametrize("fault", [None, "unrelated", "table", "model"])
+def check_candidate_indexed_saved_reference(tmp_path, service, kind, field, fault):
+    reference_models.project(tmp_path)
+    project_file = tmp_path / "project.json"
+    project = json.loads(project_file.read_text(encoding="utf-8"))
+    project["projectName"] = "synthetic"
+    project["targets"].reverse()
+    project_file.write_text(
+        json.dumps(project, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    scope, values = reference_models.resource(tmp_path, service, kind, attribute="Name")
+    if service == "secretsmanager":
+        values = rotation_fixture(2)
+        owner, first_row = "002", 4
+        anchor = values["desired.resource.002.anchor"]
+        parent_anchor = values["desired.resource.001.anchor"]
+        unrelated = "app-dev-secret-2"
+    else:
+        values["desired.row.001-001.value"] = "`synthetic`"
+        _, other = reference_models.resource(
+            tmp_path, service, kind, attribute="Name", number="002"
+        )
+        values.update({key: value for key, value in other.items() if ".002" in key})
+        values["desired.row.002-001.value"] = "`other`"
+        values["desired.service.identity.lastAllocated"] = json.dumps({kind: 2})
+        owner, first_row = "001", 2
+        anchor = parent_anchor = "saved-001"
+        unrelated = "other"
+    for number in (1, 2):
+        row = f"desired.row.{owner}-{first_row + number - 1:03}"
+        prop = "KmsKeyArn" if service == "glue" else "Key"
+        values.update(
+            {
+                row + ".property": f"{kind}.{field}[].{prop}",
+                row + ".value": f"`value-{number}`",
+                row + ".comment": "合成配列",
+            }
+        )
+    reference_models.save(scope, values)
+    target = tmp_path / f"docs/designs/qa/team/{service}.md"
+    target.parent.mkdir(parents=True)
+    text = model_design.generate_markdown(target, values, reference_models.FRAMEWORK)
+    if fault == "unrelated":
+        text = (
+            text.replace(f"`{unrelated}`", "`stale`").replace(
+                "### " + kind + ": " + unrelated, "### " + kind + ": stale-heading"
+            )
+            + "\n### IAM.Role: unrelated-note-heading\n注記の差分\n"
+        )
+    elif fault == "table":
+        text = text.replace("`value-2`", "`tampered`")
+    elif fault == "model":
+        scope.path.unlink()
+    target.write_text(text, encoding="utf-8")
+    source = target.with_name("iam.md")
+    iam_scope, iam = reference_models.resource(
+        tmp_path, "iam", "IAM.Role", attribute="RoleName"
+    )
+    iam["desired.row.001-001.value"] = "`synthetic-role`"
+    iam.update(
+        {
+            "desired.row.001-002.property": "IAM.Role.Description",
+            "desired.row.001-002.value": f"[target]({service}.md#{anchor})",
+            "desired.row.001-002.comment": "合成の配列参照先",
+            "desired.row.001-003.property": "IAM.Role.AssumeRolePolicyDocument",
+            "desired.row.001-003.value": "[trust](iam/trust.json)",
+            "desired.row.001-003.comment": "合成信頼ポリシー",
+            "desired.row.001-003.document": json.dumps(
+                {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {"Service": "lambda.amazonaws.com"},
+                            "Action": "sts:AssumeRole",
+                        }
+                    ],
+                }
+            ),
+        }
+    )
+    reference_models.save(iam_scope, iam)
+    with mapping_alias(reference_models.FRAMEWORK, tmp_path):
+        files = model_design.generate_files(source, iam, tmp_path)
+    for file, content in files.items():
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(content, encoding="utf-8")
+    findings = Findings(tmp_path)
+    result = findings.evaluate(
+        "design.links",
+        {("qa", "team", "iam")},
+        _bind_framework_callback(
+            _imports_validation_design_links.check_design_links,
+            {},
+            [source],
+            design_sources={source: iam},
+            findings=findings,
+            root=tmp_path,
+            scope=None,
+            definitions_root=reference_models.FRAMEWORK,
+            candidate_paths={source},
+        ),
+    )
+    assert result.status == (
+        "FAIL" if fault == "table" else "NOT_RUN" if fault == "model" else "PASS"
+    ), (findings.errors, findings.unverified)
+    assert result.model_completion_allowed == (fault in (None, "unrelated"))
+    if fault == "table":
+        assert any(
+            item.code == "design.display.mismatch" for item in findings.diagnostics
+        )
+        assert findings.unverified[0]["cause_keys"]
+    if fault is None:
+        document = DesignIndex(reference_models.FRAMEWORK).get(target)
+        with patch.object(
+            documents,
+            "_model_reference_display",
+            wraps=documents._model_reference_display,
+        ) as render:
+            view = document.reference_view(frozenset({anchor}))
+            assert document.reference_view(frozenset({anchor})) is view
+            render.assert_called_once()
+            selected = render.call_args.args[1]
+            assert {
+                rid
+                for rid, _ in documents._model_display.entries(
+                    selected, "desired.resource."
+                )
+            } == ({"001", "002"} if service == "secretsmanager" else {"001"})
+        assert view.document is None
+        assert {table.anchor for table in view.reference_tables} == {parent_anchor}
+        expanded = "\n".join(view.expanded[0])
+        assert "value-1" in expanded and "value-2" in expanded
+        assert (
+            f"{field.split('.')[-1]}[1]" in text
+            and f"{field.split('.')[-1]}[2]" in text
+        )
+    stage = tmp_path / "stage"
+    for directory in ("model", "docs"):
+        shutil.copytree(tmp_path / directory, stage / directory)
+    shutil.copyfile(tmp_path / "project.json", stage / "project.json")
+    plan = SimpleNamespace(
+        root=tmp_path,
+        stage=stage,
+        generated={source: [stage / file.relative_to(tmp_path) for file in files]},
+        destinations={source: iam},
+        failure_records=[],
+        failures=[],
+        markdown_paths=[source],
+        model_paths=[iam_scope.path],
+        unavailable={},
+        validation={},
+        accounts=None,
+        generated_scope={("qa", "team", "iam")},
+        definitions_root=reference_models.FRAMEWORK,
+        reference_warnings=[],
+        expected_outputs={},
+        snapshot=None,
+        saved_paths=[],
+    )
+    if fault == "model":
+        with pytest.raises(
+            ValueError, match="required candidate validation"
+        ) as rejected:
+            _imports_sync_runtime.validate_generation(plan, jobs=1)
+        assert "design.links" in str(rejected.value)
+        assert service + ".md" in str(rejected.value)
+        assert "indexed array display requires Model source rows" in str(rejected.value)
+        assert not plan.expected_outputs
+    else:
+        _imports_sync_runtime.validate_generation(plan, jobs=1)
+        assert bool(plan.expected_outputs) == (fault != "table"), plan.failure_records
+        if fault != "table":
+            assert plan.validation[None].status == "PASS"
+            assert plan.validation[source].status == "PASS"
+            assert source in plan.expected_outputs
+        else:
+            assert any(
+                item.code == "design.display.mismatch" for item in plan.failure_records
+            )
+    assert target.read_text(encoding="utf-8") == text
+
+
+def check_scoped_import_security_group_reference(tmp_path):
+    reference_models.project(tmp_path)
+    scope, values = reference_models.resource(
+        tmp_path,
+        "security-group",
+        "EC2.SecurityGroup",
+        attribute="Id",
+        observed="sg-11111111",
+    )
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    values["display.resource.001.label"] = "imported-group"
+    for number, (prop, value) in enumerate(
+        (
+            ("GroupDescription", "synthetic group"),
+            ("GroupName", "imported-group"),
+            ("VpcId", "vpc-11111111"),
+        ),
+        2,
+    ):
+        values.update(
+            {
+                f"desired.row.001-{number:03}.property": "EC2.SecurityGroup." + prop,
+                f"desired.row.001-{number:03}.value": f"`{value}`",
+                f"desired.row.001-{number:03}.comment": "合成設定",
+            }
+        )
+    reference_models.save(scope, values)
+    path = tmp_path / "docs/designs/qa/team/security-group.md"
+    text = model_design.generate_markdown(path, values, reference_models.FRAMEWORK)
+    # Parent-only references omit horizontal rules before parsing or comparison.
+    text += "\n| Direction | invalid unrelated rule |\n| bad | bad |\n"
+    document = DesignIndex(reference_models.FRAMEWORK).get(
+        path, text=text, values=values
+    )
+    view = document.reference_view(frozenset({"saved-001"}))
+    assert view.modes == {"saved-001": "IMPORT"}
+    assert view.bound_anchors == {
+        ("EC2.SecurityGroup", "EC2_SecurityGroup_001"): "saved-001"
+    }
+    assert "invalid unrelated rule" not in "\n".join(view.lines)
+    assert "sg-11111111" in "\n".join(view.expanded[0])
+    assert document.reference_view(frozenset({"saved-001"})) is view
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@ from utils.input_cache import (
     recording_inputs,
 )
 from utils.script_loader import module
+from validation.diagnostics import Diagnostic, stable_id
 from validation.findings import CheckResult, Findings
 from validation.task import TaskValidation
 from validation_cache import PassCache
@@ -1731,6 +1732,7 @@ def check_generation_input_failures(tmp_path, fault):
         "design.links",
         "design.artifacts",
         "candidate",
+        "multiple",
     ],
 )
 def check_candidate_completion_matches_executed_view_checks(tmp_path, fault, status):
@@ -1752,6 +1754,36 @@ def check_candidate_completion_matches_executed_view_checks(tmp_path, fault, sta
     for checked, names in ((common, common_checks), (service, service_checks)):
         for name in names:
             checked.result(name, scope).status = status if name == fault else "PASS"
+    if fault == "multiple":
+        for checked, name in (
+            (common, "design.stacks"),
+            (service, "design.links"),
+            (service, "design.artifacts"),
+        ):
+            checked.result(name, scope).status = status
+        diagnostic = Diagnostic.create(
+            root,
+            code="design.display.mismatch",
+            check_id="design.links.view-build",
+            service=("dev", "team", "glue"),
+            source_path="docs/designs/dev/team/glue.md",
+            cause_key="synthetic-cause",
+            message="synthetic table mismatch",
+        )
+        service.diagnostics.append(diagnostic)
+        service.result("design.links", scope).metadata = dict(
+            complete=False,
+            unverified=[
+                dict(
+                    path="docs/designs/dev/team/glue.md",
+                    phase="view-build",
+                    exception="DisplayMismatchError",
+                    message="synthetic table mismatch",
+                    cause_keys=[diagnostic.cause_key],
+                    status="NOT_RUN",
+                )
+            ],
+        )
     if fault == "candidate":
         service.candidate = object()
     plan = SimpleNamespace(
@@ -1778,8 +1810,27 @@ def check_candidate_completion_matches_executed_view_checks(tmp_path, fault, sta
             sync_runtime.validate_generation(plan, jobs=1)
             assert plan.expected_outputs == {path: {path: "# 候補\n"}}
         else:
-            with pytest.raises(ValueError, match="required candidate"):
+            with pytest.raises(ValueError, match="required candidate") as rejected:
                 sync_runtime.validate_generation(plan, jobs=1)
+            if fault == "multiple":
+                message = str(rejected.value)
+                assert all(
+                    item in message
+                    for item in (
+                        str(path),
+                        "design.stacks",
+                        "design.links",
+                        "design.artifacts",
+                        status,
+                        "docs/designs/dev/team/glue.md",
+                        "view-build",
+                        "DisplayMismatchError",
+                        "synthetic table mismatch",
+                        stable_id(diagnostic.identity),
+                    )
+                ), message
+            else:
+                assert "synthetic table mismatch" not in str(rejected.value)
     assert {key[0] for key in service.results} == service_checks
 
 

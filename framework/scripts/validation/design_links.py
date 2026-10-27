@@ -13,7 +13,7 @@ import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from aws_mapping_display import validation_lines
-from design.document import DesignIndex, DesignView, DisplayMismatchError
+from design.document import DesignIndex, DisplayMismatchError
 from design.layout import (
     LINKED_LIST_PROPERTIES,
     design_model_values,
@@ -41,7 +41,6 @@ from model.core import (
 )
 from model.files import resource_row_index
 from utils.input_cache import input_is_file, input_scope, input_select, input_text
-from validation_scope import reference_lines
 
 from .design import (
     ANCHOR_PATTERN,
@@ -638,19 +637,14 @@ def check_design_links(
         )
         try:
             if saved_reference:
-                lines = reference_lines(
-                    path,
-                    fragments.get(path, set()),
-                    lines=resource_heading_lines(list(document.resource_lines)),
-                )
-                view = DesignView(tuple(lines), definitions_root)
+                view = document.reference_view(frozenset(fragments.get(path, set())))
             else:
                 view = (
                     document.headings
                     if path in source_paths
                     else document.view(frozenset(fragments.get(path, set())))
                 )
-        except (ReferenceResolutionError, ValueError) as error:
+        except (OSError, ReferenceResolutionError, ValueError) as error:
             unavailable_semantics(
                 findings,
                 failed_views,

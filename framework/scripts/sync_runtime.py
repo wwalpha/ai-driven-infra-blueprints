@@ -82,8 +82,13 @@ from utils.input_cache import (
 )
 from utils.input_cache import memo_table as memo_table
 from utils.json_format import policy_json
-from validation.diagnostics import Diagnostic, display_diagnostics, service_scope
-from validation.findings import FindingsError
+from validation.diagnostics import (
+    Diagnostic,
+    display_diagnostics,
+    service_scope,
+    stable_id,
+)
+from validation.findings import Findings, FindingsError
 from validation_scope import scoped_files
 
 
@@ -1002,6 +1007,63 @@ def prepare_generation(
         raise
 
 
+def _candidate_validation_details(
+    path: Path,
+    checked: Findings | None,
+    names: set[str],
+    scope: set[tuple[str, str, str]],
+) -> list[dict[str, object]]:
+    """Report only evidence retained by the mandatory candidate checks."""
+    if checked is None:
+        return [
+            dict(
+                candidate=str(path), message="candidate validation findings unavailable"
+            )
+        ]
+    details = []
+    for name in sorted(names):
+        result = checked.result(name, scope)
+        if result.model_completion_allowed:
+            continue
+        detail = dict(candidate=str(path), check=name, status=result.status)
+        if result.errors:
+            detail["errors"] = result.errors
+        metadata = {
+            key: value
+            for key, value in result.metadata.items()
+            if key
+            in {
+                "complete",
+                "status",
+                "reason",
+                "path",
+                "phase",
+                "exception",
+                "message",
+                "unverified",
+                "unavailable_services",
+            }
+        }
+        if metadata:
+            detail["metadata"] = metadata
+        cause_keys = {
+            key
+            for item in result.metadata.get("unverified", [])
+            for key in item.get("cause_keys", [])
+        }
+        diagnostics = [
+            dict(item.record(), diagnostic_id=stable_id(item.identity))
+            for item in checked.diagnostics
+            if item.check_id == name
+            or item.check_id.startswith(name + ".")
+            or item.cause_key in cause_keys
+        ]
+        if diagnostics:
+            detail["diagnostics"] = diagnostics
+        details.append(detail)
+    return details
+
+
 def validate_generation(plan, *, jobs=4, write=True):
     failed, unclassified = generation_failures(plan)
     for path in (
@@ -1033,27 +1095,41 @@ def validate_generation(plan, *, jobs=4, write=True):
             "design.links",
             "design.artifacts",
         }
-        if common is None or any(
+        common_blocked = common is None or any(
             not common.result(name, plan.generated_scope).model_completion_allowed
             for name in required_common
-        ):
-            raise ValueError("required candidate scope validation is FAIL or NOT_RUN")
+        )
+        details = []
         for path in plan.generated:
             checked = plan.validation.get(path)
             identity = {
                 (*path.relative_to(plan.root / "docs/designs").parts[:2], path.stem)
             }
+            if common_blocked:
+                details.extend(
+                    _candidate_validation_details(
+                        path, common, required_common, plan.generated_scope
+                    )
+                )
             if (
                 checked is None
+                or common is None
                 or checked.candidate is not common.candidate
-                or any(
-                    not checked.result(name, identity).model_completion_allowed
-                    for name in required_service
-                )
             ):
-                raise ValueError(
-                    f"required candidate validation is FAIL or NOT_RUN: {path}"
+                details.append(
+                    dict(
+                        candidate=str(path),
+                        message="candidate validation findings missing or candidate identity differs",
+                    )
                 )
+            details.extend(
+                _candidate_validation_details(path, checked, required_service, identity)
+            )
+        if details:
+            raise ValueError(
+                "required candidate validation is FAIL or NOT_RUN:\n"
+                + "\n".join(json.dumps(item, ensure_ascii=False) for item in details)
+            )
     for checked in plan.validation.values():
         if checked is not None:
             plan.reference_warnings.extend(
