@@ -156,6 +156,26 @@ class AwsError(Blocked):
         )
 
 
+def empty_list_imports(service, operation, code, message, arguments):
+    export = arguments.get("ExportName")
+    if (
+        service != "cloudformation"
+        or operation != "list_imports"
+        or code != "ValidationError"
+        or "NextToken" in arguments
+        or not isinstance(export, str)
+        or not export
+        or not isinstance(message, str)
+    ):
+        return False
+    return message in (
+        f"Export '{export}' is not imported by any stack",
+        f"Export '{export}' is not imported by any stack.",
+        f"Export {export} is not imported by any stack",
+        f"Export {export} is not imported by any stack.",
+    )
+
+
 def request(context, service, operation, arguments, *, deadline=None):
     """One request, with no application guards and no secret-bearing error text."""
     BotoCoreError = aws_runtime().BotoCoreError
@@ -182,6 +202,10 @@ def request(context, service, operation, arguments, *, deadline=None):
     except ClientError as error:
         details = error.response.get("Error", {})
         code = details.get("Code", "Unknown")
+        if empty_list_imports(
+            service, operation, code, details.get("Message"), arguments
+        ):
+            return {"Imports": []}
         status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         message = details.get("Message", "").lower()
         # ValidationException/ResourceNotFound alone never proves a Stack is absent.
@@ -233,6 +257,12 @@ def pages(context, service, operation, field, arguments):
             context, service, operation, page_arguments, deadline=deadline
         )
         values = response.get(field, [])
+        if (
+            service == "cloudformation"
+            and operation == "list_imports"
+            and "Imports" not in response
+        ):
+            raise AwsError(service, operation, "InvalidPage")
         if (
             service == "cloudformation"
             and operation == "describe_change_set"

@@ -28,6 +28,195 @@ if not __debug__:
 _CALLBACK_DEFAULT = object()
 
 
+@pytest.mark.parametrize(
+    "service,operation,code,message,arguments,expected",
+    [
+        (
+            "cloudformation",
+            "list_imports",
+            "ValidationError",
+            message,
+            {"ExportName": "Vpc"},
+            True,
+        )
+        for message in (
+            "Export 'Vpc' is not imported by any stack.",
+            "Export 'Vpc' is not imported by any stack",
+            "Export Vpc is not imported by any stack.",
+            "Export Vpc is not imported by any stack",
+        )
+    ]
+    + [
+        (
+            "s3",
+            "list_imports",
+            "ValidationError",
+            "Export Vpc is not imported by any stack.",
+            {"ExportName": "Vpc"},
+            False,
+        ),
+        (
+            "cloudformation",
+            "list_exports",
+            "ValidationError",
+            "Export Vpc is not imported by any stack.",
+            {"ExportName": "Vpc"},
+            False,
+        ),
+        (
+            "cloudformation",
+            "list_imports",
+            "AccessDenied",
+            "Export Vpc is not imported by any stack.",
+            {"ExportName": "Vpc"},
+            False,
+        ),
+        (
+            "cloudformation",
+            "list_imports",
+            "ValidationError",
+            "Export Other is not imported by any stack.",
+            {"ExportName": "Vpc"},
+            False,
+        ),
+        (
+            "cloudformation",
+            "list_imports",
+            "ValidationError",
+            "Export Vpc does not exist",
+            {"ExportName": "Vpc"},
+            False,
+        ),
+        (
+            "cloudformation",
+            "list_imports",
+            "ValidationError",
+            "prefix Export Vpc is not imported by any stack.",
+            {"ExportName": "Vpc"},
+            False,
+        ),
+        (
+            "cloudformation",
+            "list_imports",
+            "ValidationError",
+            "Export Vpc is not imported by any stack.",
+            {"ExportName": "Vpc", "NextToken": "next"},
+            False,
+        ),
+        ("cloudformation", "list_imports", "ValidationError", None, {}, False),
+    ],
+)
+def check_empty_list_imports_predicate(
+    service, operation, code, message, arguments, expected
+):
+    assert (
+        sdk.empty_list_imports(service, operation, code, message, arguments) is expected
+    )
+
+
+@pytest.mark.parametrize(
+    "code,message",
+    [
+        ("ValidationError", "Export 'Other' is not imported by any stack."),
+        ("ValidationError", "Export Vpc does not exist"),
+        ("ValidationError", "Invalid export name"),
+        ("AccessDenied", "Export 'Vpc' is not imported by any stack."),
+        ("ExpiredToken", "Export 'Vpc' is not imported by any stack."),
+        ("ResourceNotFound", "Export 'Vpc' is not imported by any stack."),
+    ],
+)
+def check_list_imports_sdk_errors(monkeypatch, code, message):
+    operation = Mock(
+        side_effect=ClientError(
+            {"Error": {"Code": code, "Message": message}}, "ListImports"
+        )
+    )
+    monkeypatch.setattr(
+        sdk, "client", lambda *a, **k: SimpleNamespace(list_imports=operation)
+    )
+    monkeypatch.setattr(
+        sdk, "read_api", lambda account, region, operation, send, **kw: send()
+    )
+    with pytest.raises(sdk.AwsError, match=code):
+        cloudformation.list_imports((None, "region", "account", None), ExportName="Vpc")
+
+
+def check_list_imports_sdk_pages(monkeypatch):
+    error = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationError",
+                "Message": "Export 'Vpc' is not imported by any stack.",
+            }
+        },
+        "ListImports",
+    )
+    operation = Mock(
+        side_effect=[
+            error,
+            {"Imports": ["A"], "NextToken": "next"},
+            {"Imports": ["B"]},
+            {"Imports": ["A"], "NextToken": "next"},
+            error,
+            {},
+        ]
+    )
+    monkeypatch.setattr(
+        sdk, "client", lambda *a, **k: SimpleNamespace(list_imports=operation)
+    )
+    monkeypatch.setattr(
+        sdk, "read_api", lambda account, region, operation, send, **kw: send()
+    )
+    context = (None, "region", "account", None)
+    assert cloudformation.list_imports(context, ExportName="Vpc") == {"Imports": []}
+    assert cloudformation.list_imports(context, ExportName="Vpc") == {
+        "Imports": ["A", "B"]
+    }
+    with pytest.raises(sdk.AwsError, match="ValidationError"):
+        cloudformation.list_imports(context, ExportName="Vpc")
+    with pytest.raises(sdk.AwsError, match="InvalidPage"):
+        cloudformation.list_imports(context, ExportName="Vpc")
+
+
+def check_list_imports_cli_delegation(tmp_path, monkeypatch):
+    backend = destroy.AwsBackend(
+        tmp_path,
+        "dev",
+        "123456789012",
+        {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
+    )
+    diagnostic = "An error occurred (ValidationError) when calling the ListImports operation: Export 'Vpc' is not imported by any stack.\n"
+    process = Mock(
+        return_value=SimpleNamespace(returncode=255, stdout="", stderr=diagnostic)
+    )
+    monkeypatch.setattr(destroy.subprocess, "run", process)
+    monkeypatch.setattr(
+        destroy, "read_api", lambda account, region, operation, send, **kw: send()
+    )
+    assert backend.aws("list-imports", "--export-name", "Vpc") == {"Imports": []}
+    for message, arguments in [
+        (diagnostic, ("--export-name", "Other")),
+        (
+            diagnostic.replace("ValidationError", "AccessDenied"),
+            ("--export-name", "Vpc"),
+        ),
+        (diagnostic.replace("ListImports", "ListExports"), ("--export-name", "Vpc")),
+        (diagnostic, ("--export-name", "Vpc", "--next-token", "next")),
+        (diagnostic, ("--export-name", "Vpc", "--next-token=next")),
+    ]:
+        process.return_value.stderr = message
+        with pytest.raises(destroy.Blocked):
+            backend.aws("list-imports", *arguments)
+    process.side_effect = [
+        SimpleNamespace(
+            returncode=0, stdout='{"Imports": ["A"], "NextToken": "next"}', stderr=""
+        ),
+        SimpleNamespace(returncode=255, stdout="", stderr=diagnostic),
+    ]
+    with pytest.raises(destroy.Blocked):
+        backend.aws("list-imports", "--export-name", "Vpc")
+
+
 def _callback_check_client_concurrency_Session___init__(self, calls, /, **kwargs):
     calls.append(("session", kwargs))
 

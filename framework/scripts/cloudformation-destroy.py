@@ -32,6 +32,7 @@ from utils.aws.client import (
     READ_RATES,
     THROTTLING,
     AwsError,
+    empty_list_imports,
     read_api,
 )
 from utils.aws.identity import execution_account, select_profile
@@ -201,9 +202,27 @@ class AwsBackend:
                     result.stderr,
                 ):
                     return None
-                if operation == "list-imports" and re.search(
-                    r"\(ValidationError\) when calling the ListImports operation: Export .+ is not imported by any stack\.?\s*$",
+                match = re.fullmatch(
+                    r"\s*An error occurred \(([^()]+)\) when calling the (\w+) operation: ([^\r\n]*)\s*",
                     result.stderr,
+                )
+                if (
+                    operation == "list-imports"
+                    and match
+                    and match[2] == "ListImports"
+                    and arguments.count("--export-name") == 1
+                    and arguments.index("--export-name") + 1 < len(arguments)
+                    and not any(
+                        arg == "--next-token" or arg.startswith("--next-token=")
+                        for arg in arguments
+                    )
+                    and empty_list_imports(
+                        "cloudformation",
+                        "list_imports",
+                        match[1],
+                        match[3],
+                        {"ExportName": arguments[arguments.index("--export-name") + 1]},
+                    )
                 ):
                     return {"Imports": []}
                 if controlled:
