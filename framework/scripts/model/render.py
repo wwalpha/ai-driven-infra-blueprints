@@ -925,8 +925,9 @@ def generate_files(path, values, root, *, warnings=None):
         safe(root, artifact)
         if artifact.parent != path.with_suffix("").resolve():
             raise ValueError("JSON artifact must belong to owning service")
-        document = _imports_model_projection.generated_document(
-            policy_json(row["document"]),
+        raw_document = policy_json(row["document"])
+        document = _imports_model_projection.design_document(
+            raw_document,
             root,
             property_name=row["property"],
             model_key=f"desired.row.{identity}.document",
@@ -935,8 +936,13 @@ def generate_files(path, values, root, *, warnings=None):
             logical_id=values.get(
                 f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
             ),
+            context=_imports_model_projection.reference_context_for(
+                values, identity, row, raw_document, "", root
+            ),
             warnings=warnings,
         )
+        if not isinstance(document, dict) or "$modelRef" in document:
+            raise ValueError("JSON document must be an object: " + identity)
         content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
         if artifact in artifacts and artifacts[artifact] != content:
             raise ValueError("conflicting authoritative JSON documents")

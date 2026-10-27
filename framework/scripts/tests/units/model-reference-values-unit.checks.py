@@ -20,7 +20,12 @@ from model.format import patch as patch_properties
 from model.format import serialize
 from model.identity import Resolver
 from model.impact_graph import Graph
-from model.projection import generated_document, reference_display, reference_resolver
+from model.projection import (
+    design_document,
+    generated_document,
+    reference_display,
+    reference_resolver,
+)
 from model.reference_nodes import display_value, parse
 from model.reference_values import reference_value
 from model.render import generate_files
@@ -309,12 +314,14 @@ def test_generated_json_keeps_authority(fixture):
     expected = copy.deepcopy(document)
     expected["Statement"][0]["Resource"] = "arn:aws:s3:::fixture-materials"
     expected["Statement"][1]["Resource"][0] = "arn:aws:s3:::fixture-materials"
-    assert json.loads(files[artifact]) == expected
+    assert json.loads(files[artifact]) == document
+    assert generate_files(view, load_model(consumer).values, consumer.root) == files
     assert (
         "arn:aws:s3:::fixture-materials" in files[view]
         and "$modelRef" not in files[view]
     )
-    validate_aws_document(json.loads(files[artifact]))
+    with pytest.raises(ValueError, match="Model reference"):
+        validate_aws_document(json.loads(files[artifact]))
     display = reference_display(policy, consumer.path, consumer.root)
     assert json.loads(display["desired.row.001-002.document"]) == expected
     assert {path: path.read_bytes() for path in before} == before
@@ -340,6 +347,14 @@ def test_generated_json_keeps_authority(fixture):
     ]
     validate_aws_document(resolved)
     intrinsic = {"Fn::Join": ["", [node, "/*"]]}
+    assert (
+        design_document(intrinsic, consumer.root, resolver=resolver, scope=consumer)
+        == intrinsic
+    )
+    assert (
+        design_document(encoded, consumer.root, resolver=resolver, scope=consumer)
+        == encoded
+    )
     assert (
         generated_document(
             intrinsic,
@@ -374,10 +389,7 @@ def test_generated_json_keeps_authority(fixture):
     values["desired.row.001-001.value"] = "`fixture-renamed`"
     save(producer, values)
     updated = generate_files(view, load_model(consumer).values, consumer.root)
-    assert (
-        json.loads(updated[artifact])["Statement"][0]["Resource"]
-        == "arn:aws:s3:::fixture-renamed"
-    )
+    assert json.loads(updated[artifact])["Statement"][0]["Resource"] == node
 
 
 def test_unconfirmed_path_does_not_use_absence_default(fixture):

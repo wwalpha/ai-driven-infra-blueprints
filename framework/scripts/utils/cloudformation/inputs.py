@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from functools import partial as _bind_framework_callback
 
 import utils.cloudformation.format as _imports_cfn_format
-from utils.json_format import policy_json
+from utils.json_format import policy_json, validate_aws_document
 
 
 class Blocked(RuntimeError):
@@ -246,6 +246,8 @@ def load_template_inputs(
         inputs = policy_json(parameter_file.read_text(encoding="utf-8"))
     else:
         inputs = json.loads(parameter_file.read_text(encoding="utf-8"))
+    validate_aws_document(document, template=True)
+    validate_aws_document(inputs, template=True)
     if not isinstance(inputs, list) or not all(
         isinstance(item, dict)
         and isinstance(item.get("ParameterKey"), str)

@@ -714,19 +714,13 @@ def check_unchanged_sidecar(generated_policy, note):
     assert (artifact.read_bytes(), artifact.stat().st_mtime_ns) == before
 
 
-def _fail_pending_delete(original, target, /, path, *args, **kwargs):
-    if path == target:
-        raise OSError("injected pending artifact deletion failure")
-    return original(path, *args, **kwargs)
-
-
 def _fail_pending_write(original, target, /, path, *args, **kwargs):
     if path == target:
         raise OSError("injected pending Markdown write failure")
     return original(path, *args, **kwargs)
 
 
-@pytest.mark.parametrize("failure", [None, "write", "delete"])
+@pytest.mark.parametrize("failure", [None, "write", "artifact"])
 def check_pending_artifact_transaction(generated_policy, failure):
     root, model, values, design, trust, register = generated_policy
     artifact = trust.with_name("iam-role-001-pending.json")
@@ -785,25 +779,27 @@ def check_pending_artifact_transaction(generated_policy, failure):
                 assert not plan.failures and not plan.unavailable, plan.failures
                 sync_runtime.validate_generation(plan, jobs=1)
                 metadata = sync_runtime.generation_metadata(plan)
-                assert metadata["status"] == "PASS" and metadata["complete"] is False
+                assert metadata["status"] == "PASS" and metadata["complete"] is True
                 assert len(metadata["unverified"]) == 1
                 assert metadata["unverified"][0]["status"] == "NOT_RUN"
                 candidate = plan.expected_outputs[design]
-                assert candidate[artifact] is None and trust in candidate
-                assert "iam/iam-role-001-pending.json" not in candidate[design]
+                assert (
+                    json.loads(candidate[artifact]) == document and trust in candidate
+                )
+                assert "iam/iam-role-001-pending.json" in candidate[design]
                 assert (
                     "PENDING_DEPLOY" in candidate[design]
                     and "confirmed-bucket" in candidate[design]
                 )
                 with ExitStack() as injections:
-                    if failure == "delete":
+                    if failure == "artifact":
                         injections.enter_context(
                             patch.object(
                                 Path,
-                                "unlink",
+                                "write_text",
                                 autospec=True,
                                 side_effect=_bind_framework_callback(
-                                    _fail_pending_delete, Path.unlink, artifact
+                                    _fail_pending_write, Path.write_text, artifact
                                 ),
                             )
                         )
@@ -823,7 +819,10 @@ def check_pending_artifact_transaction(generated_policy, failure):
                     assert plan.failures and not plan.saved
                     assert {p: p.read_bytes() for p in originals} == originals
                 else:
-                    assert not plan.failures and not artifact.exists()
+                    assert (
+                        not plan.failures
+                        and json.loads(artifact.read_bytes()) == document
+                    )
                     assert trust.read_bytes() == originals[trust]
                     assert design.read_text(encoding="utf-8") == candidate[design]
                     assert not list(root.glob(".model-publication*.json"))
@@ -832,7 +831,7 @@ def check_pending_artifact_transaction(generated_policy, failure):
         assert {p: p.read_bytes() for p in authority} == authority
         if failure:
             return
-        # A complete observation restores strict JSON and its Markdown link.
+        # Observations update displays without materializing the saved design JSON.
         key["observed.row.001-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
         save(producer, key)
         assert MODULE.sync(root, True, "dev", "123456789012", ["iam"], jobs=1) == 0
@@ -840,7 +839,7 @@ def check_pending_artifact_transaction(generated_policy, failure):
             json.loads(artifact.read_text(encoding="utf-8"))["Statement"][0][
                 "Resource"
             ][1]
-            == arn
+            == reference()
         )
         assert "iam/iam-role-001-pending.json" in design.read_text(encoding="utf-8")
         assert "PENDING_DEPLOY" not in artifact.read_text(encoding="utf-8")

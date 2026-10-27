@@ -23,7 +23,7 @@ from support.pytest_cli import run
 from utils import source_reads
 from utils.input_cache import input_context, memo_table, recording_inputs
 
-from model import change_scope, dependency_index, projection, sources
+from model import change_scope, dependency_index, sources
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -659,14 +659,10 @@ def check_policy_batch_evaluates_documents_once(tmp_path):
                 values=values, scope=sources.scope_for(path), root=tmp_path
             ),
         ),
-        patch.object(projection, "pending_documents", return_value={}) as pending,
-        patch.object(projection, "pending_artifact_links", return_value={}) as links,
         patch.object(policy_tables, "resources_in", return_value=[resource]),
         patch.object(policy_tables, "policy_lines", return_value=[]) as lines,
     ):
         policy_tables.rendered_design(view)
-    pending.assert_called_once()
-    assert links.call_args.kwargs["pending"] is pending.return_value
     assert lines.call_count == 8
     indexes = [call.kwargs["policy_rows"] for call in lines.call_args_list]
     assert all(index is indexes[0] for index in indexes)

@@ -20,29 +20,39 @@ class AwsDocumentError(ValueError):
         )
 
 
-def _recursive_validate_aws_document_visit(value, pointer):
+def _recursive_validate_aws_document_visit(value, pointer, template):
     if isinstance(value, dict):
         for key, child in value.items():
-            child_pointer = pointer + "/" + key.replace("~", "~0").replace("/", "~1")
+            child_pointer = (
+                pointer + "/" + str(key).replace("~", "~0").replace("/", "~1")
+            )
             if key == "$modelRef":
                 raise AwsDocumentError(
                     child_pointer,
                     {key: child},
                     "Model reference requires a confirmed AWS value",
                 )
-            if key == "Ref" or key.startswith("Fn::"):
+            if (
+                not template
+                and isinstance(key, str)
+                and (key == "Ref" or key.startswith("Fn::"))
+            ):
                 raise AwsDocumentError(
                     child_pointer,
                     {key: child},
                     "CloudFormation intrinsic requires template context",
                 )
-            _recursive_validate_aws_document_visit(key, child_pointer)
-            _recursive_validate_aws_document_visit(child, child_pointer)
+            _recursive_validate_aws_document_visit(key, child_pointer, template)
+            _recursive_validate_aws_document_visit(child, child_pointer, template)
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            _recursive_validate_aws_document_visit(child, pointer + "/" + str(index))
+            _recursive_validate_aws_document_visit(
+                child, pointer + "/" + str(index), template
+            )
     elif isinstance(value, str):
-        if re.search(r"\$\{AWS::[^}]*\}|\{\{resolve:|^(?:Fn::\w+|Ref)\s*:", value):
+        if not template and re.search(
+            r"\$\{AWS::[^}]*\}|\{\{resolve:|^(?:Fn::\w+|Ref)\s*:", value
+        ):
             raise AwsDocumentError(
                 pointer, value, "unresolved CloudFormation substitution/reference"
             )
@@ -52,13 +62,13 @@ def _recursive_validate_aws_document_visit(value, pointer):
                 encoded = policy_json(value)
             except ValueError:
                 return
-            _recursive_validate_aws_document_visit(encoded, pointer)
+            _recursive_validate_aws_document_visit(encoded, pointer, template)
 
 
-def validate_aws_document(document):
-    """Standalone AWS JSON has no CloudFormation template evaluation context."""
+def validate_aws_document(document, *, template=False):
+    """Reject internal nodes; only CloudFormation inputs permit AWS expressions."""
     visit = _recursive_validate_aws_document_visit
-    visit(document, "")
+    visit(document, "", template)
 
 
 def unique_object(pairs: list[tuple[str, object]], *, label="policy JSON") -> dict:

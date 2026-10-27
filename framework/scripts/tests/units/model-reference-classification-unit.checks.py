@@ -30,7 +30,7 @@ from model.identity import Resolver
 from model.projection import generated_document, reference_display, reference_resolver
 from model.reference_nodes import parse
 from model.reference_values import reference_value
-from model.render import generate_markdown
+from model.render import generate_files, generate_markdown
 from model.sources import load_model
 from model.validation import check_model_inputs as model_inputs
 from model.validation import validate_json_settings
@@ -413,7 +413,11 @@ def test_pending_resolves_without_altering_authority(models):
     )
     assert document == original and "$modelRef" in role["desired.row.070-004.document"]
     plan = sync_runtime.prepare_generation(
-        consumer.root, {("qa", "team", "iam")}, write=False, definitions_root=FRAMEWORK
+        consumer.root,
+        {("qa", "team", "iam")},
+        write=False,
+        definitions_root=FRAMEWORK,
+        strict=True,
     )
     try:
         assert (
@@ -427,7 +431,7 @@ def test_pending_resolves_without_altering_authority(models):
             for path in paths
             if path.name == "iam-role-070-synthetic-policy.json"
         )
-        assert json.loads(generated.read_text(encoding="utf-8")) == result
+        assert json.loads(generated.read_text(encoding="utf-8")) == document
     finally:
         plan.close()
 
@@ -534,7 +538,7 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
     bad.write_text("# Retained\n", encoding="utf-8")
     artifact.write_text('{"retained": true}\n', encoding="utf-8")
     original = {path: path.read_bytes() for path in (bad, artifact)}
-    failures, warnings, unavailable, deferred = [], [], {}, {}
+    failures, warnings, unavailable = [], [], {}
     # Service presentation is independent of the common reference transaction under test.
     with (
         patch(
@@ -553,12 +557,10 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
             failures,
             warnings=warnings,
             unavailable=unavailable,
-            pending_artifacts=deferred,
         )
     assert set(generated) == ({good} if invalid else {good, bad})
     assert len(failures) == int(invalid), failures
     assert not unavailable
-    assert bool(deferred) == (not invalid)
     assert not any("UNKNOWN" in str(d) for d in warnings)
     assert {d["category"] for d in warnings} == (
         {"MODEL_NEEDS_FIX", "REFERENCE_PENDING_DEPLOY"}
@@ -573,7 +575,7 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
             (stage / path.relative_to(root)).read_bytes() for path in original
         } == set(original.values())
     else:
-        assert not (stage / artifact.relative_to(root)).exists()
+        assert json.loads((stage / artifact.relative_to(root)).read_text()) == document
     # The existing publisher receives only healthy candidates.
     sync_runtime.save_files(
         {
@@ -583,7 +585,11 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         }
     )
     assert good.read_text(encoding="utf-8") == "# Generated\n"
-    assert artifact.read_bytes() == original[artifact]
+    assert (
+        artifact.read_bytes() == original[artifact]
+        if invalid
+        else json.loads(artifact.read_bytes()) == document
+    )
     assert bad.read_bytes() == (original[bad] if invalid else b"# Generated\n")
     plan = SimpleNamespace(
         root=root,
@@ -592,7 +598,6 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         failure_records=failures,
         failures=[d.message for d in failures],
         unavailable=unavailable,
-        pending_artifacts=deferred,
         reference_warnings=warnings,
         warnings={},
         saved={path: True for path in generated},
@@ -601,18 +606,40 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         baseline_links={},
     )
     metadata = sync_runtime.generation_metadata(plan)
-    assert (
-        metadata["status"] == ("FAIL" if invalid else "PASS")
-        and not metadata["complete"]
-    )
+    assert metadata["status"] == ("FAIL" if invalid else "PASS") and metadata[
+        "complete"
+    ] == (not invalid)
     assert not metadata["unavailable_services"]
-    assert len(metadata["unverified"]) == int(not invalid)
+    assert len(metadata["unverified"]) == int(state != "invalid")
     assert metadata["warnings"] == warnings
     if invalid:
         with pytest.raises(ValueError, match="1 services failed; 0 services NOT_RUN"):
             sync_runtime.report_generation(plan)
     else:
         sync_runtime.report_generation(plan)
+
+
+def test_conflicting_design_documents_fail_before_saving(models):
+    _, _, consumer, role, _ = models
+    role["desired.row.070-002.value"] = role["desired.row.070-004.value"]
+    save(consumer, role)
+    path = consumer.root / "docs/designs/qa/team/iam.md"
+    artifact = path.with_suffix("") / "iam-role-070-synthetic-policy.json"
+    artifact.parent.mkdir(parents=True)
+    path.write_text("# Retained\n", encoding="utf-8")
+    artifact.write_text('{"retained":true}\n', encoding="utf-8")
+    before = {p: p.read_bytes() for p in (path, artifact, consumer.path)}
+    values = load_model(consumer).values
+    with pytest.raises(ValueError, match="conflicting authoritative JSON"):
+        generate_files(path, values, consumer.root)
+    failures = []
+    assert not sync_runtime.generate_views(
+        consumer.root / "conflict-stage", consumer.root, {path: values}, failures
+    )
+    assert (
+        len(failures) == 1 and "conflicting authoritative JSON" in failures[0].message
+    )
+    assert {p: p.read_bytes() for p in before} == before
 
 
 def test_pending_policy_display_keeps_resolved_positions(models):
@@ -627,17 +654,19 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     projected = json.loads(displayed["desired.row.070-004.document"])
     assert projected["Statement"][0]["Resource"] == "arn:aws:s3:::confirmed-bucket"
     assert projected["Statement"][6]["Resource"] == "PENDING_DEPLOY"
-    assert displayed["desired.row.070-004.value"] == "`PENDING_DEPLOY`"
+    assert displayed["desired.row.070-004.value"] == role["desired.row.070-004.value"]
     assert "desired.row.070-004.artifactSha256" not in displayed
     path = consumer.root / "docs/designs/qa/team/iam.md"
     path.parent.mkdir(parents=True)
     trust = path.with_suffix("") / "iam-role-070-trust-policy.json"
     trust.parent.mkdir()
     trust.write_text(role["desired.row.070-002.document"], encoding="utf-8")
+    artifact = trust.with_name("iam-role-070-synthetic-policy.json")
+    artifact.write_text(json.dumps(document), encoding="utf-8")
     markdown = generate_markdown(path, load_model(consumer).values, FRAMEWORK)
     path.write_text(markdown, encoding="utf-8")
     assert "confirmed-bucket" in markdown and "PENDING_DEPLOY" in markdown
-    assert "iam/iam-role-070-synthetic-policy.json" not in markdown
+    assert "iam/iam-role-070-synthetic-policy.json" in markdown
     assert "iam/iam-role-070-trust-policy.json" in markdown
     assert "pending_deploy" not in markdown
     assert rendered_design(path, definitions_root=FRAMEWORK) == markdown
@@ -659,7 +688,7 @@ def test_pending_policy_display_keeps_resolved_positions(models):
     document["Statement"][6]["Resource"] = "*"
     role["desired.row.070-004.document"] = json.dumps(document)
     save(consumer, role)
-    with pytest.raises(ValueError, match="Model expected display"):
+    with pytest.raises(ValueError, match="differs from authoritative Model"):
         rendered_design(path, definitions_root=FRAMEWORK)
 
 
@@ -752,7 +781,6 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, state
         assert bool(plan.failures) == invalid, plan.failures
         assert not plan.unavailable
         assert bool(plan.generated) == (not invalid)
-        assert bool(plan.pending_artifacts) == (not invalid)
         assert any(
             d.get("category") == "REFERENCE_PENDING_DEPLOY"
             for d in plan.reference_warnings

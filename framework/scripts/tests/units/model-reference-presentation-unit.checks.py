@@ -509,12 +509,11 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
     artifact = path.with_suffix("") / "policy.json"
-    assert (
-        json.loads(files[artifact])["Statement"][0]["Resource"]
-        == "arn:aws:s3:::shared-name"
+    assert json.loads(files[artifact])["Statement"][0]["Resource"] == reference(
+        "S3_Bucket_001", "Arn"
     )
     assert "[shared-name](s3.md#s3-saved-anchor)" in files[path]
-    assert "](" not in files[artifact] and "$modelRef" not in files[artifact]
+    assert "](" not in files[artifact] and "$modelRef" in files[artifact]
     for file, text in files.items():
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(text, encoding="utf-8")
@@ -700,12 +699,9 @@ def test_policy_enum_reference_is_validated_before_presentation(models):
     )
     files = generate_files(path, values, models)
     assert "[Allow](codebuild.md#codebuild-saved-anchor)" in files[path]
-    assert (
-        json.loads(files[path.with_suffix("") / "policy.json"])["Statement"][0][
-            "Effect"
-        ]
-        == "Allow"
-    )
+    assert json.loads(files[path.with_suffix("") / "policy.json"])["Statement"][0][
+        "Effect"
+    ] == reference("CodeBuild_Project_001", "Name")
 
 
 if __name__ == "__main__":

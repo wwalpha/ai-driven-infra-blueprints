@@ -9,7 +9,6 @@ from pathlib import Path
 import design.document as _design_document
 import model.core as _exports_model_core
 import model.files as _imports_model_files
-import model.projection as model_projection
 from aws_mapping_display import validation_rows
 from design.catalog import property_paths_with_parents
 from design.layout import (
@@ -42,7 +41,6 @@ from model.core import ReferenceDiagnosticError, ReferenceResolutionError, liter
 from model.core import entries as entries
 from model.literal_values import literal_errors as row_literal_errors
 from model.projection import bound_resource_anchors, is_import_expression
-from model.sources import scope_for
 from utils.input_cache import input_scope as input_scope
 from utils.input_cache import input_text
 from utils.property_path import definition_path
@@ -669,19 +667,6 @@ def check_design_tables(
         incomplete_start = len(findings.unverified)
         try:
             values = design_model_values(path, design_sources=design_sources, root=root)
-            pending_links = (
-                model_projection.pending_artifact_links(
-                    values,
-                    scope_for(
-                        (
-                            root / "model" / path.relative_to(root / "docs/designs")
-                        ).with_suffix(".properties")
-                    ),
-                    root,
-                )
-                if values
-                else {}
-            )
             lines = resource_heading_lines(
                 _design_document.resource_lines(
                     input_text(path, encoding="utf-8"), values
@@ -934,9 +919,6 @@ def check_design_tables(
                         )
                 if semantic is None:
                     continue
-                semantic = model_projection.restore_pending_artifact_links(
-                    semantic, current_anchor, pending_links
-                )
                 table_source = next(
                     (
                         table
@@ -1129,14 +1111,9 @@ def check_design_tables(
                                 cause_kind="input_invalid",
                             )
                             if LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None:
-                                if not any(
-                                    VALUE_LINK_PATTERN.fullmatch(link).group(1)
-                                    == artifact_link
-                                    for link in pending_links.values()
-                                ):
-                                    markdown_design_artifacts.add(
-                                        artifact, path, service_scope(root, path)
-                                    )
+                                markdown_design_artifacts.add(
+                                    artifact, path, service_scope(root, path)
+                                )
                 if current_resource_type in catalog_types:
                     if (
                         schema_catalog is not None

@@ -3,7 +3,6 @@
 import copy
 import json
 import re
-from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import partial
@@ -20,9 +19,6 @@ from design.layout_schema import RESOURCE
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import input_is_file, input_text, memo_table, memoized
-from utils.json_format import (
-    policy_json,
-)
 from utils.reference_contracts import action_contexts, row_contexts
 from utils.reference_contracts import reference_attribute as reference_attribute
 
@@ -354,7 +350,6 @@ def reference_display(values, path, root, *, reference_values=None):
             raw, structured = _imports_model_references._json(key, value)
             if not structured or key.endswith(".value") and not any(nodes(raw)):
                 continue
-            pending = []
             displayed = display_document(
                 raw,
                 root,
@@ -365,7 +360,6 @@ def reference_display(values, path, root, *, reference_values=None):
                     f"desired.resource.{key.split('.')[2].rpartition('-')[0]}.logicalId"
                 ),
                 model_key=key,
-                pending=pending,
                 context=reference_context_for(
                     reference_values if reference_values is not None else values,
                     key.split(".")[2],
@@ -380,8 +374,6 @@ def reference_display(values, path, root, *, reference_values=None):
                 result[key] = "`" + displayed + "`"
             elif key.endswith(".value") and value.startswith("`"):
                 result[key] = "`" + result[key] + "`"
-            if key.endswith(".document") and pending:
-                result[key.removesuffix("document") + "value"] = "`PENDING_DEPLOY`"
     if isinstance(values, SnapshotValues):
         return SnapshotValues(result)
     return result
@@ -454,78 +446,6 @@ def display_document(document, root, *, pending=None, **contract):
         scope=contract["scope"],
         logical_id=contract.get("logical_id"),
     )
-
-
-def pending_documents(values, scope, root):
-    """Return exact artifact rows whose only unresolved values are CREATE/IMPORT waits."""
-    resolver = reference_resolver(values, scope, root)
-    pending = {}
-    for rid, row in entries(values, "desired.row."):
-        if "document" not in row:
-            continue
-        diagnostics = []
-        document = display_document(
-            policy_json(row["document"]),
-            root,
-            resolver=resolver,
-            scope=scope,
-            property_name=row["property"],
-            logical_id=values.get(
-                f"desired.resource.{rid.rpartition('-')[0]}.logicalId"
-            ),
-            model_key=f"desired.row.{rid}.document",
-            pending=diagnostics,
-        )
-        if not isinstance(document, dict):
-            raise ValueError("JSON document must be an object: " + rid)
-        if diagnostics:
-            pending[rid] = diagnostics
-    return pending
-
-
-def pending_artifact_links(values, scope, root, *, pending=None):
-    if pending is None:
-        pending = pending_documents(values, scope, root)
-    counts, links = Counter(), {}
-    for rid, row in entries(values, "desired.row."):
-        anchor = values.get(f"desired.resource.{rid.rpartition('-')[0]}.anchor")
-        key = (anchor, row["property"])
-        counts[key] += 1
-        if rid in pending:
-            match = JSON_LINK.fullmatch(row["value"])
-            if match is None:
-                raise ValueError(
-                    "pending JSON document requires an artifact link: " + rid
-                )
-            path = (
-                root
-                / "docs/designs"
-                / scope.environment
-                / scope.target
-                / (scope.service + ".md")
-            )
-            artifact = path.parent / match[1]
-            _imports_model_sources.safe(root, artifact)
-            if artifact.resolve().parent != path.with_suffix("").resolve():
-                raise ValueError(
-                    "pending JSON artifact must belong to owning service: " + rid
-                )
-            links[(*key, counts[key])] = row["value"]
-    return links
-
-
-def restore_pending_artifact_links(rows, anchor, links):
-    """Semantic validators still check artifact names/placement for proven waits."""
-    counts, result = Counter(), []
-    for row in rows:
-        counts[row[1]] += 1
-        link = links.get((anchor, row[1], counts[row[1]]))
-        result.append(
-            [*row[:2], link, *row[3:]]
-            if link and literal(row[2]) == "PENDING_DEPLOY"
-            else list(row)
-        )
-    return result
 
 
 def document_references(
@@ -635,6 +555,23 @@ def document_references(
     return resolutions, diagnostics
 
 
+def design_document(document, root, *, warnings=None, **contract):
+    """Validate logical references while preserving authored design JSON nodes."""
+    _, diagnostics = document_references(document, **contract)
+    if any(d["category"] != "REFERENCE_PENDING_DEPLOY" for d in diagnostics):
+        require_reference_diagnostics(diagnostics)
+    if warnings is not None:
+        warnings.extend(d for d in diagnostics if d not in warnings)
+    return execution_document(
+        document,
+        root,
+        property_name=contract.get("property_name"),
+        scope=contract["scope"],
+        logical_id=contract.get("logical_id"),
+        warnings=warnings,
+    )
+
+
 def generated_document(
     document,
     root,
@@ -647,7 +584,7 @@ def generated_document(
     context=None,
     warnings=None,
 ):
-    """Materialize confirmed Model references only in the generated artifact."""
+    """Resolve physical values for execution; never modify Model or design JSON."""
     resolutions, diagnostics = document_references(
         document,
         resolver=resolver,

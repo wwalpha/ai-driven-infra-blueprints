@@ -31,7 +31,13 @@ from model.identity import Resolver
 from model.impact_graph import Graph
 from model.importing.sources import has_reference
 from model.operations import _compare_field, validate_candidates
-from model.projection import execution_document, observed_value, reference_display
+from model.projection import (
+    design_document,
+    execution_document,
+    observed_value,
+    reference_display,
+    reference_resolver,
+)
 from model.reference_nodes import nodes, parse, resolve
 from model.reference_nodes import project as display
 from model.references import Usage, incoming, symbolic, usages
@@ -359,6 +365,31 @@ def check_display_and_stable_design(tmp_path, models, observed, expected):
             == expected
         )
         assert "$modelRef" not in displayed["desired.row.001-002.document"]
+    if observed is None:
+        with pytest.raises(ReferenceResolutionError):
+            design_document(
+                document,
+                tmp_path,
+                resolver=reference_resolver(policy, consumer, tmp_path),
+                scope=consumer,
+            )
+    else:
+        warnings = []
+        mixed = {
+            "json": json.dumps(document),
+            "values": [True, False, None, 3, 1.25, "literal"],
+        }
+        assert (
+            design_document(
+                mixed,
+                tmp_path,
+                resolver=reference_resolver(policy, consumer, tmp_path),
+                scope=consumer,
+                warnings=warnings,
+            )
+            == mixed
+        )
+        assert bool(warnings) == (observed == "PENDING_DEPLOY")
     assert policy == original
     with pytest.raises(ValueError, match="Model reference"):
         validate_aws_document(document)

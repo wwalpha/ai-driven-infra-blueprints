@@ -142,7 +142,6 @@ def generation_for(backend, views, deferred=(), failures=()):
             for service, view in views.items()
             if service not in deferred
         },
-        pending_artifacts={},
         unavailable={
             views[s]: {
                 "reason": "reference",

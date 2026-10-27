@@ -252,12 +252,16 @@ wrapper and the existing script entrypoint. `integrations/model-reference-nodes.
 one artifact/Markdown round-trip to the official IT runner; do not run it locally.
 
 Desired stores exactly `{"$modelRef":{"logicalId":"…","attribute":"…"}}`. Producer lookup is
-limited to the Consumer's environment/target and rejects duplicate logical IDs. `execution_document`
-is the design projection and retains nodes. `generated_document` resolves nodes through
-`model.reference_values`, including JSON encoded inside strings, before existing CFn evaluation.
-Both `render.generate_files` and batch `sync_runtime.generate_views` use this artifact path.
-An unresolved node fails that service with Producer logicalId, attribute, JSON Pointer, status
-and reason; successful other services continue and failed services retain their saved views.
+limited to the Consumer's environment/target and rejects duplicate logical IDs. `design_document`
+validates references through `model.reference_values` and uses `execution_document` to retain
+nodes, including JSON encoded inside strings. Both `render.generate_files` and batch
+`sync_runtime.generate_views` use this design path. Pending deployment does not prevent
+JSON generation or remove existing JSON/Markdown links. Confirmed deployment also retains
+logical nodes. Invalid references fail their service with Producer logicalId, attribute,
+JSON Pointer, status and reason; independent services continue and failed services retain
+saved views. `generated_document` is the physical execution projection and requires confirmed
+values before existing CFn evaluation. Strict generation checks readiness without changing
+the design JSON contract. Generation PASS/complete is distinct from reference NOT_RUN.
 The independent AWS JSON boundary still rejects internal nodes and unresolved CFn intrinsics.
 
 `utils/arn_values.py` owns ARN assembly for comparison and Model resolution. `ARN_SHAPES` and
@@ -274,7 +278,8 @@ neither pending deployment nor absence. The result carries `resolved`, `pending_
 `units/model-reference-values-unit.checks.py` owns Model value resolution, concrete artifact
 and display/content equality, encoded JSON, diagnostics, authority preservation, per-service
 failure isolation and the existing dependency graph's propagation after BucketName changes.
-Generated artifacts and displays are checked by their document contents, including resolved values.
+Generated artifacts are compared structurally with logical Model documents; Markdown uses
+the existing display projection. Physical execution projection is checked separately with resolved values.
 No derived document hash or resolved ARN is saved into authority.
 No automatic Model migration is provided. LLM migration must prove the producer and attribute
 and change only the proved expression under a separately authorized Model Task.
@@ -325,3 +330,15 @@ helperは削除しました。共通 `document_sha256` / `fingerprint` の仕様
 ## CloudFormation Export/API reads
 
 `cloudformation-export-resolution` UT owns common Producer identity/status/Outputs, saved Value/Owner comparison, unknown-only discovery, same-boundary sharing and incomplete/ambiguous proof rejection. `aws-client` UT owns Account/Region/API rate budgets shared by eight Threads, single-attempt read transports, Throttling backoff/jitter, deadlines and complete pagination. Caller UTs retain Delivery/Create/Execute freshness, existing dependency graph (direct/transitive/planned/shared Producer/cycles/diamonds), Output/No Change/Recovery, Repair, Secrets ownership/idempotency and Destroy Resume/order/scope guards. Destroy preflight Outputs replace full list-exports; only scoped Exports receive list-imports. All fixtures are offline; local UT success does not prove live AWS throughput or deployment success.
+
+## Logical design JSON and AWS execution
+
+Existing reference node/value/classification UTs cover pending and confirmed design nodes,
+mixed/encoded literals, stable repeated generation, invalid references and strict execution.
+Policy/display/schema UTs retain independent literal validation and saved artifact equality.
+`json-format` and `cloudformation-inputs` UTs reject internal nodes before AWS submission,
+including encoded JSON in Templates and Parameters, while permitting ordinary CFn expressions
+only in template context. Existing sync-model IT owns pending JSON publication, Markdown/JSON
+write failures and full rollback; the node round-trip IT owns artifact-backed rendering.
+Run related UTs, scoped validation and repository-wide Ruff locally; long/full IT and live AWS
+remain separate checks.

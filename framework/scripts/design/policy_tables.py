@@ -19,7 +19,7 @@ import utils.aws_mappings as _imports_utils_aws_mappings
 from model.core import entries, literal
 from model.format import JSON_LINK as MODEL_JSON_LINK
 from model.identity import Resolver
-from model.reference_nodes import display_value, is_reference, nodes, project
+from model.reference_nodes import is_reference, nodes, project
 from model.sources import scope_for
 from utils.input_cache import input_scope
 from utils.json_format import (
@@ -158,7 +158,6 @@ def resources_in(
     lines: list[str],
     root: Path | None = None,
     *,
-    pending_links=None,
     reference_tables=(),
     model_values=None,
 ) -> list[Resource]:
@@ -241,9 +240,6 @@ def resources_in(
             raise ValueError("indexed array display requires Model source rows")
         for row in rows:
             row[1] = _module_design_layout.formal_property(row[1], current_type, root)
-        rows = _model_projection.restore_pending_artifact_links(
-            rows, anchor, pending_links or {}
-        )
         names = [literal(row[2]) for row in rows if row[1] == "IAM.Role.RoleName"]
         if len(names) > 1:
             raise ValueError(f"duplicate IAM RoleName: {logical_id}")
@@ -340,23 +336,42 @@ def settings_rows(value: object, pointer: str = "") -> list[list[str]]:
 
 
 def policy_lines(
-    path: Path, policy: Policy, *, presentation=None, pending=None, policy_rows=None
+    path: Path, policy: Policy, *, presentation=None, policy_rows=None
 ) -> list[str]:
     artifact = (path.parent / policy.link).resolve()
     if artifact.parent != (path.parent / path.stem).resolve():
         raise ValueError(
             f"policy artifact must belong to the owning service: {policy.link}"
         )
+    matching = ()
     if presentation is not None:
-        if pending is None or policy_rows is None:
+        if policy_rows is None:
             raise ValueError("policy presentation requires shared Document evaluation")
         matching = policy_rows.get((policy.property_name, policy.link), ())
-        if len(matching) == 1 and matching[0][0] in pending:
-            if artifact.exists():
-                raise ValueError("pending policy JSON must be absent: " + policy.link)
-            rid, row = matching[0]
-            document = _model_projection.display_document(
+    document = policy_json(artifact.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError(f"policy JSON must be an object: {policy.link}")
+    if presentation is not None:
+        rows = [(rid, row) for rid, row in matching if "document" in row]
+        if len(rows) == 1:
+            rid, row = rows[0]
+            projected = _model_projection.design_document(
                 policy_json(row["document"]),
+                presentation.root,
+                resolver=presentation.resolver,
+                scope=presentation.scope,
+                property_name=row["property"],
+                model_key=f"desired.row.{rid}.document",
+                context=_model_projection.reference_context_for(
+                    presentation.values, rid, row, document, "", presentation.root
+                ),
+            )
+            if projected != document:
+                raise ValueError(
+                    "policy JSON differs from authoritative Model: " + policy.link
+                )
+            document = _model_projection.display_document(
+                document,
                 presentation.root,
                 resolver=presentation.resolver,
                 scope=presentation.scope,
@@ -367,39 +382,21 @@ def policy_lines(
             return presentation.lines(
                 baseline, policy_document_lines(displayed, policy)
             )
-    document = policy_json(artifact.read_text(encoding="utf-8"))
-    if not isinstance(document, dict):
-        raise ValueError(f"policy JSON must be an object: {policy.link}")
     if any(nodes(document)):
         root = path.parents[4]
-        model_path = (
-            root / "model" / path.relative_to(root / "docs/designs")
-        ).with_suffix(".properties")
-        scope = scope_for(model_path)
-        document = project(
-            document, _bind_framework_callback(display_value, Resolver(root), scope)
+        scope = scope_for(
+            (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+                ".properties"
+            )
         )
-    baseline = policy_document_lines(document, policy)
-    if presentation is not None:
-        rows = [(rid, row) for rid, row in matching if "document" in row]
-        if len(rows) == 1:
-            rid, row = rows[0]
-            projected = _model_projection.generated_document(
-                policy_json(row["document"]),
-                presentation.root,
-                resolver=presentation.resolver,
-                scope=presentation.scope,
-                property_name=row["property"],
-            )
-            if projected != document:
-                raise ValueError(
-                    "policy JSON differs from authoritative Model: " + policy.link
-                )
-            displayed = presentation.document(rid, "document", document)
-            return presentation.lines(
-                baseline, policy_document_lines(displayed, policy)
-            )
-    return baseline
+        document = _model_projection.display_document(
+            document,
+            root,
+            resolver=Resolver(root),
+            scope=scope,
+            property_name=policy.property_name,
+        )
+    return policy_document_lines(document, policy)
 
 
 def _lambda_validate_policy_document_pending_259(design, intrinsic, /, value):
@@ -652,7 +649,7 @@ def rendered_design(
     root = definitions_root or definition_root(path.resolve().parent)
     presentation = None
     values = None
-    pending_links, pending, policy_rows = {}, {}, {}
+    policy_rows = {}
     reference_tables = list(reference_tables)
     if (
         len(path.parents) > 4
@@ -669,12 +666,6 @@ def rendered_design(
             presentation = _reference_presentation.Presentation(
                 values, path, path.parents[4]
             )
-            pending = _model_projection.pending_documents(
-                values, presentation.scope, presentation.root
-            )
-            pending_links = _model_projection.pending_artifact_links(
-                values, presentation.scope, presentation.root, pending=pending
-            )
             for rid, row in entries(values, "desired.row."):
                 if link := MODEL_JSON_LINK.fullmatch(row.get("value", "")):
                     policy_rows.setdefault((row["property"], link[1]), []).append(
@@ -683,7 +674,6 @@ def rendered_design(
     resources = resources_in(
         lines,
         root,
-        pending_links=pending_links,
         reference_tables=reference_tables,
         model_values=values,
     )
@@ -708,7 +698,6 @@ def rendered_design(
                         path,
                         policy,
                         presentation=presentation,
-                        pending=pending,
                         policy_rows=policy_rows,
                     ),
                 ]

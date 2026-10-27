@@ -39,7 +39,6 @@ from model.importing.scope import selected as import_selection
 from model.projection import resource_row_scope
 from model.references import _json as model_json
 from model.render import generate_files as generate_files
-from model.render import owned_artifacts
 from model.render import render_validated_model as markdown_for
 from model.sources import (
     _publish_transaction,
@@ -289,12 +288,10 @@ def generate_views(
     *,
     warnings=None,
     unavailable=None,
-    pending_artifacts=None,
     strict=False,
 ):
     warnings = warnings if warnings is not None else []
     unavailable = unavailable if unavailable is not None else {}
-    pending_artifacts = pending_artifacts if pending_artifacts is not None else {}
     definitions_root = definitions_root or definition_root(root)
     total(len(destinations))
     generated = {}
@@ -302,7 +299,6 @@ def generate_views(
     for path, values in destinations.items():
         staged = stage / path.relative_to(root)
         artifacts = {}
-        deferred = {}
         documents = {}
         failure_start = len(failures)
         try:
@@ -314,6 +310,11 @@ def generate_views(
             diagnostics = []
             resolver = _imports_model_projection.reference_resolver(
                 values, model.scope, root
+            )
+            project_document = (
+                _imports_model_projection.generated_document
+                if strict
+                else _imports_model_projection.design_document
             )
             for identity, row in entries(values, "desired.row."):
                 match = JSON_LINK.fullmatch(row.get("value", ""))
@@ -327,7 +328,7 @@ def generate_views(
                     )
                     if structured:
                         try:
-                            _imports_model_projection.generated_document(
+                            project_document(
                                 raw,
                                 root,
                                 property_name=row["property"],
@@ -358,7 +359,11 @@ def generate_views(
                 try:
                     raw_document = policy_json(row["document"])
                     previous = documents.setdefault(artifact, raw_document)
-                    document = _imports_model_projection.generated_document(
+                    if previous != raw_document:
+                        raise ValueError(
+                            "conflicting authoritative JSON documents: " + artifact.name
+                        )
+                    document = project_document(
                         raw_document,
                         root,
                         property_name=row["property"],
@@ -375,38 +380,17 @@ def generate_views(
                     )
                 except ReferenceDiagnosticError as error:
                     diagnostics.extend(error.diagnostics)
-                    if error.diagnostics and all(
-                        d["category"] == "REFERENCE_PENDING_DEPLOY"
-                        for d in error.diagnostics
-                    ):
-                        if previous != raw_document:
-                            raise ValueError(
-                                "conflicting authoritative JSON documents: "
-                                + artifact.name
-                            ) from error
-                        # A deferred artifact must still have a valid authored document.
-                        if (
-                            not isinstance(raw_document, dict)
-                            or "$modelRef" in raw_document
-                        ):
-                            raise ValueError(
-                                f"JSON document must be an object: {identity}"
-                            ) from error
-                        _imports_model_projection.execution_document(
-                            raw_document,
-                            root,
-                            property_name=row["property"],
-                            scope=model.scope,
-                        )
-                        deferred[artifact] = {
-                            "service": "/".join(service_scope(root, path)),
-                            "target_path": str(artifact.relative_to(stage)),
-                            "status": "NOT_RUN",
-                            "reason": "REFERENCE_PENDING_DEPLOY",
-                            "diagnostics": error.diagnostics,
-                        }
                     continue
-                if not isinstance(document, dict):
+                if strict:
+                    # Readiness checks must not materialize physical values in saved designs.
+                    document = _imports_model_projection.execution_document(
+                        raw_document,
+                        root,
+                        property_name=row["property"],
+                        scope=model.scope,
+                        warnings=warnings,
+                    )
+                if not isinstance(document, dict) or "$modelRef" in document:
                     raise ValueError(f"JSON document must be an object: {identity}")
                 content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
                 if artifact in artifacts and artifacts[artifact] != content:
@@ -419,15 +403,6 @@ def generate_views(
             ):
                 require_reference_diagnostics(diagnostics)
             warnings.extend(d for d in diagnostics if d not in warnings)
-            if artifacts.keys() & deferred.keys():
-                raise ValueError("conflicting resolved and pending JSON ownership")
-            managed = owned_artifacts(path, values)
-            for artifact in deferred:
-                original = root / artifact.relative_to(stage)
-                safe(root, original)
-                if original not in managed:
-                    raise ValueError("unowned pending JSON artifact: " + str(original))
-                artifact.unlink(missing_ok=True)
             save_files(artifacts)
             staged.parent.mkdir(parents=True, exist_ok=True)
             staged.write_text(
@@ -436,10 +411,6 @@ def generate_views(
                 newline="",
             )
             generated[path] = [*artifacts, staged]
-            pending_artifacts.update(
-                (root / artifact.relative_to(stage), info)
-                for artifact, info in deferred.items()
-            )
         except ReferenceDiagnosticError as error:
             warnings.extend(
                 {**diagnostic, "source": str(path.relative_to(root))}
@@ -872,7 +843,6 @@ class Generation:
     warnings: dict = field(default_factory=dict)
     reference_warnings: list = field(default_factory=list)
     unavailable: dict = field(default_factory=dict)
-    pending_artifacts: dict = field(default_factory=dict)
     candidate: object = field(default_factory=object)
     accounts: object = None
     definitions_root: Path | None = None
@@ -1016,7 +986,6 @@ def prepare_generation(
             definitions_root=definitions_root,
             warnings=plan.reference_warnings,
             unavailable=plan.unavailable,
-            pending_artifacts=plan.pending_artifacts,
             strict=strict,
         )
         return plan
@@ -1089,11 +1058,6 @@ def validate_generation(plan, *, jobs=4, write=True):
             plan.root / file.relative_to(plan.stage): file.read_bytes().decode("utf-8")
             for file in files
         }
-        expected.update(
-            (artifact, None)
-            for artifact in plan.pending_artifacts
-            if artifact.parent == path.with_suffix("")
-        )
         # Validate canonical candidates, then preserve the saved view's newline format.
         expected[path] = markdown_newlines(path, expected[path])
         plan.expected_outputs[path] = expected
@@ -1274,9 +1238,7 @@ def generation_unavailable(plan):
 def generation_metadata(plan):
     unavailable = generation_unavailable(plan)
     return {
-        "complete": not unavailable
-        and not plan.failures
-        and not plan.pending_artifacts,
+        "complete": not unavailable and not plan.failures,
         "status": "FAIL" if plan.failures else "NOT_RUN" if unavailable else "PASS",
         "failures": list(plan.failures),
         "generated": sorted("/".join(scope) for scope in plan.generated_scope),
@@ -1287,9 +1249,9 @@ def generation_metadata(plan):
             for p, info in unavailable.items()
         },
         "unverified": [
-            info
-            for artifact, info in sorted(plan.pending_artifacts.items())
-            if artifact.parent.with_suffix(".md") in plan.generated
+            diagnostic
+            for diagnostic in plan.reference_warnings
+            if diagnostic.get("category") == "REFERENCE_PENDING_DEPLOY"
         ],
         "warnings": plan.reference_warnings,
     }
@@ -1304,7 +1266,9 @@ def report_generation(plan):
             + json.dumps(warning, ensure_ascii=False),
             file=output_file(error=True),
         )
-    if plan.unavailable or plan.pending_artifacts:
+    if plan.unavailable or any(
+        d.get("category") == "REFERENCE_PENDING_DEPLOY" for d in plan.reference_warnings
+    ):
         print(
             "View generation: "
             + json.dumps(generation_metadata(plan), ensure_ascii=False),

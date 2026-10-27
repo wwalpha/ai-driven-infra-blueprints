@@ -17,6 +17,7 @@ from utils.json_format import (
     json_text,
     policy_json,
     strict_json,
+    validate_aws_document,
 )
 
 if not __debug__:
@@ -138,6 +139,23 @@ else:
         encoding="utf-8",
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("template", [False, True])
+@pytest.mark.parametrize("encoded", [False, True])
+def check_aws_boundary_rejects_model_nodes(template, encoded):
+    node = {"$modelRef": {"logicalId": "KMS_Key_001", "attribute": "Arn"}}
+    value = {"nested": [json_text(node) if encoded else node, "literal", 3, True]}
+    with pytest.raises(ValueError, match="Model reference"):
+        validate_aws_document(value, template=template)
+    value["nested"][0] = "arn:aws:s3:::literal"
+    validate_aws_document(value, template=template)
+    expression = {"Fn::GetAtt": ["Resource", "Arn"]}
+    if template:
+        validate_aws_document(expression, template=True)
+    else:
+        with pytest.raises(ValueError, match="template context"):
+            validate_aws_document(expression)
 
 
 if __name__ == "__main__":

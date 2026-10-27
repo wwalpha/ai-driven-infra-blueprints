@@ -318,9 +318,16 @@ uncompared. Structural equality retains runtime Select-bounds uncertainty and
 
 Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Validate generated JSON directly against the projected document; do not store derived JSON Artifact hashes in the Model or require `artifactSha256`.
 
-Model JSON retains typed `$modelRef` nodes as authority. `execution_document()` is the
-design projection and preserves them. Generated artifacts use `generated_document()` to
-resolve them through the common Reference Value Resolver; Markdown uses the same resolver.
+Model JSON retains typed `$modelRef` nodes as authority. `design_document()` validates
+syntax, same-scope unique Producer identity, attribute/type and receiving contracts through
+the common Reference Value Resolver, then uses `execution_document()` to preserve the
+logical nodes in generated design JSON. Both confirmed and pending references retain their
+logicalId/attribute, including encoded JSON strings; literal values/types and array order
+remain unchanged. `display_document()` projects confirmed values or PENDING_DEPLOY for
+Markdown while retaining artifact links. Display values never flow back to authority or
+design JSON. `generated_document()` is the separate physical-value projection for execution;
+it requires confirmed references. Strict Deploy generation checks physical readiness but
+still publishes logical design JSON. Design JSON must never be sent directly to AWS.
 Confirmed desired attributes can derive ARNs without observed values, including CREATE S3
 BucketName. CREATE does not imply undeployed. AWS-generated identifiers require measured
 values; never infer them. Observed PENDING_DEPLOY means the physical identifier is
@@ -347,9 +354,15 @@ CIDRs, whole JSON objects, secrets references and unrelated arguments gain no ex
 CodeBuild PLAINTEXT Resource links remain forbidden. Typed JSON references remain atomic;
 ordinary JSON strings never become references through matching text.
 
-Markdown and authoritative Model JSON retain these pending Values. Materialized AWS JSON
-artifacts require resolved Values and fail only their owning service through existing
-reference diagnostics. Desired Model/IaC comparison defers each pending Value and compares
+Markdown, authoritative Model JSON and generated design JSON retain these pending Values.
+Physical execution JSON requires resolved Values and fails only its owning service through
+existing reference diagnostics. Successful design generation is PASS/complete even when
+physical values remain unverified; report pending reference diagnostics separately with
+NOT_RUN reasons and scope. Invalid references/definite input errors remain FAIL. A reference
+pending deployment never defers/deletes design JSON. Failed services retain saved outputs
+while independent successful services continue. Structural Model/artifact comparison,
+service ownership, duplicate-definition conflicts and atomic rollback remain required. Desired Model/IaC comparison defers each pending Value
+and compares
 confirmed siblings, including encoded JSON and quoted Glue assignments. Observations are
 not a new comparison source. The decoded Stack Template/Parameters snapshot is checked
 once before delivery/AWS submission. Existing CFn evaluation selects active conditions and
@@ -362,7 +375,9 @@ blanket environment exception; unproven indirect paths retain their ordinary rul
 
 Independent AWS configuration/policy JSON has no CloudFormation execution context. The
 AWS submission boundary rejects internal Model nodes, nested Fn::*/Ref, unresolved
-AWS substitutions and dynamic references, including JSON encoded in strings. The existing
+AWS substitutions and dynamic references, including JSON encoded in strings. CloudFormation
+Template/Parameters loading also rejects internal Model nodes (including encoded strings),
+while retaining existing CFn expression evaluation contracts. The existing
 CFn evaluator may locally resolve supported expressions; unproven expressions retain their
 design structure and warning and do not certify AWS readiness. Unresolved Model nodes fail
 artifact generation for that service, reporting Model path, consumer/producer logicalId,

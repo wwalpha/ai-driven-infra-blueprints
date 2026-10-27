@@ -4,7 +4,7 @@ import json as _imports_json
 from functools import partial as _bind_framework_callback
 
 import iac_evaluation as _imports_iac_evaluation
-from model.reference_nodes import is_reference, parse
+from model.reference_nodes import is_reference, nodes, parse
 from utils.cloudformation.format import JSON_INTRINSICS, intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression
@@ -78,6 +78,8 @@ def _recursive_project_document_visit(
         try:
             if len(value) != 1:
                 raise Blocked("unsupported function/object syntax; unverified")
+            if not template and any(nodes(value)):
+                raise Blocked("logical Model references remain in design JSON")
             result = evaluate(value)
             if (not bound and isinstance(result, Expression)) or result == {
                 "$noValue": True

@@ -5,11 +5,14 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from design.policy_tables import rendered_design
 from model.core import ReferenceResolutionError
+from model.projection import generated_document, reference_resolver
 from model.render import generate_files, generate_markdown
 from model.sources import load_model
 from support.it_case_receipt import it_case
@@ -64,7 +67,7 @@ def main():
                         else "[KMS.Key](kms.md#saved-001)"
                     )
                     assert "$modelRef" not in markdown and expected_display in markdown
-                if observed in (None, "PENDING_DEPLOY"):
+                if observed is None:
                     try:
                         generate_files(view, snapshot.values, root)
                     except ReferenceResolutionError as error:
@@ -84,10 +87,25 @@ def main():
                 files = generate_files(view, snapshot.values, root)
                 save_files(files)
                 display = rendered_design(view, definitions_root=FRAMEWORK)
-                assert display == markdown and expected not in display
+                assert display == markdown
+                if observed != "PENDING_DEPLOY":
+                    assert expected not in display
                 document = json.loads(artifact.read_bytes())
-                assert document["Statement"][0]["Resource"] == expected
-                validate_aws_document(document)
+                assert document == json.loads(policy["desired.row.001-002.document"])
+                with pytest.raises(ValueError, match="Model reference"):
+                    validate_aws_document(document)
+                contract = dict(
+                    resolver=reference_resolver(snapshot.values, consumer, root),
+                    scope=consumer,
+                    property_name="IAM.ManagedPolicy.PolicyDocument",
+                )
+                if observed == "PENDING_DEPLOY":
+                    with pytest.raises(ReferenceResolutionError):
+                        generated_document(document, root, **contract)
+                else:
+                    validate_aws_document(
+                        generated_document(document, root, **contract)
+                    )
                 assert consumer.path.read_bytes() == original
                 assert load_model(consumer).authoritative == policy
                 assert "$modelRef" in policy["desired.row.001-002.document"]

@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -172,6 +173,26 @@ assert 'utils.cloudformation_format' not in sys.modules
         encoding="utf-8",
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("position", ["template", "encoded", "parameter"])
+@pytest.mark.parametrize("strict", [False, True])
+def check_deploy_input_rejects_design_nodes(tmp_path, position, strict):
+    template = tmp_path / "template.json"
+    parameters = tmp_path / "parameters.json"
+    node = {"$modelRef": {"logicalId": "KMS_Key_001", "attribute": "Arn"}}
+    document = {"Resources": {"Role": {"Type": "AWS::IAM::Role", "Properties": {}}}}
+    inputs = []
+    if position == "parameter":
+        inputs = [{"ParameterKey": "Policy", "ParameterValue": json.dumps(node)}]
+    else:
+        document["Resources"]["Role"]["Properties"]["AssumeRolePolicyDocument"] = (
+            json.dumps(node) if position == "encoded" else node
+        )
+    template.write_text(json.dumps(document), encoding="utf-8")
+    parameters.write_text(json.dumps(inputs), encoding="utf-8")
+    with pytest.raises(ValueError, match="Model reference"):
+        load_template_inputs(template, parameters, strict_parameters=strict)
 
 
 if __name__ == "__main__":
