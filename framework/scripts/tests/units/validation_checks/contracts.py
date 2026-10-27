@@ -206,6 +206,8 @@ def check_implementation_preflight_prompt() -> None:
         .split("## Sandbox permission approval and continuation\n", 1)[1]
         .split("\n## ", 1)[0]
     )
+    assert "git --no-optional-locks status --porcelain --untracked-files=all" in sandbox
+    assert "git status --porcelain --untracked-files=all" not in sandbox
     for required in (
         "create, setup (when needed), finalize and cleanup",
         "effective Sandbox restrictions",
