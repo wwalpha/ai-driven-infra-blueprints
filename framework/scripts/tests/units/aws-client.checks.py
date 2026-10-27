@@ -453,6 +453,8 @@ class Clock:
     def monotonic(self):
         return self.now
 
+    perf_counter = monotonic
+
     def sleep(self, seconds):
         self.waits.append(seconds)
         self.now += seconds
@@ -477,6 +479,7 @@ def check_read_sdk_attempts_do_not_change_mutation_clients(monkeypatch):
 def check_destroy_cli_controls_every_page_and_retry(tmp_path, monkeypatch):
     clock = Clock()
     monkeypatch.setattr(sdk, "time", clock)
+    monkeypatch.setattr(destroy, "time", clock)
     monkeypatch.setattr(sdk, "_rate_locks", {})
     monkeypatch.setattr(sdk, "_rate_next", {})
     monkeypatch.setattr(sdk.random, "uniform", lambda a, b: 1)
@@ -518,6 +521,7 @@ def check_destroy_cli_controls_every_page_and_retry(tmp_path, monkeypatch):
 def check_destroy_incomplete_pagination_blocks(tmp_path, monkeypatch, token):
     clock = Clock()
     monkeypatch.setattr(sdk, "time", clock)
+    monkeypatch.setattr(destroy, "time", clock)
     monkeypatch.setattr(sdk, "_rate_locks", {})
     monkeypatch.setattr(sdk, "_rate_next", {})
     backend = destroy.AwsBackend(
