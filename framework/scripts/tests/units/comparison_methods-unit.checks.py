@@ -1522,6 +1522,21 @@ def test_unordered_ambiguous_correspondence_is_not_selected():
     assert all(d["correspondence"] == "unproven" for d in outcome.diagnostics)
 
 
+def test_unordered_singleton_difference_keeps_diagnostic():
+    outcome = compare(
+        [{"Value": "a"}], [{"Value": "b"}], UNORDERED, reference=diagnostic_candidate
+    )
+    assert outcome.equal is False
+    assert [d["reason"] for d in outcome.diagnostics] == ["a/b"]
+    keyed = compare(
+        [{"Sid": "a", "Value": "a"}],
+        [{"Sid": "b", "Value": "b"}],
+        replace(UNORDERED, key="Sid"),
+        reference=diagnostic_candidate,
+    )
+    assert keyed.equal is False and not keyed.diagnostics
+
+
 def test_unordered_nested_rejected_diagnostics():
     rules = {"Setting": UNORDERED, "Setting[].Items": UNORDERED}
     left = [{"Items": [{"Value": "a"}, {"Value": "b"}]}]

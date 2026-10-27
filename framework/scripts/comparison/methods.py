@@ -343,6 +343,17 @@ def _select_unordered_diagnostics(state, left, right, rule, equal, candidates):
         if equal is True or equal is False
         else set()
     )
+    if (
+        equal is False
+        and len(left) == len(right) == 1
+        and (
+            not rule.key
+            or all(
+                isinstance(x, dict) and rule.key not in x for x in (left[0], right[0])
+            )
+        )
+    ):
+        selected.add((0, 0))
     if equal is None:
         for i, row in enumerate(matrix):
             for j, value in enumerate(row):
