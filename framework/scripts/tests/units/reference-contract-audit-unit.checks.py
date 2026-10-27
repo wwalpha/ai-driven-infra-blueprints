@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex, model_reference_tables
-from model.core import ReferenceResolutionError, entries
+from model.core import entries
 from model.display import catalog_display_rows, display_rows, reference_rows
 from model.identity import Resolver
 from model.projection import reference_display
@@ -465,10 +465,6 @@ def test_common_markdown_projection_and_restoration(
         )
     save(scope, values)
     original = copy.deepcopy(values)
-    if observed is None or observed == "PENDING_DEPLOY" and kind == "Glue.Job":
-        with pytest.raises(ReferenceResolutionError):
-            reference_display(values, scope.path, models)
-        return
     shown = reference_display(values, scope.path, models)
     rendered = display_rows(
         kind,
@@ -481,7 +477,10 @@ def test_common_markdown_projection_and_restoration(
             values["desired.resource.001.logicalId"]
         ].reference_ids,
     )
-    assert expected in str(rendered) and "$modelRef" not in str(rendered)
+    if observed in {None, "PENDING_DEPLOY"}:
+        assert "$modelRef" in str(rendered) and expected not in str(rendered)
+    else:
+        assert expected in str(rendered) and "$modelRef" not in str(rendered)
     path = models / "docs/designs/qa/team/receiver.md"
     markdown = generate_markdown(path, values, models)
     assert "reference-rows" not in markdown and "reference-value" not in markdown
@@ -506,7 +505,8 @@ def test_common_markdown_projection_and_restoration(
         )
     ]
     assert values == original
-    tampered = markdown.replace(expected, "tampered", 1)
+    tampered = markdown.replace("`fixture`", "`tampered`", 1)
+    assert tampered != markdown
     with pytest.raises(ValueError, match="Model expected display"):
         model_reference_tables(path, tampered, tuple(values.items()), models)
 

@@ -431,11 +431,13 @@ def check_real_input_violations_are_never_processing_failures(tmp_path, fault):
     assert any(d.cause_kind == "input_invalid" for d in findings.diagnostics)
     assert len({d.identity for d in findings.diagnostics}) == len(findings.diagnostics)
     if fault in {"syntax", "required"}:
-        assert len(findings.diagnostics) == 1
-        assert (
-            findings.diagnostics[0].source_path
-            == "model/dev/123456789012/s3.properties"
-        )
+        inputs = [d for d in findings.diagnostics if d.code == "validation.input"]
+        assert len(inputs) == 1
+        assert inputs[0].source_path == "model/dev/123456789012/s3.properties"
+        if fault == "syntax":
+            assert len(findings.diagnostics) == 1
+        else:
+            assert all(d.cause_kind == "input_invalid" for d in findings.diagnostics)
 
 
 def check_missing_markdown_headings_scan_to_review(tmp_path):

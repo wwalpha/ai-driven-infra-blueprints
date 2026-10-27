@@ -23,6 +23,7 @@ from model.core import entries, properties
 from model.files import model_file_contents, read_model, trace_model
 from model.format import parse, serialize, split
 from model.impact import affected, dependencies
+from model.render import generate_files
 from model.sources import (
     _publish_transaction,
     json_read,
@@ -30,8 +31,8 @@ from model.sources import (
     publication_lock,
     source_scope,
 )
+from support.model_sources import declare_outputs, write_model
 from support.model_sources import write_fixture_files as save_files
-from support.model_sources import write_model
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
 
@@ -162,6 +163,8 @@ def write_fixture(root, env, service, values):
     path = write_model(
         root / "model" / env / "team" / (service + ".properties"), values
     )
+    view = root / "docs/designs" / env / "team" / (service + ".md")
+    declare_outputs(root, generate_files(view, values, root))
     with redirect_stdout(io.StringIO()):
         sync_runtime.sync(root, True, env, "team", services=[service])
     return path
@@ -170,6 +173,8 @@ def write_fixture(root, env, service, values):
 def install_candidate(root, models):
     for env, values in models.items():
         write_model(root / "model" / env / "team/iam.properties", values)
+        view = root / "docs/designs" / env / "team/iam.md"
+        declare_outputs(root, generate_files(view, values, root))
     return root / "model" / next(iter(models)) / "team/iam.properties"
 
 

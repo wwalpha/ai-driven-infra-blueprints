@@ -747,9 +747,9 @@ def check_unchanged_sidecar_validation(generated_policy):
     with (
         patch.dict(os.environ, env),
         patch.object(
-            sync_views,
-            "validate_views",
-            side_effect=ValueError("injected candidate validation failure"),
+            sync_runtime,
+            "validate_generation",
+            side_effect=ValueError("injected candidate generation failure"),
         ),
         patch.object(
             sync_runtime,
@@ -757,7 +757,7 @@ def check_unchanged_sidecar_validation(generated_policy):
             side_effect=AssertionError("invalid candidate published"),
         ),
     ):
-        with pytest.raises(ValueError, match="injected candidate validation failure"):
+        with pytest.raises(ValueError, match="injected candidate generation failure"):
             MODULE.sync(root, True, "dev", "123456789012", ["iam"])
     assert {file: file.read_bytes() for file in before} == before
 

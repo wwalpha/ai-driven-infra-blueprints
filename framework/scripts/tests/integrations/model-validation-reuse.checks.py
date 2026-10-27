@@ -313,16 +313,9 @@ def check_deferred_guard_and_cleanup(generated_policy, monkeypatch):
         for write in (False, True):
             seen.clear()
             assert MODULE.sync(root, write, *ENTRY[:2], ["iam"]) == 0
-            assert {
-                "check_design_overviews",
-                "check_design_links",
-                "check_design_artifacts",
-            } <= set(seen)
-            assert not {
-                "check_resource_names",
-                "check_design_tables",
-                "check_observed_values",
-            } & set(seen)
+            assert not seen, (
+                "projection must leave Model quality to independent validation"
+            )
 
 
 def _callback_check_generation_failures_never_pass_generate(
@@ -438,7 +431,7 @@ def _callback_check_sync_mapping_lifetime_stage_inputs(
 
 
 def _callback_check_sync_mapping_lifetime_fail(fault, provider, /, *args, **kwargs):
-    assert mappings_for(args[0]) is provider
+    assert mappings_for(args[0].stage if fault == "worker" else args[0]) is provider
     raise ValueError("injected " + fault + " failure")
 
 
@@ -468,7 +461,7 @@ def check_sync_mapping_lifetime(generated_policy, monkeypatch, fault):
         target = (
             patch.object(sync_runtime, "generate_views", side_effect=fail)
             if fault == "generation"
-            else patch.object(sync_views, "validate_views", side_effect=fail)
+            else patch.object(sync_runtime, "validate_generation", side_effect=fail)
             if fault == "worker"
             else nullcontext()
         )

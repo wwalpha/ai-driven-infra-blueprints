@@ -3295,7 +3295,7 @@ UTはGit init/commit・実Sync・全Model生成・全Frameworkコピーを行わ
 | `check_changed_sidecar_publication` | 3 → 1 | 差分判定はUT | stale/missingはcheck_sidecar_output_difference＋check_service_cache_invalidation、実JSON-only公開はModelのPolicy Id更新で保証。 |
 | `check_unchanged_sidecar_path_safety` | 1 → 0 | UTへ移管 | check_snapshot_symlink_safetyで同じGenerationInputs読取APIのsymlink拒否・親種類の競合・外部bytes保護。 |
 | `check_unchanged_sidecar` | 2 → 2 | IT維持 | 全no-op/Markdownだけ変更の実Publication・JSON未再保存とmtime。末尾の重複read-only SyncはCLI write/checkとnormal_writerに統合。 |
-| `check_unchanged_sidecar_validation` | 1 → 1 | IT維持 | 候補Validation失敗時はno-opでも公開しない、全旧成果物を保持。 |
+| `check_unchanged_sidecar_validation` | 1 → 1 | IT維持 | 候補生成失敗時はno-opでも公開しない、全旧成果物を保持。 |
 | `check_changed_sidecar_publication_rollback` | 2 → 2 | IT維持 | 変更済JSONの復元と、公開対象外JSONの外部書込保持は別障害境界。失敗後の実保存成功は保持し、末尾の重複read-only Syncだけ統合。 |
 | `check_failure_counts` | 1 → 0 | UTへ移管 | 旧17モデル×extra_inputs/read-writeの実SyncとMock rendererを廃止。check_failure_countsが実report_generationで8成功/9又は11失敗/診断件数とWARN分離の4組を検証。部分成功の実接続はmultiple_targets_barrier/required_preflightで保持。 |
 | `check_workflow` | 1 → 0 | UTへ移管/既存保証 | expanded_design・VPC/Subnet/S3表示・JSON raw digestはcheck_expanded_design_and_json_digest、Stack表/No/Order/commentは既存check_stack_policy、Scopeは選択UT、Missing authorityはcheck_invalid_model/check_missing_validation_inputs/check_generation_input_failures＋scope/Stage UT。実生成はnormal_writer/CLIを維持。 |
@@ -3341,7 +3341,7 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 | `sync-15::check_changed_sidecar_publication` | `check_changed_sidecar_publication` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L390) | pytest / 1 | 表示に影響しないPolicy Idだけの更新を実公開し、Markdownは不変・JSON内容は正しい | 統合境界 |
 | `sync-15::check_publication_rechecks_excluded_outputs` | `check_publication_rechecks_excluded_outputs` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L412) | pytest / 2 | 全no-op/Markdownだけ変更の2境界で、公開対象外Sidecarの競合を拒否・外部変更保持 | 統合境界 |
 | `sync-15::check_changed_sidecar_publication_rollback` | `check_changed_sidecar_publication_rollback` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L441) | pytest / 2 | JSON公開後のMarkdown途中失敗の復元／未変更JSONへの外部書込を巻き戻さない独立2境界、再保存成功 | 統合境界 |
-| `sync-15::check_unchanged_sidecar_validation` | `check_unchanged_sidecar_validation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L467) | pytest / 1 | no-opでも候補Validation失敗時は公開せず、元Markdown/JSONを保持 | 統合境界 |
+| `sync-15::check_unchanged_sidecar_validation` | `check_unchanged_sidecar_validation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L467) | pytest / 1 | no-opでも候補生成失敗時は公開せず、元Markdown/JSONを保持 | 統合境界 |
 | `sync-15::check_incoming_reference_models` | `check_incoming_reference_models` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L485) | pytest / 1 | 実Stageがincoming文書とその正本Modelを配置してリンク検証に渡す | 統合境界 |
 | `sync-15::check_required_preflight` | `check_required_preflight` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L510) | pytest / 1 | 独立Model品質検証で必須Property不備を検出、生成は品質preflightなし、構造不備で既存成果物・Model保持、独立Serviceは保存 | 統合境界 |
 | `sync-15::check_required_property_parents` | `check_required_property_parents` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L569) | pytest / 1 | Glueの実Sync生成から実Table Validatorへの必須親Property接続、親行の捏造なし・正本保持 | 統合境界 |
@@ -3771,7 +3771,7 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | Display restoration | `test_markdown_rejects_plaintext_link` | 4 | Explicit/missing PLAINTEXT marker rejects links in CREATE/IMPORT |
 | Non-PLAINTEXT | `test_non_plaintext_round_trip` | 2 | PARAMETER_STORE/SECRETS_MANAGER display round trip is preserved |
 | Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 18 | Model-only, Markdown-only and combined policy errors; one/two variables and independent ownership errors; readable/unreadable Markdown and typed IAM.Role; scan/save twice retains Issue IDs and counts, independent S3 comparison/lint, CLI artifact v5 and strict generation rejection |
-| Structured display | `test_structured_reference_display_is_rejected` | 2 | Projected typed Resource values remain forbidden for PLAINTEXT in CREATE/IMPORT |
+| Structured display | `test_structured_reference_display_is_rejected` | 2 | Symbolic typed rows remain visible; independent Model validation rejects PLAINTEXT references in CREATE/IMPORT |
 | Valid producers | `test_non_plaintext_model_links_pass` | 2 | Authoritative Model passes correct SSM.Parameter/SecretsManager.Secret links |
 
 Existing partial-comparison UTs retain confirmed sibling differences and reject matches for prohibited references. Their comparison rejection reason is PLAINTEXT prohibition; authoritative Model validation owns the blocking ordinary Issue.

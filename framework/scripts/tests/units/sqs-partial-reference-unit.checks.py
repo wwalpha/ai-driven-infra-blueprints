@@ -9,8 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from design.document import model_resource_reference_tables
+from model.core import ReferenceDiagnosticError
 from model.format import owner
-from model.projection import reference_display
+from model.projection import reference_display, validate_json_documents
 from model.render import generate_markdown
 from support.model_reference_fixtures import (
     FRAMEWORK,
@@ -98,7 +99,14 @@ def check_deleted_candidate_producer(sqs):
     from_block = markdown.index("<!-- resource-logical-id: SQS_QueuePolicy_001 -->")
     markdown = "## リソース詳細\n\n" + markdown[from_block:]
     tables, error = policy_result(path, markdown, candidate)
-    assert tables is None and "MODEL_REF_TARGET_MISSING" in str(error)
+    assert tables is None and "Model expected display" in str(error)
+    projected = generate_markdown(path, candidate, FRAMEWORK)
+    assert "$modelRef" in projected and "[synthetic-queue](#saved-001)" not in projected
+    with pytest.raises(ReferenceDiagnosticError) as invalid:
+        validate_json_documents(candidate, scope.path)
+    assert any(
+        d["code"] == "MODEL_REF_TARGET_MISSING" for d in invalid.value.diagnostics
+    )
     assert "SQS_Queue_001" in scope.path.read_text(encoding="utf-8")
 
 

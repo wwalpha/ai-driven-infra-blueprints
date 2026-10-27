@@ -952,8 +952,20 @@ def test_structured_reference_display_is_rejected(mode):
             1,
         )
     ]
-    with pytest.raises(ValueError, match=REASON):
-        display_rows("CodeBuild.Project", rows, FRAMEWORK, mode=mode)
+    shown = display_rows("CodeBuild.Project", rows, FRAMEWORK, mode=mode)
+    assert shown == [
+        [rid, prop.removeprefix("CodeBuild.Project."), value, comment]
+        for rid, prop, value, comment in rows
+    ]
+    assert "$modelRef" in shown[-1][2]
+    assert REASON in str(
+        codebuild_reference_errors(
+            FRAMEWORK / "model/dev/team/codebuild.properties",
+            values_for(
+                [("VALUE", "PLAINTEXT", "`" + json.dumps(NODE) + "`")], mode=mode
+            ),
+        )
+    )
 
 
 @pytest.mark.parametrize(

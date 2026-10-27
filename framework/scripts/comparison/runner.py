@@ -528,7 +528,15 @@ class Comparison(Inputs):
             result.failure = error
             return result
 
-    def input_integrity(self, service, identity, kind, name, owner, template):
+    def input_integrity(
+        self,
+        service: str,
+        identity: str,
+        kind: str,
+        name: str,
+        owner: JsonObject,
+        template: Path,
+    ) -> RowResult:
         result = RowResult()
         if not self.local_comparison:
             return result
@@ -567,7 +575,9 @@ class Comparison(Inputs):
                 )
         return result
 
-    def template_location(self, raw, pointer, source):
+    def template_location(
+        self, raw: JsonValue, pointer: str, source: JsonObject
+    ) -> JsonObject:
         location = dict(source, pointer=pointer)
         node = raw
         for token in pointer.lstrip("/").split("/") if pointer else []:

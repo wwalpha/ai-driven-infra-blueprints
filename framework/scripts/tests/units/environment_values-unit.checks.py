@@ -629,7 +629,7 @@ def check_display_retains_pending_and_artifact_rejects(models):
         "KEY": "PENDING_DEPLOY",
         "OTHER": "fixed",
     }
-    with pytest.raises(ReferenceResolutionError, match="environment artifact"):
+    with pytest.raises(ReferenceResolutionError, match="JSON artifact") as blocked:
         generated_document(
             {"KEY": "PENDING_DEPLOY"},
             models,
@@ -637,6 +637,8 @@ def check_display_retains_pending_and_artifact_rejects(models):
             scope=scope,
             property_name="Lambda.Function.Environment.Variables",
         )
+    assert blocked.value.diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
+    assert blocked.value.diagnostic["pointer"] == "/KEY"
     assert values == parse_properties(serialize(values)).values
 
 

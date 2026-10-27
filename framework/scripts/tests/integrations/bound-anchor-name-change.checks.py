@@ -19,7 +19,7 @@ from model.sources import load_model
 from support import model_design_fixtures as MODELS
 from support import model_parameter_inputs_fixtures as INPUTS
 from support.it_case_receipt import it_case
-from support.model_sources import write_model
+from support.model_sources import declare_outputs, write_model
 from support.validator import schema_validator
 
 if not __debug__:
@@ -111,6 +111,13 @@ def check(root):
             "## Modified files",
             "- `preview/team/codebuild`\n- `preview/team/kms`\n## Modified files",
         )
+    )
+    declare_outputs(
+        root,
+        [
+            root / "docs/designs/preview/team" / (service + ".md")
+            for service in ("codebuild", "kms")
+        ],
     )
     assert sync_runtime.sync(root, True, "preview", "team", services=["codebuild"]) == 0
     vpc_path = build_path.with_name("vpc.properties")

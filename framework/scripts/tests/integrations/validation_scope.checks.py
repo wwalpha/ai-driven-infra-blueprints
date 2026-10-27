@@ -338,6 +338,17 @@ def main():
             "## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n- `README.md`\n## Allowed paths\n- `tasks/example.md`\n- `README.md`\n## Validation scope\n"
             + "".join(f"- `{'/'.join(item)}`\n" for item in sorted(scope))
         )
+        contract = contract.replace(
+            "## Modified files\n",
+            "## Modified files\n"
+            + "".join(
+                f"- `docs/designs/{env}/{target}/{service}.md`\n"
+                for env, target, service in sorted(scope)
+            ),
+        )
+        contract = contract.replace(
+            "## Allowed paths\n", "## Allowed paths\n- `docs/designs/**`\n"
+        )
         active.write_text(contract)
         project = {"projectName": "app", "targets": []}
         for env in ("dev", "prod", "stg"):

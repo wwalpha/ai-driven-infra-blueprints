@@ -360,7 +360,8 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
         save(scope, values)
         path = tmp_path / "docs/designs/qa/team/codebuild.md"
         markdown = generate_markdown(path, values, FRAMEWORK)
-        assert "PENDING_DEPLOY" in markdown and "reference-rows" not in markdown
+        assert "$modelRef" in markdown and "PENDING_DEPLOY" not in markdown
+        assert "reference-rows" not in markdown
         assert "$modelRef" in "\n".join(
             DesignIndex(FRAMEWORK).get(path, text=markdown).raw.display_lines
         )
@@ -369,7 +370,12 @@ def check_codebuild_vpc_typed_rows(tmp_path, prop, producer, attribute):
         ):
             _ = (
                 DesignIndex(FRAMEWORK)
-                .get(path, text=markdown.replace("PENDING_DEPLOY", "tampered"))
+                .get(
+                    path,
+                    text=markdown.replace(
+                        producer.replace(".", "_") + "_001", "tampered"
+                    ),
+                )
                 .raw.display_lines
             )
 

@@ -15,6 +15,17 @@ from model.sources import load_model, model_parts, scope_for
 from sync_files import save_files
 
 
+def declare_outputs(root, outputs):
+    """Give authored test outputs explicit Task publication authority."""
+    task = root / "tasks/example.md"
+    text = task.read_text(encoding="utf-8")
+    listed = "".join(f"- `{path.relative_to(root).as_posix()}`\n" for path in outputs)
+    task.write_text(
+        text.replace("## Modified files\n", "## Modified files\n" + listed),
+        encoding="utf-8",
+    )
+
+
 def write_model(path, values):
     """Fixture initialization only; production writes use the Task save capability."""
     path = path.absolute()

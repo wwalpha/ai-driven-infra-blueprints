@@ -15,6 +15,7 @@ import sync_runtime
 from model.projection import bound_resource_anchors
 from model.render import markdown_for as markdown_for
 from support.it_case_receipt import it_case
+from support.model_sources import declare_outputs
 from support.producer_identifier_reference_fixtures import (
     Path,
     json,
@@ -61,6 +62,7 @@ def check(root):
         "## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n- `preview/team/s3`\n"
         "## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n"
     )
+    declare_outputs(root, [root / "docs/designs/preview/team/s3.md"])
     values = resource(
         "003",
         "S3.Bucket",

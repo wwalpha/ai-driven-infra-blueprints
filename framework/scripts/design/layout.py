@@ -13,6 +13,7 @@ import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 import utils.aws_mappings as _imports_utils_aws_mappings
 from model.core import ReferenceResolutionError, positive_integer
+from model.reference_nodes import nodes
 from utils.aws_catalogs import catalogs_for
 from utils.input_cache import input_scope as input_scope
 from utils.input_cache import input_text
@@ -682,6 +683,13 @@ def expanded_display_rows(
                 _verified_reference=True,
             )
             result.extend(table.semantic)
+            index = stop
+            continue
+        if _verified_reference and any(
+            any(nodes(_imports_model_core.literal(row[2]))) for row in source_rows
+        ):
+            # Exact Model equality already proved these symbolic rows before restoration.
+            result.extend(lines[start:stop])
             index = stop
             continue
         restored = design.services.glue.restored_glue_argument_rows(

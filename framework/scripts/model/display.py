@@ -68,6 +68,9 @@ def reference_rows(values):
     result = {}
     rows_by_resource = _display_model_files.resource_row_index(values)
     for identity, resource in entries(values, "desired.resource."):
+        for rid, row in rows_by_resource[identity]:
+            if not {"property", "value"} <= row.keys():
+                raise ValueError("invalid resource row: " + rid)
         rows = tuple(
             (rid, row["property"], row["value"], row.get("comment", ""))
             for rid, row in rows_by_resource[identity]

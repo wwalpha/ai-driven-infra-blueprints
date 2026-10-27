@@ -22,7 +22,7 @@ from model.sources import design_source_digest, load_model
 from model.validation import validate_resource_identities as validate_identities
 from support.it_case_receipt import it_case
 from support.model_design_fixtures import model
-from support.model_sources import write_model
+from support.model_sources import declare_outputs, write_model
 from utils.source_reads import FileReads
 
 if not __debug__:
@@ -58,6 +58,13 @@ def check(root):
         "## Task contract\n- Task type: `migration`\n- Task status: `running`\n"
         "## Validation scope\n- `preview/team/vpc`\n- `preview/team/cloudformation-stacks`\n"
         "## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n"
+    )
+    declare_outputs(
+        root,
+        [
+            root / "docs/designs/preview/team" / (service + ".md")
+            for service in ("cloudformation-stacks", "vpc")
+        ],
     )
     path = root / "model/preview/team/cloudformation-stacks.properties"
     values = {

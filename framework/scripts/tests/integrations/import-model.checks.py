@@ -588,9 +588,19 @@ def check_evidence_and_display_recovery(tmp_path):
     with patch.object(
         m, "view_plan", side_effect=ValueError("synthetic display failure")
     ):
-        with pytest.raises(ValueError, match="synthetic display failure"):
-            publish_fixture(root, acquired)
-    assert source_files(root) == before and evidence.is_file()
+        result = publish_fixture(root, acquired)
+    assert result["model"] == "reflected" and result["status"] == "display-failed"
+    assert source_files(root) != before and evidence.is_file()
+    saved_model = source_files(root)
+    assert (
+        m.recover_display(root, "dev", "cloudwatch-logs", TARGET)["status"]
+        == "complete"
+    )
+    assert source_files(root) == saved_model
+
+    root, acquired, _ = prepare(tmp_path / "write-failure")
+    logs_edit(root, acquired)
+    evidence = Path(acquired["evidence"])
     actual = m._publish_transaction
     fail_display = _bind_framework_callback(
         _callback_check_evidence_and_display_recovery_fail_display, actual
@@ -599,7 +609,7 @@ def check_evidence_and_display_recovery(tmp_path):
         result = publish_fixture(root, acquired)
     assert (
         result["model"] == "reflected"
-        and result["markdown"] == "failed"
+        and result["markdown"] == "not-generated"
         and result["status"] == "display-failed"
     )
     assert evidence.is_file()

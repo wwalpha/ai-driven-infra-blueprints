@@ -15,7 +15,7 @@ from support.import_model_fixtures import (
     resource_values,
     service_values,
 )
-from support.model_sources import write_model
+from support.model_sources import declare_outputs, write_model
 from utils.yaml_format import yaml_read as yaml_read
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -125,6 +125,9 @@ def fixture(root):
             for service in ("vpc", "iam")
         )
         + "## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n"
+    )
+    declare_outputs(
+        root, [root / "docs/designs" / env / "team/vpc.md" for env in environments]
     )
     return environments, paths
 

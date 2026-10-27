@@ -905,6 +905,11 @@ def check_policy_view_integrity(paths, findings, *, definitions_root=None) -> No
             findings.warn(error)
         except InputValidationError as error:
             findings.input_failure(error, source_path=path)
+        except _design_document.DisplayMismatchError as error:
+            for diagnostic in display_diagnostics(
+                findings.canonical_root, path, error, "design.policy-quality"
+            ):
+                findings.add_diagnostic(diagnostic)
         except (OSError, ValueError) as error:
             findings.processing_failure(
                 "design.policy-quality",
@@ -914,13 +919,25 @@ def check_policy_view_integrity(paths, findings, *, definitions_root=None) -> No
             )
 
 
+def _callback_check_policy_tables_validate(path, findings, definitions_root, /):
+    try:
+        _dependency_policy_tables.validate_policy_artifacts(
+            path, definitions_root=definitions_root
+        )
+    except _design_document.DisplayMismatchError as error:
+        for diagnostic in display_diagnostics(
+            findings.canonical_root, path, error, "design.policy-quality"
+        ):
+            findings.add_diagnostic(diagnostic)
+
+
 def check_policy_tables(paths, findings, *, definitions_root=None):
     for path in paths:
         findings.evaluate(
             "design.policy-quality",
             None,
-            lambda path=path: _dependency_policy_tables.validate_policy_artifacts(
-                path, definitions_root=definitions_root
+            _bind_framework_callback(
+                _callback_check_policy_tables_validate, path, findings, definitions_root
             ),
         )
     check_policy_view_integrity(paths, findings, definitions_root=definitions_root)
