@@ -18,6 +18,7 @@ import pytest
 import sync_runtime
 from generation_inputs import GenerationInputs
 from issues.runner import mechanical
+from model.core import ReferenceResolutionError
 from model.format import serialize
 from model.importing.scope import read_consumers, restrict
 from model.operations import prepare_edit, publish_edit
@@ -1327,6 +1328,76 @@ def check_unrelated_non_model_text_has_no_dependency_edges(project_workspace, te
 
 def require_test_candidate(changes):
     assert all(path.is_absolute() for path in changes)
+
+
+def check_pending_artifact_does_not_gate_model_save(project_workspace):
+    root = project_workspace
+    setup(root, ["iam", "kms"], ["IAM.ManagedPolicy", "KMS.Key"])
+    values = {
+        **resource(
+            "001",
+            "IAM.ManagedPolicy",
+            "policy",
+            [
+                ("ManagedPolicyName", "fixture-policy"),
+                ("PolicyDocument", "[policy](iam/policy.json)"),
+                ("Description", "old"),
+            ],
+        ),
+        **service_values("iam", ["IAM.ManagedPolicy"]),
+    }
+    node = {"$modelRef": {"logicalId": "KMS_Key_001", "attribute": "Arn"}}
+    values["desired.row.001-002.document"] = json.dumps(
+        {"Statement": [{"Effect": "Allow", "Action": "kms:Decrypt", "Resource": node}]}
+    )
+    path = root / "model/preview/team/iam.properties"
+    write_model(path, values)
+    producer = resource("001", "KMS.Key", "key", [("KeyId", "[self](#key)")])
+    producer["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+    write_model(path.with_name("kms.properties"), producer)
+    name = "tasks/save.md"
+    listed = "\n".join(f"- `{item}`" for item in (name, path.relative_to(root)))
+    start(
+        root,
+        name,
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+        "- Workflow: `update`\n## Validation scope\n- `preview/team/iam`\n"
+        "## Required changes\n- [R1] 合成保存\n## Acceptance checks\n"
+        "- [R1] `exists:project.json`\n## Modified files\n"
+        + listed
+        + "\n## Allowed paths\n"
+        + listed
+        + "\n",
+    )
+    view = root / "docs/designs/preview/team/iam.md"
+    with selected_task(root, name):
+        with pytest.raises(ReferenceResolutionError):
+            generate_files(view, values, root)
+        inputs = GenerationInputs(root, task_file=name)
+        context = sources.SourceWriteContext._authorized(
+            root,
+            inputs,
+            SimpleNamespace(action="edit"),
+            require_test_candidate,
+            frozenset({path}),
+        )
+        document = json.loads(values["desired.row.001-002.document"])
+        document["Statement"][0]["Action"] = "kms:Encrypt"
+        candidate = dict(
+            values, **{"desired.row.001-002.document": json.dumps(document)}
+        )
+        plan = prepare_edit(path, {path: serialize(candidate)}, context)
+        assert publish_edit(plan, context) == (path,)
+        assert sources.raw_model(path).authoritative == candidate
+        with pytest.raises(ReferenceResolutionError):
+            generate_files(view, candidate, root)
+        assert not view.exists()
+        assert (
+            node
+            == json.loads(
+                sources.raw_model(path).authoritative["desired.row.001-002.document"]
+            )["Statement"][0]["Resource"]
+        )
 
 
 @pytest.mark.parametrize("action", ["edit", "import"])

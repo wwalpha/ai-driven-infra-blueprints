@@ -318,16 +318,19 @@ uncompared. Structural equality retains runtime Select-bounds uncertainty and
 
 Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Validate generated JSON directly against the projected document; do not store derived JSON Artifact hashes in the Model or require `artifactSha256`.
 
-Model JSON retains typed `$modelRef` nodes as authority. `design_document()` validates
-syntax, same-scope unique Producer identity, attribute/type and receiving contracts through
-the common Reference Value Resolver, then uses `execution_document()` to preserve the
-logical nodes in generated design JSON. Both confirmed and pending references retain their
-logicalId/attribute, including encoded JSON strings; literal values/types and array order
-remain unchanged. `display_document()` projects confirmed values or PENDING_DEPLOY for
-Markdown while retaining artifact links. Display values never flow back to authority or
-design JSON. `generated_document()` is the separate physical-value projection for execution;
-it requires confirmed references. Strict Deploy generation checks physical readiness but
-still publishes logical design JSON. Design JSON must never be sent directly to AWS.
+Model JSON retains typed `$modelRef` nodes as authority. `design_document()` preserves
+authored structure; Model validation owns logical reference contracts. AWS JSON Artifacts
+use `generated_document()` and the common Reference Value Resolver in both normal and
+strict generation. Resolve confirmed references in objects, arrays and encoded JSON
+strings, then apply `execution_document()`; never restore logical nodes in these Artifacts.
+Compare saved JSON with this physical projection, not the authored logical document.
+Markdown uses the authored reference positions to retain Resource links, independently
+of the generated JSON values. Display and generated values never flow back to Model.
+Unresolved references prevent the affected service's Artifact publication and report the
+service, Producer and cause through Reference Diagnostics; other services continue.
+Retained old outputs are not successful current generation. Model Change Validation and
+publication remain independent of View generation; do not add a View validation gate or
+require physical projection of every non-Artifact Model attribute.
 Confirmed desired attributes can derive ARNs without observed values, including CREATE S3
 BucketName. CREATE does not imply undeployed. AWS-generated identifiers require measured
 values; never infer them. Observed PENDING_DEPLOY means the physical identifier is

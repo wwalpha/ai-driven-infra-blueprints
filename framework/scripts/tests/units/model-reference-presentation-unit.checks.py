@@ -13,7 +13,12 @@ import pytest
 from design.common import code
 from design.document import DesignIndex
 from design.layout import expanded_display_rows
-from design.policy_tables import Policy, policy_document_lines, rendered_design
+from design.policy_tables import (
+    Policy,
+    policy_document_lines,
+    policy_lines,
+    rendered_design,
+)
 from model.core import literal
 from model.identity import COUNTERS
 from model.projection import reference_display
@@ -499,11 +504,11 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     before = copy.deepcopy(values)
     files = generate_files(path, values, models)
     artifact = path.with_suffix("") / "policy.json"
-    assert json.loads(files[artifact])["Statement"][0]["Resource"] == reference(
-        "S3_Bucket_001", "Arn"
+    assert json.loads(files[artifact])["Statement"][0]["Resource"] == (
+        "arn:aws:s3:::shared-name"
     )
     assert "[shared-name](s3.md#s3-saved-anchor)" in files[path]
-    assert "](" not in files[artifact] and "$modelRef" in files[artifact]
+    assert "](" not in files[artifact] and "$modelRef" not in files[artifact]
     for file, text in files.items():
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(text, encoding="utf-8")
@@ -523,6 +528,19 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
         "ポリシー",
         "IAM.ManagedPolicy.PolicyDocument",
     )
+    presentation = Presentation(values, path, models)
+    rows = {
+        (policy.property_name, policy.link): [
+            (rid, {"property": policy.property_name, "document": json.dumps(document)})
+        ]
+    }
+    assert "[shared-name](s3.md#s3-saved-anchor)" in "\n".join(
+        policy_lines(path, policy, presentation=presentation, policy_rows=rows)
+    )
+    artifact.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(ValueError, match="differs from authoritative Model"):
+        policy_lines(path, policy, presentation=presentation, policy_rows=rows)
+    artifact.write_text(files[artifact], encoding="utf-8")
     original = {"Unsupported": reference("S3_Bucket_001", "Arn")}
     values[f"desired.row.{rid}.document"] = json.dumps(original)
     presentation = Presentation(values, path, models)
@@ -689,9 +707,12 @@ def test_policy_enum_reference_is_validated_before_presentation(models):
     )
     files = generate_files(path, values, models)
     assert "[Allow](codebuild.md#codebuild-saved-anchor)" in files[path]
-    assert json.loads(files[path.with_suffix("") / "policy.json"])["Statement"][0][
-        "Effect"
-    ] == reference("CodeBuild_Project_001", "Name")
+    assert (
+        json.loads(files[path.with_suffix("") / "policy.json"])["Statement"][0][
+            "Effect"
+        ]
+        == "Allow"
+    )
 
 
 if __name__ == "__main__":

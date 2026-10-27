@@ -292,11 +292,7 @@ def generate_views(
             resolver = _imports_model_projection.reference_resolver(
                 values, model.scope, root
             )
-            project_document = (
-                _imports_model_projection.generated_document
-                if strict
-                else _imports_model_projection.design_document
-            )
+            project_document = _imports_model_projection.generated_document
             for identity, row in entries(values, "desired.row."):
                 match = JSON_LINK.fullmatch(row.get("value", ""))
                 if not match:
@@ -362,23 +358,6 @@ def generate_views(
                 except ReferenceDiagnosticError as error:
                     diagnostics.extend(error.diagnostics)
                     continue
-                if strict:
-                    # Readiness checks must not materialize physical values in saved designs.
-                    document = _imports_model_projection.design_document(
-                        raw_document,
-                        root,
-                        property_name=row["property"],
-                        scope=model.scope,
-                        resolver=resolver,
-                        logical_id=values.get(
-                            f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
-                        ),
-                        model_key=f"desired.row.{identity}.document",
-                        context=_imports_model_projection.reference_context_for(
-                            values, identity, row, raw_document, "", root
-                        ),
-                        warnings=warnings,
-                    )
                 if not isinstance(document, dict):
                     raise ValueError(f"JSON document must be an object: {identity}")
                 content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
@@ -387,8 +366,7 @@ def generate_views(
                         f"conflicting authoritative JSON documents: {artifact.name}"
                     )
                 artifacts[artifact] = content
-            if strict:
-                require_reference_diagnostics(diagnostics)
+            require_reference_diagnostics(diagnostics)
             warnings.extend(d for d in diagnostics if d not in warnings)
             save_files(artifacts)
             staged.parent.mkdir(parents=True, exist_ok=True)
@@ -403,7 +381,7 @@ def generate_views(
                 {**diagnostic, "source": str(path.relative_to(root))}
                 for diagnostic in error.diagnostics
             )
-            if not strict or not isinstance(error, ReferenceResolutionError):
+            if not isinstance(error, ReferenceResolutionError):
                 message = f"{path.relative_to(root)}: {error}"
                 generation_failure(
                     root, failures, "generation.reference", path, message

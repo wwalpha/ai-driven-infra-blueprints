@@ -431,7 +431,7 @@ def test_pending_resolves_without_altering_authority(models):
             for path in paths
             if path.name == "iam-role-070-synthetic-policy.json"
         )
-        assert json.loads(generated.read_text(encoding="utf-8")) == document
+        assert json.loads(generated.read_text(encoding="utf-8")) == result
     finally:
         plan.close()
 
@@ -557,10 +557,11 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
             warnings=warnings,
             unavailable=unavailable,
         )
-    assert set(generated) == {good, bad}
-    assert not failures and not unavailable
+    assert set(generated) == {good}
+    assert bool(failures) == invalid
+    assert (bad in unavailable) == (not invalid)
     assert {path: path.read_bytes() for path in original} == original
-    assert json.loads((stage / artifact.relative_to(root)).read_text()) == document
+    assert (stage / artifact.relative_to(root)).read_bytes() == original[artifact]
     sync_runtime.save_files(
         {
             root / path.relative_to(stage): path.read_text(encoding="utf-8")
@@ -569,8 +570,8 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         }
     )
     assert good.read_text(encoding="utf-8") == "# Generated\n"
-    assert json.loads(artifact.read_text()) == document
-    assert bad.read_bytes() == b"# Generated\n"
+    assert artifact.read_bytes() == original[artifact]
+    assert bad.read_bytes() == original[bad]
     plan = SimpleNamespace(
         root=root,
         generated_scope={("qa", "team", path.stem) for path in generated},
@@ -586,14 +587,18 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         baseline_links={},
     )
     metadata = sync_runtime.generation_metadata(plan)
-    assert metadata["status"] == "PASS" and metadata["complete"]
-    assert not metadata["unavailable_services"]
+    assert metadata["status"] == ("FAIL" if invalid else "NOT_RUN")
+    assert not metadata["complete"]
+    assert bool(metadata["unavailable_services"]) == (not invalid)
     assert metadata["warnings"] == warnings
-    sync_runtime.report_generation(plan)
+    with pytest.raises(ValueError if invalid else ReferenceResolutionError):
+        sync_runtime.report_generation(plan)
 
 
 def test_conflicting_design_documents_fail_before_saving(models):
-    _, _, consumer, role, _ = models
+    producer, key, consumer, role, _ = models
+    key["observed.row.004-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
+    save(producer, key)
     role["desired.row.070-002.value"] = role["desired.row.070-004.value"]
     save(consumer, role)
     path = consumer.root / "docs/designs/qa/team/iam.md"
@@ -750,9 +755,9 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, state
         consumer.root, {("qa", "team", "iam")}, write=False, definitions_root=FRAMEWORK
     )
     try:
-        assert not plan.failures, plan.failures
-        assert not plan.unavailable
-        assert plan.generated
+        assert bool(plan.failures) == invalid, plan.failures
+        assert bool(plan.unavailable) == (not invalid)
+        assert not plan.generated
     finally:
         plan.close()
     lint = dict(
@@ -921,7 +926,9 @@ def test_unknown_validation_exception_is_fail(models):
 
 
 def test_invalid_source_identity_is_structured_without_duplicate_failure(models):
-    _, _, consumer, role, _ = models
+    producer, key, consumer, role, _ = models
+    key["observed.row.004-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
+    save(producer, key)
     role.update(
         {
             "desired.resource.071.resourceType": "IAM.Role",

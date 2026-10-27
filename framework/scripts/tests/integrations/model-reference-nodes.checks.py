@@ -5,8 +5,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -38,36 +36,31 @@ def main():
                 (None, "unresolved"),
                 ("PENDING_DEPLOY", "PENDING_DEPLOY"),
                 (
-                    "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+                    "12345678-1234-1234-1234-123456789012",
                     "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
                 ),
             ]:
                 if observed is not None:
-                    values["desired.row.001-001.property"] = (
-                        "KMS.Key.KeyId"
-                        if observed == "PENDING_DEPLOY"
-                        else "KMS.Key.Arn"
-                    )
+                    values["desired.row.001-001.property"] = "KMS.Key.KeyId"
                     values["observed.row.001-001.value"] = "`" + observed + "`"
                     save(producer, values)
-                snapshot = load_model(consumer)
-                if observed is None:
-                    try:
-                        generate_markdown(view, snapshot.values, root)
-                    except ReferenceResolutionError as error:
-                        assert error.diagnostic["category"] == "REFERENCE_UNRESOLVED"
-                        assert error.diagnostic["pointer"] == "/Statement/0/Resource"
-                    else:
-                        raise AssertionError("unresolved reference rendered Markdown")
-                else:
-                    markdown = generate_markdown(view, snapshot.values, root)
-                    expected_display = (
-                        expected
-                        if observed == "PENDING_DEPLOY"
-                        else "[KMS.Key](kms.md#saved-001)"
+                if observed not in (None, "PENDING_DEPLOY"):
+                    producer_view = view.with_name("kms.md")
+                    producer_view.parent.mkdir(parents=True, exist_ok=True)
+                    producer_view.write_text(
+                        generate_markdown(
+                            producer_view, load_model(producer).values, root
+                        ),
+                        encoding="utf-8",
                     )
-                    assert "$modelRef" not in markdown and expected_display in markdown
-                if observed is None:
+                snapshot = load_model(consumer)
+                markdown = generate_markdown(view, snapshot.values, root)
+                if observed in (None, "PENDING_DEPLOY"):
+                    assert "$modelRef" in markdown and "KMS_Key_001" in markdown
+                else:
+                    assert "$modelRef" not in markdown
+                    assert "](kms.md#saved-001)" in markdown
+                if observed in (None, "PENDING_DEPLOY"):
                     try:
                         generate_files(view, snapshot.values, root)
                     except ReferenceResolutionError as error:
@@ -91,21 +84,17 @@ def main():
                 if observed != "PENDING_DEPLOY":
                     assert expected not in display
                 document = json.loads(artifact.read_bytes())
-                assert document == json.loads(policy["desired.row.001-002.document"])
-                with pytest.raises(ValueError, match="Model reference"):
-                    validate_aws_document(document)
+                assert document["Statement"][0]["Resource"] == expected
+                assert "$modelRef" not in json.dumps(document)
+                validate_aws_document(document)
                 contract = dict(
                     resolver=reference_resolver(snapshot.values, consumer, root),
                     scope=consumer,
                     property_name="IAM.ManagedPolicy.PolicyDocument",
                 )
-                if observed == "PENDING_DEPLOY":
-                    with pytest.raises(ReferenceResolutionError):
-                        generated_document(document, root, **contract)
-                else:
-                    validate_aws_document(
-                        generated_document(document, root, **contract)
-                    )
+                assert document == generated_document(
+                    json.loads(policy["desired.row.001-002.document"]), root, **contract
+                )
                 assert consumer.path.read_bytes() == original
                 assert load_model(consumer).authoritative == policy
                 assert "$modelRef" in policy["desired.row.001-002.document"]

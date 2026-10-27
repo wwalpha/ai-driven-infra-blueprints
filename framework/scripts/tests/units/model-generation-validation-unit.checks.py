@@ -198,12 +198,16 @@ def test_files_keep_json_artifacts_warnings_and_input_tracking(model, intrinsic)
                 view, from_values, scope.root, warnings=warnings
             )
     assert checks.call_count == 0
-    assert warnings == []
+    assert bool(warnings) == intrinsic
     assert bool(expected_warnings) == intrinsic
     if not intrinsic:
         assert producer_scope.path in recorder.contents
     artifact = view.with_suffix("") / "policy.json"
     expected = json.loads(from_values["desired.row.001-002.document"])
+    if not intrinsic:
+        expected["Statement"][0]["Resource"] = (
+            "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+        )
     assert files[artifact] == json.dumps(expected, ensure_ascii=False, indent=2) + "\n"
     assert files[view] == render.generate_markdown(view, from_values, scope.root)
     assert from_values == before

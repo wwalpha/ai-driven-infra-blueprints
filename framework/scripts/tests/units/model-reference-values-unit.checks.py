@@ -15,7 +15,7 @@ import model.sources as sources
 import pytest
 import sync_runtime
 from deploy.model_cache import RunModels
-from model.core import ModelNeedsFixError
+from model.core import ModelNeedsFixError, ReferenceResolutionError
 from model.format import patch as patch_properties
 from model.format import serialize
 from model.identity import Resolver
@@ -111,7 +111,7 @@ def test_missing_generated_kms_value(fixture):
 
 @pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
 def test_explicit_pending(fixture, mode):
-    producer, values, consumer, _ = fixture
+    producer, values, consumer, policy = fixture
     values["desired.resource.001.resourceMode"] = mode
     values["desired.row.001-002.property"] = "S3.Bucket.Arn"
     values["desired.row.001-002.value"] = "[self](#saved-001)"
@@ -120,6 +120,19 @@ def test_explicit_pending(fixture, mode):
     save(producer, values)
     value = result(consumer)
     assert (value.status, value.value) == ("resolved", "arn:aws:s3:::fixture-materials")
+    document = json.loads(policy["desired.row.001-002.document"])
+    document["Statement"][0]["Resource"] = reference("S3_Bucket_001")
+    policy["desired.row.001-002.document"] = json.dumps(document)
+    save(consumer, policy)
+    view = consumer.root / "docs/designs/qa/team/iam.md"
+    files = generate_files(view, load_model(consumer).values, consumer.root)
+    assert (
+        json.loads(files[view.with_suffix("") / "policy.json"])["Statement"][0][
+            "Resource"
+        ]
+        == value.value
+    )
+    assert "$modelRef" in consumer.path.read_text(encoding="utf-8")
 
 
 def test_generated_vpc_identity_modes_match(fixture):
@@ -346,7 +359,10 @@ def test_sync_design_structure_matches_normal_generation(fixture, tmp_path, stri
     artifact = view.with_suffix("") / "policy.json"
     before = consumer.path.read_bytes()
     files = generate_files(view, load_model(consumer).values, root)
-    assert json.loads(files[artifact]) == document
+    expected = copy.deepcopy(document)
+    expected["Statement"][0]["Resource"] = "arn:aws:s3:::fixture-materials/*"
+    expected["Statement"][1]["Resource"] = "arn:aws:s3:::my-bucket/*"
+    assert json.loads(files[artifact]) == expected
     failures, warnings, unavailable = [], [], {}
     with (
         patch.object(sync_runtime, "markdown_for", return_value="# Generated\n"),
@@ -398,14 +414,13 @@ def test_generated_json_keeps_authority(fixture):
     expected = copy.deepcopy(document)
     expected["Statement"][0]["Resource"] = "arn:aws:s3:::fixture-materials"
     expected["Statement"][1]["Resource"][0] = "arn:aws:s3:::fixture-materials"
-    assert json.loads(files[artifact]) == document
+    assert json.loads(files[artifact]) == expected
     assert generate_files(view, load_model(consumer).values, consumer.root) == files
     assert (
         "arn:aws:s3:::fixture-materials" in files[view]
         and "$modelRef" not in files[view]
     )
-    with pytest.raises(ValueError, match="Model reference"):
-        validate_aws_document(json.loads(files[artifact]))
+    validate_aws_document(json.loads(files[artifact]))
     display = reference_display(policy, consumer.path, consumer.root)
     assert json.loads(display["desired.row.001-002.document"]) == expected
     assert {path: path.read_bytes() for path in before} == before
@@ -473,7 +488,62 @@ def test_generated_json_keeps_authority(fixture):
     values["desired.row.001-001.value"] = "`fixture-renamed`"
     save(producer, values)
     updated = generate_files(view, load_model(consumer).values, consumer.root)
-    assert json.loads(updated[artifact])["Statement"][0]["Resource"] == node
+    assert json.loads(updated[artifact])["Statement"][0]["Resource"] == (
+        "arn:aws:s3:::fixture-renamed"
+    )
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_artifact_nested_and_encoded_references(fixture, tmp_path, strict):
+    _, _, consumer, policy = fixture
+    node = reference("S3_Bucket_001")
+    document = {"Nested": {"items": [node, {"encoded": json.dumps([node, node])}]}}
+    policy["desired.row.001-002.document"] = json.dumps(document)
+    save(consumer, policy)
+    original = consumer.path.read_bytes()
+    view = consumer.root / "docs/designs/qa/team/iam.md"
+    files = generate_files(view, load_model(consumer).values, consumer.root)
+    result = json.loads(files[view.with_suffix("") / "policy.json"])
+    arn = "arn:aws:s3:::fixture-materials"
+    assert result["Nested"]["items"][0] == arn
+    assert json.loads(result["Nested"]["items"][1]["encoded"]) == [arn, arn]
+    assert "$modelRef" not in json.dumps(result)
+    failures = []
+    generated = sync_runtime.generate_views(
+        tmp_path / "stage",
+        consumer.root,
+        {view: load_model(consumer).values},
+        failures,
+        definitions_root=FRAMEWORK,
+        strict=strict,
+    )
+    assert not failures and view in generated
+    artifact = next(path for path in generated[view] if path.suffix == ".json")
+    assert json.loads(artifact.read_text(encoding="utf-8")) == result
+    assert consumer.path.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "PENDING_DEPLOY",
+        {"items": ["PENDING_DEPLOY"]},
+        json.dumps({"items": ["PENDING_DEPLOY"]}),
+    ],
+)
+def test_artifact_literal_pending_is_not_success(fixture, value):
+    _, _, consumer, policy = fixture
+    document = {"Resource": value}
+    with pytest.raises(ReferenceResolutionError) as caught:
+        generated_document(
+            document,
+            consumer.root,
+            resolver=reference_resolver(policy, consumer, consumer.root),
+            scope=consumer,
+        )
+    assert caught.value.diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
+    assert caught.value.diagnostic["pointer"].startswith("/Resource")
+    assert document == {"Resource": value}
 
 
 def test_unconfirmed_path_does_not_use_absence_default(fixture):
@@ -550,10 +620,11 @@ def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
             failures,
             unavailable=unavailable,
         )
-    assert set(generated) == {bad, good}
-    assert not failures and not unavailable
+    assert set(generated) == {good}
+    assert not failures and bad in unavailable
+    assert unavailable[bad]["diagnostics"][0]["category"] == "REFERENCE_UNRESOLVED"
     assert {path: path.read_bytes() for path in original} == original
-    assert "$modelRef" in (stage / artifact.relative_to(root)).read_text()
+    assert (stage / artifact.relative_to(root)).read_bytes() == original[artifact]
 
 
 @pytest.mark.parametrize("empty_snapshot", [False, True])

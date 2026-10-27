@@ -852,7 +852,7 @@ def model_policy_views(values, *, presentation=None):
 @task_read_scope(root=_task_root)
 @change_reads()
 def generate_files(path, values, root, *, warnings=None):
-    """Project one service in memory, retaining logical JSON reference declarations."""
+    """Project AWS JSON in memory without changing authoritative Model references."""
     safe = _imports_model_sources.safe
     scope_for = _imports_model_sources.scope_for
     scope = scope_for(
@@ -874,7 +874,7 @@ def generate_files(path, values, root, *, warnings=None):
         if artifact.parent != path.with_suffix("").resolve():
             raise ValueError("JSON artifact must belong to owning service")
         raw_document = policy_json(row["document"])
-        document = _imports_model_projection.design_document(
+        document = _imports_model_projection.generated_document(
             raw_document,
             root,
             property_name=row["property"],

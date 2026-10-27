@@ -353,15 +353,16 @@ def policy_lines(
         rows = [(rid, row) for rid, row in matching if "document" in row]
         if len(rows) == 1:
             rid, row = rows[0]
-            projected = _model_projection.design_document(
-                policy_json(row["document"]),
+            authored = policy_json(row["document"])
+            projected = _model_projection.generated_document(
+                authored,
                 presentation.root,
                 resolver=presentation.resolver,
                 scope=presentation.scope,
                 property_name=row["property"],
                 model_key=f"desired.row.{rid}.document",
                 context=_model_projection.reference_context_for(
-                    presentation.values, rid, row, document, "", presentation.root
+                    presentation.values, rid, row, authored, "", presentation.root
                 ),
             )
             if projected != document:
@@ -369,7 +370,7 @@ def policy_lines(
                     "policy JSON differs from authoritative Model: " + policy.link
                 )
             document = _model_projection.display_document(
-                document,
+                authored,
                 presentation.root,
                 resolver=presentation.resolver,
                 scope=presentation.scope,

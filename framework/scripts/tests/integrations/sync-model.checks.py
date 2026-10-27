@@ -556,6 +556,28 @@ def check_pending_artifact_transaction(generated_policy, failure):
                 root, {("dev", "123456789012", "iam")}
             )
             try:
+                assert not plan.failures and design in plan.unavailable
+                assert not plan.generated
+                sync_runtime.validate_generation(plan, jobs=1)
+                metadata = sync_runtime.generation_metadata(plan)
+                assert metadata["status"] == "NOT_RUN" and not metadata["complete"]
+                assert metadata["unverified"]
+                sync_runtime.publish_generation(plan)
+                assert not plan.saved
+                assert {p: p.read_bytes() for p in originals} == originals
+            finally:
+                plan.close()
+        assert {p: p.read_bytes() for p in authority} == authority
+        key["observed.row.001-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
+        save(producer, key)
+        authority[producer.path] = producer.path.read_bytes()
+        expected = json.loads(json.dumps(document))
+        expected["Statement"][0]["Resource"][1] = arn
+        with sync_runtime.generation_context(root, True):
+            plan = sync_runtime.prepare_generation(
+                root, {("dev", "123456789012", "iam")}
+            )
+            try:
                 assert not plan.failures and not plan.unavailable, plan.failures
                 sync_runtime.validate_generation(plan, jobs=1)
                 metadata = sync_runtime.generation_metadata(plan)
@@ -563,11 +585,11 @@ def check_pending_artifact_transaction(generated_policy, failure):
                 assert not metadata["unverified"]
                 candidate = plan.expected_outputs[design]
                 assert (
-                    json.loads(candidate[artifact]) == document and trust in candidate
+                    json.loads(candidate[artifact]) == expected and trust in candidate
                 )
                 assert "iam/iam-role-001-pending.json" in candidate[design]
                 assert (
-                    "$modelRef" in candidate[design]
+                    "$modelRef" not in candidate[design]
                     and "confirmed-bucket" in candidate[design]
                 )
                 with ExitStack() as injections:
@@ -600,7 +622,7 @@ def check_pending_artifact_transaction(generated_policy, failure):
                 else:
                     assert (
                         not plan.failures
-                        and json.loads(artifact.read_bytes()) == document
+                        and json.loads(artifact.read_bytes()) == expected
                     )
                     assert trust.read_bytes() == originals[trust]
                     assert design.read_text(encoding="utf-8") == candidate[design]
@@ -608,20 +630,9 @@ def check_pending_artifact_transaction(generated_policy, failure):
             finally:
                 plan.close()
         assert {p: p.read_bytes() for p in authority} == authority
-        if failure:
-            return
-        # Observations update displays without materializing the saved design JSON.
-        key["observed.row.001-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
-        save(producer, key)
-        assert MODULE.sync(root, True, "dev", "123456789012", ["iam"], jobs=1) == 0
-        assert (
-            json.loads(artifact.read_text(encoding="utf-8"))["Statement"][0][
-                "Resource"
-            ][1]
-            == reference()
-        )
-        assert "iam/iam-role-001-pending.json" in design.read_text(encoding="utf-8")
-        assert "PENDING_DEPLOY" not in artifact.read_text(encoding="utf-8")
+        assert "$modelRef" in values["desired.row.001-004.document"]
+        if not failure:
+            assert "PENDING_DEPLOY" not in artifact.read_text(encoding="utf-8")
 
 
 def check_changed_sidecar_publication(generated_policy):

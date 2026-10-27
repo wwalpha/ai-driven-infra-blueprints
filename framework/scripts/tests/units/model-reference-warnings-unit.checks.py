@@ -231,8 +231,8 @@ def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
         warnings=warnings,
         unavailable=unavailable,
     )
-    assert generated == {} and failures and warnings
-    assert not unavailable
+    assert generated == {} and not failures and warnings
+    assert path in unavailable
     assert (stage / path.relative_to(root)).read_text() == "saved view"
     assert (stage / artifact.relative_to(root)).read_text() == '{"original":true}'
     io_fail = _check_reference_view_retained_but_io_still_fails_io_fail
@@ -483,9 +483,18 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
         )
         == {}
     )
-    assert failures
-    assert warnings and not unverified
+    assert not failures
+    assert warnings and path in unverified
     assert not (stage / path.relative_to(root)).exists()
+    checked = _check_model_inputs(
+        root / "model/dev/target/codebuild.properties",
+        values,
+        root,
+        definitions_root=Path(__file__).resolve().parents[4],
+    )
+    assert any(
+        "CodeBuild.Project.Name must appear exactly once" in e for e in checked.errors
+    )
 
 
 def _callback_check_unavailable_service_keeps_source_errors_and_no_cache_generation(

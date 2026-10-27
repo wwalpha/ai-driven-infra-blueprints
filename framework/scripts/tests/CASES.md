@@ -116,7 +116,7 @@ remain unchanged.
 | `arn-pending::named` | `test_named_arn_with_pending_output` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 5 | CodeBuild Id待ち、IAM Path、Lambda、Glue複合識別、Events EventBusの既存計算 | 追加 |
 | `arn-pending::identity` | `test_only_generated_identity_waits` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 3 | KMS・EC2・SecretのAWS生成識別子待ちと大文字表示 | 追加 |
 | `arn-pending::policy` | `test_pending_policy_display_keeps_resolved_positions` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 1 | Policyの確定位置維持・部分Pending・論理JSON/リンク保持・厳格実行投影 | 追加 |
-| `arn-pending::transaction` | `check_pending_artifact_transaction` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 3 | 実Stage/Projection、Pending論理JSONとリンク保存、Markdown/JSON書込失敗の完全Rollback、解消後も論理JSON保持 | 追加 |
+| `arn-pending::transaction` | `check_pending_artifact_transaction` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py) | pytest / 3 | Pending時は旧成果物を保持してNOT_RUN、解消後は実ARNとMarkdownリンクを生成、Markdown/JSON書込失敗Rollback、Model論理参照不変 | 追加 |
 
 S3の計算可能なArn Pendingは既存test_explicit_pendingを更新。分類/表示UTは必要構成要素の待ちを証明できる合成入力へ修正し、未確認値/矛盾はReferenceResolutionErrorとして維持。Import strict、ARN組立、JSON整合性、Model/IaC比較は既存関連UTを利用。長時間ITと全ITは実行しない。
 
@@ -3384,7 +3384,7 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 
 | Requirement | Function | Layer | Source | Mode / cases | Responsibility | Notes |
 |---|---|---|---|---|---|---|
-| `model-reference::round-trip` | `main` | IT | [integrations/model-reference-nodes.checks.py](integrations/model-reference-nodes.checks.py#L26) | direct / 1 | Cross-service properties read → design artifact/Markdown generation → artifact-backed policy rendering, logical nodes retained in pending/confirmed JSON and saved Resource link in Markdown with unchanged Consumer Desired; unresolved generation refusal and separate concrete AWS JSON projection/validation | Authored synthetic fixture; local execution forbidden |
+| `model-reference::round-trip` | `main` | IT | [integrations/model-reference-nodes.checks.py](integrations/model-reference-nodes.checks.py#L24) | direct / 1 | Cross-service properties → physical AWS JSON/Markdown generation → artifact rendering; Resource links and Consumer logical references unchanged; unresolved/pending references cannot publish AWS JSON | Authored synthetic fixture |
 
 `units/model-reference-nodes-unit.checks.py` owns strict syntax, target-local uniqueness/cache,
 producer/attribute contracts, logical comparison with Ref/GetAtt/Export, ambiguity and missing
@@ -3493,7 +3493,7 @@ All patterns use the common evaluator and authored temporary Models. An incomple
   service isolation with saved-view retention.
 - Existing typed-node tests retain canonical design JSON preservation; pipeline display now
   expects confirmed desired Name without observed and rejects contradictory observed Name.
-  Existing Model Reference IT remains one round-trip case and is not run locally.
+  Existing Model Reference IT remains one focused offline round-trip case.
 
 
 ## Shared Reference contract completion
@@ -4146,12 +4146,14 @@ These UTs exercise cache units and execution boundaries; existing generation/imp
 | `indexed-properties::required` | `check_indexed_required_ancestors` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | Required ancestors and scoped changes | Synthetic Model |
 | `indexed-properties::display` | `check_indexed_display` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | Preserve positions in display rows | Synthetic rows |
 
-## Logical design JSON projection
+## Model authority and AWS JSON projection
 
-Existing reference value/node/classification cases now distinguish retained logical design
-JSON and Markdown links from physical execution readiness. Mixed/encoded values, repeated
-identical generation, invalid references, healthy service isolation and pending NOT_RUN
-metadata remain in those UTs. The existing 3-case pending transaction IT now injects
+Existing reference value/node/classification cases distinguish retained logical Model
+JSON and Markdown links from physical AWS JSON Artifacts in normal/strict generation.
+Mixed/encoded values, repeated identical generation, invalid references, healthy service
+isolation and pending NOT_RUN metadata remain in those UTs. Pending or invalid Artifacts
+never count retained old JSON as successful current generation.
+The existing 3-case pending transaction IT injects
 Markdown and JSON writes; pending deployment never schedules artifact deletion.
 
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
@@ -4160,3 +4162,6 @@ Markdown and JSON writes; pending deployment never schedules artifact deletion.
 | `cloudformation-inputs::design-nodes` | `check_deploy_input_rejects_design_nodes` | UT | [units/cloudformation-inputs-unit.checks.py](units/cloudformation-inputs-unit.checks.py) | pytest / 6 | Strict/permissive decoded Templates, encoded JSON and Parameters reject design references before submission | Synthetic files |
 
 | `design-json::conflicting-documents` | `test_conflicting_design_documents_fail_before_saving` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 2 | Two Model documents claiming one artifact fail before save in both common generation paths; saved files/authority unchanged | Synthetic CREATE/IMPORT |
+| `generated-json::nested` | `test_artifact_nested_and_encoded_references` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 2 | Normal/strict Artifact generation resolves Object/Array/encoded references without changing Model | Synthetic Models |
+| `generated-json::pending-literal` | `test_artifact_literal_pending_is_not_success` | UT | [units/model-reference-values-unit.checks.py](units/model-reference-values-unit.checks.py) | pytest / 3 | Scalar/nested/encoded PENDING_DEPLOY is classified and cannot become successful AWS JSON | Synthetic JSON |
+| `generated-json::independent-save` | `check_pending_artifact_does_not_gate_model_save` | UT | [units/change-validation-unit.checks.py](units/change-validation-unit.checks.py) | pytest / 1 | Real prepare/publish saves Model with pending reference before and after failed Artifact generation | Authorized synthetic Model edit |

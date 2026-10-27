@@ -563,6 +563,18 @@ def design_document(document, root, *, warnings=None, **contract):
     return document
 
 
+def _pending_document_values(document, pointer=""):
+    for position, value in environment_values._leaves(document, pointer):
+        if value == "PENDING_DEPLOY":
+            yield position
+        elif isinstance(value, str) and value.lstrip().startswith(("{", "[")):
+            try:
+                encoded = _imports_utils_json_format.policy_json(value)
+            except ValueError:
+                continue
+            yield from _pending_document_values(encoded, position)
+
+
 def generated_document(
     document,
     root,
@@ -587,32 +599,7 @@ def generated_document(
     )
     require_reference_diagnostics(diagnostics)
     resolved = project(document, partial(_resolved_document_value, resolutions))
-    if property_name and any(
-        value == "PENDING_DEPLOY" for _, value in environment_values._leaves(resolved)
-    ):
-        kind = ".".join(property_name.split(".")[:2])
-        pending = [
-            item
-            for item in environment_values.inspect(
-                kind,
-                property_name,
-                resolved,
-                environment_values.mapping_for(root, kind),
-                context=context,
-            )
-            if item.value == "PENDING_DEPLOY"
-        ]
-        if pending:
-            raise ReferenceResolutionError(
-                "environment artifact requires confirmed Values",
-                category="REFERENCE_PENDING_DEPLOY",
-                code="ENVIRONMENT_VALUE_PENDING",
-                model=str(scope.path),
-                modelKey=model_key,
-                property=property_name,
-                pointer=pending[0].pointer,
-            )
-    return execution_document(
+    projected = execution_document(
         resolved,
         root,
         property_name=property_name,
@@ -620,6 +607,20 @@ def generated_document(
         logical_id=logical_id,
         warnings=warnings,
     )
+    pending = next(_pending_document_values(projected), None)
+    if pending is not None:
+        raise ReferenceResolutionError(
+            "JSON artifact requires confirmed values",
+            category="REFERENCE_PENDING_DEPLOY",
+            code="REFERENCE_PENDING_DEPLOY",
+            model=str(scope.path),
+            resourceLogicalId=logical_id,
+            modelKey=model_key,
+            property=property_name,
+            pointer=pending,
+            scope=f"{scope.environment}/{scope.target}/{scope.service}",
+        )
+    return projected
 
 
 def configuration_context(values, row_id, root):
