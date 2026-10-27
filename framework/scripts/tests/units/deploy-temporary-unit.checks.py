@@ -367,7 +367,11 @@ def check_inline_failure_template_does_not_block_reclamation(tmp_path):
         {
             "repository": str(root),
             "target": TARGET,
-            "states": {"App": {"delivery": {"path": str(template), "arguments": {"inline": True}}}},
+            "states": {
+                "App": {
+                    "delivery": {"path": str(template), "arguments": {"inline": True}}
+                }
+            },
         },
     )
     assert temporary.handoff.failure_templates(root, TARGET) == set()
@@ -381,11 +385,14 @@ def check_inline_failure_template_does_not_block_reclamation(tmp_path):
         {
             "repository": str(root),
             "target": TARGET,
-            "states": {"App": {"delivery": {"path": str(external), "arguments": {"inline": True}}}},
+            "states": {
+                "App": {
+                    "delivery": {"path": str(external), "arguments": {"inline": True}}
+                }
+            },
         },
     )
     assert temporary.handoff.failure_templates(root, TARGET) == {external}
-
 
 
 if __name__ == "__main__":

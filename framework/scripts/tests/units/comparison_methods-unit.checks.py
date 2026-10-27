@@ -22,7 +22,7 @@ from comparison.methods import (
     keyed,
 )
 from comparison.references import ReferenceDecision, reference_same
-from comparison.result import value_differences
+from comparison.result import setting_result, value_differences
 from design.catalog import DesignSchemaCatalog, property_paths_with_parents
 from support.pytest_cli import run
 from utils.aws_catalogs import catalogs_for
@@ -30,6 +30,7 @@ from utils.iac_values import (
     Expression,
     ResourceReference,
     comparison_result,
+    safe_value,
     same,
     unordered_same,
 )
@@ -904,3 +905,82 @@ def test_unordered_length_difference_retains_proven_sid_and_pointers():
         ("Statement[0].Effect", ("Statement", 0, "Effect"), ("Statement", 1, "Effect")),
     ]
     assert value_differences(result, left, right, path)[1]["iac"] == "Deny"
+
+
+def test_nested_policy_reference_difference_keeps_keyed_path_and_values():
+    rules = registry.rules("IAM.Role")
+    model = [
+        {
+            "PolicyName": "IfInboundGlueAccess",
+            "PolicyDocument": {
+                "Statement": [
+                    {"Sid": "UseAppKey", "Resource": "alias-arn"},
+                    {"Sid": "Other", "Resource": "same"},
+                ]
+            },
+        },
+        {"PolicyName": "OtherPolicy", "PolicyDocument": {"Statement": []}},
+    ]
+    actual = [
+        {"PolicyName": "OtherPolicy", "PolicyDocument": {"Statement": []}},
+        {
+            "PolicyName": "IfInboundGlueAccess",
+            "PolicyDocument": {
+                "Statement": [
+                    {"Sid": "Other", "Resource": "same"},
+                    {"Sid": "UseAppKey", "Resource": "key-arn"},
+                ]
+            },
+        },
+    ]
+
+    def reference(left, right, path):
+        if path == "Policies[].PolicyDocument.Statement[].Resource" and left != right:
+            return ReferenceDecision(False)
+        if path == "Policies[].PolicyDocument" and left != right:
+            return ReferenceDecision(False)
+        return ReferenceDecision(NotImplemented)
+
+    decision = compare_values(
+        model, actual, "Policies", rules=rules, reference=reference
+    )
+    batch = setting_result(
+        "iam",
+        "054",
+        "IAM.Role.Policies",
+        model,
+        actual,
+        decision,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=safe_value,
+    )
+    assert batch.records[0]["category"] == "difference"
+    assert value_differences(decision, model, actual) == [
+        {
+            "path": "Policies[PolicyName=IfInboundGlueAccess].PolicyDocument.Statement[0].Resource",
+            "model": "alias-arn",
+            "iac": "key-arn",
+        }
+    ]
+    actual[1]["PolicyDocument"]["Statement"][1]["Resource"] = "alias-arn"
+    matched = compare_values(model, actual, "Policies", rules=rules)
+    assert matched.equal is True
+    assert (
+        setting_result(
+            "iam",
+            "054",
+            "IAM.Role.Policies",
+            model,
+            actual,
+            matched,
+            "stack",
+            [{}],
+            {},
+            actual_error=None,
+            redact=safe_value,
+        ).records[0]["category"]
+        == "matched"
+    )

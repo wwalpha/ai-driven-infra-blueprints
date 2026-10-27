@@ -476,10 +476,9 @@ def _keyed_same(state, left, right, path, whole, key):
 
 def _prefix_path(parent, child):
     if isinstance(child, str):
-        return (
-            parent
-            + ("" if not child or child.startswith("[") or not parent else ".")
-            + child
+        return _path(
+            parent,
+            ("" if not child or child.startswith("[") or not parent else ".") + child,
         )
     return (_prefix_path(parent, child[0]), *child[1:])
 
