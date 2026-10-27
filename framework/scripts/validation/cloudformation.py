@@ -2,7 +2,6 @@
 
 import json
 import re
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import design.layout as _imports_design_layout
@@ -277,37 +276,6 @@ def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
             )
 
 
-def _recursive_check_cloudformation_environment_parameters_selection_paths(
-    uses_environment, /, value, location=""
-):
-    if isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from _recursive_check_cloudformation_environment_parameters_selection_paths(
-                uses_environment, item, f"{location}[{index}]"
-            )
-    elif isinstance(value, dict):
-        for key, argument in value.items():
-            child = f"{location}.{key}" if location else key
-            if key == "Conditions" and not location and isinstance(argument, dict):
-                for name, expression in argument.items():
-                    if uses_environment(expression):
-                        yield f"{child}.{name}"
-                continue
-            selectors = []
-            if isinstance(argument, list):
-                if key == "Fn::FindInMap":
-                    selectors = argument[:3]
-                elif key == "Fn::If" or key == "Fn::Select":
-                    selectors = argument[:1]
-                elif isinstance(key, str) and key.startswith("Fn::ForEach::"):
-                    selectors = argument[1:2]
-            if any(uses_environment(selector) for selector in selectors):
-                yield child
-            yield from _recursive_check_cloudformation_environment_parameters_selection_paths(
-                uses_environment, argument, child
-            )
-
-
 def _recursive_check_cloudformation_environment_parameters_uses_environment(
     value,
 ) -> bool:
@@ -354,11 +322,6 @@ def check_cloudformation_environment_parameters(
 ) -> None:
     uses_environment = (
         _recursive_check_cloudformation_environment_parameters_uses_environment
-    )
-
-    selection_paths = _bind_framework_callback(
-        _recursive_check_cloudformation_environment_parameters_selection_paths,
-        uses_environment,
     )
 
     templates = root / "infra" / "cloudformation" / "templates"
@@ -410,15 +373,6 @@ def check_cloudformation_environment_parameters(
                 f"invalid CloudFormation template for Environment validation: {findings.relative(path)}: {detail}",
             )
             continue
-        for location in selection_paths(document):
-            findings.check_file(
-                False,
-                path,
-                f"CloudFormation must not branch on Environment: {findings.relative(path)}: {location}. "
-                "Environment may be used for naming/tags/value composition, but must not control "
-                "Conditions or environment-specific value selection. "
-                "Pass the differing value explicitly through deployment parameters instead.",
-            )
         if uses_environment(document):
             environment_templates.add(path)
             definitions = document.get("Parameters", {})
@@ -426,7 +380,7 @@ def check_cloudformation_environment_parameters(
             findings.check_file(
                 declared,
                 path,
-                f"CloudFormation resource uses Environment without Parameters.Environment: {findings.relative(path)}",
+                f"CloudFormation template uses Environment without Parameters.Environment: {findings.relative(path)}",
             )
 
     for path in sorted(input_select(parameters, "*.json", recursive=True)):

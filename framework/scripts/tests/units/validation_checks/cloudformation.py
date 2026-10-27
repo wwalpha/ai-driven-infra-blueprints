@@ -393,91 +393,48 @@ Resources:
             [valid_values[0], {**valid_values[1], "ParameterValue": "device"}],
         )
 
-        # Decode real short/long YAML intrinsics; names cannot hide Environment control-flow.
-        conditions = [
-            ("IsDev: !Equals [!Ref Environment, dev]", "IsDev"),
-            ("UseSmall: !Equals [!Ref Environment, dev]", "UseSmall"),
-            ("IsNonProd: !Not [!Equals [!Ref Environment, prod]]", "IsNonProd"),
-            (
-                "NestedAnd:\n    Fn::And:\n      - Fn::Equals: [{Ref: Environment}, dev]\n      - Fn::Equals: [{Ref: EnableFeature}, 'true']",
-                "NestedAnd",
-            ),
-            (
-                "NestedOr: !Or [!Equals [!Ref Environment, dev], !Equals [!Ref EnableFeature, 'true']]",
-                "NestedOr",
-            ),
-            (
-                "Composed: !Equals [!Join ['-', [app, !Ref Environment]], app-dev]",
-                "Composed",
-            ),
-            ("Substituted: !Equals [!Sub '${Environment}', dev]", "Substituted"),
-            (
-                "Alias: !Equals [!Sub ['${Stage}', {Stage: !Ref Environment}], dev]",
-                "Alias",
-            ),
-            (
-                "Base: !Equals [!Ref Environment, dev]\n  Indirect: !Condition Base",
-                "Base",
-            ),
-        ]
-        for expression, name in conditions:
-            yaml = valid_template + "Conditions:\n  " + expression + "\n"
-            failures = errors(yaml, valid_values)
-            assert any(
-                "must not branch on Environment" in failure
-                and f"Conditions.{name}" in failure
-                and "role.yaml" in failure
-                and "deployment parameters" in failure
-                for failure in failures
-            ), (expression, failures)
-        # Resource, property and Output existence/values all share the checked Conditions.
-        yaml = valid_template.replace(
-            "    Properties:", "    Condition: UseSmall\n    Properties:"
-        )
-        yaml += "Conditions:\n  UseSmall: !Equals [!Ref Environment, dev]\nOutputs:\n  Name:\n    Condition: UseSmall\n    Value: !If [UseSmall, small, large]\n"
-        assert any(
-            "Conditions.UseSmall" in failure for failure in errors(yaml, valid_values)
-        )
-
-        value_path = "Resources.Role.Properties.RoleName"
         name_expression = "!Sub '${NamePrefix}-${Environment}-${AWS::AccountId}-role'"
-        selectors = [
-            (
-                "!FindInMap [EnvironmentConfig, !Ref Environment, InstanceType]",
-                "Fn::FindInMap",
-            ),
-            ("!FindInMap [EnvironmentConfig, dev, !Ref Environment]", "Fn::FindInMap"),
-            (
-                "!FindInMap [!Sub '${Environment}Config', dev, InstanceType]",
-                "Fn::FindInMap",
-            ),
-            (
-                "!FindInMap [EnvironmentConfig, !Join ['', [!Ref Environment]], InstanceType]",
-                "Fn::FindInMap",
-            ),
-            (
-                "!FindInMap [EnvironmentConfig, !Sub ['${Stage}', {Stage: !Ref Environment}], InstanceType]",
-                "Fn::FindInMap",
-            ),
-            ("!Select [!Ref Environment, [small, large]]", "Fn::Select"),
-            (
-                "!Select [!FindInMap [EnvironmentConfig, !Ref Environment, Index], [small, large]]",
-                "Fn::Select[0].Fn::FindInMap",
-            ),
-            ("!If [!Ref Environment, small, large]", "Fn::If"),
-        ]
-        for expression, intrinsic in selectors:
-            failures = errors(
-                valid_template.replace(name_expression, expression), valid_values
-            )
-            assert any(
-                f"{value_path}.{intrinsic}" in failure for failure in failures
-            ), (expression, failures)
-        loop = "\n  Fn::ForEach::Loop:\n    - Item\n    - !Split [',', !Ref Environment]\n    - Bucket${Item}:\n        Type: AWS::S3::Bucket\n"
+        branching = valid_template.replace(
+            "    Properties:", "    Condition: IsDev\n    Properties:"
+        ).replace(name_expression, "!If [IsDev, small, large]")
+        branching += "Conditions:\n  IsDev: !Equals [!Ref Environment, dev]\nOutputs:\n  Name:\n    Condition: IsDev\n    Value: !If [IsDev, small, large]\n"
+        assert not errors(branching, valid_values)
+        condition_only = valid_template.replace(name_expression, "!Ref NamePrefix")
+        condition_only += "Conditions:\n  IsDev: !Equals [!Ref Environment, dev]\n"
+        assert not errors(condition_only, valid_values)
         assert any(
-            "Resources.Fn::ForEach::Loop" in failure
-            for failure in errors(valid_template + loop, valid_values)
+            "without Parameters.Environment" in error
+            for error in errors(
+                condition_only.replace("  Environment:\n    Type: String\n", ""),
+                valid_values,
+            )
         )
+        mapping = "Mappings:\n  EnvironmentConfig:\n    dev:\n      Name: small\n      Index: '0'\n    prod:\n      Name: large\n      Index: '1'\n"
+        for expression in (
+            "!FindInMap [EnvironmentConfig, !Ref Environment, Name]",
+            "!Select [!FindInMap [EnvironmentConfig, !Ref Environment, Index], [small, large]]",
+        ):
+            yaml = valid_template.replace(name_expression, expression) + mapping
+            assert not errors(yaml, valid_values), (
+                expression,
+                errors(yaml, valid_values),
+            )
+        loop = """AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::LanguageExtensions
+Parameters:
+  Environment:
+    Type: String
+Resources:
+  Fn::ForEach::Loop:
+    - Item
+    - [One, Two]
+    - 'Bucket${Item}':
+        Type: AWS::S3::Bucket
+        Condition: IsDev
+Conditions:
+  IsDev: !Equals [!Ref Environment, dev]
+"""
+        assert not errors(loop, valid_values)
 
         permitted = [
             valid_template,
@@ -544,19 +501,16 @@ Resources:
         document["Conditions"] = {
             "Renamed": {"Fn::Equals": [{"Ref": "Environment"}, "dev"]}
         }
-        failures = errors(json.dumps(document), valid_values)
-        assert any(
-            "role.json: Conditions.Renamed" in failure for failure in failures
-        ), failures
+        assert not errors(json.dumps(document), valid_values)
         validator = MODULE.Validator(root, set())
         validator.check_cloudformation_environment_parameters()
-        assert any("must not branch" in failure for failure in validator.errors)
+        assert not validator.errors
         assert any(
             "invalid CloudFormation template" in failure
             for failure in errors("Resources: [", valid_values)
         )
     print(
-        "CloudFormation Environment checks: PASS (AST control-flow/selectors, naming/composition, JSON)"
+        "CloudFormation Environment checks: PASS (conditions/selectors, naming/composition, JSON)"
     )
 
 
