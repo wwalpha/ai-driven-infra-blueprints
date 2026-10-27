@@ -708,7 +708,10 @@ def check_candidate_indexed_saved_reference(tmp_path, service, kind, field, faul
     reference_models.save(scope, values)
     target = tmp_path / f"docs/designs/qa/team/{service}.md"
     target.parent.mkdir(parents=True)
-    text = model_design.generate_markdown(target, values, reference_models.FRAMEWORK)
+    with mapping_alias(reference_models.FRAMEWORK, tmp_path):
+        text = model_design.generate_markdown(
+            target, values, reference_models.FRAMEWORK
+        )
     if fault == "unrelated":
         text = (
             text.replace(f"`{unrelated}`", "`stale`").replace(

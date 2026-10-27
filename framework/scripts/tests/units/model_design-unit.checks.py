@@ -91,6 +91,22 @@ text = _exports_support_model_design_fixtures.text
 
 
 def check_array_model_projection(tmp_path):
+    (tmp_path / "project.json").write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {
+                        "environment": "dev",
+                        "alias": "team",
+                        "awsAccountId": "123456789012",
+                        "awsRegion": "ap-northeast-1",
+                        "iacEngine": "cloudformation",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     kind = "QuickSight.DataSource"
     raw = '`[ "quicksight:DescribeDataSource", "quicksight:PassDataSource" ]`'
     values = model(
