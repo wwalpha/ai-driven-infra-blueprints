@@ -153,7 +153,9 @@ def materialize(consumer, role, document, *, warnings=None):
     )
 
 
-@pytest.mark.parametrize("fault", [None, "target", "attribute", "type", "stale", "iac"])
+@pytest.mark.parametrize(
+    "fault", [None, "target", "attribute", "type", "stale", "iac", "interrupt"]
+)
 def test_pending_model_only_validation_and_final_acceptance(models, fault):
     _, _, consumer, role, document = models
     root = consumer.root
@@ -206,6 +208,13 @@ def test_pending_model_only_validation_and_final_acceptance(models, fault):
         validator.findings.evaluate(
             "validation.changed-model", scope, validator.check_changed_designs
         )
+        if fault == "interrupt":
+
+            def interrupted():
+                assert validator.findings.status in {"PASS", "FAIL"}
+                raise KeyboardInterrupt("required handler interrupted")
+
+            validator.findings.evaluate("validation.required", scope, interrupted)
         if fault == "iac":
             template = root / "infra/cloudformation/templates/role.yaml"
             parameters = root / "infra/cloudformation/parameters/qa/team/role.json"
@@ -250,6 +259,28 @@ def test_pending_model_only_validation_and_final_acceptance(models, fault):
         )
     else:
         assert all(f["reason"].strip() for f in validator.findings.failures())
+
+
+@pytest.mark.parametrize("preregistered", [False, True])
+@pytest.mark.parametrize("pending", [False, True])
+def test_real_scoped_policy_aggregation(models, preregistered, pending):
+    producer, key, consumer, role, _ = models
+    if not pending:
+        key["observed.row.004-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
+        save(producer, key)
+    view = consumer.root / "docs/designs/qa/team/iam.md"
+    save_files(generate_files(view, role, consumer.root))
+    validator = Validator(consumer.root, {("qa", "team", "iam")}, workers=1)
+    validator.check_project_topology()
+    if preregistered:
+        validator.findings.result("framework.policy-tables", validator.scope)
+    validator.check_scoped_designs()
+    assert not validator.errors, validator.errors
+    assert validator.findings.status == "PASS", validator.findings.failures()
+    for check_id in ("framework.generated-service-model", "framework.policy-tables"):
+        result = validator.findings.get_result(check_id, validator.scope)
+        assert result.status == "PASS" and result.metadata["complete"]
+    assert validator.report() == 0
 
 
 @pytest.mark.parametrize(

@@ -38,7 +38,7 @@ If updating the model fails, do not update Markdown/JSON. The model is authorita
 - S3 placement may explicitly approve delegation to bucket default encryption using model-only `desired.resource.<id>.deploymentEncryption=default` on `S3.Bucket`. No other value/resource type is permitted. Omission means explicit encryption headers derived from the selected formal BucketEncryption rows; it never means approval to delegate. Retain confirmed default SSEAlgorithm and, for SSE-KMS, KMSMasterKeyID rows in either mode. Validate this approval directly in the authoritative Model, like model-only CFn identity; do not infer it from Markdown, policy, missing rows, or AWS settings.
 - Catalog properties are authoritative for selectable items; model properties are authoritative for desired and observed values. Markdown and JSON artifacts are generated outputs for display and use.
 - Codex saves confirmed designs in environment-specific properties first through the shared Task-authorized Model APIs. Human properties edits are design inputs. the integrated `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` generates and validates Markdown/JSON artifacts without overwriting the model; `sync-model.py --write` remains the generation-only entrypoint.
-- Fail the local loop for Markdown/Model mismatches when reference-complete generation is available. A View retained for proven pending deployment records RETAINED_PENDING_DEPLOY; an unresolved required comparison is a reasoned FAIL. Do not silently adopt either one.
+- Fail the local loop for Markdown/Model mismatches. Normal pending deployment uses the existing PENDING_DEPLOY projection to finish required generation, comparison and validation; an unresolved required comparison is a reasoned FAIL.
 - Ordinary saves validate the corrected Model and affected consumers through the common candidate guard. Do not require the old Model to load or preserve its fields. Missing/ambiguous final reference targets and invalid reference types/Properties block final save/completion/integration; pending observations and saved-text differences remain diagnostics. Dedicated operation leaves may save intermediate sources, but their parent must pass final candidate validation.
 - After saving authoritative Model inputs, design tasks generate Markdown and JSON artifacts in the same coherent logical change. When selected existing resources were retrieved read-only, also generate required non-ARN current identifiers in `observed.*`.
 - Follow [observed-values](observed-values.md) for current identifier update conditions and propagation.
@@ -108,11 +108,11 @@ and execute every independent mandatory Model check. Distinguish unresolved refe
 from proven pending deployment and reject invalid candidate references. A genuinely
 interrupted or unexecuted mandatory check is FAIL with its concrete cause and blocks completion.
 
-When a View requires a pending physical value, retain the saved View or report it as not
-generated with its pending state and diagnostic. Do not claim the retained View matches
-the current Model. For Model-only integration, a proven pending View does not block an
-otherwise successful Model validation. Actual generation errors and unresolved or
-unexecuted mandatory validation remain blocking. Do not cache incomplete results.
+When a View requires a normally pending physical value, use the existing PENDING_DEPLOY
+projection and finish required generation, comparison and Policy validation. Preserve
+pending diagnostics. Retained or not-generated Views do not prove completion. Actual
+projection failures, invalid references and interrupted or unexecuted mandatory checks
+remain reasoned FAILs and block completion. Do not cache incomplete results.
 
 ## IMPORT configuration authority
 

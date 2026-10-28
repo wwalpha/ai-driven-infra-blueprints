@@ -801,7 +801,10 @@ def check_framework_write_does_not_discover(tmp_path, scope, contract_scope):
 
 @pytest.mark.parametrize("inventory", ["### iam\n1. 未解決Issue\n", "未解決issueなし"])
 @pytest.mark.parametrize("outcome", ["success", "partial", "not_run", "common"])
-def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys):
+@pytest.mark.parametrize("model_validation", ["full", "change"])
+def check_integrated_generation_with_issues(
+    tmp_path, inventory, outcome, capsys, model_validation
+):
     good = tmp_path / "docs/designs/dev/123456789012/iam.md"
     rejected = good.with_name("kms.md")
     good.parent.mkdir(parents=True)
@@ -847,7 +850,10 @@ def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys
                 "status": "FAIL",
                 "retainedView": str(rejected),
             }
-        validator = load("validate-blueprint").Validator(tmp_path, scope, write=True)
+        validator = load("validate-blueprint").Validator(
+            tmp_path, scope, write=True, model_validation=model_validation
+        )
+        validator.change_plan = SimpleNamespace(views=scope)
         validator.task_type = "migration"
         validator.task.contract_text = snapshot.expected_task[1]
         validator.changed_paths = set(outputs)
@@ -863,7 +869,31 @@ def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys
             "check_task_boundary",
             "check_task_type_requirements",
             "check_acceptance_checks",
+            "check_changed_inputs",
         )
+        executed_common = {}
+
+        def prepare_candidate(*args, **kwargs):
+            for check_id in (
+                "validation.structure",
+                "validation.topology",
+                "validation.scope",
+                "validation.initialized",
+                "validation.catalog",
+                *(["validation.changed-model"] if model_validation == "change" else []),
+            ):
+                result = validator.findings.get_result(check_id, scope)
+                assert result.started and result.metadata["complete"]
+                executed_common[check_id] = result
+            for check_id in (
+                "framework.generated-service-model",
+                "framework.policy-tables",
+            ):
+                validator.findings.evaluate(
+                    check_id, scope, lambda: {"old_candidate": True}
+                )
+            return plan
+
         with ExitStack() as patches, recording_inputs(snapshot):
             patches.enter_context(patch.object(validator.task, "check_task_scope"))
             patches.enter_context(
@@ -882,7 +912,9 @@ def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys
                     )
                 )
             prepare = patches.enter_context(
-                patch.object(sync_runtime, "prepare_generation", return_value=plan)
+                patch.object(
+                    sync_runtime, "prepare_generation", side_effect=prepare_candidate
+                )
             )
             patches.enter_context(patch.object(sync_runtime, "validate_generation"))
             result = validator._run(snapshot)
@@ -894,6 +926,22 @@ def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys
             b"new KMS\n" if outcome == "success" else b"old KMS\n"
         )
         assert prepare.call_count == (0 if outcome == "common" else 1)
+        if outcome != "common":
+            for check_id, executed in executed_common.items():
+                retained = validator.findings.get_result(check_id, scope)
+                assert retained is not None and retained.candidate is plan.candidate
+                assert retained.started and retained.status == "PASS"
+                assert (
+                    retained.metadata is executed.metadata
+                    and retained.metadata["complete"]
+                )
+            generated = validator.findings.get_result(
+                "framework.generated-service-model", scope
+            )
+            assert generated.started and not generated.metadata.get("old_candidate")
+            assert (
+                validator.findings.get_result("framework.policy-tables", scope) is None
+            )
         assert issue.read_text(encoding="utf-8") == inventory
         assert (
             issue not in snapshot.contents

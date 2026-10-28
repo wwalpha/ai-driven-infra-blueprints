@@ -585,6 +585,123 @@ def check_explicit_aggregation_requires_children(tmp_path, state):
         assert "child" in parent.metadata["reason"]
 
 
+@pytest.mark.parametrize(
+    "state", ["PASS", "FAIL", "incomplete", "interrupted", "missing"]
+)
+def check_aggregate_replaces_only_its_reservation(tmp_path, state):
+    findings = Findings(tmp_path)
+    scope = {("dev", "team", "s3")}
+    reservation = findings.result("parent", scope)
+    assert findings.status == "FAIL"
+    if state != "missing":
+        source = Findings(tmp_path)
+        if state == "interrupted":
+            source.evaluate("parent", scope, Mock(side_effect=KeyboardInterrupt()))
+        else:
+            # Imported results need not have started in this Findings instance.
+            child = CheckResult(
+                "parent",
+                frozenset(scope),
+                source.candidate,
+                status="FAIL" if state == "FAIL" else "PASS",
+                metadata={
+                    "complete": state != "incomplete",
+                    "reason": "actual child cause",
+                },
+            )
+            source.results[("parent", frozenset(scope), source.candidate)] = child
+        findings.include_diagnostics(source)
+    parent = findings.aggregate("parent", scope, [("parent", scope)])
+    assert parent.status == ("PASS" if state == "PASS" else "FAIL")
+    assert findings.get_result("parent", scope) is parent
+    assert all(result is not reservation for result in findings.results.values())
+    assert findings.status == parent.status
+    if state != "PASS":
+        assert parent.metadata["reason"]
+        if state in {"FAIL", "incomplete"}:
+            assert "actual child cause" in parent.metadata["reason"]
+    if state not in {"PASS", "missing"}:
+        assert any(
+            result is not parent and result.status == "FAIL"
+            for result in findings.results.values()
+        )
+
+
+@pytest.mark.parametrize(
+    "outcome", ["PASS", "exception", "interrupt", "child", "reentry", "unstarted"]
+)
+def check_status_read_during_handler_preserves_completion(tmp_path, outcome):
+    findings = Findings(tmp_path)
+    later = findings.result("later-required", None)
+
+    def handler():
+        active = findings.get_result("parent", None)
+        before = (active.status, dict(active.metadata))
+        assert findings.status in {"PASS", "FAIL"}
+        assert (active.status, active.metadata) == before
+        assert later.metadata == {}
+        findings.evaluate("nested", None, lambda: findings.status and None)
+        if outcome == "exception":
+            raise RuntimeError("actual handler error")
+        if outcome == "interrupt":
+            raise KeyboardInterrupt("actual interruption")
+        if outcome == "child":
+            findings.evaluate(
+                "bad-child",
+                None,
+                lambda: {"status": "FAIL", "reason": "bad child type"},
+            )
+        if outcome == "reentry":
+            findings.evaluate("parent", None, lambda: None)
+        if outcome == "unstarted":
+            findings.result("unstarted-child", None)
+
+    result = findings.evaluate("parent", None, handler)
+    assert result.status == ("PASS" if outcome == "PASS" else "FAIL")
+    assert findings.evaluate("later-required", None, lambda: None).status == "PASS"
+    assert findings.status == result.status
+    if outcome == "PASS":
+        assert result.started and result.metadata["complete"]
+    else:
+        assert result.metadata["reason"]
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def check_aggregate_keeps_same_key_failure(tmp_path, complete):
+    findings = Findings(tmp_path)
+    child = CheckResult(
+        "parent",
+        None,
+        findings.candidate,
+        metadata={"complete": complete, "reason": "actual same-key failure"},
+    )
+    findings.results[(child.check_id, child.scope, child.candidate)] = child
+    parent = findings.aggregate("parent", None, [("parent", None)])
+    assert parent.status == findings.status == "FAIL"
+    assert "actual same-key failure" in parent.metadata["reason"]
+    assert any(result is child for result in findings.results.values())
+
+
+def check_candidate_binding_retains_failures_not_stale_success(tmp_path):
+    findings = Findings(tmp_path)
+    common = findings.evaluate("validation.catalog", None, lambda: None)
+    findings.evaluate("framework.generated-service-model", None, lambda: None)
+    failed = findings.evaluate(
+        "framework.policy-tables",
+        None,
+        lambda: {"status": "FAIL", "reason": "invalid policy"},
+    )
+    findings.bind_candidate(object(), {"validation.catalog"})
+    retained = findings.get_result("validation.catalog", None)
+    assert retained.started and retained.metadata is common.metadata
+    assert retained.metadata["complete"] and retained.status == "PASS"
+    assert findings.get_result("framework.generated-service-model", None) is None
+    failure = findings.get_result("framework.policy-tables", None)
+    assert failure.status == "FAIL" and failure.metadata is failed.metadata
+    assert failure.metadata["reason"] == "invalid policy"
+    assert findings.status == "FAIL"
+
+
 def check_reentry_and_empty_interrupt_remain_failures(tmp_path):
     findings = Findings(tmp_path)
     nested = findings.evaluate(
@@ -644,11 +761,12 @@ def check_policy_not_planned_without_display(tmp_path):
     assert validator.findings.status == "PASS"
 
 
+@pytest.mark.parametrize("preregistered", [False, True])
 @pytest.mark.parametrize("count", [1, 2])
 @pytest.mark.parametrize(
     "state", ["PASS", "FAIL", "missing", "incomplete", "interrupted"]
 )
-def check_scoped_aggregation_and_cache_evidence(tmp_path, count, state):
+def check_scoped_aggregation_and_cache_evidence(tmp_path, count, state, preregistered):
     scope = {("dev", "team", service) for service in ("s3", "sqs")[:count]}
     cache = PassCache(tmp_path, False)
     cache.common = "same-inputs"
@@ -690,6 +808,8 @@ def check_scoped_aggregation_and_cache_evidence(tmp_path, count, state):
     ):
         validator = Validator(tmp_path, scope, workers=1)
         validator.schema_catalog, validator.cache = object(), cache
+        if preregistered:
+            validator.findings.result("framework.policy-tables", scope)
         validator.check_scoped_designs()
         policy = validator.findings.get_result("framework.policy-tables", scope)
         assert policy.status == ("PASS" if state == "PASS" else "FAIL")
@@ -699,6 +819,8 @@ def check_scoped_aggregation_and_cache_evidence(tmp_path, count, state):
             validator.finalize_service_cache("same-inputs")
             reused = Validator(tmp_path, scope, workers=1)
             reused.schema_catalog, reused.cache = object(), cache
+            if preregistered:
+                reused.findings.result("framework.policy-tables", scope)
             with (
                 patch.object(
                     Validator,

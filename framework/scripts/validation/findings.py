@@ -154,6 +154,7 @@ class CheckResult:
     checks: int = 0
     metadata: dict = field(default_factory=dict)
     started: bool = False
+    reserved: bool = False  # Local plan slot; imported results are child evidence.
 
 
 class Findings:
@@ -182,6 +183,9 @@ class Findings:
 
     @property
     def status(self):
+        # An in-flight status read must not finalize active or later planned checks.
+        if self._evaluations:
+            return "FAIL"
         results = [
             result
             for result in self.results.values()
@@ -220,6 +224,17 @@ class Findings:
     def aggregate(self, check_id, scope, required):
         """Combine exact required child identities before replacing a same-key parent."""
         scope = None if scope is None else frozenset(scope)
+        key = (check_id, scope, self.candidate)
+        parent = self.results.get(key)
+        reservation = (
+            parent
+            if parent is not None
+            and parent.reserved
+            and not parent.started
+            and not parent.errors
+            and parent.metadata.get("complete") is not True
+            else None
+        )
         children, missing = [], []
         for child_id, child_scope in required:
             child_scope = None if child_scope is None else frozenset(child_scope)
@@ -229,6 +244,7 @@ class Findings:
                 if child.candidate is self.candidate
                 and child.check_id == child_id
                 and child.scope == child_scope
+                and child is not reservation
             ]
             children.extend(matches)
             if not matches:
@@ -269,8 +285,7 @@ class Findings:
                 ],
             },
         )
-        key = (check_id, scope, self.candidate)
-        if key in self.results:
+        if key in self.results and self.results[key] is not reservation:
             self.results[(check_id, scope, (self.candidate, object()))] = self.results[
                 key
             ]
@@ -382,7 +397,7 @@ class Findings:
         key = (check_id, scope, self.candidate)
         self._use_result(key)
         return self.results.setdefault(
-            key, CheckResult(check_id, scope, self.candidate)
+            key, CheckResult(check_id, scope, self.candidate, reserved=True)
         )
 
     def evaluate(self, check_id, scope, handler, *, isolate=False, source_path=None):
@@ -549,7 +564,9 @@ class Findings:
             child_scope = child.scope if child.scope is not None else scope
             child_scope = None if child_scope is None else frozenset(child_scope)
             retained = finish_result(
-                replace(child, scope=child_scope, candidate=self.candidate)
+                replace(
+                    child, scope=child_scope, candidate=self.candidate, reserved=False
+                )
             )
             key = (retained.check_id, retained.scope, self.candidate)
             if key in self.results:

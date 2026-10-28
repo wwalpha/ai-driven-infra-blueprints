@@ -3366,7 +3366,7 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 | `sync-15::check_snapshot_symlink_safety` | `check_snapshot_symlink_safety` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L798) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_internal_sync_selection` | `check_internal_sync_selection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L832) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_failure_counts` | `check_failure_counts` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | 成功/失敗/reasoned FAIL件数、独立エラー優先、診断と保存済み参照WARNの分離 | 既存UT更新 |
-| `generation-publication::issues` | `check_integrated_generation_with_issues` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | Issue有無×正常/部分失敗/reasoned FAIL/共通整合性失敗。候補生成検証はMock、実publication・成功保存・失敗View保持・Issue原文保全を検証 | 追加 |
+| `generation-publication::issues` | `check_integrated_generation_with_issues` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 16 | Full/Change×Issue有無×正常/部分失敗/reasoned FAIL/共通整合性失敗。候補生成検証はMock、実publication・成功保存・失敗View保持・Issue原文保全、候補切替後の共通必須チェックの実行証拠と旧生成/Policy PASSの除外を検証 | 拡張 |
 | `sync-15::check_guard_snapshot_candidates` | `check_guard_snapshot_candidates` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L882) | pytest / 1 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_definition_read_errors` | `check_definition_read_errors` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L907) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_sidecar_output_difference` | `check_sidecar_output_difference` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L930) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
@@ -4305,3 +4305,15 @@ Existing `check_final_candidate_staleness` also proves ordinary Model classifica
 committed paths and resume Scope preflight after a base advance/rebase, followed by
 preparation of the same candidate HEAD. Dedicated Model operation and ordinary
 Task/approval/recovery cases retain their existing responsibilities.
+
+## Validation completion evidence
+
+| Case | Check | Type | File | Execution | Coverage | Fixture |
+| --- | --- | --- | --- | --- | --- | --- |
+| `validation-result::aggregate-reservation` | `check_aggregate_replaces_only_its_reservation` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 5 | Replace the local parent reservation; preserve imported same-ID/scope results including unstarted real FAIL, missing/incomplete/interrupted reasons | Synthetic Findings |
+| `validation-result::aggregate-local-failure` | `check_aggregate_keeps_same_key_failure` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 2 | Preserve real same-key FAIL with and without completion evidence | Synthetic Findings |
+| `validation-result::active-status` | `check_status_read_during_handler_preserves_completion` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 6 | Nested status reads leave active results untouched; normal completion passes, exceptions/interruption/child FAIL/reentry/unstarted child fail | Synthetic Findings |
+| `validation-result::candidate-evidence` | `check_candidate_binding_retains_failures_not_stale_success` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | Retain actual common execution evidence and failures while excluding stale candidate-dependent PASS | Synthetic Findings |
+| `validation-result::scoped-cache` | `check_scoped_aggregation_and_cache_evidence` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 20 | Parent reservation on/off, one/two services, normal cache reuse and concrete FAIL/missing/incomplete/interrupted children | Synthetic service handlers |
+| `validation-result::real-policy` | `test_real_scoped_policy_aggregation` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 8 | CREATE/IMPORT, normal/Pending references and parent reservation on/off all finish real generation comparison and Policy validation with PASS/exit 0 | Existing Model fixture |
+| `validation-result::pending-final` | `test_pending_model_only_validation_and_final_acceptance` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 14 | Normal Pending generation/comparison/Policy checks pass; invalid target/attribute/type, stale artifact, IaC failure and required-handler interruption remain reasoned FAIL/exit 1 | Existing Model fixture |

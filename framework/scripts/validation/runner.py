@@ -476,8 +476,10 @@ class Validator:
         }
         for check_id in required:
             self.findings.result(check_id, self.scope)
+        common_checks = set(required)
         if self.model_validation == "change" and self.scope != set():
             self.findings.result("validation.changed-model", self.scope)
+            common_checks.add("validation.changed-model")
 
         run_required = _bind_framework_callback(
             self.run_required, snapshot=snapshot, required=required
@@ -523,7 +525,7 @@ class Validator:
                         ),
                     )
             if not self.errors:
-                self.generate_and_validate(snapshot, registered)
+                self.generate_and_validate(snapshot, registered, common_checks)
             return self.report()
         if self.model_validation == "change":
             if not self.errors:
@@ -609,7 +611,7 @@ class Validator:
         for reason in result["invalid"]:
             print(f"Approval rejected: {reason}")
 
-    def generate_and_validate(self, snapshot, registered):
+    def generate_and_validate(self, snapshot, registered, common_checks=()):
         planned_outputs = _imports_sync_runtime.planned_outputs
         prepare_generation = _imports_sync_runtime.prepare_generation
         publish_generation = _imports_sync_runtime.publish_generation
@@ -644,6 +646,8 @@ class Validator:
                 for name, phase in self.acceptance_stages.items()
                 if phase == "common"
             }
+            # These checks consumed this invocation's guarded common inputs.
+            common_ids.update(common_checks)
             common_ids.update(
                 result.check_id
                 for result in self.findings.results.values()
