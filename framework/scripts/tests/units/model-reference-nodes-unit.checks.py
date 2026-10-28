@@ -227,7 +227,7 @@ def check_identifier_generation_diagnostics(models, state):
         assert [
             w
             for w in plan.reference_warnings
-            if w.get("category") == "REFERENCE_UNRESOLVED"
+            if w.get("category") in {"REFERENCE_UNRESOLVED", "REFERENCE_PENDING_DEPLOY"}
         ] == warnings
         assert metadata["warnings"] == plan.reference_warnings
         assert metadata["unverified"] == [
@@ -240,12 +240,13 @@ def check_identifier_generation_diagnostics(models, state):
             state, "original"
         )
         assert f"[{expected}](security-group.md#" in files[view]
-        assert bool(warnings) == (state in {"unobserved", "missing", "ambiguous"})
+        assert bool(warnings) == (state != "confirmed")
         if warnings:
-            assert warnings[0]["category"] == "REFERENCE_UNRESOLVED"
-        pending = {"category": "REFERENCE_PENDING_DEPLOY", "message": "pending"}
-        plan.reference_warnings.append(pending)
-        assert pending in sync_runtime.generation_metadata(plan)["unverified"]
+            assert warnings[0]["category"] == (
+                "REFERENCE_PENDING_DEPLOY"
+                if state == "pending"
+                else "REFERENCE_UNRESOLVED"
+            )
     finally:
         plan.close()
     assert (producer.path.read_bytes(), consumer.path.read_bytes()) == original
@@ -300,6 +301,12 @@ def check_identifier_links_missing_and_array(models):
         result["desired.row.001-001.value"]
         == "[PENDING_DEPLOY](security-group.md#saved-001), [sg-002](security-group.md#saved-002)"
     )
+    warnings = []
+    values["desired.row.001-001.value"] = ", ".join(
+        ["[001](security-group.md#saved-001)"] * 2
+    )
+    reference_display(values, path, root, warnings=warnings)
+    assert len(warnings) == 1 and warnings[0]["category"] == "REFERENCE_PENDING_DEPLOY"
     warnings = []
     values["desired.row.001-001.value"] = "[missing](security-group.md#missing)"
     assert (

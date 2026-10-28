@@ -360,6 +360,19 @@ def _display_identifier_link(resolver, scope, root, row, warnings, match):
         observed = snapshot.authoritative.get(f"observed.row.{candidates[0]}.value")
         if observed is None:
             raise ReferenceResolutionError("identifier output is unobserved")
+        if literal(observed) == "PENDING_DEPLOY" and warnings is not None:
+            diagnostic = {
+                **ReferenceResolutionError(
+                    "identifier output is pending deployment",
+                    category="REFERENCE_PENDING_DEPLOY",
+                    code="REFERENCE_PENDING_DEPLOY",
+                ).diagnostic,
+                "model": str(scope.path),
+                "property": row["property"],
+                "reference": match[0],
+            }
+            if diagnostic not in warnings:
+                warnings.append(diagnostic)
         return f"[{literal(observed)}]({match[2]}#{match[3]})"
     except ReferenceResolutionError as error:
         if warnings is not None:
