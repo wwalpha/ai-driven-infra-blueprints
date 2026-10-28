@@ -309,108 +309,108 @@ resourceTypes:
         access: [read-write]
         aws: {getter: public, path: PublicAccessBlockConfiguration.RestrictPublicBuckets, normalize: typed}
       ReplicationConfiguration.Role:
-        model: {include: false}
-        display: {show: false, name: ReplicationConfiguration.Role}
+        model: {include: true}
+        display: {show: true, name: ReplicationConfiguration.Role}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: ReplicationConfiguration.Role, normalize: typed}
       ReplicationConfiguration.Rules[].DeleteMarkerReplication.Status:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].DeleteMarkerReplication.Status'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].DeleteMarkerReplication.Status'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].DeleteMarkerReplication.Status', normalize: typed}
       ReplicationConfiguration.Rules[].Destination.Account:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Destination.Account'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Destination.Account'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Destination.Account', normalize: typed}
       ReplicationConfiguration.Rules[].Destination.Bucket:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Destination.Bucket'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Destination.Bucket'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Destination.Bucket', normalize: typed}
       ReplicationConfiguration.Rules[].Destination.EncryptionConfiguration.ReplicaKmsKeyID:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Destination.EncryptionConfiguration.ReplicaKmsKeyID'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Destination.EncryptionConfiguration.ReplicaKmsKeyID'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Destination.EncryptionConfiguration.ReplicaKmsKeyID', normalize: typed}
       ReplicationConfiguration.Rules[].Destination.Metrics.EventThreshold.Minutes:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Destination.Metrics.EventThreshold.Minutes'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Destination.Metrics.EventThreshold.Minutes'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Destination.Metrics.EventThreshold.Minutes', normalize: typed}
       ReplicationConfiguration.Rules[].Destination.Metrics.Status:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Destination.Metrics.Status'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Destination.Metrics.Status'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Destination.Metrics.Status', normalize: typed}
       ReplicationConfiguration.Rules[].Destination.ReplicationTime.Status:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Destination.ReplicationTime.Status'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Destination.ReplicationTime.Status'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Destination.ReplicationTime.Status', normalize: typed}
       ReplicationConfiguration.Rules[].Destination.ReplicationTime.Time.Minutes:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Destination.ReplicationTime.Time.Minutes'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Destination.ReplicationTime.Time.Minutes'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Destination.ReplicationTime.Time.Minutes', normalize: typed}
       ReplicationConfiguration.Rules[].Destination.StorageClass:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Destination.StorageClass'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Destination.StorageClass'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Destination.StorageClass', normalize: typed}
       ReplicationConfiguration.Rules[].Filter.And.Prefix:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Filter.And.Prefix'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Filter.And.Prefix'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Filter.And.Prefix', normalize: typed}
       ReplicationConfiguration.Rules[].Filter.And.TagFilters[].Key:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Filter.And.TagFilters[].Key'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Filter.And.TagFilters[].Key'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Filter.And.TagFilters[].Key', normalize: typed}
       ReplicationConfiguration.Rules[].Filter.And.TagFilters[].Value:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Filter.And.TagFilters[].Value'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Filter.And.TagFilters[].Value'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Filter.And.TagFilters[].Value', normalize: typed}
       ReplicationConfiguration.Rules[].Filter.Prefix:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Filter.Prefix'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Filter.Prefix'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Filter.Prefix', normalize: typed}
       ReplicationConfiguration.Rules[].Filter.TagFilter.Key:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Filter.TagFilter.Key'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Filter.TagFilter.Key'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Filter.TagFilter.Key', normalize: typed}
       ReplicationConfiguration.Rules[].Filter.TagFilter.Value:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Filter.TagFilter.Value'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Filter.TagFilter.Value'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Filter.TagFilter.Value', normalize: typed}
       ReplicationConfiguration.Rules[].Id:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Id'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Id'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Id', normalize: typed}
       ReplicationConfiguration.Rules[].Priority:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Priority'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Priority'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Priority', normalize: typed}
       ReplicationConfiguration.Rules[].SourceSelectionCriteria.ReplicaModifications.Status:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].SourceSelectionCriteria.ReplicaModifications.Status'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].SourceSelectionCriteria.ReplicaModifications.Status'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].SourceSelectionCriteria.ReplicaModifications.Status', normalize: typed}
       ReplicationConfiguration.Rules[].SourceSelectionCriteria.SseKmsEncryptedObjects.Status:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].SourceSelectionCriteria.SseKmsEncryptedObjects.Status'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].SourceSelectionCriteria.SseKmsEncryptedObjects.Status'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].SourceSelectionCriteria.SseKmsEncryptedObjects.Status', normalize: typed}
       ReplicationConfiguration.Rules[].Status:
-        model: {include: false}
-        display: {show: false, name: 'ReplicationConfiguration.Rules[].Status'}
+        model: {include: true}
+        display: {show: true, name: 'ReplicationConfiguration.Rules[].Status'}
         access: [read-write]
         aws: {getter: provider-s3-bucket, path: 'ReplicationConfiguration.Rules[].Status', normalize: typed}
       Tags[].Key:

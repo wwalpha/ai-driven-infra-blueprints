@@ -20,6 +20,7 @@ import support.model_reference_fixtures as reference_models
 import support.model_sources as _imports_support_model_sources
 import sync_runtime as _imports_sync_runtime
 import validation.design_links as _imports_validation_design_links
+import yaml
 from model.core import properties
 from support.design_document_fixtures import (
     DesignIndex,
@@ -997,6 +998,45 @@ def check_scoped_security_group_model_reference(
         findings.errors,
         findings.unverified,
     )
+
+
+def check_s3_replication_rules_markdown(tmp_path: Path) -> None:
+    reference_models.project(tmp_path)
+    scope, values = reference_models.resource(
+        tmp_path, "s3", "S3.Bucket", attribute="BucketName"
+    )
+    mapping = yaml.safe_load(
+        (reference_models.FRAMEWORK / "framework/mappings/aws/s3.yaml").read_text(
+            encoding="utf-8"
+        )
+    )["resourceTypes"]["S3.Bucket"]["properties"]
+    fields = [
+        name for name in mapping if name.startswith("ReplicationConfiguration.Rules[]")
+    ]
+    assert len(fields) == 20
+    rows = [("ReplicationConfiguration.Role", "replication-role")]
+    for number in (1, 2):
+        rows.extend(
+            (field, f"value-{number}-{index}") for index, field in enumerate(fields)
+        )
+    for number, (field, value) in enumerate(rows, 2):
+        values.update(
+            {
+                f"desired.row.001-{number:03}.property": "S3.Bucket." + field,
+                f"desired.row.001-{number:03}.value": f"`{value}`",
+                f"desired.row.001-{number:03}.comment": "設定",
+            }
+        )
+    reference_models.save(scope, values)
+    path = tmp_path / "docs/designs/qa/team/s3.md"
+    text = model_design.generate_markdown(path, values, reference_models.FRAMEWORK)
+    assert "replication-role" in text
+    for number in (1, 2):
+        for index, field in enumerate(fields):
+            displayed = field.replace("Rules[]", f"Rules[{number}]").replace(
+                "[]", "[1]"
+            )
+            assert f"{displayed} | `value-{number}-{index}`" in text
 
 
 if __name__ == "__main__":

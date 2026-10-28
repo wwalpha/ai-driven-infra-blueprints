@@ -244,6 +244,16 @@ def check_v3_registry():
             # Restore only the two authorized flags in a test-local copy for the original hash.
             baseline_properties["ec2"][kind][name]["model"]["include"] = False
             baseline_properties["ec2"][kind][name]["display"]["show"] = False
+    replication = {
+        name: prop
+        for name, prop in properties["s3"]["S3.Bucket"].items()
+        if name.startswith("ReplicationConfiguration.")
+    }
+    assert len(replication) == 21
+    for name, prop in replication.items():
+        assert prop["model"]["include"] is True and prop["display"]["show"] is True
+        baseline = baseline_properties["s3"]["S3.Bucket"][name]
+        baseline["model"]["include"] = baseline["display"]["show"] = False
     # Environment mappings add CodePipeline SDK fields and expose ECS/Lambda values.
     for values, expected in [
         (
