@@ -101,7 +101,7 @@ def array_presence(values):
     return len(values) - len(unknown), unknown[0] if unknown else len(values)
 
 
-def ordered_comparison(left, right, compare):
+def ordered_comparison(left, right, compare, *, indexed=False):
     known, prefix = array_presence(right)
     length = (
         len(left) == len(right)
@@ -109,14 +109,34 @@ def ordered_comparison(left, right, compare):
         else (False if not known <= len(left) <= len(right) else None)
     )
     return comparison_result(
-        [length, *(compare(a, b) for a, b in zip(left, right[:prefix], strict=False))]
+        [
+            length,
+            *(
+                compare(a, b, i) if indexed else compare(a, b)
+                for i, (a, b) in enumerate(zip(left, right[:prefix], strict=False))
+            ),
+        ]
     )
 
 
-def same(left, right, *, reference=None, path="", trace=None):
+def same(
+    left,
+    right,
+    *,
+    reference=None,
+    path="",
+    trace=None,
+    position_reference=None,
+    lp=(),
+    rp=(),
+):
     """Preserve types, array order, duplicates and object membership."""
-    if reference:
-        result = reference(left, right, path)
+    if reference or position_reference:
+        result = (
+            position_reference(left, right, path, lp, rp)
+            if position_reference
+            else reference(left, right, path)
+        )
         if result is not NotImplemented:
             if trace is not None and result is not True:
                 trace(left, right, path, result)
@@ -143,6 +163,9 @@ def same(left, right, *, reference=None, path="", trace=None):
                         reference=reference,
                         path=f"{path}.{key}" if path else key,
                         trace=trace,
+                        position_reference=position_reference,
+                        lp=lp + (key,),
+                        rp=rp + (key,),
                     )
                     for key in left
                     if key in right
@@ -153,7 +176,17 @@ def same(left, right, *, reference=None, path="", trace=None):
         result = ordered_comparison(
             left,
             right,
-            lambda a, b: same(a, b, reference=reference, path=path + "[]", trace=trace),
+            lambda a, b, i: same(
+                a,
+                b,
+                reference=reference,
+                path=path + "[]",
+                trace=trace,
+                position_reference=position_reference,
+                lp=lp + (i,),
+                rp=rp + (i,),
+            ),
+            indexed=True,
         )
     else:
         result = left == right
@@ -222,11 +255,24 @@ def unordered_same(
 
 
 def selected_same(
-    desired, actual, property_name="", *, reference=None, path="", trace=None
+    desired,
+    actual,
+    property_name="",
+    *,
+    reference=None,
+    path="",
+    trace=None,
+    position_reference=None,
+    lp=(),
+    rp=(),
 ):
     """Only selected nested settings constrain IaC; arrays retain order and duplicates."""
-    if reference:
-        result = reference(desired, actual, path)
+    if reference or position_reference:
+        result = (
+            position_reference(desired, actual, path, lp, rp)
+            if position_reference
+            else reference(desired, actual, path)
+        )
         if result is not NotImplemented:
             if trace is not None and result is not True:
                 trace(desired, actual, path, result)
@@ -245,6 +291,9 @@ def selected_same(
                         reference=reference,
                         path=f"{path}.{key}" if path else key,
                         trace=trace,
+                        position_reference=position_reference,
+                        lp=lp + (key,),
+                        rp=rp + (key,),
                     )
                     for key, item in desired.items()
                     if key in actual
@@ -255,9 +304,17 @@ def selected_same(
         result = ordered_comparison(
             desired,
             actual,
-            lambda a, b: selected_same(
-                a, b, reference=reference, path=path + "[]", trace=trace
+            lambda a, b, i: selected_same(
+                a,
+                b,
+                reference=reference,
+                path=path + "[]",
+                trace=trace,
+                position_reference=position_reference,
+                lp=lp + (i,),
+                rp=rp + (i,),
             ),
+            indexed=True,
         )
     else:
         result = desired == actual

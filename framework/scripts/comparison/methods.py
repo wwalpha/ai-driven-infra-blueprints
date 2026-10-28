@@ -9,6 +9,7 @@ from utils.iac_values import (
     ResourceReference,
     array_presence,
     comparison_result,
+    safe_value,
     same,
     selected_same,
     unknown_value,
@@ -107,6 +108,7 @@ class CompareOutcome:
     candidate_failures: tuple = ()
     candidate_warnings: tuple = ()
     correspondence: tuple = ()
+    reference_positions: tuple = ()
 
 
 EQUAL = CompareOutcome(True)
@@ -124,6 +126,7 @@ class _Comparison:
     diagnostics: list = field(default_factory=list)
     contexts: dict = field(default_factory=dict)
     confirmed_pairs: dict = field(default_factory=dict)
+    reference_positions: list = field(default_factory=list)
     equivalent: bool = False
     candidate_failures: list = field(default_factory=list)
     candidate_warnings: list = field(default_factory=list)
@@ -150,7 +153,7 @@ def _has_special(rules, key, whole, local):
     )
 
 
-def _detect(state, left, right, path, whole):
+def _detect(state, left, right, path, whole, *, positioned=False):
     rule = state.rules.get(path, OBJECT)
     scope = whole or rule.whole in {"SCALAR", "REFERENCE"}
     algorithm = same if scope else selected_same
@@ -165,6 +168,7 @@ def _detect(state, left, right, path, whole):
         right,
         path=path,
         reference=callback,
+        position_reference=callback if positioned else None,
         trace=partial(_trace, state.negative, scope),
     )
 
@@ -200,7 +204,7 @@ def compare_values(
         state = _Comparison(rules, reference, local, negative=negative)
     else:
         state = _Comparison(rules, reference, local)
-        equal = _detect(state, desired, actual, key, scope)
+        equal = _detect(state, desired, actual, key, scope, positioned=True)
     differences = (
         _evidence(state, desired, actual, key, shown, (), (), scope)
         if equal is False
@@ -216,6 +220,7 @@ def compare_values(
         tuple(_correspondence(state, desired, actual, key, (), (), scope))
         if equal is None
         else (),
+        tuple(state.reference_positions) if equal is None else (),
     )
 
 
@@ -266,7 +271,7 @@ def _correspondence(state, left, right, typed, lp, rp, whole):
         yield rp, lp
 
 
-def _decision(state, whole, left, right, path):
+def _decision(state, whole, left, right, path, lp=None, rp=None):
     rule = state.rules.get(path)
     if (
         rule
@@ -287,6 +292,22 @@ def _decision(state, whole, left, right, path):
             else state.reference(left, right, path)
         )
         state.diagnostics.extend(outcome.diagnostics)
+        if lp is not None and rp is not None:
+            for diagnostic in outcome.diagnostics:
+                if (
+                    diagnostic.get("path") == path
+                    and diagnostic.get("model") == safe_value(left)
+                    and diagnostic.get("iac") == safe_value(right)
+                    and diagnostic.get("local_comparison") in {"matched", "uncompared"}
+                    and (
+                        outcome.equal is True
+                        if diagnostic["local_comparison"] == "matched"
+                        else outcome.equal is None
+                    )
+                ):
+                    state.reference_positions.append(
+                        (rp, lp, diagnostic["local_comparison"])
+                    )
         state.equivalent |= outcome.equivalent
         if outcome.equal is not NotImplemented:
             if (

@@ -3,6 +3,7 @@
 import copy
 import json
 import sys
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -6991,3 +6992,152 @@ def test_uncompared_duplicate_positions_and_ambiguous_evidence():
         field["model"]
         for field in result.display_differences[identifier(result.records[0])]
     ] == ["対応未確定", "second"]
+
+
+def pending_only_display(ref):
+    if ref["$resource"][1] != "002":
+        raise ValueError("unnecessary")
+    return "resolved", "fixture"
+
+
+def alternating_duplicate_reference(outcomes, left, right, path):
+    if not isinstance(right, ResourceReference):
+        return ReferenceDecision(NotImplemented)
+    equal = next(outcomes)
+    return ReferenceDecision(
+        equal,
+        (
+            {
+                "path": path,
+                "model": left,
+                "iac": right,
+                "local_comparison": "matched" if equal else "uncompared",
+            },
+        ),
+    )
+
+
+@pytest.mark.parametrize("join", [False, True])
+def test_ordered_duplicate_matched_reference_is_not_displayed(join):
+    refs = [
+        ResourceReference({"$resource": ["kms", identity], "$attribute": "KeyId"})
+        for identity in ("001", "001", "002")
+    ]
+    actual = (
+        [Expression("Join", ["", ["prefix/", ref]]) for ref in refs] if join else refs
+    )
+    desired = ["matched", "matched", "pending"]
+    decision = compare_values(
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=expression_unconfirmed_reference,
+    )
+    resolver = Mock(side_effect=pending_only_display)
+    args = ("test", "001", "Setting", desired, actual, decision, "stack", [{}], {})
+    before = setting_result(*args, actual_error=None, redact=safe_value)
+    after = setting_result(
+        *args, actual_error=None, redact=safe_value, display_reference=resolver
+    )
+    assert (
+        decision.equal is None
+        and before.records == after.records
+        and not after.warnings
+    )
+    fields = after.display_differences[identifier(after.records[0])]
+    assert len(fields) == 1 and fields[0]["model"] == "pending"
+    assert "kms/002.KeyId" in fields[0]["iac"] and "fixture" in fields[0]["iac"]
+    resolver.assert_called_once_with(refs[2])
+    artifact = dict(
+        version=6,
+        **aggregate(
+            after.records, "fixture", "team", ["test"], after.display_differences
+        ),
+    )
+    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == fields
+
+
+def test_duplicate_key_with_different_statuses_uses_positions():
+    ref = ResourceReference({"$resource": ["kms", "001"], "$attribute": "KeyId"})
+    desired, actual = ["same", "same"], [ref, ref]
+    outcomes = iter((True, None))
+    decision = compare_values(
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=partial(alternating_duplicate_reference, outcomes),
+    )
+    resolver = Mock(return_value=("resolved", "fixture"))
+    result = setting_result(
+        "test",
+        "001",
+        "Setting",
+        desired,
+        actual,
+        decision,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=safe_value,
+        display_reference=resolver,
+    )
+    assert decision.equal is None
+    fields = result.display_differences[identifier(result.records[0])]
+    assert len(fields) == 1 and fields[0]["path"] == "IaC:[1]（比較未確定）"
+    resolver.assert_called_once()
+
+
+def missing_duplicate_reference(outcomes, left, right, path):
+    if not isinstance(right, ResourceReference):
+        return ReferenceDecision(NotImplemented)
+    has_evidence = next(outcomes)
+    diagnostic = {
+        "path": path,
+        "model": left,
+        "iac": right,
+        "local_comparison": "matched",
+    }
+    return ReferenceDecision(
+        True if has_evidence else None, (diagnostic,) if has_evidence else ()
+    )
+
+
+def test_duplicate_position_evidence_missing_or_correspondence_ambiguous():
+    ref = ResourceReference({"$resource": ["kms", "001"], "$attribute": "KeyId"})
+    desired, actual = ["same", "same"], [ref, ref]
+    decision = compare_values(
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=partial(missing_duplicate_reference, iter((True, False))),
+    )
+    args = ("test", "001", "Setting", desired, actual, decision, "stack", [{}], {})
+    resolver = Mock(return_value=("resolved", "fixture"))
+    result = setting_result(
+        *args, actual_error=None, redact=safe_value, display_reference=resolver
+    )
+    fields = result.display_differences[identifier(result.records[0])]
+    assert len(fields) == 1 and fields[0]["path"] == "IaC:[1]（参照情報）"
+    ambiguous = replace(
+        decision, correspondence=(((0,), (0,)), ((0,), (1,)), ((1,), (1,)))
+    )
+    result = setting_result(
+        "test",
+        "001",
+        "Setting",
+        desired,
+        actual,
+        ambiguous,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=safe_value,
+        display_reference=resolver,
+    )
+    fields = result.display_differences[identifier(result.records[0])]
+    assert len(fields) == 2 and fields[0]["model"] == "対応未確定"

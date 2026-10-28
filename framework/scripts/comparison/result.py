@@ -204,6 +204,9 @@ def unconfirmed_references(
     _visit_unconfirmed(safe, "", prop, candidates)
 
     evidence = {}
+    position_evidence = {}
+    for iac_pointer, model_pointer, status in decision.reference_positions:
+        position_evidence.setdefault((iac_pointer, model_pointer), set()).add(status)
     for diagnostic in decision.diagnostics:
         if all(
             key in diagnostic for key in ("path", "model", "iac", "local_comparison")
@@ -213,6 +216,7 @@ def unconfirmed_references(
             )
             evidence.setdefault(key, set()).add(diagnostic["local_comparison"])
     candidate_keys = []
+    counts = {}
     for value, _path, _property_name, pointer in candidates:
         matches = pointers.get(pointer, set())
         model_pointer = next(iter(matches)) if len(matches) == 1 else None
@@ -225,9 +229,11 @@ def unconfirmed_references(
             else None
         )
         candidate_keys.append(key)
-    counts = {}
-    for key in candidate_keys:
-        counts[key] = counts.get(key, 0) + 1
+        for possible_key in {
+            _evidence_key(typed_path, _shown_value(None, match, model), value)
+            for match in matches
+        }:
+            counts[possible_key] = counts.get(possible_key, 0) + 1
 
     fields = []
     for (value, path, property_name, pointer), key in zip(
@@ -235,9 +241,9 @@ def unconfirmed_references(
     ):
         matches = pointers.get(pointer, set())
         model_pointer = next(iter(matches)) if len(matches) == 1 else None
-        statuses = (
-            evidence.get(key, set()) if key is not None and counts[key] == 1 else set()
-        )
+        statuses = position_evidence.get((pointer, model_pointer), set())
+        if not statuses and key is not None and counts[key] == 1:
+            statuses = evidence.get(key, set())
         if statuses == {"matched"}:
             continue
         label = "比較未確定" if statuses == {"uncompared"} else "参照情報"
