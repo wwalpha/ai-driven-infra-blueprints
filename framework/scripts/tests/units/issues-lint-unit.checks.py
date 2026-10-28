@@ -26,6 +26,7 @@ from issues.artifact import detail_payload, scan_exit_code, summary, validate_ar
 from issues.cfn_lint import classify, owner, plan, run_lint
 from issues.publication import save_scan
 from issues.records import identifier
+from issues.reports import ordinary_report
 from issues.runner import scan
 from support.pytest_cli import run
 from utils.cfn_lint import (
@@ -1165,9 +1166,19 @@ def check_snowflake_enum_filter(
         assert (
             lint["status"] == "checked" and lint["coverage"][0]["status"] == "completed"
         )
-        artifact = dict(lint, **aggregate([], "dev", "team", ["glue"]))
-        assert artifact["overview"]["issue_count"] == 0
-        assert scan_exit_code(artifact) == (0 if excluded else 1)
+        artifact = dict(
+            lint,
+            environment="dev",
+            target="team",
+            services=["glue"],
+            executed_at="2026-01-01T00:00:00Z",
+        )
+        report = ordinary_report(Path(tmp), artifact)
+        assert job["diagnostic_ids"] == [item["id"] for item in lint["ordinary"]]
+        assert job["counts"].get("ordinary", 0) == expected
+        assert (message in report) == (not excluded)
+        assert all(item["id"] in report for item in lint["ordinary"])
+        assert ("未解決issueなし" in report) == excluded
 
 
 if __name__ == "__main__":

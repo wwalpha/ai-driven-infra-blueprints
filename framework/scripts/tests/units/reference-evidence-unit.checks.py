@@ -6238,6 +6238,48 @@ def test_uncompared_reference_display_preserves_redaction(shape):
         assert (KEY_ID not in rendered) == (shape == "sensitive")
 
 
+def unproven_reference(left, right, path):
+    if isinstance(right, ResourceReference):
+        return ReferenceDecision(
+            None,
+            (
+                {
+                    "path": path,
+                    "model": left,
+                    "iac": right,
+                    "local_comparison": "uncompared",
+                    "reason": "unproven",
+                },
+            ),
+        )
+    return ReferenceDecision(NotImplemented)
+
+
+def unordered_reference(refs, left, right, path):
+    if not isinstance(right, ResourceReference):
+        return ReferenceDecision(NotImplemented)
+    if right == refs[0]:
+        equal = True if left == "confirmed" else False
+    else:
+        equal = None if left == "pending" else False
+    return ReferenceDecision(
+        equal,
+        (
+            {
+                "path": path,
+                "model": left,
+                "iac": right,
+                "local_comparison": "matched"
+                if equal is True
+                else "uncompared"
+                if equal is None
+                else "difference",
+                "reason": "fixture",
+            },
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     "mode", ["scalar", "ordered", "keyed", "unordered", "ambiguous"]
 )
@@ -6258,24 +6300,12 @@ def test_uncompared_shows_only_proven_model_correspondence(mode):
             desired = [{"Value": "model-value"}, {"Value": "other"}]
             actual = [{"Value": ref}, {"Value": ref}]
 
-    def reference(left, right, path):
-        if isinstance(right, ResourceReference):
-            return ReferenceDecision(
-                None,
-                (
-                    {
-                        "path": path,
-                        "model": left,
-                        "iac": right,
-                        "local_comparison": "uncompared",
-                        "reason": "unproven",
-                    },
-                ),
-            )
-        return ReferenceDecision(NotImplemented)
-
     decision = compare_values(
-        desired, actual, "Setting", rules={"Setting": rule}, reference=reference
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": rule},
+        reference=unproven_reference,
     )
     assert decision.equal is None
     batch = setting_result(
@@ -6391,32 +6421,12 @@ def test_unordered_uncompared_displays_only_diagnosed_reference(nested):
         desired = [{"Value": value} for value in desired]
         actual = [{"Value": value} for value in refs]
 
-    def reference(left, right, path):
-        if not isinstance(right, ResourceReference):
-            return ReferenceDecision(NotImplemented)
-        if right == refs[0]:
-            equal = True if left == "confirmed" else False
-        else:
-            equal = None if left == "pending" else False
-        return ReferenceDecision(
-            equal,
-            (
-                {
-                    "path": path,
-                    "model": left,
-                    "iac": right,
-                    "local_comparison": "matched"
-                    if equal is True
-                    else "uncompared"
-                    if equal is None
-                    else "difference",
-                    "reason": "fixture",
-                },
-            ),
-        )
-
     decision = compare_values(
-        desired, actual, "Setting", rules=ruleset, reference=reference
+        desired,
+        actual,
+        "Setting",
+        rules=ruleset,
+        reference=partial(unordered_reference, refs),
     )
     assert decision.equal is None
     resolver = Mock(return_value=("resolved", "fixture"))
@@ -6445,28 +6455,12 @@ def test_unordered_ambiguous_reference_has_no_individual_claim():
         for i in (1, 2)
     ]
 
-    def reference(left, right, path):
-        if isinstance(right, ResourceReference):
-            return ReferenceDecision(
-                None,
-                (
-                    {
-                        "path": path,
-                        "model": left,
-                        "iac": right,
-                        "local_comparison": "uncompared",
-                        "reason": "unproven",
-                    },
-                ),
-            )
-        return ReferenceDecision(NotImplemented)
-
     decision = compare_values(
         ["one", "two"],
         refs,
         "Setting",
         rules={"Setting": UNORDERED},
-        reference=reference,
+        reference=unproven_reference,
     )
     resolver = Mock(return_value=("resolved", "fixture"))
     result = setting_result(
