@@ -18,7 +18,7 @@ from utils.input_cache import memoized
 from validation.diagnostics import InputValidationError
 from validation.findings import Findings
 
-from model.projection import resource_rows
+from model.projection import design_target, resource_rows
 
 NAMING_EXEMPT_PROPERTIES = {
     "Config.ConfigurationRecorder.Name",
@@ -135,8 +135,47 @@ def design_naming_errors(
     return naming_coverage_errors(root, kind, selected, name_tag, mode)
 
 
+def resolve_target_suffix(view: Path, root: Path) -> str | None:
+    """対象ターゲットを解決し、設定された suffix を返す。"""
+    target = design_target(view, root)
+    if not target:
+        raise InputValidationError(f"IAM RoleName target cannot be resolved: {view}")
+    return target.get("suffix")
+
+
+def check_iam_role_suffix(role_name: str, expected_suffix: str | None) -> list[str]:
+    """RoleName の末尾が対象ターゲットの suffix と一致するか検証する。"""
+    ending = "Role" + ("-" + expected_suffix if expected_suffix is not None else "")
+    # purpose と suffix の境界は PascalCase と固定の Role で判別する。
+    if re.fullmatch(r".+-[A-Z][A-Za-z0-9]*" + re.escape(ending), role_name):
+        return []
+    return [
+        f"IAM.Role.RoleName suffix mismatch: actual={role_name!r}, "
+        f"expected suffix={expected_suffix!r}; expected ending={ending!r}"
+    ]
+
+
+def validate_resource_naming_suffix(
+    kind: str, mode: str, rows: list[list[str]], view: Path, root: Path
+) -> list[str]:
+    """CREATE の IAM Role にだけ対象ターゲットの suffix 検証を適用する。"""
+    if kind != "IAM.Role" or mode != "CREATE":
+        return []
+    role_name = next(
+        row[2].strip('`"')
+        for row in rows
+        if row[1].removeprefix(kind + ".") == "RoleName"
+    )
+    return check_iam_role_suffix(role_name, resolve_target_suffix(view, root))
+
+
 def naming_errors(
-    root: Path, kind: str, rows: list[list[str]], mode: str = "CREATE"
+    root: Path,
+    kind: str,
+    rows: list[list[str]],
+    mode: str = "CREATE",
+    view: Path | None = None,
+    project_root: Path | None = None,
 ) -> list[str]:
     """既存の名前確認とスキーマ制約、命名ルールの適用結果を返す。"""
     if kind in {"CodeBuild.Project", "IAM.Role"}:
@@ -169,6 +208,11 @@ def naming_errors(
                     return errors
     if mode == "IMPORT":
         return []  # IMPORT でも上記の名前確認と provider／schema の検証は適用する。
+    if view is not None and project_root is not None:
+        if errors := validate_resource_naming_suffix(
+            kind, mode, rows, view, project_root
+        ):
+            return errors
     outputs = catalog_outputs(root, kind)
     selected = {
         row[1].removeprefix(kind + ".")
@@ -209,6 +253,8 @@ def _callback_check_model_inputs_names(
         _state_check_model_inputs_337.resource["resourceType"],
         rows,
         _dependency_design_layout.resource_mode(_state_check_model_inputs_337.resource),
+        _state_check_model_inputs_337.view,
+        findings.canonical_root,
     ):
         findings.input_check(
             False,

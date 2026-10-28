@@ -159,7 +159,7 @@ def _check_changed_resources(
             for prop in changed_properties
             for name in name_fields
         ):
-            state = _CallbackState(identity=number, resource=resource)
+            state = _CallbackState(identity=number, resource=resource, view=view)
             findings.evaluate(
                 "change.naming." + logical,
                 None,
