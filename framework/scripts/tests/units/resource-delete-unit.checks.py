@@ -49,6 +49,21 @@ def check_ten_deletions(tmp_path, multiple):
     for address in sources:
         save(deletion(after, address))
     verify_model_operation(before, after, operation, changed(before, after))
+    missing = tasks.model_operation(contract(["stg/cde/service-a/999"]))
+    with pytest.raises(ValueError, match="existing source"):
+        verify_model_operation(before, before, missing, set())
+    path = before / "model/stg/cde/service-a.properties"
+    original = path.read_text(encoding="utf-8")
+    path.write_text(
+        original.replace(
+            "desired.resource.001.resourceMode=CREATE",
+            "desired.resource.001.resourceMode=INVALID",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="resourceMode"):
+        verify_model_operation(before, after, operation, changed(before, after))
+    path.write_text(original, encoding="utf-8")
     assert (before / "model/dev").exists()
     for source_scope in operation.source_scopes:
         env, target, service = source_scope
@@ -81,7 +96,7 @@ def check_contract_rejects_unscoped_deletion(bad):
     elif bad == "cross-target":
         text = text.replace("stg/cde/service-b", "dev/cde/service-b")
     elif bad == "merge":
-        text = text.replace("import-delete", "import-merge")
+        text = text.replace("model-delete", "import-merge")
     elif bad == "reference-unrelated":
         text = contract(
             sources,
@@ -113,10 +128,11 @@ def check_contract_rejects_unscoped_deletion(bad):
 def check_deletion_and_detach_normalization():
     old = tasks.model_operation(operation_contract("import-delete"))
     new = tasks.model_operation(contract(["stg/cde/vpc/009"]))
-    assert old == new and old.delete_sources == ("stg/cde/vpc/009",)
+    assert old == new and old.action == "model-delete"
+    assert old.delete_sources == ("stg/cde/vpc/009",)
     text = dependency_contract().replace(
         "## Model dependency detach",
-        "- Model operation: `import-delete`\n## Model delete sources\n- `stg/cde/service-a/001`\n## Model dependency detach",
+        "- Model operation: `model-delete`\n## Model delete sources\n- `stg/cde/service-a/001`\n## Model dependency detach",
     )
     operation = tasks.model_operation(text)
     assert operation.detaches == tasks.model_refactor(text)

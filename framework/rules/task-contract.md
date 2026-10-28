@@ -108,7 +108,10 @@ Select from the Human's requested change using this table before loading a workf
 ## Model-only IMPORT operation contract
 
 The parent uses Task type design, Workflow update, Model operation import-merge or
-import-delete, running status during editing, and forbidden AWS API execution/deploy/apply.
+model-delete, running status during editing, and forbidden AWS API execution/deploy/apply.
+The legacy import-delete name is normalized to model-delete during contract parsing.
+Deletion permits explicit CREATE, implicit CREATE, and IMPORT Resources; it does not
+authorize AWS deletion, deploy, apply, or IaC changes. Merge sources remain IMPORT.
 Within merge/delete, transfer/retarget/delete are internal leaves, not new Task types.
 Standalone import-retarget follows its separate contract below.
 Declare exact sources, generated views, permission paths, requirements and Validation scope.
@@ -142,7 +145,7 @@ resource or merge pairs are allowed. For example:
 For deletion, optional Model reference changes use the existing record syntax: source
 must be a deleted producer, destination a retained same-target producer, and consumer a
 retained same-target resource. Optional `Model refactor: value-preserving` plus existing
-Model dependency detach records may coexist only with import-delete. Each detach must
+Model dependency detach records may coexist only with model-delete. Each detach must
 name a deleted producer and a retained consumer. Register the exact relevant fields;
 unrelated properties/resources, identities and observations remain immutable.
 The normalized delete_sources, source_scopes and scopes are shared by authorization
@@ -242,7 +245,7 @@ scope; this operation does not introduce an IT completion requirement.
 
 An explicit dependency detach is a separate ordinary design Task, not a new Model
 operation and never combined with import-merge/import-retarget. Deletion-related detach
-may instead be registered in the same import-delete parent as specified above. Declare:
+may instead be registered in the same model-delete parent as specified above. Declare:
 
 ```markdown
 ## Task contract

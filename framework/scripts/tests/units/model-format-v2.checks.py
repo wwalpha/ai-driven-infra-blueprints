@@ -969,7 +969,7 @@ def check_properties_model_operation_preservation(tmp_path, monkeypatch, change)
     source = "/".join((*identity, "007"))
     destination = "/".join((*identity, "008"))
     operation = ModelOperation(
-        "import-delete" if change == "delete" else "import-merge",
+        "model-delete" if change == "delete" else "import-merge",
         identity,
         pairs=() if change == "delete" else (MergePair(source, destination),),
         delete_sources=(source,) if change == "delete" else (),

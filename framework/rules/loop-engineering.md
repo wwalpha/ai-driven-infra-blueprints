@@ -453,7 +453,7 @@ Standalone complete retains its own check; integration consumes the successful r
 for status and merge without another loop. The validation interval holds no lifecycle
 lock. Recheck base, HEAD, clean state and exact permitted status transition before merge.
 On FAIL retain candidate/worktree; no auto-regeneration/amend/retry by default.
-For import-delete, the explicitly resumed parent may repair and invoke finalization
+For model-delete, the explicitly resumed parent may repair and invoke finalization
 again, retaining the earlier candidate commit and validating the corrected candidate.
 No successful deletion leaf invokes final validation. Require every registered deletion
 before commit preparation; merge only after the single parent final check succeeds. Cleanup runs in the

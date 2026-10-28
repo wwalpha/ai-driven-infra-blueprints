@@ -1154,7 +1154,11 @@ def check_model_operation_contract_scope(tmp_path, change):
                 + ".resourceMode"
             ] = "CREATE"
             write_model(file, values)
-        action = "import-merge" if change == "create-destination" else "import-delete"
+        action = (
+            "import-merge"
+            if change in {"create-source", "create-destination"}
+            else "import-delete"
+        )
         sources = operation_candidate(before, after, action)
         with pytest.raises(ValueError):
             verify_model_operation(
@@ -3635,7 +3639,17 @@ def check_repair_invalid_model(producer_inputs, quality, tmp_path, old_error, fa
                 assert save() == (path,)
                 assert path.read_text() == candidate and quality.called
                 import_guard.require_import_changes(target)
-                complete(target, name)
+                task_runtime = module(
+                    "task_contract_runtime.py", "task_contract_runtime"
+                )
+                with patch.object(task_runtime, "Validator") as validator:
+                    validator.return_value.report.return_value = 0
+                    complete(target, name)
+                    validator.return_value.run.assert_called_once()
+                assert (
+                    _imports_task_contract.status((target / name).read_text())
+                    == "completed"
+                )
             else:
                 with pytest.raises((ValueError, OSError)):
                     save()

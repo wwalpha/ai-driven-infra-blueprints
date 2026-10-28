@@ -123,7 +123,7 @@ names nor approved flags confer authority. All commands use this shared save bou
 
 Each successful leaf save survives a later failed leaf. Intermediate saves do not
 complete/generate/merge or add unconditional final design validation. retarget retains
-its required pre-save operation check. One import-delete parent owns its named sources
+its required pre-save operation check. One model-delete parent owns its named sources
 and declared repairs; perform all leaves before one generation/final-integration phase.
 The final latest-base comparison proves every pair/deletion and retained configuration,
 observation, identity, composition and reference position across the full candidate.

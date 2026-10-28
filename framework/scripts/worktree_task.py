@@ -524,7 +524,7 @@ def _commit_preconditions(target, state, changed, text, parsed_operation):
             "task commit verification failed; review required before any retry"
         )
     if state["commit"] and changed:
-        if parsed_operation is None or parsed_operation.action != "import-delete":
+        if parsed_operation is None or parsed_operation.action != "model-delete":
             raise Blocked(
                 "task changed after commit; rerun its workflow before integration"
             )
@@ -543,7 +543,7 @@ def _prepare_commit(root, path, state, target, approval):
     if approval and (
         tasks.model_refactor(contract) is not None
         or parsed_operation is not None
-        and parsed_operation.action in {"import-retarget", "import-delete"}
+        and parsed_operation.action in {"import-retarget", "model-delete"}
     ):
         raise Blocked(
             "Model refactor/retarget/delete integration requires successful final candidate validation"

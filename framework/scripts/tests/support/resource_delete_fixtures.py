@@ -27,7 +27,7 @@ if not __debug__:
 
 def contract(sources, references=(), detaches=()):
     text = (
-        operation_contract("import-delete")
+        operation_contract("model-delete")
         .split("## Model merge pairs")[0]
         .split("## Model delete sources")[0]
     )
@@ -85,6 +85,10 @@ def fixture(root, multiple=False):
                         [("Name", env + "-" + rid)],
                     )
                 )
+                if index % 3 == 1:
+                    values[f"desired.resource.{rid}.resourceMode"] = "CREATE"
+                elif index % 3 == 2:
+                    values.pop(f"desired.resource.{rid}.resourceMode")
                 values[f"observed.row.{rid}-001.value"] = "observed-" + rid
                 if env == "stg" and index <= count:
                     sources.append("stg/cde/" + service + "/" + rid)

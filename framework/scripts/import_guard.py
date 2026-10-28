@@ -285,7 +285,7 @@ def require_import_changes(
         with snapshots(
             root, base, output or {}, detached=contract_file is not None
         ) as (before, after):
-            if operation.action in {"import-retarget", "import-delete"}:
+            if operation.action in {"import-retarget", "model-delete"}:
                 active_scope = _imports_validation_scope.active_scope
                 scope = (
                     set(final_candidate.scope)

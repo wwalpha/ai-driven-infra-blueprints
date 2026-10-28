@@ -103,7 +103,7 @@ def preserve_fixed_fields(
         if tuple(pair.destination.split("/")[:3])
         == (before.scope.environment, before.scope.target, before.scope.service)
     }
-    if operation.action in {"import-merge", "import-delete", "import-retarget"}:
+    if operation.action in {"import-merge", "model-delete", "import-retarget"}:
         removed = set(getattr(operation, "delete_sources", ())) | {
             pair.source for pair in getattr(operation, "pairs", ())
         }
@@ -1059,10 +1059,15 @@ def verify_model_operation(
         old = old_models.get(scope)
         if (
             old is None
-            or old.authoritative.get(f"desired.resource.{rid}.resourceMode") != "IMPORT"
+            or f"desired.resource.{rid}.resourceType" not in old.authoritative
         ):
+            raise ValueError("Model operation requires an existing source: " + address)
+        mode = old.authoritative.get(f"desired.resource.{rid}.resourceMode", "CREATE")
+        if mode not in {"CREATE", "IMPORT"}:
+            raise ValueError("resourceMode must be CREATE or IMPORT: " + address)
+        if operation.action == "import-merge" and mode != "IMPORT":
             raise ValueError(
-                "Model operation requires an existing IMPORT source: " + address
+                "Model merge requires an existing IMPORT source: " + address
             )
         deleted.setdefault(scope, set()).add(rid)
     pairs = {

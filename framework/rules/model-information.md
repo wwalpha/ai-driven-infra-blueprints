@@ -161,7 +161,7 @@ uses an ordinary design /update Task for an independent request under
 [Value-preserving Model refactor](task-contract.md#value-preserving-model-refactor):
 prove preserved non-reference settings/types/structure and shared consumers, report
 reference-derived differences and remaining dependencies, and validate the actual rebased candidate before merge.
-For a registered import-delete request, related detach/reference repairs instead share
+For a registered model-delete request, related detach/reference repairs instead share
 its parent Task, Worktree and final validation/merge. Resource leaves save raw sources
 sequentially; only the parent finalizes after all deletions. Unrelated properties,
 non-target consumers/environments, fixed identities and observations stay protected.

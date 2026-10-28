@@ -431,7 +431,7 @@ class ModelOperation:
 
     @property
     def source_scopes(self):
-        if self.action == "import-delete":
+        if self.action == "model-delete":
             return frozenset(
                 tuple(source.split("/")[:3]) for source in self.delete_sources
             )
@@ -453,7 +453,7 @@ def _model_operation_address(value):
         "(?:[a-z0-9]+(?:[-_][a-z0-9]+)*/){3}[0-9]{3,}", value
     ):
         raise ValueError(
-            "IMPORT operation requires exact environment/target/service/fixed Resource IDs"
+            "Model operation requires exact environment/target/service/fixed Resource IDs"
         )
     return value
 
@@ -523,29 +523,29 @@ def model_operation(text: str) -> ModelOperation | None:
     )
 
     if field("Task type") != "design" or field("Workflow") != "update":
-        raise ValueError(
-            "Model-only IMPORT operations require the design /update workflow"
-        )
+        raise ValueError("Model-only operations require the design /update workflow")
     if (
         field("AWS API execution") != "forbidden"
         or field("deploy/apply") != "forbidden"
     ):
-        raise ValueError("Model-only IMPORT operations forbid AWS and deploy/apply")
+        raise ValueError("Model-only operations forbid AWS and deploy/apply")
     action = field("Model operation")
-    if action not in {"import-merge", "import-delete", "import-retarget"}:
-        raise ValueError("unknown Model-only IMPORT operation")
-    deleting = action == "import-delete"
+    if action == "import-delete":
+        action = "model-delete"
+    if action not in {"import-merge", "model-delete", "import-retarget"}:
+        raise ValueError("unknown Model-only operation")
+    deleting = action == "model-delete"
     delete_sources = ()
     if deleting:
         if headings[0] in present:
-            raise ValueError("IMPORT deletion has no merge pairs")
+            raise ValueError("Model deletion has no merge pairs")
         delete_sources = tuple(
             sorted(address(value) for value in paths_in(text, headings[2]))
         )
         if len({tuple(value.split("/")[:2]) for value in delete_sources}) != 1:
-            raise ValueError("IMPORT deletion requires the same environment/target")
+            raise ValueError("Model deletion requires the same environment/target")
     elif headings[2] in present:
-        raise ValueError("Model delete sources requires import-delete")
+        raise ValueError("Model delete sources requires model-delete")
     standalone = action == "import-retarget"
     if standalone and headings[0] in present:
         raise ValueError("standalone retarget has no merge pairs")
@@ -706,9 +706,9 @@ def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...]
             raise ValueError("Model refactor requires " + name + ": " + expected)
     if operation is None:
         operation = model_operation(text)
-    if operation is not None and operation.action != "import-delete":
+    if operation is not None and operation.action != "model-delete":
         raise ValueError(
-            "Model refactor cannot be combined with Model operation except import-delete"
+            "Model refactor cannot be combined with Model operation except model-delete"
         )
     result, seen = [], set()
     for line in section(text, heading):

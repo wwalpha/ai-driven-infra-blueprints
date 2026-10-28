@@ -26,7 +26,8 @@ chooses edits; Python verifies preservation and never infers an edit plan.
 ## Operation
 
 Accept exactly one Resource from the normalized parent deletion source set (merge
-sources or import-delete delete_sources). The parent LLM invokes the next leaf only
+sources or model-delete delete_sources), whether CREATE (explicit or implicit) or IMPORT.
+This removes Model authority only and never deletes AWS resources or runs deploy/apply. The parent LLM invokes the next leaf only
 after inspecting this result; multiple resources share the same Task and Worktree.
 Inspect declared references, Property/JSON/parentReference and direct Markdown links
 in all real Models of the same environment/target. Keep a before snapshot so deleted

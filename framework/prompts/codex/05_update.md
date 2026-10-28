@@ -66,7 +66,7 @@ retain fixed identities and non-reference settings/types/JSON siblings/observati
 reference-derived differences as warnings. The LLM chooses repairs within scope or asks
 about undetermined changes; Python does not invent them. This branch grants no AWS/IaC
 permission and does not enter infrastructure execution below. For repairs associated
-with registered deletions, use the same import-delete parent and intermediate writer
+with registered deletions, use the same model-delete parent and intermediate writer
 under the next Model-only branch, not an independently finalized refactor.
 
 ## Standalone Model reference retarget
@@ -92,7 +92,7 @@ conflicts remain errors; retain the candidate on actual failure. No IT requireme
 ## Model-only IMPORT merge or deletion
 
 Use this branch for an explicit human Model-only request. Register one running design
-Task with Workflow update, Model operation import-merge/import-delete, forbidden AWS
+Task with Workflow update, Model operation import-merge/model-delete, forbidden AWS
 and deploy/apply. Apply the common Task sections already read; read
 [Model sources](../../rules/model-templates.md)
 and [IMPORT authority](../../rules/model-information.md#import-configuration-authority).
@@ -129,7 +129,7 @@ stopping; the following leaves own their exact editing procedures:
 Standalone validation/complete retain their own final checking responsibility. Ordinary
 non-managed completed-candidate publication retains its previous IMPORT guard. A failed
 final check retains the private commit/worktree without merge, automatic regeneration,
-amend or loop retry by default. For import-delete, explicitly resume/repair in the same
+amend or loop retry by default. For model-delete, explicitly resume/repair in the same
 parent and call finalization again after the correction; retain the earlier candidate
 commit and revalidate the new candidate. Never merge a failed candidate. This repair
 retry is distinct from forbidden per-Resource final validation. Report leaf saves and

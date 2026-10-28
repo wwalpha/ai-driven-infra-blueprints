@@ -30,7 +30,7 @@ one parent Task; each leaf's own skill is its procedure authority. Worktree fina
 owns the post-rebase final validation/completion/merge sequence.
 
 For an explicit Human one-or-more-Resource deletion request, register and validate the
-`import-delete` parent. Retain Model safety checks, forbidden AWS/deploy and unchanged
+`model-delete` parent. Retain Model safety checks, forbidden AWS/deploy and unchanged
 issue inventories. Apply [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics)
 to read-only analysis. Final candidates must resolve their references; an invalid old
 Model is never a repair/save/finalization blocker.
@@ -38,7 +38,7 @@ Model is never a repair/save/finalization blocker.
 The separate value-preserving branch uses the shared read-only reference API only for
 an explicitly authorized detach; neither ordering nor detach completion gates deletion. It uses an
 ordinary design Task for an independent refactor request. When repairing dependencies
-of registered deletions, use the import-delete parent with explicit related detach or
+of registered deletions, use the model-delete parent with explicit related detach or
 reference records and the existing intermediate writer. Process resources sequentially,
 then generate/validate/integrate the parent once. Never create one Task or Merge per
 Resource or require an earlier repair Merge before deletion.

@@ -217,7 +217,7 @@ def source_context(scope, *, imported=False):
     context = SourceWriteContext._authorized(
         scope.root,
         inputs,
-        SimpleNamespace(action="import-delete"),
+        SimpleNamespace(action="model-delete"),
         lambda changes: None,
         frozenset(model.files),
     )

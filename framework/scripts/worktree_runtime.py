@@ -52,7 +52,7 @@ def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
                 "running/completed task has an unexpected suspension reason"
             )
         operation = tasks.model_operation(text)
-        if operation is not None and operation.action == "import-delete":
+        if operation is not None and operation.action == "model-delete":
             entries = _imports_model_core.entries
             Scope = _imports_model_sources.Scope
             load_model = _imports_model_sources.load_model

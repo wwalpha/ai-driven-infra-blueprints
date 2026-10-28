@@ -73,7 +73,7 @@ def check_finalize_rejects_incomplete_leaves(tmp_path):
             wt.prepare_integration(tmp_path, "parent")
 
 
-@pytest.mark.parametrize("action", ["import-retarget", "import-delete"])
+@pytest.mark.parametrize("action", ["import-retarget", "model-delete"])
 def check_model_finalize_cannot_bypass_candidate(tmp_path, action):
     state = {"task_file": "tasks/retarget.md", "task_id": "retarget"}
     task = tmp_path / state["task_file"]
