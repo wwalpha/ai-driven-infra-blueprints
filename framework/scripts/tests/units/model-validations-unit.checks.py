@@ -115,6 +115,28 @@ def check_full_and_change_share_rules(owner, name):
     assert getattr(change_inputs, name) is getattr(owner, name)
 
 
+@pytest.mark.parametrize("engine", [None, "unknown", "terraform", "cloudformation"])
+def check_identity_engine_routing(tmp_path, engine) -> None:
+    """確定したエンジンの専用関数だけを呼び出す。"""
+    target = {} if engine is None else {"iacEngine": engine}
+    resources = [("001", {"resourceType": "EC2.VPC", "resourceMode": "CREATE"})]
+    with (
+        patch.object(identity, "design_target", return_value=target),
+        patch.object(identity, "_validate_terraform_identities") as terraform,
+        patch.object(identity, "_validate_cloudformation_identities") as cloudformation,
+    ):
+        identity.validate_resource_identities(
+            tmp_path / "docs/designs/dev/team/vpc.md",
+            {},
+            tmp_path,
+            resources,
+            definitions_root=ROOT,
+            _kms_policy_check=Mock(),
+        )
+    assert terraform.call_count == (engine == "terraform")
+    assert cloudformation.call_count == (engine == "cloudformation")
+
+
 @pytest.mark.parametrize("failure", [False, True])
 def check_structure_order_and_short_circuit(failure):
     calls = []
