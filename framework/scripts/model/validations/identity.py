@@ -50,10 +50,11 @@ def validate_resource_identities(
     )
     stack_names = None
     identity_catalog = DesignSchemaCatalog(definitions_root or definition_root(root))
-    for identity, resource in resources:
-        if target.get("iacEngine") == "terraform":
+    if target.get("iacEngine") == "terraform":
+        for identity, resource in resources:
             _validate_terraform_identity(identity, resource)
-        else:
+    else:
+        for identity, resource in resources:
             stack_names = _validate_cloudformation_identity(
                 identity, resource, target, root, stack_source, resources,
                 identity_catalog, stack_names,
