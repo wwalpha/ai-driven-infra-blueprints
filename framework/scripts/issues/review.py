@@ -293,7 +293,7 @@ def validate_naming_issue(artifact, item, name):
             or not any(
                 expected == value
                 and "{{" + component + "}}" in applied
-                and pattern_matches(applied, actual, {**confirmed, component: observed})
+                and pattern_matches(applied, actual, {component: observed})
                 for component, value in confirmed.items()
             )
         ):
@@ -461,6 +461,60 @@ def validate_diagnostic_decisions(
     return excluded, conflicts
 
 
+def matches_naming_item(item, name):
+    if any(item.get(key) != name.get(key) for key in ("service", "resource")):
+        return False
+    prop = item.get("property")
+    if not isinstance(prop, str):
+        return False
+    prop = prop.removeprefix(name.get("resourceType", "") + ".")
+    if prop == name.get("property"):
+        return True
+    if name.get("property") != "Name tag" or prop not in {
+        "Tags[].Value",
+        "HostedZoneTags[].Value",
+        "Tags",
+        "HostedZoneTags",
+    }:
+        return False
+    source, naming_source = item.get("source"), name.get("source")
+    # Only a concrete different row distinguishes an ordinary Tag from the Name tag.
+    if isinstance(source, dict) and isinstance(naming_source, dict):
+        for fields in (("path", "key"), ("path", "line")):
+            if all(source.get(key) and naming_source.get(key) for key in fields):
+                return all(source[key] == naming_source[key] for key in fields)
+    return True
+
+
+def validate_independent_issue(artifact, item):
+    key = required_text(item, "diagnostic_id")
+    required_identity(item, TARGET_FIELDS, "independent Review Issue")
+    record = next(
+        (record for record in artifact["ordinary"] if record["id"] == key), {}
+    )
+    diagnostic = record.get("diagnostic", {})
+    if (
+        not matches_target(record, item)
+        or record.get("cause_kind") != "input_invalid"
+        or not isinstance(diagnostic, dict)
+        or diagnostic.get("code") != item["rule"]
+        or diagnostic.get("code") in {"validation.unclassified", "review.naming"}
+        or not (
+            diagnostic.get("category") == "MODEL_NEEDS_FIX"
+            or diagnostic.get("check_id")
+            in {
+                "model.references",
+                "design.tables",
+                "design.artifacts",
+                "design.identity",
+            }
+        )
+    ):
+        raise ValueError(
+            "Independent Review Issue requires a matching structured diagnostic"
+        )
+
+
 def review_additions(
     artifact: dict[str, Any], additions: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -487,28 +541,32 @@ def review_additions(
                 "expected",
                 "actual",
                 "applied_rule",
+                "diagnostic_id",
             }
             or item.get("service") not in services
         ):
             raise ValueError("review Issue ownership requires explicit scoped service")
         required_text(item, "message")
-        naming_target = any(
-            all(
-                item.get(key) == name.get(key)
-                for key in ("service", "resource", "property")
-            )
-            for name in naming.values()
-        )
-        if (
-            naming_target
-            or "naming" in str(item.get("rule", "")).lower()
+        naming_fields = {
+            "naming_item_id",
+            "violation",
+            "expected",
+            "actual",
+            "applied_rule",
+        }
+        if "diagnostic_id" in item:
+            validate_independent_issue(artifact, item)
+            if set(item) & naming_fields:
+                raise ValueError(
+                    "Independent diagnostic cannot replace Naming evidence"
+                )
+        elif (
+            any(matches_naming_item(item, name) for name in naming.values())
+            or item.get("rule") == "review.naming"
             or "naming_item_id" in item
         ):
             name = naming.get(required_text(item, "naming_item_id"))
-            if name is None or any(
-                item.get(key) != name.get(key)
-                for key in ("service", "resource", "property")
-            ):
+            if name is None or not matches_naming_item(item, name):
                 raise ValueError("Naming Issue must match its naming item")
             for key in ("rule", "violation", "evidence"):
                 required_text(item, key)

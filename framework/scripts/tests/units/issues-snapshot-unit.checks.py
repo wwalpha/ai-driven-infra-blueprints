@@ -290,6 +290,178 @@ def check_naming_target_cannot_bypass_evidence(tmp_path, rule):
 
 
 @pytest.mark.parametrize(
+    "prop", ["Name tag", "Tags[].Value", "EC2.VPCEndpoint.Tags[].Value"]
+)
+@pytest.mark.parametrize("same_source", [True, False, None])
+def check_name_tag_review_identity(tmp_path, prop, same_source):
+    data = snapshot_artifact(tmp_path, services=["vpc"])
+    source = dict(
+        path="model/dev/123456789012/vpc.properties",
+        line=12,
+        key="desired.row.001-002.value",
+    )
+    data["naming"]["names"] = [
+        dict(
+            id="n1",
+            service="vpc",
+            resource="001",
+            resourceType="EC2.VPCEndpoint",
+            property="Name tag",
+            source=source,
+        )
+    ]
+    issue = dict(
+        service="vpc",
+        resource="001",
+        property=prop,
+        rule="review.other",
+        message="Human confirmation is unavailable",
+    )
+    if same_source is not None:
+        issue["source"] = (
+            dict(source)
+            if same_source
+            else dict(source, line=14, key="desired.row.001-004.value")
+        )
+    review = review_for(data)
+    review["issues"] = [issue]
+    if prop != "Name tag" and same_source is False:
+        assert len(json.loads(review_snapshot(data, review).data)["ordinary"]) == 1
+    else:
+        with pytest.raises(ValueError):
+            review_snapshot(data, review)
+
+
+@pytest.mark.parametrize(
+    "prop", ["Name tag", "Tags[].Value", "EC2.VPCEndpoint.Tags[].Value"]
+)
+def check_name_tag_valid_violation_aliases(tmp_path, prop):
+    data = snapshot_artifact(tmp_path, services=["network"])
+    pattern = "vpce-{{application}}-{{environment}}-{{service}}"
+    data["naming_context"] = dict(
+        rules=dict(
+            EC2=[dict(text=f"| X | X | `EC2.VPCEndpoint` | `Name tag` | `{pattern}` |")]
+        )
+    )
+    data["naming_context_id"] = identifier(data["naming_context"])
+    source = dict(
+        path="model/dev/123456789012/network.properties",
+        line=12,
+        key="desired.row.001-002.value",
+    )
+    data["naming"]["names"] = [
+        dict(
+            id="n1",
+            service="network",
+            resource="001",
+            resourceType="EC2.VPCEndpoint",
+            resourceMode="CREATE",
+            property="Name tag",
+            value="wrong-prefix",
+            value_available=True,
+            source=source,
+        )
+    ]
+    review = review_for(data)
+    review["issues"] = [
+        dict(
+            service="network",
+            resource="001",
+            property=prop,
+            source=source,
+            naming_item_id="n1",
+            rule="review.naming",
+            applied_rule=pattern,
+            violation="format",
+            evidence="Fixed prefix is wrong",
+            message="Naming violation",
+        )
+    ]
+    assert len(json.loads(review_snapshot(data, review).data)["ordinary"]) == 1
+    review["issues"][0]["source"] = dict(
+        source, line=14, key="desired.row.001-004.value"
+    )
+    if prop != "Name tag":
+        with pytest.raises(ValueError, match="match its naming item"):
+            review_snapshot(data, review)
+
+
+@pytest.mark.parametrize("kind", ["reference", "display"])
+def check_independent_issue_on_naming_property(tmp_path, kind):
+    data = snapshot_artifact(tmp_path, services=["vpc"])
+    data["naming"]["names"] = [
+        dict(
+            id="n1",
+            service="vpc",
+            resource="001",
+            property="Name",
+            resourceType="EC2.VPC",
+        )
+    ]
+    code = "REF_TARGET_MISSING" if kind == "reference" else "design.display.mismatch"
+    diagnostic = (
+        dict(
+            code=code,
+            model="model/dev/123456789012/vpc.properties",
+            modelKey="desired.row.001-001.value",
+            property="Name",
+            category="MODEL_NEEDS_FIX",
+        )
+        if kind == "reference"
+        else dict(code=code, check_id="design.tables", cause_kind="input_invalid")
+    )
+    data["ordinary"] = [
+        dict(
+            id="independent",
+            service="vpc",
+            resource="001",
+            property="Name",
+            rule=code,
+            cause_kind="input_invalid",
+            diagnostic=diagnostic,
+            message="Independent violation",
+        )
+    ]
+    review = review_for(data)
+    issue = dict(
+        service="vpc",
+        resource="001",
+        property="Name",
+        rule=code,
+        diagnostic_id="independent",
+        message="Independent violation",
+    )
+    review["issues"] = [issue]
+    assert len(json.loads(review_snapshot(data, review).data)["ordinary"]) == 2
+    for changes in (
+        dict(diagnostic_id="missing"),
+        dict(rule="review.other"),
+        dict(resource="002"),
+        dict(property="Other"),
+        dict(naming_item_id="n1"),
+        dict(violation="human_unknown"),
+        dict(expected="dev", actual="stg"),
+    ):
+        review["issues"] = [dict(issue, **changes)]
+        with pytest.raises(ValueError):
+            review_snapshot(data, review)
+    review["issues"] = [issue]
+    data["ordinary"][0]["diagnostic"] = dict(
+        code="validation.unclassified", check_id="design.tables"
+    )
+    with pytest.raises(ValueError):
+        review_snapshot(data, review)
+    for unsupported in (
+        {},
+        dict(code=code),
+        dict(code="different", category="MODEL_NEEDS_FIX"),
+    ):
+        data["ordinary"][0]["diagnostic"] = unsupported
+        with pytest.raises(ValueError):
+            review_snapshot(data, review)
+
+
+@pytest.mark.parametrize(
     (
         "pattern",
         "value",
@@ -300,6 +472,69 @@ def check_naming_target_cannot_bypass_evidence(tmp_path, rule):
         "extra_pattern",
     ),
     [
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-other-stg",
+            {"application": "venusinf"},
+            "venusinf",
+            "invented",
+            False,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-other-stg",
+            {"application": "venusinf"},
+            "unconfirmed",
+            "other",
+            False,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-other-dev",
+            {},
+            "venusinf",
+            "other",
+            False,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-venusinf-dev",
+            {"application": "venusinf"},
+            "dev",
+            "stg",
+            False,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}[-{{suffix}}]",
+            "vpc-other-stg-x",
+            {"application": "venusinf", "suffix": "confirmed"},
+            "dev",
+            "stg",
+            True,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-other-stg",
+            {"application": "venusinf"},
+            "venusinf",
+            "other",
+            True,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-other-stg",
+            {"application": "venusinf"},
+            "dev",
+            "stg",
+            True,
+            None,
+        ),
         (
             "vpc-{{application}}-{{environment}}",
             "vpc-venusinf-test-dev",
@@ -356,8 +591,17 @@ def check_naming_target_cannot_bypass_evidence(tmp_path, rule):
         ),
     ],
 )
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
 def check_confirmed_components_together(
-    tmp_path, pattern, value, confirmations, expected, observed, accepted, extra_pattern
+    tmp_path,
+    pattern,
+    value,
+    confirmations,
+    expected,
+    observed,
+    accepted,
+    extra_pattern,
+    mode,
 ):
     data = snapshot_artifact(tmp_path, services=["vpc"])
     patterns = [pattern] + ([extra_pattern] if extra_pattern else [])
@@ -381,7 +625,7 @@ def check_confirmed_components_together(
             resource="001",
             property="Name",
             resourceType="EC2.VPC",
-            resourceMode="CREATE",
+            resourceMode=mode,
             value=value,
             value_available=True,
         )
