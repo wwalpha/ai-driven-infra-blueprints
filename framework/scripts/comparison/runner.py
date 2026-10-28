@@ -888,6 +888,7 @@ class Comparison(Inputs):
             reference=reference,
             local=self.local_comparison,
             missing=bool(missing),
+            diagnostic_kind=kind,
         )
         warnings.extend(decision.candidate_warnings)
         if prepared is not None:

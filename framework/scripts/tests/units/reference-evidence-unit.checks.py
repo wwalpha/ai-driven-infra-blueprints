@@ -7141,3 +7141,154 @@ def test_duplicate_position_evidence_missing_or_correspondence_ambiguous():
     )
     fields = result.display_differences[identifier(result.records[0])]
     assert len(fields) == 2 and fields[0]["model"] == "対応未確定"
+
+
+def typed_duplicate_reference(comparison, outcomes, left, right, path):
+    if not isinstance(right, (ResourceReference, Expression)):
+        return ReferenceDecision(NotImplemented)
+    equal = next(outcomes)
+    detail = comparison.reference_diagnostic(left, right, "KMS.Key", path, "fixture")
+    detail["local_comparison"] = "matched" if equal is True else "uncompared"
+    return ReferenceDecision(equal, (detail,))
+
+
+@pytest.mark.parametrize("shape", ["reference", "join", "sub"])
+@pytest.mark.parametrize("masked", [False, True])
+def test_typed_duplicate_position_evidence(shape, masked):
+    comparison = fixture()
+    if masked:
+        comparison.sensitive_values.add("confirmed")
+    refs = [
+        ResourceReference({"$resource": ["kms", identity], "$attribute": "KeyId"})
+        for identity in ("001", "001", "002")
+    ]
+    actual = refs
+    if shape == "join":
+        actual = [Expression("Join", ["", ["prefix/", ref]]) for ref in refs]
+    elif shape == "sub":
+        actual = [Expression("Sub", ["${Key}", {"Key": ref}]) for ref in refs]
+    desired = ["confirmed", "confirmed", "pending"]
+    decision = compare_values(
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=partial(
+            typed_duplicate_reference, comparison, iter((True, True, None))
+        ),
+        diagnostic_kind="KMS.Key",
+    )
+    baseline_resolver = Mock(return_value=("resolved", "fixture"))
+    baseline = setting_result(
+        "test",
+        "001",
+        "Setting",
+        desired,
+        actual,
+        replace(decision, reference_positions=()),
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=comparison.redacted,
+        display_reference=baseline_resolver,
+    )
+    assert len(baseline.display_differences[identifier(baseline.records[0])]) == 3
+    assert baseline_resolver.call_count == 3
+    resolver = Mock(side_effect=pending_only_display)
+    batch = setting_result(
+        "test",
+        "001",
+        "Setting",
+        desired,
+        actual,
+        decision,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=comparison.redacted,
+        display_reference=resolver,
+    )
+    assert decision.equal is None
+    assert [d["path"] for d in decision.diagnostics] == ["KMS.Key.Setting[]"] * 3
+    assert decision.reference_positions == (
+        ((0,), (0,), "matched"),
+        ((1,), (1,), "matched"),
+        ((2,), (2,), "uncompared"),
+    )
+    fields = batch.display_differences[identifier(batch.records[0])]
+    assert len(fields) == 1 and fields[0]["model"] == "pending"
+    assert "kms/002.KeyId" in fields[0]["iac"]
+    resolver.assert_called_once_with(refs[2])
+    assert not batch.warnings
+    artifact = dict(
+        version=6,
+        **aggregate(
+            batch.records, "fixture", "team", ["test"], batch.display_differences
+        ),
+    )
+    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == fields
+    if masked:
+        assert "confirmed" not in json.dumps(
+            [batch.records, batch.warnings, batch.display_differences]
+        )
+
+
+@pytest.mark.parametrize(
+    "wrong_path", ["S3.Bucket.Setting[]", "KMS.Key.Other[]", "KMS.Key.Setting[].Child"]
+)
+def test_typed_position_evidence_rejects_unrelated_diagnostics(wrong_path):
+    ref = ResourceReference({"$resource": ["kms", "001"], "$attribute": "KeyId"})
+    diagnostic = {"path": wrong_path, "local_comparison": "matched"}
+    decision = compare_values(
+        ["same", "pending"],
+        [ref, ref],
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=partial(unrelated_position_reference, diagnostic),
+        diagnostic_kind="KMS.Key",
+    )
+    assert decision.equal is None and not decision.reference_positions
+
+
+def unrelated_position_reference(diagnostic, left, right, path):
+    if not isinstance(right, ResourceReference):
+        return ReferenceDecision(NotImplemented)
+    return ReferenceDecision(True if left == "same" else None, (diagnostic,))
+
+
+def test_typed_same_reference_mixed_statuses():
+    comparison = fixture()
+    ref = ResourceReference({"$resource": ["kms", "001"], "$attribute": "KeyId"})
+    desired, actual = ["same", "same"], [ref, ref]
+    decision = compare_values(
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=partial(typed_duplicate_reference, comparison, iter((True, None))),
+        diagnostic_kind="KMS.Key",
+    )
+    resolver = Mock(return_value=("resolved", "fixture"))
+    result = setting_result(
+        "test",
+        "001",
+        "Setting",
+        desired,
+        actual,
+        decision,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=comparison.redacted,
+        display_reference=resolver,
+    )
+    assert decision.reference_positions == (
+        ((0,), (0,), "matched"),
+        ((1,), (1,), "uncompared"),
+    )
+    fields = result.display_differences[identifier(result.records[0])]
+    assert len(fields) == 1 and fields[0]["path"] == "IaC:[1]（比較未確定）"
+    resolver.assert_called_once_with(ref)

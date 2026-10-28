@@ -9,7 +9,6 @@ from utils.iac_values import (
     ResourceReference,
     array_presence,
     comparison_result,
-    safe_value,
     same,
     selected_same,
     unknown_value,
@@ -119,6 +118,7 @@ class _Comparison:
     rules: dict
     reference: object
     local: bool
+    diagnostic_kind: str | None = None
     negative: dict = field(default_factory=dict)
     proofs: dict = field(default_factory=dict)
     keyed: dict = field(default_factory=dict)
@@ -183,6 +183,7 @@ def compare_values(
     reference=None,
     local=True,
     missing=False,
+    diagnostic_kind=None,
 ):
     if key not in rules:
         raise ValueError("Framework comparison rule missing: " + key)
@@ -201,9 +202,9 @@ def compare_values(
         )
         if equal is True:
             return EQUAL
-        state = _Comparison(rules, reference, local, negative=negative)
+        state = _Comparison(rules, reference, local, diagnostic_kind, negative=negative)
     else:
-        state = _Comparison(rules, reference, local)
+        state = _Comparison(rules, reference, local, diagnostic_kind)
         equal = _detect(state, desired, actual, key, scope, positioned=True)
     differences = (
         _evidence(state, desired, actual, key, shown, (), (), scope)
@@ -295,9 +296,12 @@ def _decision(state, whole, left, right, path, lp=None, rp=None):
         if lp is not None and rp is not None:
             for diagnostic in outcome.diagnostics:
                 if (
-                    diagnostic.get("path") == path
-                    and diagnostic.get("model") == safe_value(left)
-                    and diagnostic.get("iac") == safe_value(right)
+                    diagnostic.get("path")
+                    == (
+                        state.diagnostic_kind + "." + path
+                        if state.diagnostic_kind
+                        else path
+                    )
                     and diagnostic.get("local_comparison") in {"matched", "uncompared"}
                     and (
                         outcome.equal is True
