@@ -1,11 +1,19 @@
 """Current diagnostic decisions and independent Human facts; no inventory reads."""
 
+import builtins
 import json
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from model.core import literal
+from model.validations.naming import (
+    NAMING_EXEMPT_PROPERTIES,
+    naming_rule_rows,
+    naming_target_matches,
+)
 from task_contract_core import safe_path
 from utils.yaml_format import yaml_read
 
@@ -152,6 +160,167 @@ def diagnostic_index(
     if len(by_id) != len(ordinary):
         raise ValueError("duplicate current diagnostic ID")
     return by_id
+
+
+def naming_patterns(artifact, name):
+    kind, prop = required_text(name, "resourceType"), required_text(name, "property")
+    rules = artifact["naming_context"].get("rules", {}).get(kind.partition(".")[0], [])
+    return {
+        pattern
+        for rule in rules
+        for target_kind, target, pattern in naming_rule_rows(rule["text"])
+        if target_kind == kind and naming_target_matches(prop, {target}, kind)
+    }
+
+
+def pattern_matches(pattern, value, component=None, fixed=None):
+    """Prove only literal structure; unknown components remain unrestricted."""
+    tokens = re.split(r"(\{\{[a-z_]+\}\}|\[|\])", pattern)
+    positions, optional = {0}, []
+    for token in tokens:
+        if token == "[":
+            optional.append(positions.copy())
+        elif token == "]":
+            if not optional:
+                raise ValueError("invalid naming pattern")
+            positions.update(optional.pop())
+        elif token.startswith("{{"):
+            if token == "{{" + str(component) + "}}":
+                positions = {
+                    pos + len(fixed)
+                    for pos in positions
+                    if value.startswith(fixed, pos)
+                }
+            else:
+                positions = (
+                    set(range(min(positions) + 1, len(value) + 1))
+                    if positions
+                    else set()
+                )
+        else:
+            positions = {
+                pos + len(token) for pos in positions if value.startswith(token, pos)
+            }
+    if optional:
+        raise ValueError("invalid naming pattern")
+    return len(value) in positions
+
+
+def confirmed_components(artifact, name):
+    target = artifact["naming_context"].get("target_context", {})
+    values = {
+        component: target[key]
+        for component, key in (
+            ("environment", "environment"),
+            ("account_id", "awsAccountId"),
+            ("region", "awsRegion"),
+            ("target_alias", "alias"),
+            ("suffix", "suffix"),
+        )
+        if isinstance(target.get(key), str) and target[key]
+    }
+    conflicts = set()
+    for confirmation in artifact["human_confirmations"]["confirmations"]:
+        if confirmation["service"] != name["service"] or confirmation["scope"] != {
+            "resource": name["resource"],
+            "property": name["property"],
+        }:
+            continue
+        fact = re.fullmatch(
+            r"([a-z_]+)\s*=\s*([a-zA-Z0-9_.-]+)", confirmation["fact"].strip()
+        )
+        for component, value in [fact.groups()] if fact else []:
+            if component in conflicts:
+                continue
+            if component in values and values[component] != value:
+                values.pop(component)
+                conflicts.add(component)
+            else:
+                values[component] = value
+    return values
+
+
+def validate_naming_issue(artifact, item, name):
+    violation = item["violation"]
+    applied = required_text(item, "applied_rule")
+    patterns = naming_patterns(artifact, name)
+    value = name.get("value")
+    actual = (
+        literal(value)
+        if name.get("value_available") and isinstance(value, str)
+        else None
+    )
+    if violation == "rule_missing":
+        common = artifact["naming_context"]["rules"].get("common", [])
+        if (
+            patterns
+            or name["resourceType"] + "." + name["property"] in NAMING_EXEMPT_PROPERTIES
+            or applied not in {rule["path"] for rule in common}
+            or name.get("pattern_review") == "not applicable"
+        ):
+            raise ValueError("Naming rule coverage is not missing")
+    elif violation == "provider_constraint":
+        if actual is None or applied not in name.get("provider_errors", []):
+            raise ValueError("Naming provider constraint is not established")
+    elif violation == "required_missing":
+        common = artifact["naming_context"]["rules"].get("common", [])
+        if (
+            not name.get("required_missing")
+            or value is not None
+            or applied not in patterns | {rule["path"] for rule in common}
+        ):
+            raise ValueError("Naming item does not establish a missing required name")
+    elif applied not in patterns:
+        raise ValueError("Naming applied_rule does not apply to this item")
+    if violation == "format":
+        if actual is None or any(
+            pattern_matches(pattern, actual) for pattern in patterns
+        ):
+            raise ValueError("Naming format violation is not established")
+    if violation == "confirmed_mismatch":
+        expected, observed = (
+            required_text(item, "expected"),
+            required_text(item, "actual"),
+        )
+        if (
+            not actual
+            or expected == observed
+            or not any(
+                expected == value
+                and "{{" + component + "}}" in applied
+                and pattern_matches(applied, actual, component, observed)
+                and not pattern_matches(applied, actual, component, expected)
+                for component, value in confirmed_components(artifact, name).items()
+            )
+        ):
+            raise ValueError("Naming mismatch is not established by confirmed values")
+    elif "expected" in item or ("actual" in item and item["actual"] != actual):
+        raise ValueError("Naming evidence contradicts the naming item")
+
+
+def naming_failure_recorded(artifact, item):
+    if item["failure_kind"] == "input_unavailable":
+        return any(
+            judgment.get("kind") == "input-load-error"
+            and judgment.get("service") == item["service"]
+            for judgment in artifact["judgments"]
+        )
+    scope = "/".join((artifact["environment"], artifact["target"], item["service"]))
+    for failure in artifact["processing_errors"]:
+        if (
+            failure.get("phase") != "materials.naming"
+            or scope not in failure.get("scope", [])
+            or failure.get("cause_kind") != "check_failure"
+        ):
+            continue
+        if item["failure_kind"] == "execution_failure":
+            return True
+        error_type = getattr(builtins, failure.get("exception", ""), None)
+        if isinstance(error_type, type) and issubclass(
+            error_type, (OSError, UnicodeError)
+        ):
+            return True
+    return False
 
 
 def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapshot:
@@ -339,7 +508,7 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
         ):
             raise ValueError("review Issue ownership requires explicit scoped service")
         required_text(item, "message")
-        if item.get("rule") == "review.naming" or "naming_item_id" in item:
+        if "naming" in str(item.get("rule", "")).lower() or "naming_item_id" in item:
             name = naming.get(required_text(item, "naming_item_id"))
             if name is None or any(
                 item.get(key) != name.get(key)
@@ -356,21 +525,12 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
                 "provider_constraint",
             }:
                 raise ValueError("Naming Issue needs a concrete violation")
-            required_text(item, "applied_rule")
             if name.get("resourceMode") == "IMPORT" and item["violation"] in {
                 "format",
                 "rule_missing",
             }:
                 raise ValueError("IMPORT is exempt from framework naming conventions")
-            if item["violation"] == "required_missing" and not name.get(
-                "required_missing"
-            ):
-                raise ValueError(
-                    "Naming item does not establish a missing required name"
-                )
-            if item["violation"] == "confirmed_mismatch":
-                if required_text(item, "expected") == required_text(item, "actual"):
-                    raise ValueError("Naming mismatch requires different values")
+            validate_naming_issue(artifact, item, name)
         elif set(item) & {
             "violation",
             "evidence",
@@ -402,6 +562,8 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
                 raise ValueError(
                     "Naming unverified requires a concrete execution failure"
                 )
+            if not naming_failure_recorded(artifact, item):
+                raise ValueError("Naming unverified requires a recorded scan failure")
         if set(item) != fields:
             raise ValueError("invalid unverified review fields")
     data = deepcopy(artifact)

@@ -38,8 +38,6 @@ def naming_materials(comparison, *, service=None):
     services = comparison.services if service is None else [service]
     for service in services:
         if service not in comparison.models:
-            if service in comparison.reference_unavailable:
-                continue
             judgments.append(
                 {
                     "id": identifier([service, "load-error"]),
@@ -233,6 +231,32 @@ def naming_materials(comparison, *, service=None):
                 if not selected:
                     selected.append((None, None, "(no selected naming property)", None))
                 for rid, row, field, value in selected:
+                    provider_errors = []
+                    shown = comparison.redacted(value, field)
+                    raw = literal(value) if isinstance(value, str) else None
+                    available = (
+                        isinstance(raw, str)
+                        and bool(raw.strip())
+                        and raw.lower()
+                        not in {
+                            "unresolved",
+                            "unset",
+                            "tbd",
+                            "todo",
+                            "pending_deploy",
+                            "未確定",
+                        }
+                        and not any(token in raw for token in ("${", "{{", "<masked"))
+                        and not raw.startswith(("[", "{"))
+                        and shown == value
+                    )
+                    if field != "Name tag" and available:
+                        try:
+                            provider_errors = comparison.catalog.literal_errors(
+                                kind, field, literal(value)
+                            )
+                        except KeyError:
+                            pass  # Design-only names do not have provider properties.
                     key = (
                         f"desired.row.{rid}.value"
                         if rid
@@ -245,8 +269,10 @@ def naming_materials(comparison, *, service=None):
                         "resourceType": kind,
                         "resourceMode": mode,
                         "property": field,
-                        "value": comparison.redacted(value, field),
+                        "value": shown,
+                        "value_available": available,
                         "required_missing": field in required and value is None,
+                        "provider_errors": comparison.redacted(provider_errors, field),
                         "rule": namespace,
                         "rule_targets": sorted(targets),
                         "scope": "IMPORT framework convention excluded"
@@ -277,5 +303,5 @@ def naming_materials(comparison, *, service=None):
         "target_context": comparison.target,
         "rules": rules,
         "names": names,
-        "review_policy": "全名称を確認し、Patternに含まれるcomponentだけを対象に正本で確定した値を比較する。未確認componentを名前から推測せず、その不足だけでIssueや未検証にしない。独立して確認できる固定要素、構造、形式、確定値の違反は報告する。検査実行不能は未検証に残す。coverage除外をconvention/値検証除外へ拡大しない。",
+        "review_policy": "全名称を確認し、Patternに含まれるcomponentだけを対象に正本で確定した値を比較する。未確認componentを名前から推測せず、その不足だけでIssueや未検証にしない。独立して確認できる固定要素、構造、形式、確定値の違反は報告する。検査実行不能は未検証に残す。coverage除外をconvention/値検証除外へ拡大しない。applied_ruleは対象のPattern、rule_missingは共通規則のpath、provider_constraintは対象のprovider_errorsを指定する。confirmed_mismatchの期待値は対象設定または対象に対応するHuman confirmationのcomponent=valueから確認する。",
     }, judgments

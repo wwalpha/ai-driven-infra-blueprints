@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -66,18 +67,24 @@ def naming_targets(root: Path, namespace: str | None = None) -> dict[str, set[st
     """命名ルールの表から Resource Type ごとの対象を集める。"""
     targets: dict[str, set[str]] = {}
     for path in naming_rule_files(root, namespace):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.startswith("|"):
-                continue
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if (
-                len(cells) in {5, 6}
-                and cells[2].startswith("`")
-                and re.fullmatch(r"`[^`]+`", cells[4])
-            ):
-                for kind in re.findall(r"`([^`]+)`", cells[2]):
-                    targets.setdefault(kind, set()).add(cells[3].strip("`"))
+        for kind, target, _ in naming_rule_rows(path.read_text(encoding="utf-8")):
+            targets.setdefault(kind, set()).add(target)
     return targets
+
+
+def naming_rule_rows(text: str) -> Iterator[tuple[str, str, str]]:
+    """Read the same naming tables used by the coverage check."""
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if (
+            len(cells) in {5, 6}
+            and cells[2].startswith("`")
+            and re.fullmatch(r"`[^`]+`", cells[4])
+        ):
+            for kind in re.findall(r"`([^`]+)`", cells[2]):
+                yield kind, cells[3].strip("`"), cells[4].strip("`")
 
 
 def naming_coverage_errors(

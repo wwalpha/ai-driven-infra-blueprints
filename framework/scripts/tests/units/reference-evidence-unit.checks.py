@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison import Comparison
@@ -27,8 +28,11 @@ from design.catalog import DesignSchemaCatalog
 from issues.aggregate import aggregate, comparison_status, iac_dataset, iac_summary
 from issues.artifact import detail_payload
 from issues.materials import naming_materials
+from issues.publication import save_scan
+from issues.review import review_snapshot
 from model.references import declarations
 from model.sources import ModelSnapshot, Scope
+from support.issues_scan_fixtures import review_for, snapshot_artifact, task
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
 from utils.iac_values import (
@@ -3368,7 +3372,8 @@ def test_naming_materials_mode_and_root_targets():
         selected["pattern_review"] == "required"
         and selected["value"] == "`bad_pattern_value`"
     )
-    assert "推測しない" in material["review_policy"]
+    assert "未確認componentを名前から推測せず" in material["review_policy"]
+    assert "その不足だけでIssueや未検証にしない" in material["review_policy"]
     alias = next(item for item in names if item["service"] == "kms")
     assert (
         alias["resourceMode"] == "IMPORT"
@@ -3380,6 +3385,238 @@ def test_naming_materials_mode_and_root_targets():
         for item in names
         if item["service"] not in {"vpc", "kms"}
     } == {("codebuild", "Name"), ("codepipeline", "Name"), ("glue", "Name")}
+
+
+@pytest.mark.parametrize(
+    ("value", "violation", "expected", "actual"),
+    [
+        ("vpc-app-dev", None, None, None),
+        ("UNSET", None, None, None),
+        ("wrong-app-dev", "format", None, None),
+        ("vpc-app", "format", None, None),
+        ("vpc-app-stg", "confirmed_mismatch", "dev", "stg"),
+        (None, "required_missing", None, None),
+    ],
+)
+def test_naming_materials_review_save(tmp_path, value, violation, expected, actual):
+    comparison = fixture()
+    comparison.services = ["vpc"]
+    comparison.target["environment"] = "dev"
+    rows = resource(
+        comparison,
+        "vpc",
+        "001",
+        "EC2.VPC",
+        "Vpc",
+        [] if value is None else [("Name", value, None)],
+    )
+    for _, row in rows:
+        row["comment"] = ""
+    material, judgments = naming_materials(comparison)
+    data = snapshot_artifact(tmp_path, services=["vpc"])
+    data["naming_context"] = {
+        key: val for key, val in material.items() if key != "names"
+    }
+    data["naming_context_id"] = identifier(data["naming_context"])
+    data["naming"]["names"] = [
+        dict(item, naming_context_id=data["naming_context_id"])
+        for item in material["names"]
+    ]
+    data["judgments"] = judgments
+    item = next(item for item in data["naming"]["names"] if item["property"] == "Name")
+    review = review_for(data)
+    pattern = "vpc-{{application}}-{{environment}}"
+    issue = dict(
+        service="vpc",
+        resource="001",
+        property="Name",
+        rule="review.naming",
+        naming_item_id=item["id"],
+        applied_rule=pattern,
+        violation=violation or "format",
+        evidence="Reviewed the recorded name and rule",
+        message="Naming finding",
+    )
+    if expected:
+        issue.update(expected=expected, actual=actual)
+    if violation:
+        review["issues"] = [issue]
+    with task(tmp_path, ["vpc"]):
+        _, snapshot, _ = save_scan(tmp_path, data, review)
+    result = json.loads(snapshot.data)
+    assert len(result["ordinary"]) == bool(violation)
+    assert result["unverified"] == []
+    for invalid in (
+        dict(issue, applied_rule="not-a-rule"),
+        dict(issue, rule="naming"),
+        dict(issue, resource="002"),
+        dict(issue, property="Other"),
+    ):
+        review["issues"] = [invalid]
+        with pytest.raises(ValueError):
+            save_scan(tmp_path, data, review)
+    if not violation:
+        review["issues"] = [issue]
+        with pytest.raises(ValueError, match="format"):
+            save_scan(tmp_path, data, review)
+        review["issues"] = [
+            dict(
+                service="vpc",
+                resource="001",
+                property="Name",
+                rule="naming",
+                message="Unknown component",
+            )
+        ]
+        with pytest.raises(ValueError, match="naming_item_id"):
+            save_scan(tmp_path, data, review)
+        review["unverified"] = [
+            dict(
+                service="vpc",
+                check="naming",
+                reason="Unknown component",
+                failure_kind="read_failure",
+            )
+        ]
+        review["issues"] = []
+        with pytest.raises(ValueError, match="recorded scan failure"):
+            save_scan(tmp_path, data, review)
+    if violation == "confirmed_mismatch":
+        for invalid in (
+            dict(issue, expected="unknown"),
+            dict(issue, actual="invented"),
+        ):
+            review["issues"] = [invalid]
+            with pytest.raises(ValueError, match="mismatch"):
+                save_scan(tmp_path, data, review)
+
+
+def test_naming_import_provider_constraint_from_materials(tmp_path):
+    comparison = fixture()
+    comparison.services = ["kms"]
+    rows = resource(
+        comparison,
+        "kms",
+        "001",
+        "KMS.Alias",
+        "Alias",
+        [("AliasName", "invalid alias", None)],
+    )
+    for _, row in rows:
+        row["comment"] = ""
+    comparison.resources["kms"]["001"]["resourceMode"] = "IMPORT"
+    material, judgments = naming_materials(comparison)
+    data = snapshot_artifact(tmp_path, services=["kms"])
+    data["naming_context"] = {
+        key: val for key, val in material.items() if key != "names"
+    }
+    data["naming_context_id"] = identifier(data["naming_context"])
+    data["naming"]["names"] = [
+        dict(item, naming_context_id=data["naming_context_id"])
+        for item in material["names"]
+    ]
+    data["judgments"] = judgments
+    item = next(
+        item for item in data["naming"]["names"] if item["property"] == "AliasName"
+    )
+    assert item["provider_errors"]
+    review = review_for(data)
+    review["issues"] = [
+        dict(
+            service="kms",
+            resource="001",
+            property="AliasName",
+            rule="review.naming",
+            naming_item_id=item["id"],
+            applied_rule=item["provider_errors"][0],
+            violation="provider_constraint",
+            evidence="Provider schema",
+            message="Invalid provider name",
+        )
+    ]
+    with task(tmp_path, ["kms"]):
+        _, snapshot, _ = save_scan(tmp_path, data, review)
+    assert len(json.loads(snapshot.data)["ordinary"]) == 1
+    review["issues"][0].update(
+        violation="format",
+        applied_rule="alias/{{application}}-{{environment}}-{{purpose}}[-{{suffix}}]",
+    )
+    with pytest.raises(ValueError, match="IMPORT"):
+        save_scan(tmp_path, data, review)
+
+
+def test_naming_missing_rule_from_materials(tmp_path):
+    comparison = fixture()
+    comparison.services = ["cdn"]
+    rows = resource(
+        comparison,
+        "cdn",
+        "001",
+        "CloudFront.CachePolicy",
+        "Policy",
+        [("CachePolicyConfig.Name", "test-name", None)],
+    )
+    for _, row in rows:
+        row["comment"] = ""
+    material, judgments = naming_materials(comparison)
+    data = snapshot_artifact(tmp_path, services=["cdn"])
+    data["naming_context"] = {
+        key: val for key, val in material.items() if key != "names"
+    }
+    data["naming_context_id"] = identifier(data["naming_context"])
+    data["naming"]["names"] = [
+        dict(item, naming_context_id=data["naming_context_id"])
+        for item in material["names"]
+    ]
+    data["judgments"] = judgments
+    item = next(
+        item
+        for item in data["naming"]["names"]
+        if item["property"] == "CachePolicyConfig.Name"
+    )
+    review = review_for(data)
+    review["issues"] = [
+        dict(
+            service="cdn",
+            resource="001",
+            property=item["property"],
+            rule="review.naming",
+            naming_item_id=item["id"],
+            applied_rule=data["naming_context"]["rules"]["common"][0]["path"],
+            violation="rule_missing",
+            evidence="No registered target",
+            message="Missing naming rule",
+        )
+    ]
+    with task(tmp_path, ["cdn"]):
+        _, snapshot, _ = save_scan(tmp_path, data, review)
+    assert len(json.loads(snapshot.data)["ordinary"]) == 1
+
+
+def test_naming_input_unavailable_from_materials(tmp_path):
+    comparison = fixture()
+    comparison.services = ["vpc"]
+    comparison.reference_unavailable["vpc"] = "unresolved reference"
+    material, judgments = naming_materials(comparison)
+    data = snapshot_artifact(tmp_path, services=["vpc"])
+    data["naming_context"] = {
+        key: val for key, val in material.items() if key != "names"
+    }
+    data["naming_context_id"] = identifier(data["naming_context"])
+    data["judgments"] = judgments
+    review = review_for(data)
+    review["unverified"] = [
+        dict(
+            service="vpc",
+            check="naming",
+            reason="Model unavailable",
+            failure_kind="input_unavailable",
+        )
+    ]
+    assert (
+        json.loads(review_snapshot(data, review).data)["unverified"]
+        == review["unverified"]
+    )
 
 
 @pytest.mark.parametrize(
