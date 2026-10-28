@@ -81,6 +81,8 @@ from task_contract_core import task_snapshot as task_snapshot
 from task_contract_core import validate_contract as validate_contract
 from task_contract_core import verify_contract_reads as verify_contract_reads
 from task_contract_core import verify_snapshot as verify_snapshot
+from validation.findings import Findings
+from validation.task import TaskValidation
 
 
 def refresh(root, name, resuming=False):
@@ -128,5 +130,22 @@ def complete(root, name):
     invalidate_task_reads(root)
 
 
+def check_resume_scope(root, name):
+    with selected_task(root, name), task_reads(root, live=True):
+        snapshot = task_snapshot(root, name, executable=False)
+        if snapshot.status != "suspend":
+            raise ValueError("scope preflight requires a suspended task")
+        _ = snapshot.scope  # Validate the declared scope without running it.
+        findings = Findings(root)
+        TaskValidation(root, findings, contract_file=name).check_task_scope()
+        if findings.errors:
+            raise ValueError("scope preflight failed: " + "; ".join(findings.errors))
+        verify_snapshot(snapshot)
+
+
 def resume(root, name):
+    snapshot = task_snapshot(root, name, executable=False, live=True)
+    if snapshot.status == "suspend":
+        check_resume_scope(root, name)
+        verify_snapshot(snapshot)
     refresh(root, name, resuming=True)

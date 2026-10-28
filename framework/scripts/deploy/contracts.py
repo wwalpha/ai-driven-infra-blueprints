@@ -11,12 +11,20 @@ from worktree_state import subprocess_bytes as subprocess_bytes
 from worktree_task import load
 
 
-def accepted_changes(root, contract, changed):
+def accepted_changes(root, contract, changed, *, contract_file=None):
     """Attribute exact child commit transitions; never grant the parent IaC write scope."""
     task_path = _imports_task_contract.task_path
     if not any(path.startswith("infra/") for path in changed):
         return set()
-    selected = task_path(root).relative_to(root).as_posix()
+    selected = (
+        (
+            _imports_task_contract.contract_path(root, contract_file)
+            if contract_file is not None
+            else task_path(root)
+        )
+        .relative_to(root)
+        .as_posix()
+    )
     _, _, _, lifecycle = load(root, Path(selected).stem)
     record = lifecycle.get("iacRepair", {})
     if not record.get("commit"):

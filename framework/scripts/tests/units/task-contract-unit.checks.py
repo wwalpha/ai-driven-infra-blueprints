@@ -18,6 +18,7 @@ import model.sources as _imports_model_sources
 import pytest
 import task_contract as transitions
 import task_contract_core as tasks
+import task_contract_runtime as task_runtime
 import utils.input_cache as _imports_input_cache
 from generation_inputs import GenerationInputs
 from issues.publication import save_scan
@@ -442,7 +443,10 @@ def check_completed_legacy_and_paths(tmp_path):
 
 
 def check_suspend_and_resume(tmp_path):
-    with patch.dict(os.environ, {}, clear=True):
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch.object(task_runtime, "check_resume_scope"),
+    ):
         root = tmp_path
         first, second = "tasks/first.md", "tasks/second.md"
         transitions.start(
@@ -665,6 +669,82 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
     ):
         transitions.complete(tmp_path, name)
     assert tasks.status((tmp_path / name).read_text()) == "completed"
+
+
+@pytest.mark.parametrize("state", ["unstaged", "staged", "untracked"])
+def check_suspended_scope_preflight(tmp_path, monkeypatch, state):
+    git = _bind_framework_callback(
+        _callback_check_report_commit_independence_git, tmp_path
+    )
+    git("init", "--quiet", "--initial-branch=master")
+    (tmp_path / ".gitignore").write_text("tasks/\n")
+    (tmp_path / "outside.txt").write_text("original")
+    git("add", ".")
+    git("commit", "--quiet", "-m", "initial")
+    name, other = "tasks/self.md", "tasks/other.md"
+    transitions.start(tmp_path, name, transition_contract(name, ["owned.txt"]))
+    transitions.start(tmp_path, other, transition_contract(other, ["other.txt"]))
+    transitions.suspend(tmp_path, name, "scope: outside.txt")
+    before = (tmp_path / name).read_bytes()
+    other_before = (tmp_path / other).read_bytes()
+    path = tmp_path / ("untracked.txt" if state == "untracked" else "outside.txt")
+    path.write_text("other task change")
+    if state == "staged":
+        git("add", path.name)
+        path.write_text(
+            "original"
+        )  # Worktree restoration alone leaves the index dirty.
+    with pytest.raises(ValueError, match="outside task scope"):
+        transitions.check_resume_scope(tmp_path, name)
+    with pytest.raises(ValueError, match="outside task scope"):
+        transitions.resume(tmp_path, name)
+    assert (tmp_path / name).read_bytes() == before
+    assert (tmp_path / other).read_bytes() == other_before
+    assert path.read_text() == (
+        "original" if state == "staged" else "other task change"
+    )
+    if state == "staged":
+        assert git("diff", "--cached", "--name-only") == path.name
+        git("restore", "--staged", path.name)
+    elif state == "untracked":
+        path.unlink()
+    else:
+        path.write_text("original")
+    transitions.check_resume_scope(tmp_path, name)
+    assert (tmp_path / name).read_bytes() == before
+    with monkeypatch.context() as context:
+        context.setenv(transitions.SELECTOR, name)
+        with pytest.raises(ValueError, match="suspend task cannot execute"):
+            TaskValidation(tmp_path, Findings(tmp_path)).check_task_scope()
+    (tmp_path / name).write_text(
+        before.decode().replace("## Allowed paths", "## Allowed paths\n- `extra.txt`")
+    )
+    (tmp_path / "extra.txt").write_text("undeclared")
+    with pytest.raises(ValueError, match="not in Modified files"):
+        transitions.check_resume_scope(tmp_path, name)
+    (tmp_path / "extra.txt").unlink()
+    (tmp_path / name).write_text(
+        before.decode().replace("- [R1] `changed:owned.txt`", "")
+    )
+    with pytest.raises(ValueError, match="no Acceptance check"):
+        transitions.check_resume_scope(tmp_path, name)
+    assert transitions.status((tmp_path / name).read_text()) == "suspend"
+
+
+def check_suspended_report_scope_exception(tmp_path):
+    name = "tasks/report.md"
+    report = "issues/dev/cde/issues.md"
+    transitions.start(
+        tmp_path,
+        name,
+        transition_contract(name, [report], kind="migration", scope="dev/cde/s3"),
+    )
+    transitions.suspend(tmp_path, name, "report check")
+    (tmp_path / "other.txt").write_text("other task")
+    before = (tmp_path / name).read_bytes()
+    transitions.check_resume_scope(tmp_path, name)
+    assert (tmp_path / name).read_bytes() == before
+    assert (tmp_path / "other.txt").read_text() == "other task"
 
 
 if __name__ == "__main__":

@@ -82,10 +82,12 @@ def matches(path, pattern):
     )
 
 
-def issues_save_only(root, *, scope=..., text=None, paths=()):
+def issues_save_only(root, *, scope=..., text=None, paths=(), contract_file=None):
     """Identify scoped report-only saving and validation."""
     with task_reads(root):
-        snapshot = task_snapshot(root, required=False)
+        snapshot = task_snapshot(
+            root, contract_file, required=False, executable=contract_file is None
+        )
         if snapshot is None:
             return False
         prompt = snapshot.path
@@ -98,7 +100,7 @@ def issues_save_only(root, *, scope=..., text=None, paths=()):
         if types != ["- Task type: `migration`"]:
             return False
         if scope is ...:
-            scope = active_scope(root)
+            scope = active_scope(root, contract_file=contract_file)
         if not scope:
             return False
         reports = {

@@ -14,8 +14,10 @@ from model.core import properties as properties
 from model.impact import task_impact
 from task_contract_core import (
     TASK_NAME,
+    contract_path,
     issues_save_only,
     matches,
+    paths_in,
     task_path,
     task_snapshot,
 )
@@ -25,9 +27,10 @@ from utils.input_cache import input_text
 
 
 class TaskValidation:
-    def __init__(self, root, findings, *, final_candidate=None):
+    def __init__(self, root, findings, *, final_candidate=None, contract_file=None):
         self.root = root
         self.final_candidate = final_candidate
+        self.contract_file = contract_file
         self.findings = findings
         self.check = findings.check
         self.relative = findings.relative
@@ -64,11 +67,15 @@ class TaskValidation:
             return
         if self.baseline_fixed:
             return
-        self.issues_only = issues_save_only(self.root)
+        self.issues_only = issues_save_only(self.root, contract_file=self.contract_file)
         if self.issues_only:
             self.baseline_fixed = True
             return
-        prompt = task_path(self.root, required=False)
+        prompt = (
+            contract_path(self.root, self.contract_file)
+            if self.contract_file is not None
+            else task_path(self.root, required=False)
+        )
         start = (
             repository.task_start_commit(
                 self.root,
@@ -120,7 +127,11 @@ class TaskValidation:
     def check_task_scope(self, contract_text=None) -> None:
         require_import_changes = _imports_import_guard.require_import_changes
         self.fix_baseline()
-        prompt = task_path(self.root, required=False)
+        prompt = (
+            contract_path(self.root, self.contract_file)
+            if self.contract_file is not None
+            else task_path(self.root, required=False)
+        )
         if self.final_candidate is not None:
             self.changed_paths = self.final_paths()
             self.permission_paths = set(self.final_candidate.changed_paths)
@@ -143,7 +154,11 @@ class TaskValidation:
                     ]
                 ) - {".lock"}
         if not self.permission_paths and (
-            prompt is None or "- Task type:" not in task_snapshot(self.root).text
+            prompt is None
+            or "- Task type:"
+            not in task_snapshot(
+                self.root, self.contract_file, executable=self.contract_file is None
+            ).text
         ):
             return
         if prompt is None:
@@ -156,7 +171,9 @@ class TaskValidation:
         self.contract_text = (
             contract_text
             if contract_text is not None
-            else task_snapshot(self.root).text
+            else task_snapshot(
+                self.root, self.contract_file, executable=self.contract_file is None
+            ).text
         )
         lines = self.contract_text.splitlines()
         contract = self.section(lines, "## Task contract")
@@ -262,14 +279,33 @@ class TaskValidation:
             try:
                 accepted_changes = _imports_deploy_contracts.accepted_changes
                 delegated = accepted_changes(
-                    self.root, self.contract_text, self.permission_paths
+                    self.root,
+                    self.contract_text,
+                    self.permission_paths,
+                    **(
+                        {"contract_file": self.contract_file}
+                        if self.contract_file
+                        else {}
+                    ),
                 )
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.check(False, f"invalid child IaC attribution: {error}")
+        declared = (
+            paths_in(self.contract_text, "## Modified files")
+            if self.contract_file is not None
+            else None
+        )
         for changed in sorted(self.permission_paths - delegated):
             permitted = any(self.matches(changed, pattern) for pattern in allowed)
             self.check(permitted, f"changed path is outside task scope: {changed}")
+            if declared is not None:
+                self.check(
+                    changed in declared,
+                    f"changed path is not in Modified files: {changed}",
+                )
         self.check_task_boundary(prompt, self.scope_paths)
+        if self.contract_file is not None:
+            return
         try:
             # Normal Task validation also covers generation=True, with stricter IMPORT completion.
             for warning in (

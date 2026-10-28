@@ -4261,3 +4261,11 @@ Progress mechanics reuse existing Naming/Human/diagnostic validators; business I
 | `issues-review-progress::process_exit_resume_from_checkpoint_and_save` | `check_process_exit_resume_from_checkpoint_and_save` | IT | [integrations/issues-review-progress.checks.py](integrations/issues-review-progress.checks.py) | pytest / 1 | process exit resume from checkpoint and save | Synthetic Scan / external checkpoint / existing Save |
 | `issues-review-progress::large_review_complete_id_coverage_and_equivalent_reports` | `check_large_review_complete_id_coverage_and_equivalent_reports` | IT | [integrations/issues-review-progress.checks.py](integrations/issues-review-progress.checks.py) | pytest / 1 | large review complete id coverage and equivalent reports | Synthetic Scan / external checkpoint / existing Save |
 | `issues-review-progress::invalid_scan_reports_explicit_error` | `check_invalid_scan_reports_explicit_error` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 4 | malformed/non-object Scan fails explicitly | Synthetic external Scan |
+
+## Suspended Task scope recovery
+
+| Case ID | Function | Layer | Source | Execution / Count | Contract | Scope |
+| --- | --- | --- | --- | --- | --- | --- |
+| `recovery::preflight` | `check_suspended_scope_preflight` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 3 | Staged, unstaged, untracked scope violations and contract preservation | Synthetic Git |
+| `recovery::report` | `check_suspended_report_scope_exception` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 1 | Report-only exception preserves other changes | Synthetic Task |
+| `recovery::resume` | `check_self_recovery_resume` | IT | [integrations/task_contract.checks.py](integrations/task_contract.checks.py) | pytest / 1 | Suspended repair, CLI preflight and resume, normal scope check | Synthetic Git |

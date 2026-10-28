@@ -94,6 +94,12 @@ def complete(root, name):
     )
 
 
+def check_resume_scope(root, name):
+    return module(
+        "task_contract_runtime.py", "task_contract_runtime"
+    ).check_resume_scope(root, name)
+
+
 def resume(root, name):
     return module("task_contract_runtime.py", "task_contract_runtime").resume(
         root, name
@@ -115,6 +121,11 @@ def main():
     )
     transition.add_argument("--resume", action="store_true", help="Resume this task")
     transition.add_argument(
+        "--check-resume-scope",
+        action="store_true",
+        help="Read-only suspended Task scope preflight",
+    )
+    transition.add_argument(
         "--complete",
         action="store_true",
         help="Complete after successful required validation",
@@ -123,7 +134,10 @@ def main():
     root = args.repository_root.resolve()
     try:
         if args.source and (
-            args.suspend_reason is not None or args.resume or args.complete
+            args.suspend_reason is not None
+            or args.resume
+            or args.complete
+            or args.check_resume_scope
         ):
             raise ValueError("--source cannot be combined with a status transition")
         if args.suspend_reason is not None:
@@ -132,7 +146,9 @@ def main():
                 f"Task contract: {args.task_file} ({'suspend' if changed else 'status unchanged'})"
             )
             return 0
-        if args.resume:
+        if args.check_resume_scope:
+            check_resume_scope(root, args.task_file)
+        elif args.resume:
             resume(root, args.task_file)
         elif args.complete:
             complete(root, args.task_file)
@@ -140,9 +156,13 @@ def main():
             if args.source.resolve().is_relative_to(root):
                 raise ValueError("new contract source must be outside the repository")
             start(root, args.task_file, args.source.read_text(encoding="utf-8"))
-        elif not args.resume and not args.complete:
+        elif not args.resume and not args.complete and not args.check_resume_scope:
             refresh(root, args.task_file)
-        selected = task_path(root, args.task_file)
+        selected = (
+            contract_path(root, args.task_file)
+            if args.check_resume_scope
+            else task_path(root, args.task_file)
+        )
         print(f"Task contract: {selected.relative_to(root)}")
     except (OSError, ValueError) as error:
         print(f"Task contract: BLOCKED ({error})")
