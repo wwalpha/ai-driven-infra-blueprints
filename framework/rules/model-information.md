@@ -38,7 +38,7 @@ If updating the model fails, do not update Markdown/JSON. The model is authorita
 - S3 placement may explicitly approve delegation to bucket default encryption using model-only `desired.resource.<id>.deploymentEncryption=default` on `S3.Bucket`. No other value/resource type is permitted. Omission means explicit encryption headers derived from the selected formal BucketEncryption rows; it never means approval to delegate. Retain confirmed default SSEAlgorithm and, for SSE-KMS, KMSMasterKeyID rows in either mode. Validate this approval directly in the authoritative Model, like model-only CFn identity; do not infer it from Markdown, policy, missing rows, or AWS settings.
 - Catalog properties are authoritative for selectable items; model properties are authoritative for desired and observed values. Markdown and JSON artifacts are generated outputs for display and use.
 - Codex saves confirmed designs in environment-specific properties first through the shared Task-authorized Model APIs. Human properties edits are design inputs. the integrated `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` generates and validates Markdown/JSON artifacts without overwriting the model; `sync-model.py --write` remains the generation-only entrypoint.
-- Fail the local loop for Markdown/Model mismatches when reference-complete generation is available. A View retained because of a reference problem is NOT_RUN, not an equality failure. Do not silently adopt either one.
+- Fail the local loop for Markdown/Model mismatches when reference-complete generation is available. A View retained for proven pending deployment records RETAINED_PENDING_DEPLOY; an unresolved required comparison is a reasoned FAIL. Do not silently adopt either one.
 - Ordinary saves validate the corrected Model and affected consumers through the common candidate guard. Do not require the old Model to load or preserve its fields. Missing/ambiguous final reference targets and invalid reference types/Properties block final save/completion/integration; pending observations and saved-text differences remain diagnostics. Dedicated operation leaves may save intermediate sources, but their parent must pass final candidate validation.
 - After saving authoritative Model inputs, design tasks generate Markdown and JSON artifacts in the same coherent logical change. When selected existing resources were retrieved read-only, also generate required non-ARN current identifiers in `observed.*`.
 - Follow [observed-values](observed-values.md) for current identifier update conditions and propagation.
@@ -102,11 +102,11 @@ warnings and complete; incomplete analysis is not proof of no references. Use ex
 before/after snapshots to diagnose removed IDs and anchors.
 
 Generate and save Views that can be produced. Model validation and View generation have
-separate results: PENDING_DEPLOY is a proven deployment state, not NOT_RUN. A valid
+separate results: PENDING_DEPLOY is a proven deployment state independent of Validation status. A valid
 pending reference does not fail Model validation; validate its target, type and attribute
 and execute every independent mandatory Model check. Distinguish unresolved references
 from proven pending deployment and reject invalid candidate references. A genuinely
-interrupted mandatory check remains NOT_RUN and blocks completion.
+interrupted or unexecuted mandatory check is FAIL with its concrete cause and blocks completion.
 
 When a View requires a pending physical value, retain the saved View or report it as not
 generated with its pending state and diagnostic. Do not claim the retained View matches
@@ -243,7 +243,7 @@ Save Model sources
 atomically first. Then generate and atomically save only the selected service's
 Markdown/JSON. Never directly edit generated design Markdown/JSON or use display edits
 as a substitute for Model reflection, including during display-only recovery.
-Reference-only display inability retains views and reports NOT_RUN with warnings, exit 0.
+Proven pending deployment retains Views as RETAINED_PENDING_DEPLOY or NOT_GENERATED_PENDING_DEPLOY with diagnostics; unresolved mandatory checks are reasoned FAILs.
 Other display failure rolls back only display writes and is exit 3;
 it never invalidates completed reflection. Exit 2 includes unreflected items. Report
 Model, display and `Design validation: not-run` separately. Stale views can be refreshed
@@ -308,7 +308,7 @@ Markdown is a generated view and cannot be imported as Model authority. Preserve
 1. Before saving, check whether naming rules exist for resources to create, catalog selections, types/constraints, and unconfirmed values.
 2. Update all confirmed environment-specific service properties first. Normally use `desired.service.*`, `desired.resource.*`, formal property `desired.row.*`, and required `observed.row.*`.
 3. Validate changed Properties and their rule inputs; new Resources require all mandatory Properties. Generate selected Views independently of full Model quality. Generation retains required structure/reference/artifact checks, successful services and failed services' existing outputs; report actual generation failures separately from saved Model state. Do not restore Models from Markdown.
-4. Before saving, compute reference warnings on the final candidate stage, including the selected service's own links and retained incoming links. Preserve generated views when possible. Reference-only generation inability retains saved views and reports the affected NOT_RUN scope; it neither cancels source saves nor requires a repair Task. Actual write failures retain service rollback/journal recovery and dependent revalidation; preserve unrelated successful saves and return nonzero for real failures.
+4. Before saving, compute reference warnings on the final candidate stage, including the selected service's own links and retained incoming links. Preserve generated views when possible. Reference-only generation inability retains saved views and reports the affected View generation state and scope; it neither cancels source saves nor requires a repair Task. Actual write failures retain service rollback/journal recovery and dependent revalidation; preserve unrelated successful saves and return nonzero for real failures.
 5. Run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` for ordinary Model edits. Common preconditions, all-target candidate generation/content validation, one all-target pre-save input comparison, publication, then output-dependent task/Acceptance checks execute in that validator process. No post-save regeneration, full readback/content validation or full input rescan is required. Independent read-only loops/validators retain saved-view equality checks. Do not overwrite properties.
 
 Retain the H1 title (including `# ...`) in `display.service.title`. Write resource functions, purposes, and roles in Japanese in `display.resource.<番号>.comment`. For types without name properties, derive the resource type as the display name if exactly 1 independent resource of that type exists within the same service and neither a selected Name tag nor an existing confirmed display label exists. In this case, do not require `display.resource.<番号>.label` or duplicate the type name into label. Use `### <catalog-resource-type>` for detail headings, the resource type for listings/ordinary reference links, and the saved anchor. Retain human-confirmed display names distinguishing multiple resources of the same type, or existing confirmed display names, in `display.resource.<番号>.label`. Even with type-name display, retain model entry numbers and immutable logicalIds; do not infer IaC IDs from type names. This does not apply to omitted name properties or missing mandatory Name tags. Generate display names for types with name properties from formal row values; do not duplicate them. `display.*` is display input; do not add it to catalog AWS properties or IaC settings. Use existing 3-digit formats for resource and row numbers.
@@ -381,7 +381,7 @@ Markdown, authoritative Model JSON and generated design JSON retain these pendin
 Physical execution JSON requires resolved Values and fails only its owning service through
 existing reference diagnostics. Successful design generation is PASS/complete even when
 physical values remain unverified; report pending reference diagnostics separately with
-NOT_RUN reasons and scope. Invalid references/definite input errors remain FAIL. A reference
+their pending state, reasons and scope. Invalid references/definite input errors remain FAIL. A reference
 pending deployment never defers/deletes design JSON. Failed services retain saved outputs
 while independent successful services continue. Structural Model/artifact comparison,
 service ownership, duplicate-definition conflicts and atomic rollback remain required. Desired Model/IaC comparison defers each pending Value

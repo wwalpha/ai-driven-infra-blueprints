@@ -464,7 +464,13 @@ def _run_model_guard(target, task_file, approved=False, *, sources=None):
         'if sys.argv[2] == "approved": options["contract_file"] = sys.argv[1]\n'
         'if sys.argv[3] != "null": options["supplied"] = set(json.loads(sys.argv[3]))\n'
         "with tasks.selected_task(root, sys.argv[1]):\n"
-        "    require_import_changes(root, **options)",
+        "    require_import_changes(root, **options)\n"
+        "    text = tasks.read_task_snapshot(root, sys.argv[1], live=True).text\n"
+        "    if '## Out-of-task FAIL approvals' in text:\n"
+        "        from validation.runner import Validator\n"
+        "        validator = Validator(root, tasks.active_scope(root, task_file=sys.argv[1]), cache=False, model_validation='change')\n"
+        "        validator.run()\n"
+        "        if validator.display_report(): raise ValueError('Task Acceptance FAIL; no integration')",
         task_file,
         "approved" if approved else "normal",
         serialized_sources,
@@ -548,6 +554,7 @@ def _prepare_commit(root, path, state, target, approval):
         raise Blocked("base history was rewritten; task retained for review")
     if (not operation or approval) and (
         "- Workflow: `import`" in tasks.section(contract, "## Task contract")
+        or "## Out-of-task FAIL approvals" in contract
         or any(p.startswith("model/") or p == "project.json" for p in model_changes)
     ):
         integration_task(target, state, approval)
@@ -866,6 +873,7 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         if (
             any(p.startswith("model/") or p == "project.json" for p in model_paths)
             or b"- Workflow: `import`" in contract
+            or b"## Out-of-task FAIL approvals" in contract
         ):
             _run_model_guard(
                 target, state["task_file"], bool(approval), sources=model_paths

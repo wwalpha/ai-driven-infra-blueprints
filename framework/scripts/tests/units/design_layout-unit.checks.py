@@ -2016,7 +2016,11 @@ def check_expansion_failure_preserves_raw_and_independent_resources(tmp_path, ca
         validator, result = table_validation(
             tmp_path, catalog, broken + "\n" + second + "\n" + third
         )
-    assert result.status == "FAIL" and result.metadata["reason"] == "dependency"
+    assert result.status == "FAIL" and result.metadata["reason"] not in {
+        "dependency",
+        "unspecified",
+        "",
+    }
     assert result.status != "PASS"
     assert (
         sum("PLAINTEXTではResource linkは禁止" in error for error in validator.errors)
@@ -2045,7 +2049,7 @@ def check_expansion_failure_preserves_raw_and_independent_resources(tmp_path, ca
     blocked = validator.findings.result(
         "design.tables.semantic", {("dev", "123456789012", "codebuild")}
     )
-    assert blocked.status == "NOT_RUN"
+    assert blocked.status == "FAIL"
     entries = blocked.metadata["unverified"]
     assert any(
         entry["resource"] == "### CodeBuild.Project: BuildProject"
@@ -2160,7 +2164,7 @@ def check_unexpected_expansion_exception_is_processing(tmp_path, catalog):
         design_tables, "expanded_design", side_effect=RuntimeError("framework failure")
     ):
         validator, result = table_validation(tmp_path, catalog, CODEBUILD)
-    assert result.status == "FAIL" and result.metadata["reason"] == "processing"
+    assert result.status == "FAIL" and "framework failure" in result.metadata["reason"]
     assert len(validator.findings.processing_errors) == 1
     assert validator.findings.processing_errors[0]["exception"] == "RuntimeError"
 

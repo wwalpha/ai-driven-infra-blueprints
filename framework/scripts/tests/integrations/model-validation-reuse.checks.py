@@ -240,7 +240,7 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
             "design.links",
         ):
             result = after.findings.result(check_id, {ENTRY})
-            assert result.status == "NOT_RUN", (check_id, result)
+            assert result.status == "FAIL", (check_id, result)
     if fault == "none":
         assert not after.errors, after.errors
     if fault != "none":

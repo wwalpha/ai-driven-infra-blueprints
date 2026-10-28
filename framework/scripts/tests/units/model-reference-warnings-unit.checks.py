@@ -49,17 +49,17 @@ if not __debug__:
 
 def check_child_results_keep_scope_and_incomplete_state(tmp_path):
     parent = Findings(tmp_path)
-    for service, status in (("one", "NOT_RUN"), ("two", "FAIL")):
+    for service, status in (("one", "FAIL"), ("two", "FAIL")):
         child = Findings(tmp_path)
         result = child.result("required", None)
         result.status = status
         result.metadata.update(complete=False, reason="interrupted")
         parent.include_diagnostics(child, scope={("dev", "target", service)})
         if service == "one":
-            assert parent.status == "NOT_RUN"
+            assert parent.status == "FAIL"
     assert parent.status == "FAIL"
     assert {(r.scope, r.status) for r in parent.results.values()} == {
-        (frozenset({("dev", "target", "one")}), "NOT_RUN"),
+        (frozenset({("dev", "target", "one")}), "FAIL"),
         (frozenset({("dev", "target", "two")}), "FAIL"),
     }
 
@@ -80,23 +80,23 @@ def check_pending_warning_does_not_hide_interrupted_checks(tmp_path):
     def interrupted():
         raise pending
 
-    assert findings.evaluate("interrupted", set(), interrupted).status == "NOT_RUN"
-    assert findings.status == "NOT_RUN"
+    assert findings.evaluate("interrupted", set(), interrupted).status == "FAIL"
+    assert findings.status == "FAIL"
 
 
 def check_child_results_with_same_identity_are_not_lost(tmp_path):
     parent = Findings(tmp_path)
-    for status in ("PASS", "NOT_RUN"):
+    for status in ("PASS", "FAIL"):
         child = Findings(tmp_path)
         child.result("required", None).status = status
         parent.include_diagnostics(child, scope={("dev", "target", "one")})
-    assert [r.status for r in parent.results.values()] == ["PASS", "NOT_RUN"]
-    assert parent.status == "NOT_RUN"
+    assert [r.status for r in parent.results.values()] == ["PASS", "FAIL"]
+    assert parent.status == "FAIL"
     parent.bind_candidate(object(), {"required"})
-    assert parent.status == "NOT_RUN"
+    assert parent.status == "FAIL"
     assert [
         r.status for r in parent.results.values() if r.candidate is parent.candidate
-    ] == ["PASS", "NOT_RUN"]
+    ] == ["PASS", "FAIL"]
 
 
 @pytest.mark.parametrize("retained", [True, False])
@@ -136,7 +136,7 @@ def check_pending_view_is_separate_from_model_validation(tmp_path, monkeypatch, 
 
     def generate(validator):
         result = validator.findings.result("framework.generated-service-model", scope)
-        result.status = "NOT_RUN"
+        result.status = "FAIL"
         result.metadata = {
             "complete": False,
             "unavailable_services": {"dev/target/service": {"reason": "reference"}},
@@ -160,7 +160,7 @@ def check_pending_view_is_separate_from_model_validation(tmp_path, monkeypatch, 
             is None
         )
     else:
-        assert parent.findings.status == ("FAIL" if state == "failure" else "NOT_RUN")
+        assert parent.findings.status == ("FAIL" if state == "failure" else "FAIL")
 
 
 @pytest.fixture(autouse=True)
@@ -221,7 +221,11 @@ def check_typed_findings(tmp_path):
     findings = Findings(tmp_path)
     unresolved = _check_typed_findings_unresolved
     result = findings.evaluate("links", set(), unresolved)
-    assert result.status == "NOT_RUN" and result.metadata["reason"] == "reference"
+    assert result.status == "FAIL" and result.metadata["reason"] not in {
+        "reference",
+        "unspecified",
+        "",
+    }
     assert result.warnings and not result.errors
     findings.evaluate(
         "structure", set(), lambda: findings.check(False, "bad structure")
@@ -364,9 +368,9 @@ def _callback_check_completion_only_waives_reference_not_run_mixed(findings, /):
 
 def check_completion_only_waives_reference_not_run(tmp_path):
     result = CheckResult("check", frozenset(), object())
-    assert result.status == "NOT_RUN"
+    assert result.status == "FAIL"
     result.metadata["reason"] = "reference"
-    assert result.status == "NOT_RUN"
+    assert result.status == "FAIL"
     findings = Findings(tmp_path)
     mixed = _bind_framework_callback(
         _callback_check_completion_only_waives_reference_not_run_mixed, findings
@@ -428,7 +432,7 @@ def check_generation_metadata_reaches_findings(tmp_path, monkeypatch):
     )
     plan.unavailable[path] = {
         "reason": "reference",
-        "status": "NOT_RUN",
+        "status": "FAIL",
         "retainedView": str(path),
     }
     plan.reference_warnings.append(
@@ -495,7 +499,7 @@ def check_link_display_and_readback_classification(tmp_path):
     result = findings.evaluate(
         "display", None, lambda: expanded_display_rows(document, definitions)
     )
-    assert result.status == "NOT_RUN"
+    assert result.status == "FAIL"
     assert result.warnings and not result.errors
     with pytest.raises(ValueError) as caught:
         display_rows("CodeBuild.Project", [["1", prop, "[1]", "配置先"]], definitions)
@@ -618,7 +622,7 @@ def _callback_check_unavailable_service_keeps_source_errors_and_no_cache_generat
     result.metadata = {
         "unavailable_services": {
             "dev/target/codebuild": {
-                "status": "NOT_RUN",
+                "status": "FAIL",
                 "reason": "reference",
                 "retainedView": None,
             }
@@ -654,7 +658,7 @@ def check_unavailable_service_keeps_source_errors_and_no_cache(
     if missing_name:
         assert any("Name must appear exactly once" in e for e in validator.errors)
     result = validator.findings.result("design.service", scope)
-    assert result.metadata["reason"] == "dependency"
+    assert result.metadata["reason"] not in {"dependency", "unspecified", ""}
     # A missing saved raw View prevents completion even when generation only waits.
     assert result.status != "PASS"
     validator.cache.save.assert_not_called()

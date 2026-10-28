@@ -126,22 +126,22 @@ S3の計算可能なArn Pendingは既存test_explicit_pendingを更新。分類/
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
 | `issues-isolation::references` | `check_reference_diagnostic_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | 参照診断全体/個別・PLAINTEXT全体/個別・Issue候補のValueError隔離、正常ID/重複排除、資料→IaC→mock raw lint→artifact v5保存の順序、ERROR/終了2、既存Issue不変 | 追加 |
-| `issues-isolation::view` | `check_view_failure_isolation` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 3 | View構築・展開・表示ValueErrorのファイル別隔離、原因とNOT_RUN、独立した保存済みリンク検査 | 追加 |
+| `issues-isolation::view` | `check_view_failure_isolation` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 3 | View構築・展開・表示ValueErrorのファイル別隔離、原因とreasoned FAIL、独立した保存済みリンク検査 | 追加 |
 | `issues-isolation::stage` | `check_scan_stage_failures` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | mechanical/Model/lint/naming/既存Issue/レビュー/View事前読取り/診断対応付けの障害隔離、取得済み診断保持、独立比較/lint継続、CLI artifact v5保存とERROR終了、既存Issue読取り失敗時の報告保存・解消禁止 | 拡張 |
 | `issues-isolation::materials` | `check_material_service_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 3 | naming/レビューのサービス別失敗・秘匿化、別サービス資料と比較/lintの継続、通常の命名資料・context同等性、Scan/SaveでHuman原文不変と2レポート保存 | 追加 |
-| `issues-isolation::worker` | `check_service_worker_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | service内部/workerの想定外例外、別service結果回収、既存診断とModel/observed検査、非cacheとNOT_RUN | 追加 |
+| `issues-isolation::worker` | `check_service_worker_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | service内部/workerの想定外例外、別service結果回収、既存診断とModel/observed検査、非cacheとreasoned FAIL | 追加 |
 
 ## Markdown生成と保存済み参照の検証責務
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
 | `saved-markdown-links::boundary` | `check_candidate_saved_reference_boundary` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 3 | 現行/旧reference-rows/旧reference-value参照先の局所解析、意味検証不能の警告、候補の旧形式拒否、対象外Markdown不変 | 追加 |
-| `saved-markdown-links::typed-display` | `check_saved_typed_reference_display_difference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 1 | typed Model参照を含む保存済みCodePipelineの表示差分をwrite候補の参照先として許容し、read-onlyではERROR/NOT_RUNへ隔離。headings単独は生成せず、展開では厳密拒否 | 追加 |
-| `saved-markdown-links::indexed-model` | `check_candidate_indexed_saved_reference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 8 | Glue配列・RotationSchedule親子配列、選択前生成・Snapshot再利用、別Resource/注記/見出し差分除外、参照対象改変FAIL、Model欠落NOT_RUN、実IAM候補の全必須検証と保存可否 | 追加 |
+| `saved-markdown-links::typed-display` | `check_saved_typed_reference_display_difference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 1 | typed Model参照を含む保存済みCodePipelineの表示差分をwrite候補の参照先として許容し、read-onlyではERROR/reasoned FAILへ隔離。headings単独は生成せず、展開では厳密拒否 | 追加 |
+| `saved-markdown-links::indexed-model` | `check_candidate_indexed_saved_reference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 8 | Glue配列・RotationSchedule親子配列、選択前生成・Snapshot再利用、別Resource/注記/見出し差分除外、参照対象改変FAIL、Model欠落reasoned FAIL、実IAM候補の全必須検証と保存可否 | 追加 |
 | `s3-replication::markdown` | `check_s3_replication_rules_markdown` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 1 | S3 ReplicationConfiguration の全項目と複数ルールの Model から Markdown への表示 | 追加 |
 | `saved-markdown-links::import-sg` | `check_scoped_import_security_group_reference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 1 | IMPORTのmode/bound anchorを維持し、SG親のみ参照では水平ruleを照合/解析前に除外、参照View再利用 | 追加 |
 | `saved-markdown-links::sg-model-scope` | `check_scoped_security_group_model_reference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 10 | Model生成SGの親限定Viewでinline Ingress/EgressとTagsを除外、基本属性改変検出、明示子ルール展開/改変検出、対象外SG差分の分離、design.linksのPASS/FAIL | 追加 |
-| `saved-markdown-links::candidate-completion` | `check_candidate_completion_matches_executed_view_checks` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 14 | 7品質checkのFAIL/NOT_RUNを通常生成が呼ばず、候補bytesを保持 | 拡張 |
+| `saved-markdown-links::candidate-completion` | `check_candidate_completion_matches_executed_view_checks` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 14 | 7品質checkのFAIL/reasoned FAILを通常生成が呼ばず、候補bytesを保持 | 拡張 |
 | `saved-markdown-links::new-warning` | `check_saved_link_snapshot_and_new_warnings` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | 旧形式参照元の軽量Snapshot、既存破損の除外、新規anchor破損と保存先限定警告、コメント内リンク除外、対象外不変 | 追加 |
 | `saved-markdown-links::fallback` | `check_publication_failure_preserves_success` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 2 | JSON書込み失敗時の対象サービス復元と他サービスの保存維持。品質Validatorの再実行なし | 追加 |
 
@@ -2997,7 +2997,7 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 | `issues19::check_cloudtrail_comparison` | `check_cloudtrail_comparison` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py) | pytest / 1 | 実Model/CFn読込→EventSelectors親子所属と重複要素→matched | 統合 |
 | `issues19::check_cross_service_reference` | `check_cross_service_reference` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py) | pytest / 1 | 2 Stackで共有Templateを一度decode、独立parameter評価・実KMS/Logs Model→Export/Import→Reference・正本非変更 | 統合 |
 | `issues19::check_condition_provenance` | `check_condition_provenance` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py) | pytest / 1 | 実Condition/parameter-file→行/key/source付き診断→Report/Summary/Detail | 統合 |
-| `issues19::check_scan_exception_classification` | `check_scan_exception_classification` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 7 | scan exception classification、RuntimeErrorと既存診断保持、IaCのNOT_RUN/未検証記録 | 未保証分のみ小入力へ移設 |
+| `issues19::check_scan_exception_classification` | `check_scan_exception_classification` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 7 | scan exception classification、RuntimeErrorと既存診断保持、IaCのreasoned FAIL/未検証記録 | 未保証分のみ小入力へ移設 |
 | `issues19::check_save_authority_rejections` | `check_save_authority_rejections` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 5 | save authority rejections | 未保証分のみ小入力へ移設 |
 | `issues19::check_causal_report_grouping` | `check_causal_report_grouping` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | causal report grouping | 未保証分のみ小入力へ移設 |
 | `issues19::check_model_part_bytes_and_legacy_rows` | `check_model_part_bytes_and_legacy_rows` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | model part bytes and legacy rows | 未保証分のみ小入力へ移設 |
@@ -3330,7 +3330,7 @@ UTはGit init/commit・実Sync・全Model生成・全Frameworkコピーを行わ
 
 Publicationのsidecar/taskのchange/addはcheck_snapshot_conflict、Taskのselector/状態/境界は既存task-contract/validation_cache UTに対応する。Sidecarのstale/missingはcheck_sidecar_output_differenceで判定し、実JSON-only更新はcheck_changed_sidecar_publication、新規の欠落Markdown/JSON公開はcheck_integrated_validator[True]で接続を保持する。note=False/Trueの全no-op/Markdown変更の除外出力再確認とRollbackは各2条件、multiple_targets_barrierの5障害境界はそのまま維持する。
 
-Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件版で別Validatorの生成回数を1とするAssertionは修正済みであり、今回その修正を再実装しない。Cache ITの反復は削除し、check_cache_lifetimeの同一context共有/fresh/別context独立と、service keyの正本/Markdown/Sidecar/追加ファイル変更・削除を直接UTに集約した。候補CheckResultのscope/candidate/FAIL/NOT_RUNとAcceptanceへの再利用は既存check_result_reuse_is_scopedが所有する。
+Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件版で別Validatorの生成回数を1とするAssertionは修正済みであり、今回その修正を再実装しない。Cache ITの反復は削除し、check_cache_lifetimeの同一context共有/fresh/別context独立と、service keyの正本/Markdown/Sidecar/追加ファイル変更・削除を直接UTに集約した。候補CheckResultのscope/candidate/FAIL/reasoned FAILとAcceptanceへの再利用は既存check_result_reuse_is_scopedが所有する。
 
 実stageの元定義共有・CFn接続・cold workerの直列/並列同値、CLI write/check、候補Validation、Publication、Rollback/Recoveryを残す。28条件は26前後の目安より2多い。新規生成と既存更新の入力欠落/公開対象/originals、およびValidator保存失敗→Acceptance拒否は独立した接続保証なので維持する。
 
@@ -3365,8 +3365,8 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 |---|---|---|---|---|---|---|
 | `sync-15::check_snapshot_symlink_safety` | `check_snapshot_symlink_safety` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L798) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_internal_sync_selection` | `check_internal_sync_selection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L832) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
-| `sync-15::check_failure_counts` | `check_failure_counts` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | 成功/失敗/NOT_RUN件数、独立エラー優先、診断と保存済み参照WARNの分離 | 既存UT更新 |
-| `generation-publication::issues` | `check_integrated_generation_with_issues` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | Issue有無×正常/部分失敗/NOT_RUN/共通整合性失敗。候補生成検証はMock、実publication・成功保存・失敗View保持・Issue原文保全を検証 | 追加 |
+| `sync-15::check_failure_counts` | `check_failure_counts` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | 成功/失敗/reasoned FAIL件数、独立エラー優先、診断と保存済み参照WARNの分離 | 既存UT更新 |
+| `generation-publication::issues` | `check_integrated_generation_with_issues` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | Issue有無×正常/部分失敗/reasoned FAIL/共通整合性失敗。候補生成検証はMock、実publication・成功保存・失敗View保持・Issue原文保全を検証 | 追加 |
 | `sync-15::check_guard_snapshot_candidates` | `check_guard_snapshot_candidates` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L882) | pytest / 1 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_definition_read_errors` | `check_definition_read_errors` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L907) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_sidecar_output_difference` | `check_sidecar_output_difference` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L930) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
@@ -3795,14 +3795,14 @@ Existing partial-comparison UTs retain confirmed sibling differences and reject 
 
 | `design-expansion::model-resources` | `test_model_reference_failure_keeps_independent_schema_and_valid_resource` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 1 | Model policy failure is isolated; independent typed Resource schema errors and healthy Resource identifier checks remain | Synthetic Models/Markdown |
 | `design-expansion::saved-raw` | `test_scoped_generation_failure_keeps_saved_raw_and_schema` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 2 | Real scoped generation failure preserves saved raw H1 checks, independent schema errors and incomplete semantic checks | Synthetic Models/Markdown |
-| `design-expansion::raw-unavailable` | `test_generation_failure_unreadable_raw_is_not_run` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 2 | Missing and invalid UTF-8 saved Markdown retain raw NOT_RUN reasons without processing errors | Synthetic Models/Markdown |
+| `design-expansion::raw-unavailable` | `test_generation_failure_unreadable_raw_is_not_run` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 2 | Missing and invalid UTF-8 saved Markdown retain raw reasoned FAIL reasons without processing errors | Synthetic Models/Markdown |
 | `design-expansion::normal-typed` | `test_scoped_normal_typed_reference_checks_raw_once` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 2 | Resolved and CREATE PENDING_DEPLOY references preserve completion policy and execute raw checks once | Synthetic Models/Markdown |
 | `design-expansion::invalid-target` | `test_missing_typed_target_is_model_error_not_reference_wait` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 1 | A missing typed target remains MODEL_NEEDS_FIX, never a completable reference wait | Synthetic Models/Markdown |
-| `design-expansion::mixed-issues` | `test_issues_retains_mixed_causes_and_resource_dependencies` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 1 | Actual Issues scan retains policy/schema/raw causes, Resource NOT_RUN and aggregate FAIL without derived or processing errors | Synthetic Models/Markdown |
+| `design-expansion::mixed-issues` | `test_issues_retains_mixed_causes_and_resource_dependencies` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 1 | Actual Issues scan retains policy/schema/raw causes, Resource reasoned FAIL and aggregate FAIL without derived or processing errors | Synthetic Models/Markdown |
 | `design-expansion::model-display-match` | `test_recovery_rejects_independent_markdown_tampering` | UT | [units/codebuild-plaintext-unit.checks.py](units/codebuild-plaintext-unit.checks.py) | pytest / 1 | Recovery refuses mismatched independent Model displays and continues the remaining matched Resource | Synthetic Models/Markdown |
 | `design-expansion::grouped-models` | `check_grouped_resource_recovery_keeps_parent_and_children_together` | UT | [units/model-reference-display-unit.checks.py](units/model-reference-display-unit.checks.py) | pytest / 2 | Existing renderer binds each complete parent/child group; malformed child and tampered sibling displays cannot bypass typed validation | Synthetic Models/Markdown |
 
-The existing CodeBuild scan/save UT also checks Issues v5 ordinary policy errors, aggregate FAIL, incomplete NOT_RUN checks, no derived catalog/identifier errors and no policy processing errors. Generation failures retain FAIL independently from saved raw validation and per-Resource semantic NOT_RUN; pure reference waits retain their existing completion policy.
+The existing CodeBuild scan/save UT also checks Issues v5 ordinary policy errors, aggregate FAIL, incomplete reasoned FAIL checks, no derived catalog/identifier errors and no policy processing errors. Generation failures retain FAIL independently from saved raw validation and per-Resource semantic reasoned FAIL; pure reference waits retain their existing completion policy.
 
 ## desired直接値PENDING_DEPLOYの正常除外
 
@@ -4023,7 +4023,7 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | Case | Function | Layer | Location | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
 | `validation-result::lookup` | `check_result_lookup_is_candidate_and_scope_specific` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | 未登録参照は無変更、scope/candidate分離、result生成動作維持 | Synthetic Findings |
-| `validation-result::iac-stacks` | `check_iac_stack_lookup_and_file_fallback` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 8 | IaCのみのStack参照でPASS維持、保存設計fallback、必要なNOT_RUN/FAILと入力不正FAILを保持 | Synthetic IaC/design |
+| `validation-result::iac-stacks` | `check_iac_stack_lookup_and_file_fallback` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 8 | IaCのみのStack参照でPASS維持、保存設計fallback、必要な理由付きFAILと入力不正FAILを保持 | Synthetic IaC/design |
 | `exports-retry::continuation` | `check_export_throttling_retries_only_failed_page` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 4 | 明示4コードのみ同一NextToken/引数で再試行、成功ページ重複なし | Mock request/clock |
 | `exports-retry::attempt-limit` | `check_export_throttling_attempt_limit` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 1 | 失敗ページ最大5request、指数バックオフ1/2/4/8秒、部分結果非返却 | Mock request/clock |
 | `exports-retry::deadline` | `check_export_retry_shares_deadline` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 3 | 全ページ/試行共通60秒、待機前/再試行前/次ページの期限確認 | Mock request/clock |
@@ -4273,3 +4273,13 @@ Progress mechanics reuse existing Naming/Human/diagnostic validators; business I
 | `recovery::preflight` | `check_suspended_scope_preflight` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 3 | Staged, unstaged, untracked scope violations and contract preservation | Synthetic Git |
 | `recovery::report` | `check_suspended_report_scope_exception` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 1 | Report-only exception preserves other changes | Synthetic Task |
 | `recovery::resume` | `check_self_recovery_resume` | IT | [integrations/task_contract.checks.py](integrations/task_contract.checks.py) | pytest / 1 | Suspended repair, CLI preflight and resume, normal scope check | Synthetic Git |
+
+## Validation PASS/FAIL and Human-scoped Acceptance
+
+| Case ID | Function | Layer | Source | Execution / Count | Contract | Scope |
+| --- | --- | --- | --- | --- | --- | --- |
+| `acceptance::human-failures` | `check_task_failure_approval` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 13 | Approved raw FAIL retained; unapproved, partial, changed candidate/reason/Model/dependency, generic approval, other Task and missing mandatory check block | Synthetic Git/Model |
+| `acceptance::regression` | `check_approval_rejects_change_regression` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 1 | A changed Model cannot be classified as an unrelated existing FAIL | Synthetic Git/Model |
+| `acceptance::completion` | `check_completion_requires_acceptance` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 1 | Completion refuses failed Acceptance without changing running status | Synthetic Task |
+| `acceptance::human-review-cli` | `check_task_acceptance_human_failure_review` | IT | [integrations/task_contract.checks.py](integrations/task_contract.checks.py) | pytest / 1 | Task/Validation/explicit Human approval/Acceptance and stale-candidate CLI rejection preserve raw FAIL | Synthetic Git/Model; CI only |
+| `validation-result::reasons` | `check_fail_reasons_and_returned_results` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | Planned missing check executes; exceptions/interruption/returned CheckResult and invalid metadata retain scoped reasoned FAIL | Synthetic Findings |

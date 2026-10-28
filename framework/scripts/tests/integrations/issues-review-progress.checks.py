@@ -143,7 +143,7 @@ def check_process_exit_resume_from_checkpoint_and_save(tmp_path):
     saved = json.loads(result.stdout)
     assert (
         saved["publication_status"] == "SAVED"
-        and saved["post_save_validation"] == "NOT_RUN"
+        and saved["post_save_validation_execution"] == "NOT_STARTED"
     )
     assert "Current issue" in (review.root / saved["saved"][0]).read_text(
         encoding="utf-8"

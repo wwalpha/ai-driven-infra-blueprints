@@ -143,7 +143,7 @@ def generation_for(backend, views, deferred=(), failures=()):
         unavailable={
             views[s]: {
                 "reason": "reference",
-                "status": "NOT_RUN",
+                "status": "FAIL",
                 "diagnostics": [
                     {
                         "category": "REFERENCE_PENDING_DEPLOY",

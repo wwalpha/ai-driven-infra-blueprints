@@ -75,28 +75,61 @@ def check_metadata(metadata):
         raise TypeError("unverified must be list[dict]")
     if "complete" in metadata and not isinstance(metadata["complete"], bool):
         raise TypeError("complete must be bool")
-    if "status" in metadata and metadata["status"] not in {"PASS", "FAIL", "NOT_RUN"}:
+    if "reason" in metadata and not isinstance(metadata["reason"], str):
+        raise TypeError("reason must be a string")
+    if "status" in metadata and metadata["status"] not in {"PASS", "FAIL"}:
         raise ValueError("invalid validation status")
     return unavailable, unverified
 
 
 def finish_result(result):
     unavailable, unverified = check_metadata(result.metadata)
+    if result.status not in {"PASS", "FAIL"}:
+        result.errors = (
+            *result.errors,
+            f"{result.check_id}: invalid final validation status {result.status!r}",
+        )
+        result.status = "FAIL"
     incomplete = (
-        result.status == "NOT_RUN"
-        or result.metadata.get("complete") is False
-        or result.metadata.get("status") == "NOT_RUN"
+        result.metadata.get("complete") is False
         or bool(unavailable or unverified)
+        or not result.started
+        and result.status == "FAIL"
+        and not result.metadata
+        and not result.errors
     )
     result.status = (
         "FAIL"
         if result.errors
         or result.status == "FAIL"
         or result.metadata.get("status") == "FAIL"
-        else "NOT_RUN"
-        if incomplete
+        or incomplete
         else "PASS"
     )
+    if result.status == "FAIL":
+        causes = [*result.errors]
+        causes.extend(str(item.get("message") or item) for item in unverified)
+        causes.extend(str(item.get("message") or item) for item in unavailable.values())
+        reason = result.metadata.get("reason", "").strip()
+        if causes:
+            reason = "; ".join(dict.fromkeys(causes))
+        elif not reason or reason.lower() in {
+            "unspecified",
+            "processing",
+            "reference",
+            "dependency",
+            "view",
+            "expansion",
+            "view-read",
+        }:
+            reason = (
+                f"{result.check_id}: required check has not started"
+                if not result.started and not result.metadata and not result.errors
+                else f"{result.check_id}: required validation did not complete"
+                if incomplete
+                else f"{result.check_id}: handler reported failure without diagnostic details"
+            )
+        result.metadata["reason"] = reason
     result.metadata.update(
         status=result.status,
         complete=not incomplete,
@@ -111,11 +144,12 @@ class CheckResult:
     check_id: str
     scope: frozenset | None
     candidate: object
-    status: str = "NOT_RUN"
+    status: str = "FAIL"
     errors: tuple = ()
     warnings: tuple = ()
     checks: int = 0
     metadata: dict = field(default_factory=dict)
+    started: bool = False
 
 
 class Findings:
@@ -148,27 +182,21 @@ class Findings:
             for result in self.results.values()
             if result.candidate is self.candidate
         ]
-        if self.errors or any(
-            result.status == "FAIL" or result.metadata.get("status") == "FAIL"
-            for result in results
-        ):
+        results = [finish_result(result) for result in results]
+        if self.errors or any(result.status == "FAIL" for result in results):
             return "FAIL"
-        if self.unverified or any(
-            result.status == "NOT_RUN"
-            or result.metadata.get("status") == "NOT_RUN"
-            or result.metadata.get("complete") is False
-            or result.metadata.get("unavailable_services")
-            or result.metadata.get("unverified")
-            for result in results
-        ):
-            return "NOT_RUN"
+        if self.unverified:
+            return "FAIL"
         return "PASS"
 
     def bind_candidate(self, candidate, common_checks):
         previous = self.candidate
         self.candidate = candidate
         for result in list(self.results.values()):
-            if result.candidate is previous and result.check_id in common_checks:
+            if result.candidate is previous and (
+                result.check_id in common_checks
+                or finish_result(result).status == "FAIL"
+            ):
                 retained = replace(result, candidate=candidate)
                 key = (retained.check_id, retained.scope, candidate)
                 if key in self.results:
@@ -179,6 +207,105 @@ class Findings:
         """Read this candidate's result without registering an unexecuted check."""
         scope = None if scope is None else frozenset(scope)
         return self.results.get((check_id, scope, self.candidate))
+
+    def failures(self):
+        """Concrete raw failures; Acceptance may exclude records, never rewrite them."""
+        records = {}
+        by_id = {d.identity: d for d in self.diagnostics}
+        for index, message in enumerate(self.errors):
+            reference = self.reference_error_positions.get(index)
+            diagnostic = by_id.get(
+                self.diagnostic_errors.get(index)
+            ) or self.error_contexts.get(index)
+            if reference is not None:
+                diagnostic = Diagnostic.create(
+                    self.canonical_root,
+                    code=reference["code"],
+                    check_id="model.references",
+                    service=service_scope(self.canonical_root, reference.get("model")),
+                    source_path=reference.get("model"),
+                    cause_kind=reference["cause_kind"],
+                    message=reference["message"],
+                    location=reference.get("modelKey"),
+                    details=reference,
+                )
+            if diagnostic is None:
+                diagnostic = Diagnostic.create(
+                    self.canonical_root,
+                    code="validation.unclassified",
+                    check_id="validation.input",
+                    service=None,
+                    message=message,
+                    cause_key=message,
+                )
+            record = diagnostic.record()
+            identity = (
+                stable_id(reference_identity(self.canonical_root, reference))
+                if reference is not None
+                else stable_id(diagnostic.identity)
+            )
+            records[identity] = dict(
+                record,
+                diagnostic_id=identity,
+                status="FAIL",
+                reason=message or f"{diagnostic.check_id}: empty failure diagnostic",
+                scope=[
+                    list(s)
+                    for s in (
+                        diagnostic.affected_services
+                        or ((diagnostic.service,) if diagnostic.service else ())
+                    )
+                ],
+            )
+        for result in self.results.values():
+            if (
+                result.candidate is not self.candidate
+                or finish_result(result).status != "FAIL"
+            ):
+                continue
+            if (
+                result.errors
+                and result.metadata.get("complete")
+                and all(error in self.errors for error in result.errors)
+            ):
+                continue
+            if result.metadata.get("complete") and any(
+                record["check_id"] == result.check_id
+                and record["reason"] == result.metadata["reason"]
+                for record in records.values()
+            ):
+                continue
+            identity = stable_id(
+                [result.check_id, sorted(result.scope or []), result.metadata["reason"]]
+            )
+            records[identity] = dict(
+                diagnostic_id=identity,
+                status="FAIL",
+                check_id=result.check_id,
+                scope=[list(s) for s in sorted(result.scope or [])],
+                reason=result.metadata["reason"],
+                cause_kind="check_failure",
+                source_path=None,
+                diagnostics=result.metadata.get("unverified", []),
+            )
+        for item in self.unverified:
+            reason = item.get("message") or str(item)
+            identity = item.get("diagnostic_id") or stable_id(item)
+            records.setdefault(
+                identity,
+                dict(
+                    item,
+                    diagnostic_id=identity,
+                    status="FAIL",
+                    check_id=item.get(
+                        "check_id", item.get("phase", "validation.coverage")
+                    ),
+                    scope=item.get("scope", []),
+                    reason=reason,
+                    cause_kind="check_failure",
+                ),
+            )
+        return list(records.values())
 
     def result(self, check_id, scope):
         scope = None if scope is None else frozenset(scope)
@@ -191,10 +318,13 @@ class Findings:
         scope = None if scope is None else frozenset(scope)
         key = (check_id, scope, self.candidate)
         result = self.result(check_id, scope)
-        if result.status != "NOT_RUN":
-            return result
-        result = CheckResult(check_id, scope, self.candidate, status="PASS")
+        if result.started or result.status == "PASS" or result.errors:
+            return finish_result(result)
+        result = CheckResult(
+            check_id, scope, self.candidate, status="PASS", metadata={}, started=True
+        )
         self.results[key] = result
+        previous_results = set(self.results)
         diagnostic_failures = self.diagnostic_failures
         incomplete_start = len(self.unverified)
         before, checks, warning_start = (
@@ -208,30 +338,56 @@ class Findings:
             self.source_path = source_path or self.source_path
             metadata = handler()
             if isinstance(metadata, CheckResult):
-                metadata = dict(metadata.metadata, status=metadata.status)
+                returned = finish_result(metadata)
+                for message in returned.errors:
+                    self.check(False, message, source_path=source_path)
+                for warning in returned.warnings:
+                    self.warn(warning)
+                metadata = dict(returned.metadata, status=returned.status)
             if isinstance(metadata, dict):
                 check_metadata(metadata)
                 result.metadata.update(metadata)
             check_metadata(result.metadata)
         except ReferenceDiagnosticError as error:
             self.warn(error)
-            result.metadata.update(complete=False, reason="reference")
+            result.metadata.update(
+                complete=False,
+                reason=f"{check_id} interrupted by reference resolution: {error}",
+            )
         except InputValidationError as error:
             self.input_failure(error)
         except FindingsError as error:
             self.include_diagnostics(error.findings)
-        except Exception as error:
-            if not isolate and not isinstance(
-                error, (OSError, ValueError, KeyError, TypeError)
-            ):
-                raise
+        except (Exception, KeyboardInterrupt) as error:
             self.processing_failure(check_id, scope, error)
-            result.metadata.update(complete=False, reason="processing")
+            result.metadata.update(
+                complete=False,
+                reason=f"{type(error).__name__}: {error or 'check interrupted'}",
+            )
         finally:
             self.check_id, self.check_scope, self.source_path = previous
+        child_failures = [
+            finish_result(child)
+            for child_key, child in self.results.items()
+            if child_key not in previous_results
+            and child.candidate is self.candidate
+            and child is not result
+            and finish_result(child).status == "FAIL"
+        ]
+        if child_failures:
+            result.status = "FAIL"
+            result.metadata.update(
+                complete=all(
+                    child.metadata.get("complete") for child in child_failures
+                ),
+                reason="; ".join(child.metadata["reason"] for child in child_failures),
+            )
         # Repeated diagnostics still fail their check without adding duplicate ERRORs.
         if self.diagnostic_failures > diagnostic_failures:
             result.status = "FAIL"
+            causes = [d.message for d in self.diagnostics if d.check_id == check_id]
+            if causes:
+                result.metadata["reason"] = "; ".join(dict.fromkeys(causes))
         result.errors = tuple(self.errors[before:])
         result.warnings = tuple(self.warnings[warning_start:])
         result.checks = self.checks - checks
@@ -292,7 +448,9 @@ class Findings:
                 continue
             child_scope = child.scope if child.scope is not None else scope
             child_scope = None if child_scope is None else frozenset(child_scope)
-            retained = replace(child, scope=child_scope, candidate=self.candidate)
+            retained = finish_result(
+                replace(child, scope=child_scope, candidate=self.candidate)
+            )
             key = (retained.check_id, retained.scope, self.candidate)
             if key in self.results:
                 key = (retained.check_id, retained.scope, (self.candidate, object()))
@@ -357,7 +515,10 @@ class Findings:
         self.add_diagnostic(diagnostic)
         result = self.result(check_id, scope)
         result.status = "FAIL"
-        result.metadata = dict(complete=False, reason="processing")
+        result.metadata = dict(
+            complete=False,
+            reason=f"{type(error).__name__}: {error or 'check interrupted'}",
+        )
 
     def input_failure(self, error, *, source_path=None, display_error=None):
         source_path = error.source_path or source_path or self.source_path
@@ -527,6 +688,11 @@ class Findings:
         print(f"Checks: {self.checks}")
         print(f"Blocking errors: {len(self.errors)}")
         print(f"Warnings: {len(self.warnings)}")
+        for failure in self.failures():
+            print(
+                f"FAIL [{failure['diagnostic_id']}] "
+                + json.dumps(failure, ensure_ascii=False)
+            )
         for information in self.information:
             if information.get("kind") == "view_generation":
                 print("View generation: " + json.dumps(information, ensure_ascii=False))

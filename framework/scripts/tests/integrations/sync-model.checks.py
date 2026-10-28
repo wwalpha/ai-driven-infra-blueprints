@@ -444,7 +444,7 @@ def check_normal_writer_contents(generated_policy):
         assert all(counter.call_count == 0 for counter in counters)
     assert stdout.getvalue() == (
         "Design Markdown sync: PASS (docs/designs/dev/123456789012/iam.md)\n"
-        "Design Markdown generation: 1 services succeeded; 0 services failed; 0 services NOT_RUN\n"
+        "Design Markdown generation: 1 services succeeded; 0 services failed; 0 services unavailable\n"
         "Design Markdown sync: PASS (1 services)\n"
     )
     for stage in (
@@ -931,7 +931,7 @@ def check_required_preflight(project_workspace) -> None:
         with pytest.raises(ValueError) as error:
             MODULE.sync(root, True, "dev", "123456789012")
         assert (
-            "1 services succeeded; 1 services failed; 0 services NOT_RUN; 1 diagnostics"
+            "1 services succeeded; 1 services failed; 0 services unavailable; 1 diagnostics"
             in str(error.value)
         ), error.value
     assert design.with_name("cloudformation-stacks.md").is_file()

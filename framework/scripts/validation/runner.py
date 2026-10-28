@@ -91,7 +91,11 @@ def _callback_Validator_generate_and_validate_generated(plan, self, snapshot, /)
     pending_views = (
         self.task_type in {"design", "migration"}
         and bool(unavailable)
-        and set(unavailable) == set(metadata["view_states"])
+        and all(
+            metadata["view_states"].get(key)
+            in {"RETAINED_PENDING_DEPLOY", "NOT_GENERATED_PENDING_DEPLOY"}
+            for key in unavailable
+        )
         and not plan.failures
         and not metadata["unverified"]
     )
@@ -463,12 +467,33 @@ class Validator:
         return handler()
 
     def _run(self, snapshot=None) -> int:
+        self.findings.bind_candidate(object(), set())
         self.relative_paths.clear()
         if self.task.issues_only:
             self.cache = None
         if self.cache and snapshot is None:
             self.cache.common = None
-        self.input_check(snapshot, self.check_structure)
+        required = {
+            "validation.structure": self.check_structure,
+            "validation.topology": self.check_project_topology,
+            "validation.scope": self.check_validation_scope,
+            "validation.initialized": self.check_initialized_paths,
+            "validation.catalog": self.check_catalog,
+        }
+        for check_id in required:
+            self.findings.result(check_id, self.scope)
+        if self.model_validation == "change" and self.scope != set():
+            self.findings.result("validation.changed-model", self.scope)
+
+        def run_required(check_id):
+            return self.findings.evaluate(
+                check_id,
+                self.scope,
+                lambda: self.input_check(snapshot, required[check_id]),
+                isolate=True,
+            )
+
+        run_required("validation.structure")
         if snapshot is None:
             self.check_task_scope()
         else:
@@ -484,14 +509,14 @@ class Validator:
                     value in self.acceptance_stages,
                     f"undefined Acceptance execution stage: {requirement}: {value}",
                 )
-        self.input_check(snapshot, self.check_project_topology)
-        self.check_validation_scope()
+        run_required("validation.topology")
+        run_required("validation.scope")
         if not self.write:
             self.check_model_files()
         if self.changed_paths and not self.write:
             self.check_task_type_requirements()
-        self.input_check(snapshot, self.check_initialized_paths)
-        self.input_check(snapshot, self.check_catalog)
+        run_required("validation.initialized")
+        run_required("validation.catalog")
         self.findings.evaluate(
             "framework.resource-layout",
             self.scope,
@@ -512,7 +537,12 @@ class Validator:
             return self.report()
         if self.model_validation == "change":
             if not self.errors:
-                self.check_changed_designs()
+                self.findings.evaluate(
+                    "validation.changed-model",
+                    self.scope,
+                    self.check_changed_designs,
+                    isolate=True,
+                )
         elif self.scope is None:
             self.check_designs()
             self.check_observed_values()
@@ -548,7 +578,7 @@ class Validator:
         return self.report()
 
     def report(self):
-        return int(self.findings.status != "PASS")
+        return int(self.task.acceptance()["status"] != "PASS")
 
     def display_report(self):
         if self.errors:
@@ -556,9 +586,10 @@ class Validator:
             for error in self.errors:
                 print(f"- {error}")
             self.report_findings()
-            return 1
+            self.display_acceptance()
+            return self.report()
 
-        result = self.findings.status
+        result = self.task.acceptance()["validation_status"]
         print(f"Blueprint repository validation: {result} ({self.checks} checks)")
         if self.task_type:
             print(f"- task type: {self.task_type}")
@@ -573,7 +604,20 @@ class Validator:
             f"- validation scope: {'all' if self.scope is None else ', '.join('/'.join(item) for item in sorted(self.scope)) or 'framework'}"
         )
         self.report_findings()
+        self.display_acceptance()
         return self.report()
+
+    def display_acceptance(self):
+        result = self.task.acceptance()
+        print(f"Task Acceptance: {result['status']}")
+        print(f"Required checks: {'FAIL' if result['unapproved'] else 'PASS'}")
+        for failure in result["approved"]:
+            print(
+                f"Human-approved out-of-task FAIL: {failure['diagnostic_id']}: {failure['reason']}"
+            )
+        print(f"Unapproved FAILs: {len(result['unapproved'])}")
+        for reason in result["invalid"]:
+            print(f"Approval rejected: {reason}")
 
     def generate_and_validate(self, snapshot, registered):
         planned_outputs = _imports_sync_runtime.planned_outputs
@@ -589,7 +633,12 @@ class Validator:
             "--write requires a running task contract",
         )
         if self.model_validation == "change":
-            self.check_changed_inputs()
+            self.findings.evaluate(
+                "validation.changed-model",
+                self.scope,
+                self.check_changed_inputs,
+                isolate=True,
+            )
         if self.findings.status != "PASS":
             return
         plan = prepare_generation(
@@ -622,8 +671,11 @@ class Validator:
             pending_views = (
                 self.task_type in {"design", "migration"}
                 and bool(generation_info["unavailable_services"])
-                and set(generation_info["unavailable_services"])
-                == set(generation_info["view_states"])
+                and all(
+                    generation_info["view_states"].get(key)
+                    in {"RETAINED_PENDING_DEPLOY", "NOT_GENERATED_PENDING_DEPLOY"}
+                    for key in generation_info["unavailable_services"]
+                )
                 and not generation_info["unverified"]
                 and not plan.failures
             )
@@ -692,7 +744,7 @@ class Validator:
                     self.findings.add_diagnostic(diagnostic)
                 generation.metadata.update(complete=False, status="FAIL")
                 # The original scope's policy/content result belongs to the old candidate.
-                # Post-save Acceptance observes NOT_RUN/FAIL without invoking handlers.
+                # Failed publication leaves required content checks incomplete.
             if (
                 self.cache
                 and self.catalog_pending is not None
@@ -721,8 +773,11 @@ class Validator:
                 if not (
                     self.task_type in {"design", "migration"}
                     and metadata["unavailable_services"]
-                    and set(metadata["unavailable_services"])
-                    == set(metadata["view_states"])
+                    and all(
+                        metadata["view_states"].get(key)
+                        in {"RETAINED_PENDING_DEPLOY", "NOT_GENERATED_PENDING_DEPLOY"}
+                        for key in metadata["unavailable_services"]
+                    )
                     and not metadata["unverified"]
                     and not plan.failures
                 ):
@@ -948,9 +1003,7 @@ class Validator:
             generation = self.findings.result(
                 "framework.generated-service-model", self.scope
             )
-            generation.status = (
-                "FAIL" if generator.errors else "NOT_RUN" if unavailable else "PASS"
-            )
+            generation.status = "FAIL" if generator.errors or unavailable else "PASS"
             generation.errors = tuple(generator.errors)
             generation.warnings = tuple(generator.warnings)
             generation.metadata = dict(
@@ -966,19 +1019,14 @@ class Validator:
             for entry, validator in results.items()
         ]
         policy.status = (
-            "FAIL"
-            if any(p.status == "FAIL" for p in policies)
-            else "NOT_RUN"
-            if skipped or any(p.status == "NOT_RUN" for p in policies)
-            else "PASS"
+            "FAIL" if skipped or any(p.status == "FAIL" for p in policies) else "PASS"
         )
         policy_unavailable = unavailable.copy()
         for result in policies:
             check_metadata(result.metadata)
             policy_unavailable.update(result.metadata.get("unavailable_services", {}))
         incomplete_policy = bool(skipped) or any(
-            p.status == "NOT_RUN"
-            or p.metadata.get("complete") is False
+            p.metadata.get("complete") is False
             or p.metadata.get("unverified")
             or p.metadata.get("unavailable_services")
             for p in policies
@@ -1229,7 +1277,11 @@ class Validator:
         pending_views = (
             self.task_type in {"design", "migration"}
             and bool(unavailable)
-            and set(unavailable) == set(view_states)
+            and all(
+                view_states.get(key)
+                in {"RETAINED_PENDING_DEPLOY", "NOT_GENERATED_PENDING_DEPLOY"}
+                for key in unavailable
+            )
             and not generator.errors
             and not generator.findings.unverified
             and all(

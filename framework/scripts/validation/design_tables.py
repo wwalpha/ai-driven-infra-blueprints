@@ -406,7 +406,7 @@ def design_dependency_not_run(
         message=str(error),
         checks=list(checks),
         complete=False,
-        status="NOT_RUN",
+        status="FAIL",
     )
     if diagnostic is not None:
         entry["diagnostic_id"] = stable_id(diagnostic.identity)

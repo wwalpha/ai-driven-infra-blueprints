@@ -368,3 +368,49 @@ lifecycle start separately, excluding inherited base changes from this Task scop
 No hand-written lifecycle metadata is permitted. Recovery never merges or grants a
 validation PASS. Run the required IT and Full checks, complete the contract, and use
 normal finalize/cleanup. Model tasks and approved-validation-failure tasks are excluded.
+
+## Task Acceptance exclusions
+
+Investigate every FAIL against Goal, Required changes, Allowed paths, concrete Model
+differences, the baseline, producer/consumer references and regression risk. Classify
+required corrections, new failures and broken reference contracts as repair-required:
+fix and revalidate to PASS. When unrelated pre-existing Model failure is evidenced,
+the LLM may propose an out-of-task candidate. Unproven relevance remains blocking.
+File paths and fixed scopes alone never establish the LLM judgment.
+
+Present each candidate to the Human with diagnostic ID, Model, Check ID, concrete
+reason, LLM rationale, before/after and producer/consumer evidence, impact and choices:
+approve exclusion for this Task only, include in repair scope, or hold. Do not interpret
+“continue” or “implement” as approval. Partial approval leaves every other FAIL blocking.
+
+Use the existing Task contract and transition CLI; do not create a parallel approval
+store. `validation.acceptance.unchanged_model_evidence(task, failure)` checks baseline
+source/context and reference dependencies, while `candidate(task, dependencies)` binds
+exact Task text, candidate bytes, baseline and dependencies. These eligibility guards
+are conservative: changed Models, affected contracts, changed dependencies, Framework
+regressions, processing failures and incomplete mandatory checks cannot be excluded.
+They never replace the LLM investigation or Human decision.
+
+After explicit Human decision, prepare an external JSON list and execute
+`task_contract.py --task-file tasks/<id>.md --approve-out-of-task-failures <external.json>`.
+Each record contains task, diagnostic_id, reason, check_id, source_path, scope,
+dependencies and candidate; assessment contains task_relevance, before_after,
+producer_consumer, regression, why_outside_task and risk with concrete evidence.
+human_approval contains decision=exclude_this_task_only, the exact diagnostic_id and
+reason, and the Human statement naming that diagnostic ID. Generic permission is
+insufficient. The CLI saves the current decisions under `## Out-of-task FAIL approvals`;
+this is live acceptance authority, not Task history. It preserves other decisions and
+suspension; approval itself neither resumes nor completes a Task.
+
+At completion and before/after rebase, compare current raw failures, Task identity,
+reasons, candidate differences and dependency evidence with each approval. Changed
+cause, target, scope, diff or dependencies requires renewed LLM evaluation and Human
+approval. Approval applies only to this Task and only to Acceptance; never rewrite
+Model, generated Views, Issues or diagnostic FAILs as PASS or warning. Necessary
+Change Validation, affected references, Git/scope/permission/publication and destructive
+change safeguards remain mandatory. A Task can have Acceptance PASS while raw
+Validation remains FAIL; reports must state both and list accepted and unapproved FAILs.
+
+`--human-approved-validation-failure` retains its different meaning: explicitly
+approved Git integration of a suspended, failed Task. It does not complete the Task or
+serve as an Acceptance exclusion, and cannot bypass required Model corrections.

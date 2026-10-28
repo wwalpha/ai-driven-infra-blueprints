@@ -22,13 +22,17 @@ import task_contract_runtime as task_runtime
 import utils.input_cache as _imports_input_cache
 from generation_inputs import GenerationInputs
 from issues.publication import save_scan
+from model.format import FORMAT, INDEX
 from model.importing import scope as import_scope
 from support.import_model_fixtures import dependency_contract
 from support.issues_scan_fixtures import review_for, snapshot_artifact
+from support.model_v2_fixtures import logs_fixture
 from support.pytest_cli import run
-from support.repository_fixtures import contract, transition_contract
+from support.repository_fixtures import contract, git, transition_contract
+from support.repository_fixtures import fixture as repository_fixture
 from sync_runtime import publish_generation
 from utils.input_cache import input_scope
+from validation import acceptance
 from validation.findings import Findings
 from validation.task import TaskValidation
 from validation_scope import active_scope
@@ -551,8 +555,10 @@ def check_admission_selection(tmp_path, monkeypatch):
     before = (tmp_path / second).read_bytes()
     transitions.refresh(tmp_path, second)
     assert (tmp_path / second).read_bytes() == before
-    transitions.complete(tmp_path, first)
-    transitions.complete(tmp_path, second)
+    with patch.object(task_runtime, "Validator") as validator:
+        validator.return_value.report.return_value = 0
+        transitions.complete(tmp_path, first)
+        transitions.complete(tmp_path, second)
 
 
 def _callback_check_report_commit_independence_git(tmp_path, /, *args):
@@ -749,3 +755,180 @@ def check_suspended_report_scope_exception(tmp_path):
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+@pytest.fixture
+def approval_task(request):
+    with repository_fixture() as root:
+        source = logs_fixture(root)
+        if (
+            getattr(getattr(request.node, "callspec", None), "params", {}).get("state")
+            == "parts"
+        ):
+            part = source.with_suffix("") / "part-001.properties"
+            part.parent.mkdir()
+            part.write_bytes(source.read_bytes())
+            source.write_text(
+                FORMAT
+                + "\n"
+                + INDEX
+                + "\n# part: "
+                + source.stem
+                + "/part-001.properties\n"
+            )
+        git(root, "add", "project.json", "model")
+        git(root, "commit", "-qm", "existing Model")
+        name = "tasks/model-acceptance.md"
+        relative = source.relative_to(root).as_posix()
+        transitions.start(
+            root,
+            name,
+            transition_contract(
+                name,
+                ["file.txt", relative],
+                kind="migration",
+                scope="qa-synthetic/team-a/cloudwatch-logs",
+            ),
+        )
+        (root / "file.txt").write_text("candidate\n")
+        findings = Findings(root)
+        task = TaskValidation(root, findings, contract_file=name)
+        task.check_task_scope()
+        assert not findings.errors
+        scope = {("qa-synthetic", "team-a", "cloudwatch-logs")}
+        findings.evaluate(
+            "model.literal.001-002",
+            scope,
+            lambda: findings.input_check(
+                False,
+                source,
+                "RetentionInDays is not a valid integer",
+                location="desired.row.001-002.value",
+            ),
+            source_path=source,
+        )
+        (failure,) = findings.failures()
+        dependencies = acceptance.unchanged_model_evidence(task, failure)
+        record = dict(
+            failure,
+            task=name,
+            dependencies=dependencies,
+            candidate=acceptance.candidate(task, dependencies),
+            assessment={
+                key: "Reviewed unchanged baseline Model and producer/consumer contracts; unrelated to the file.txt goal"
+                for key in (
+                    "task_relevance",
+                    "before_after",
+                    "producer_consumer",
+                    "regression",
+                    "why_outside_task",
+                    "risk",
+                )
+            },
+            human_approval=dict(
+                decision="exclude_this_task_only",
+                diagnostic_id=failure["diagnostic_id"],
+                reason=failure["reason"],
+                statement=f"Approve exclusion of {failure['diagnostic_id']} for this Task only",
+            ),
+        )
+        yield root, task, record, source
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        "unapproved",
+        "approved",
+        "registered",
+        "retained",
+        "parts",
+        "partial",
+        "candidate",
+        "reason",
+        "model",
+        "dependency",
+        "generic",
+        "other-task",
+        "incomplete",
+    ],
+)
+def check_task_failure_approval(approval_task, state):
+    root, task, record, source = approval_task
+    if state == "generic":
+        record["human_approval"]["statement"] = "続けて"
+        with pytest.raises(ValueError, match="explicit Human"):
+            acceptance.approve(task, [record])
+        return
+    if state == "other-task":
+        record["task"] = "tasks/other.md"
+        with pytest.raises(ValueError, match="another Task"):
+            acceptance.approve(task, [record])
+        return
+    if state != "unapproved":
+        acceptance.approve(task, [record])
+        task.contract_text = (root / task.contract_file).read_text()
+    if state == "partial":
+        task.findings.evaluate(
+            "model.second",
+            task.findings.check_scope,
+            lambda: task.findings.input_check(
+                False, source, "second independent Model error"
+            ),
+            source_path=source,
+        )
+    elif state == "candidate":
+        (root / "file.txt").write_text("changed after approval")
+    elif state == "reason":
+        task.findings.errors[0] = "different failure cause"
+    elif state == "model":
+        source.write_text(source.read_text().replace("`30`", "`999`"))
+    elif state == "dependency":
+        project = root / "project.json"
+        project.write_text(project.read_text().replace("123456789012", "123456789013"))
+    elif state == "incomplete":
+        task.findings.result("required.not-started", task.findings.check_scope)
+    if state == "retained":
+        fresh = TaskValidation(root, Findings(root), contract_file=task.contract_file)
+        fresh.check_task_scope()
+        retained = fresh.acceptance()
+        assert retained["status"] == "PASS" and retained["validation_status"] == "FAIL"
+        assert retained["approved"][0]["retained"]
+        return
+    if state == "registered":
+        task.acceptance_checks = [("R1", "check", record["check_id"])]
+        task.check_acceptance_checks(
+            {record["check_id"]: lambda: None}, {tuple(s) for s in record["scope"]}
+        )
+        assert task.acceptance_results
+    result = task.acceptance()
+    assert result["status"] == (
+        "PASS" if state in {"approved", "registered", "parts"} else "FAIL"
+    ), result
+    assert task.findings.status == "FAIL" and result["validation_status"] == "FAIL"
+    assert all(f["reason"] and f["status"] == "FAIL" for f in task.findings.failures())
+    if state in {"approved", "partial", "incomplete"}:
+        assert result["approved"][0]["diagnostic_id"] == record["diagnostic_id"]
+    if state in {"partial", "incomplete"}:
+        assert len(result["unapproved"]) == 1
+
+
+def check_approval_rejects_change_regression(approval_task):
+    root, task, record, source = approval_task
+    source.write_text(source.read_text().replace("`30`", "`999`"))
+    with pytest.raises(ValueError, match="changed Model|changed"):
+        acceptance.approve(task, [record])
+    assert (
+        "## Out-of-task FAIL approvals" not in (root / task.contract_file).read_text()
+    )
+
+
+def check_completion_requires_acceptance(approval_task):
+    root, task, _, _ = approval_task
+    with patch.object(task_runtime, "Validator") as validator:
+        validator.return_value.run.return_value = 1
+        validator.return_value.report.return_value = 1
+        validator.return_value.findings.failures.return_value = task.findings.failures()
+        with pytest.raises(ValueError, match="Task Acceptance FAIL"):
+            transitions.complete(root, task.contract_file)
+    assert tasks.status((root / task.contract_file).read_text()) == "running"

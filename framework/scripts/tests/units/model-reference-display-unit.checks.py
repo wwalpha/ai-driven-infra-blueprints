@@ -437,7 +437,7 @@ def check_no_model_does_not_recover_typed_references(pipeline):
     result = findings.evaluate(
         "standalone", None, lambda: expanded_display_rows(build, FRAMEWORK)
     )
-    assert result.status == "NOT_RUN" and result.warnings and not result.errors
+    assert result.status == "FAIL" and result.warnings and not result.errors
 
 
 @pytest.mark.parametrize(

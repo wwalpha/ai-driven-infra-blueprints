@@ -696,11 +696,12 @@ def check_issue_task_ignores_other_task_git_changes(tmp_path):
         contract = tmp_path / "tasks/save.md"
         contract.write_text(
             contract.read_text() + "\n## Required changes\n- [R1] Save reports\n"
-            "\n## Acceptance checks\n- [R1] `exists:issues/dev/123456789012/issues.md`\n"
+            "\n## Acceptance checks\n- [R1] `exists:issues/dev/123456789012/issues.md`\n- [R1] `exists:issues/dev/123456789012/iac-issues.md`\n"
         )
         report = tmp_path / "issues/dev/123456789012/issues.md"
         report.parent.mkdir(parents=True)
         report.write_text("未解決issueなし")
+        report.with_name("iac-issues.md").write_text("未解決IaC issueなし")
         for relative in ("model/dev/123456789012/s3.properties", "infra/app.yaml"):
             path = tmp_path / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -843,7 +844,7 @@ def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys
         elif outcome == "not_run":
             plan.unavailable[rejected] = {
                 "reason": "reference",
-                "status": "NOT_RUN",
+                "status": "FAIL",
                 "retainedView": str(rejected),
             }
         validator = load("validate-blueprint").Validator(tmp_path, scope, write=True)
@@ -900,11 +901,13 @@ def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys
         output = capsys.readouterr().out
         if outcome == "success":
             assert (
-                "2 services succeeded; 0 services failed; 0 services NOT_RUN" in output
+                "2 services succeeded; 0 services failed; 0 services unavailable"
+                in output
             )
         elif outcome == "partial":
             assert (
-                "1 services succeeded; 1 services failed; 0 services NOT_RUN" in output
+                "1 services succeeded; 1 services failed; 0 services unavailable"
+                in output
             )
             assert any(
                 "kms.md: missing required property" in error
@@ -912,10 +915,11 @@ def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys
             )
         elif outcome == "not_run":
             assert (
-                "1 services succeeded; 0 services failed; 1 services NOT_RUN" in output
+                "1 services succeeded; 0 services failed; 1 services unavailable"
+                in output
             )
             assert any(
-                "NOT_RUN: docs/designs/dev/123456789012/kms.md: reference" in error
+                "FAILED: docs/designs/dev/123456789012/kms.md: reference" in error
                 for error in validator.errors
             )
 
@@ -934,7 +938,7 @@ def check_reference_not_run_is_not_generation_pass(tmp_path, capsys):
     plan.baseline_links = {}
     plan.unavailable[view] = {
         "reason": "reference",
-        "status": "NOT_RUN",
+        "status": "FAIL",
         "retainedView": None,
     }
     with (
@@ -944,7 +948,7 @@ def check_reference_not_run_is_not_generation_pass(tmp_path, capsys):
     ):
         with pytest.raises(
             ValueError,
-            match="0 services succeeded; 0 services failed; 1 services NOT_RUN",
+            match="0 services succeeded; 0 services failed; 1 services unavailable",
         ):
             sync_runtime.run_generation(tmp_path, plan.scope)
     output = capsys.readouterr().out
@@ -982,7 +986,7 @@ def check_result_reuse_is_scoped(tmp_path):
     stack.status, stack.metadata = "PASS", {"stack_definitions": {"candidate": []}}
     findings.bind_candidate(object(), set())
     stale = findings.result("design.stacks", first)
-    assert stale.status == "NOT_RUN" and stale.metadata == {}
+    assert stale.status == "FAIL" and stale.metadata == {}
 
 
 def _callback_check_resource_row_reuse_and_edits_rows_444(
@@ -1486,7 +1490,7 @@ def check_failure_counts(tmp_path, capsys, extra_inputs, write, unavailable):
         # A separate literal error remains FAILED even with unresolved references.
         plan.failures[0] = f"{paths[0].relative_to(tmp_path)}: fixture render failure"
         plan.unavailable = {
-            path: {"reason": "reference", "status": "NOT_RUN", "retainedView": None}
+            path: {"reason": "reference", "status": "FAIL", "retainedView": None}
             for path in (reference, paths[0])
         }
     for path, message in zip(paths, plan.failures, strict=False):
@@ -1504,7 +1508,7 @@ def check_failure_counts(tmp_path, capsys, extra_inputs, write, unavailable):
     not_run = int(unavailable)
     assert (
         str(error.value).splitlines()[0]
-        == f"8 services succeeded; {failed} services failed; {not_run} services NOT_RUN; {failed + not_run} diagnostics"
+        == f"8 services succeeded; {failed} services failed; {not_run} services unavailable; {failed + not_run} diagnostics"
     )
     assert len(str(error.value).splitlines()) == failed + not_run + 1
     assert "saved reference" not in str(error.value)
@@ -1513,7 +1517,7 @@ def check_failure_counts(tmp_path, capsys, extra_inputs, write, unavailable):
     assert output.out.count("Design Markdown sync: PASS") == 8
     assert "generation: 8 services succeeded" in output.out
     assert (
-        "NOT_RUN: docs/designs/dev/team/unresolved.md: reference" in str(error.value)
+        "FAILED: docs/designs/dev/team/unresolved.md: reference" in str(error.value)
     ) is unavailable
     if extra_inputs:
         assert all(message in str(error.value) for message in failures[-2:])
@@ -1695,7 +1699,7 @@ def check_generation_input_failures(tmp_path, fault):
         assert source.read_bytes() == b"malformed Model\n"
 
 
-@pytest.mark.parametrize("status", ["FAIL", "NOT_RUN"])
+@pytest.mark.parametrize("status", ["FAIL", None])
 @pytest.mark.parametrize(
     "check",
     [
@@ -1715,7 +1719,9 @@ def check_candidate_completion_matches_executed_view_checks(tmp_path, check, sta
     staged.parent.mkdir(parents=True)
     staged.write_text("# 候補\n", encoding="utf-8")
     checked = Findings(tmp_path)
-    checked.result(check, {("dev", "team", "logs")}).status = status
+    result = checked.result(check, {("dev", "team", "logs")})
+    if status is not None:
+        result.status = status
     plan = SimpleNamespace(
         root=tmp_path,
         stage=stage,

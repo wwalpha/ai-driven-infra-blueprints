@@ -49,7 +49,7 @@ or generation equality. Do not register display-only differences (string/link,
 link-label or JSON/policy presentation) as Issues. Retain saved Markdown internal
 consistency, reference destination validity and Resource identity checks. Preserve
 every actual diagnostic ID and aggregate only in Report by
-environment/target/service/cause_key. Retain dependent NOT_RUN reasons and scope.
+environment/target/service/cause_key. Retain dependent mandatory-check FAIL reasons and scope; report proven pending deployment separately.
 Retain independent Model schema/required values, typed
 `$modelRef` syntax/logicalId/attribute/target checks, invalid Resource references,
 existing Markdown link destinations/anchors, resource identity/ownership/naming,
@@ -198,7 +198,7 @@ services, running status, Required changes/Allowed paths/Modified files, both re
 report files and exact `exists:` Acceptance checks for both. Do not rerun generic
 scope/input presence, Model/design/display/IaC validation, Scan, cfn-lint, AWS or Git
 diff checks. Snapshot/Review/publication guards remain at save time. Treat
-publication_status, Scan validation_status and actual post_save_validation as separate
-results; save returns NOT_RUN plus the command until Local Loop executes. A valid save
+publication_status, Scan validation_status and post_save_validation_execution as separate
+information; save returns NOT_STARTED plus the command until Local Loop executes, without publishing a Validation result. A valid save
 may be SAVED / Scan FAIL / post-save PASS; processing errors still return 2.
 Retain saved reports if post-save validation fails. See [issues investigation](../../../framework/rules/issues-investigation.md#offline-cfn-lint-and-coverage) for the complete contract.

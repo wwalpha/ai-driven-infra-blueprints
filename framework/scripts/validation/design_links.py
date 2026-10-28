@@ -89,7 +89,7 @@ def unavailable_semantics(
         exception=type(error).__name__,
         message=str(error),
         complete=False,
-        status="NOT_RUN",
+        status="FAIL",
     )
     if isinstance(error, DisplayMismatchError):
         diagnostics = list(
@@ -109,7 +109,7 @@ def unavailable_semantics(
     if isinstance(error, ReferenceDiagnosticError):
         findings.warn(error, source=str(path))
     elif isinstance(error, DisplayMismatchError):
-        pass  # The typed diagnostics above retain FAIL and the dependent NOT_RUN scope.
+        pass  # The typed diagnostics above retain FAIL and the dependent FAIL scope.
     elif isinstance(error, FindingsError):
         findings.include_diagnostics(error.findings)
     elif isinstance(error, PlaintextReferenceError):

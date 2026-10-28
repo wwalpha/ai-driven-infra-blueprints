@@ -13,7 +13,7 @@ differences as Issues, including string/link, link-label and JSON/policy present
 Retain saved Markdown internal consistency, valid reference destinations and Resource
 identity checks independently of display synchronization. Preserve every actual
 diagnostic and its ID in the artifact; ordinary Markdown retains every Issue and its formal ID. Dependent checks that cannot execute
-retain their reason and scope as NOT_RUN. Validate Model inputs and typed references
+retain their concrete reason and scope as FAIL. Proven pending deployment has its own View generation state. Validate Model inputs and typed references
 independently; retain existing Markdown link destination/anchor,
 resource identity/ownership/naming, schema, CodeBuild PLAINTEXT policy and Model/IaC
 checks. Markdown generation/synchronization and the shared Validator's default
@@ -408,7 +408,7 @@ Use diagnostic Resources/logical-ID paths plus explicit origins to prove one sel
 validation_status priority is ERROR (processing, including IaC category=error), FAIL (selected ordinary or unassigned Error), INCOMPLETE (required mechanical/lint checks unexecuted), CHECKED. Keep review_required, iac_status and lint coverage separate. Differences/uncompared only affect iac_status; not_applicable is never lint PASS. Error plus downstream-unexecuted coverage remains FAIL plus incomplete coverage; independent processing errors take ERROR precedence. Separate stage-error counts from affected IaC record counts.
 
 scan exit: processing/input failure 2; ordinary/unassigned Error 1; otherwise 0. Coverage-only/Warning/Info/IaC differences alone do not raise the code. Save errors in authority/review/I/O return 2; successful publication returns 2 when the artifact has processing errors, otherwise 0 even with ordinary issues. stdout includes publication_status=SAVED and validation_status. The save API reports
-post_save_validation=NOT_RUN and post_save_validation_command; it never claims Local
+post_save_validation_execution=NOT_STARTED and post_save_validation_command; it never claims Local
 Loop PASS before execution. Record the actual subsequent Local Loop PASS/FAIL separately.
 SAVED with Scan FAIL and post-save contract PASS is valid; SAVED with processing errors
 still exits 2. Save/CHECKED/exit 0 never means AWS equality or all-range PASS.

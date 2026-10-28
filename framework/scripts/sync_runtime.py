@@ -405,7 +405,17 @@ def generate_views(
             if len(failures) == failure_start:
                 unavailable[path] = {
                     "reason": "reference",
-                    "status": "NOT_RUN",
+                    "view_state": (
+                        "RETAINED_PENDING_DEPLOY"
+                        if input_is_file(path)
+                        else "NOT_GENERATED_PENDING_DEPLOY"
+                    )
+                    if error.diagnostics
+                    and all(
+                        d.get("category") == "REFERENCE_PENDING_DEPLOY"
+                        for d in error.diagnostics
+                    )
+                    else "FAILED",
                     "diagnostics": error.diagnostics,
                     "retainedView": str(path.relative_to(root))
                     if input_is_file(path)
@@ -912,9 +922,20 @@ def pending_view_states(root, unavailable):
 
 def generation_metadata(plan):
     unavailable = generation_unavailable(plan)
+    pending = pending_view_states(plan.root, unavailable)
+    failed, _ = generation_failures(plan)
     return {
         "complete": not unavailable and not plan.failures,
-        "status": "FAIL" if plan.failures else "NOT_RUN" if unavailable else "PASS",
+        "status": "FAIL" if plan.failures or unavailable else "PASS",
+        "reason": "; ".join(plan.failures)
+        or "; ".join(
+            f"{path.relative_to(plan.root)}: "
+            + "; ".join(
+                d.get("message", d.get("category", "reference unavailable"))
+                for d in info.get("diagnostics", ())
+            )
+            for path, info in unavailable.items()
+        ),
         "failures": list(plan.failures),
         "generated": sorted("/".join(scope) for scope in plan.generated_scope),
         "unavailable_services": {
@@ -923,7 +944,20 @@ def generation_metadata(plan):
             ): info
             for p, info in unavailable.items()
         },
-        "view_states": pending_view_states(plan.root, unavailable),
+        "view_states": {
+            **{"/".join(scope): "GENERATED" for scope in plan.generated_scope},
+            **{
+                "/".join(
+                    (*path.relative_to(plan.root / "docs/designs").parts[:2], path.stem)
+                ): "FAILED"
+                for path in set(failed) | set(unavailable)
+                if "/".join(
+                    (*path.relative_to(plan.root / "docs/designs").parts[:2], path.stem)
+                )
+                not in pending
+            },
+            **pending,
+        },
         "unverified": [
             diagnostic
             for diagnostic in plan.reference_warnings
@@ -948,7 +982,7 @@ def report_generation(plan):
     }
     not_run = set(generation_unavailable(plan))
     failed = selected - plan.saved.keys() - not_run
-    summary = f"{len(plan.saved)} services succeeded; {len(failed)} services failed; {len(not_run)} services NOT_RUN"
+    summary = f"{len(plan.saved)} services succeeded; {len(failed)} services failed; {len(not_run)} services unavailable"
     print("Design Markdown generation: " + summary, file=output_file())
     for service, state in pending_view_states(
         plan.root, generation_unavailable(plan)
@@ -958,7 +992,7 @@ def report_generation(plan):
         diagnostics = [
             *plan.failures,
             *(
-                f"NOT_RUN: {path.relative_to(plan.root)}: {plan.unavailable[path]['reason']}"
+                f"{plan.unavailable[path].get('view_state', 'FAILED')}: {path.relative_to(plan.root)}: {plan.unavailable[path]['reason']}"
                 for path in sorted(not_run)
             ),
         ]
@@ -1101,9 +1135,10 @@ def _comparison(root, scope, *, jobs, definitions_root, findings):
         if findings is not None:
             for warning in plan.reference_warnings:
                 findings.warn(warning)
-            findings.result("framework.generated-service-model", scope).metadata.update(
-                generation_metadata(plan)
-            )
+            result = findings.result("framework.generated-service-model", scope)
+            result.metadata.update(generation_metadata(plan))
+            result.status = result.metadata["status"]
+            result.started = True
             for diagnostic in plan.failure_records:
                 if diagnostic.code != "generation.reference":
                     findings.add_diagnostic(diagnostic)

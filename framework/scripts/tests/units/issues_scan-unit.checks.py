@@ -1216,13 +1216,13 @@ def check_view_read_failure_policy(tmp_path):
         assert not validator.service_cache_pending
         assert (
             validator.findings.result("design.service", {("dev", "team", "s3")}).status
-            == "NOT_RUN"
+            == "FAIL"
         )
         assert (
             validator.findings.result(
                 "framework.generated-service-model", validator.scope
             ).status
-            == "NOT_RUN"
+            == "FAIL"
         )
         default = Validator(root, validator.scope, workers=1)
         default.check_scoped_designs()
@@ -1499,7 +1499,7 @@ def check_scan_exception_classification(tmp_path, exception):
     )
     assert any(
         result["check_id"] == "iac.comparison"
-        and result["status"] == "NOT_RUN"
+        and result["status"] == "FAIL"
         and not result["complete"]
         for result in artifact["check_results"]
     )
@@ -3175,7 +3175,7 @@ def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
     result = json.loads(capsys.readouterr().out)
     assert result["publication_status"] == "SAVED"
     assert result["validation_status"] == ("ERROR" if processing else "FAIL")
-    assert result["post_save_validation"] == "NOT_RUN"
+    assert result["post_save_validation_execution"] == "NOT_STARTED"
     assert result["post_save_validation_command"] == (
         "blueprint-loop.py --mode local --task-file "
         + ("tasks/authorized.md" if selection == "changed" else task_name)

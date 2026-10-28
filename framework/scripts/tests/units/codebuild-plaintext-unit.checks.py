@@ -199,7 +199,7 @@ def assert_dependency_errors(findings):
     ), findings.errors
     assert not findings.processing_errors, findings.processing_errors
     semantic = findings.result("design.tables.semantic", {("dev", "team", "codebuild")})
-    assert semantic.status == "NOT_RUN"
+    assert semantic.status == "FAIL"
     assert any(
         item.get("resource") == "CodeBuild_Project_001"
         for item in semantic.metadata["unverified"]
@@ -290,8 +290,11 @@ def test_generation_failure_unreadable_raw_is_not_run(models, missing):
         view_errors[view] = {"message": "invalid UTF-8"}
     validator.check_scoped_designs(view_errors=view_errors)
     raw = validator.findings.result("design.tables.raw", validator.scope)
-    assert raw.status == "NOT_RUN"
-    assert raw.metadata["reason"] == "view-read" and raw.metadata["message"]
+    assert raw.status == "FAIL"
+    assert (
+        raw.metadata["reason"] not in {"view-read", "unspecified", ""}
+        and raw.metadata["message"]
+    )
     assert not validator.findings.processing_errors, (
         validator.findings.processing_errors
     )
@@ -318,10 +321,10 @@ def test_scoped_normal_typed_reference_checks_raw_once(models, pending):
         view, view.read_text(encoding="utf-8"), tuple(values.items()), FRAMEWORK
     )
     service = validator.findings.result("design.service", validator.scope)
-    assert service.status in {"PASS", "NOT_RUN"}, service
+    assert service.status in {"PASS", "FAIL"}, service
     if pending:
-        assert service.status in {"PASS", "NOT_RUN"}
-        if service.status == "NOT_RUN":
+        assert service.status in {"PASS", "FAIL"}
+        if service.status == "FAIL":
             assert service.metadata["reason"] == "reference"
     else:
         assert service.status == "PASS" and not validator.findings.unverified
@@ -345,10 +348,14 @@ def test_missing_typed_target_is_model_error_not_reference_wait(models):
     assert not validator.findings.processing_errors
     assert raw.call_count == 1
     service = validator.findings.result("design.service", validator.scope)
-    assert service.status == "FAIL" and service.metadata["reason"] == "dependency"
+    assert service.status == "FAIL" and service.metadata["reason"] not in {
+        "dependency",
+        "unspecified",
+        "",
+    }
     assert service.status != "PASS"
     semantic = validator.findings.result("design.tables.semantic", validator.scope)
-    assert semantic.status == "NOT_RUN"
+    assert semantic.status == "FAIL"
 
 
 @pytest.mark.usefixtures("catalog_display_fixture")
@@ -811,9 +818,9 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                 ]
                 if unreadable_view or markdown_link:
                     assert len(links) == 1
-                    assert links[0]["status"] == "NOT_RUN" and not links[0]["complete"]
+                    assert links[0]["status"] == "FAIL" and not links[0]["complete"]
                 else:
-                    assert not any(result["status"] == "NOT_RUN" for result in links)
+                    assert not any(result["status"] == "FAIL" for result in links)
             errors = [
                 item for item in artifact["ordinary"] if REASON in item["message"]
             ]
@@ -856,7 +863,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                     )
                     assert any(
                         result["check_id"] == "design.tables.semantic"
-                        and result["status"] == "NOT_RUN"
+                        and result["status"] == "FAIL"
                         and not result["complete"]
                         for result in artifact["check_results"]
                     ), artifact["check_results"]

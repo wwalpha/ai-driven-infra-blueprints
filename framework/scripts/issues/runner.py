@@ -643,6 +643,9 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             check_id=result.check_id,
             scope=["/".join(entry) for entry in sorted(result.scope or [])],
             status=result.status,
+            reason=comparison.redacted(result.metadata["reason"])
+            if result.status == "FAIL"
+            else None,
             complete=result.metadata.get("complete", result.status == "PASS"),
             unavailable_services=result.metadata.get("unavailable_services", {}),
             unverified=result.metadata.get("unverified", []),

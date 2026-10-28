@@ -99,8 +99,11 @@ def main() -> int:
         os.environ[SELECTOR] = args.task_file
     root = args.repository_root.resolve()
     if not (root / ".git").exists():
-        print(f"repository root is invalid: {root}", file=sys.stderr)
-        return 2
+        print(
+            f"Blueprint repository validation: FAIL\n- check_id=validation.input; scope={root}; reason=repository root is invalid",
+            file=sys.stderr,
+        )
+        return 1
     try:
         if directory := os.environ.get("BLUEPRINT_PROFILE_DIR"):
             cProfile = _imports_cProfile
@@ -116,8 +119,11 @@ def main() -> int:
         else:
             validator = run_validation(root, args)
         return validator.display_report()
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        print(f"Blueprint repository validation: FAIL\n- {error}", file=sys.stderr)
+    except (Exception, KeyboardInterrupt) as error:
+        print(
+            f"Blueprint repository validation: FAIL\n- check_id=validation.input; scope={args.task_file or root}; reason={type(error).__name__}: {error or 'validation interrupted'}",
+            file=sys.stderr,
+        )
         return 1
 
 

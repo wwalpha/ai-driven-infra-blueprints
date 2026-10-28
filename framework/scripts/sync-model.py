@@ -238,8 +238,14 @@ def main(argv=None, *, definitions_root=None) -> int:
                 raise ValueError(message)
             return 0
     except ReferenceResolutionError as error:
-        print(f"Design Markdown sync: NOT_RUN\n- {error}", file=output_file(error=True))
-        return 2
+        pending = bool(error.diagnostics) and all(
+            d.get("category") == "REFERENCE_PENDING_DEPLOY" for d in error.diagnostics
+        )
+        print(
+            f"View generation: {'PENDING_DEPLOY' if pending else 'FAILED'}\n- {error}",
+            file=output_file(error=True),
+        )
+        return 0 if pending else 1
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Design Markdown sync: FAIL\n- {error}", file=output_file(error=True))
         return 1

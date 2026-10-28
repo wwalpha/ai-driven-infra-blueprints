@@ -648,12 +648,11 @@ def check_view_failure_isolation(tmp_path, phase):
             exception="ValueError",
             message="synthetic invalid View",
             complete=False,
-            status="NOT_RUN",
+            status="FAIL",
         )
     ]
     assert (
-        findings.result("design.links", {("dev", "team", "codebuild")}).status
-        == "NOT_RUN"
+        findings.result("design.links", {("dev", "team", "codebuild")}).status == "FAIL"
     )
 
 
@@ -775,7 +774,7 @@ def check_candidate_indexed_saved_reference(tmp_path, service, kind, field, faul
         ),
     )
     assert result.status == (
-        "FAIL" if fault == "table" else "NOT_RUN" if fault == "model" else "PASS"
+        "FAIL" if fault == "table" else "FAIL" if fault == "model" else "PASS"
     ), (findings.errors, findings.unverified)
     assert (result.status == "PASS") == (fault in (None, "unrelated"))
     if fault == "table":

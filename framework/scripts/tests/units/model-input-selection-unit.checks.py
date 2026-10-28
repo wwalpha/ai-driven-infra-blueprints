@@ -147,7 +147,7 @@ def check_selection_order_findings_and_fresh_calls(selection):
         r.status
         for r in findings.results.values()
         if r.check_id.startswith("model.required.")
-    ] == ["NOT_RUN"] * 2
+    ] == ["FAIL"] * 2
     assert findings.unverified and findings.warnings
     values["desired.row.001-001.value"] = "`60`"
     run()

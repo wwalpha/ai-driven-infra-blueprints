@@ -246,8 +246,7 @@ def test_pipeline_display_is_not_identity_or_missing_producer(pipeline):
         findings.result("design.identity", {("qa", "team", "codepipeline")})
     )
     assert (
-        dependent.status == "NOT_RUN"
-        and dependent.metadata["unverified"][0]["cause_keys"]
+        dependent.status == "FAIL" and dependent.metadata["unverified"][0]["cause_keys"]
     )
     recovered = model_resource_reference_tables(path, saved, values, FRAMEWORK)
     assert len(recovered) == 1 and isinstance(recovered[0][2], DisplayMismatchError)
@@ -370,14 +369,14 @@ def test_resource_message_cannot_hide_document_not_run(pipeline, document_messag
     assert blocked["document"]["checks"] == ["document reference integrity"]
     assert blocked["document"]["message"] == document_message
     assert blocked["CodePipeline_Pipeline_001"]["message"] == str(resource_error)
-    assert all(item["status"] == "NOT_RUN" for item in blocked.values())
+    assert all(item["status"] == "FAIL" for item in blocked.values())
     assert all(item["scope"] == ["qa/team/codepipeline"] for item in blocked.values())
     assert findings.status == "FAIL"
     assert (
         finish_result(
             findings.result("design.tables.semantic", {("qa", "team", "codepipeline")})
         ).status
-        == "NOT_RUN"
+        == "FAIL"
     )
 
 
@@ -544,7 +543,7 @@ def collected(pipeline):
         scanned = scan_runner.scan(root, "qa", "team", ["codepipeline"])
     assert scanned["ordinary"] == records
     assert scanned["validation_status"] == "FAIL"
-    assert {item["status"] for item in scanned["check_results"]} >= {"FAIL", "NOT_RUN"}
+    assert {item["status"] for item in scanned["check_results"]} >= {"FAIL"}
     return findings, scanned
 
 
@@ -677,7 +676,7 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
         finish_result(
             findings.result("design.tables.semantic", {("qa", "team", "codepipeline")})
         ).status
-        == "NOT_RUN"
+        == "FAIL"
     )
 
 
@@ -721,7 +720,7 @@ def test_report_limit_keeps_all_artifact_members(pipeline):
                 code="design.tables.dependency",
                 cause_keys=[f"cause-{number}"],
                 resource=f"resource-{number}",
-                status="NOT_RUN",
+                status="FAIL",
                 complete=False,
             )
         )
@@ -879,7 +878,7 @@ def test_links_not_run_remains_fail_with_causes(pipeline):
         findings.result("design.links", {("qa", "team", "codepipeline")})
     )
     assert (
-        result.status == "NOT_RUN"
+        result.status == "FAIL"
         and len(result.metadata["unverified"][0]["cause_keys"]) == 4
     )
 
@@ -1247,7 +1246,7 @@ def test_missing_saved_name_is_not_filled_from_model(instance):
         definitions_root=FRAMEWORK,
         check_display=False,
     )
-    assert findings.status == "NOT_RUN"
+    assert findings.status == "FAIL"
     assert not findings.errors and not findings.processing_errors
     assert len(findings.unverified) == 1
     assert findings.unverified[0]["resource"] == "EC2_Instance_001"
@@ -1402,7 +1401,7 @@ def test_indexed_name_tags_reject_broken_pairs(indexed_name_tags, damage):
         check_display=False,
     )
     assert not findings.processing_errors
-    assert findings.status in {"FAIL", "NOT_RUN"}, findings.errors
+    assert findings.status in {"FAIL"}, findings.errors
 
 
 @pytest.mark.parametrize(

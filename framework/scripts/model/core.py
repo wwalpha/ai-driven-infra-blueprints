@@ -29,8 +29,6 @@ class ReferenceDiagnosticError(ValueError):
             "status": (
                 "WARNING"
                 if details.get("category", self.category) == "REFERENCE_PENDING_DEPLOY"
-                else "NOT_RUN"
-                if isinstance(self, ReferenceResolutionError)
                 else "FAIL"
             ),
             "action": self.action,

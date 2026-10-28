@@ -81,7 +81,9 @@ from task_contract_core import task_snapshot as task_snapshot
 from task_contract_core import validate_contract as validate_contract
 from task_contract_core import verify_contract_reads as verify_contract_reads
 from task_contract_core import verify_snapshot as verify_snapshot
+from validation import acceptance
 from validation.findings import Findings
+from validation.runner import Validator
 from validation.task import TaskValidation
 
 
@@ -118,6 +120,21 @@ def complete(root, name):
                 require_import_changes(root, set())
             else:
                 require_import_changes(root)
+            validator = Validator(
+                root,
+                set(snapshot.scope) if snapshot.scope is not None else None,
+                cache=False,
+                issues_save=issues_save_only(root, text=text),
+                model_validation="change",
+            )
+            validator.run()
+            if validator.report():
+                raise ValueError(
+                    "Task Acceptance FAIL: "
+                    + "; ".join(
+                        item["reason"] for item in validator.findings.failures()
+                    )
+                )
         finally:
             if previous is None:
                 os.environ.pop(SELECTOR, None)
@@ -128,6 +145,13 @@ def complete(root, name):
         {safe_path(root, name): set_status(text, "completed")}, staging_directory=root
     )
     invalidate_task_reads(root)
+
+
+def approve_out_of_task_failures(root, name, records):
+    with selected_task(root, name), task_reads(root, live=True):
+        acceptance.approve(
+            TaskValidation(root, Findings(root), contract_file=name), records
+        )
 
 
 def check_resume_scope(root, name):

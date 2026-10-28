@@ -210,7 +210,7 @@ When running a local loop, retain the following checks in its applicable scope. 
 - CREATE `EC2.VPCEndpoint` / `EC2.Instance` have case-sensitive `Tags[].Key=Name` followed immediately by the corresponding confirmed non-empty `Tags[].Value`, matching overview/heading/ordinary reference link display names. Design validation/generation use the common helper to determine requirements and reject display label substitution
 - Single standalone resources of a type without a name property generate type-only detail headings and saved anchors when no selected Name tag or existing label exists. Distinguish overview headings from detail headings; retain hidden logical IDs and desired/observed separation. Do not save derived type names in labels; reject type-name display for multiple resources of the same type, omitted name properties, or missing mandatory CREATE Name tags
 - resourceMode is only CREATE/IMPORT; validate unspecified mode as CREATE. Exempt only IMPORT from framework naming coverage, lower-kebab, and mandatory Name policy; do not fill missing Name tags. Obtain classification and resource numbers from Model logicalId indexes, without duplicate Markdown comments; retain schema, catalog, reference, row structure, and generated display equality validation
-- Read-only reference analysis and intermediate leaves report warnings and retain unavailable Views with reference-dependent checks NOT_RUN. The common final candidate guard rejects missing/ambiguous Resource targets and invalid types/Properties; pending observations and saved-text differences remain warnings. Validate corrected fields and affected reference contracts using only changed-service before/after comparison snapshots in ordinary saves, Task checks/completion and worktree guards. Framework-only changes perform no Model load.
+- Read-only reference analysis and intermediate leaves report warnings and retain unavailable Views with their generation state; applicable reference-dependent checks that cannot finish are reasoned FAILs. The common final candidate guard rejects missing/ambiguous Resource targets and invalid types/Properties; pending observations and saved-text differences remain warnings. Validate corrected fields and affected reference contracts using only changed-service before/after comparison snapshots in ordinary saves, Task checks/completion and worktree guards. Framework-only changes perform no Model load.
 - Each resource has exactly 1 `CodeBuild.Project.Name` row with a confirmed non-empty literal. Common name validation for design validation/model generation rejects missing, empty, unconfirmed, and duplicate values; Name tags/display labels are not substitutes
 - If CloudFormation stack detailed designs exist, validate stack names, template filenames, and parameter filenames, and confirm equality with generated stack models
 - No generated ARNs exist in `model/`
@@ -435,7 +435,7 @@ When a local loop is required, its PASS displays executed Requirement IDs, Accep
 ## Model-only final integration
 
 Follow [Reference diagnostics](model-information.md#reference-diagnostics). Keep Model
-validation and View generation states separate. PENDING_DEPLOY is not NOT_RUN: a valid
+validation and View generation states separate. PENDING_DEPLOY has its own deployment meaning: a valid
 logical reference may pass Model validation before its physical value is deployed. Run
 all mandatory Change Validation checks, including candidate target, type and attribute
 checks; an interrupted or unexecuted mandatory check blocks completion. Preserve warnings
@@ -474,3 +474,34 @@ TaskValidation independently proves latest base→candidate after rebase, withou
 or deletion requirements. Generation uses existing APIs and does not decide meaning.
 Retain classified final validation, exact-HEAD merge checks. Do not add
 IT as a requirement of this operation, or automatically regenerate/retry on failure.
+
+## Validation results and Task Acceptance
+
+Final Validation status is exactly PASS or FAIL. PASS requires completion of every
+applicable mandatory check and valid logical reference contracts. Invalid input,
+exceptions, interruptions, missing dependencies and unexecuted mandatory checks are
+FAIL with check_id, scope, concrete reason, known source/Resource/Property, underlying
+diagnostics and existing diagnostic IDs. Empty or unspecified reasons are invalid.
+An internal not-started check is execution bookkeeping, never a public third status.
+Register the Task-specific required plan before execution, run its missing checks, and
+refuse completion when any required check cannot finish. Inapplicable checks are not
+planned; never reclassify a required check merely to avoid failure. Child failures,
+interruptions and scopes survive aggregation and candidate changes without overwriting
+same-ID results. Duplicate diagnostics do not erase failed check outcomes.
+
+Normal pending_deploy is separate reference information after logical target/type/
+attribute validation. It does not suppress independent Model checks. An exception that
+aborts a required handler is FAIL even if pending diagnostics are also present. View
+states are GENERATED, RETAINED_PENDING_DEPLOY, NOT_GENERATED_PENDING_DEPLOY or FAILED.
+Model-only Tasks may retain proven pending Views when their contract does not require
+the unavailable View comparison. A required View check that cannot execute is FAIL.
+Keep service-level partial generation, publication locks and rollback unchanged.
+
+Raw Validation and Task Acceptance are separate. Required corrections and regressions
+must be repaired and revalidated to PASS; Human approval cannot bypass them. Only an
+unrelated pre-existing Model input FAIL may be excluded from this Task Acceptance after
+LLM investigation and the exact Human approval described in
+[Task Acceptance exclusions](task-contract.md#task-acceptance-exclusions).
+The raw FAIL, reason and ID remain visible. Report raw Validation, required checks,
+Task Acceptance, approved out-of-task FAILs and any unapproved FAILs independently.
+No global failure allowance, arbitrary skip or automatic path-only exemption exists.

@@ -24,6 +24,7 @@ from task_contract_core import (
 from task_contract_core import TASK_TYPES as TASK_TYPES
 from utils.git_changes import GitWorkingPaths, collect_working_paths, read_paths
 from utils.input_cache import input_text
+from validation import acceptance
 
 
 class TaskValidation:
@@ -175,6 +176,7 @@ class TaskValidation:
                 self.root, self.contract_file, executable=self.contract_file is None
             ).text
         )
+        self.contract_file = prompt.relative_to(self.root).as_posix()
         lines = self.contract_text.splitlines()
         contract = self.section(lines, "## Task contract")
         task_types = []
@@ -568,9 +570,25 @@ class TaskValidation:
                         if results_only
                         else self.findings.evaluate(value, scope, handler)
                     )
+                    accepted = result.status == "PASS"
+                    if (
+                        not accepted
+                        and result.errors
+                        and result.metadata.get("complete")
+                    ):
+                        approved_reasons = {
+                            failure["reason"]
+                            for failure in self.acceptance()["approved"]
+                        }
+                        accepted = all(
+                            error in approved_reasons for error in result.errors
+                        )
                     self.check(
-                        result.status == "PASS",
+                        accepted,
                         f"Acceptance check is {result.status}: {requirement_id}: {value}",
                     )
             if len(self.findings.errors) == before:
                 self.acceptance_results.append(f"{requirement_id}:{kind}:{value}")
+
+    def acceptance(self):
+        return acceptance.assess(self)

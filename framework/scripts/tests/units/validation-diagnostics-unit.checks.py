@@ -23,7 +23,7 @@ from validation import runner as validator_runner
 from validation.design_links import check_design_artifacts as validate_artifacts
 from validation.design_links import check_local_links as validate_links
 from validation.diagnostics import ArtifactReferences, Diagnostic
-from validation.findings import Findings
+from validation.findings import CheckResult, Findings
 from validation.runner import Validator
 
 if not __debug__:
@@ -464,11 +464,11 @@ def check_expansion_failure_does_not_claim_unreferenced(tmp_path, stage):
     "metadata,expected",
     [
         ({}, "PASS"),
-        ({"complete": False}, "NOT_RUN"),
-        ({"status": "NOT_RUN"}, "NOT_RUN"),
+        ({"complete": False}, "FAIL"),
         ({"status": "FAIL"}, "FAIL"),
-        ({"unavailable_services": {"dev/team/iam": {}}}, "NOT_RUN"),
-        ({"unverified": [{"code": "not-executed"}]}, "NOT_RUN"),
+        ({"status": "FAIL"}, "FAIL"),
+        ({"unavailable_services": {"dev/team/iam": {}}}, "FAIL"),
+        ({"unverified": [{"code": "not-executed"}]}, "FAIL"),
     ],
 )
 def check_metadata_completion(tmp_path, metadata, expected):
@@ -480,8 +480,11 @@ def check_metadata_completion(tmp_path, metadata, expected):
     assert findings.results == before and findings.status == expected
     assert isinstance(result.metadata["unverified"], list)
     assert isinstance(result.metadata["unavailable_services"], dict)
-    if expected == "NOT_RUN":
-        assert result.metadata["complete"] is False
+    if expected == "FAIL":
+        assert (
+            result.metadata["reason"].strip()
+            and result.metadata["reason"] != "unspecified"
+        )
 
 
 def check_result_lookup_is_candidate_and_scope_specific(tmp_path):
@@ -490,20 +493,20 @@ def check_result_lookup_is_candidate_and_scope_specific(tmp_path):
     assert findings.get_result("design.stacks", scope) is None
     assert not findings.results and findings.status == "PASS"
     result = findings.result("design.stacks", scope)
-    assert result.status == "NOT_RUN"
+    assert result.status == "FAIL"
     assert findings.get_result("design.stacks", list(scope)) is result
     before = dict(findings.results)
     for other in (None, set(), {("stg", "team", "s3")}):
         assert findings.get_result("design.stacks", other) is None
-    assert findings.results == before and findings.status == "NOT_RUN"
+    assert findings.results == before and findings.status == "FAIL"
     findings.bind_candidate(object(), set())
-    assert findings.get_result("design.stacks", scope) is None
-    assert findings.results == before and findings.status == "PASS"
+    assert findings.get_result("design.stacks", scope).status == "FAIL"
+    assert findings.status == "FAIL"
     assert findings.result("design.stacks", scope) is not result
-    assert findings.status == "NOT_RUN"
+    assert findings.status == "FAIL"
 
 
-@pytest.mark.parametrize("stack_status", [None, "PASS", "NOT_RUN", "FAIL"])
+@pytest.mark.parametrize("stack_status", [None, "PASS", "unstarted", "FAIL"])
 @pytest.mark.parametrize("environment", ["dev", "stg"])
 def check_iac_stack_lookup_and_file_fallback(tmp_path, stack_status, environment):
     design = tmp_path / "docs/designs/dev/team/cloudformation-stacks.md"
@@ -544,7 +547,9 @@ def check_iac_stack_lookup_and_file_fallback(tmp_path, stack_status, environment
         generated={design: []} if stack_status is not None else {},
     )
     if stack_status is not None:
-        findings.result("design.stacks", None).status = stack_status
+        result = findings.result("design.stacks", None)
+        if stack_status != "unstarted":
+            result.status = stack_status
     before = dict(findings.results)
     definitions = validator.candidate_stacks(plan)
     assert findings.results == before
@@ -563,7 +568,11 @@ def check_iac_stack_lookup_and_file_fallback(tmp_path, stack_status, environment
         )
     assert checked.status == ("PASS" if environment == "dev" else "FAIL")
     assert findings.status == (
-        "FAIL" if environment != "dev" else stack_status or "PASS"
+        "FAIL"
+        if environment != "dev"
+        else "FAIL"
+        if stack_status == "unstarted"
+        else stack_status or "PASS"
     )
     assert read_design.call_count == int(stack_status is None)
     assert findings.get_result("design.stacks", None) is before.get(
@@ -804,7 +813,7 @@ def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(
         == validation_issues(findings, source, ["s3"])[0][0]["id"]
     )
     result = first["check_results"][0]
-    assert result["status"] == "NOT_RUN" and result["complete"] is False
+    assert result["status"] == "FAIL" and result["complete"] is False
     assert result["unavailable_services"] and result["unverified"]
     assert first["unverified"]
 
@@ -863,3 +872,57 @@ def check_diagnostic_merge_positions_and_equal_messages(tmp_path):
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def check_fail_reasons_and_returned_results(tmp_path):
+    scope = {("dev", "team", "one")}
+    findings = Findings(tmp_path)
+    missing = findings.result("mandatory", scope)
+    assert findings.status == "FAIL" and "not started" in missing.metadata["reason"]
+    executed = []
+    assert (
+        findings.evaluate("mandatory", scope, lambda: executed.append(True)).status
+        == "PASS"
+    )
+    assert executed == [True]
+    for exception in (
+        RuntimeError("validator crashed"),
+        KeyboardInterrupt("validation interrupted"),
+    ):
+
+        def interrupted(exception=exception):
+            raise exception
+
+        result = findings.evaluate(type(exception).__name__, scope, interrupted)
+        assert result.status == "FAIL" and str(exception) in result.metadata["reason"]
+    returned = CheckResult(
+        "returned",
+        frozenset(scope),
+        object(),
+        status="FAIL",
+        errors=("invalid property type",),
+        metadata={"complete": True},
+    )
+    result = findings.evaluate("return-result", scope, lambda: returned)
+    assert (
+        result.status == "FAIL" and "invalid property type" in result.metadata["reason"]
+    )
+    invalid = findings.evaluate("metadata", scope, lambda: {"reason": []})
+    assert (
+        invalid.status == "FAIL"
+        and "reason must be a string" in invalid.metadata["reason"]
+    )
+    child = Findings(tmp_path)
+    child.result("child.mandatory", scope)
+    nested = findings.evaluate(
+        "parent.required", scope, lambda: findings.include_diagnostics(child)
+    )
+    assert nested.status == "FAIL" and "child.mandatory" in nested.metadata["reason"]
+    records = findings.failures()
+    assert records and all(
+        record["check_id"]
+        and record["scope"] == [list(next(iter(scope)))]
+        and record["reason"].strip()
+        and record["status"] == "FAIL"
+        for record in records
+    )

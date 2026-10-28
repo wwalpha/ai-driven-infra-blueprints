@@ -772,12 +772,12 @@ def check_partial_view_generation_is_not_task_pass(project_workspace):
         "_check_generated_service_models",
         return_value={
             "complete": False,
-            "status": "NOT_RUN",
-            "unverified": [{"reason": "reference", "status": "NOT_RUN"}],
+            "status": "FAIL",
+            "unverified": [{"reason": "reference", "status": "FAIL"}],
         },
     ):
         validator.check_changed_designs()
-    assert validator.findings.status == "NOT_RUN" and validator.report() != 0
+    assert validator.findings.status == "FAIL" and validator.report() != 0
 
 
 def check_stage_does_not_load_unaffected_incoming_peer(project_workspace):

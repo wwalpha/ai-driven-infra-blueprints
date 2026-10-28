@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import json
 import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -18,10 +19,12 @@ import task_contract as tasks
 import task_contract_runtime as task_runtime
 from issues.publication import save_scan
 from support.issues_scan_fixtures import review_for, snapshot_artifact
+from support.model_v2_fixtures import logs_fixture
 from support.pytest_cli import run
 from support.repository_fixtures import fixture, git
 from support.repository_fixtures import transition_contract as contract
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
+from validation import acceptance
 from validation.findings import Findings
 from validation.task import TaskValidation
 
@@ -56,7 +59,11 @@ def check_atomic_contract_reads(tmp_path, transition):
     root = tmp_path
     name = "tasks/writer.md"
     owner = "tasks/owner.md"
-    with patch.dict(os.environ, {}, clear=True):
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch.object(task_runtime, "Validator") as validator,
+    ):
+        validator.return_value.report.return_value = 0
         if transition != "start":
             tasks.start(root, owner, contract(owner, ["shared.md"]))
             tasks.start(root, name, contract(name, ["shared.md"]))
@@ -179,3 +186,84 @@ def check_self_recovery_resume():
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def check_task_acceptance_human_failure_review(tmp_path):
+    with fixture() as root:
+        source = logs_fixture(root)
+        git(root, "add", "model", "project.json")
+        git(root, "commit", "-qm", "baseline Model")
+        name = "tasks/human-review.md"
+        tasks.start(
+            root,
+            name,
+            contract(
+                name,
+                ["file.txt"],
+                kind="migration",
+                scope="qa-synthetic/team-a/cloudwatch-logs",
+            ),
+        )
+        (root / "file.txt").write_text("authorized candidate")
+        findings = Findings(root)
+        task = TaskValidation(root, findings, contract_file=name)
+        task.check_task_scope()
+        findings.evaluate(
+            "model.literal.001-002",
+            {("qa-synthetic", "team-a", "cloudwatch-logs")},
+            lambda: findings.input_check(
+                False, source, "existing RetentionInDays type is invalid"
+            ),
+            source_path=source,
+        )
+        (failure,) = findings.failures()
+        assert task.acceptance()["status"] == "FAIL"
+        dependencies = acceptance.unchanged_model_evidence(task, failure)
+        record = dict(
+            failure,
+            task=name,
+            dependencies=dependencies,
+            candidate=acceptance.candidate(task, dependencies),
+            assessment={
+                key: "Reviewed baseline, unchanged Model and references; file.txt edit is independent"
+                for key in (
+                    "task_relevance",
+                    "before_after",
+                    "producer_consumer",
+                    "regression",
+                    "why_outside_task",
+                    "risk",
+                )
+            },
+            human_approval=dict(
+                decision="exclude_this_task_only",
+                diagnostic_id=failure["diagnostic_id"],
+                reason=failure["reason"],
+                statement="Human explicitly approves "
+                + failure["diagnostic_id"]
+                + " for this Task only",
+            ),
+        )
+        review = tmp_path / "human-decision.json"
+        review.write_text(json.dumps([record]))
+        command = [
+            sys.executable,
+            str(Path(__file__).resolve().parents[2] / "task_contract.py"),
+            "--repository-root",
+            str(root),
+            "--task-file",
+            name,
+            "--approve-out-of-task-failures",
+            str(review),
+        ]
+        result = subprocess.run(command, capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        task.contract_text = (root / name).read_text()
+        assert task.acceptance()["status"] == "PASS" and findings.status == "FAIL"
+        assert tasks.status(task.contract_text) == "running"
+        assert failure["reason"] in task.contract_text
+        (root / "file.txt").write_text("changed candidate after Human review")
+        assert task.acceptance()["status"] == "FAIL"
+        result = subprocess.run(command, capture_output=True, text=True)
+        assert result.returncode == 1 and "stale" in result.stdout
+        assert findings.failures()[0]["reason"] == failure["reason"]

@@ -175,7 +175,7 @@ def require_complete(findings):
         return
     incomplete = [
         f"{result.check_id}: {result.status}; scope={sorted(result.scope or [])}; "
-        f"reason={result.metadata.get('reason', 'unspecified')}"
+        f"reason={result.metadata['reason']}"
         for result in findings.results.values()
         if result.candidate is findings.candidate and result.status != "PASS"
     ]

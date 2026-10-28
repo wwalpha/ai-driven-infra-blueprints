@@ -174,3 +174,15 @@ Standalone `import-retarget` uses the existing running-parent final-candidate pa
 Require successful latest-base reference/preservation validation; failed-validation
 approval cannot bypass it. Never demand transfer/deletion for this operation or add
 automatic regeneration, validation retry or an IT requirement.
+
+## Task Acceptance with unrelated Model FAILs
+
+Follow [Task Acceptance exclusions](../../../framework/rules/task-contract.md#task-acceptance-exclusions).
+Keep diagnostic Validation FAIL separate from Task Acceptance. Only individually
+Human-approved, evidenced pre-existing Model failures can leave Acceptance PASS;
+required corrections, regressions and incomplete checks must be repaired to PASS.
+Normal completion and final integration recheck the exact approved failures, candidate
+and dependencies. A changed review requires renewed approval; no broad skip is added.
+Report raw Validation, required checks, Acceptance, approved FAIL IDs/reasons and
+unapproved FAILs separately. Existing suspended Git-integration approval retains its
+separate semantics and is not an Acceptance approval.

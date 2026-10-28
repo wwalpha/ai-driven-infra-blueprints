@@ -758,7 +758,7 @@ def test_reference_wait_findings_are_not_pass(models):
         partial(require_reference_diagnostics, diagnostics),
         isolate=True,
     )
-    assert result.status == "NOT_RUN" and not result.errors and result.warnings
+    assert result.status == "FAIL" and not result.errors and result.warnings
     assert not findings.reference_errors and not findings.processing_errors
     with pytest.raises(ReferenceResolutionError):
         require_reference_diagnostics(list(result.warnings))
@@ -882,7 +882,7 @@ def test_pending_cli_is_not_reported_as_generation_failure(models):
         code, output = cli.run(
             [], repository_root=consumer.root, definitions_root=FRAMEWORK
         )
-    assert code == 2 and "Design Markdown sync: NOT_RUN" in output
+    assert code == 0 and "View generation: PENDING_DEPLOY" in output
     assert (
         "Design Markdown sync: FAIL" not in output
         and "REFERENCE_PENDING_DEPLOY" in output

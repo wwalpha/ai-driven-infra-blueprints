@@ -568,7 +568,7 @@ def _callback_check_resource_names_check_name(
             entry = dict(
                 code="design.identity.dependency",
                 reason="expansion",
-                status="NOT_RUN",
+                status="FAIL",
                 scope=["/".join(item) for item in name_scope],
                 resource=identities.get(anchor, anchor),
                 checks=["resource name from saved array rows"],
@@ -750,7 +750,7 @@ def check_resource_names(
             entry = dict(
                 code="design.identity.dependency",
                 reason="display",
-                status="NOT_RUN",
+                status="FAIL",
                 scope=["/".join(item) for item in scope],
                 cause_keys=[item.cause_key for item in causes],
                 checks=["resource names and identity after display expansion"],
