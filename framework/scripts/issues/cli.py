@@ -16,7 +16,7 @@ import issues.runner as _imports_issues_runner
 
 from .aggregate import IAC_CLASSES
 from .records import safe_text
-from .review_progress import DEFAULT_MAX_BYTES, ReviewController
+from .review_progress import DEFAULT_MAX_BYTES, SECTIONS, ReviewController
 
 SELECTOR = "BLUEPRINT_TASK_FILE"
 
@@ -86,7 +86,15 @@ def main():
     saveparser.add_argument("--review", type=Path, required=True)
     reviewparser = commands.add_parser("review", help="checkpointed complete Review")
     reviewcommands = reviewparser.add_subparsers(dest="review_command", required=True)
-    for operation in ("init", "next", "submit", "status", "export"):
+    for operation in (
+        "init",
+        "next",
+        "submit",
+        "status",
+        "inspect",
+        "revise",
+        "export",
+    ):
         command = reviewcommands.add_parser(operation)
         command.add_argument("--artifact", type=Path, required=True)
         command.add_argument("--state", type=Path, required=True)
@@ -95,6 +103,11 @@ def main():
             command.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
         elif operation == "submit":
             command.add_argument("--submission", type=Path, required=True)
+        elif operation == "inspect":
+            command.add_argument("--section", choices=SECTIONS, required=True)
+            command.add_argument("--id", required=True)
+        elif operation == "revise":
+            command.add_argument("--revision", type=Path, required=True)
         elif operation == "export":
             command.add_argument("--review", type=Path, required=True)
     args = parser.parse_args()
@@ -113,6 +126,11 @@ def main():
             elif args.review_command == "submit":
                 submission = strict_json(outside(root, args.submission).read_bytes())
                 output = controller.submit(submission)
+            elif args.review_command == "inspect":
+                output = controller.inspect(args.section, args.id)
+            elif args.review_command == "revise":
+                revision = strict_json(outside(root, args.revision).read_bytes())
+                output = controller.revise(revision)
             else:
                 output = controller.export(args.review)
             print(json.dumps(output, ensure_ascii=False, allow_nan=False))

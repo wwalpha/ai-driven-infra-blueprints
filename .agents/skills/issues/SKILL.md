@@ -132,7 +132,7 @@ all Issue IDs for issue-fix. Do not start Model/IaC repair from this investigati
 
 Execute the whole flow: Scan → Review Init → Next → LLM Review → Submit → Status →
 repeat Next while incomplete → Export → existing Save → post-save Local Loop → report.
-Use `issues_scan.py review init|next|submit|status|export` with the same external
+Use `issues_scan.py review init|next|submit|status|inspect|revise|export` with the same external
 `--artifact` and `--state` paths. See [commands and batch format](../../../framework/rules/issues-investigation.md#review-controller).
 
 - A valid Scan artifact allows Review even when Scan returns diagnostic FAIL/exit 1
@@ -148,6 +148,11 @@ Use `issues_scan.py review init|next|submit|status|export` with the same externa
   accompany Naming/diagnostics; other already reviewed facts have an artifact detail
   reference. Retrieve supporting material when needed, including after resuming;
   a shared reference does not excuse an unperformed judgment.
+- Each Naming batch includes complete applicable rules and target/policy in shared
+  `naming_context`, once per namespace. Resolve each item's `naming_rule_refs` there
+  and check applicability within that batch, including mixed Resource Types. Earlier
+  context Review or retrieval alone does not establish that an item was reviewed;
+  judge it from the complete current batch, without relying on session memory.
 - Output is bounded in UTF-8 bytes (`--max-bytes`, default 32768) and shrinks by whole
   items. Platform/page output omission is not evidence that Review is impossible:
   reduce `--limit` and retrieve again. Never submit unseen/truncated IDs. A single
@@ -158,6 +163,20 @@ Use `issues_scan.py review init|next|submit|status|export` with the same externa
   A rejected/incomplete batch advances no IDs. Reacquiring a smaller batch replaces
   the outstanding Batch ID; submit that current batch. Identical resubmission is
   idempotent; different judgments cannot overwrite accepted results implicitly.
+- Correct a mistaken accepted judgment explicitly: `review inspect --section <section>
+  --id <id>` shows the current result and `result_digest`; use `review revise
+  --revision <external-json>` with that Scan/Section/ID, `expected_digest`, a nonempty
+  correction `reason` and complete replacement `result`. Normal Submit must never
+  overwrite accepted IDs. A different current digest rejects a conflicting change;
+  resending an already-applied result is idempotent. No revision history is saved.
+- After revision, inspect Status and re-review the pending dependencies with Next →
+  Review → Submit → Status. Owner changes invalidate only affected Diagnostic
+  Decisions; unrelated accepted results remain. Final confirmation returns to pending
+  when its inputs change. Its previous Issues/Unverified remain as `previous_result`
+  in the final batch: recheck and explicitly retain, correct or remove those findings.
+  Always Export again after correction, even when Status stays complete. Use the new
+  Export for Save; never reuse an earlier Export. Continue through Save and post-save
+  validation, without stopping because the remaining workload is large.
 - Run `status` after each Submit. Continue until every section is complete; workload
   alone never justifies stopping before Review, Export, Save and post-save checks.
   The LLM's decision to stop early is not normal completion. Never register an ID

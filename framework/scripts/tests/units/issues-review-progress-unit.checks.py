@@ -6,12 +6,14 @@ import subprocess
 import sys
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+from issues.materials import rule_section
 from issues.records import identifier
 from issues.review_progress import ReviewController, encoded
 from model.sources import publication_lock
@@ -46,6 +48,341 @@ def naming_controller(tmp_path, count=23):
     review.initialize()
     review.submit(submission(review.next_batch()))
     return review
+
+
+@pytest.mark.parametrize("namespaces", [("S3",), ("S3", "SQS")])
+def check_real_naming_rules_shared_with_complete_twenty_item_batch(
+    tmp_path: Path, namespaces: tuple[str, ...]
+) -> None:
+    root = Path(__file__).resolve().parents[4]
+    data = named_artifact(tmp_path, 20)
+    common = root / "framework/rules/aws-resource-naming.md"
+    rules = {
+        "common": [
+            dict(
+                path=common.relative_to(root).as_posix(),
+                text="\n\n".join(
+                    rule_section(common.read_text(encoding="utf-8"), heading)
+                    for heading in (
+                        "## Scope",
+                        "## General rules",
+                        "## Name tag policy",
+                    )
+                ),
+            )
+        ]
+    }
+    for namespace in (*namespaces, "EC2"):
+        path = root / f"framework/rules/aws-resource-naming/{namespace}.md"
+        rules[namespace] = [
+            dict(
+                path=path.relative_to(root).as_posix(),
+                text=path.read_text(encoding="utf-8"),
+            )
+        ]
+    for i, name in enumerate(data["naming"]["names"]):
+        namespace = namespaces[i % len(namespaces)]
+        name["resourceType"] = namespace + (
+            ".Bucket" if namespace == "S3" else ".Queue"
+        )
+    data["naming_context"] = dict(
+        target_context=dict(environment="dev", awsAccountId="123456789012"),
+        review_policy="Review every applicable rule and fixed component",
+        rules=rules,
+    )
+    data["naming_context_id"] = identifier(data["naming_context"])
+    review = controller(tmp_path, data)
+    review.initialize()
+    while review.status()["next_section"] == "naming_context":
+        review.submit(submission(review.next_batch()))
+    batch = review.next_batch(limit=20)
+    assert len(batch["items"]) == 20
+    assert len(encoded(batch).encode("utf-8")) <= 32768
+    shared = batch["naming_context"]
+    assert shared == dict(
+        data["naming_context"], rules={k: rules[k] for k in ("common", *namespaces)}
+    )
+    for material in batch["items"]:
+        kind = material["item"]["resourceType"].partition(".")[0]
+        assert material["naming_rule_refs"] == ["common", kind]
+        assert "naming_context" not in material
+    for items in shared["rules"].values():
+        for rule in items:
+            assert (
+                encoded(batch).count(json.dumps(rule["text"], ensure_ascii=False)) == 1
+            )
+    # Compare the previous per-item payload under the same complete-JSON byte budget.
+    legacy = {k: v for k, v in batch.items() if k != "naming_context"}
+    legacy["items"] = []
+    for material in batch["items"]:
+        context = dict(
+            shared, rules={k: rules[k] for k in material["naming_rule_refs"]}
+        )
+        legacy["items"].append(
+            {k: v for k, v in material.items() if k != "naming_rule_refs"}
+            | {"naming_context": context}
+        )
+        legacy["expected_ids"] = [m["item"]["id"] for m in legacy["items"]]
+        if len(encoded(legacy).encode("utf-8")) > 32768:
+            break
+    print(
+        f"Naming {namespaces}: {len(legacy['items']) - 1} -> 20 items, {len(encoded(batch).encode('utf-8'))} bytes"
+    )
+    review.submit(submission(batch))
+    assert review.status()["sections"]["naming"]["reviewed"] == 20
+
+
+def revision_for(
+    review: ReviewController, section: str, key: str, **updates: Any
+) -> dict[str, Any]:
+    previous = review.inspect(section, key)
+    return dict(
+        scan_id=previous["scan_id"],
+        section=section,
+        id=key,
+        expected_digest=previous["result_digest"],
+        reason="New evidence corrects the earlier judgment",
+        result=dict(previous["result"], reason="Corrected judgment", **updates),
+    )
+
+
+def revision_controller(tmp_path: Path) -> ReviewController:
+    data = named_artifact(tmp_path, 2)
+    data["ordinary"] = [dict(id="known", service="s3", message="Proven diagnostic")]
+    data["judgments"] = [dict(id="note", service="s3", kind="note")]
+    data["human_confirmations"]["confirmations"] = [
+        dict(
+            id="human",
+            service="s3",
+            fact="application=app",
+            scope=dict(resource="0", property="Name"),
+            exceptions=[],
+            evidence="Human fact",
+        )
+    ]
+    review = controller(tmp_path, data)
+    review.initialize()
+    finish(review)
+    return review
+
+
+@pytest.mark.parametrize(
+    "section,key",
+    [
+        ("naming_context", None),
+        ("human_confirmations", "human"),
+        ("naming", "name-0"),
+        ("judgments", "note"),
+        ("diagnostics", "known"),
+        ("additions", "final"),
+    ],
+)
+def check_explicit_revision_revalidates_and_preserves_other_results(
+    tmp_path: Path, section: str, key: str | None
+) -> None:
+    review = revision_controller(tmp_path)
+    key = key or review.identity["naming_context_id"]
+    before = json.loads(review.path.read_text(encoding="utf-8"))["state"]["results"]
+    request = revision_for(
+        review,
+        section,
+        key,
+        issues=[dict(service="s3", message="Corrected current finding")],
+        unverified=[dict(service="s3", check="manual", reason="Remaining scope")],
+    )
+    status = review.revise(request)
+    after = json.loads(review.path.read_text(encoding="utf-8"))["state"]["results"]
+    assert after[section][key] == request["result"]
+    for name, results in before.items():
+        for other_id, result in results.items():
+            if (name, other_id) != (section, key) and name != "additions":
+                assert after[name][other_id] == result
+    checkpoint = review.path.read_bytes()
+    assert review.revise(request) == status and review.path.read_bytes() == checkpoint
+    if section != "additions":
+        assert status["next_section"] == "additions" and not status["exportable"]
+        with pytest.raises(ValueError, match="incomplete"):
+            review.export(tmp_path / "review.json")
+        finish(review)
+    review.export(tmp_path / "review.json")
+    exported = json.loads((tmp_path / "review.json").read_text(encoding="utf-8"))
+    assert len(exported) == 9
+    assert exported["issues"] == request["result"]["issues"]
+    assert exported["unverified"] == request["result"]["unverified"]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "digest",
+        "scan",
+        "section",
+        "id",
+        "reason",
+        "result-id",
+        "result",
+        "issues",
+        "unverified",
+        "extra",
+    ],
+)
+def check_revision_conflict_or_invalid_payload_is_atomic(
+    tmp_path: Path, fault: str
+) -> None:
+    review = revision_controller(tmp_path)
+    request = revision_for(review, "naming", "name-0")
+    if fault == "digest":
+        request["expected_digest"] = "0" * 64
+    elif fault in {"scan", "section", "id"}:
+        request["scan_id" if fault == "scan" else fault] = "unknown"
+    elif fault == "reason":
+        request["reason"] = " "
+    elif fault == "result-id":
+        request["result"]["id"] = "name-1"
+    elif fault == "result":
+        request["result"]["reviewed"] = False
+    elif fault in {"issues", "unverified"}:
+        request["result"][fault] = [dict(service="outside", message="Invalid")]
+    else:
+        request["extra"] = "unexpected"
+    before = review.path.read_bytes()
+    with pytest.raises(ValueError):
+        review.revise(request)
+    assert review.path.read_bytes() == before
+
+
+def check_revision_atomic_replace_and_full_validation_failure(tmp_path: Path) -> None:
+    review = revision_controller(tmp_path)
+    request = revision_for(review, "additions", "final")
+    before = review.path.read_bytes()
+    with (
+        patch(
+            "issues.review_progress.review_snapshot",
+            side_effect=ValueError("invalid final Review"),
+        ),
+        pytest.raises(ValueError, match="invalid final"),
+    ):
+        review.revise(request)
+    assert review.path.read_bytes() == before
+    with (
+        patch(
+            "utils.file_operations.os.replace", side_effect=OSError("rename failure")
+        ),
+        pytest.raises(OSError),
+    ):
+        review.revise(request)
+    assert review.path.read_bytes() == before
+    review.revise(request)
+    stale = deepcopy(request)
+    stale["result"]["reason"] = "Conflicting writer"
+    before = review.path.read_bytes()
+    with pytest.raises(ValueError, match="conflict"):
+        review.revise(stale)
+    assert review.path.read_bytes() == before
+
+
+def check_revision_invalidates_pending_batch_and_preserves_final_findings(
+    tmp_path: Path,
+) -> None:
+    review = revision_controller(tmp_path)
+    issue = dict(service="s3", message="Existing final finding")
+    review.revise(revision_for(review, "additions", "final", issues=[issue]))
+    before = review.path.read_bytes()
+    inspected = review.inspect("additions", "final")
+    assert review.path.read_bytes() == before and inspected["result"]["issues"] == [
+        issue
+    ]
+    # Cumulative validation also covers findings retained in other results.
+    with pytest.raises(ValueError, match="duplicate"):
+        review.revise(revision_for(review, "naming", "name-0", issues=[issue]))
+    assert review.path.read_bytes() == before
+    review.revise(revision_for(review, "naming", "name-0"))
+    stale = submission(review.next_batch())
+    review.revise(revision_for(review, "naming", "name-1"))
+    before = review.path.read_bytes()
+    with pytest.raises(ValueError, match="stale"):
+        review.submit(stale)
+    assert review.path.read_bytes() == before
+    batch = review.next_batch()
+    assert batch["items"][0]["previous_result"]["issues"] == [issue]
+    stale["results"] = [dict(batch["items"][0]["previous_result"], reviewed=True)]
+    review.submit(stale)
+    output = tmp_path / "review.json"
+    review.export(output)
+    assert json.loads(output.read_text(encoding="utf-8"))["issues"] == [issue]
+
+
+@pytest.mark.parametrize(
+    "initial,new", [(None, "s3"), ("s3", "sqs"), ("s3", None), ("s3", "s3")]
+)
+def check_owner_revision_invalidates_only_affected_decisions(
+    tmp_path: Path, initial: str | None, new: str | None
+) -> None:
+    data = snapshot_artifact(
+        tmp_path / "repository",
+        services=("s3", "sqs"),
+        ordinary=[dict(id="known", service="s3", message="Known diagnostic")],
+    )
+    data["judgments"] = [
+        dict(id=key, message="Needs owner", service=None, cause_kind="input_invalid")
+        for key in ("owner", "other-owner")
+    ]
+    review = controller(tmp_path, data)
+    review.initialize()
+    review.submit(submission(review.next_batch()))
+    batch = submission(review.next_batch())
+    if initial is None:
+        batch["results"][0]["assignment"] = dict(
+            status="unresolved", reason="Owner unknown"
+        )
+    review.submit(batch)
+    finish(review)
+    final = revision_for(
+        review,
+        "additions",
+        "final",
+        issues=[dict(service="s3", message="Retain final finding")],
+    )
+    review.revise(final)
+    previous = json.loads(review.path.read_text(encoding="utf-8"))["state"]["results"]
+    assignment = (
+        dict(status="unresolved", reason="Owner unknown")
+        if new is None
+        else dict(status="assigned", service=new, evidence="New source evidence")
+    )
+    request = revision_for(review, "judgments", "owner", assignment=assignment)
+    status = review.revise(request)
+    current = json.loads(review.path.read_text(encoding="utf-8"))["state"]["results"]
+    assert current["diagnostics"] == {
+        k: v
+        for k, v in previous["diagnostics"].items()
+        if k != "owner" or initial == new
+    }
+    assert current["judgments"]["other-owner"] == previous["judgments"]["other-owner"]
+    assert current["naming_context"] == previous["naming_context"]
+    assert current["additions"]["final"] == dict(
+        previous["additions"]["final"], reviewed=False
+    )
+    assert not status["exportable"]
+    with pytest.raises(ValueError, match="incomplete"):
+        review.export(tmp_path / "review.json")
+    batch = review.next_batch()
+    if new is not None and initial != new:
+        assert batch["section"] == "diagnostics" and batch["expected_ids"] == ["owner"]
+        assert batch["items"][0]["item"]["service"] == new
+        review.submit(submission(batch))
+        batch = review.next_batch()
+    assert batch["section"] == "additions"
+    assert batch["items"][0]["previous_result"] == current["additions"]["final"]
+    result = submission(batch)
+    result["results"] = [dict(batch["items"][0]["previous_result"], reviewed=True)]
+    review.submit(result)
+    review.export(tmp_path / "review.json")
+    exported = json.loads((tmp_path / "review.json").read_text(encoding="utf-8"))
+    assert len(exported) == 9 and exported["issues"] == final["result"]["issues"]
+    assert {d["id"] for d in exported["diagnostic_decisions"]} == (
+        {"known", "other-owner", "owner"} if new else {"known", "other-owner"}
+    )
 
 
 def check_inventory_context_order_and_fetch_is_not_review(tmp_path):

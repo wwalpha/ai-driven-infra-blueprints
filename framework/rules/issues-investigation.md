@@ -205,21 +205,28 @@ Naming Context is partitioned into its target/policy and complete individual rul
 materials, without slicing text. The existing `reviewed_naming_context_id` is emitted
 only after every such ID has been explicitly reviewed.
 
-All five commands require external `--artifact` and `--state` files. A schema-1
+All Review commands require external `--artifact` and `--state` files. A schema-1
 checkpoint records Scan ID, SHA-256 of the exact Scan artifact bytes, Naming Context
 ID, environment/target/services, per-section ID results, one issued Batch and
 completion. It is distinct from the final Review JSON. Repeated init reuses only a
 valid matching checkpoint. Digest mismatch rejects a different or modified Scan;
 it does not inspect live inputs, require freshness, trigger rescan or discard Review.
-State reads validate schema/checksum, ID coverage, ordering and recorded judgments.
+State reads validate schema/checksum, ID coverage, dependency ordering and recorded judgments.
+Dependent final findings may remain as an unconfirmed draft during re-review.
 
 `next --limit 20 --max-bytes 32768` returns `scan_id`, `section`, `batch_id`,
 `expected_ids` and complete `items`. It records issuance, never confirmation.
-Items carry original masked Scan material, Naming's applicable common/service rules
-and target context, explicit matching Human facts and reference access to other
+Items carry original masked Scan material, explicit matching Human facts and reference access to other
 previously reviewed Human facts. Judgments retain diagnostic ownership evidence and
 selected services. No machine IaC record set is added to LLM work.
-It shrinks the batch to fit the serialized UTF-8 byte budget, with no text truncation.
+Naming batches carry shared `naming_context`: complete target/policy plus `rules`
+indexed by namespace. Each item's `naming_rule_refs` selects its common/service
+namespaces in that same batch. Common rules appear once, and each required service's
+rules appear once, even across mixed Resource Types; unrelated rules are omitted.
+Check applicability per item within every batch; prior context Review, retrieval or
+session memory never substitutes for item Review. Rule text is never summarized.
+The full serialized JSON, including shared context and all items, must fit the UTF-8
+byte budget. The controller shrinks by whole items, with no text truncation.
 If one item cannot fit, it returns `blocked`, ID, reason and required bytes (exit 2),
 without advancing that ID. A smaller subsequent next invalidates the previous pending
 Batch ID. Retrieve a complete supported batch before judging/submitting it.
@@ -264,6 +271,64 @@ checkpoint path as an isolated namespace, then reloads the current checkpoint un
 that lock. Atomic replacement alone is not concurrency protection. Conflicting
 writers are checked against the reloaded pending/result state. The existing OS lock
 releases on process exit; no custom persistent lock/history/sidecar is added.
+
+Use explicit correction when a confirmed judgment is wrong or new evidence changes
+it. First inspect the exact section/ID, then prepare a replacement from that result:
+
+```console
+python3 framework/scripts/issues_scan.py review inspect --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json --section judgments --id diagnostic-id
+python3 framework/scripts/issues_scan.py review revise --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json --revision /tmp/issues-revision.json
+```
+
+The revision file has exactly these fields:
+
+```json
+{
+  "scan_id": "original Scan ID",
+  "section": "judgments",
+  "id": "diagnostic-id",
+  "expected_digest": "result_digest returned by inspect",
+  "reason": "New source evidence corrects the earlier owner assignment",
+  "result": {
+    "id": "diagnostic-id",
+    "reviewed": true,
+    "reason": "Evidence now establishes the assigned service",
+    "evidence": "Specific source and Resource ownership evidence",
+    "issues": [],
+    "unverified": [],
+    "assignment": {"status": "assigned", "service": "s3", "evidence": "Verified source ownership"}
+  }
+}
+```
+
+Inspect returns the current full `result` and its `result_digest` without changing
+state. Revise requires an accepted Section/ID, matching Scan, nonempty correction
+reason and complete result validated by the existing Review validators. Under the
+checkpoint mutex it reloads and compares the expected digest before replacing a
+different result. Conflicts or invalid input change nothing. An already-identical
+result is a no-op for safe retries, even after subsequent progress. The correction
+reason is required by the operation; no persistent revision history is added.
+
+After an Owner Assignment correction, recalculate the Diagnostic Decision inventory:
+discard only removed diagnostics or decisions whose diagnostic scope changed,
+revalidate retained decisions, and leave newly required IDs pending. An evidence-only
+assignment change that leaves diagnostic scope unchanged retains its valid decision.
+Revalidate all retained results and cumulative Issues/Unverified for every correction,
+including Naming and Human Review. These operations correct Review results only;
+they cannot modify the Scan's rules, names, Human facts or diagnostics.
+Any changed non-final result returns final additional-finding confirmation to pending;
+its existing findings remain in the checkpoint as `reviewed: false` and are presented
+as `previous_result` by the final Next batch. Re-review and explicitly retain/correct/
+remove them in a normal complete Submit. Unrelated confirmed IDs remain accepted.
+Revise clears outstanding batch issuance; retrieve the next required batch again.
+Export is forbidden while any required ID or final confirmation is pending.
+
+After every correction, continue Next → Review → Submit → Status for the pending
+range, then Export again and use only the new Export for Save and post-save Local
+Loop. Even a final-section correction that remains complete requires re-export.
+An older exported file is not updated by a checkpoint correction and must never be
+reused. Do not stop because there are many items; reduce `--limit` when output hits
+its cap and continue complete, explicitly judged batches.
 
 `status` reports Scan/scope, each section's total/reviewed/remaining counts, next
 section, `complete` and `exportable`. Diagnostic totals are determined from completed

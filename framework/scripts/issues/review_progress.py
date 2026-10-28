@@ -53,6 +53,10 @@ def index_items(items: list[Json], section: str) -> dict[str, Json]:
     return dict(zip(ids, items, strict=True))
 
 
+def accepted_results(state: Json, section: str) -> dict[str, Json]:
+    return {k: r for k, r in state["results"][section].items() if r["reviewed"] is True}
+
+
 class ReviewController:
     """Each operation locks, reloads, validates and atomically replaces one checkpoint."""
 
@@ -128,7 +132,12 @@ class ReviewController:
     def _next_section(self, state: Json) -> str | None:
         sections = self._sections(state)
         return next(
-            (s for s in SECTIONS if set(sections[s]) - state["results"][s].keys()), None
+            (
+                s
+                for s in SECTIONS
+                if set(sections[s]) - accepted_results(state, s).keys()
+            ),
+            None,
         )
 
     def _review(self, state: Json) -> Json:
@@ -208,16 +217,31 @@ class ReviewController:
         incomplete = False
         for section in SECTIONS:
             results = state["results"][section]
-            if set(results) - sections[section].keys() or incomplete and results:
-                raise ValueError("unknown or out-of-order Review IDs in " + section)
+            if set(results) - sections[section].keys():
+                raise ValueError("unknown Review IDs in " + section)
             for key, result in results.items():
                 try:
-                    self._validate_result(section, sections[section][key], result)
+                    # Keep final findings as a draft when dependencies need re-review.
+                    draft = section == "additions" and result.get("reviewed") is False
+                    self._validate_result(
+                        section,
+                        sections[section][key],
+                        dict(result, reviewed=True) if draft else result,
+                    )
                 except (ValueError, KeyError, TypeError) as error:
                     raise ValueError(
                         f"invalid checkpoint {section}/{key}: {error}"
                     ) from error
-            incomplete = incomplete or set(results) != sections[section].keys()
+            if (
+                incomplete
+                and results
+                and (section != "additions" or accepted_results(state, section))
+            ):
+                raise ValueError("out-of-order Review confirmation in " + section)
+            incomplete = (
+                incomplete
+                or accepted_results(state, section).keys() != sections[section].keys()
+            )
         if type(state["complete"]) is not bool or state["complete"] == incomplete:
             raise ValueError("corrupt Review completion state")
         pending = state["pending"]
@@ -230,9 +254,8 @@ class ReviewController:
                 or not ids
             ):
                 raise ValueError("invalid pending Review batch")
-            remaining = [
-                key for key in sections[section] if key not in state["results"][section]
-            ]
+            accepted = accepted_results(state, section)
+            remaining = [key for key in sections[section] if key not in accepted]
             if ids != remaining[: len(ids)] or pending["batch_id"] != self._batch_id(
                 section, ids
             ):
@@ -262,8 +285,8 @@ class ReviewController:
             sections={
                 s: dict(
                     total=len(sections[s]),
-                    reviewed=len(state["results"][s]),
-                    remaining=len(sections[s]) - len(state["results"][s]),
+                    reviewed=len(accepted_results(state, s)),
+                    remaining=len(sections[s]) - len(accepted_results(state, s)),
                     pending_dependency=s == "diagnostics"
                     and set(self.base["judgments"])
                     != state["results"]["judgments"].keys(),
@@ -316,15 +339,9 @@ class ReviewController:
             )
         if section == "naming":
             kind = item["resourceType"].partition(".")[0]
-            context = a["naming_context"]
-            material["naming_context"] = {
-                **context,
-                "rules": {
-                    k: v
-                    for k, v in context.get("rules", {}).items()
-                    if k in {"common", kind}
-                },
-            }
+            material["naming_rule_refs"] = [
+                k for k in a["naming_context"].get("rules", {}) if k in {"common", kind}
+            ]
         if section == "judgments":
             material["selected_services"] = a["services"]
         return material
@@ -338,14 +355,15 @@ class ReviewController:
             if section is None:
                 return self._status(state)
             sections = self._sections(state)
-            remaining = [
-                key for key in sections[section] if key not in state["results"][section]
-            ]
+            accepted = accepted_results(state, section)
+            remaining = [key for key in sections[section] if key not in accepted]
             items: list[Json] = []
             output: Json = {}
             ids: list[str] = []
             for key in remaining[:limit]:
                 material = self._material(section, sections[section][key])
+                if section == "additions" and key in state["results"][section]:
+                    material["previous_result"] = state["results"][section][key]
                 candidate_ids = [*ids, key]
                 candidate = dict(
                     scan_id=self.identity["scan_id"],
@@ -354,6 +372,19 @@ class ReviewController:
                     expected_ids=candidate_ids,
                     items=[*items, material],
                 )
+                if section == "naming":
+                    kinds = {
+                        ref for m in candidate["items"] for ref in m["naming_rule_refs"]
+                    }
+                    context = self.artifact["naming_context"]
+                    candidate["naming_context"] = {
+                        **context,
+                        "rules": {
+                            k: v
+                            for k, v in context.get("rules", {}).items()
+                            if k in kinds
+                        },
+                    }
                 size = len(encoded(candidate).encode("utf-8"))
                 if size > max_bytes:
                     if not items:
@@ -384,7 +415,7 @@ class ReviewController:
             raise ValueError("Review Batch ID/target IDs mismatch")
         with publication_lock(self.path, read_only=True):
             state = self._load()
-            accepted = state["results"][section]
+            accepted = accepted_results(state, section)
             if any(key in accepted for key in ids):
                 if all(
                     key in accepted and accepted[key] == result
@@ -413,12 +444,82 @@ class ReviewController:
             candidate = deepcopy(state)
             candidate["results"][section].update(deepcopy(results))
             candidate["pending"] = None
-            review = self._review(candidate)
-            additions = review_additions(self.artifact, review["issues"])
-            ordinary = list(self._sections(candidate)["diagnostics"].values())
-            diagnostic_index([*ordinary, *additions], self.artifact["services"])
-            if self._next_section(candidate) is None:
-                review_snapshot(self.artifact, review)
+            self._validate_candidate(candidate)
+            self._write(candidate)
+            return self._status(candidate)
+
+    def _validate_candidate(self, state: Json) -> None:
+        sections = self._sections(state)
+        review = self._review(state)
+        additions = review_additions(self.artifact, review["issues"])
+        ordinary = list(sections["diagnostics"].values())
+        diagnostic_index([*ordinary, *additions], self.artifact["services"])
+        if self._next_section(state) is None:
+            review_snapshot(self.artifact, review)
+
+    def inspect(self, section: str, key: str) -> Json:
+        with publication_lock(self.path, read_only=True):
+            state = self._load()
+            if section not in SECTIONS or key not in state["results"][section]:
+                raise ValueError("unknown recorded Review section/ID")
+            result = state["results"][section][key]
+            return dict(
+                scan_id=self.identity["scan_id"],
+                section=section,
+                id=key,
+                result=result,
+                result_digest=fingerprint(result),
+            )
+
+    def revise(self, revision: Json) -> Json:
+        exact(
+            revision,
+            {"scan_id", "section", "id", "expected_digest", "reason", "result"},
+            "Review revision",
+        )
+        required_text(revision, "reason")
+        digest = required_text(revision, "expected_digest")
+        if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            raise ValueError("invalid expected Review result digest")
+        section, key = required_text(revision, "section"), required_text(revision, "id")
+        with publication_lock(self.path, read_only=True):
+            state = self._load()
+            if revision["scan_id"] != self.identity["scan_id"]:
+                raise ValueError("Review revision Scan mismatch")
+            if section not in SECTIONS or key not in accepted_results(state, section):
+                raise ValueError("revision requires an accepted section/ID")
+            current, result = state["results"][section][key], revision["result"]
+            self._validate_result(section, self._sections(state)[section][key], result)
+            if current == result:
+                return self._status(state)
+            if fingerprint(current) != digest:
+                raise ValueError(
+                    "Review revision conflict: expected result digest differs"
+                )
+            candidate = deepcopy(state)
+            candidate["results"][section][key] = deepcopy(result)
+            before = self._sections(state)["diagnostics"]
+            after = self._sections(candidate)["diagnostics"]
+            for diagnostic_id in list(candidate["results"]["diagnostics"]):
+                old, new = before[diagnostic_id], after.get(diagnostic_id)
+                if new is None or dict(old, assignment=None) != dict(
+                    new, assignment=None
+                ):
+                    del candidate["results"]["diagnostics"][diagnostic_id]
+            if section != "additions" and candidate["results"]["additions"]:
+                candidate["results"]["additions"]["final"]["reviewed"] = False
+            candidate["pending"] = None
+            sections = self._sections(candidate)
+            for name in SECTIONS:
+                for result_id, retained in candidate["results"][name].items():
+                    self._validate_result(
+                        name,
+                        sections[name][result_id],
+                        dict(retained, reviewed=True)
+                        if name == "additions"
+                        else retained,
+                    )
+            self._validate_candidate(candidate)
             self._write(candidate)
             return self._status(candidate)
 
