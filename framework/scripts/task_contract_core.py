@@ -772,6 +772,30 @@ def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...]
     return tuple(result)
 
 
+def final_framework_task(text, changed_paths=()):
+    """Use the existing explicit Framework scope only for Framework-only work."""
+    contract = section(text, "## Task contract")
+    if not any(
+        f"- Task type: `{kind}`" in contract
+        for kind in ("governance", "catalog-maintenance", "migration")
+    ) or section(text, "## Validation scope") != ["- `framework`"]:
+        return False
+    declared = paths_in(text, "## Modified files")
+    if not any(p.startswith(("framework/", ".agents/")) for p in declared):
+        return False
+    changed = set(changed_paths() if callable(changed_paths) else changed_paths)
+    return (
+        bool(changed)
+        and changed <= declared
+        and any(p.startswith(("framework/", ".agents/")) for p in changed)
+        and not any(
+            p == "project.json"
+            or p.startswith(("model/", "docs/designs/", "infra/", "tests/"))
+            for p in declared | changed
+        )
+    )
+
+
 def final_model_task(text, changed_paths=()):
     """Select the final candidate path only for an authorized Model-only change."""
     operation = model_operation(text)

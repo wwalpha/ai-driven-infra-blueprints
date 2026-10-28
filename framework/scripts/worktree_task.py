@@ -505,13 +505,19 @@ def _run_model_guard(target, task_file, approved=False, *, sources=None):
             )
 
 
-def _commit_preconditions(target, state, changed, text, parsed_operation):
+def _commit_preconditions(
+    target, state, changed, text, parsed_operation, *, scope_paths
+):
     idle_git(target)
     tasks.validate_contract(target, state["task_file"], text)
+    if state["commit"] and not state["verified"]:
+        raise Blocked(
+            "task commit verification failed; review required before any retry"
+        )
     declared = tasks.paths_in(text, "## Modified files")
     allowed = tasks.paths_in(text, "## Allowed paths")
-    if changed - declared or any(
-        not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed
+    if scope_paths - declared or any(
+        not any(tasks.matches(p, pattern) for pattern in allowed) for p in scope_paths
     ):
         raise Blocked("integration changes are outside the exact task contract")
     if any(p.startswith("tasks/") for p in changed):
@@ -519,10 +525,6 @@ def _commit_preconditions(target, state, changed, text, parsed_operation):
     head = output(target, "rev-parse", "HEAD")
     if head != state["tip"]:
         raise Blocked("unexpected commits on task branch; review required")
-    if state["commit"] and not state["verified"]:
-        raise Blocked(
-            "task commit verification failed; review required before any retry"
-        )
     if state["commit"] and changed:
         if parsed_operation is None or parsed_operation.action != "model-delete":
             raise Blocked(
@@ -538,9 +540,7 @@ def integration_changed_paths(target, task_file):
 def _prepare_commit(root, path, state, target, approval):
     changed = changed_paths(target)
     task_id = state["task_id"]
-    model_changes = changed | (
-        committed_task_paths(target, state["task_file"]) or set()
-    )
+    model_changes = integration_changed_paths(target, state["task_file"])
     contract = tasks.read_task_snapshot(target, state["task_file"], live=True).text
     operation = tasks.final_model_task(contract, model_changes)
     parsed_operation = tasks.model_operation(contract)
@@ -552,7 +552,9 @@ def _prepare_commit(root, path, state, target, approval):
         raise Blocked(
             "Model refactor/retarget/delete integration requires successful final candidate validation"
         )
-    head = _commit_preconditions(target, state, changed, contract, parsed_operation)
+    head = _commit_preconditions(
+        target, state, changed, contract, parsed_operation, scope_paths=model_changes
+    )
     base_worktree(root, state)
     if not ancestor(root, state["start"], state["base"]):
         raise Blocked("base history was rewritten; task retained for review")
@@ -589,7 +591,9 @@ def _prepare_commit(root, path, state, target, approval):
                     "task changes changed during Model guard; retain worktree: " + p
                 )
         integration_task(target, state, approval)
-        head = _commit_preconditions(target, state, changed, current, parsed_operation)
+        head = _commit_preconditions(
+            target, state, changed, current, parsed_operation, scope_paths=model_changes
+        )
     if approval:
         state["validation_failure_approval"] = approval
     if changed:
@@ -830,6 +834,9 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         if tasks.final_model_task(
             text,
             partial(integration_changed_paths, target, state["task_file"]),
+        ) or tasks.final_framework_task(
+            text,
+            partial(integration_changed_paths, target, state["task_file"]),
         ):
             interpreter, environment = python_env.runtime(target)
             command = [
@@ -852,7 +859,7 @@ def finalize(where, task_id, human_approved_validation_failure=None):
             )
             if result.returncode:
                 raise Blocked(
-                    "Model final integration failed; worktree retained: "
+                    "final candidate integration failed; worktree retained: "
                     + result.stderr.strip()
                     + result.stdout.strip()
                 )

@@ -79,12 +79,19 @@ The worktree contains committed base inputs only. Do not silently copy/stash the
 
 ## Complete and integrate
 
-For a normal Model-only /update task (including standalone `import-retarget`), finalize is the final validation composition:
-keep the parent running after leaf/view saves and invoke finalize directly. It prepares
+For a normal Model-only /update task (including standalone `import-retarget`) or a
+Framework-only governance/catalog-maintenance/migration task with explicit
+`framework` Validation scope, finalize is the final validation composition:
+keep the Task running after its changes and required related checks, and invoke finalize directly. It prepares
 the private commit/rebase, validates the actual latest-base candidate once in registered
-Python, completes from that result and merges that exact HEAD. Completed Model-only tasks
+Python, completes from that result and merges that exact HEAD. Completed Model-only/Framework tasks
 also undergo that post-rebase check. The ordinary launcher cleans up after the child exits.
 No separate pre-finalize complete or duplicate final loop is required in this branch.
+Framework tasks use the existing Framework scoped validator, without Consumer
+environment/target/service inputs or Model loading. Run dependency-selected UTs,
+necessary IT cases and applicable static checks through existing entrypoints under
+Validation policy; reassess changed dependencies after rebase before integration.
+The scoped final loop does not replace those tests or automatically select regression.
 Failure retains the candidate; never amend or discard it. For model-delete, explicit
 same-parent repair/resume may create a corrected candidate and rerun final validation;
 other Model-only operations retain their no-auto-regeneration/retry rule. Deletion leaves
@@ -107,7 +114,12 @@ python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id> --hum
 
 Use this option only after actual human approval of this task's failures; a general request to run the task or this skill is not approval. The helper records the approval in lifecycle metadata and the commit message; Git integration success remains separate from validation FAIL. The approval permits only commit/rebase/merge/cleanup, without resuming the task or authorizing AWS operations. Missing inputs, unfinished work, and Git safety blocks still stop integration. A retained committed task may retry with its recorded approval; changed work needs renewed review and approval.
 
-`finalize` reads the existing completed status (or the explicitly approved suspended status), rejects unresolved Git operations and unexpected branch commits, and stages only exact non-ignored task paths (including newly added files). It never force-adds `tasks/**`. Normal commit messages use `task(<task-id>): completed task`; approved failures use `task(<task-id>): human-approved validation failure`; zero changes create no empty commit.
+Outside the Model-only/Framework final-candidate branch, `finalize` reads the existing completed status (or the explicitly approved suspended status), rejects unresolved Git operations and unexpected branch commits, and stages only exact non-ignored task paths (including newly added files). It never force-adds `tasks/**`. Normal commit messages use `task(<task-id>): completed task`; approved failures use `task(<task-id>): human-approved validation failure`; zero changes create no empty commit.
+
+Task differences combine all committed changes from the shared Git merge-base of the
+current local base and Task HEAD with all staged/unstaged/untracked changes. Lifecycle
+start/validation-base ancestry remains mandatory. After rebase, inherited base changes
+are excluded; undeclared Task changes are never filtered through Modified files.
 
 Ordinary integration runs the shared candidate Model guard before commit and after rebase
 in the target worktree’s registered Python,
@@ -126,7 +138,7 @@ It then checks a clean worktree holding the local base, rebases the task onto it
 
 Exit 0 and JSON `status: ok` indicate success; exit 1 and `status: blocked` give the reason and retained branch/worktree/commit/merge state when available (invalid CLI arguments exit 2). Apply [Sandbox permission approval and continuation](#sandbox-permission-approval-and-continuation) before stopping for a sandbox write denial. Do not parse long Git stdout or construct ad hoc recovery shells.
 
-For failed validation/loop, stop before finalize/commit unless the human explicitly approves the exception above. Other suspended tasks, missing input, approval waits or conflicts still stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Ordinary finalize never completes or resumes a task; the Model-only final-candidate path completes only after validation passes. A dirty base is never stashed/reset/overwritten. Rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A base change during integration stops safely; rerun finalize only after reviewing the reported state.
+For failed validation/loop, stop before finalize/commit unless the human explicitly approves the exception above. Other suspended tasks, missing input, approval waits or conflicts still stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Ordinary finalize never completes or resumes a task; the Model-only/Framework final-candidate path completes only after validation passes. A dirty base is never stashed/reset/overwritten. Rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A base change during integration stops safely; rerun finalize only after reviewing the reported state.
 
 Cleanup runs only after verified merge. It removes only this task's state JSON after its worktree/branch are removed; the shared `.worktrees/.blueprint/` directory and other tasks' state remain. Dirty worktrees, unmerged/changed branches, locked/stale entries and ignored user artifacts are retained. The sole stale-registration recovery exception is a missing task checkout after a verified merge: cleanup must prove the saved branch/HEAD/merge identity, a unique matching Git administration directory, an unchanged retained index, and no locks or unfinished Git operations before retrying ordinary Git worktree removal. Missing, redirected or ambiguous Git metadata fails closed. Never use force removal or repository-wide prune. The shared Python environment is never removed. Unknown ignored files and directories require preservation before cleanup. Import completion evidence lives in `evidence_store(worktree)` outside the repository. Finalize verifies it before integration; successful cleanup removes only this task's sealed receipt after checkout/branch removal. Failed or interrupted integration retains retry evidence. Unknown ignored artifacts remain blockers; `.worktrees/.blueprint` lifecycle state is unchanged. A merge followed by cleanup failure remains merged and can use the existing cleanup retry. If cleanup fails, report the merged commit and remaining worktree/branch; do not roll back the merge. From a surviving repository root, retry only the helper:
 

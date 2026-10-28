@@ -99,7 +99,7 @@ def paths(root, *args, runner=None):
 
 
 def task_start_commit(root, task_file):
-    """Return the existing managed baseline, failing closed on invalid lifecycle state."""
+    """Return the Task's shared-base boundary, excluding inherited base commits."""
     _, _, primary = repository(root)
     path = state_path(primary, Path(task_file).stem)
     managed = root.resolve().parent == primary / ".worktrees"
@@ -123,11 +123,16 @@ def task_start_commit(root, task_file):
     )
     if git(root, "merge-base", "--is-ancestor", start, "HEAD", check=False).returncode:
         raise Blocked("task lifecycle start is not an ancestor of HEAD")
-    return start
+    base = output(
+        root, "rev-parse", "--verify", f"refs/heads/{state['base']}^{{commit}}"
+    )
+    if git(root, "merge-base", "--is-ancestor", start, base, check=False).returncode:
+        raise Blocked("base history was rewritten; task retained for review")
+    return output(root, "merge-base", base, "HEAD")
 
 
 def committed_task_paths(root, task_file):
-    """Committed changes since Task start; retain IMPORT/finalize caller semantics."""
+    """Committed Task changes relative to its shared base, including all paths."""
     start = task_start_commit(root, task_file)
     return (
         None

@@ -714,6 +714,22 @@ def _check_normal_model_final_candidate():
             with mapping_alias(SCRIPT.parents[2], target):
                 candidate = wt.prepare_integration(root, "example")
                 assert candidate.base_commit == latest
+                assert wt.task_start_commit(target, state["task_file"]) == latest
+                assert wt.committed_task_paths(target, state["task_file"]) == {relative}
+                assert tasks.final_model_task(
+                    text, wt.integration_changed_paths(target, state["task_file"])
+                )
+                if mode == "pass":
+                    # Resume the retained rebased candidate through the normal Scope preflight.
+                    tasks.suspend(
+                        target, state["task_file"], "reviewed integration interruption"
+                    )
+                    tasks.resume(target, state["task_file"])
+                    resumed = wt.prepare_integration(root, "example")
+                    assert resumed.candidate_head == candidate.candidate_head
+                    assert resumed.base_commit == candidate.base_commit
+                    assert resumed.changed_paths == candidate.changed_paths
+                    candidate = resumed
                 validate = _bind_framework_callback(
                     _callback_normal_model_candidate, mode
                 )
@@ -968,9 +984,79 @@ def main():
         check_registered_normal_model_guard,
         check_model_operation_integration,
         check_model_refactor_integration,
+        check_framework_final_candidate,
     ):
         check()
     print("worktree-task: PASS (Git integration and failure recovery)")
+
+
+@it_case
+def check_framework_final_candidate():
+    relative = "framework/prompts/README.md"
+    for success in (False, True):
+        with fixture() as root:
+            loop_checks.make_project_fixture(SCRIPT.parents[2], root)
+            shutil.copytree(
+                SCRIPT.parents[1],
+                root / "framework",
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            for directory in (
+                "docs/designs",
+                "infra",
+                "tests/scenarios",
+                "tests/results",
+            ):
+                (root / directory / ".gitkeep").touch()
+            git(root, "add", ".")
+            git(root, "commit", "-qm", "synthetic Framework fixture")
+            target, state = start(root, files=(relative,))
+            source = target / relative
+            source.write_text(source.read_text() + "\nTask correction\n")
+            if not success:
+                task = target / state["task_file"]
+                task.write_text(
+                    task.read_text().replace(f"exists:{relative}", f"absent:{relative}")
+                )
+            # Advance the base with a path outside the Task's declarations.
+            (root / "upstream.txt").write_text("inherited base\n")
+            git(root, "add", "upstream.txt")
+            git(root, "commit", "-qm", "advance Framework base")
+            latest = git(root, "rev-parse", "HEAD")
+            candidate = wt.prepare_integration(root, "example")
+            assert candidate.scope == frozenset() and candidate.changed_paths == {
+                relative
+            }
+            assert not (target / "project.json").exists()
+            assert tasks.status((target / state["task_file"]).read_text()) == "running"
+            with patch(
+                "model.sources.raw_model",
+                side_effect=AssertionError("Framework must not load Models"),
+            ):
+                result = wt.validate_final_candidate(candidate)
+            if success:
+                assert result.returncode == 0
+                merged = wt.merge_validated_candidate(result)
+                assert (
+                    merged["merged"]
+                    == candidate.candidate_head
+                    == git(root, "rev-parse", "HEAD")
+                )
+                assert (
+                    tasks.status((target / state["task_file"]).read_text())
+                    == "completed"
+                )
+                assert wt.cleanup(root, "example")["cleaned"]
+                assert not target.exists()
+            else:
+                assert result.returncode != 0
+                with pytest.raises(wt.Blocked, match="no merge"):
+                    wt.merge_validated_candidate(result)
+                retained(root, target, state, latest)
+                assert git(target, "rev-parse", "HEAD") == candidate.candidate_head
+                assert (
+                    tasks.status((target / state["task_file"]).read_text()) == "suspend"
+                )
 
 
 def _callback_check_model_operation_integration_validate(

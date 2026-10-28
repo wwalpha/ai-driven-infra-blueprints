@@ -379,11 +379,42 @@ def check_normal_final_model_classification():
             {model},
         )
     assert not tasks.final_model_task(text, {model, "iac/template.yaml"})
+    assert not tasks.final_model_task(text, {model, "framework/scripts/example.py"})
+    assert not tasks.final_model_task(
+        text, {model, "model/dev/team/undeclared.properties"}
+    )
     assert not tasks.final_model_task(
         text.replace(f"- `{view}`", "- `framework/script.py`"), {model}
     )
     with pytest.raises(ValueError):
         tasks.final_model_task(text.replace(f"- `{model}`", "invalid"), {model})
+
+
+def check_framework_final_classification():
+    source = "framework/scripts/worktree_task.py"
+    text = (
+        "## Task contract\n- Task type: `governance`\n"
+        "## Validation scope\n- `framework`\n"
+        "## Modified files\n- `tasks/example.md`\n" + f"- `{source}`\n"
+    )
+    assert tasks.final_framework_task(text, {source})
+    assert not tasks.final_model_task(text, {source})
+    assert not tasks.final_framework_task(text, set())
+    assert not tasks.final_framework_task(
+        text.replace("`governance`", "`design`"), {source}
+    )
+    assert not tasks.final_framework_task(
+        text.replace("`framework`", "`dev/team/iam`"), {source}
+    )
+    for consumer in (
+        "project.json",
+        "model/dev/team/iam.properties",
+        "infra/template.yaml",
+    ):
+        assert not tasks.final_framework_task(text, {source, consumer})
+        assert not tasks.final_framework_task(
+            text + f"- `{consumer}`\n", {source, consumer}
+        )
 
 
 def check_final_candidate_runs_model_guard(tmp_path):

@@ -4291,3 +4291,17 @@ Progress mechanics reuse existing Naming/Human/diagnostic validators; business I
 | `acceptance::completion` | `check_completion_requires_acceptance` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 1 | Completion refuses failed Acceptance without changing running status | Synthetic Task |
 | `acceptance::human-review-cli` | `check_task_acceptance_human_failure_review` | IT | [integrations/task_contract.checks.py](integrations/task_contract.checks.py) | pytest / 1 | Task/Validation/explicit Human approval/Acceptance and stale-candidate CLI rejection preserve raw FAIL | Synthetic Git/Model; CI only |
 | `validation-result::reasons` | `check_fail_reasons_and_returned_results` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | Planned missing check executes; exceptions/interruption/returned CheckResult and invalid metadata retain scoped reasoned FAIL | Synthetic Findings |
+
+## Worktree final candidate classification and Framework validation
+
+| Requirement | Case | Level | Source | Execution / count | Coverage | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `worktree-final::classification` | `check_framework_final_classification` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 1 | Framework scope/type/path classification; Consumer and undeclared changes rejected | Contract |
+| `worktree-final::scope` | `check_final_candidate_scope` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py) | pytest / 4 | Framework needs no Consumer tuple; Model requires nonempty explicit service scope | Validation selection |
+| `worktree-final::undeclared` | `check_integration_detects_undeclared_paths` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py) | pytest / 6 | Committed and working undeclared Model/IaC/Framework changes stop before writes | Integration |
+| `worktree-final::framework` | `check_framework_final_candidate` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py) | direct / 1 | Real Git rebase, existing Framework scoped loop PASS/exact HEAD merge/cleanup and FAIL/candidate retention without project.json or Model loads | Integration only |
+
+Existing `check_final_candidate_staleness` also proves ordinary Model classification,
+committed paths and resume Scope preflight after a base advance/rebase, followed by
+preparation of the same candidate HEAD. Dedicated Model operation and ordinary
+Task/approval/recovery cases retain their existing responsibilities.

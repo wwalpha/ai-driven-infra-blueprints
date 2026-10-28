@@ -28,7 +28,7 @@ deploy_handoff = _imports_deploy_handoff
 
 
 def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
-    """Commit/rebase a private Model-only candidate; never validate, complete or merge."""
+    """Commit/rebase a private Model or Framework candidate before final validation."""
     root, _, path, state = wt.load(where, task_id)
     with wt.lifecycle_lock(root):
         if (
@@ -37,19 +37,20 @@ def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
             or state["merged"]
         ):
             raise wt.Blocked(
-                "Model integration requires ready unmerged lifecycle state"
+                "final integration requires ready unmerged lifecycle state"
             )
         target = wt.task_worktree(root, state)
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
-        if not tasks.final_model_task(
-            text,
-            partial(wt.integration_changed_paths, target, state["task_file"]),
-        ) or tasks.status(text) not in {
+        changed = partial(wt.integration_changed_paths, target, state["task_file"])
+        framework = tasks.final_framework_task(text, changed)
+        if not (framework or tasks.final_model_task(text, changed)) or tasks.status(
+            text
+        ) not in {
             "running",
             "completed",
         }:
             raise wt.Blocked(
-                "Model integration requires a running/completed Model-only task"
+                "final integration requires a running/completed Model-only or Framework task"
             )
         if tasks.section(text, "## Suspension reason"):
             raise wt.Blocked(
@@ -83,8 +84,10 @@ def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
                     )
         latest = wt._prepare_commit(root, path, state, target, None)
         active_scope = _imports_validation_scope.active_scope
-        scope = active_scope(target, task_file=state["task_file"])
-        if scope is None:
+        scope = (
+            set() if framework else active_scope(target, task_file=state["task_file"])
+        )
+        if not framework and not scope:
             raise wt.Blocked("Model final candidate requires explicit service scope")
         head = wt.output(target, "rev-parse", "HEAD")
         return wt.FinalCandidate(

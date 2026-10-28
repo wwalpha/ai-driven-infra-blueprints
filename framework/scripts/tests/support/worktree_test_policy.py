@@ -53,6 +53,8 @@ WORKTREE_CASES = {
         "check_model_finalize_cannot_bypass_candidate",
         "check_git_baseline_fail_closed",
         "check_candidate_staleness",
+        "check_final_candidate_scope",
+        "check_integration_detects_undeclared_paths",
     ),
     "integrations/worktree_task.checks.py": (
         "check_sync_base_preserves_candidate",
@@ -74,6 +76,7 @@ WORKTREE_CASES = {
         "check_registered_normal_model_guard",
         "check_model_operation_integration",
         "check_model_refactor_integration",
+        "check_framework_final_candidate",
     ),
     "integrations/worktree_python.checks.py": (
         "check_setup",

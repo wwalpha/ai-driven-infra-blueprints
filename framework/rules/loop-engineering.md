@@ -477,6 +477,26 @@ or deletion requirements. Generation uses existing APIs and does not decide mean
 Retain classified final validation, exact-HEAD merge checks. Do not add
 IT as a requirement of this operation, or automatically regenerate/retry on failure.
 
+Framework-only governance/catalog-maintenance/migration tasks with explicit
+`framework` Validation scope reuse this final-candidate composition and the existing
+Framework scoped loop. Classification checks both declared and actual paths and
+excludes Consumer Model, generated design and IaC changes. Framework validation does
+not require environment/target/service tuples or load Models. It still executes
+Task Scope, type, Acceptance, Framework structure/catalog and candidate whitespace
+checks; empty service scope is not a validation bypass. Run related UTs, necessary
+IT and applicable static checks through their existing entrypoints under
+[Validation policy](#validation-policy), reassessing dependencies after rebase. The
+scoped loop does not automatically select those tests. Only PASS can complete and
+merge the unchanged candidate; failure retains it and existing suspension/approval
+contracts. Other Task types retain their existing validation and completion order.
+
+Managed Task comparisons use the shared merge-base of the current local base and
+Task HEAD, after verifying lifecycle start/validation-base ancestry. Include every
+committed Task path and working/index/untracked path in classification and scope
+checks; never filter changes by Modified files. This same boundary is used by
+integration preparation, Task validation and resume so inherited base commits do
+not become Task-owned changes after rebase.
+
 ## Validation results and Task Acceptance
 
 Final Validation status is exactly PASS or FAIL. PASS requires completion of every

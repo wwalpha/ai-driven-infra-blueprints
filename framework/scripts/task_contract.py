@@ -44,6 +44,7 @@ from task_contract_core import contract_snapshot as contract_snapshot
 from task_contract_core import contracts as contracts
 from task_contract_core import dataclass as dataclass
 from task_contract_core import digest_files as digest_files
+from task_contract_core import final_framework_task as final_framework_task
 from task_contract_core import final_model_task as final_model_task
 from task_contract_core import fnmatch as fnmatch
 from task_contract_core import input_bytes as input_bytes

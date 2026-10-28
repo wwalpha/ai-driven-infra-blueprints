@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import worktree_runtime
 import worktree_state
 import worktree_task as wt
 from support.repository_fixtures import contract as repository_contract
@@ -200,6 +201,98 @@ def check_candidate_staleness(tmp_path, change):
     ):
         with pytest.raises(wt.Blocked, match="changed"):
             wt.merge_validated_candidate(result)
+
+
+@pytest.mark.parametrize("kind", ["framework", "model", "missing", "empty"])
+def check_final_candidate_scope(tmp_path, kind):
+    name = "tasks/example.md"
+    source = (
+        "framework/scripts/example.py"
+        if kind == "framework"
+        else "model/dev/team/iam.properties"
+    )
+    text = repository_contract("example", [source])
+    if kind != "framework":
+        text = (
+            text.replace("`governance`", "`design`")
+            .replace(
+                "- Task status:",
+                "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n- Task status:",
+            )
+            .replace("- `framework`", "- `dev/team/iam`")
+        )
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / name).write_text(text)
+    state = dict(task_file=name, merged=None, python_setup={"status": "ready"})
+    scope = (
+        {("dev", "team", "iam")}
+        if kind == "model"
+        else None
+        if kind == "missing"
+        else set()
+    )
+    with (
+        patch.object(
+            wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
+        ),
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(wt, "task_worktree", return_value=tmp_path),
+        patch.object(wt, "integration_changed_paths", return_value={source}),
+        patch.object(wt, "_prepare_commit", return_value="base"),
+        patch.object(wt, "output", return_value="head"),
+        patch.object(wt, "paths", return_value={source}),
+        patch.object(
+            worktree_runtime._imports_validation_scope,
+            "active_scope",
+            return_value=scope,
+        ) as selected,
+    ):
+        if kind in {"missing", "empty"}:
+            with pytest.raises(wt.Blocked, match="explicit service scope"):
+                wt.prepare_integration(tmp_path, "example")
+        else:
+            candidate = wt.prepare_integration(tmp_path, "example")
+            assert candidate.scope == frozenset(scope)
+        if kind == "framework":
+            selected.assert_not_called()
+        else:
+            selected.assert_called_once_with(tmp_path, task_file=name)
+
+
+@pytest.mark.parametrize("committed", [False, True])
+@pytest.mark.parametrize(
+    "outside",
+    [
+        "model/dev/team/other.properties",
+        "infra/template.yaml",
+        "framework/scripts/other.py",
+    ],
+)
+def check_integration_detects_undeclared_paths(tmp_path, committed, outside):
+    name = "tasks/example.md"
+    source = "model/dev/team/iam.properties"
+    text = repository_contract("example", [source])
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / name).write_text(text)
+    state = dict(task_id="example", task_file=name, commit=None)
+    with (
+        patch.object(
+            wt,
+            "changed_paths",
+            return_value={source} | (set() if committed else {outside}),
+        ),
+        patch.object(
+            wt, "committed_task_paths", return_value={outside} if committed else set()
+        ),
+        patch.object(wt, "idle_git"),
+        patch.object(wt.tasks, "validate_contract"),
+        patch.object(
+            wt, "git", side_effect=AssertionError("undeclared changes cannot write")
+        ),
+    ):
+        assert wt.integration_changed_paths(tmp_path, name) == {source, outside}
+        with pytest.raises(wt.Blocked, match="outside the exact task contract"):
+            wt._prepare_commit(tmp_path, tmp_path / "state.json", state, tmp_path, None)
 
 
 if __name__ == "__main__":
