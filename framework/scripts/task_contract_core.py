@@ -772,9 +772,39 @@ def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...]
     return tuple(result)
 
 
-def final_model_task(text):
-    """Only explicit Model operations/refactors share the final candidate composition."""
-    return model_operation(text) is not None or model_refactor(text) is not None
+def final_model_task(text, changed_paths=()):
+    """Select the final candidate path only for an authorized Model-only change."""
+    operation = model_operation(text)
+    refactor = model_refactor(text, operation=operation)
+    if operation is not None or refactor is not None:
+        return True
+    lines = section(text, "## Task contract")
+    for name, value in (
+        ("Task type", "design"),
+        ("Workflow", "update"),
+        ("AWS API execution", "forbidden"),
+        ("deploy/apply", "forbidden"),
+    ):
+        if [
+            line for line in lines if re.match(r"-\s*" + re.escape(name) + r"\b", line)
+        ] != [f"- {name}: `{value}`"]:
+            return False
+    declared = paths_in(text, "## Modified files")
+    changed = set(changed_paths() if callable(changed_paths) else changed_paths)
+    return (
+        bool(changed & declared)
+        and any(
+            p.startswith("model/") and p.endswith(".properties")
+            for p in changed & declared
+        )
+        and changed <= declared
+        and all(
+            (p.startswith("model/") and p.endswith(".properties"))
+            or (p.startswith("docs/designs/") and p.endswith((".md", ".json")))
+            or TASK_NAME.fullmatch(p) is not None
+            for p in declared | changed
+        )
+    )
 
 
 _selected_tasks = ContextVar("selected_tasks", default=MappingProxyType({}))

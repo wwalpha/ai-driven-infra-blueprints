@@ -625,6 +625,7 @@ def _callback_check_final_candidate_staleness_validate(
 
 @it_case
 def check_final_candidate_staleness():
+    _check_normal_model_final_candidate()
     operation_candidate = _imports_support_import_model_fixtures.operation_candidate
     operation_contract = _imports_support_import_model_fixtures.operation_contract
     operation_fixture = _imports_support_import_model_fixtures.operation_fixture
@@ -672,6 +673,72 @@ def check_final_candidate_staleness():
             with pytest.raises(ValueError, match="candidate/base changed"):
                 wt.merge_validated_candidate(result)
             retained(root, target, state, base_head)
+
+
+def _callback_normal_model_candidate(mode, /, root, options, *, final_candidate):
+    assert tasks.status((root / final_candidate.task_file).read_text()) == "running"
+    with tasks.selected_task(root, final_candidate.task_file):
+        require_import_changes(
+            root, final_candidate.changed_paths, final_candidate=final_candidate
+        )
+    return 1 if mode == "fail" else 0
+
+
+def _check_normal_model_final_candidate():
+    relative = "model/stg/cde/service-a.properties"
+    for mode in ("pass", "fail", "head", "base", "task"):
+        with fixture() as root:
+            dependency_fixture(root)
+            git(root, "add", "model", "project.json")
+            git(root, "commit", "-qm", "Model fixture")
+            target, state = start(root, files=(relative,))
+            task = target / state["task_file"]
+            text = (
+                task.read_text()
+                .replace("`governance`", "`design`")
+                .replace(
+                    "- Task status:",
+                    "- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n- Task status:",
+                )
+                .replace(
+                    "- `framework`", "- `stg/cde/service-a`\n- `stg/cde/service-b`"
+                )
+            )
+            task.write_text(text)
+            source = target / relative
+            source.write_text(source.read_text() + "\n# ordinary correction\n")
+            (root / "upstream.txt").write_text("latest\n")
+            git(root, "add", "upstream.txt")
+            git(root, "commit", "-qm", "advance base")
+            latest = git(root, "rev-parse", "HEAD")
+            with mapping_alias(SCRIPT.parents[2], target):
+                candidate = wt.prepare_integration(root, "example")
+                assert candidate.base_commit == latest
+                validate = _bind_framework_callback(
+                    _callback_normal_model_candidate, mode
+                )
+                with patch.object(loop, "run_loop", side_effect=validate) as checked:
+                    result = wt.validate_final_candidate(candidate)
+                    checked.assert_called_once()
+                if mode == "head":
+                    git(target, "commit", "--allow-empty", "-qm", "changed")
+                elif mode == "base":
+                    git(root, "commit", "--allow-empty", "-qm", "changed")
+                elif mode == "task":
+                    task.write_text(text + "\nChanged after validation\n")
+                if mode != "pass":
+                    with pytest.raises(ValueError):
+                        wt.merge_validated_candidate(result)
+                    assert target.is_dir()
+                    assert git(root, "rev-parse", "HEAD") != candidate.candidate_head
+                else:
+                    assert (
+                        wt.merge_validated_candidate(result)["merged"]
+                        == candidate.candidate_head
+                    )
+                    assert tasks.status(task.read_text()) == "completed"
+                    assert git(root, "rev-parse", "HEAD") == candidate.candidate_head
+                    assert wt.cleanup(root, "example")["cleaned"]
 
 
 @it_case

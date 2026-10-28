@@ -531,6 +531,10 @@ def _commit_preconditions(target, state, changed, text, parsed_operation):
     return head
 
 
+def integration_changed_paths(target, task_file):
+    return changed_paths(target) | (committed_task_paths(target, task_file) or set())
+
+
 def _prepare_commit(root, path, state, target, approval):
     changed = changed_paths(target)
     task_id = state["task_id"]
@@ -538,7 +542,7 @@ def _prepare_commit(root, path, state, target, approval):
         committed_task_paths(target, state["task_file"]) or set()
     )
     contract = tasks.read_task_snapshot(target, state["task_file"], live=True).text
-    operation = tasks.final_model_task(contract)
+    operation = tasks.final_model_task(contract, model_changes)
     parsed_operation = tasks.model_operation(contract)
     if approval and (
         tasks.model_refactor(contract) is not None
@@ -823,7 +827,10 @@ def finalize(where, task_id, human_approved_validation_failure=None):
     ):
         target = task_worktree(root, state)
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
-        if tasks.final_model_task(text):
+        if tasks.final_model_task(
+            text,
+            partial(integration_changed_paths, target, state["task_file"]),
+        ):
             interpreter, environment = python_env.runtime(target)
             command = [
                 str(interpreter),

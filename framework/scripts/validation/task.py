@@ -306,7 +306,7 @@ class TaskValidation:
                     f"changed path is not in Modified files: {changed}",
                 )
         self.check_task_boundary(prompt, self.scope_paths)
-        if self.contract_file is not None:
+        if self.contract_file is not None and self.final_candidate is None:
             return
         try:
             # Normal Task validation also covers generation=True, with stricter IMPORT completion.

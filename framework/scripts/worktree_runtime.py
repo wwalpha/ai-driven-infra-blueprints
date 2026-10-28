@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,7 +41,10 @@ def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
             )
         target = wt.task_worktree(root, state)
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
-        if not tasks.final_model_task(text) or tasks.status(text) not in {
+        if not tasks.final_model_task(
+            text,
+            partial(wt.integration_changed_paths, target, state["task_file"]),
+        ) or tasks.status(text) not in {
             "running",
             "completed",
         }:

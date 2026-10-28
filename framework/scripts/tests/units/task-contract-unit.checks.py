@@ -351,6 +351,63 @@ def check_batch_operation_contract():
     )
 
 
+def check_normal_final_model_classification():
+    model = "model/dev/team/iam.properties"
+    view = "docs/designs/dev/team/iam.md"
+    text = (
+        "## Task contract\n- Task type: `design`\n- Workflow: `update`\n"
+        "- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n"
+        "## Modified files\n- `tasks/example.md`\n"
+        f"- `{model}`\n- `{view}`\n"
+    )
+    assert tasks.final_model_task(text, {model, view})
+    assert not tasks.final_model_task(text, {view})
+    for changed in ("infrastructure", "import", "governance"):
+        bad = text.replace(
+            "`design`" if changed != "import" else "`update`", f"`{changed}`"
+        )
+        assert not tasks.final_model_task(bad, {model})
+    for field in ("AWS API execution", "deploy/apply"):
+        assert not tasks.final_model_task(
+            text.replace(f"- {field}: `forbidden`", f"- {field}: `allowed`"), {model}
+        )
+        assert not tasks.final_model_task(
+            text.replace(
+                f"- {field}: `forbidden`",
+                f"- {field}: `forbidden`\n- {field}: `allowed`",
+            ),
+            {model},
+        )
+    assert not tasks.final_model_task(text, {model, "iac/template.yaml"})
+    assert not tasks.final_model_task(
+        text.replace(f"- `{view}`", "- `framework/script.py`"), {model}
+    )
+    with pytest.raises(ValueError):
+        tasks.final_model_task(text.replace(f"- `{model}`", "invalid"), {model})
+
+
+def check_final_candidate_runs_model_guard(tmp_path):
+    name = "tasks/example.md"
+    model = "model/dev/team/iam.properties"
+    text = contract("example", [model]).replace("`governance`", "`design`")
+    tasks.start(tmp_path, name, text)
+    candidate = SimpleNamespace(base_commit="base", changed_paths={model})
+    findings = Findings(tmp_path)
+    validator = TaskValidation(
+        tmp_path, findings, final_candidate=candidate, contract_file=name
+    )
+    with (
+        tasks.selected_task(tmp_path, name),
+        patch(
+            "import_guard.require_import_changes",
+            side_effect=ValueError("invalid reference"),
+        ) as guard,
+    ):
+        validator.check_task_scope()
+    guard.assert_called_once_with(tmp_path, {model}, final_candidate=candidate)
+    assert any("invalid reference" in error for error in findings.errors)
+
+
 def check_dependency_detach_contract():
     text = dependency_contract()
     parsed = tasks.model_refactor(text)

@@ -464,8 +464,9 @@ The same final-candidate composition also applies to an explicit
 Its ordinary design save guard verifies source candidates; TaskValidation invokes the
 refactor meaning check through require_import_changes on the actual latest-base
 candidate. Generation remains the existing path, and independent complete retains its
-own check. No second pre-finalize final loop or completion is required. Ordinary design
-without this opt-in declaration retains its existing validation/integration behavior.
+own check. No second pre-finalize final loop or completion is required. Ordinary Model-only design/update changes also use this final-candidate composition when
+the contract forbids AWS and deploy/apply and the declared and actual changes are Model
+and generated design files only. Other design tasks retain ordinary integration.
 
 The same Model-only final-candidate composition applies to
 [Standalone Model reference retarget](task-contract.md#standalone-model-reference-retarget).

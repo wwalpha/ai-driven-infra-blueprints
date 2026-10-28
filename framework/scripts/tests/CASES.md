@@ -2040,7 +2040,7 @@ Athena ResultConfiguration EncryptionConfiguration.KmsKey regression in `integra
 
 | Original case | Case | Class | Current location | Execution / count | Responsibility | Change |
 | --- | --- | --- | --- | --- | --- | --- |
-| `atomic/worktree_task` | `check_final_candidate_staleness` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L561) | direct / 1 | 実commit/rebase・検証後HEAD変更による最終Merge拒否 | 統合境界のみ |
+| `atomic/worktree_task` | `check_final_candidate_staleness` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L561) | direct / 1 | 通常Modelおよび専用操作の実commit/rebase・検証PASS/FAIL・HEAD/base/Task変更時のMerge拒否 | 統合境界のみ |
 | `atomic/import-model` | `check_intermediate_model_sources` | IT | [integrations/model-operation-publication.checks.py](integrations/model-operation-publication.checks.py#L123) | pytest / 1 | Git-free Model raw writes, prior-leaf retention on I/O error and real journal recovery before snapshot; managed authorization is checked separately | Added |
 
 `units/import-model-unit.checks.py::check_explicit_reference_operation` (6 parameter cases)
