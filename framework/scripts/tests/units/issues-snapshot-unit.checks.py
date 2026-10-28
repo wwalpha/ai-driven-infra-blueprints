@@ -269,6 +269,157 @@ def check_naming_review_contract(tmp_path):
         review_snapshot(data, review)
 
 
+@pytest.mark.parametrize("rule", ["EC2.VPC.Name", "review.other"])
+def check_naming_target_cannot_bypass_evidence(tmp_path, rule):
+    data = snapshot_artifact(tmp_path, services=["vpc"])
+    data["naming"]["names"] = [
+        dict(id="n1", service="vpc", resource="001", property="Name")
+    ]
+    review = review_for(data)
+    review["issues"] = [
+        dict(
+            service="vpc",
+            resource="001",
+            property="Name",
+            rule=rule,
+            message="Human confirmation is unavailable",
+        )
+    ]
+    with pytest.raises(ValueError, match="naming_item_id"):
+        review_snapshot(data, review)
+
+
+@pytest.mark.parametrize(
+    (
+        "pattern",
+        "value",
+        "confirmations",
+        "expected",
+        "observed",
+        "accepted",
+        "extra_pattern",
+    ),
+    [
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-venusinf-test-dev",
+            {"application": "venusinf"},
+            "dev",
+            "test-dev",
+            True,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-other-dev",
+            {"application": "venusinf"},
+            "venusinf",
+            "other",
+            True,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-other-dev",
+            {},
+            "dev",
+            "other",
+            False,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}[-{{suffix}}]",
+            "vpc-venusinf-test-dev",
+            {"application": "venusinf"},
+            "dev",
+            "test-dev",
+            True,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}[-{{suffix}}]",
+            "vpc-venusinf-dev-extra",
+            {"application": "venusinf"},
+            "dev",
+            "dev-extra",
+            False,
+            None,
+        ),
+        (
+            "vpc-{{application}}-{{environment}}",
+            "vpc-venusinf-test-dev",
+            {"application": "venusinf"},
+            "dev",
+            "test-dev",
+            False,
+            "vpc-{{application}}-test-{{environment}}",
+        ),
+    ],
+)
+def check_confirmed_components_together(
+    tmp_path, pattern, value, confirmations, expected, observed, accepted, extra_pattern
+):
+    data = snapshot_artifact(tmp_path, services=["vpc"])
+    patterns = [pattern] + ([extra_pattern] if extra_pattern else [])
+    data["naming_context"] = {
+        "target_context": {"environment": "dev"},
+        "rules": {
+            "EC2": [
+                dict(
+                    text="\n".join(
+                        f"| X | X | `EC2.VPC` | `Name` | `{p}` |" for p in patterns
+                    )
+                )
+            ]
+        },
+    }
+    data["naming_context_id"] = identifier(data["naming_context"])
+    data["naming"]["names"] = [
+        dict(
+            id="n1",
+            service="vpc",
+            resource="001",
+            property="Name",
+            resourceType="EC2.VPC",
+            resourceMode="CREATE",
+            value=value,
+            value_available=True,
+        )
+    ]
+    data["human_confirmations"]["confirmations"] = [
+        dict(
+            id=key,
+            service="vpc",
+            fact=f"{key}={val}",
+            scope=dict(resource="001", property="Name"),
+            exceptions=[],
+            evidence="Human confirmation",
+        )
+        for key, val in confirmations.items()
+    ]
+    review = review_for(data)
+    review["issues"] = [
+        dict(
+            service="vpc",
+            resource="001",
+            property="Name",
+            rule="review.naming",
+            naming_item_id="n1",
+            violation="confirmed_mismatch",
+            applied_rule=pattern,
+            expected=expected,
+            actual=observed,
+            evidence="Confirmed values and name",
+            message="Mismatch",
+        )
+    ]
+    if accepted:
+        assert len(json.loads(review_snapshot(data, review).data)["ordinary"]) == 1
+    else:
+        with pytest.raises(ValueError, match="mismatch"):
+            review_snapshot(data, review)
+
+
 def check_non_naming_unverified_contract(tmp_path):
     data = snapshot_artifact(tmp_path)
     review = review_for(data)

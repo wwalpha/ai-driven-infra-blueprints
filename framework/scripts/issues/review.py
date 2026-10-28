@@ -173,8 +173,9 @@ def naming_patterns(artifact, name):
     }
 
 
-def pattern_matches(pattern, value, component=None, fixed=None):
+def pattern_matches(pattern, value, fixed=None):
     """Prove only literal structure; unknown components remain unrestricted."""
+    fixed = fixed or {}
     tokens = re.split(r"(\{\{[a-z_]+\}\}|\[|\])", pattern)
     positions, optional = {0}, []
     for token in tokens:
@@ -185,11 +186,13 @@ def pattern_matches(pattern, value, component=None, fixed=None):
                 raise ValueError("invalid naming pattern")
             positions.update(optional.pop())
         elif token.startswith("{{"):
-            if token == "{{" + str(component) + "}}":
+            component = token[2:-2]
+            if component in fixed:
+                expected = fixed[component]
                 positions = {
-                    pos + len(fixed)
+                    pos + len(expected)
                     for pos in positions
-                    if value.startswith(fixed, pos)
+                    if value.startswith(expected, pos)
                 }
             else:
                 positions = (
@@ -282,15 +285,16 @@ def validate_naming_issue(artifact, item, name):
             required_text(item, "expected"),
             required_text(item, "actual"),
         )
+        confirmed = confirmed_components(artifact, name)
         if (
             not actual
             or expected == observed
+            or any(pattern_matches(pattern, actual, confirmed) for pattern in patterns)
             or not any(
                 expected == value
                 and "{{" + component + "}}" in applied
-                and pattern_matches(applied, actual, component, observed)
-                and not pattern_matches(applied, actual, component, expected)
-                for component, value in confirmed_components(artifact, name).items()
+                and pattern_matches(applied, actual, {**confirmed, component: observed})
+                for component, value in confirmed.items()
             )
         ):
             raise ValueError("Naming mismatch is not established by confirmed values")
@@ -508,7 +512,18 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
         ):
             raise ValueError("review Issue ownership requires explicit scoped service")
         required_text(item, "message")
-        if "naming" in str(item.get("rule", "")).lower() or "naming_item_id" in item:
+        naming_target = any(
+            all(
+                item.get(key) == name.get(key)
+                for key in ("service", "resource", "property")
+            )
+            for name in naming.values()
+        )
+        if (
+            naming_target
+            or "naming" in str(item.get("rule", "")).lower()
+            or "naming_item_id" in item
+        ):
             name = naming.get(required_text(item, "naming_item_id"))
             if name is None or any(
                 item.get(key) != name.get(key)
