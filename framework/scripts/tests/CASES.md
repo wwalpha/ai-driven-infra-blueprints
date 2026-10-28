@@ -284,6 +284,8 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
 | `issues-v2::check_classification` | `check_classification` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 9 | severity・E0000 provenance・特殊Error分類 | Issues Artifact v5 |
+| `issues-v2::check_stack_parameter_jobs_and_invalid_inputs` | `check_stack_parameter_jobs_and_invalid_inputs` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | パラメータ構造・fallback・計画内読込再利用・ジョブ分離 | Issues parameter handling |
+| `issues-v2::check_parameter_file_cli_and_redaction` | `check_parameter_file_cli_and_redaction` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | 実 CLI パラメータ適用・fallback・機密値保護 | Issues parameter handling |
 | `issues-v2::check_explicit_plan` | `check_explicit_plan` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | Stack parametersと独立した対象・共有dedup・owner・対象外 | Issues Artifact v5 |
 | `issues-artifact::check_artifact_index_and_status` | `check_artifact_index_and_status` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 一次集計・page先行・未対応形式拒否・status・bounded notice・review照合 | Issues Artifact v5 |
 | `issues-v2::check_deferred_cache_finalization` | `check_deferred_cache_finalization` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 最終入力確認まで候補保留・変更時不採用 | Issues Artifact v5 |

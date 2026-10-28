@@ -182,8 +182,9 @@ def check_stack_parameter_jobs_and_invalid_inputs(tmp_path):
     assert {job["parameters"] for job in jobs} == {
         str(directory / "one.json"),
         str(directory / "two.json"),
+        None,
     }
-    assert len({job["id"] for job in jobs}) == 2
+    assert len({job["id"] for job in jobs}) == len(filenames)
     assert {item["reason"] for item in coverage} == {
         "Stack parameters file missing",
         "invalid Stack parameters JSON",
@@ -205,125 +206,70 @@ def check_stack_parameter_jobs_and_invalid_inputs(tmp_path):
         ) as lint,
     ):
         actual = run_lint(comparison)
-    assert lint.call_count == 2 and actual["status"] == "incomplete"
+    assert lint.call_count == len(filenames) and actual["status"] == "incomplete"
     assert {call.args[3] for call in lint.call_args_list} == {
         job["parameters"] for job in jobs
     }
-
-
-def signature(m):
-    return (
-        m["Rule"]["Id"],
-        json.dumps(m["Location"], sort_keys=True),
-        m["Message"],
-    )
-
-
-def check_parameter_file_cli_and_redaction(tmp_path):
-    template = tmp_path / "network.yaml"
-    parameters = tmp_path / "network.json"
-    secret = "fixture-private-parameter-value"
-    template.write_text(
-        """Parameters:
-  VpcCidrBlock:
-    Type: String
-    Default: ''
-  Password:
-    Type: String
-    NoEcho: true
-Resources:
-  Network:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: !Ref VpcCidrBlock
-Outputs:
-  Value:
-    Value: !Ref Password
-""",
-        encoding="utf-8",
-    )
-    parameters.write_text(
-        json.dumps(
-            [
-                {"ParameterKey": "VpcCidrBlock", "ParameterValue": "10.10.0.0/23"},
-                {"ParameterKey": "Password", "ParameterValue": secret},
-            ]
-        ),
-        encoding="utf-8",
-    )
-    arguments = [
-        "--regions",
-        "ap-northeast-1",
-        "--format",
-        "json",
-        "--parameter-files",
-        str(parameters),
-        "--",
-        str(template),
-    ]
-    cli = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            "-c",
-            "from cfnlint.runner import main; main()",
-            *arguments,
-        ],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    with adapter.lint_session(tmp_path) as session:
-        result = adapter.validate_template(
-            session, template, "ap-northeast-1", parameters
+    comparison.catalog = SimpleNamespace(api_schemas={})
+    # Invalid structures are never passed to the worker, even when shared by resources.
+    for contents in (
+        "{}",
+        "null",
+        "[null]",
+        "[{}]",
+        '[{"ParameterKey":"x","ParameterValue":1}]',
+        '[{"ParameterKey":"x","ParameterValue":"a"},{"ParameterKey":"x","ParameterValue":"b"}]',
+    ):
+        (directory / "bad.json").write_text(contents, encoding="utf-8")
+        comparison.services = ["s3"]
+        comparison.models["s3"] = True
+        comparison.resources["s3"] = {
+            "a": {"cfn-logicalId": "Stack3-A"},
+            "b": {"cfn-logicalId": "Stack3-B"},
+        }
+        original_open = Path.open
+        with patch(
+            "pathlib.Path.open", autospec=True, side_effect=original_open
+        ) as opened:
+            planned, errors = plan(comparison)
+        assert (
+            sum(
+                call.args[0] == directory / "bad.json" for call in opened.call_args_list
+            )
+            == 1
         )
-    assert result["completed"], result
-    assert secret not in json.dumps(
-        {k: v for k, v in result.items() if k != "sensitive_values"}
+        assert len(planned) == 1 and planned[0]["fallback"]
+        assert len(planned[0]["origins"]) == 2 and len(errors) == 2
+    (directory / "bad.json").write_text("[]", encoding="utf-8")
+    original_open = Path.open
+    with patch("pathlib.Path.open", autospec=True, side_effect=original_open) as opened:
+        planned, errors = plan(comparison)
+    assert (
+        sum(call.args[0] == directory / "bad.json" for call in opened.call_args_list)
+        == 1
     )
-    assert secret in result["sensitive_values"]
-    assert "W1030" not in {item["Rule"]["Id"] for item in result["matches"]}, result[
-        "matches"
+    assert len(planned) == 1 and not planned[0]["fallback"] and not errors
+    (directory / "bad.json").unlink()
+    result["matches"] = [
+        {"Rule": {"Id": rule}, "Level": "Warning", "Message": "warning"}
+        for rule in ("W1030", "W3001")
     ]
-    cli_matches = json.loads(cli.stdout or "[]")
-    raw = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            "-c",
-            "from cfnlint.runner import main; main()",
-            "--regions",
-            "ap-northeast-1",
-            "--format",
-            "json",
-            "--template",
-            str(template),
-        ],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        timeout=60,
+    with (
+        patch("issues.cfn_lint.lint_session"),
+        patch("issues.cfn_lint.validate_template", return_value=result) as lint,
+        patch("issues.cfn_lint.owner", return_value=("s3", False)),
+    ):
+        actual = run_lint(comparison)
+    assert lint.call_args.args[3] is None
+    assert not actual["warnings"] and not actual["ordinary"]
+    assert any(item.get("code") == "cfn_lint.W3001" for item in actual["unverified"])
+    assert any(
+        item.get("code") == "cfn_lint.W1030"
+        and item.get("kind") == "template_only_diagnostic"
+        and "cause_kind" not in item
+        for item in actual["unverified"]
     )
-
-    applied = [signature(m) for m in cli_matches]
-    for match in json.loads(raw.stdout or "[]"):
-        applied.remove(signature(match))
-    assert sorted(signature(m) for m in result["matches"]) == sorted(applied)
-    template.write_text(
-        template.read_text(encoding="utf-8").replace(
-            "    NoEcho: true", "    NoEcho: true\n    AllowedValues: [allowed]"
-        ),
-        encoding="utf-8",
-    )
-    with adapter.lint_session(tmp_path) as session:
-        invalid = adapter.validate_template(
-            session, template, "ap-northeast-1", parameters
-        )
-    assert any(m["Rule"]["Id"] == "E2900" for m in invalid["matches"])
-    assert secret not in json.dumps(
-        {k: v for k, v in invalid.items() if k != "sensitive_values"}
-    )
+    assert actual["status"] == "incomplete"
 
 
 def artifact_fixture(count=150):

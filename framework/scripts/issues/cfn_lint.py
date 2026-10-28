@@ -15,7 +15,7 @@ from utils.iac_values import cfn_resource_identity
 from .records import identifier, safe_text
 
 
-def _callback_plan_add(comparison, coverage, jobs, /, unit, origin):
+def _callback_plan_add(comparison, coverage, jobs, parameter_cache, /, unit, origin):
     filename = unit.get("template")
     if (
         not isinstance(filename, str)
@@ -45,66 +45,79 @@ def _callback_plan_add(comparison, coverage, jobs, /, unit, origin):
     comparison.track(raw)
     path = raw.resolve()
     filename = unit.get("parameters")
+    parameters = None
+    problem = None
     if not filename:
-        coverage.append(
-            dict(status="unverified", reason="Stack parameters unspecified", **origin)
-        )
-        return
-    if (
+        problem = ("unverified", "Stack parameters unspecified")
+    elif (
         not isinstance(filename, str)
         or Path(filename).name != filename
         or Path(filename).suffix != ".json"
         or "\\" in filename
     ):
-        coverage.append(
-            dict(status="unverified", reason="invalid Stack parameters path", **origin)
+        problem = ("unverified", "invalid Stack parameters path")
+    else:
+        raw_parameters = (
+            comparison.root
+            / "infra/cloudformation/parameters"
+            / comparison.environment
+            / comparison.directory
+            / filename
         )
-        return
-    parameters = (
-        comparison.root
-        / "infra/cloudformation/parameters"
-        / comparison.environment
-        / comparison.directory
-        / filename
-    )
-    if not parameters.resolve().is_relative_to(comparison.root.resolve()):
-        coverage.append(
-            dict(status="unverified", reason="invalid Stack parameters path", **origin)
-        )
-        return
-    comparison.track(parameters)
-    parameters = parameters.resolve()
-    try:
-        with parameters.open(encoding="utf-8") as stream:
-            json.load(stream)
-    except FileNotFoundError:
-        coverage.append(
-            dict(
-                status="input_missing", reason="Stack parameters file missing", **origin
-            )
-        )
-        return
-    except (ValueError, UnicodeError):
-        coverage.append(
-            dict(status="unverified", reason="invalid Stack parameters JSON", **origin)
-        )
-        return
-    except OSError:
-        coverage.append(
-            dict(
-                status="unverified", reason="Stack parameters file unreadable", **origin
-            )
-        )
-        return
+        if not raw_parameters.resolve().is_relative_to(comparison.root.resolve()):
+            problem = ("unverified", "invalid Stack parameters path")
+        else:
+            comparison.track(raw_parameters)
+            parameters = raw_parameters.resolve()
+            if parameters not in parameter_cache:
+                try:
+                    with parameters.open(encoding="utf-8") as stream:
+                        inputs = json.load(stream)
+                    if (
+                        not isinstance(inputs, list)
+                        or not all(
+                            isinstance(item, dict)
+                            and isinstance(item.get("ParameterKey"), str)
+                            and isinstance(item.get("ParameterValue"), str)
+                            for item in inputs
+                        )
+                        or len({item["ParameterKey"] for item in inputs}) != len(inputs)
+                    ):
+                        raise ValueError("invalid parameters structure")
+                    parameter_cache[parameters] = None
+                except FileNotFoundError:
+                    parameter_cache[parameters] = (
+                        "input_missing",
+                        "Stack parameters file missing",
+                    )
+                except (ValueError, UnicodeError):
+                    parameter_cache[parameters] = (
+                        "unverified",
+                        "invalid Stack parameters JSON",
+                    )
+                except OSError:
+                    parameter_cache[parameters] = (
+                        "unverified",
+                        "Stack parameters file unreadable",
+                    )
+            problem = parameter_cache[parameters]
+    if problem:
+        coverage.append(dict(status=problem[0], reason=problem[1], **origin))
     key = identifier(
-        [str(path), str(parameters), comparison.target["awsRegion"], POLICY]
+        [
+            str(path),
+            str(parameters) if parameters else str(filename),
+            comparison.target["awsRegion"],
+            POLICY,
+        ]
     )
     job = jobs.setdefault(
         key,
         dict(
             id=key,
             template=str(path),
-            parameters=str(parameters),
+            parameters=str(parameters) if parameters and not problem else None,
+            fallback=bool(problem),
             region=comparison.target["awsRegion"],
             policy=POLICY,
             origins=[],
@@ -137,7 +150,7 @@ def plan(comparison):
     declared_stacks = _bind_framework_callback(
         _callback_plan_declared_stacks, _state_plan_32, comparison
     )
-    add = _bind_framework_callback(_callback_plan_add, comparison, coverage, jobs)
+    add = _bind_framework_callback(_callback_plan_add, comparison, coverage, jobs, {})
     for service in comparison.services:
         if service not in comparison.models:
             coverage.append(
@@ -345,6 +358,8 @@ def run_lint(comparison, *, result=None):
                 if snowflake_enum_false_positive(match, job["template"]):
                     continue
                 channel = classify(match, result)
+                if job.get("fallback") and channel != "processing_errors":
+                    channel = "unverified"
                 service, outside = owner(comparison, job, match)
                 if channel == "processing_errors":
                     outside = False
@@ -369,13 +384,16 @@ def run_lint(comparison, *, result=None):
                     diagnostic=comparison.redacted(match),
                     scope="outside" if outside else "selected",
                 )
+                if job.get("fallback") and channel == "unverified":
+                    diagnostic.pop("cause_kind")
+                    diagnostic["kind"] = "template_only_diagnostic"
                 diagnostic["id"] = identifier([job["id"], match])
                 diagnostic["message"] = safe_text(
                     comparison.redacted(str(match.get("Message", "")))
                 )
                 job["diagnostic_ids"].append(diagnostic["id"])
                 counts[channel] = counts.get(channel, 0) + 1
-                if outside:
+                if outside and channel != "unverified":
                     # Keep the structured diagnostic, without affecting selected-scope status.
                     channels["information"].append(
                         dict(diagnostic, kind="out_of_scope_diagnostic")
@@ -405,7 +423,8 @@ def run_lint(comparison, *, result=None):
                 dict(
                     job_id=job["id"],
                     status="completed"
-                    if result.get("decode_complete")
+                    if not job.get("fallback")
+                    and result.get("decode_complete")
                     and result["completed"]
                     and not result["unverified"]
                     and not result["processing_errors"]

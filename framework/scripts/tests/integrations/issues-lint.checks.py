@@ -100,6 +100,134 @@ def check_cli_equivalence(tmp_path, monkeypatch, body):
     assert execution["effective_regions"] == ["ap-northeast-1"]
 
 
+def parameter_signature(m):
+    return (
+        m["Rule"]["Id"],
+        json.dumps(m["Location"], sort_keys=True),
+        m["Message"],
+    )
+
+
+def check_parameter_file_cli_and_redaction(tmp_path, monkeypatch):
+    _, cwd = isolated(tmp_path, monkeypatch)
+    template = cwd / "network.yaml"
+    parameters = cwd / "network.json"
+    secret = "fixture-private-parameter-value"
+    template.write_text(
+        """Parameters:
+  VpcCidrBlock:
+    Type: String
+    Default: ''
+  Environment:
+    Type: String
+    Default: dev
+  Password:
+    Type: String
+    NoEcho: true
+Resources:
+  Network:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+Outputs:
+  Value:
+    Value: !Ref Password
+""",
+        encoding="utf-8",
+    )
+    parameters.write_text(
+        json.dumps(
+            [
+                {"ParameterKey": "VpcCidrBlock", "ParameterValue": "10.10.0.0/23"},
+                {"ParameterKey": "Environment", "ParameterValue": "stg"},
+                {"ParameterKey": "Password", "ParameterValue": secret},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    arguments = [
+        "--regions",
+        "ap-northeast-1",
+        "--format",
+        "json",
+        "--parameter-files",
+        str(parameters),
+        "--",
+        str(template),
+    ]
+    cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            "from cfnlint.runner import main; main()",
+            *arguments,
+        ],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    with lint_session(cwd) as session:
+        result = validate_template(session, template, "ap-northeast-1", parameters)
+    assert result["completed"]
+    assert secret not in json.dumps(
+        {k: v for k, v in result.items() if k != "sensitive_values"}
+    )
+    assert secret in result["sensitive_values"]
+    with lint_session(cwd) as session:
+        fallback = validate_template(session, template, "ap-northeast-1")
+    assert any(m["Rule"]["Id"] == "W1030" for m in fallback["matches"])
+    broken = cwd / "broken.yaml"
+    broken.write_text("Resources: [", encoding="utf-8")
+    with lint_session(cwd) as session:
+        syntax = validate_template(session, broken, "ap-northeast-1")
+    assert not syntax["decode_complete"]
+    assert any(m["Rule"]["Id"] == "E0000" for m in syntax["matches"])
+    assert "W1030" not in {item["Rule"]["Id"] for item in result["matches"]}, result[
+        "matches"
+    ]
+    cli_matches = json.loads(cli.stdout or "[]")
+    raw = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            "from cfnlint.runner import main; main()",
+            "--regions",
+            "ap-northeast-1",
+            "--format",
+            "json",
+            "--template",
+            str(template),
+        ],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    applied = [parameter_signature(m) for m in cli_matches]
+    for match in json.loads(raw.stdout or "[]"):
+        applied.remove(parameter_signature(match))
+    assert sorted(parameter_signature(m) for m in result["matches"]) == sorted(applied)
+    template.write_text(
+        template.read_text(encoding="utf-8").replace(
+            "    NoEcho: true", "    NoEcho: true\n    AllowedValues: [allowed]"
+        ),
+        encoding="utf-8",
+    )
+    with lint_session(cwd) as session:
+        invalid = validate_template(session, template, "ap-northeast-1", parameters)
+    assert any(m["Rule"]["Id"] == "E2900" for m in invalid["matches"])
+    assert secret not in json.dumps(
+        {k: v for k, v in invalid.items() if k != "sensitive_values"}
+    )
+
+
 def check_worker_config_isolation(tmp_path, monkeypatch):
     home, cwd = isolated(tmp_path, monkeypatch)
     (home / ".cfnlintrc.yml").write_text("include_checks: [I]\n")
