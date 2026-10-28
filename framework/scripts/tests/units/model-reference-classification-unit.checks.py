@@ -153,6 +153,11 @@ def materialize(consumer, role, document, *, warnings=None):
     )
 
 
+def _interrupt_required(validator):
+    assert validator.findings.status in {"PASS", "FAIL"}
+    raise KeyboardInterrupt("required handler interrupted")
+
+
 @pytest.mark.parametrize(
     "fault", [None, "target", "attribute", "type", "stale", "iac", "interrupt"]
 )
@@ -209,12 +214,9 @@ def test_pending_model_only_validation_and_final_acceptance(models, fault):
             "validation.changed-model", scope, validator.check_changed_designs
         )
         if fault == "interrupt":
-
-            def interrupted():
-                assert validator.findings.status in {"PASS", "FAIL"}
-                raise KeyboardInterrupt("required handler interrupted")
-
-            validator.findings.evaluate("validation.required", scope, interrupted)
+            validator.findings.evaluate(
+                "validation.required", scope, partial(_interrupt_required, validator)
+            )
         if fault == "iac":
             template = root / "infra/cloudformation/templates/role.yaml"
             parameters = root / "infra/cloudformation/parameters/qa/team/role.json"

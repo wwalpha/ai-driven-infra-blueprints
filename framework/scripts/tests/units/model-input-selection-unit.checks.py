@@ -125,7 +125,7 @@ def check_selection_order_findings_and_fresh_calls(selection):
         error
         for number in numbers
         for error in (
-            f"model.mapping.{number}: mapping failure",
+            f"model.mapping.{number}: ValueError: mapping failure",
             "provider schema violation: Logs.LogGroup.RetentionInDays: literal failure",
         )
     ]
@@ -169,7 +169,7 @@ def check_catalog_failure_precedes_owner(selection, monkeypatch):
     monkeypatch.setattr(_model_validation_full_inputs, "DesignSchemaCatalog", fail)
     with patch.object(format, "owner", side_effect=AssertionError("too early")):
         findings = run()
-        assert findings.errors == ["model.catalog: catalog first"]
+        assert findings.errors == ["model.catalog: ValueError: catalog first"]
         assert findings.processing_errors[0]["cause_kind"] == "check_failure"
     assert not selected
 

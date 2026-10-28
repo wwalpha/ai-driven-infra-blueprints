@@ -799,6 +799,28 @@ def check_framework_write_does_not_discover(tmp_path, scope, contract_scope):
         assert "framework scope" in validator.errors[0]
 
 
+def _prepare_candidate(
+    validator, scope, model_validation, executed_common, plan, *args, **kwargs
+):
+    for check_id in (
+        "validation.structure",
+        "validation.topology",
+        "validation.scope",
+        "validation.initialized",
+        "validation.catalog",
+        *(["validation.changed-model"] if model_validation == "change" else []),
+    ):
+        result = validator.findings.get_result(check_id, scope)
+        assert result.started and result.metadata["complete"]
+        executed_common[check_id] = result
+    for check_id in (
+        "framework.generated-service-model",
+        "framework.policy-tables",
+    ):
+        validator.findings.evaluate(check_id, scope, lambda: {"old_candidate": True})
+    return plan
+
+
 @pytest.mark.parametrize("inventory", ["### iam\n1. 未解決Issue\n", "未解決issueなし"])
 @pytest.mark.parametrize("outcome", ["success", "partial", "not_run", "common"])
 @pytest.mark.parametrize("model_validation", ["full", "change"])
@@ -873,27 +895,6 @@ def check_integrated_generation_with_issues(
         )
         executed_common = {}
 
-        def prepare_candidate(*args, **kwargs):
-            for check_id in (
-                "validation.structure",
-                "validation.topology",
-                "validation.scope",
-                "validation.initialized",
-                "validation.catalog",
-                *(["validation.changed-model"] if model_validation == "change" else []),
-            ):
-                result = validator.findings.get_result(check_id, scope)
-                assert result.started and result.metadata["complete"]
-                executed_common[check_id] = result
-            for check_id in (
-                "framework.generated-service-model",
-                "framework.policy-tables",
-            ):
-                validator.findings.evaluate(
-                    check_id, scope, lambda: {"old_candidate": True}
-                )
-            return plan
-
         with ExitStack() as patches, recording_inputs(snapshot):
             patches.enter_context(patch.object(validator.task, "check_task_scope"))
             patches.enter_context(
@@ -913,7 +914,16 @@ def check_integrated_generation_with_issues(
                 )
             prepare = patches.enter_context(
                 patch.object(
-                    sync_runtime, "prepare_generation", side_effect=prepare_candidate
+                    sync_runtime,
+                    "prepare_generation",
+                    side_effect=_bind_framework_callback(
+                        _prepare_candidate,
+                        validator,
+                        scope,
+                        model_validation,
+                        executed_common,
+                        plan,
+                    ),
                 )
             )
             patches.enter_context(patch.object(sync_runtime, "validate_generation"))

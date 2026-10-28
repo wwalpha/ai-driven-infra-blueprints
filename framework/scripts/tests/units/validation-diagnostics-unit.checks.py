@@ -526,6 +526,27 @@ def check_completion_requires_evidence(tmp_path, started, complete):
         assert checked.status == "PASS"
 
 
+def _parent_handler(tmp_path, findings, scope, child_id, mode, status):
+    assert findings.get_result("unrelated", None).status == "FAIL"
+    child = CheckResult(
+        child_id,
+        frozenset(scope),
+        findings.candidate,
+        status=status,
+        metadata={"complete": True, "reason": "invalid child property"},
+    )
+    if mode in {"imported", "same-key"}:
+        source = Findings(tmp_path)
+        child.candidate = source.candidate
+        source.results[(child_id, frozenset(scope), source.candidate)] = child
+        findings.include_diagnostics(source)
+    elif mode == "replaced":
+        findings.results[(child_id, frozenset(scope), findings.candidate)] = child
+    else:
+        existing = findings.result(child_id, scope)
+        existing.status, existing.metadata = child.status, child.metadata
+
+
 @pytest.mark.parametrize("mode", ["preregistered", "replaced", "imported", "same-key"])
 @pytest.mark.parametrize("status", ["PASS", "FAIL"])
 def check_parent_uses_required_child_results(tmp_path, mode, status):
@@ -536,27 +557,11 @@ def check_parent_uses_required_child_results(tmp_path, mode, status):
     unrelated = findings.result("unrelated", None)
     unrelated.metadata.update(complete=True, reason="unrelated invalid input")
 
-    def handler():
-        assert findings.get_result("unrelated", None).status == "FAIL"
-        child = CheckResult(
-            child_id,
-            frozenset(scope),
-            findings.candidate,
-            status=status,
-            metadata={"complete": True, "reason": "invalid child property"},
-        )
-        if mode in {"imported", "same-key"}:
-            source = Findings(tmp_path)
-            child.candidate = source.candidate
-            source.results[(child_id, frozenset(scope), source.candidate)] = child
-            findings.include_diagnostics(source)
-        elif mode == "replaced":
-            findings.results[(child_id, frozenset(scope), findings.candidate)] = child
-        else:
-            existing = findings.result(child_id, scope)
-            existing.status, existing.metadata = child.status, child.metadata
-
-    parent = findings.evaluate("parent", scope, handler)
+    parent = findings.evaluate(
+        "parent",
+        scope,
+        partial(_parent_handler, tmp_path, findings, scope, child_id, mode, status),
+    )
     assert parent.status == status
     assert parent.metadata["complete"]
     if status == "FAIL":
@@ -627,6 +632,29 @@ def check_aggregate_replaces_only_its_reservation(tmp_path, state):
         )
 
 
+def _status_handler(findings, later, outcome):
+    active = findings.get_result("parent", None)
+    before = (active.status, dict(active.metadata))
+    assert findings.status in {"PASS", "FAIL"}
+    assert (active.status, active.metadata) == before
+    assert later.metadata == {}
+    findings.evaluate("nested", None, lambda: findings.status and None)
+    if outcome == "exception":
+        raise RuntimeError("actual handler error")
+    if outcome == "interrupt":
+        raise KeyboardInterrupt("actual interruption")
+    if outcome == "child":
+        findings.evaluate(
+            "bad-child",
+            None,
+            lambda: {"status": "FAIL", "reason": "bad child type"},
+        )
+    if outcome == "reentry":
+        findings.evaluate("parent", None, lambda: None)
+    if outcome == "unstarted":
+        findings.result("unstarted-child", None)
+
+
 @pytest.mark.parametrize(
     "outcome", ["PASS", "exception", "interrupt", "child", "reentry", "unstarted"]
 )
@@ -634,29 +662,9 @@ def check_status_read_during_handler_preserves_completion(tmp_path, outcome):
     findings = Findings(tmp_path)
     later = findings.result("later-required", None)
 
-    def handler():
-        active = findings.get_result("parent", None)
-        before = (active.status, dict(active.metadata))
-        assert findings.status in {"PASS", "FAIL"}
-        assert (active.status, active.metadata) == before
-        assert later.metadata == {}
-        findings.evaluate("nested", None, lambda: findings.status and None)
-        if outcome == "exception":
-            raise RuntimeError("actual handler error")
-        if outcome == "interrupt":
-            raise KeyboardInterrupt("actual interruption")
-        if outcome == "child":
-            findings.evaluate(
-                "bad-child",
-                None,
-                lambda: {"status": "FAIL", "reason": "bad child type"},
-            )
-        if outcome == "reentry":
-            findings.evaluate("parent", None, lambda: None)
-        if outcome == "unstarted":
-            findings.result("unstarted-child", None)
-
-    result = findings.evaluate("parent", None, handler)
+    result = findings.evaluate(
+        "parent", None, partial(_status_handler, findings, later, outcome)
+    )
     assert result.status == ("PASS" if outcome == "PASS" else "FAIL")
     assert findings.evaluate("later-required", None, lambda: None).status == "PASS"
     assert findings.status == result.status
@@ -720,18 +728,19 @@ def check_reentry_and_empty_interrupt_remain_failures(tmp_path):
     assert all(item["reason"].strip() for item in findings.failures())
 
 
+def _interrupted_handler(findings):
+    findings.evaluate(
+        "child",
+        None,
+        lambda: {"complete": True, "status": "FAIL", "reason": "bad child type"},
+    )
+    raise KeyboardInterrupt()
+
+
 def check_parent_interrupt_keeps_child_cause_and_incomplete_state(tmp_path):
     findings = Findings(tmp_path)
 
-    def interrupted():
-        findings.evaluate(
-            "child",
-            None,
-            lambda: {"complete": True, "status": "FAIL", "reason": "bad child type"},
-        )
-        raise KeyboardInterrupt()
-
-    result = findings.evaluate("parent", None, interrupted)
+    result = findings.evaluate("parent", None, partial(_interrupted_handler, findings))
     assert result.status == "FAIL" and not result.metadata["complete"]
     assert (
         "child" in result.metadata["reason"]
@@ -761,6 +770,35 @@ def check_policy_not_planned_without_display(tmp_path):
     assert validator.findings.status == "PASS"
 
 
+def _scoped_generate(validator):
+    return {
+        "complete": True,
+        "generated": sorted("/".join(entry) for entry in validator.scope),
+    }
+
+
+def _scoped_designs(state, validator):
+    validator.check(True, "service executed")
+    if state == "missing":
+        return
+    if state == "interrupted":
+        validator.findings.evaluate(
+            "framework.policy-tables",
+            validator.scope,
+            Mock(side_effect=KeyboardInterrupt()),
+        )
+    else:
+        validator.findings.evaluate(
+            "framework.policy-tables",
+            validator.scope,
+            lambda: {
+                "complete": state != "incomplete",
+                "status": "FAIL" if state == "FAIL" else "PASS",
+                "reason": "invalid policy",
+            },
+        )
+
+
 @pytest.mark.parametrize("preregistered", [False, True])
 @pytest.mark.parametrize("count", [1, 2])
 @pytest.mark.parametrize(
@@ -771,39 +809,17 @@ def check_scoped_aggregation_and_cache_evidence(tmp_path, count, state, preregis
     cache = PassCache(tmp_path, False)
     cache.common = "same-inputs"
 
-    def generate(validator):
-        return {
-            "complete": True,
-            "generated": sorted("/".join(entry) for entry in validator.scope),
-        }
-
-    def designs(validator):
-        validator.check(True, "service executed")
-        if state == "missing":
-            return
-        if state == "interrupted":
-            validator.findings.evaluate(
-                "framework.policy-tables",
-                validator.scope,
-                Mock(side_effect=KeyboardInterrupt()),
-            )
-        else:
-            validator.findings.evaluate(
-                "framework.policy-tables",
-                validator.scope,
-                lambda: {
-                    "complete": state != "incomplete",
-                    "status": "FAIL" if state == "FAIL" else "PASS",
-                    "reason": "invalid policy",
-                },
-            )
-
     with (
         patch.object(cache, "service_key", side_effect=lambda entry: "/".join(entry)),
         patch.object(Validator, "check_design_service_ownership"),
         patch.object(Validator, "check_stack_designs"),
-        patch.object(Validator, "_check_generated_service_models", generate),
-        patch.object(Validator, "check_designs", designs),
+        patch.object(Validator, "_check_generated_service_models", _scoped_generate),
+        patch.object(
+            Validator,
+            "check_designs",
+            autospec=True,
+            side_effect=partial(_scoped_designs, state),
+        ),
         patch.object(Validator, "check_observed_values"),
     ):
         validator = Validator(tmp_path, scope, workers=1)
