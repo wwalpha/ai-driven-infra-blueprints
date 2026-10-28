@@ -33,6 +33,26 @@ def rule_section(text, heading):
     return "\n".join(result)
 
 
+def value_available(value, shown):
+    raw = literal(value) if isinstance(value, str) else None
+    return (
+        isinstance(raw, str)
+        and bool(raw.strip())
+        and raw.lower()
+        not in {
+            "unresolved",
+            "unset",
+            "tbd",
+            "todo",
+            "pending_deploy",
+            "未確定",
+        }
+        and not any(token in raw for token in ("${", "{{", "<masked"))
+        and not raw.startswith(("[", "{"))
+        and shown == value
+    )
+
+
 def naming_materials(comparison, *, service=None):
     rules, names, judgments = {}, [], []
     services = comparison.services if service is None else [service]
@@ -156,17 +176,14 @@ def naming_materials(comparison, *, service=None):
                 targets = naming_targets(comparison.root, namespace).get(kind, set())
                 outputs = catalog_outputs(comparison.root, kind)
                 fields = set(resource_name_fields(kind)) | targets
-                selected = []
+                selected, tag_values = [], []
                 for pos, (rid, row) in enumerate(rows):
                     prop = row["property"].removeprefix(kind + ".")
                     if row["property"] in outputs:
                         continue
                     if prop in fields or naming_target_matches(prop, targets, kind):
                         selected.append((rid, row, prop, row["value"]))
-                    if (
-                        prop in {"Tags[].Key", "HostedZoneTags[].Key"}
-                        and literal(row["value"]) == "Name"
-                    ):
+                    if prop in {"Tags[].Key", "HostedZoneTags[].Key"}:
                         valuefield = prop.replace(".Key", ".Value")
                         pair = (
                             rows[pos + 1]
@@ -174,14 +191,27 @@ def naming_materials(comparison, *, service=None):
                             and rows[pos + 1][1]["property"] == kind + "." + valuefield
                             else None
                         )
-                        selected.append(
-                            (
-                                pair[0] if pair else rid,
-                                pair[1] if pair else row,
-                                "Name tag",
-                                pair[1]["value"] if pair else None,
+                        if pair and value_available(
+                            row["value"], comparison.redacted(row["value"], prop)
+                        ):
+                            tag_values.append(
+                                dict(
+                                    property=valuefield,
+                                    is_name=literal(row["value"]) == "Name",
+                                    source=comparison.source(
+                                        service, f"desired.row.{pair[0]}.value"
+                                    ),
+                                )
                             )
-                        )
+                        if literal(row["value"]) == "Name":
+                            selected.append(
+                                (
+                                    pair[0] if pair else rid,
+                                    pair[1] if pair else row,
+                                    "Name tag",
+                                    pair[1]["value"] if pair else None,
+                                )
+                            )
                     if prop in {"Tags", "HostedZoneTags"}:
                         try:
                             value = json.loads(literal(row["value"]))
@@ -233,23 +263,7 @@ def naming_materials(comparison, *, service=None):
                 for rid, row, field, value in selected:
                     provider_errors = []
                     shown = comparison.redacted(value, field)
-                    raw = literal(value) if isinstance(value, str) else None
-                    available = (
-                        isinstance(raw, str)
-                        and bool(raw.strip())
-                        and raw.lower()
-                        not in {
-                            "unresolved",
-                            "unset",
-                            "tbd",
-                            "todo",
-                            "pending_deploy",
-                            "未確定",
-                        }
-                        and not any(token in raw for token in ("${", "{{", "<masked"))
-                        and not raw.startswith(("[", "{"))
-                        and shown == value
-                    )
+                    available = value_available(value, shown)
                     if field != "Name tag" and available:
                         try:
                             provider_errors = comparison.catalog.literal_errors(
@@ -298,6 +312,8 @@ def naming_materials(comparison, *, service=None):
                             if key in resource
                         },
                     }
+                    if field == "Name tag":
+                        entry["tag_values"] = tag_values
                     names.append(entry)
     return {
         "target_context": comparison.target,

@@ -461,6 +461,19 @@ def validate_diagnostic_decisions(
     return excluded, conflicts
 
 
+def matches_source(source, expected):
+    return (
+        isinstance(source, dict)
+        and isinstance(expected, dict)
+        and bool(source.get("path") and (source.get("key") or source.get("line")))
+        and all(
+            source[key] == expected.get(key)
+            for key in ("path", "key", "line")
+            if key in source
+        )
+    )
+
+
 def matches_naming_item(item, name):
     if any(item.get(key) != name.get(key) for key in ("service", "resource")):
         return False
@@ -477,42 +490,13 @@ def matches_naming_item(item, name):
         "HostedZoneTags",
     }:
         return False
-    source, naming_source = item.get("source"), name.get("source")
-    # Only a concrete different row distinguishes an ordinary Tag from the Name tag.
-    if isinstance(source, dict) and isinstance(naming_source, dict):
-        for fields in (("path", "key"), ("path", "line")):
-            if all(source.get(key) and naming_source.get(key) for key in fields):
-                return all(source[key] == naming_source[key] for key in fields)
-    return True
-
-
-def validate_independent_issue(artifact, item):
-    key = required_text(item, "diagnostic_id")
-    required_identity(item, TARGET_FIELDS, "independent Review Issue")
-    record = next(
-        (record for record in artifact["ordinary"] if record["id"] == key), {}
+    # Only a Scan-proven ordinary Tag may bypass Naming evidence.
+    return not any(
+        tag.get("is_name") is False
+        and tag.get("property") == prop
+        and matches_source(item.get("source"), tag.get("source"))
+        for tag in name.get("tag_values", [])
     )
-    diagnostic = record.get("diagnostic", {})
-    if (
-        not matches_target(record, item)
-        or record.get("cause_kind") != "input_invalid"
-        or not isinstance(diagnostic, dict)
-        or diagnostic.get("code") != item["rule"]
-        or diagnostic.get("code") in {"validation.unclassified", "review.naming"}
-        or not (
-            diagnostic.get("category") == "MODEL_NEEDS_FIX"
-            or diagnostic.get("check_id")
-            in {
-                "model.references",
-                "design.tables",
-                "design.artifacts",
-                "design.identity",
-            }
-        )
-    ):
-        raise ValueError(
-            "Independent Review Issue requires a matching structured diagnostic"
-        )
 
 
 def review_additions(
@@ -547,26 +531,26 @@ def review_additions(
         ):
             raise ValueError("review Issue ownership requires explicit scoped service")
         required_text(item, "message")
-        naming_fields = {
-            "naming_item_id",
-            "violation",
-            "expected",
-            "actual",
-            "applied_rule",
-        }
-        if "diagnostic_id" in item:
-            validate_independent_issue(artifact, item)
-            if set(item) & naming_fields:
-                raise ValueError(
-                    "Independent diagnostic cannot replace Naming evidence"
-                )
-        elif (
+        if "diagnostic_id" in item or any(
+            matches_target(record, item) for record in artifact["ordinary"]
+        ):
+            raise ValueError(
+                "Existing diagnostics require diagnostic_decisions, not additional Issues"
+            )
+        if (
             any(matches_naming_item(item, name) for name in naming.values())
             or item.get("rule") == "review.naming"
             or "naming_item_id" in item
         ):
             name = naming.get(required_text(item, "naming_item_id"))
-            if name is None or not matches_naming_item(item, name):
+            if (
+                name is None
+                or not matches_naming_item(item, name)
+                or (
+                    "source" in item
+                    and not matches_source(item["source"], name.get("source"))
+                )
+            ):
                 raise ValueError("Naming Issue must match its naming item")
             for key in ("rule", "violation", "evidence"):
                 required_text(item, key)
@@ -671,7 +655,7 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
     excluded, conflicts = validate_diagnostic_decisions(
         ordinary, review["diagnostic_decisions"], confirmations, services
     )
-    additions = review_additions(artifact, review["issues"])
+    additions = review_additions(dict(artifact, ordinary=ordinary), review["issues"])
     diagnostic_index([*ordinary, *additions], services)
     unverified = review["unverified"]
     validate_review_unverified(artifact, unverified)

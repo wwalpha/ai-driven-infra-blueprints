@@ -15,13 +15,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import issues.publication as publication
 import pytest
+from comparison import Comparison
 from issues.artifact import summary
 from issues.integrity import target_services
+from issues.materials import naming_materials
 from issues.publication import render_snapshot, save_scan
 from issues.records import identifier
 from issues.review import human_confirmations, review_snapshot
 from issues.runner import scan_stage
 from support.issues_scan_fixtures import (
+    fixture,
     forbid_report_text,
     review_for,
     snapshot_artifact,
@@ -292,7 +295,22 @@ def check_naming_target_cannot_bypass_evidence(tmp_path, rule):
 @pytest.mark.parametrize(
     "prop", ["Name tag", "Tags[].Value", "EC2.VPCEndpoint.Tags[].Value"]
 )
-@pytest.mark.parametrize("same_source", [True, False, None])
+@pytest.mark.parametrize(
+    "same_source",
+    [
+        True,
+        False,
+        None,
+        "key",
+        "line",
+        "path",
+        "all",
+        "contradiction",
+        "other_key",
+        "other_line",
+        "missing_path",
+    ],
+)
 def check_name_tag_review_identity(tmp_path, prop, same_source):
     data = snapshot_artifact(tmp_path, services=["vpc"])
     source = dict(
@@ -300,6 +318,7 @@ def check_name_tag_review_identity(tmp_path, prop, same_source):
         line=12,
         key="desired.row.001-002.value",
     )
+    other = dict(source, line=14, key="desired.row.001-004.value")
     data["naming"]["names"] = [
         dict(
             id="n1",
@@ -308,6 +327,7 @@ def check_name_tag_review_identity(tmp_path, prop, same_source):
             resourceType="EC2.VPCEndpoint",
             property="Name tag",
             source=source,
+            tag_values=[dict(property="Tags[].Value", is_name=False, source=other)],
         )
     ]
     issue = dict(
@@ -317,7 +337,35 @@ def check_name_tag_review_identity(tmp_path, prop, same_source):
         rule="review.other",
         message="Human confirmation is unavailable",
     )
-    if same_source is not None:
+    if same_source in {"key", "line", "path"}:
+        issue["source"] = dict(
+            other,
+            **{
+                same_source: {
+                    "key": "desired.row.001-999.value",
+                    "line": 9999,
+                    "path": "model/dev/missing/vpc.properties",
+                }[same_source]
+            },
+        )
+        if same_source == "line":
+            issue["source"].pop("key")
+    elif same_source in {"other_key", "other_line", "missing_path"}:
+        issue["source"] = dict(other)
+        issue["source"].pop(
+            {"other_key": "line", "other_line": "key", "missing_path": "path"}[
+                same_source
+            ]
+        )
+    elif same_source == "all":
+        issue["source"] = dict(
+            path="model/dev/missing/vpc.properties",
+            line=9999,
+            key="desired.row.001-999.value",
+        )
+    elif same_source == "contradiction":
+        issue["source"] = dict(other, line=9999)
+    elif same_source is not None:
         issue["source"] = (
             dict(source)
             if same_source
@@ -325,11 +373,26 @@ def check_name_tag_review_identity(tmp_path, prop, same_source):
         )
     review = review_for(data)
     review["issues"] = [issue]
-    if prop != "Name tag" and same_source is False:
+    if prop != "Name tag" and (
+        same_source is False or same_source in {"other_key", "other_line"}
+    ):
+        issue["message"] = "Ordinary owner Tag value violates the reviewed policy"
         assert len(json.loads(review_snapshot(data, review).data)["ordinary"]) == 1
+        with task(tmp_path, data["services"]):
+            outputs, snapshot, _ = save_scan(tmp_path, data, review)
+        assert len(json.loads(snapshot.data)["ordinary"]) == 1
+        assert issue["message"] in outputs[0].read_text(encoding="utf-8")
     else:
+        for filename in ("issues.md", "iac-issues.md"):
+            write(tmp_path / "issues/dev/123456789012" / filename, "existing report")
         with pytest.raises(ValueError):
             review_snapshot(data, review)
+        with task(tmp_path, data["services"]), pytest.raises(ValueError):
+            save_scan(tmp_path, data, review)
+        for filename in ("issues.md", "iac-issues.md"):
+            assert (tmp_path / "issues/dev/123456789012" / filename).read_text(
+                encoding="utf-8"
+            ) == "existing report"
 
 
 @pytest.mark.parametrize(
@@ -378,16 +441,93 @@ def check_name_tag_valid_violation_aliases(tmp_path, prop):
         )
     ]
     assert len(json.loads(review_snapshot(data, review).data)["ordinary"]) == 1
+    with task(tmp_path, data["services"]):
+        _, snapshot, _ = save_scan(tmp_path, data, review)
+    assert len(json.loads(snapshot.data)["ordinary"]) == 1
     review["issues"][0]["source"] = dict(
         source, line=14, key="desired.row.001-004.value"
     )
-    if prop != "Name tag":
-        with pytest.raises(ValueError, match="match its naming item"):
+    with pytest.raises(ValueError, match="match its naming item"):
+        review_snapshot(data, review)
+    with (
+        task(tmp_path, data["services"]),
+        pytest.raises(ValueError, match="match its naming item"),
+    ):
+        save_scan(tmp_path, data, review)
+
+
+@pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
+@pytest.mark.parametrize(
+    "kind, tags",
+    [("EC2.VPCEndpoint", "Tags"), ("Route53.HostedZone", "HostedZoneTags")],
+)
+def check_scan_tag_sources(tmp_path, mode, kind, tags):
+    fixture(tmp_path, services=("sqs",))
+    comparison = Comparison(tmp_path, "dev", "123456789012", ["sqs"])
+    comparison.resources["sqs"]["001"].update(resourceType=kind, resourceMode=mode)
+    rows = [
+        (
+            f"001-{number:03d}",
+            dict(property=f"{kind}.{tags}[].{prop}", value=value, comment="Tag row"),
+        )
+        for number, (prop, value) in enumerate(
+            [
+                ("Key", "`Name`"),
+                ("Value", "`existing-name`"),
+                ("Key", "`owner`"),
+                ("Value", "`invalid-owner`"),
+                ("Key", "`UNSET`"),
+                ("Value", "`unknown`"),
+            ],
+            1,
+        )
+    ]
+    comparison.rows["sqs"]["001"] = rows
+    material, _ = naming_materials(comparison)
+    name = next(item for item in material["names"] if item["property"] == "Name tag")
+    assert name["tag_values"] == [
+        dict(
+            property=tags + "[].Value",
+            is_name=is_name,
+            source=comparison.source("sqs", f"desired.row.{rid}.value"),
+        )
+        for rid, is_name in [("001-002", True), ("001-004", False)]
+    ]
+    data = snapshot_artifact(tmp_path, services=["sqs"])
+    data["naming"]["names"] = material["names"]
+    review = review_for(data)
+    review["issues"] = [
+        dict(
+            service="sqs",
+            resource="001",
+            property=kind + "." + tags + "[].Value",
+            source=name["tag_values"][1]["source"],
+            rule="review.owner",
+            message="Owner Tag is invalid",
+        )
+    ]
+    # Review and publication consume the Scan data, never reread the Model.
+    (tmp_path / "model/dev/123456789012/sqs.properties").unlink()
+    with task(tmp_path, data["services"]):
+        outputs, snapshot, _ = save_scan(tmp_path, data, review)
+    assert len(json.loads(snapshot.data)["ordinary"]) == 1
+    assert "Owner Tag is invalid" in outputs[0].read_text(encoding="utf-8")
+    for rid in ("001-002", "001-006"):
+        review["issues"][0]["source"] = comparison.source(
+            "sqs", f"desired.row.{rid}.value"
+        )
+        with pytest.raises(ValueError, match="naming_item_id"):
             review_snapshot(data, review)
+        with (
+            task(tmp_path, data["services"]),
+            pytest.raises(ValueError, match="naming_item_id"),
+        ):
+            save_scan(tmp_path, data, review)
 
 
 @pytest.mark.parametrize("kind", ["reference", "display"])
-def check_independent_issue_on_naming_property(tmp_path, kind):
+@pytest.mark.parametrize("prop", ["Name", "CidrBlock"])
+def check_independent_issue_on_naming_property(tmp_path, kind, prop):
     data = snapshot_artifact(tmp_path, services=["vpc"])
     data["naming"]["names"] = [
         dict(
@@ -404,7 +544,7 @@ def check_independent_issue_on_naming_property(tmp_path, kind):
             code=code,
             model="model/dev/123456789012/vpc.properties",
             modelKey="desired.row.001-001.value",
-            property="Name",
+            property=prop,
             category="MODEL_NEEDS_FIX",
         )
         if kind == "reference"
@@ -415,7 +555,7 @@ def check_independent_issue_on_naming_property(tmp_path, kind):
             id="independent",
             service="vpc",
             resource="001",
-            property="Name",
+            property=prop,
             rule=code,
             cause_kind="input_invalid",
             diagnostic=diagnostic,
@@ -426,13 +566,19 @@ def check_independent_issue_on_naming_property(tmp_path, kind):
     issue = dict(
         service="vpc",
         resource="001",
-        property="Name",
+        property=prop,
         rule=code,
         diagnostic_id="independent",
         message="Independent violation",
     )
     review["issues"] = [issue]
-    assert len(json.loads(review_snapshot(data, review).data)["ordinary"]) == 2
+    with pytest.raises(ValueError, match="diagnostic_decisions"):
+        review_snapshot(data, review)
+    with (
+        task(tmp_path, data["services"]),
+        pytest.raises(ValueError, match="diagnostic_decisions"),
+    ):
+        save_scan(tmp_path, data, review)
     for changes in (
         dict(diagnostic_id="missing"),
         dict(rule="review.other"),
@@ -445,20 +591,35 @@ def check_independent_issue_on_naming_property(tmp_path, kind):
         review["issues"] = [dict(issue, **changes)]
         with pytest.raises(ValueError):
             review_snapshot(data, review)
-    review["issues"] = [issue]
-    data["ordinary"][0]["diagnostic"] = dict(
-        code="validation.unclassified", check_id="design.tables"
+    review["issues"] = []
+    independent = deepcopy(data["ordinary"][0])
+    independent.update(
+        id="another",
+        rule="another.violation",
+        diagnostic=dict(code="another.violation", category="MODEL_NEEDS_FIX"),
     )
-    with pytest.raises(ValueError):
+    data["ordinary"].append(independent)
+    review = review_for(data)
+    snapshot = json.loads(review_snapshot(data, review).data)
+    assert [item["id"] for item in snapshot["ordinary"]] == ["independent", "another"]
+    assert not snapshot["unverified"]
+    with task(tmp_path, data["services"]):
+        outputs, saved, _ = save_scan(tmp_path, data, review)
+    assert len(json.loads(saved.data)["ordinary"]) == 2
+    text = outputs[0].read_text(encoding="utf-8")
+    assert text.count("<!-- issue-id: independent -->") == 1
+    assert text.count("<!-- issue-id: another -->") == 1
+    # Omitting the ID or changing the message must not duplicate a known violation.
+    duplicate = {key: value for key, value in issue.items() if key != "diagnostic_id"}
+    duplicate["message"] = "Different wording for the same structured violation"
+    review["issues"] = [duplicate]
+    with pytest.raises(ValueError, match="diagnostic_decisions"):
         review_snapshot(data, review)
-    for unsupported in (
-        {},
-        dict(code=code),
-        dict(code="different", category="MODEL_NEEDS_FIX"),
+    with (
+        task(tmp_path, data["services"]),
+        pytest.raises(ValueError, match="diagnostic_decisions"),
     ):
-        data["ordinary"][0]["diagnostic"] = unsupported
-        with pytest.raises(ValueError):
-            review_snapshot(data, review)
+        save_scan(tmp_path, data, review)
 
 
 @pytest.mark.parametrize(
