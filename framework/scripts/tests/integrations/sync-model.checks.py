@@ -45,6 +45,7 @@ from utils.aws_mappings import definition_root, mapping_alias, mappings_for
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_scope, memo_table
 from utils.script_loader import module
+from validation import change as change_validation
 from validation import cloudformation, design_links, design_tables
 from validation import design as design_checks
 
@@ -562,7 +563,11 @@ def check_pending_artifact_transaction(generated_policy, failure):
                 sync_runtime.validate_generation(plan, jobs=1)
                 metadata = sync_runtime.generation_metadata(plan)
                 assert metadata["status"] == "PASS" and metadata["complete"]
-                assert metadata["unverified"]
+                assert not metadata["unverified"]
+                assert any(
+                    warning.get("category") == "REFERENCE_PENDING_DEPLOY"
+                    for warning in metadata["warnings"]
+                )
                 candidate = plan.expected_outputs[design]
                 assert (
                     json.loads(candidate[artifact])["Statement"][0]["Resource"][1]
@@ -1478,6 +1483,9 @@ def check_integrated_validator(generated_policy, initial):
         ) as publication,
         patch.object(Path, "read_bytes", read),
         patch.object(
+            change_validation, "validate_plan", wraps=change_validation.validate_plan
+        ) as change_check,
+        patch.object(
             model_sources, "_read_model", wraps=model_sources._read_model
         ) as expand,
         patch.object(
@@ -1516,12 +1524,11 @@ def check_integrated_validator(generated_policy, initial):
     contexts = [(call.args[0], id(call.args[1])) for call in expand.call_args_list]
     assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
     print(
-        "integrated write counts: Model once per input/permission context; generation=1, candidate quality gate=0, guard=1, explicit quality checks after save"
+        "integrated write counts: Model once per input/permission context; generation=1, Change Validation=1, explicit quality checks after save"
     )
-    assert import_check.call_count == 1 and impact.call_count == 0, (
-        impact.call_count,
-        import_check.call_count,
-    )
+    change_check.assert_called_once()
+    import_check.assert_not_called()
+    impact.assert_not_called()
     assert values["desired.note.001.text"] in design.read_text()
     assert design.read_bytes() != originals[design]
     assert artifact.read_bytes() == originals[artifact]

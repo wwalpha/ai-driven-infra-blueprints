@@ -193,6 +193,18 @@ def identity_for(snapshot):
     return snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service
 
 
+def check_producer(evaluate, findings):
+    try:
+        evaluate()
+    except ReferenceResolutionError as error:
+        if not error.diagnostics or not all(
+            item.get("category") == "REFERENCE_PENDING_DEPLOY"
+            for item in error.diagnostics
+        ):
+            raise
+        findings.warn(error)
+
+
 def validate_producer_inputs(snapshot, details, reads, findings, *, context_values):
     resolver = Resolver(snapshot.scope.root, reads)
     resolver.catalog = DesignSchemaCatalog(snapshot.scope.root)
@@ -252,20 +264,9 @@ def validate_producer_inputs(snapshot, details, reads, findings, *, context_valu
             else partial(values.value, attribute)
         )
 
-        def check_producer(evaluate=evaluate):
-            try:
-                evaluate()
-            except ReferenceResolutionError as error:
-                if not error.diagnostics or not all(
-                    item.get("category") == "REFERENCE_PENDING_DEPLOY"
-                    for item in error.diagnostics
-                ):
-                    raise
-                findings.warn(error)
-
         findings.evaluate(
             f"change.producer-attribute.{producer.scope.environment}."
             f"{producer.scope.target}.{producer.scope.service}.{usage.producer_id}.{attribute}",
             {identity_for(snapshot)},
-            check_producer,
+            partial(check_producer, evaluate, findings),
         )

@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import pytest
 import task_contract as tasks
+import task_contract_runtime as task_runtime
 import worktree_task as wt
 from support.repository_fixtures import contract as contract
 
@@ -95,7 +96,11 @@ def start(root, task_id="example", files=("file.txt",)):
 
 
 def finish_contract(target, state):
-    tasks.complete(target, state["task_file"])
+    # Git lifecycle fixtures isolate quality validation; Task transition tests exercise it.
+    with patch.object(task_runtime, "Validator") as validator:
+        validator.return_value.report.return_value = 0
+        tasks.complete(target, state["task_file"])
+        validator.return_value.run.assert_called_once()
 
 
 def retained(root, target, state, base_head):

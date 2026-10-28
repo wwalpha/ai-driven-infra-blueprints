@@ -539,10 +539,11 @@ def check_waiting_reference_ids_in_both_channels(tmp_path, category):
                 attribute="Arn",
             )
         )
-    assert len(findings.warnings) == len(findings.unverified) == 2
+    assert len(findings.warnings) == 2
     ids = [item["diagnostic_id"] for item in findings.warnings]
     assert len(set(ids)) == 2
-    assert ids == [item["diagnostic_id"] for item in findings.unverified]
+    unverified_ids = ids if category == "REFERENCE_UNRESOLVED" else []
+    assert unverified_ids == [item["diagnostic_id"] for item in findings.unverified]
     assert not findings.errors and not findings.processing_errors
     assert all(item["category"] == category for item in findings.warnings)
     ordinary, judgments = validation_issues(findings, comparison(tmp_path), ["iam"])
@@ -551,7 +552,7 @@ def check_waiting_reference_ids_in_both_channels(tmp_path, category):
     data.update(warnings=findings.warnings, unverified=findings.unverified)
     validate_artifact(data)
     result = json.loads(review_snapshot(data, review_for(data)).data)
-    assert ids == [item["diagnostic_id"] for item in result["unverified"]]
+    assert unverified_ids == [item["diagnostic_id"] for item in result["unverified"]]
 
 
 @pytest.mark.parametrize(
@@ -580,10 +581,11 @@ def check_waiting_reference_producer_identity(tmp_path, category, field, other):
     findings = Findings(tmp_path)
     for item in (diagnostic, dict(diagnostic, **{field: other}), diagnostic):
         findings.warn(item)
-    assert len(findings.warnings) == len(findings.unverified) == 2
+    assert len(findings.warnings) == 2
     ids = [item["diagnostic_id"] for item in findings.warnings]
     assert all(ids) and len(set(ids)) == 2
-    assert ids == [item["diagnostic_id"] for item in findings.unverified]
+    unverified_ids = ids if category == "REFERENCE_UNRESOLVED" else []
+    assert unverified_ids == [item["diagnostic_id"] for item in findings.unverified]
     assert not findings.errors and not findings.processing_errors
 
 
@@ -613,10 +615,13 @@ def check_waiting_reference_producer_path_normalization(
         "./model/dev/team/../team/kms.properties",
     ):
         findings.warn(dict(diagnostic, producerModel=path))
-    assert len(findings.warnings) == len(findings.unverified) == 1
-    assert (
-        findings.warnings[0]["diagnostic_id"] == findings.unverified[0]["diagnostic_id"]
+    assert len(findings.warnings) == 1
+    expected = (
+        [findings.warnings[0]["diagnostic_id"]]
+        if category == "REFERENCE_UNRESOLVED"
+        else []
     )
+    assert expected == [item["diagnostic_id"] for item in findings.unverified]
 
 
 @pytest.mark.parametrize(

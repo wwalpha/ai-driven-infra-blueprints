@@ -466,6 +466,14 @@ class Validator:
         # Read boundaries use the invocation recorder; Task/Git/IaC stay on real root.
         return handler()
 
+    def run_required(self, check_id, *, snapshot, required):
+        return self.findings.evaluate(
+            check_id,
+            self.scope,
+            lambda: self.input_check(snapshot, required[check_id]),
+            isolate=True,
+        )
+
     def _run(self, snapshot=None) -> int:
         self.findings.bind_candidate(object(), set())
         self.relative_paths.clear()
@@ -485,13 +493,9 @@ class Validator:
         if self.model_validation == "change" and self.scope != set():
             self.findings.result("validation.changed-model", self.scope)
 
-        def run_required(check_id):
-            return self.findings.evaluate(
-                check_id,
-                self.scope,
-                lambda: self.input_check(snapshot, required[check_id]),
-                isolate=True,
-            )
+        run_required = _bind_framework_callback(
+            self.run_required, snapshot=snapshot, required=required
+        )
 
         run_required("validation.structure")
         if snapshot is None:

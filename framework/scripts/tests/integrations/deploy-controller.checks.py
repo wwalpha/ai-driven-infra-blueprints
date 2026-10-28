@@ -158,6 +158,10 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     inventory.parent.mkdir(parents=True)
     original = "### ec2\n1. ERROR: Framework diagnostic\n### Unknown owner\n2. CRITICAL: unresolved\n"
     inventory.write_text(original, encoding="utf-8")
+    subprocess.run(["git", "add", str(inventory)], cwd=root, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "Existing issue report"], cwd=root, check=True
+    )
     aws_state(aws, delivery=True)
     assert invoke(root, session, aws) == 0
     assert inventory.read_text(encoding="utf-8") == original

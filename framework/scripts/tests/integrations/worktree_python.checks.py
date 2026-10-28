@@ -109,7 +109,7 @@ def check_venv_fallback():
                 states[0]["task_file"],
                 checks.contract("first", [py.REQUIREMENTS]),
             )
-            wt.tasks.complete(target, states[0]["task_file"])
+            checks.finish_contract(target, states[0])
             assert wt.finalize(root, "first")["cleaned"]
             assert directory.is_dir() and py.shared_ready(directory)
             assert py.runtime(Path(states[1]["worktree"]))[0] == py.python_path(

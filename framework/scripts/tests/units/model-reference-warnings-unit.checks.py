@@ -6,6 +6,7 @@ import shutil
 import sys
 from collections import Counter
 from contextlib import ExitStack, closing, nullcontext
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -64,23 +65,29 @@ def check_child_results_keep_scope_and_incomplete_state(tmp_path):
     }
 
 
+def warn_and_check(findings, pending):
+    findings.warn(pending)
+    findings.check(True, "independent model check")
+
+
 def check_pending_warning_does_not_hide_interrupted_checks(tmp_path):
     findings = Findings(tmp_path)
     pending = ReferenceResolutionError(
         "physical value is pending", category="REFERENCE_PENDING_DEPLOY"
     )
 
-    def complete():
-        findings.warn(pending)
-        findings.check(True, "independent model check")
-
-    assert findings.evaluate("model", set(), complete).status == "PASS"
+    assert (
+        findings.evaluate(
+            "model", set(), partial(warn_and_check, findings, pending)
+        ).status
+        == "PASS"
+    )
     assert findings.checks == 1 and findings.warnings and not findings.unverified
 
-    def interrupted():
-        raise pending
-
-    assert findings.evaluate("interrupted", set(), interrupted).status == "FAIL"
+    assert (
+        findings.evaluate("interrupted", set(), Mock(side_effect=pending)).status
+        == "FAIL"
+    )
     assert findings.status == "FAIL"
 
 
@@ -117,6 +124,28 @@ def check_pending_view_reports_retained_or_not_generated(tmp_path, retained):
     assert not runtime.pending_view_states(tmp_path, {path: info})
 
 
+def record_model_check(parent, executed, state, scope):
+    executed.append("model")
+    if state == "unchecked":
+        parent.findings.result("required-model-check", scope).metadata.update(
+            complete=False, reason="interrupted"
+        )
+
+
+def generate_pending_view(validator, state, scope):
+    result = validator.findings.result("framework.generated-service-model", scope)
+    result.status = "FAIL"
+    result.metadata = {
+        "complete": False,
+        "unavailable_services": {"dev/target/service": {"reason": "reference"}},
+        "view_states": {"dev/target/service": "RETAINED_PENDING_DEPLOY"}
+        if state in {"pending", "unchecked"}
+        else {},
+    }
+    if state == "failure":
+        validator.findings.check(False, "generation failed")
+
+
 @pytest.mark.parametrize("state", ["pending", "unchecked", "unresolved", "failure"])
 def check_pending_view_is_separate_from_model_validation(tmp_path, monkeypatch, state):
     scope = {("dev", "target", "service")}
@@ -125,29 +154,16 @@ def check_pending_view_is_separate_from_model_validation(tmp_path, monkeypatch, 
     parent.change_plan = SimpleNamespace(views=scope)
     executed = []
 
-    def check_inputs():
-        executed.append("model")
-        if state == "unchecked":
-            parent.findings.result("required-model-check", scope).metadata.update(
-                complete=False, reason="interrupted"
-            )
-
-    monkeypatch.setattr(parent, "check_changed_inputs", check_inputs)
-
-    def generate(validator):
-        result = validator.findings.result("framework.generated-service-model", scope)
-        result.status = "FAIL"
-        result.metadata = {
-            "complete": False,
-            "unavailable_services": {"dev/target/service": {"reason": "reference"}},
-            "view_states": {"dev/target/service": "RETAINED_PENDING_DEPLOY"}
-            if state in {"pending", "unchecked"}
-            else {},
-        }
-        if state == "failure":
-            validator.findings.check(False, "generation failed")
-
-    monkeypatch.setattr(Validator, "check_generated_service_models", generate)
+    monkeypatch.setattr(
+        parent,
+        "check_changed_inputs",
+        partial(record_model_check, parent, executed, state, scope),
+    )
+    monkeypatch.setattr(
+        Validator,
+        "check_generated_service_models",
+        lambda validator: generate_pending_view(validator, state, scope),
+    )
     parent.check_changed_designs()
     assert executed == ["model"]
     if state == "pending":

@@ -889,11 +889,9 @@ def check_fail_reasons_and_returned_results(tmp_path):
         RuntimeError("validator crashed"),
         KeyboardInterrupt("validation interrupted"),
     ):
-
-        def interrupted(exception=exception):
-            raise exception
-
-        result = findings.evaluate(type(exception).__name__, scope, interrupted)
+        result = findings.evaluate(
+            type(exception).__name__, scope, Mock(side_effect=exception)
+        )
         assert result.status == "FAIL" and str(exception) in result.metadata["reason"]
     returned = CheckResult(
         "returned",
