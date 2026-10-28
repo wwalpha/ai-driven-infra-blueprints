@@ -31,6 +31,9 @@ from support.pytest_cli import run
 
 from model import sources
 
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 
 @pytest.mark.parametrize(
     "suffix,name,valid",
