@@ -80,7 +80,12 @@ def check_module_structure_and_imports(module):
             for statement in node.body
             for child in ast.walk(statement)
         )
-    statement = f"import {module.__name__}; import model.render; import validation.change; import validation.runner"
+
+
+def check_imports_in_one_process():
+    modules = [module.__name__ for module in MODULES]
+    modules.extend(["model.render", "validation.change", "validation.runner"])
+    statement = "; ".join(f"import {name}" for name in modules)
     result = subprocess.run(
         [sys.executable, "-B", "-c", statement],
         env=dict(os.environ, PYTHONPATH=str(ROOT / "framework/scripts")),

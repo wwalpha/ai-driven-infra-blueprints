@@ -45,17 +45,11 @@ from model.validations.schema import (
 from model.validations.stacks import validate_changed_stacks
 
 
-def check_change_inputs(
-    path: Path,
+def _select_changed_inputs(
     authority: dict[str, str],
-    root: Path,
     change: ServiceChange,
-    *,
-    definitions_root: Path | None = None,
-) -> Findings:
-    """変更対象と新規 Resource を選択し、無関係な既存エラーを検証しない。"""
-    definitions = definitions_root or definition_root(root)
-    findings = _imports_validation_findings.Findings(root, source_path=path)
+) -> tuple[dict[str, dict[str, str]], dict[str, str], dict[str, str]]:
+    """変更 Resource と構造検証に必要な文脈を選択する。"""
     resources = dict(
         _imports_model_core.structural_entries(authority, "desired.resource.")
     )
@@ -96,41 +90,22 @@ def check_change_inputs(
             and key.split(".")[2] in change.rows
         )
     }
-    findings.evaluate(
-        "change.keys",
-        None,
-        lambda: _imports_model_core.validate_model_keys(
-            {key: authority[key] for key in change.keys if key in authority}
-        ),
-    )
-    findings.evaluate(
-        "change.structure",
-        None,
-        lambda: _imports_model_core.validate_authority(selected),
-    )
-    findings.evaluate(
-        "change.stacks", None, lambda: validate_changed_stacks(authority, change)
-    )
-    if findings.errors:
-        return findings
-    quality_values = {
-        key: value
-        for key, value in metadata.items()
-        if not key.startswith(("desired.resource.", "display.resource."))
-        or key.split(".")[2] in selected_resources
-    }
-    # 命名・参照の既存条件を保つため、対象 Resource の CREATE／IMPORT 情報は文脈に残す。
-    quality_values.update(
-        (key, value)
-        for key, value in authority.items()
-        if key.startswith("desired.resource.")
-        and key.endswith((".resourceMode", ".anchor"))
-        and key.split(".")[2] in selected_resources
-    )
-    values = _imports_model_sources.projected_values(quality_values)
-    rows = {rid: row for rid, row in entries(values, "desired.row.")}
-    catalog = DesignSchemaCatalog(definitions) if selected_resources else None
-    view = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+    return selected_resources, metadata, selected
+
+
+def _check_changed_resources(
+    authority: dict[str, str],
+    values: dict[str, str],
+    change: ServiceChange,
+    selected_resources: dict[str, dict[str, str]],
+    rows: dict[str, dict[str, str]],
+    definitions: Path,
+    root: Path,
+    view: Path,
+    catalog: DesignSchemaCatalog | None,
+    findings: Findings,
+) -> None:
+    """変更 Resource の必須・Schema・Mapping・命名・Identity・Literal を検証する。"""
     for number, resource in selected_resources.items():
         logical, kind = resource["logicalId"], resource["resourceType"]
         resource_values = {
@@ -176,6 +151,7 @@ def check_change_inputs(
             ),
         )
         name_fields = _imports_design_layout.configured_name_fields(definitions, kind)
+        # 新規 Resource または命名に関わる変更だけを検証し、既存の無関係なエラーは除く。
         if logical in change.added or any(
             prop == kind + "." + name
             or prop.startswith(kind + ".Tags")
@@ -227,6 +203,18 @@ def check_change_inputs(
                     root,
                 ),
             )
+
+
+def _check_changed_documents(
+    authority: dict[str, str],
+    values: dict[str, str],
+    change: ServiceChange,
+    path: Path,
+    root: Path,
+    view: Path,
+    findings: Findings,
+) -> None:
+    """変更行に対して Policy・JSON・参照とコメントを検証する。"""
     selected_rows = {
         key: value
         for key, value in values.items()
@@ -275,6 +263,71 @@ def check_change_inputs(
             reference_values=authority,
         ),
     )
+
+
+def check_change_inputs(
+    path: Path,
+    authority: dict[str, str],
+    root: Path,
+    change: ServiceChange,
+    *,
+    definitions_root: Path | None = None,
+) -> Findings:
+    """変更対象と新規 Resource を選択し、無関係な既存エラーを検証しない。"""
+    definitions = definitions_root or definition_root(root)
+    findings = _imports_validation_findings.Findings(root, source_path=path)
+    selected_resources, metadata, selected = _select_changed_inputs(authority, change)
+    findings.evaluate(
+        "change.keys",
+        None,
+        lambda: _imports_model_core.validate_model_keys(
+            {key: authority[key] for key in change.keys if key in authority}
+        ),
+    )
+    findings.evaluate(
+        "change.structure",
+        None,
+        lambda: _imports_model_core.validate_authority(selected),
+    )
+    findings.evaluate(
+        "change.stacks", None, lambda: validate_changed_stacks(authority, change)
+    )
+    # 構造や Stack が不正なら、それらを前提とする後続検証を停止する。
+    if findings.errors:
+        return findings
+    quality_values = {
+        key: value
+        for key, value in metadata.items()
+        if not key.startswith(("desired.resource.", "display.resource."))
+        or key.split(".")[2] in selected_resources
+    }
+    # 命名・参照の既存条件を保つため、対象 Resource の CREATE／IMPORT 情報は文脈に残す。
+    quality_values.update(
+        (key, value)
+        for key, value in authority.items()
+        if key.startswith("desired.resource.")
+        and key.endswith((".resourceMode", ".anchor"))
+        and key.split(".")[2] in selected_resources
+    )
+    values = _imports_model_sources.projected_values(quality_values)
+    rows = {rid: row for rid, row in entries(values, "desired.row.")}
+    catalog = DesignSchemaCatalog(definitions) if selected_resources else None
+    view = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+    # 既存 Resource は変更属性のみ、新規 Resource は必須属性全体を検証する。
+    _check_changed_resources(
+        authority,
+        values,
+        change,
+        selected_resources,
+        rows,
+        definitions,
+        root,
+        view,
+        catalog,
+        findings,
+    )
+    _check_changed_documents(authority, values, change, path, root, view, findings)
+    # 観測値は変更された行だけを対象にする。
     if change.observed_rows:
         observations = {
             key: value
