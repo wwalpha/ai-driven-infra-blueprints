@@ -3,7 +3,6 @@
 import hashlib
 import json
 import re
-from collections import Counter
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -159,12 +158,7 @@ def _visit_unconfirmed(
     value,
     path,
     property_name,
-    prop,
     fields,
-    redact,
-    display_reference,
-    pointers,
-    model,
     pointer=(),
 ):
     if isinstance(value, (ResourceReference, Expression)) and references(value):
@@ -175,12 +169,7 @@ def _visit_unconfirmed(
                 item,
                 path + ("." if path else "") + key,
                 property_name + "." + key,
-                prop,
                 fields,
-                redact,
-                display_reference,
-                pointers,
-                model,
                 pointer + (key,),
             )
     elif isinstance(value, list):
@@ -189,25 +178,9 @@ def _visit_unconfirmed(
                 item,
                 path + f"[{index}]",
                 property_name,
-                prop,
                 fields,
-                redact,
-                display_reference,
-                pointers,
-                model,
                 pointer + (index,),
             )
-
-
-def _unconfirmed_key(prop, path, left, right):
-    return (
-        re.sub(
-            r"\[\d+\]",
-            "[]",
-            prop + ("." if path and not path.startswith("[") else "") + path,
-        ),
-        json.dumps(safe_value([left, right]), sort_keys=True, ensure_ascii=False),
-    )
 
 
 def unconfirmed_references(
@@ -218,59 +191,21 @@ def unconfirmed_references(
         return []
     safe = _reference_types(actual, redact(actual, prop))
     candidates = []
-    pointers = dict(decision.correspondence)
+    pointers = {}
+    for iac_pointer, model_pointer in decision.correspondence:
+        pointers.setdefault(iac_pointer, set()).add(model_pointer)
     model = redact(desired, prop)
-    _visit_unconfirmed(
-        safe,
-        "",
-        prop,
-        prop,
-        candidates,
-        redact,
-        display_reference,
-        pointers,
-        model,
-    )
+    _visit_unconfirmed(safe, "", prop, candidates)
 
-    evidence = {}
-    for item in decision.diagnostics:
-        if item.get("local_comparison") in {"matched", "uncompared", "difference"}:
-            identity = (
-                item.get("path"),
-                json.dumps(
-                    safe_value([item.get("model"), item.get("iac")]),
-                    sort_keys=True,
-                    ensure_ascii=False,
-                ),
-            )
-            evidence.setdefault(identity, set()).add(item["local_comparison"])
-    keys = [
-        _unconfirmed_key(
-            prop, path, _shown_value(None, pointers[pointer], model), value
-        )
-        if pointer in pointers
-        else None
-        for value, path, _, pointer in candidates
-    ]
-    counts = Counter(keys)
     fields = []
-    for (value, path, property_name, pointer), identity in zip(
-        candidates, keys, strict=True
-    ):
-        statuses = (
-            evidence.get(identity, set())
-            if identity is not None and counts[identity] == 1
-            else set()
-        )
-        if statuses != {"uncompared"} and not (
-            pointer == () and decision.equal is None
-        ):
-            continue
+    for value, path, property_name, pointer in candidates:
+        matches = pointers.get(pointer, set())
+        model_pointer = next(iter(matches)) if len(matches) == 1 else None
         fields.append(
             {
                 "path": safe_text("IaC:" + (path or prop) + "（比較未確定）"),
-                "model": _formatted(_shown_value(None, pointers[pointer], model))
-                if pointer in pointers
+                "model": _formatted(_shown_value(None, model_pointer, model))
+                if model_pointer is not None
                 else "対応未確定",
                 "iac": _display_value(value, property_name, display_reference, redact),
             }

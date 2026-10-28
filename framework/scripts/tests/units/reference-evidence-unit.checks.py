@@ -6183,17 +6183,24 @@ def test_codebuild_uncompared_reference_display_real_path(observed):
     (record,) = after.records
     assert record["category"] == "uncompared"
     assert not record["reference_diagnostics"]
-    assert not after.display_differences
+    (field,) = after.display_differences[identifier(record)]
+    assert "EnvironmentVariables[2].Value" in field["path"]
+    assert field["model"] == "alias/venusinf-stg-material"
+    assert "kms/007.KeyId" in field["iac"]
+    if observed:
+        assert observed in field["iac"] and "Observed" in field["iac"]
+    else:
+        assert "未解決" in field["iac"] and "理由" in field["iac"]
     args = ("fixture", "team", ["codebuild"])
     old = iac_dataset(before.records, *args, before.display_differences)
     new = iac_dataset(after.records, *args, after.display_differences)
     assert old[:2] == new[:2]
     summary = iac_summary(after.records, *args, dataset=new)
-    assert not summary["groups"][0]["examples"][0].get("fields")
+    assert summary["groups"][0]["examples"][0]["fields"] == [field]
     artifact = dict(
         version=6, **aggregate(after.records, *args, after.display_differences)
     )
-    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == []
+    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == [field]
 
 
 @pytest.mark.parametrize("shape", ["nested", "expression", "secret", "sensitive"])
@@ -6231,7 +6238,7 @@ def test_uncompared_reference_display_preserves_redaction(shape):
         display_reference=comparison.display_reference,
     )
     rendered = json.dumps(batch.display_differences, ensure_ascii=False)
-    if shape in {"secret", "nested", "sensitive"}:
+    if shape == "secret":
         assert KEY_ID not in rendered and "kms/007" not in rendered
     else:
         assert "kms/007.KeyId" in rendered
@@ -6323,7 +6330,8 @@ def test_uncompared_shows_only_proven_model_correspondence(mode):
         display_reference=lambda ref: ("resolved", "fixture"),
     )
     if mode == "ambiguous":
-        assert not batch.display_differences
+        fields = next(iter(batch.display_differences.values()))
+        assert [field["model"] for field in fields] == ["対応未確定"] * 2
     else:
         fields = next(iter(batch.display_differences.values()))
         assert [field["model"] for field in fields] == ["model-value"]
@@ -6437,9 +6445,10 @@ def test_unordered_uncompared_displays_only_diagnosed_reference(nested):
     )
     assert after.records == before.records
     fields = after.display_differences[identifier(after.records[0])]
-    assert len(fields) == 1 and "kms/002.KeyId" in fields[0]["iac"]
-    assert fields[0]["model"] == "pending"
-    resolver.assert_called_once_with(refs[1])
+    assert len(fields) == 2
+    assert [field["model"] for field in fields] == ["confirmed", "pending"]
+    assert all(f"kms/00{i}.KeyId" in fields[i - 1]["iac"] for i in (1, 2))
+    assert resolver.call_count == 2
     old = iac_dataset(
         before.records, "fixture", "team", ["test"], before.display_differences
     )
@@ -6478,8 +6487,9 @@ def test_unordered_ambiguous_reference_has_no_individual_claim():
         display_reference=resolver,
     )
     assert decision.equal is None and result.records[0]["category"] == "uncompared"
-    assert not result.display_differences
-    resolver.assert_not_called()
+    fields = result.display_differences[identifier(result.records[0])]
+    assert [field["model"] for field in fields] == ["対応未確定"] * 2
+    assert resolver.call_count == 2
 
 
 def expression_unconfirmed_reference(left, right, path):
@@ -6577,12 +6587,9 @@ def test_unordered_expression_only_uncompared_selected_and_ambiguous():
     )
     assert before.records == after.records and not after.warnings
     fields = after.display_differences[identifier(after.records[0])]
-    assert (
-        len(fields) == 1
-        and fields[0]["model"] == "pending"
-        and "kms/002.KeyId" in fields[0]["iac"]
-    )
-    resolver.assert_called_once_with(refs[1])
+    assert [field["model"] for field in fields] == ["matched", "pending"]
+    assert all(f"kms/00{i}.KeyId" in fields[i - 1]["iac"] for i in (1, 2))
+    assert resolver.call_count == 2
     ambiguous = compare_values(
         ["pending", "pending"],
         actual,
@@ -6604,7 +6611,9 @@ def test_unordered_expression_only_uncompared_selected_and_ambiguous():
         redact=safe_value,
         display_reference=resolver,
     )
-    assert ambiguous.equal is None and not result.display_differences
+    assert ambiguous.equal is None
+    fields = result.display_differences[identifier(result.records[0])]
+    assert [field["model"] for field in fields] == ["対応未確定"] * 2
 
 
 def test_uncompared_expression_redaction_and_resolution_failure():
@@ -6634,3 +6643,52 @@ def test_uncompared_expression_redaction_and_resolution_failure():
     )
     assert "ValueError: display bug" in after.warnings[0]["message"]
     assert "未解決" in after.display_differences[identifier(after.records[0])][0]["iac"]
+
+
+def test_uncompared_duplicate_positions_and_ambiguous_evidence():
+    ref = ResourceReference({"$resource": ["kms", "007"], "$attribute": "KeyId"})
+    desired = ["first", "second"]
+    actual = [ref, ref]
+    decision = compare_values(
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=lambda left, right, path: ReferenceDecision(None),
+    )
+    assert decision.equal is None and not decision.diagnostics
+    args = ("test", "001", "Setting", desired, actual, decision, "stack", [{}], {})
+    batch = setting_result(
+        *args,
+        actual_error=None,
+        redact=safe_value,
+        display_reference=lambda ref: ("resolved", "Observed"),
+    )
+    fields = batch.display_differences[identifier(batch.records[0])]
+    assert [field["model"] for field in fields] == desired
+    assert [field["path"] for field in fields] == [
+        "IaC:[0]（比較未確定）",
+        "IaC:[1]（比較未確定）",
+    ]
+    assert all("kms/007.KeyId" in field["iac"] for field in fields)
+    ambiguous = CompareOutcome(
+        None, correspondence=(((0,), (0,)), ((0,), (1,)), ((1,), (1,)))
+    )
+    result = setting_result(
+        "test",
+        "001",
+        "Setting",
+        desired,
+        actual,
+        ambiguous,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=safe_value,
+        display_reference=lambda ref: ("resolved", "Observed"),
+    )
+    assert [
+        field["model"]
+        for field in result.display_differences[identifier(result.records[0])]
+    ] == ["対応未確定", "second"]
