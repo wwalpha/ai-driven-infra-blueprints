@@ -277,5 +277,5 @@ def naming_materials(comparison, *, service=None):
         "target_context": comparison.target,
         "rules": rules,
         "names": names,
-        "review_policy": "全名称のpattern/正本component/例外scopeを確認する。human_context_idの注記とrow commentを根拠にし、不足componentを値から推測しない。coverage除外をconvention/値検証除外へ拡大しない。",
+        "review_policy": "全名称を確認し、Patternに含まれるcomponentだけを対象に正本で確定した値を比較する。未確認componentを名前から推測せず、その不足だけでIssueや未検証にしない。独立して確認できる固定要素、構造、形式、確定値の違反は報告する。検査実行不能は未検証に残す。coverage除外をconvention/値検証除外へ拡大しない。",
     }, judgments

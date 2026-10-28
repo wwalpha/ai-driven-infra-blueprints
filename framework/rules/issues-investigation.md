@@ -181,9 +181,17 @@ An exclusion requires the confirmed exception's Rule/diagnostic ID/condition and
 applicable structured diagnostic scope; Review `target` never supplies missing
 diagnostic identity. `issues`
 contains additional current LLM findings with service/message and optional relative
-source path/positive line, resource/property/rule. `unverified` contains current
-LLM limitations with exactly service/check/reason. Report missing knowledge as
-unverified coverage; do not invent a defect or claim unexecuted AWS checks succeeded.
+source path/positive line, resource/property/rule. Additional Naming Issues use
+`rule: "review.naming"`, the exact `naming_item_id`, matching service/resource/property,
+`applied_rule`, `violation` and concrete `evidence`. Violation is one of
+`required_missing`, `format`, `confirmed_mismatch`, `rule_missing`, or
+`provider_constraint`; confirmed mismatches also require `expected` and `actual`.
+Inspect all naming IDs and only components present in the applicable pattern. Unknown
+semantic components are neither violations nor unverified; never infer their values.
+Still report independently verifiable violations and retain CREATE/IMPORT scope.
+`unverified` normally contains exactly service/check/reason. For `check: "naming"`,
+add `failure_kind` as `input_unavailable`, `read_failure`, or `execution_failure`
+and describe the actual incomplete check in reason. Do not claim unexecuted checks succeeded.
 
 ## Snapshot and publication
 

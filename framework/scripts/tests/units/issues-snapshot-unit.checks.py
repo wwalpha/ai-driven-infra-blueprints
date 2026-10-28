@@ -130,6 +130,15 @@ def check_review_additions_have_stable_ids_and_save(tmp_path):
             for i in range(16)
         ],
     )
+    data["naming"]["names"] = [
+        dict(
+            id=f"name-{i}",
+            service="s3",
+            resource=f"{i:03d}",
+            property="S3.Bucket.BucketName",
+        )
+        for i in range(9)
+    ]
     review = review_for(data)
     review["issues"] = [
         dict(
@@ -137,6 +146,10 @@ def check_review_additions_have_stable_ids_and_save(tmp_path):
             resource=f"{i:03d}",
             property="S3.Bucket.BucketName",
             rule="review.naming",
+            naming_item_id=f"name-{i}",
+            applied_rule="S3 pattern",
+            violation="format",
+            evidence="Incorrect prefix",
             source=dict(path="model/dev/123456789012/s3.properties", line=i + 1),
             message=f"Review finding {i}",
         )
@@ -172,6 +185,219 @@ def check_review_additions_have_stable_ids_and_save(tmp_path):
         json.loads(review_snapshot(data, review).data)["ordinary"]
         == json.loads(reordered.data)["ordinary"]
     )
+
+
+def check_naming_review_contract(tmp_path):
+    data = snapshot_artifact(tmp_path)
+    data["naming"]["names"] = [
+        dict(id="n1", service="s3", resource="001", property="Name")
+    ]
+    review = review_for(data)
+    assert not json.loads(review_snapshot(data, review).data)["ordinary"]
+    assert not json.loads(review_snapshot(data, review).data)["unverified"]
+    issue = dict(
+        service="s3",
+        resource="001",
+        property="Name",
+        rule="review.naming",
+        naming_item_id="n1",
+        applied_rule="Pattern",
+        violation="format",
+        evidence="The fixed prefix differs",
+        message="Incorrect prefix",
+    )
+    for violation in (
+        "format",
+        "required_missing",
+        "confirmed_mismatch",
+        "rule_missing",
+        "provider_constraint",
+    ):
+        candidate = dict(issue, violation=violation)
+        if violation == "required_missing":
+            data["naming"]["names"][0]["required_missing"] = True
+        if violation == "confirmed_mismatch":
+            candidate.update(expected="dev", actual="stg")
+        review["issues"] = [candidate]
+        assert len(json.loads(review_snapshot(data, review).data)["ordinary"]) == 1
+    for changes in (
+        {"naming_item_id": "bad"},
+        {"resource": "002"},
+        {"property": "Other"},
+        {"violation": "human_unknown"},
+        {"evidence": ""},
+        {"applied_rule": ""},
+        {"violation": "confirmed_mismatch"},
+    ):
+        review["issues"] = [dict(issue, **changes)]
+        with pytest.raises(ValueError):
+            review_snapshot(data, review)
+    data["naming"]["names"][0]["resourceMode"] = "IMPORT"
+    review["issues"] = [issue]
+    with pytest.raises(ValueError):
+        review_snapshot(data, review)
+    review["issues"] = [dict(issue, violation="provider_constraint")]
+    assert len(json.loads(review_snapshot(data, review).data)["ordinary"]) == 1
+    review["issues"] = []
+    review["unverified"] = [
+        dict(service="s3", check="naming", reason="Human component unknown")
+    ]
+    with pytest.raises(ValueError):
+        review_snapshot(data, review)
+    review["unverified"] = [
+        dict(
+            service="s3",
+            check="naming",
+            reason="Failed to read rule",
+            failure_kind="read_failure",
+        )
+    ]
+    assert (
+        json.loads(review_snapshot(data, review).data)["unverified"]
+        == review["unverified"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "pattern", "value", "violation", "expected", "actual"),
+    [
+        (
+            "EC2.VPC",
+            "vpc-{{application}}-{{environment}}",
+            "vpc-example-dev",
+            None,
+            None,
+            None,
+        ),
+        (
+            "EC2.Subnet",
+            "sbnt-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}-{{zone}}-{{number}}",
+            "sbnt-example-dev-data-private-1a-01",
+            None,
+            None,
+            None,
+        ),
+        (
+            "EC2.RouteTable",
+            "rtb-{{application}}-{{environment}}-{{subnet_type}}-{{route_type}}[-{{zone}}]-{{number}}",
+            "rtb-example-dev-data-private-1a-01",
+            None,
+            None,
+            None,
+        ),
+        (
+            "EC2.FlowLog",
+            "flowlog-{{application}}-{{environment}}[-{{target_alias}}]",
+            "flowlog-example-dev",
+            None,
+            None,
+            None,
+        ),
+        (
+            "EC2.VPCEndpoint",
+            "vpce-{{application}}-{{environment}}-{{service}}",
+            "vpce-example-dev-s3-gateway",
+            None,
+            None,
+            None,
+        ),
+        (
+            "EC2.VPC",
+            "vpc-{{application}}-{{environment}}",
+            "wrong-example-dev",
+            "format",
+            None,
+            None,
+        ),
+        (
+            "EC2.VPC",
+            "vpc-{{application}}-{{environment}}",
+            "vpc-example-stg",
+            "confirmed_mismatch",
+            "dev",
+            "stg",
+        ),
+        (
+            "EC2.VPC",
+            "vpc-{{application}}-{{environment}}",
+            None,
+            "required_missing",
+            None,
+            None,
+        ),
+        (
+            "EC2.VPC",
+            "vpc-{{application}}-{{environment}}",
+            "vpc-other-dev",
+            "confirmed_mismatch",
+            "example",
+            "other",
+        ),
+    ],
+)
+def check_naming_review_real_patterns_and_confirmed_values(
+    tmp_path, kind, pattern, value, violation, expected, actual
+):
+    # The reviewer supplies the decision; this exercises the real Scan/Review boundary.
+    rule_file = (
+        Path(__file__).resolve().parents[4]
+        / "framework/rules/aws-resource-naming/EC2.md"
+    )
+    assert any(
+        f"`{kind}`" in line and f"`{pattern}`" in line
+        for line in rule_file.read_text(encoding="utf-8").splitlines()
+    )
+    assert "{{purpose}}" not in pattern
+    data = snapshot_artifact(tmp_path, services=["vpc"])
+    data["naming_context"] = {
+        "target_context": {"environment": "dev"},
+        "pattern": pattern,
+    }
+    data["naming_context_id"] = identifier(data["naming_context"])
+    prop = "Name tag" if kind == "EC2.VPCEndpoint" else "Name"
+    item = dict(
+        id="name-1",
+        service="vpc",
+        resource="001",
+        resourceType=kind,
+        resourceMode="CREATE",
+        property=prop,
+        value=value,
+        required_missing=value is None,
+    )
+    data["naming"]["names"] = [item]
+    if expected == "example":
+        data["human_confirmations"]["confirmations"] = [
+            dict(
+                id="app",
+                service="vpc",
+                fact="application=example",
+                evidence="Human confirmed application",
+                scope=dict(resource="001", property=prop),
+                exceptions=[],
+            )
+        ]
+    review = review_for(data)
+    if violation:
+        issue = dict(
+            service="vpc",
+            resource="001",
+            property=prop,
+            rule="review.naming",
+            naming_item_id="name-1",
+            applied_rule=pattern,
+            violation=violation,
+            evidence="Pattern and confirmed target values demonstrate the violation",
+            message="Naming rule violation",
+        )
+        if expected is not None:
+            issue.update(expected=expected, actual=actual)
+        review["issues"] = [issue]
+    snapshot = json.loads(review_snapshot(data, review).data)
+    assert len(snapshot["ordinary"]) == (1 if violation else 0)
+    assert snapshot["unverified"] == []
+    if violation:
+        assert snapshot["ordinary"][0]["violation"] == violation
 
 
 @pytest.mark.parametrize("fault", ["review_duplicate", "machine_collision"])
@@ -416,7 +642,12 @@ def check_incomplete_is_not_pass(tmp_path, kind):
     review = review_for(data)
     if kind == "review":
         review["unverified"] = [
-            dict(service="s3", check="naming", reason="Human component unknown")
+            dict(
+                service="s3",
+                check="naming",
+                reason="Unable to read naming rules",
+                failure_kind="read_failure",
+            )
         ]
     with task(tmp_path, ["s3"]):
         outputs, snapshot, _ = save_scan(tmp_path, data, review)

@@ -316,15 +316,69 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
     additions = review["issues"]
     if not isinstance(additions, list):
         raise ValueError("review issues must be a list")
+    naming = {item["id"]: item for item in artifact["naming"]["names"]}
     for item in additions:
         if (
             not isinstance(item, dict)
             or set(item)
-            - {"service", "message", "source", "resource", "property", "rule"}
+            - {
+                "service",
+                "message",
+                "source",
+                "resource",
+                "property",
+                "rule",
+                "naming_item_id",
+                "violation",
+                "evidence",
+                "expected",
+                "actual",
+                "applied_rule",
+            }
             or item.get("service") not in services
         ):
             raise ValueError("review Issue ownership requires explicit scoped service")
         required_text(item, "message")
+        if item.get("rule") == "review.naming" or "naming_item_id" in item:
+            name = naming.get(required_text(item, "naming_item_id"))
+            if name is None or any(
+                item.get(key) != name.get(key)
+                for key in ("service", "resource", "property")
+            ):
+                raise ValueError("Naming Issue must match its naming item")
+            for key in ("rule", "violation", "evidence"):
+                required_text(item, key)
+            if item["rule"] != "review.naming" or item["violation"] not in {
+                "required_missing",
+                "format",
+                "confirmed_mismatch",
+                "rule_missing",
+                "provider_constraint",
+            }:
+                raise ValueError("Naming Issue needs a concrete violation")
+            required_text(item, "applied_rule")
+            if name.get("resourceMode") == "IMPORT" and item["violation"] in {
+                "format",
+                "rule_missing",
+            }:
+                raise ValueError("IMPORT is exempt from framework naming conventions")
+            if item["violation"] == "required_missing" and not name.get(
+                "required_missing"
+            ):
+                raise ValueError(
+                    "Naming item does not establish a missing required name"
+                )
+            if item["violation"] == "confirmed_mismatch":
+                if required_text(item, "expected") == required_text(item, "actual"):
+                    raise ValueError("Naming mismatch requires different values")
+        elif set(item) & {
+            "violation",
+            "evidence",
+            "expected",
+            "actual",
+            "applied_rule",
+        }:
+            raise ValueError("Naming evidence requires a naming item")
     additions = [
         dict(item, id=identifier(["issues.review", item])) for item in additions
     ]
@@ -333,14 +387,23 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
     if not isinstance(unverified, list):
         raise ValueError("review unverified must be a list")
     for item in unverified:
-        if (
-            not isinstance(item, dict)
-            or set(item) != {"service", "check", "reason"}
-            or item["service"] not in services
-        ):
+        if not isinstance(item, dict) or item.get("service") not in services:
             raise ValueError("unverified review needs a scoped service/check/reason")
-        required_text(item, "check")
+        check = required_text(item, "check")
         required_text(item, "reason")
+        fields = {"service", "check", "reason"}
+        if check == "naming":
+            fields.add("failure_kind")
+            if item.get("failure_kind") not in {
+                "input_unavailable",
+                "read_failure",
+                "execution_failure",
+            }:
+                raise ValueError(
+                    "Naming unverified requires a concrete execution failure"
+                )
+        if set(item) != fields:
+            raise ValueError("invalid unverified review fields")
     data = deepcopy(artifact)
     data["reviewed"] = True
     data["notice_overview"] = {}
