@@ -48,80 +48,78 @@ def validate_resource_identities(
         if relative is not None
         else None
     )
-    stack_names = None
     identity_catalog = DesignSchemaCatalog(definitions_root or definition_root(root))
     if target.get("iacEngine") == "terraform":
-        for identity, resource in resources:
-            _validate_terraform_identity(identity, resource)
-    elif target.get("iacEngine") == "cloudformation":
-        for identity, resource in resources:
-            stack_names = _validate_cloudformation_identity(
-                identity, resource, root, stack_source, resources,
-                identity_catalog, stack_names,
+        _validate_terraform_identities(resources)
+        return
+    if target.get("iacEngine") != "cloudformation":
+        return
+    _validate_cloudformation_identities(root, stack_source, resources, identity_catalog)
+
+
+def _validate_terraform_identities(
+    resources: list[tuple[str, dict[str, str]]],
+) -> None:
+    """Terraform では CloudFormation Identity を許可しない。"""
+    for identity, resource in resources:
+        if "cfn-logicalId" in resource:
+            raise InputValidationError(
+                f"{identity}: cfn-logicalId is forbidden for Terraform"
             )
 
 
-def _validate_terraform_identity(identity: str, resource: dict[str, str]) -> None:
-    """Terraform では CloudFormation Identity を許可しない。"""
-    if "cfn-logicalId" in resource:
-        raise InputValidationError(
-            f"{identity}: cfn-logicalId is forbidden for Terraform"
-        )
-
-
-def _validate_cloudformation_identity(
-    identity: str,
-    resource: dict[str, str],
+def _validate_cloudformation_identities(
     root: Path,
     stack_source: Path | None,
     resources: list[tuple[str, dict[str, str]]],
     identity_catalog: DesignSchemaCatalog,
-    stack_names: set[str] | None,
-) -> set[str] | None:
+) -> None:
     """CloudFormation Identity と Stack の対応を検証する。"""
-    if "cfn-logicalId" not in resource:
-        if _dependency_design_layout.resource_mode(resource) == "CREATE":
+    stack_names = None
+    for identity, resource in resources:
+        if "cfn-logicalId" not in resource:
+            if _dependency_design_layout.resource_mode(resource) != "CREATE":
+                continue
             try:
                 cfn_type = identity_catalog.cloudformation_type(
                     resource["resourceType"]
                 )
             except ValueError:
-                cfn_type = None  # API 専用 Resource は CFn Identity を持たない。
+                continue  # API 専用 Resource は CFn Identity を持たない。
             if cfn_type:
                 raise InputValidationError(
                     f"{identity}: cfn-logicalId required for CloudFormation CREATE resource"
                 )
-        return stack_names
-    if _dependency_design_layout.resource_mode(resource) != "CREATE":
-        raise InputValidationError(
-            f"{identity}: cfn-logicalId requires CREATE with a formal CFn type"
-        )
-    identity_catalog.cloudformation_type(resource["resourceType"])
-    placement_names = _imports_model_importing_scope.placement_names
-    import_selection = _imports_model_importing_scope.selected
-    if import_selection(root) is not None and stack_source is not None:
-        if stack_names is None:
-            stack_names = placement_names(
-                stack_source,
-                {
-                    iac_values.cfn_resource_identity(spec["cfn-logicalId"])[0]
-                    for _, spec in resources
-                    if spec.get("cfn-logicalId")
-                },
-            )[0]
-        if (
-            iac_values.cfn_resource_identity(resource["cfn-logicalId"])[0]
-            not in stack_names
-        ):
-            raise ReferenceResolutionError(
-                f"{identity}: cfn-logicalId references an undeclared stack"
+            continue
+        if _dependency_design_layout.resource_mode(resource) != "CREATE":
+            raise InputValidationError(
+                f"{identity}: cfn-logicalId requires CREATE with a formal CFn type"
             )
-        return stack_names
-    if stack_source is None or not input_is_file(stack_source):
-        raise InputValidationError(
-            f"{identity}: cfn-logicalId requires authoritative cloudformation-stacks.properties"
-        )
-    if stack_source is not None and input_is_file(stack_source):
+        identity_catalog.cloudformation_type(resource["resourceType"])
+        placement_names = _imports_model_importing_scope.placement_names
+        import_selection = _imports_model_importing_scope.selected
+        if import_selection(root) is not None and stack_source is not None:
+            if stack_names is None:
+                stack_names = placement_names(
+                    stack_source,
+                    {
+                        iac_values.cfn_resource_identity(spec["cfn-logicalId"])[0]
+                        for _, spec in resources
+                        if spec.get("cfn-logicalId")
+                    },
+                )[0]
+            if (
+                iac_values.cfn_resource_identity(resource["cfn-logicalId"])[0]
+                not in stack_names
+            ):
+                raise ReferenceResolutionError(
+                    f"{identity}: cfn-logicalId references an undeclared stack"
+                )
+            continue
+        if stack_source is None or not input_is_file(stack_source):
+            raise InputValidationError(
+                f"{identity}: cfn-logicalId requires authoritative cloudformation-stacks.properties"
+            )
         if stack_names is None:
             read_model = _imports_model_files.read_model
             _, stacks = stack_model(properties(read_model(stack_source)))
@@ -136,5 +134,3 @@ def _validate_cloudformation_identity(
             raise ReferenceResolutionError(
                 f"{identity}: cfn-logicalId references an undeclared stack"
             )
-
-    return stack_names
