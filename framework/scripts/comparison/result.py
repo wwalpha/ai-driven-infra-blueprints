@@ -183,6 +183,12 @@ def _visit_unconfirmed(
             )
 
 
+def _evidence_key(path, model, iac):
+    return json.dumps(
+        [path, safe_value(model), safe_value(iac)], sort_keys=True, ensure_ascii=False
+    )
+
+
 def unconfirmed_references(
     desired, actual, decision, prop, *, redact, display_reference
 ):
@@ -197,13 +203,47 @@ def unconfirmed_references(
     model = redact(desired, prop)
     _visit_unconfirmed(safe, "", prop, candidates)
 
-    fields = []
-    for value, path, property_name, pointer in candidates:
+    evidence = {}
+    for diagnostic in decision.diagnostics:
+        if all(
+            key in diagnostic for key in ("path", "model", "iac", "local_comparison")
+        ):
+            key = _evidence_key(
+                diagnostic["path"], diagnostic["model"], diagnostic["iac"]
+            )
+            evidence.setdefault(key, set()).add(diagnostic["local_comparison"])
+    candidate_keys = []
+    for value, _path, _property_name, pointer in candidates:
         matches = pointers.get(pointer, set())
         model_pointer = next(iter(matches)) if len(matches) == 1 else None
+        typed_path = prop + "".join(
+            "[]" if isinstance(token, int) else "." + token for token in pointer
+        )
+        key = (
+            _evidence_key(typed_path, _shown_value(None, model_pointer, model), value)
+            if model_pointer is not None
+            else None
+        )
+        candidate_keys.append(key)
+    counts = {}
+    for key in candidate_keys:
+        counts[key] = counts.get(key, 0) + 1
+
+    fields = []
+    for (value, path, property_name, pointer), key in zip(
+        candidates, candidate_keys, strict=True
+    ):
+        matches = pointers.get(pointer, set())
+        model_pointer = next(iter(matches)) if len(matches) == 1 else None
+        statuses = (
+            evidence.get(key, set()) if key is not None and counts[key] == 1 else set()
+        )
+        if statuses == {"matched"}:
+            continue
+        label = "比較未確定" if statuses == {"uncompared"} else "参照情報"
         fields.append(
             {
-                "path": safe_text("IaC:" + (path or prop) + "（比較未確定）"),
+                "path": safe_text("IaC:" + (path or prop) + f"（{label}）"),
                 "model": _formatted(_shown_value(None, model_pointer, model))
                 if model_pointer is not None
                 else "対応未確定",

@@ -6282,6 +6282,9 @@ def unordered_reference(refs, left, right, path):
                 if equal is None
                 else "difference",
                 "reason": "fixture",
+                "identity": "unproven",
+                "allowed_forms": None,
+                "format": {},
             },
         ),
     )
@@ -6437,18 +6440,18 @@ def test_unordered_uncompared_displays_only_diagnosed_reference(nested):
         reference=partial(unordered_reference, refs),
     )
     assert decision.equal is None
-    resolver = Mock(return_value=("resolved", "fixture"))
+    resolver = Mock(side_effect=[("resolved", "fixture")])
     args = ("test", "001", "Setting", desired, actual, decision, "stack", [{}], {})
     before = setting_result(*args, actual_error=None, redact=safe_value)
     after = setting_result(
         *args, actual_error=None, redact=safe_value, display_reference=resolver
     )
-    assert after.records == before.records
+    assert after.records == before.records and not after.warnings
     fields = after.display_differences[identifier(after.records[0])]
-    assert len(fields) == 2
-    assert [field["model"] for field in fields] == ["confirmed", "pending"]
-    assert all(f"kms/00{i}.KeyId" in fields[i - 1]["iac"] for i in (1, 2))
-    assert resolver.call_count == 2
+    assert len(fields) == 1
+    assert fields[0]["model"] == "pending"
+    assert "kms/002.KeyId" in fields[0]["iac"]
+    resolver.assert_called_once_with(refs[1])
     old = iac_dataset(
         before.records, "fixture", "team", ["test"], before.display_differences
     )
@@ -6456,6 +6459,65 @@ def test_unordered_uncompared_displays_only_diagnosed_reference(nested):
         after.records, "fixture", "team", ["test"], after.display_differences
     )
     assert old[:2] == new[:2]
+    artifact = dict(
+        version=6,
+        **aggregate(
+            after.records, "fixture", "team", ["test"], after.display_differences
+        ),
+    )
+    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == fields
+
+
+def many_reference(left, right, path):
+    if not isinstance(right, ResourceReference):
+        return ReferenceDecision(NotImplemented)
+    number = int(right["$resource"][1])
+    equal = (None if number == 30 else True) if left == str(number) else False
+    return ReferenceDecision(
+        equal,
+        (
+            {
+                "path": path,
+                "model": left,
+                "iac": right,
+                "local_comparison": "uncompared"
+                if equal is None
+                else "matched"
+                if equal
+                else "difference",
+            },
+        ),
+    )
+
+
+def test_many_unordered_references_resolve_only_pending():
+    refs = [
+        ResourceReference({"$resource": ["kms", f"{i:03}"], "$attribute": "KeyId"})
+        for i in range(1, 31)
+    ]
+    desired = [str(i) for i in range(1, 31)]
+    decision = compare_values(
+        desired, refs, "Setting", rules={"Setting": UNORDERED}, reference=many_reference
+    )
+    resolver = Mock(return_value=("resolved", "fixture"))
+    result = setting_result(
+        "test",
+        "001",
+        "Setting",
+        desired,
+        refs,
+        decision,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=safe_value,
+        display_reference=resolver,
+    )
+    assert decision.equal is None and not result.warnings
+    fields = result.display_differences[identifier(result.records[0])]
+    assert len(fields) == 1 and "kms/030.KeyId" in fields[0]["iac"]
+    resolver.assert_called_once_with(refs[-1])
 
 
 def test_unordered_ambiguous_reference_has_no_individual_claim():
@@ -6587,9 +6649,9 @@ def test_unordered_expression_only_uncompared_selected_and_ambiguous():
     )
     assert before.records == after.records and not after.warnings
     fields = after.display_differences[identifier(after.records[0])]
-    assert [field["model"] for field in fields] == ["matched", "pending"]
-    assert all(f"kms/00{i}.KeyId" in fields[i - 1]["iac"] for i in (1, 2))
-    assert resolver.call_count == 2
+    assert [field["model"] for field in fields] == ["pending"]
+    assert "kms/002.KeyId" in fields[0]["iac"]
+    resolver.assert_called_once_with(refs[1])
     ambiguous = compare_values(
         ["pending", "pending"],
         actual,
@@ -6667,8 +6729,8 @@ def test_uncompared_duplicate_positions_and_ambiguous_evidence():
     fields = batch.display_differences[identifier(batch.records[0])]
     assert [field["model"] for field in fields] == desired
     assert [field["path"] for field in fields] == [
-        "IaC:[0]（比較未確定）",
-        "IaC:[1]（比較未確定）",
+        "IaC:[0]（参照情報）",
+        "IaC:[1]（参照情報）",
     ]
     assert all("kms/007.KeyId" in field["iac"] for field in fields)
     ambiguous = CompareOutcome(
