@@ -9,7 +9,6 @@ import subprocess as subprocess
 import sys as sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, nullcontext
-from dataclasses import replace
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
@@ -87,6 +86,23 @@ def _callback_Validator_generate_and_validate_generated(plan, self, snapshot, /)
     for diagnostic in plan.failure_records:
         if diagnostic.code != "generation.reference":
             self.findings.add_diagnostic(diagnostic)
+    metadata = _imports_sync_runtime.generation_metadata(plan)
+    unavailable = metadata["unavailable_services"]
+    pending_views = (
+        self.task_type in {"design", "migration"}
+        and bool(unavailable)
+        and set(unavailable) == set(metadata["view_states"])
+        and not plan.failures
+        and not metadata["unverified"]
+    )
+    if pending_views:
+        self.findings.information.append(
+            dict(
+                kind="view_generation",
+                states=metadata["view_states"],
+                details=unavailable,
+            )
+        )
     return {
         "inputs": snapshot,
         "candidates": plan.expected_outputs,
@@ -574,7 +590,7 @@ class Validator:
         )
         if self.model_validation == "change":
             self.check_changed_inputs()
-        if self.errors:
+        if self.findings.status != "PASS":
             return
         plan = prepare_generation(
             self.root,
@@ -589,6 +605,11 @@ class Validator:
                 for name, phase in self.acceptance_stages.items()
                 if phase == "common"
             }
+            common_ids.update(
+                result.check_id
+                for result in self.findings.results.values()
+                if result.check_id.startswith("change.")
+            )
             self.findings.bind_candidate(plan.candidate, common_ids)
             # Generation reports projection outcomes independently of View quality.
             generated = _bind_framework_callback(
@@ -597,9 +618,21 @@ class Validator:
                 self,
                 snapshot,
             )
-            self.findings.evaluate(
-                "framework.generated-service-model", self.scope, generated
+            generation_info = _imports_sync_runtime.generation_metadata(plan)
+            pending_views = (
+                self.task_type in {"design", "migration"}
+                and bool(generation_info["unavailable_services"])
+                and set(generation_info["unavailable_services"])
+                == set(generation_info["view_states"])
+                and not generation_info["unverified"]
+                and not plan.failures
             )
+            if pending_views:
+                generated()
+            else:
+                self.findings.evaluate(
+                    "framework.generated-service-model", self.scope, generated
+                )
             candidate_error_count = len(self.errors)
             if self.infrastructure_phase != "destroy":
                 self.input_check(snapshot, self.check_iac_selection)
@@ -683,6 +716,18 @@ class Validator:
             self.check_acceptance_checks()
             try:
                 report_generation(plan)
+            except _imports_model_core.ReferenceResolutionError as error:
+                metadata = _imports_sync_runtime.generation_metadata(plan)
+                if not (
+                    self.task_type in {"design", "migration"}
+                    and metadata["unavailable_services"]
+                    and set(metadata["unavailable_services"])
+                    == set(metadata["view_states"])
+                    and not metadata["unverified"]
+                    and not plan.failures
+                ):
+                    if not self.errors:
+                        self.check(False, str(error))
             except ValueError as error:
                 if not self.errors:
                     self.check(False, str(error))
@@ -860,10 +905,6 @@ class Validator:
                 self.findings.include_diagnostics(validator.findings)
                 for warning in validator.warnings:
                     self.findings.warn(warning)
-                for result in validator.findings.results.values():
-                    self.findings.results[
-                        result.check_id, result.scope, self.findings.candidate
-                    ] = replace(result, candidate=self.findings.candidate)
             if (
                 _state_check_scoped_designs_351.entry not in skipped
                 and self.cache
@@ -1180,18 +1221,39 @@ class Validator:
             model_validation="change",
         )
         generator.check_generated_service_models()
-        self.findings.include_diagnostics(generator.findings)
-        self.checks += generator.checks
-        for warning in generator.warnings:
-            self.findings.warn(warning)
-        for result in generator.findings.results.values():
-            self.findings.results[
-                result.check_id, result.scope, self.findings.candidate
-            ] = replace(result, candidate=self.findings.candidate)
-        result = self.findings.result("framework.generated-service-model", self.scope)
         actual = generator.findings.result(
             "framework.generated-service-model", generator.scope
         )
+        unavailable = actual.metadata.get("unavailable_services", {})
+        view_states = actual.metadata.get("view_states", {})
+        pending_views = (
+            self.task_type in {"design", "migration"}
+            and bool(unavailable)
+            and set(unavailable) == set(view_states)
+            and not generator.errors
+            and not generator.findings.unverified
+            and all(
+                result.check_id == "framework.generated-service-model"
+                or result.status == "PASS"
+                for result in generator.findings.results.values()
+            )
+        )
+        self.findings.include_diagnostics(
+            generator.findings,
+            exclude_checks=("framework.generated-service-model",)
+            if pending_views
+            else (),
+        )
+        self.checks += generator.checks
+        for warning in generator.warnings:
+            self.findings.warn(warning)
+        if pending_views:
+            self.findings.information.append(
+                dict(kind="view_generation", states=view_states, details=unavailable)
+            )
+            self.generated_models_checked = True
+            return
+        result = self.findings.result("framework.generated-service-model", self.scope)
         result.status, result.metadata = actual.status, dict(actual.metadata)
         self.generated_models_checked = True
 

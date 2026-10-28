@@ -777,7 +777,7 @@ def check_candidate_indexed_saved_reference(tmp_path, service, kind, field, faul
     assert result.status == (
         "FAIL" if fault == "table" else "NOT_RUN" if fault == "model" else "PASS"
     ), (findings.errors, findings.unverified)
-    assert result.model_completion_allowed == (fault in (None, "unrelated"))
+    assert (result.status == "PASS") == (fault in (None, "unrelated"))
     if fault == "table":
         assert any(
             item.code == "design.display.mismatch" for item in findings.diagnostics

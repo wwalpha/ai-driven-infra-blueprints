@@ -600,7 +600,7 @@ def check_fail_with_unverified_reference(tmp_path):
     result = findings.evaluate("generated", None, partial(fail_with_warning, findings))
     assert result.status == "FAIL" and result.metadata["complete"] is False
     assert result.metadata["unverified"] and result.metadata["unavailable_services"]
-    assert not result.model_completion_allowed
+    assert result.status != "PASS"
 
 
 def check_compare_forwards_and_skips_reference_duplicates(tmp_path):

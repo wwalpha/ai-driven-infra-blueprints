@@ -569,11 +569,7 @@ class TaskValidation:
                         else self.findings.evaluate(value, scope, handler)
                     )
                     self.check(
-                        result.status == "PASS"
-                        or (
-                            self.task_type in {"design", "migration"}
-                            and result.model_completion_allowed
-                        ),
+                        result.status == "PASS",
                         f"Acceptance check is {result.status}: {requirement_id}: {value}",
                     )
             if len(self.findings.errors) == before:

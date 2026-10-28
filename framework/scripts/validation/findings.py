@@ -117,14 +117,6 @@ class CheckResult:
     checks: int = 0
     metadata: dict = field(default_factory=dict)
 
-    @property
-    def model_completion_allowed(self):
-        return self.status == "PASS" or (
-            self.status == "NOT_RUN"
-            and not self.errors
-            and self.metadata.get("reason") == "reference"
-        )
-
 
 class Findings:
     def __init__(self, root: Path, *, source_path=None):
@@ -178,7 +170,10 @@ class Findings:
         for result in list(self.results.values()):
             if result.candidate is previous and result.check_id in common_checks:
                 retained = replace(result, candidate=candidate)
-                self.results[(retained.check_id, retained.scope, candidate)] = retained
+                key = (retained.check_id, retained.scope, candidate)
+                if key in self.results:
+                    key = (retained.check_id, retained.scope, (candidate, object()))
+                self.results[key] = retained
 
     def get_result(self, check_id, scope):
         """Read this candidate's result without registering an unexecuted check."""
@@ -288,7 +283,22 @@ class Findings:
             diagnostic.message if display_error is None else display_error
         )
 
-    def include_diagnostics(self, findings):
+    def include_diagnostics(self, findings, *, scope=None, exclude_checks=()):
+        for child in getattr(findings, "results", {}).values():
+            if (
+                child.candidate is not findings.candidate
+                or child.check_id in exclude_checks
+            ):
+                continue
+            child_scope = child.scope if child.scope is not None else scope
+            child_scope = None if child_scope is None else frozenset(child_scope)
+            retained = replace(child, scope=child_scope, candidate=self.candidate)
+            key = (retained.check_id, retained.scope, self.candidate)
+            if key in self.results:
+                key = (retained.check_id, retained.scope, (self.candidate, object()))
+            self.results[key] = retained
+        for warning in findings.warnings:
+            self.warn(warning)
         if findings.errors:
             self.diagnostic_failures += 1
         known = set(self.diagnostic_errors.values())
@@ -432,7 +442,7 @@ class Findings:
                     "diagnostic_id",
                     stable_id(reference_identity(self.canonical_root, warning)),
                 )
-                if not any(
+                if warning["category"] != "REFERENCE_PENDING_DEPLOY" and not any(
                     item.get("diagnostic_id") == warning["diagnostic_id"]
                     for item in self.unverified
                 ):
@@ -517,6 +527,9 @@ class Findings:
         print(f"Checks: {self.checks}")
         print(f"Blocking errors: {len(self.errors)}")
         print(f"Warnings: {len(self.warnings)}")
+        for information in self.information:
+            if information.get("kind") == "view_generation":
+                print("View generation: " + json.dumps(information, ensure_ascii=False))
         for warning in self.warnings:
             print(
                 "WARNING ["

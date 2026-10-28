@@ -434,12 +434,14 @@ When a local loop is required, its PASS displays executed Requirement IDs, Accep
 
 ## Model-only final integration
 
-Follow [Reference diagnostics](model-information.md#reference-diagnostics). Preserve
-warnings through child validators, generation/comparison and final candidate aggregation.
-Executed checks with no errors are PASS; individual reference-unavailable checks are
-NOT_RUN with reason/scope/retained-view metadata. Final completion still requires valid candidate reference targets/types and never accepts
-arbitrary NOT_RUN. Keep source save success
-separate from view completeness; do not restore old-view equality failures afterward.
+Follow [Reference diagnostics](model-information.md#reference-diagnostics). Keep Model
+validation and View generation states separate. PENDING_DEPLOY is not NOT_RUN: a valid
+logical reference may pass Model validation before its physical value is deployed. Run
+all mandatory Change Validation checks, including candidate target, type and attribute
+checks; an interrupted or unexecuted mandatory check blocks completion. Preserve warnings
+and report retained or not-generated Views separately, without claiming View equality.
+Only proven pending deployment is nonblocking; invalid references, unresolved mandatory
+checks and actual failures block integration. Do not add Full Validation to Model updates.
 
 The running /update Model-only parent prepares source and generated views, then finalize
 creates its private candidate commit and rebases onto latest local base. Run the existing

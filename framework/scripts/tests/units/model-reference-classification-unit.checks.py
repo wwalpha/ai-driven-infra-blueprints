@@ -382,7 +382,7 @@ def test_pending_and_every_invalid_sibling_are_collected(models):
         "projection", None, partial(materialize, consumer, role, document)
     )
     assert result.status == "FAIL" and result.errors and result.warnings
-    assert len(findings.reference_errors) == 2 and len(findings.unverified) == 1
+    assert len(findings.reference_errors) == 2 and not findings.unverified
 
 
 def test_pending_resolves_without_altering_authority(models):
@@ -394,7 +394,7 @@ def test_pending_resolves_without_altering_authority(models):
     diagnostic = warnings[0]
     assert (
         diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
-        and diagnostic["status"] == "NOT_RUN"
+        and diagnostic["status"] == "WARNING"
     )
     assert (
         diagnostic["targetLogicalId"] == "KMS_Key_004"
@@ -607,7 +607,7 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
     assert metadata["status"] == ("FAIL" if invalid else "PASS")
     assert metadata["complete"] == (not invalid)
     assert not metadata["unavailable_services"]
-    assert bool(metadata["unverified"]) == (state != "invalid")
+    assert not metadata["unverified"]
     assert metadata["warnings"] == warnings
     if invalid:
         with pytest.raises(ValueError):
@@ -697,8 +697,8 @@ def test_real_input_validation_does_not_invent_pending_errors(models):
         consumer.path, role, consumer.root, definitions_root=FRAMEWORK
     )
     assert not findings.errors, findings.errors
-    assert findings.status == "NOT_RUN" and len(findings.unverified) == 1
-    assert findings.result("model.json-settings", None).status == "NOT_RUN"
+    assert findings.status == "PASS" and not findings.unverified
+    assert findings.result("model.json-settings", None).status == "PASS"
 
 
 @pytest.mark.parametrize("field", ["value", "document"])
@@ -854,13 +854,16 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, state
             if w.get("category") == "REFERENCE_PENDING_DEPLOY"
         ]
     ) == int(state != "producer-invalid"), validator.warnings
-    assert len(
-        [
-            item
-            for item in validator.findings.unverified
-            if item.get("category") == "REFERENCE_PENDING_DEPLOY"
-        ]
-    ) == int(state != "producer-invalid")
+    assert (
+        len(
+            [
+                item
+                for item in validator.findings.unverified
+                if item.get("category") == "REFERENCE_PENDING_DEPLOY"
+            ]
+        )
+        == 0
+    )
     assert len(validator.findings.reference_error_positions) == int(invalid)
 
 

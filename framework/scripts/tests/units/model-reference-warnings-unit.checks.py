@@ -47,6 +47,122 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def check_child_results_keep_scope_and_incomplete_state(tmp_path):
+    parent = Findings(tmp_path)
+    for service, status in (("one", "NOT_RUN"), ("two", "FAIL")):
+        child = Findings(tmp_path)
+        result = child.result("required", None)
+        result.status = status
+        result.metadata.update(complete=False, reason="interrupted")
+        parent.include_diagnostics(child, scope={("dev", "target", service)})
+        if service == "one":
+            assert parent.status == "NOT_RUN"
+    assert parent.status == "FAIL"
+    assert {(r.scope, r.status) for r in parent.results.values()} == {
+        (frozenset({("dev", "target", "one")}), "NOT_RUN"),
+        (frozenset({("dev", "target", "two")}), "FAIL"),
+    }
+
+
+def check_pending_warning_does_not_hide_interrupted_checks(tmp_path):
+    findings = Findings(tmp_path)
+    pending = ReferenceResolutionError(
+        "physical value is pending", category="REFERENCE_PENDING_DEPLOY"
+    )
+
+    def complete():
+        findings.warn(pending)
+        findings.check(True, "independent model check")
+
+    assert findings.evaluate("model", set(), complete).status == "PASS"
+    assert findings.checks == 1 and findings.warnings and not findings.unverified
+
+    def interrupted():
+        raise pending
+
+    assert findings.evaluate("interrupted", set(), interrupted).status == "NOT_RUN"
+    assert findings.status == "NOT_RUN"
+
+
+def check_child_results_with_same_identity_are_not_lost(tmp_path):
+    parent = Findings(tmp_path)
+    for status in ("PASS", "NOT_RUN"):
+        child = Findings(tmp_path)
+        child.result("required", None).status = status
+        parent.include_diagnostics(child, scope={("dev", "target", "one")})
+    assert [r.status for r in parent.results.values()] == ["PASS", "NOT_RUN"]
+    assert parent.status == "NOT_RUN"
+    parent.bind_candidate(object(), {"required"})
+    assert parent.status == "NOT_RUN"
+    assert [
+        r.status for r in parent.results.values() if r.candidate is parent.candidate
+    ] == ["PASS", "NOT_RUN"]
+
+
+@pytest.mark.parametrize("retained", [True, False])
+def check_pending_view_reports_retained_or_not_generated(tmp_path, retained):
+    path = tmp_path / "docs/designs/dev/target/service.md"
+    info = {
+        "reason": "reference",
+        "retainedView": str(path) if retained else None,
+        "diagnostics": [{"category": "REFERENCE_PENDING_DEPLOY"}],
+    }
+    states = runtime.pending_view_states(tmp_path, {path: info})
+    assert states == {
+        "dev/target/service": (
+            "RETAINED_PENDING_DEPLOY" if retained else "NOT_GENERATED_PENDING_DEPLOY"
+        )
+    }
+    info["diagnostics"][0]["category"] = "REFERENCE_UNRESOLVED"
+    assert not runtime.pending_view_states(tmp_path, {path: info})
+
+
+@pytest.mark.parametrize("state", ["pending", "unchecked", "unresolved", "failure"])
+def check_pending_view_is_separate_from_model_validation(tmp_path, monkeypatch, state):
+    scope = {("dev", "target", "service")}
+    parent = Validator(tmp_path, scope, model_validation="change")
+    parent.task_type = "design"
+    parent.change_plan = SimpleNamespace(views=scope)
+    executed = []
+
+    def check_inputs():
+        executed.append("model")
+        if state == "unchecked":
+            parent.findings.result("required-model-check", scope).metadata.update(
+                complete=False, reason="interrupted"
+            )
+
+    monkeypatch.setattr(parent, "check_changed_inputs", check_inputs)
+
+    def generate(validator):
+        result = validator.findings.result("framework.generated-service-model", scope)
+        result.status = "NOT_RUN"
+        result.metadata = {
+            "complete": False,
+            "unavailable_services": {"dev/target/service": {"reason": "reference"}},
+            "view_states": {"dev/target/service": "RETAINED_PENDING_DEPLOY"}
+            if state in {"pending", "unchecked"}
+            else {},
+        }
+        if state == "failure":
+            validator.findings.check(False, "generation failed")
+
+    monkeypatch.setattr(Validator, "check_generated_service_models", generate)
+    parent.check_changed_designs()
+    assert executed == ["model"]
+    if state == "pending":
+        assert parent.findings.status == "PASS"
+        assert parent.findings.information[0]["states"]["dev/target/service"] == (
+            "RETAINED_PENDING_DEPLOY"
+        )
+        assert (
+            parent.findings.get_result("framework.generated-service-model", scope)
+            is None
+        )
+    else:
+        assert parent.findings.status == ("FAIL" if state == "failure" else "NOT_RUN")
+
+
 @pytest.fixture(autouse=True)
 def synthetic_project(tmp_path):
     (tmp_path / "project.json").write_text(
@@ -248,11 +364,9 @@ def _callback_check_completion_only_waives_reference_not_run_mixed(findings, /):
 
 def check_completion_only_waives_reference_not_run(tmp_path):
     result = CheckResult("check", frozenset(), object())
-    assert not result.model_completion_allowed
+    assert result.status == "NOT_RUN"
     result.metadata["reason"] = "reference"
-    assert result.model_completion_allowed
-    result.errors = ("literal mismatch",)
-    assert not result.model_completion_allowed
+    assert result.status == "NOT_RUN"
     findings = Findings(tmp_path)
     mixed = _bind_framework_callback(
         _callback_check_completion_only_waives_reference_not_run_mixed, findings
@@ -381,7 +495,7 @@ def check_link_display_and_readback_classification(tmp_path):
     result = findings.evaluate(
         "display", None, lambda: expanded_display_rows(document, definitions)
     )
-    assert result.model_completion_allowed and result.status == "NOT_RUN"
+    assert result.status == "NOT_RUN"
     assert result.warnings and not result.errors
     with pytest.raises(ValueError) as caught:
         display_rows("CodeBuild.Project", [["1", prop, "[1]", "配置先"]], definitions)
@@ -542,7 +656,7 @@ def check_unavailable_service_keeps_source_errors_and_no_cache(
     result = validator.findings.result("design.service", scope)
     assert result.metadata["reason"] == "dependency"
     # A missing saved raw View prevents completion even when generation only waits.
-    assert not result.model_completion_allowed
+    assert result.status != "PASS"
     validator.cache.save.assert_not_called()
 
 
@@ -569,9 +683,7 @@ def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name
     if missing_name:
         assert any("provider schema violation" in e for e in findings.errors)
     else:
-        assert all(
-            result.model_completion_allowed for result in findings.results.values()
-        )
+        assert findings.status == "PASS"
 
 
 def check_model_document_uses_authoritative_json(tmp_path):

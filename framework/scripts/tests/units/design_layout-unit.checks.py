@@ -2017,7 +2017,7 @@ def check_expansion_failure_preserves_raw_and_independent_resources(tmp_path, ca
             tmp_path, catalog, broken + "\n" + second + "\n" + third
         )
     assert result.status == "FAIL" and result.metadata["reason"] == "dependency"
-    assert not result.model_completion_allowed
+    assert result.status != "PASS"
     assert (
         sum("PLAINTEXTではResource linkは禁止" in error for error in validator.errors)
         == 1
@@ -2045,7 +2045,7 @@ def check_expansion_failure_preserves_raw_and_independent_resources(tmp_path, ca
     blocked = validator.findings.result(
         "design.tables.semantic", {("dev", "123456789012", "codebuild")}
     )
-    assert blocked.status == "NOT_RUN" and not blocked.model_completion_allowed
+    assert blocked.status == "NOT_RUN"
     entries = blocked.metadata["unverified"]
     assert any(
         entry["resource"] == "### CodeBuild.Project: BuildProject"

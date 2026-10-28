@@ -641,7 +641,7 @@ def check_reference_diagnostics_filter_values():
     assert diagnostic == {
         "category": "REFERENCE_PENDING_DEPLOY",
         "code": "REFERENCE_PENDING_DEPLOY",
-        "status": "NOT_RUN",
+        "status": "WARNING",
         "model": "model/dev/app/codebuild.properties",
         "modelKey": "desired.row.001-002.value",
         "producerModel": "model/dev/app/kms.properties",

@@ -199,7 +199,7 @@ def assert_dependency_errors(findings):
     ), findings.errors
     assert not findings.processing_errors, findings.processing_errors
     semantic = findings.result("design.tables.semantic", {("dev", "team", "codebuild")})
-    assert semantic.status == "NOT_RUN" and not semantic.model_completion_allowed
+    assert semantic.status == "NOT_RUN"
     assert any(
         item.get("resource") == "CodeBuild_Project_001"
         for item in semantic.metadata["unverified"]
@@ -227,7 +227,7 @@ def test_model_reference_failure_keeps_independent_schema_and_valid_resource(mod
             ),
             isolate=True,
         )
-    assert result.status == "FAIL" and not result.model_completion_allowed
+    assert result.status == "FAIL"
     assert_dependency_errors(validator.findings)
     assert [call.args[2] for call in identifiers.call_args_list] == [
         "CodeBuild_Project_002",
@@ -261,11 +261,11 @@ def test_scoped_generation_failure_keeps_saved_raw_and_schema(models, raw_error)
         validator.errors
     )
     service = validator.findings.result("design.service", validator.scope)
-    assert service.status == "FAIL" and not service.model_completion_allowed
+    assert service.status == "FAIL"
     generation = validator.findings.result(
         "framework.generated-service-model", validator.scope
     )
-    assert generation.status == "FAIL" and not generation.model_completion_allowed
+    assert generation.status == "FAIL"
     assert (
         validator.findings.result("design.observed-values", validator.scope).status
         == "PASS"
@@ -290,7 +290,7 @@ def test_generation_failure_unreadable_raw_is_not_run(models, missing):
         view_errors[view] = {"message": "invalid UTF-8"}
     validator.check_scoped_designs(view_errors=view_errors)
     raw = validator.findings.result("design.tables.raw", validator.scope)
-    assert raw.status == "NOT_RUN" and not raw.model_completion_allowed
+    assert raw.status == "NOT_RUN"
     assert raw.metadata["reason"] == "view-read" and raw.metadata["message"]
     assert not validator.findings.processing_errors, (
         validator.findings.processing_errors
@@ -318,7 +318,7 @@ def test_scoped_normal_typed_reference_checks_raw_once(models, pending):
         view, view.read_text(encoding="utf-8"), tuple(values.items()), FRAMEWORK
     )
     service = validator.findings.result("design.service", validator.scope)
-    assert service.model_completion_allowed, service
+    assert service.status in {"PASS", "NOT_RUN"}, service
     if pending:
         assert service.status in {"PASS", "NOT_RUN"}
         if service.status == "NOT_RUN":
@@ -346,9 +346,9 @@ def test_missing_typed_target_is_model_error_not_reference_wait(models):
     assert raw.call_count == 1
     service = validator.findings.result("design.service", validator.scope)
     assert service.status == "FAIL" and service.metadata["reason"] == "dependency"
-    assert not service.model_completion_allowed
+    assert service.status != "PASS"
     semantic = validator.findings.result("design.tables.semantic", validator.scope)
-    assert semantic.status == "NOT_RUN" and not semantic.model_completion_allowed
+    assert semantic.status == "NOT_RUN"
 
 
 @pytest.mark.usefixtures("catalog_display_fixture")

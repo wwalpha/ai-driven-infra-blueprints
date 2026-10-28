@@ -187,7 +187,7 @@ def safe_diagnostic(diagnostic):
     for field, allowed in (
         ("category", REFERENCE_CATEGORIES),
         ("code", REFERENCE_CODES),
-        ("status", {"FAIL", "NOT_RUN"}),
+        ("status", {"FAIL", "NOT_RUN", "WARNING"}),
         ("attribute", {"Arn", *ARN_ATTRIBUTES.values(), *REF_ATTRIBUTES.values()}),
     ):
         value = diagnostic.get(field)

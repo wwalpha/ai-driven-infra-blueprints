@@ -894,6 +894,22 @@ def generation_unavailable(plan):
     return {path: info for path, info in plan.unavailable.items() if path not in failed}
 
 
+def pending_view_states(root, unavailable):
+    return {
+        "/".join((*path.relative_to(root / "docs/designs").parts[:2], path.stem)): (
+            "RETAINED_PENDING_DEPLOY"
+            if info.get("retainedView")
+            else "NOT_GENERATED_PENDING_DEPLOY"
+        )
+        for path, info in unavailable.items()
+        if info.get("diagnostics")
+        and all(
+            diagnostic.get("category") == "REFERENCE_PENDING_DEPLOY"
+            for diagnostic in info["diagnostics"]
+        )
+    }
+
+
 def generation_metadata(plan):
     unavailable = generation_unavailable(plan)
     return {
@@ -907,11 +923,11 @@ def generation_metadata(plan):
             ): info
             for p, info in unavailable.items()
         },
+        "view_states": pending_view_states(plan.root, unavailable),
         "unverified": [
             diagnostic
             for diagnostic in plan.reference_warnings
-            if diagnostic.get("category")
-            in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
+            if diagnostic.get("category") == "REFERENCE_UNRESOLVED"
         ],
         "warnings": plan.reference_warnings,
     }
@@ -934,6 +950,10 @@ def report_generation(plan):
     failed = selected - plan.saved.keys() - not_run
     summary = f"{len(plan.saved)} services succeeded; {len(failed)} services failed; {len(not_run)} services NOT_RUN"
     print("Design Markdown generation: " + summary, file=output_file())
+    for service, state in pending_view_states(
+        plan.root, generation_unavailable(plan)
+    ).items():
+        print(f"View generation: {service}: {state}", file=output_file())
     if plan.failures or not_run:
         diagnostics = [
             *plan.failures,

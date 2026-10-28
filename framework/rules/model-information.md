@@ -101,11 +101,18 @@ Warnings alone exit zero and recur until resolved. Reference analysis returns re
 warnings and complete; incomplete analysis is not proof of no references. Use existing
 before/after snapshots to diagnose removed IDs and anchors.
 
-Generate and save views that can be produced. For reference-only inability, retain the
-existing Markdown/JSON (or report not-generated), keep saved Model sources, and record the
-unexecuted checks as NOT_RUN with reason reference and the affected scope/retained views.
-Only that identified condition is nonblocking for read-only analysis or intermediate source saving; final completion still requires valid candidate references. Arbitrary NOT_RUN and
-real errors remain blocking. Do not put warning/incomplete results in the PASS cache.
+Generate and save Views that can be produced. Model validation and View generation have
+separate results: PENDING_DEPLOY is a proven deployment state, not NOT_RUN. A valid
+pending reference does not fail Model validation; validate its target, type and attribute
+and execute every independent mandatory Model check. Distinguish unresolved references
+from proven pending deployment and reject invalid candidate references. A genuinely
+interrupted mandatory check remains NOT_RUN and blocks completion.
+
+When a View requires a pending physical value, retain the saved View or report it as not
+generated with its pending state and diagnostic. Do not claim the retained View matches
+the current Model. For Model-only integration, a proven pending View does not block an
+otherwise successful Model validation. Actual generation errors and unresolved or
+unexecuted mandatory validation remain blocking. Do not cache incomplete results.
 
 ## IMPORT configuration authority
 

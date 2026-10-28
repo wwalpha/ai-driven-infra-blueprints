@@ -6,6 +6,7 @@ import model.projection as _model_validation_projection
 import model.validations.change_inputs as _model_validation_change_inputs
 from design.catalog import DesignSchemaCatalog
 from model.change_scope import change_reads
+from model.core import ReferenceResolutionError
 from model.core import structural_entries as entries
 from model.identity import Resolver, display_anchor
 from model.reference_values import ProducerValues
@@ -115,9 +116,8 @@ def validate_plan(root, plan, scope=None, *, definitions_root=None):
                 change,
                 definitions_root=definitions_root,
             )
-            findings.include_diagnostics(result)
+            findings.include_diagnostics(result, scope={identity_for(change.after)})
             findings.checks += result.checks
-            findings.warnings.extend(result.warnings)
             check_references(change.after, change.reference_keys, plan.reads, findings)
         for snapshot, keys in plan.contracts.values():
             # Incoming references have no permission to validate consumer quality.
@@ -152,8 +152,7 @@ def validate_task(
         root, changed, output=output, base=base, contract_file=contract_file
     )
     findings = validate_plan(root, plan, scope, definitions_root=definitions_root)
-    if findings.errors:
-        raise ValueError("\n".join(findings.errors))
+    require_complete(findings)
     return findings.warnings
 
 
@@ -167,9 +166,27 @@ def validate_save(before, after, reads):
     plan.metadata["snapshots"] = {after.scope.path: after}
     change_plan.collect_contracts(after.scope.root, plan)
     findings = validate_plan(after.scope.root, plan)
-    if findings.errors:
-        raise ValueError("\n".join(findings.errors))
+    require_complete(findings)
     return findings.warnings
+
+
+def require_complete(findings):
+    if findings.status == "PASS":
+        return
+    incomplete = [
+        f"{result.check_id}: {result.status}; scope={sorted(result.scope or [])}; "
+        f"reason={result.metadata.get('reason', 'unspecified')}"
+        for result in findings.results.values()
+        if result.candidate is findings.candidate and result.status != "PASS"
+    ]
+    incomplete.extend(
+        f"{item.get('code', 'validation')}: {item.get('message', 'unverified')}; "
+        f"scope={item.get('scope', '')}"
+        for item in findings.unverified
+    )
+    raise ValueError(
+        "\n".join([*findings.errors, *incomplete]) or "Model validation incomplete"
+    )
 
 
 def identity_for(snapshot):
@@ -234,4 +251,21 @@ def validate_producer_inputs(snapshot, details, reads, findings, *, context_valu
             if attribute == reference_attribute(resource["resourceType"], "Arn")
             else partial(values.value, attribute)
         )
-        findings.evaluate("change.producer-attribute", None, evaluate)
+
+        def check_producer(evaluate=evaluate):
+            try:
+                evaluate()
+            except ReferenceResolutionError as error:
+                if not error.diagnostics or not all(
+                    item.get("category") == "REFERENCE_PENDING_DEPLOY"
+                    for item in error.diagnostics
+                ):
+                    raise
+                findings.warn(error)
+
+        findings.evaluate(
+            f"change.producer-attribute.{producer.scope.environment}."
+            f"{producer.scope.target}.{producer.scope.service}.{usage.producer_id}.{attribute}",
+            {identity_for(snapshot)},
+            check_producer,
+        )

@@ -173,6 +173,12 @@ def trace_validation(root):
 )
 def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
     root, model, values, design, artifact, register = generated_policy
+    values["desired.row.001-001.value"] = "`app-dev-AppRole`"
+    write_model(model, values)
+    design.write_text(
+        design.read_text(encoding="utf-8").replace("app-dev-role", "app-dev-AppRole"),
+        encoding="utf-8",
+    )
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", register([])["BLUEPRINT_TASK_FILE"])
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
@@ -221,7 +227,6 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
         ):
             result = after.findings.result(check_id, {ENTRY})
             assert result.status == "FAIL", (check_id, result)
-            assert not result.model_completion_allowed, (check_id, result)
         assert any(
             (
                 "generated ARN persisted in observed model value" in error
@@ -236,7 +241,6 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
         ):
             result = after.findings.result(check_id, {ENTRY})
             assert result.status == "NOT_RUN", (check_id, result)
-            assert not result.model_completion_allowed, (check_id, result)
     if fault == "none":
         assert not after.errors, after.errors
     if fault != "none":

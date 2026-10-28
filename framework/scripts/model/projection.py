@@ -813,8 +813,6 @@ def validate_json_documents(
                 ),
             )
             diagnostics.extend(row_diagnostics)
-            if row_diagnostics:
-                continue
             number = row_id.rpartition("-")[0]
             resource = values.get(f"desired.resource.{number}.logicalId", number)
             for pointer, text in string_leaves(value):

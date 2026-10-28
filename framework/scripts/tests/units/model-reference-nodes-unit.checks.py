@@ -233,7 +233,7 @@ def check_identifier_generation_diagnostics(models, state):
         assert metadata["unverified"] == [
             w
             for w in plan.reference_warnings
-            if w.get("category") in {"REFERENCE_UNRESOLVED", "REFERENCE_PENDING_DEPLOY"}
+            if w.get("category") == "REFERENCE_UNRESOLVED"
         ]
         assert len(warnings) == len({json.dumps(w, sort_keys=True) for w in warnings})
         expected = {"pending": "PENDING_DEPLOY", "confirmed": "sg-123"}.get(
