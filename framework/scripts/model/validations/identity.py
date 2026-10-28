@@ -54,9 +54,10 @@ def validate_resource_identities(
         for identity, resource in resources:
             _validate_terraform_identity(identity, resource)
     else:
+        require_cfn_identity = target.get("iacEngine") == "cloudformation"
         for identity, resource in resources:
             stack_names = _validate_cloudformation_identity(
-                identity, resource, target, root, stack_source, resources,
+                identity, resource, require_cfn_identity, root, stack_source, resources,
                 identity_catalog, stack_names,
             )
 
@@ -72,7 +73,7 @@ def _validate_terraform_identity(identity: str, resource: dict[str, str]) -> Non
 def _validate_cloudformation_identity(
     identity: str,
     resource: dict[str, str],
-    target: dict,
+    require_cfn_identity: bool,
     root: Path,
     stack_source: Path | None,
     resources: list[tuple[str, dict[str, str]]],
@@ -82,7 +83,7 @@ def _validate_cloudformation_identity(
     """CloudFormation Identity と Stack の対応を検証する。"""
     if "cfn-logicalId" not in resource:
         if (
-            target.get("iacEngine") == "cloudformation"
+            require_cfn_identity
             and _dependency_design_layout.resource_mode(resource) == "CREATE"
         ):
             try:
@@ -121,7 +122,7 @@ def _validate_cloudformation_identity(
                 f"{identity}: cfn-logicalId references an undeclared stack"
             )
         return stack_names
-    if target.get("iacEngine") == "cloudformation" and (
+    if require_cfn_identity and (
         stack_source is None or not input_is_file(stack_source)
     ):
         raise InputValidationError(
