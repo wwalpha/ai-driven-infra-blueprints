@@ -211,6 +211,14 @@ def check_stack_parameter_jobs_and_invalid_inputs(tmp_path):
     }
 
 
+def signature(m):
+    return (
+        m["Rule"]["Id"],
+        json.dumps(m["Location"], sort_keys=True),
+        m["Message"],
+    )
+
+
 def check_parameter_file_cli_and_redaction(tmp_path):
     template = tmp_path / "network.yaml"
     parameters = tmp_path / "network.json"
@@ -297,13 +305,6 @@ Outputs:
         text=True,
         timeout=60,
     )
-
-    def signature(m):
-        return (
-            m["Rule"]["Id"],
-            json.dumps(m["Location"], sort_keys=True),
-            m["Message"],
-        )
 
     applied = [signature(m) for m in cli_matches]
     for match in json.loads(raw.stdout or "[]"):
