@@ -781,17 +781,28 @@ def final_framework_task(text, changed_paths=()):
     ) or section(text, "## Validation scope") != ["- `framework`"]:
         return False
     declared = paths_in(text, "## Modified files")
-    if not any(p.startswith(("framework/", ".agents/")) for p in declared):
-        return False
+    owned_files = {
+        ".gitattributes",
+        ".gitignore",
+        ".github/workflows/framework-it.yml",
+        ".github/workflows/python-quality.yml",
+        "AGENTS.md",
+        "CMD.md",
+        "README.md",
+        "docs/system-overview.md",
+        "pyproject.toml",
+    }
     changed = set(changed_paths() if callable(changed_paths) else changed_paths)
     return (
         bool(changed)
         and changed <= declared
-        and any(p.startswith(("framework/", ".agents/")) for p in changed)
-        and not any(
-            p == "project.json"
-            or p.startswith(("model/", "docs/designs/", "infra/", "tests/"))
-            for p in declared | changed
+        and all(
+            p in owned_files or p.startswith(("framework/", ".agents/", "tasks/"))
+            for p in declared
+        )
+        and all(
+            p in owned_files or p.startswith(("framework/", ".agents/"))
+            for p in changed
         )
     )
 

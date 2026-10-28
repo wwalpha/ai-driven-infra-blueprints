@@ -397,8 +397,26 @@ def check_framework_final_classification():
         "## Validation scope\n- `framework`\n"
         "## Modified files\n- `tasks/example.md`\n" + f"- `{source}`\n"
     )
+    for owned in (
+        source,
+        ".agents/skills/worktree/SKILL.md",
+        ".github/workflows/framework-it.yml",
+        ".github/workflows/python-quality.yml",
+        "pyproject.toml",
+        "README.md",
+        "AGENTS.md",
+        "CMD.md",
+        "docs/system-overview.md",
+        ".gitignore",
+        ".gitattributes",
+    ):
+        assert tasks.final_framework_task(text.replace(source, owned), {owned})
+        if owned != source:
+            assert not tasks.final_framework_task(text, {owned})
     assert tasks.final_framework_task(text, {source})
     assert not tasks.final_model_task(text, {source})
+    for kind in ("catalog-maintenance", "migration"):
+        assert tasks.final_framework_task(text.replace("governance", kind), {source})
     assert not tasks.final_framework_task(text, set())
     assert not tasks.final_framework_task(
         text.replace("`governance`", "`design`"), {source}
@@ -410,10 +428,17 @@ def check_framework_final_classification():
         "project.json",
         "model/dev/team/iam.properties",
         "infra/template.yaml",
+        "tests/dev/team/iam.py",
+        ".github/workflows/consumer.yml",
+        "unknown.txt",
     ):
+        assert not tasks.final_framework_task(text, {consumer})
         assert not tasks.final_framework_task(text, {source, consumer})
         assert not tasks.final_framework_task(
             text + f"- `{consumer}`\n", {source, consumer}
+        )
+        assert not tasks.final_framework_task(
+            text.replace(source, consumer), {consumer}
         )
 
 

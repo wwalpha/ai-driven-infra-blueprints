@@ -992,7 +992,7 @@ def main():
 
 @it_case
 def check_framework_final_candidate():
-    relative = "framework/prompts/README.md"
+    relative = ".github/workflows/framework-it.yml"
     for success in (False, True):
         with fixture() as root:
             loop_checks.make_project_fixture(SCRIPT.parents[2], root)
@@ -1008,6 +1008,8 @@ def check_framework_final_candidate():
                 "tests/results",
             ):
                 (root / directory / ".gitkeep").touch()
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
+            (root / relative).write_text("name: Framework IT\n")
             git(root, "add", ".")
             git(root, "commit", "-qm", "synthetic Framework fixture")
             target, state = start(root, files=(relative,))
