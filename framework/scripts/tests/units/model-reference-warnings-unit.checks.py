@@ -96,6 +96,7 @@ def check_child_results_with_same_identity_are_not_lost(tmp_path):
     for status in ("PASS", "FAIL"):
         child = Findings(tmp_path)
         child.result("required", None).status = status
+        child.result("required", None).metadata["complete"] = True
         parent.include_diagnostics(child, scope={("dev", "target", "one")})
     assert [r.status for r in parent.results.values()] == ["PASS", "FAIL"]
     assert parent.status == "FAIL"
@@ -166,17 +167,10 @@ def check_pending_view_is_separate_from_model_validation(tmp_path, monkeypatch, 
     )
     parent.check_changed_designs()
     assert executed == ["model"]
-    if state == "pending":
-        assert parent.findings.status == "PASS"
-        assert parent.findings.information[0]["states"]["dev/target/service"] == (
-            "RETAINED_PENDING_DEPLOY"
-        )
-        assert (
-            parent.findings.get_result("framework.generated-service-model", scope)
-            is None
-        )
-    else:
-        assert parent.findings.status == ("FAIL" if state == "failure" else "FAIL")
+    assert parent.findings.status == "FAIL"
+    result = parent.findings.get_result("framework.generated-service-model", scope)
+    assert result.status == "FAIL" and not result.metadata["complete"]
+    assert result.metadata["reason"]
 
 
 @pytest.fixture(autouse=True)

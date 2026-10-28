@@ -58,7 +58,7 @@ from validation.design import REQUIRED_NAME_PROPERTIES as REQUIRED_NAME_PROPERTI
 from validation.design import TABLE_ALIGNMENT as TABLE_ALIGNMENT
 from validation.design import TABLE_HEADER as TABLE_HEADER
 from validation.diagnostics import ArtifactReferences
-from validation.findings import Findings, check_metadata, finish_result
+from validation.findings import Findings, check_metadata
 from validation.framework_contracts import (
     CODEX_PROMPT_FILENAME_PATTERN as CODEX_PROMPT_FILENAME_PATTERN,
 )
@@ -87,30 +87,10 @@ def _callback_Validator_generate_and_validate_generated(plan, self, snapshot, /)
         if diagnostic.code != "generation.reference":
             self.findings.add_diagnostic(diagnostic)
     metadata = _imports_sync_runtime.generation_metadata(plan)
-    unavailable = metadata["unavailable_services"]
-    pending_views = (
-        self.task_type in {"design", "migration"}
-        and bool(unavailable)
-        and all(
-            metadata["view_states"].get(key)
-            in {"RETAINED_PENDING_DEPLOY", "NOT_GENERATED_PENDING_DEPLOY"}
-            for key in unavailable
-        )
-        and not plan.failures
-        and not metadata["unverified"]
-    )
-    if pending_views:
-        self.findings.information.append(
-            dict(
-                kind="view_generation",
-                states=metadata["view_states"],
-                details=unavailable,
-            )
-        )
     return {
+        **metadata,
         "inputs": snapshot,
         "candidates": plan.expected_outputs,
-        "complete": not plan.unavailable and not plan.failures,
         "reference_unavailable": plan.unavailable,
     }
 
@@ -130,6 +110,8 @@ def _callback_Validator_check_scoped_designs_validate(self, snapshot, /, scope):
         validator.generated_models_checked = True
         validator.unavailable_views = self.unavailable_views
         validator.view_reader = self.view_reader
+        if self.check_display:
+            validator.findings.result("framework.policy-tables", scope)
         validator.findings.evaluate(
             "design.service", scope, validator.check_designs, isolate=True
         )
@@ -211,7 +193,11 @@ def _callback_Validator_check_unavailable_design(self, entry, info, /):
     self.findings.unverified.append(entry_info)
     semantic.metadata.update(complete=False, reason=reason)
     semantic.metadata.setdefault("unverified", []).append(entry_info)
-    for check_id in ("framework.policy-tables", "design.links"):
+    for check_id in (
+        ("framework.policy-tables", "design.links")
+        if self.check_display
+        else ("design.links",)
+    ):
         result = self.findings.result(check_id, scope)
         result.metadata.update(complete=False, reason=reason, unverified=[entry_info])
     return dict(complete=False, reason=reason)
@@ -574,7 +560,7 @@ class Validator:
 
         if not self.task.issues_only:
             verify_contract_reads(self.root)
-        if self.cache and not self.errors:
+        if self.cache and self.findings.status == "PASS":
             if self.catalog_pending is not None:
                 self.cache.save(*self.catalog_pending)
                 self.catalog_pending = None
@@ -671,24 +657,9 @@ class Validator:
                 self,
                 snapshot,
             )
-            generation_info = _imports_sync_runtime.generation_metadata(plan)
-            pending_views = (
-                self.task_type in {"design", "migration"}
-                and bool(generation_info["unavailable_services"])
-                and all(
-                    generation_info["view_states"].get(key)
-                    in {"RETAINED_PENDING_DEPLOY", "NOT_GENERATED_PENDING_DEPLOY"}
-                    for key in generation_info["unavailable_services"]
-                )
-                and not generation_info["unverified"]
-                and not plan.failures
+            self.findings.evaluate(
+                "framework.generated-service-model", self.scope, generated
             )
-            if pending_views:
-                generated()
-            else:
-                self.findings.evaluate(
-                    "framework.generated-service-model", self.scope, generated
-                )
             candidate_error_count = len(self.errors)
             if self.infrastructure_phase != "destroy":
                 self.input_check(snapshot, self.check_iac_selection)
@@ -772,21 +743,6 @@ class Validator:
             self.check_acceptance_checks()
             try:
                 report_generation(plan)
-            except _imports_model_core.ReferenceResolutionError as error:
-                metadata = _imports_sync_runtime.generation_metadata(plan)
-                if not (
-                    self.task_type in {"design", "migration"}
-                    and metadata["unavailable_services"]
-                    and all(
-                        metadata["view_states"].get(key)
-                        in {"RETAINED_PENDING_DEPLOY", "NOT_GENERATED_PENDING_DEPLOY"}
-                        for key in metadata["unavailable_services"]
-                    )
-                    and not metadata["unverified"]
-                    and not plan.failures
-                ):
-                    if not self.errors:
-                        self.check(False, str(error))
             except ValueError as error:
                 if not self.errors:
                     self.check(False, str(error))
@@ -888,9 +844,10 @@ class Validator:
         if self.check_display:
             self.checks += len({entry[:2] for entry in generation_scope})
 
-        generation_info = generator.findings.result(
+        generation_result = generator.findings.get_result(
             "framework.generated-service-model", generation_scope
-        ).metadata
+        )
+        generation_info = generation_result.metadata if generation_result else {}
         check_metadata(generation_info)
         unavailable = generation_info.get("unavailable_services", {}).copy()
         unavailable.update(
@@ -958,6 +915,11 @@ class Validator:
         for _state_check_scoped_designs_351.entry in sorted(self.scope):
             if _state_check_scoped_designs_351.entry in reused:
                 self.checks += reused[_state_check_scoped_designs_351.entry]
+                self.findings.evaluate(
+                    "validation.cached-service",
+                    {_state_check_scoped_designs_351.entry},
+                    lambda: {"complete": True},
+                )
             else:
                 validator = results[_state_check_scoped_designs_351.entry]
                 self.checks += validator.checks
@@ -984,6 +946,15 @@ class Validator:
                     and _state_check_scoped_designs_351.entry not in reused
                     and not results[_state_check_scoped_designs_351.entry].errors
                     and not generator.errors
+                    and (
+                        not self.check_display
+                        or generation_result is not None
+                        and generation_result.metadata.get("complete") is True
+                        and generation_result.status == "PASS"
+                    )
+                    and results[_state_check_scoped_designs_351.entry].findings.status
+                    == "PASS"
+                    and generator.findings.status == "PASS"
                     and not results[_state_check_scoped_designs_351.entry].warnings
                     and not generator.warnings
                     and not results[
@@ -1004,58 +975,28 @@ class Validator:
                 f"Service validation: {len(missing)} executed, {len(reused)} reused; workers: {self.workers}"
             )
         if self.check_display:
-            generation = self.findings.result(
-                "framework.generated-service-model", self.scope
-            )
-            generation.status = "FAIL" if generator.errors or unavailable else "PASS"
-            generation.errors = tuple(generator.errors)
-            generation.warnings = tuple(generator.warnings)
-            generation.metadata = dict(
-                generator.findings.result(
-                    "framework.generated-service-model", generation_scope
-                ).metadata,
-                unavailable_services=unavailable,
-            )
-            finish_result(generation)
-        policy = self.findings.result("framework.policy-tables", self.scope)
-        policies = [
-            validator.findings.result("framework.policy-tables", {entry})
-            for entry, validator in results.items()
-        ]
-        policy.status = (
-            "FAIL" if skipped or any(p.status == "FAIL" for p in policies) else "PASS"
-        )
-        policy_unavailable = unavailable.copy()
-        for result in policies:
-            check_metadata(result.metadata)
-            policy_unavailable.update(result.metadata.get("unavailable_services", {}))
-        incomplete_policy = bool(skipped) or any(
-            p.metadata.get("complete") is False
-            or p.metadata.get("unverified")
-            or p.metadata.get("unavailable_services")
-            for p in policies
-        )
-        if incomplete_policy:
-            reason = "reference"
-            if failed or any(
-                info.get("reason") != "reference" for info in unavailable.values()
-            ):
-                reason = "dependency"
-            if unreadable:
-                reason = "view-read"
-            if self.findings.processing_errors:
-                reason = "processing"
-            policy.metadata = {
-                "complete": False,
-                "reason": reason,
-                "unavailable_services": policy_unavailable,
-                "unverified": [
-                    item for p in policies for item in p.metadata.get("unverified", [])
+            self.findings.aggregate(
+                "framework.generated-service-model",
+                self.scope,
+                [("framework.generated-service-model", generation_scope)]
+                if missing or skipped
+                else [
+                    ("validation.cached-service", {entry}) for entry in sorted(reused)
                 ],
-            }
-        policy.warnings = tuple(w for p in policies for w in p.warnings)
-        policy.errors = tuple(error for p in policies for error in p.errors)
-        finish_result(policy)
+            )
+            self.findings.aggregate(
+                "framework.policy-tables",
+                self.scope,
+                [
+                    (
+                        "validation.cached-service"
+                        if entry in reused
+                        else "framework.policy-tables",
+                        {entry},
+                    )
+                    for entry in sorted(self.scope)
+                ],
+            )
         self.generated_models_checked = True
 
     def finalize_service_cache(self, current_common_key):
@@ -1079,8 +1020,6 @@ class Validator:
     def _check_generated_service_models(self) -> None:
         compare_generation = _imports_sync_runtime.compare_generation
         saved_design_validation = _imports_sync_views.saved_design_validation
-        if self.generated_models_checked:
-            return
         self.generated_models_checked = True
         if self.scope == set():
             return
@@ -1273,44 +1212,15 @@ class Validator:
             model_validation="change",
         )
         generator.check_generated_service_models()
-        actual = generator.findings.result(
-            "framework.generated-service-model", generator.scope
-        )
-        unavailable = actual.metadata.get("unavailable_services", {})
-        view_states = actual.metadata.get("view_states", {})
-        pending_views = (
-            self.task_type in {"design", "migration"}
-            and bool(unavailable)
-            and all(
-                view_states.get(key)
-                in {"RETAINED_PENDING_DEPLOY", "NOT_GENERATED_PENDING_DEPLOY"}
-                for key in unavailable
-            )
-            and not generator.errors
-            and not generator.findings.unverified
-            and all(
-                result.check_id == "framework.generated-service-model"
-                or result.status == "PASS"
-                for result in generator.findings.results.values()
-            )
-        )
-        self.findings.include_diagnostics(
-            generator.findings,
-            exclude_checks=("framework.generated-service-model",)
-            if pending_views
-            else (),
-        )
+        self.findings.include_diagnostics(generator.findings)
         self.checks += generator.checks
         for warning in generator.warnings:
             self.findings.warn(warning)
-        if pending_views:
-            self.findings.information.append(
-                dict(kind="view_generation", states=view_states, details=unavailable)
-            )
-            self.generated_models_checked = True
-            return
-        result = self.findings.result("framework.generated-service-model", self.scope)
-        result.status, result.metadata = actual.status, dict(actual.metadata)
+        self.findings.aggregate(
+            "framework.generated-service-model",
+            self.scope,
+            [("framework.generated-service-model", generator.scope)],
+        )
         self.generated_models_checked = True
 
     def check_framework_cloudformation_schema_catalog(self) -> None:
@@ -1377,20 +1287,23 @@ class Validator:
     }
 
     def registered_checks(self):
-        return {
+        checks = {
             "framework.active-task-transition": self.check_framework_active_task_transition,
             "framework.rule-readings": self.check_framework_rule_readings,
             "framework.design-handoff": self.check_framework_design_handoff,
             "framework.task-completion-contract": self.check_framework_task_completion_contract,
             "framework.task-type-dispatch": self.check_framework_task_type_dispatch,
             "framework.focused-check-runner": self.check_framework_focused_check_runner,
-            "framework.generated-service-model": self.check_generated_service_models,
+            "framework.generated-service-model": self._check_generated_service_models,
             "framework.resource-layout": self.check_resource_layout,
-            "framework.policy-tables": self.check_policy_tables,
+            "framework.policy-tables": self._check_policy_tables,
             "framework.api-design-catalog": self.check_api_design_catalog,
             "framework.cloudformation-schema-catalog": self.check_framework_cloudformation_schema_catalog,
             "framework.schema-backed-design-validation": self.check_framework_schema_backed_design_validation,
         }
+        if not self.check_display:
+            del checks["framework.policy-tables"]
+        return checks
 
     def check_acceptance_checks(self) -> None:
         self.task.check_acceptance_checks(
@@ -1477,15 +1390,20 @@ class Validator:
         return self.findings.evaluate(
             "framework.policy-tables",
             self.scope,
-            lambda: (
-                design.check_policy_view_integrity
-                if self.model_validation == "change"
-                else design.check_policy_tables
-            )(
-                self.design_files(),
-                self.findings,
-                definitions_root=self.definitions_root,
-            ),
+            self._check_policy_tables,
+        )
+
+    def _check_policy_tables(self):
+        if not self.check_display:
+            raise ValueError("policy tables are outside the validation scope")
+        return (
+            design.check_policy_view_integrity
+            if self.model_validation == "change"
+            else design.check_policy_tables
+        )(
+            self.design_files(),
+            self.findings,
+            definitions_root=self.definitions_root,
         )
 
     def check_observed_values(self, paths: list[Path] | None = None) -> None:

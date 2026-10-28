@@ -243,7 +243,9 @@ Save Model sources
 atomically first. Then generate and atomically save only the selected service's
 Markdown/JSON. Never directly edit generated design Markdown/JSON or use display edits
 as a substitute for Model reflection, including during display-only recovery.
-Proven pending deployment retains Views as RETAINED_PENDING_DEPLOY or NOT_GENERATED_PENDING_DEPLOY with diagnostics; unresolved mandatory checks are reasoned FAILs.
+Normal pending deployment uses the existing PENDING_DEPLOY projection and continues
+Markdown/JSON generation. Retained or unavailable Views do not prove successful current
+generation; unresolved mandatory checks are reasoned FAILs.
 Other display failure rolls back only display writes and is exit 3;
 it never invalidates completed reflection. Exit 2 includes unreflected items. Report
 Model, display and `Design validation: not-run` separately. Stale views can be refreshed

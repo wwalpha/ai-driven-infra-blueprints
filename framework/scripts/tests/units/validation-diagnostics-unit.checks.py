@@ -23,8 +23,9 @@ from validation import runner as validator_runner
 from validation.design_links import check_design_artifacts as validate_artifacts
 from validation.design_links import check_local_links as validate_links
 from validation.diagnostics import ArtifactReferences, Diagnostic
-from validation.findings import CheckResult, Findings
+from validation.findings import CheckResult, Findings, finish_result
 from validation.runner import Validator
+from validation_cache import PassCache
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -487,6 +488,239 @@ def check_metadata_completion(tmp_path, metadata, expected):
         )
 
 
+def check_registered_handlers_execute_once(tmp_path):
+    validator = Validator(tmp_path, {("dev", "team", "s3")})
+    validator.generated_models_checked = True
+    with (
+        patch.object(
+            validator_runner._imports_sync_views, "saved_design_validation"
+        ) as context,
+        patch.object(
+            validator_runner._imports_sync_runtime, "compare_generation"
+        ) as generation,
+        patch.object(validator_runner.design, "check_policy_tables") as policy,
+        patch.object(validator, "design_files", return_value=[]),
+    ):
+        context.return_value.__enter__.return_value = None
+        for name in ("framework.generated-service-model", "framework.policy-tables"):
+            validator.findings.evaluate(
+                name, validator.scope, validator.registered_checks()[name]
+            )
+    assert generation.call_count == 1
+    assert policy.call_count == 1
+
+
+@pytest.mark.parametrize("started", [False, True])
+@pytest.mark.parametrize("complete", [None, False, True])
+def check_completion_requires_evidence(tmp_path, started, complete):
+    findings = Findings(tmp_path)
+    result = findings.result("required", None)
+    result.status, result.started, result.checks = "PASS", started, 10
+    if complete is not None:
+        result.metadata["complete"] = complete
+    assert finish_result(result).status == ("PASS" if complete is True else "FAIL")
+    if complete is not True:
+        calls = []
+        checked = findings.evaluate("required", None, lambda: calls.append(1))
+        assert calls == [1] and checked.metadata["complete"]
+        assert checked.status == "PASS"
+
+
+@pytest.mark.parametrize("mode", ["preregistered", "replaced", "imported", "same-key"])
+@pytest.mark.parametrize("status", ["PASS", "FAIL"])
+def check_parent_uses_required_child_results(tmp_path, mode, status):
+    findings = Findings(tmp_path)
+    scope = {("dev", "team", "s3")}
+    child_id = "parent" if mode == "same-key" else "child"
+    findings.result(child_id, scope)
+    unrelated = findings.result("unrelated", None)
+    unrelated.metadata.update(complete=True, reason="unrelated invalid input")
+
+    def handler():
+        assert findings.get_result("unrelated", None).status == "FAIL"
+        child = CheckResult(
+            child_id,
+            frozenset(scope),
+            findings.candidate,
+            status=status,
+            metadata={"complete": True, "reason": "invalid child property"},
+        )
+        if mode in {"imported", "same-key"}:
+            source = Findings(tmp_path)
+            child.candidate = source.candidate
+            source.results[(child_id, frozenset(scope), source.candidate)] = child
+            findings.include_diagnostics(source)
+        elif mode == "replaced":
+            findings.results[(child_id, frozenset(scope), findings.candidate)] = child
+        else:
+            existing = findings.result(child_id, scope)
+            existing.status, existing.metadata = child.status, child.metadata
+
+    parent = findings.evaluate("parent", scope, handler)
+    assert parent.status == status
+    assert parent.metadata["complete"]
+    if status == "FAIL":
+        assert "invalid child property" in parent.metadata["reason"]
+    assert "unrelated" not in parent.metadata.get("reason", "")
+
+
+@pytest.mark.parametrize(
+    "state", ["PASS", "FAIL", "missing", "incomplete", "stale", "scope"]
+)
+def check_explicit_aggregation_requires_children(tmp_path, state):
+    findings = Findings(tmp_path)
+    scope = {("dev", "team", "s3")}
+    if state != "missing":
+        child = findings.result(
+            "child", {("stg", "team", "s3")} if state == "scope" else scope
+        )
+        child.status = "FAIL" if state == "FAIL" else "PASS"
+        child.metadata.update(complete=state != "incomplete", reason="child cause")
+        if state == "stale":
+            findings.candidate = object()
+    parent = findings.aggregate("parent", scope, [("child", scope)])
+    assert parent.status == ("PASS" if state == "PASS" else "FAIL")
+    assert parent.metadata["complete"] == (state in {"PASS", "FAIL"})
+    if state != "PASS":
+        assert "child" in parent.metadata["reason"]
+
+
+def check_reentry_and_empty_interrupt_remain_failures(tmp_path):
+    findings = Findings(tmp_path)
+    nested = findings.evaluate(
+        "recursive",
+        None,
+        lambda: findings.evaluate("recursive", None, lambda: None),
+    )
+    assert nested.status == "FAIL" and not nested.metadata["complete"]
+    assert "reentr" in nested.metadata["reason"]
+    interrupted = findings.evaluate(
+        "interrupted", None, Mock(side_effect=KeyboardInterrupt())
+    )
+    assert interrupted.status == "FAIL" and not interrupted.metadata["complete"]
+    assert "KeyboardInterrupt" in interrupted.metadata["reason"]
+    assert "interrupted" in interrupted.metadata["reason"]
+    assert all(item["reason"].strip() for item in findings.failures())
+
+
+def check_parent_interrupt_keeps_child_cause_and_incomplete_state(tmp_path):
+    findings = Findings(tmp_path)
+
+    def interrupted():
+        findings.evaluate(
+            "child",
+            None,
+            lambda: {"complete": True, "status": "FAIL", "reason": "bad child type"},
+        )
+        raise KeyboardInterrupt()
+
+    result = findings.evaluate("parent", None, interrupted)
+    assert result.status == "FAIL" and not result.metadata["complete"]
+    assert (
+        "child" in result.metadata["reason"]
+        and "bad child type" in result.metadata["reason"]
+    )
+    assert "KeyboardInterrupt" in result.metadata["reason"]
+    empty = findings.evaluate("empty-error", None, lambda: findings.check(False, ""))
+    assert empty.status == "FAIL" and empty.metadata["reason"].strip()
+
+
+def check_policy_not_planned_without_display(tmp_path):
+    validator = Validator(
+        tmp_path, {("dev", "team", "s3")}, check_display=False, workers=1
+    )
+    validator.schema_catalog = object()
+    with (
+        patch.object(Validator, "check_design_service_ownership"),
+        patch.object(Validator, "check_stack_designs"),
+        patch.object(Validator, "check_designs"),
+        patch.object(Validator, "check_observed_values"),
+    ):
+        validator.check_scoped_designs()
+    assert (
+        validator.findings.get_result("framework.policy-tables", validator.scope)
+        is None
+    )
+    assert validator.findings.status == "PASS"
+
+
+@pytest.mark.parametrize("count", [1, 2])
+@pytest.mark.parametrize(
+    "state", ["PASS", "FAIL", "missing", "incomplete", "interrupted"]
+)
+def check_scoped_aggregation_and_cache_evidence(tmp_path, count, state):
+    scope = {("dev", "team", service) for service in ("s3", "sqs")[:count]}
+    cache = PassCache(tmp_path, False)
+    cache.common = "same-inputs"
+
+    def generate(validator):
+        return {
+            "complete": True,
+            "generated": sorted("/".join(entry) for entry in validator.scope),
+        }
+
+    def designs(validator):
+        validator.check(True, "service executed")
+        if state == "missing":
+            return
+        if state == "interrupted":
+            validator.findings.evaluate(
+                "framework.policy-tables",
+                validator.scope,
+                Mock(side_effect=KeyboardInterrupt()),
+            )
+        else:
+            validator.findings.evaluate(
+                "framework.policy-tables",
+                validator.scope,
+                lambda: {
+                    "complete": state != "incomplete",
+                    "status": "FAIL" if state == "FAIL" else "PASS",
+                    "reason": "invalid policy",
+                },
+            )
+
+    with (
+        patch.object(cache, "service_key", side_effect=lambda entry: "/".join(entry)),
+        patch.object(Validator, "check_design_service_ownership"),
+        patch.object(Validator, "check_stack_designs"),
+        patch.object(Validator, "_check_generated_service_models", generate),
+        patch.object(Validator, "check_designs", designs),
+        patch.object(Validator, "check_observed_values"),
+    ):
+        validator = Validator(tmp_path, scope, workers=1)
+        validator.schema_catalog, validator.cache = object(), cache
+        validator.check_scoped_designs()
+        policy = validator.findings.get_result("framework.policy-tables", scope)
+        assert policy.status == ("PASS" if state == "PASS" else "FAIL")
+        assert len(validator.service_cache_pending) == (count if state == "PASS" else 0)
+        if state == "PASS":
+            assert policy.metadata["complete"] and validator.findings.status == "PASS"
+            validator.finalize_service_cache("same-inputs")
+            reused = Validator(tmp_path, scope, workers=1)
+            reused.schema_catalog, reused.cache = object(), cache
+            with (
+                patch.object(
+                    Validator,
+                    "check_designs",
+                    side_effect=AssertionError("cached service reran"),
+                ),
+                patch.object(
+                    Validator,
+                    "_check_generated_service_models",
+                    side_effect=AssertionError("cached generation reran"),
+                ),
+            ):
+                reused.check_scoped_designs()
+            assert reused.findings.status == "PASS"
+            assert reused.findings.get_result(
+                "framework.policy-tables", scope
+            ).metadata["complete"]
+        else:
+            assert policy.metadata["reason"]
+            assert validator.findings.status == "FAIL"
+
+
 def check_result_lookup_is_candidate_and_scope_specific(tmp_path):
     findings = Findings(tmp_path)
     scope = {("dev", "team", "s3")}
@@ -550,6 +784,7 @@ def check_iac_stack_lookup_and_file_fallback(tmp_path, stack_status, environment
         result = findings.result("design.stacks", None)
         if stack_status != "unstarted":
             result.status = stack_status
+            result.metadata["complete"] = True
     before = dict(findings.results)
     definitions = validator.candidate_stacks(plan)
     assert findings.results == before

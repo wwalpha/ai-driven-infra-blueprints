@@ -983,7 +983,13 @@ def check_result_reuse_is_scoped(tmp_path):
     task.check_acceptance_checks({"content": lambda: calls.append("not run")}, first)
     assert calls[-1] == "not run"
     stack = findings.result("design.stacks", first)
-    stack.status, stack.metadata = "PASS", {"stack_definitions": {"candidate": []}}
+    stack.status, stack.metadata = (
+        "PASS",
+        {
+            "complete": True,
+            "stack_definitions": {"candidate": []},
+        },
+    )
     findings.bind_candidate(object(), set())
     stale = findings.result("design.stacks", first)
     assert stale.status == "FAIL" and stale.metadata == {}

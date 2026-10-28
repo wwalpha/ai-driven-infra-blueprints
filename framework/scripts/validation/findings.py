@@ -90,13 +90,8 @@ def finish_result(result):
             f"{result.check_id}: invalid final validation status {result.status!r}",
         )
         result.status = "FAIL"
-    incomplete = (
-        result.metadata.get("complete") is False
-        or bool(unavailable or unverified)
-        or not result.started
-        and result.status == "FAIL"
-        and not result.metadata
-        and not result.errors
+    incomplete = result.metadata.get("complete") is not True or bool(
+        unavailable or unverified
     )
     result.status = (
         "FAIL"
@@ -110,10 +105,9 @@ def finish_result(result):
         causes = [*result.errors]
         causes.extend(str(item.get("message") or item) for item in unverified)
         causes.extend(str(item.get("message") or item) for item in unavailable.values())
+        causes = [cause for cause in causes if cause.strip()]
         reason = result.metadata.get("reason", "").strip()
-        if causes:
-            reason = "; ".join(dict.fromkeys(causes))
-        elif not reason or reason.lower() in {
+        generic = {
             "unspecified",
             "processing",
             "reference",
@@ -121,13 +115,23 @@ def finish_result(result):
             "view",
             "expansion",
             "view-read",
-        }:
+        }
+        if causes and (not reason or reason.lower() in generic):
+            reason = "; ".join(dict.fromkeys(causes))
+        elif not reason or reason.lower() in generic:
             reason = (
                 f"{result.check_id}: required check has not started"
-                if not result.started and not result.metadata and not result.errors
+                if not result.started and not result.errors
                 else f"{result.check_id}: required validation did not complete"
                 if incomplete
                 else f"{result.check_id}: handler reported failure without diagnostic details"
+            )
+        elif causes:
+            reason = "; ".join(
+                [
+                    reason,
+                    *(cause for cause in dict.fromkeys(causes) if cause not in reason),
+                ]
             )
         result.metadata["reason"] = reason
     result.metadata.update(
@@ -174,6 +178,7 @@ class Findings:
         self.check_id = "validation.input"
         self.check_scope = None
         self.error_contexts = {}
+        self._evaluations = []
 
     @property
     def status(self):
@@ -207,6 +212,71 @@ class Findings:
         """Read this candidate's result without registering an unexecuted check."""
         scope = None if scope is None else frozenset(scope)
         return self.results.get((check_id, scope, self.candidate))
+
+    def _use_result(self, key):
+        if self._evaluations and key != self._evaluations[-1][0]:
+            self._evaluations[-1][1].add(key)
+
+    def aggregate(self, check_id, scope, required):
+        """Combine exact required child identities before replacing a same-key parent."""
+        scope = None if scope is None else frozenset(scope)
+        children, missing = [], []
+        for child_id, child_scope in required:
+            child_scope = None if child_scope is None else frozenset(child_scope)
+            matches = [
+                finish_result(child)
+                for child in self.results.values()
+                if child.candidate is self.candidate
+                and child.check_id == child_id
+                and child.scope == child_scope
+            ]
+            children.extend(matches)
+            if not matches:
+                missing.append(
+                    f"{child_id} {sorted(child_scope or [])}: required child result missing"
+                )
+        failures = [child for child in children if child.status == "FAIL"]
+        if not children and not missing:
+            missing.append(f"{check_id}: required child plan is empty")
+        result = CheckResult(
+            check_id,
+            scope,
+            self.candidate,
+            status="FAIL" if failures or missing else "PASS",
+            errors=tuple(error for child in children for error in child.errors),
+            warnings=tuple(warning for child in children for warning in child.warnings),
+            checks=sum(child.checks for child in children),
+            metadata={
+                **(children[0].metadata if len(children) == 1 else {}),
+                "complete": not missing
+                and all(child.metadata["complete"] for child in children),
+                "reason": "; ".join(
+                    [
+                        *missing,
+                        *(
+                            f"{child.check_id} {sorted(child.scope or [])}: {child.metadata['reason']}"
+                            for child in failures
+                        ),
+                    ]
+                ),
+                "unavailable_services": {
+                    key: value
+                    for child in children
+                    for key, value in child.metadata["unavailable_services"].items()
+                },
+                "unverified": [
+                    item for child in children for item in child.metadata["unverified"]
+                ],
+            },
+        )
+        key = (check_id, scope, self.candidate)
+        if key in self.results:
+            self.results[(check_id, scope, (self.candidate, object()))] = self.results[
+                key
+            ]
+        self.results[key] = finish_result(result)
+        self._use_result(key)
+        return result
 
     def failures(self):
         """Concrete raw failures; Acceptance may exclude records, never rewrite them."""
@@ -310,6 +380,7 @@ class Findings:
     def result(self, check_id, scope):
         scope = None if scope is None else frozenset(scope)
         key = (check_id, scope, self.candidate)
+        self._use_result(key)
         return self.results.setdefault(
             key, CheckResult(check_id, scope, self.candidate)
         )
@@ -318,13 +389,25 @@ class Findings:
         scope = None if scope is None else frozenset(scope)
         key = (check_id, scope, self.candidate)
         result = self.result(check_id, scope)
-        if result.started or result.status == "PASS" or result.errors:
+        if any(active == key for active, _ in self._evaluations):
+            result.status = "FAIL"
+            result.metadata.update(
+                complete=False, reason=f"{check_id}: reentrant check has not completed"
+            )
+            return finish_result(result)
+        if result.metadata.get("complete") is True or result.errors:
             return finish_result(result)
         result = CheckResult(
             check_id, scope, self.candidate, status="PASS", metadata={}, started=True
         )
         self.results[key] = result
-        previous_results = set(self.results)
+        previous_results = {
+            child_key: (id(child), child.status, child.errors, dict(child.metadata))
+            for child_key, child in self.results.items()
+            if child_key != key
+        }
+        used = set()
+        self._evaluations.append((key, used))
         diagnostic_failures = self.diagnostic_failures
         incomplete_start = len(self.unverified)
         before, checks, warning_start = (
@@ -347,6 +430,7 @@ class Findings:
             if isinstance(metadata, dict):
                 check_metadata(metadata)
                 result.metadata.update(metadata)
+            result.metadata.setdefault("complete", True)
             check_metadata(result.metadata)
         except ReferenceDiagnosticError as error:
             self.warn(error)
@@ -356,20 +440,27 @@ class Findings:
             )
         except InputValidationError as error:
             self.input_failure(error)
+            result.metadata.setdefault("complete", True)
         except FindingsError as error:
             self.include_diagnostics(error.findings)
+            result.metadata.setdefault("complete", True)
         except (Exception, KeyboardInterrupt) as error:
             self.processing_failure(check_id, scope, error)
             result.metadata.update(
                 complete=False,
-                reason=f"{type(error).__name__}: {error or 'check interrupted'}",
+                reason=f"{check_id}: {type(error).__name__}: {str(error).strip() or 'check interrupted'}",
             )
         finally:
+            self._evaluations.pop()
             self.check_id, self.check_scope, self.source_path = previous
         child_failures = [
             finish_result(child)
             for child_key, child in self.results.items()
-            if child_key not in previous_results
+            if (
+                child_key in used
+                or (id(child), child.status, child.errors, child.metadata)
+                != previous_results.get(child_key)
+            )
             and child.candidate is self.candidate
             and child is not result
             and finish_result(child).status == "FAIL"
@@ -377,17 +468,31 @@ class Findings:
         if child_failures:
             result.status = "FAIL"
             result.metadata.update(
-                complete=all(
-                    child.metadata.get("complete") for child in child_failures
+                complete=result.metadata.get("complete") is True
+                and all(child.metadata.get("complete") for child in child_failures),
+                reason="; ".join(
+                    filter(
+                        None,
+                        [
+                            result.metadata.get("reason"),
+                            *(
+                                f"{child.check_id}: {child.metadata['reason']}"
+                                for child in child_failures
+                            ),
+                        ],
+                    )
                 ),
-                reason="; ".join(child.metadata["reason"] for child in child_failures),
             )
         # Repeated diagnostics still fail their check without adding duplicate ERRORs.
         if self.diagnostic_failures > diagnostic_failures:
             result.status = "FAIL"
             causes = [d.message for d in self.diagnostics if d.check_id == check_id]
             if causes:
-                result.metadata["reason"] = "; ".join(dict.fromkeys(causes))
+                result.metadata["reason"] = "; ".join(
+                    dict.fromkeys(
+                        filter(None, [result.metadata.get("reason"), *causes])
+                    )
+                )
         result.errors = tuple(self.errors[before:])
         result.warnings = tuple(self.warnings[warning_start:])
         result.checks = self.checks - checks
@@ -403,12 +508,7 @@ class Findings:
                 reason = "dependency"
             result.metadata.update(
                 complete=False,
-                reason=(
-                    result.metadata.get("reason", reason)
-                    if reason == "reference"
-                    or result.metadata.get("reason") == "processing"
-                    else reason
-                ),
+                reason=result.metadata.get("reason") or reason,
             )
             retained = result.metadata.setdefault("unverified", [])
             retained.extend(item for item in unverified if item not in retained)
@@ -485,6 +585,7 @@ class Findings:
 
     def processing_failure(self, check_id, scope, error, *, source_path=None):
         source_path = source_path or self.source_path
+        message = f"{check_id}: {type(error).__name__}: {str(error).strip() or 'check interrupted'}"
         diagnostic = Diagnostic.create(
             self.canonical_root,
             code="mechanical.processing",
@@ -497,7 +598,7 @@ class Findings:
             else json.dumps([check_id, sorted(scope or []), str(error)]),
             affected_services=tuple(sorted(scope or [])),
             location=type(error).__name__,
-            message=f"{check_id}: {error}",
+            message=message,
         )
         failure = dict(
             diagnostic_id=stable_id(diagnostic.identity),
@@ -507,7 +608,7 @@ class Findings:
             phase=check_id,
             scope=["/".join(entry) for entry in sorted(scope or [])],
             exception=type(error).__name__,
-            message=f"{check_id}: {error}",
+            message=message,
         )
         if failure not in self.processing_errors:
             self.processing_errors.append(failure)
@@ -517,7 +618,7 @@ class Findings:
         result.status = "FAIL"
         result.metadata = dict(
             complete=False,
-            reason=f"{type(error).__name__}: {error or 'check interrupted'}",
+            reason=message,
         )
 
     def input_failure(self, error, *, source_path=None, display_error=None):

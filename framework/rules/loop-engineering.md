@@ -438,10 +438,11 @@ Follow [Reference diagnostics](model-information.md#reference-diagnostics). Keep
 validation and View generation states separate. PENDING_DEPLOY has its own deployment meaning: a valid
 logical reference may pass Model validation before its physical value is deployed. Run
 all mandatory Change Validation checks, including candidate target, type and attribute
-checks; an interrupted or unexecuted mandatory check blocks completion. Preserve warnings
-and report retained or not-generated Views separately, without claiming View equality.
-Only proven pending deployment is nonblocking; invalid references, unresolved mandatory
-checks and actual failures block integration. Do not add Full Validation to Model updates.
+checks; an interrupted or unexecuted mandatory check blocks completion. Preserve pending
+warnings and finish required View generation/comparison using the existing PENDING_DEPLOY
+projection. Retained or not-generated Views do not prove completion. Invalid references,
+unresolved mandatory checks and actual failures block integration. Do not add Full
+Validation to Model updates.
 
 The running /update Model-only parent prepares source and generated views, then finalize
 creates its private candidate commit and rebases onto latest local base. Run the existing
@@ -484,6 +485,12 @@ exceptions, interruptions, missing dependencies and unexecuted mandatory checks 
 FAIL with check_id, scope, concrete reason, known source/Resource/Property, underlying
 diagnostics and existing diagnostic IDs. Empty or unspecified reasons are invalid.
 An internal not-started check is execution bookkeeping, never a public third status.
+Record `metadata.complete` when a handler finishes or exact required child results
+prove completion. `started`, PASS alone and execution-suppression flags are not
+completion evidence. A complete FAIL remains FAIL. Reuse requires the same candidate
+and scope; in-flight reentry is an incomplete FAIL. Aggregate the required children,
+including pre-registered, replaced and imported results, without overwriting same-key
+failures or inheriting unrelated failures. Do not cache failed or incomplete results.
 Register the Task-specific required plan before execution, run its missing checks, and
 refuse completion when any required check cannot finish. Inapplicable checks are not
 planned; never reclassify a required check merely to avoid failure. Child failures,
@@ -491,11 +498,13 @@ interruptions and scopes survive aggregation and candidate changes without overw
 same-ID results. Duplicate diagnostics do not erase failed check outcomes.
 
 Normal pending_deploy is separate reference information after logical target/type/
-attribute validation. It does not suppress independent Model checks. An exception that
-aborts a required handler is FAIL even if pending diagnostics are also present. View
-states are GENERATED, RETAINED_PENDING_DEPLOY, NOT_GENERATED_PENDING_DEPLOY or FAILED.
-Model-only Tasks may retain proven pending Views when their contract does not require
-the unavailable View comparison. A required View check that cannot execute is FAIL.
+attribute validation. Continue required generation, comparison and Policy checks using
+the existing PENDING_DEPLOY projection for unavailable physical values. Normal pending
+does not defer Views or remove checks/results from the validation plan. Fix a leaked
+normal-pending exception at its resolution boundary; an exception that still aborts a
+required handler is FAIL, including when pending diagnostics are present. Retained or
+unavailable Views are not evidence of completed generation. Required View checks that
+cannot execute are FAIL; never discard a failure because it contains pending diagnostics.
 Keep service-level partial generation, publication locks and rollback unchanged.
 
 Raw Validation and Task Acceptance are separate. Required corrections and regressions

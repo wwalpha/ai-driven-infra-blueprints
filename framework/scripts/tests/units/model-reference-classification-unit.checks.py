@@ -41,12 +41,16 @@ from support.model_reference_fixtures import (
     resource,
     save,
 )
+from sync_files import save_files
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.input_cache import input_context
 from utils.script_loader import module
+from validation import design
 from validation.findings import Findings
 from validation.runner import Validator
+
+from model import change_plan, sources
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -147,6 +151,105 @@ def materialize(consumer, role, document, *, warnings=None):
         model_key="desired.row.070-004.document",
         warnings=warnings,
     )
+
+
+@pytest.mark.parametrize("fault", [None, "target", "attribute", "type", "stale", "iac"])
+def test_pending_model_only_validation_and_final_acceptance(models, fault):
+    _, _, consumer, role, document = models
+    root = consumer.root
+    before = sources.raw_model(consumer.path)
+    view = root / "docs/designs/qa/team/iam.md"
+    document["Statement"][6]["Action"] = "kms:Encrypt"
+    role["desired.row.070-004.document"] = json.dumps(document)
+    save(consumer, role)
+    outputs = generate_files(view, role, root)
+    save_files(outputs)
+    assert (
+        "PENDING_DEPLOY"
+        in outputs[view.with_suffix("") / "iam-role-070-synthetic-policy.json"]
+    )
+    if fault in {"target", "attribute"}:
+        document["Statement"][6]["Resource"] = reference(
+            "KMS_Key_999" if fault == "target" else "KMS_Key_004",
+            "Arn" if fault == "target" else "RoleName",
+        )
+        role["desired.row.070-004.document"] = json.dumps(document)
+    elif fault == "type":
+        role.update(
+            {
+                "desired.row.070-005.property": "IAM.Role.MaxSessionDuration",
+                "desired.row.070-005.value": "invalid-number",
+                "desired.row.070-005.comment": "合成",
+            }
+        )
+    elif fault == "stale":
+        artifact = view.with_suffix("") / "iam-role-070-synthetic-policy.json"
+        artifact.write_text("{}\n", encoding="utf-8")
+    save(consumer, role)
+    after = sources.raw_model(consumer.path)
+    scope = {("qa", "team", "iam")}
+    plan = change_plan.ChangePlan(
+        changes={next(iter(scope)): change_plan.compare(before, after)},
+        views=scope,
+        reads=sources.FileReads(),
+    )
+    validator = Validator(root, scope, model_validation="change", workers=1)
+    validator.task_type = "design"
+    validator.change_plan = plan
+    validator.acceptance_checks = [
+        ("R1", "check", "framework.generated-service-model"),
+        ("R1", "check", "framework.policy-tables"),
+    ]
+    with patch.object(
+        design, "check_policy_view_integrity", wraps=design.check_policy_view_integrity
+    ) as policy:
+        validator.findings.evaluate(
+            "validation.changed-model", scope, validator.check_changed_designs
+        )
+        if fault == "iac":
+            template = root / "infra/cloudformation/templates/role.yaml"
+            parameters = root / "infra/cloudformation/parameters/qa/team/role.json"
+            template.parent.mkdir(parents=True, exist_ok=True)
+            parameters.parent.mkdir(parents=True, exist_ok=True)
+            template.write_text(
+                "Parameters:\n  Environment:\n    Type: String\nResources:\n  Role:\n    Type: AWS::IAM::Role\n    Properties:\n      RoleName: !Ref Environment\n",
+                encoding="utf-8",
+            )
+            parameters.write_text(
+                '[{"ParameterKey":"Environment","ParameterValue":"wrong"}]\n',
+                encoding="utf-8",
+            )
+            validator.iac_paths = {template, parameters}
+            validator.findings.evaluate(
+                "iac.environment",
+                scope,
+                partial(
+                    validator.check_cloudformation_environment_parameters,
+                    stack_definitions={
+                        view.with_name("cloudformation-stacks.md"): [
+                            {"template": "role.yaml", "parameters": "role.json"}
+                        ]
+                    },
+                ),
+            )
+        validator.check_acceptance_checks()
+    assert validator.report() == int(fault is not None)
+    assert validator.findings.status == ("PASS" if fault is None else "FAIL")
+    if fault is None:
+        assert policy.call_count > 0
+        assert validator.acceptance_results == [
+            "R1:check:framework.generated-service-model",
+            "R1:check:framework.policy-tables",
+        ]
+        result = validator.findings.get_result(
+            "framework.generated-service-model", scope
+        )
+        assert result.status == "PASS" and result.metadata["complete"]
+        assert any(
+            w.get("category") == "REFERENCE_PENDING_DEPLOY" for w in validator.warnings
+        )
+    else:
+        assert all(f["reason"].strip() for f in validator.findings.failures())
 
 
 @pytest.mark.parametrize(
