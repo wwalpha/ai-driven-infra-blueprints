@@ -52,9 +52,14 @@ def validate_resource_identities(
     if target.get("iacEngine") == "terraform":
         _validate_terraform_identities(resources)
         return
-    if target.get("iacEngine") != "cloudformation":
-        return
-    _validate_cloudformation_identities(root, stack_source, resources, identity_catalog)
+    # エンジン未解決でも Identity があれば従来の共通検証を行う。
+    _validate_cloudformation_identities(
+        root,
+        stack_source,
+        resources,
+        identity_catalog,
+        is_cloudformation=target.get("iacEngine") == "cloudformation",
+    )
 
 
 def _validate_terraform_identities(
@@ -73,12 +78,18 @@ def _validate_cloudformation_identities(
     stack_source: Path | None,
     resources: list[tuple[str, dict[str, str]]],
     identity_catalog: DesignSchemaCatalog,
+    *,
+    is_cloudformation: bool,
 ) -> None:
     """CloudFormation Identity と Stack の対応を検証する。"""
     stack_names = None
     for identity, resource in resources:
         if "cfn-logicalId" not in resource:
-            if _dependency_design_layout.resource_mode(resource) != "CREATE":
+            # 必須 Identity は CloudFormation と確定した CREATE のみ対象。
+            if (
+                not is_cloudformation
+                or _dependency_design_layout.resource_mode(resource) != "CREATE"
+            ):
                 continue
             try:
                 cfn_type = identity_catalog.cloudformation_type(
@@ -116,10 +127,15 @@ def _validate_cloudformation_identities(
                     f"{identity}: cfn-logicalId references an undeclared stack"
                 )
             continue
-        if stack_source is None or not input_is_file(stack_source):
+        # 未解決エンジンでは Stack ファイルの欠落を従来どおり許容する。
+        if is_cloudformation and (
+            stack_source is None or not input_is_file(stack_source)
+        ):
             raise InputValidationError(
                 f"{identity}: cfn-logicalId requires authoritative cloudformation-stacks.properties"
             )
+        if stack_source is None or not input_is_file(stack_source):
+            continue
         if stack_names is None:
             read_model = _imports_model_files.read_model
             _, stacks = stack_model(properties(read_model(stack_source)))

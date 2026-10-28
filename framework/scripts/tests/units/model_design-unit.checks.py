@@ -75,6 +75,7 @@ from support.rotation_schedule_fixtures import fixture as rotation_fixture
 from utils.iac_values import cfn_resource_identity
 from utils.json_format import policy_json, validate_aws_document
 from validation.design_links import check_design_links as validate_design_links
+from validation.diagnostics import InputValidationError
 from validation.findings import Findings
 
 from model import projection as model_projection
@@ -1947,6 +1948,78 @@ def check_cfn_identity_inputs(tmp_path):
                     list(entries(candidate, "desired.resource.")),
                     definitions_root=ROOT,
                 )
+
+
+def check_cfn_identity_unresolved_engine(tmp_path) -> None:
+    """エンジン未解決時も分割前の Identity 判定を維持する。"""
+    values = model("vpc", "EC2.VPC", "vpc", [])
+    path = tmp_path / "docs/designs/dev/team/vpc.md"
+    create = dict(list(entries(values, "desired.resource."))[0][1])
+    create.pop("cfn-logicalId", None)
+    imported = create | {"resourceMode": "IMPORT", "cfn-logicalId": "stack-Vpc"}
+    with patch("model.validations.identity.design_target", return_value={}):
+        with pytest.raises(
+            InputValidationError,
+            match="cfn-logicalId requires CREATE with a formal CFn type",
+        ):
+            validate_resource_identities(
+                path, values, tmp_path, [("001", imported)], definitions_root=ROOT
+            )
+        validate_resource_identities(
+            path, values, tmp_path, [("001", create)], definitions_root=ROOT
+        )
+        validate_resource_identities(
+            path,
+            values,
+            tmp_path,
+            [("001", create | {"cfn-logicalId": "stack-Vpc"})],
+            definitions_root=ROOT,
+        )
+    with patch(
+        "model.validations.identity.design_target",
+        return_value={"iacEngine": "unknown", "awsAccountId": "123456789012"},
+    ):
+        with pytest.raises(
+            InputValidationError,
+            match="cfn-logicalId requires CREATE with a formal CFn type",
+        ):
+            validate_resource_identities(
+                path, values, tmp_path, [("001", imported)], definitions_root=ROOT
+            )
+        validate_resource_identities(
+            path, values, tmp_path, [("001", create)], definitions_root=ROOT
+        )
+        with (
+            patch("model.validations.identity.input_is_file", return_value=True),
+            patch("model.files.read_model", return_value=serialize(STACK_VALUES)),
+            patch("model.projection.bound_stack_names", return_value={"other"}),
+            pytest.raises(ValueError, match="undeclared stack"),
+        ):
+            validate_resource_identities(
+                path,
+                values,
+                tmp_path,
+                [("001", create | {"cfn-logicalId": "stack-Vpc"})],
+                definitions_root=ROOT,
+            )
+    with patch(
+        "model.validations.identity.design_target",
+        return_value={"iacEngine": "cloudformation", "awsAccountId": "123456789012"},
+    ):
+        with pytest.raises(
+            InputValidationError,
+            match="cfn-logicalId required for CloudFormation CREATE resource",
+        ):
+            validate_resource_identities(
+                path, values, tmp_path, [("001", create)], definitions_root=ROOT
+            )
+        with pytest.raises(
+            InputValidationError,
+            match="cfn-logicalId requires CREATE with a formal CFn type",
+        ):
+            validate_resource_identities(
+                path, values, tmp_path, [("001", imported)], definitions_root=ROOT
+            )
 
 
 def check_expanded_design_and_json_digest(tmp_path) -> None:
