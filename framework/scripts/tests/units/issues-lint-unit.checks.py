@@ -77,17 +77,22 @@ def check_explicit_plan():
         template = root / "infra/cloudformation/templates/shared.yaml"
         template.parent.mkdir(parents=True)
         template.write_text("invalid: [")
+        parameters = root / "infra/cloudformation/parameters/dev/team/broken.json"
+        parameters.parent.mkdir(parents=True)
+        parameters.write_text("[]", encoding="utf-8")
         values = {
             f"desired.stack.{i}.{field}": value
             for i, name in enumerate(["StackA", "StackB"])
             for field, value in {
                 "name": name,
                 "template": "shared.yaml",
-                "parameters": "broken",
+                "parameters": "broken.json",
             }.items()
         }
         comparison = SimpleNamespace(
             root=root,
+            environment="dev",
+            directory="team",
             target={"iacEngine": "cloudformation", "awsRegion": "ap-northeast-1"},
             services=["s3", "sqs"],
             models={"s3": True, "sqs": True},
@@ -131,6 +136,193 @@ def check_explicit_plan():
             [],
             [{"status": "not_applicable", "reason": "Terraform scope"}],
         )
+
+
+def check_stack_parameter_jobs_and_invalid_inputs(tmp_path):
+    root = tmp_path
+    template = root / "infra/cloudformation/templates/shared.yaml"
+    template.parent.mkdir(parents=True)
+    template.write_text("Resources: {}", encoding="utf-8")
+    directory = root / "infra/cloudformation/parameters/dev/team"
+    directory.mkdir(parents=True)
+    (directory / "one.json").write_text("[]", encoding="utf-8")
+    (directory / "two.json").write_text("[]", encoding="utf-8")
+    (directory / "bad.json").write_text("{", encoding="utf-8")
+    filenames = [
+        "one.json",
+        "two.json",
+        "missing.json",
+        "bad.json",
+        "../unsafe.json",
+        "",
+    ]
+    values = {
+        f"desired.stack.{i}.{field}": value
+        for i, filename in enumerate(filenames)
+        for field, value in {
+            "name": f"Stack{i}",
+            "template": "shared.yaml",
+            "parameters": filename,
+        }.items()
+    }
+    comparison = SimpleNamespace(
+        root=root,
+        environment="dev",
+        directory="team",
+        target={"iacEngine": "cloudformation", "awsRegion": "ap-northeast-1"},
+        services=["cloudformation-stacks"],
+        models={"cloudformation-stacks": True},
+        model=lambda _: SimpleNamespace(values=values),
+        resources={"cloudformation-stacks": {}},
+        track=Mock(),
+        sensitive_values=set(),
+        redacted=lambda value: value,
+    )
+    jobs, coverage = plan(comparison)
+    assert {job["parameters"] for job in jobs} == {
+        str(directory / "one.json"),
+        str(directory / "two.json"),
+    }
+    assert len({job["id"] for job in jobs}) == 2
+    assert {item["reason"] for item in coverage} == {
+        "Stack parameters file missing",
+        "invalid Stack parameters JSON",
+        "invalid Stack parameters path",
+        "Stack parameters unspecified",
+    }
+    result = dict(
+        status="completed",
+        completed=True,
+        decode_complete=True,
+        matches=[],
+        processing_errors=[],
+        unverified=[],
+    )
+    with (
+        patch("issues.cfn_lint.lint_session"),
+        patch(
+            "issues.cfn_lint.validate_template", side_effect=lambda *args: dict(result)
+        ) as lint,
+    ):
+        actual = run_lint(comparison)
+    assert lint.call_count == 2 and actual["status"] == "incomplete"
+    assert {call.args[3] for call in lint.call_args_list} == {
+        job["parameters"] for job in jobs
+    }
+
+
+def check_parameter_file_cli_and_redaction(tmp_path):
+    template = tmp_path / "network.yaml"
+    parameters = tmp_path / "network.json"
+    secret = "fixture-private-parameter-value"
+    template.write_text(
+        """Parameters:
+  VpcCidrBlock:
+    Type: String
+    Default: ''
+  Password:
+    Type: String
+    NoEcho: true
+Resources:
+  Network:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+Outputs:
+  Value:
+    Value: !Ref Password
+""",
+        encoding="utf-8",
+    )
+    parameters.write_text(
+        json.dumps(
+            [
+                {"ParameterKey": "VpcCidrBlock", "ParameterValue": "10.10.0.0/23"},
+                {"ParameterKey": "Password", "ParameterValue": secret},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    arguments = [
+        "--regions",
+        "ap-northeast-1",
+        "--format",
+        "json",
+        "--parameter-files",
+        str(parameters),
+        "--",
+        str(template),
+    ]
+    cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            "from cfnlint.runner import main; main()",
+            *arguments,
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    with adapter.lint_session(tmp_path) as session:
+        result = adapter.validate_template(
+            session, template, "ap-northeast-1", parameters
+        )
+    assert result["completed"], result
+    assert secret not in json.dumps(
+        {k: v for k, v in result.items() if k != "sensitive_values"}
+    )
+    assert secret in result["sensitive_values"]
+    assert "W1030" not in {item["Rule"]["Id"] for item in result["matches"]}, result[
+        "matches"
+    ]
+    cli_matches = json.loads(cli.stdout or "[]")
+    raw = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            "from cfnlint.runner import main; main()",
+            "--regions",
+            "ap-northeast-1",
+            "--format",
+            "json",
+            "--template",
+            str(template),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    def signature(m):
+        return (
+            m["Rule"]["Id"],
+            json.dumps(m["Location"], sort_keys=True),
+            m["Message"],
+        )
+
+    applied = [signature(m) for m in cli_matches]
+    for match in json.loads(raw.stdout or "[]"):
+        applied.remove(signature(match))
+    assert sorted(signature(m) for m in result["matches"]) == sorted(applied)
+    template.write_text(
+        template.read_text(encoding="utf-8").replace(
+            "    NoEcho: true", "    NoEcho: true\n    AllowedValues: [allowed]"
+        ),
+        encoding="utf-8",
+    )
+    with adapter.lint_session(tmp_path) as session:
+        invalid = adapter.validate_template(
+            session, template, "ap-northeast-1", parameters
+        )
+    assert any(m["Rule"]["Id"] == "E2900" for m in invalid["matches"])
+    assert secret not in json.dumps(
+        {k: v for k, v in invalid.items() if k != "sensitive_values"}
+    )
 
 
 def artifact_fixture(count=150):

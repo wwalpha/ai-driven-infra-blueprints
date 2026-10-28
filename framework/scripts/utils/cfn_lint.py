@@ -288,7 +288,7 @@ class LintSession:
         self.worker = Worker()
         self.fatal = False
 
-    def validate(self, template, region):
+    def validate(self, template, region, parameters=None):
         if self.fatal:
             return dict(
                 completed=False,
@@ -299,7 +299,12 @@ class LintSession:
                 unverified=[dict(code="lint.runtime_unavailable")],
             )
         result = self.worker.request(
-            dict(cwd=self.cwd, template=str(Path(template).resolve()), region=region)
+            dict(
+                cwd=self.cwd,
+                template=str(Path(template).resolve()),
+                region=region,
+                parameters=str(Path(parameters).resolve()) if parameters else None,
+            )
         )
         if (
             not isinstance(result, dict)
@@ -338,8 +343,8 @@ def lint_session(cwd):
         session.worker.close()
 
 
-def validate_template(session, template, region):
-    return session.validate(template, region)
+def validate_template(session, template, region, parameters=None):
+    return session.validate(template, region, parameters)
 
 
 if __name__ == "__main__":

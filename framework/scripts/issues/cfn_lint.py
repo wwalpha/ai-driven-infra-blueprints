@@ -1,5 +1,6 @@
 """Explicit selected-Model lint plan, ownership, diagnostic channels and coverage."""
 
+import json
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
@@ -43,12 +44,67 @@ def _callback_plan_add(comparison, coverage, jobs, /, unit, origin):
         return
     comparison.track(raw)
     path = raw.resolve()
-    key = identifier([str(path), comparison.target["awsRegion"], POLICY])
+    filename = unit.get("parameters")
+    if not filename:
+        coverage.append(
+            dict(status="unverified", reason="Stack parameters unspecified", **origin)
+        )
+        return
+    if (
+        not isinstance(filename, str)
+        or Path(filename).name != filename
+        or Path(filename).suffix != ".json"
+        or "\\" in filename
+    ):
+        coverage.append(
+            dict(status="unverified", reason="invalid Stack parameters path", **origin)
+        )
+        return
+    parameters = (
+        comparison.root
+        / "infra/cloudformation/parameters"
+        / comparison.environment
+        / comparison.directory
+        / filename
+    )
+    if not parameters.resolve().is_relative_to(comparison.root.resolve()):
+        coverage.append(
+            dict(status="unverified", reason="invalid Stack parameters path", **origin)
+        )
+        return
+    comparison.track(parameters)
+    parameters = parameters.resolve()
+    try:
+        with parameters.open(encoding="utf-8") as stream:
+            json.load(stream)
+    except FileNotFoundError:
+        coverage.append(
+            dict(
+                status="input_missing", reason="Stack parameters file missing", **origin
+            )
+        )
+        return
+    except (ValueError, UnicodeError):
+        coverage.append(
+            dict(status="unverified", reason="invalid Stack parameters JSON", **origin)
+        )
+        return
+    except OSError:
+        coverage.append(
+            dict(
+                status="unverified", reason="Stack parameters file unreadable", **origin
+            )
+        )
+        return
+    key = identifier(
+        [str(path), str(parameters), comparison.target["awsRegion"], POLICY]
+    )
     job = jobs.setdefault(
         key,
         dict(
             id=key,
             template=str(path),
+            parameters=str(parameters),
             region=comparison.target["awsRegion"],
             policy=POLICY,
             origins=[],
@@ -264,7 +320,9 @@ def run_lint(comparison, *, result=None):
                     )
                 )
                 continue
-            result = validate_template(session, job["template"], job["region"])
+            result = validate_template(
+                session, job["template"], job["region"], job.get("parameters")
+            )
             comparison.sensitive_values.update(result.pop("sensitive_values", []))
             job.update(
                 status=result["status"],

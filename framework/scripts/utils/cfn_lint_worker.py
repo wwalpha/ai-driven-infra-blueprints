@@ -41,6 +41,8 @@ try:
     from cfnlint.match import Match
     from cfnlint.rules.errors import ConfigError
     from cfnlint.runner import Runner
+    from cfnlint.runner.parameter_file import expand_parameter_files
+    from cfnlint.runner.template import run_template_by_file_paths
     from cfnlint.schema import PROVIDER_SCHEMA_MANAGER as manager
     from cfnlint.schema._exceptions import ResourceNotFoundError
     from cfnlint.schema.manager import ProviderSchemaManager
@@ -443,16 +445,14 @@ def structured(request, emit=None):
             _callback_structured_selected_files, original_glob, selections
         )
         ConfigMixIn._glob_filenames = selected_files
-        config = ConfigMixIn(
-            [
-                "--regions",
-                request["region"],
-                "--template",
-                request["template"],
-                "--format",
-                "json",
-            ]
-        )
+        arguments = ["--regions", request["region"], "--format", "json"]
+        if request.get("parameters"):
+            arguments.extend(
+                ["--parameter-files", request["parameters"], "--", request["template"]]
+            )
+        else:
+            arguments.extend(["--template", request["template"]])
+        config = ConfigMixIn(arguments)
         config.validate()
         if config.deployment_files:
             raise ValueError("deployment_files conflicts with explicit template")
@@ -518,7 +518,20 @@ def structured(request, emit=None):
             stage = "execution"
             runner = Runner(config)
             # Even exceptional iterators retain matches already yielded.
-            for match in runner.run():
+            if request.get("parameters"):
+                parameter_configs = expand_parameter_files(config)
+                matches = (
+                    match
+                    for parameter_config, errors in parameter_configs
+                    for match in (
+                        run_template_by_file_paths(parameter_config, runner.rules)
+                        if parameter_config
+                        else errors
+                    )
+                )
+            else:
+                matches = runner.run()
+            for match in matches:
                 response["matches"].append(
                     json.loads(json.dumps(match, cls=JsonFormatter.CustomEncoder))
                 )
