@@ -271,6 +271,37 @@ def check_stack_parameter_jobs_and_invalid_inputs(tmp_path):
     )
     assert actual["status"] == "incomplete"
 
+    result["matches"] = [
+        {"Rule": {"Id": "E0000"}, "Level": "Error", "Message": "syntax error"}
+    ]
+    with (
+        patch("issues.cfn_lint.lint_session"),
+        patch("issues.cfn_lint.validate_template", return_value=result),
+        patch("issues.cfn_lint.owner", return_value=("s3", False)),
+    ):
+        result["input_defect"] = True
+        actual = run_lint(comparison)
+        assert [item["code"] for item in actual["ordinary"]] == ["cfn_lint.E0000"]
+        assert any(item["status"] == "unverified" for item in actual["coverage"])
+        assert actual["status"] == "incomplete"
+
+        result["input_defect"] = False
+        actual = run_lint(comparison)
+        assert [item["code"] for item in actual["processing_errors"]] == [
+            "cfn_lint.E0000"
+        ]
+        assert not actual["ordinary"]
+
+        (directory / "bad.json").write_text("[]", encoding="utf-8")
+        result["input_defect"] = True
+        result["matches"].append(
+            {"Rule": {"Id": "W1030"}, "Level": "Warning", "Message": "warning"}
+        )
+        actual = run_lint(comparison)
+        assert [item["code"] for item in actual["ordinary"]] == ["cfn_lint.E0000"]
+        assert [item["code"] for item in actual["warnings"]] == ["cfn_lint.W1030"]
+        assert actual["status"] == "checked"
+
 
 def artifact_fixture(count=150):
     records = [

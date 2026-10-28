@@ -358,7 +358,15 @@ def run_lint(comparison, *, result=None):
                 if snowflake_enum_false_positive(match, job["template"]):
                     continue
                 channel = classify(match, result)
-                if job.get("fallback") and channel != "processing_errors":
+                if (
+                    job.get("fallback")
+                    and channel != "processing_errors"
+                    and not (
+                        channel == "ordinary"
+                        and match.get("Rule", {}).get("Id") == "E0000"
+                        and result.get("input_defect")
+                    )
+                ):
                     channel = "unverified"
                 service, outside = owner(comparison, job, match)
                 if channel == "processing_errors":
