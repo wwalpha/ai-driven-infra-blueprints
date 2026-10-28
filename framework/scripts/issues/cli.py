@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from comparison.deferral import CATEGORIES
+from utils.json_format import strict_json
 
 import issues.artifact as _imports_issues_artifact
 import issues.publication as _imports_issues_publication
@@ -15,6 +16,7 @@ import issues.runner as _imports_issues_runner
 
 from .aggregate import IAC_CLASSES
 from .records import safe_text
+from .review_progress import DEFAULT_MAX_BYTES, ReviewController
 
 SELECTOR = "BLUEPRINT_TASK_FILE"
 
@@ -82,11 +84,39 @@ def main():
     saveparser = commands.add_parser("save")
     saveparser.add_argument("--artifact", type=Path, required=True)
     saveparser.add_argument("--review", type=Path, required=True)
+    reviewparser = commands.add_parser("review", help="checkpointed complete Review")
+    reviewcommands = reviewparser.add_subparsers(dest="review_command", required=True)
+    for operation in ("init", "next", "submit", "status", "export"):
+        command = reviewcommands.add_parser(operation)
+        command.add_argument("--artifact", type=Path, required=True)
+        command.add_argument("--state", type=Path, required=True)
+        if operation == "next":
+            command.add_argument("--limit", type=int, default=20)
+            command.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
+        elif operation == "submit":
+            command.add_argument("--submission", type=Path, required=True)
+        elif operation == "export":
+            command.add_argument("--review", type=Path, required=True)
     args = parser.parse_args()
     root = args.repository_root.resolve()
     if args.task_file:
         os.environ[SELECTOR] = args.task_file
     try:
+        if args.command == "review":
+            controller = ReviewController(root, args.artifact, args.state)
+            if args.review_command == "init":
+                output = controller.initialize()
+            elif args.review_command == "status":
+                output = controller.status()
+            elif args.review_command == "next":
+                output = controller.next_batch(args.limit, args.max_bytes)
+            elif args.review_command == "submit":
+                submission = strict_json(outside(root, args.submission).read_bytes())
+                output = controller.submit(submission)
+            else:
+                output = controller.export(args.review)
+            print(json.dumps(output, ensure_ascii=False, allow_nan=False))
+            return 2 if output.get("blocked") else 0
         if args.command == "scan":
             review_payload = _imports_issues_artifact.review_payload
             scan_exit_code = _imports_issues_artifact.scan_exit_code

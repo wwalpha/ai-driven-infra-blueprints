@@ -327,48 +327,12 @@ def naming_failure_recorded(artifact, item):
     return False
 
 
-def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapshot:
-    if artifact.get("version") != 6:
-        raise ValueError("unsupported scan artifact version; version 6 required")
-    required = {
-        "scan_id",
-        "reviewed_naming_context_id",
-        "reviewed_names",
-        "reviewed_judgments",
-        "reviewed_confirmations",
-        "diagnostic_assignments",
-        "diagnostic_decisions",
-        "issues",
-        "unverified",
-    }
-    if not isinstance(review, dict) or set(review) != required:
-        raise ValueError("invalid snapshot review fields")
-    if (
-        review["scan_id"] != artifact["scan_id"]
-        or review["reviewed_naming_context_id"] != artifact["naming_context_id"]
-    ):
-        raise ValueError("review scan_id/naming_context_id mismatch")
+def assigned_diagnostics(
+    artifact: dict[str, Any], assignments: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     services = artifact["services"]
-    validate_confirmations(
-        artifact["human_confirmations"], artifact["environment"], artifact["target"]
-    )
-    confirmations = {
-        item["id"]: item for item in artifact["human_confirmations"]["confirmations"]
-    }
-    reviewed_ids(
-        review["reviewed_names"],
-        [item["id"] for item in artifact["naming"]["names"]],
-        "naming",
-    )
-    reviewed_ids(
-        review["reviewed_judgments"],
-        [item["id"] for item in artifact["judgments"]],
-        "judgment",
-    )
-    reviewed_ids(review["reviewed_confirmations"], confirmations, "Human confirmation")
     ordinary = deepcopy(artifact["ordinary"])
     unresolved = []
-    assignments = review["diagnostic_assignments"]
     unknown = {item["id"] for item in artifact["judgments"] if "message" in item}
     if not isinstance(assignments, dict) or set(assignments) != unknown:
         raise ValueError("diagnostic requires exact scoped service assignments")
@@ -409,7 +373,15 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
                 unresolved.append(
                     dict(assigned, diagnostic_id=item["id"], complete=False)
                 )
-    decisions = review["diagnostic_decisions"]
+    return ordinary, unresolved
+
+
+def validate_diagnostic_decisions(
+    ordinary: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+    confirmations: dict[str, dict[str, Any]],
+    services: list[str],
+) -> tuple[set[str], list[dict[str, Any]]]:
     if not isinstance(decisions, list):
         raise ValueError("diagnostic_decisions must be a list")
     by_id = diagnostic_index(ordinary, services)
@@ -486,9 +458,17 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
             )
     if seen != by_id.keys():
         raise ValueError("all current diagnostics require review")
-    additions = review["issues"]
+    return excluded, conflicts
+
+
+def review_additions(
+    artifact: dict[str, Any], additions: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    services = artifact["services"]
     if not isinstance(additions, list):
         raise ValueError("review issues must be a list")
+    if not additions:
+        return []
     naming = {item["id"]: item for item in artifact["naming"]["names"]}
     for item in additions:
         if (
@@ -557,8 +537,13 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
     additions = [
         dict(item, id=identifier(["issues.review", item])) for item in additions
     ]
-    diagnostic_index([*ordinary, *additions], services)
-    unverified = review["unverified"]
+    return additions
+
+
+def validate_review_unverified(
+    artifact: dict[str, Any], unverified: list[dict[str, Any]]
+) -> None:
+    services = artifact["services"]
     if not isinstance(unverified, list):
         raise ValueError("review unverified must be a list")
     for item in unverified:
@@ -581,6 +566,57 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
                 raise ValueError("Naming unverified requires a recorded scan failure")
         if set(item) != fields:
             raise ValueError("invalid unverified review fields")
+
+
+def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapshot:
+    if artifact.get("version") != 6:
+        raise ValueError("unsupported scan artifact version; version 6 required")
+    required = {
+        "scan_id",
+        "reviewed_naming_context_id",
+        "reviewed_names",
+        "reviewed_judgments",
+        "reviewed_confirmations",
+        "diagnostic_assignments",
+        "diagnostic_decisions",
+        "issues",
+        "unverified",
+    }
+    if not isinstance(review, dict) or set(review) != required:
+        raise ValueError("invalid snapshot review fields")
+    if (
+        review["scan_id"] != artifact["scan_id"]
+        or review["reviewed_naming_context_id"] != artifact["naming_context_id"]
+    ):
+        raise ValueError("review scan_id/naming_context_id mismatch")
+    services = artifact["services"]
+    validate_confirmations(
+        artifact["human_confirmations"], artifact["environment"], artifact["target"]
+    )
+    confirmations = {
+        item["id"]: item for item in artifact["human_confirmations"]["confirmations"]
+    }
+    reviewed_ids(
+        review["reviewed_names"],
+        [item["id"] for item in artifact["naming"]["names"]],
+        "naming",
+    )
+    reviewed_ids(
+        review["reviewed_judgments"],
+        [item["id"] for item in artifact["judgments"]],
+        "judgment",
+    )
+    reviewed_ids(review["reviewed_confirmations"], confirmations, "Human confirmation")
+    ordinary, unresolved = assigned_diagnostics(
+        artifact, review["diagnostic_assignments"]
+    )
+    excluded, conflicts = validate_diagnostic_decisions(
+        ordinary, review["diagnostic_decisions"], confirmations, services
+    )
+    additions = review_additions(artifact, review["issues"])
+    diagnostic_index([*ordinary, *additions], services)
+    unverified = review["unverified"]
+    validate_review_unverified(artifact, unverified)
     data = deepcopy(artifact)
     data["reviewed"] = True
     data["notice_overview"] = {}

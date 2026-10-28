@@ -85,7 +85,7 @@ For local investigation, read [aws-resource-naming](../../../framework/rules/aws
 
 ### IaC classification summary
 
-- Use Python's bounded cause/action summary; do not reread/reaggregate all records or paste the whole `iac-issues.md` into chat. Retrieve required naming/judgment pages through `detail` and review every ID before saving.
+- Use Python's bounded cause/action summary; do not reread/reaggregate all records or paste the whole `iac-issues.md` into chat. Use the Review Controller below to review every required ID before saving; `detail --offset --limit` remains available for supporting evidence.
 - Both Markdown files are generated anew from the same reviewed whole-target Snapshot; no previous results, Human prose or service blocks are carried forward.
 - See [IaC report grouping and publication](../../../framework/rules/issues-investigation.md#iac-report-grouping-and-publication) for limits, omission counts, temporary artifact detail, masking and publication safety. No legacy state migration or deletion is part of saving.
 
@@ -128,9 +128,62 @@ unverified. If the temporary artifact is gone, obtain a separately authorized ne
 and complete Review as needed; add no persistent sidecar. Ordinary `issues.md` retains
 all Issue IDs for issue-fix. Do not start Model/IaC repair from this investigation skill.
 
+## Batch Review execution and resume
+
+Execute the whole flow: Scan → Review Init → Next → LLM Review → Submit → Status →
+repeat Next while incomplete → Export → existing Save → post-save Local Loop → report.
+Use `issues_scan.py review init|next|submit|status|export` with the same external
+`--artifact` and `--state` paths. See [commands and batch format](../../../framework/rules/issues-investigation.md#review-controller).
+
+- A valid Scan artifact allows Review even when Scan returns diagnostic FAIL/exit 1
+  or processing ERROR/exit 2. Distinguish the command exit code from artifact creation
+  failure; check the artifact through `review init`. Retain failed/unexecuted scope.
+- `next` selects at most 20 pending IDs by default, in dependency order: Naming
+  Context (target/policy plus every rule material), Human Confirmations, Naming,
+  Judgments, Diagnostic Decisions, final additional Issues/Unverified confirmation.
+  Owner assignments determine the exact Diagnostic Decision set. Do not reassign
+  Python-proven owners or re-review mechanically validated IaC records without a
+  judgment requirement.
+- Read every returned item and its applicable rules/evidence. Related Human facts
+  accompany Naming/diagnostics; other already reviewed facts have an artifact detail
+  reference. Retrieve supporting material when needed, including after resuming;
+  a shared reference does not excuse an unperformed judgment.
+- Output is bounded in UTF-8 bytes (`--max-bytes`, default 32768) and shrinks by whole
+  items. Platform/page output omission is not evidence that Review is impossible:
+  reduce `--limit` and retrieve again. Never submit unseen/truncated IDs. A single
+  oversized item returns its ID/reason and remains pending; use a supported larger
+  byte budget if the complete item can be read. Never treat truncation as success.
+- Explicitly judge every expected ID with reason/evidence and current Issues or
+  Unverified information. Submit each complete batch immediately to checkpoint it.
+  A rejected/incomplete batch advances no IDs. Reacquiring a smaller batch replaces
+  the outstanding Batch ID; submit that current batch. Identical resubmission is
+  idempotent; different judgments cannot overwrite accepted results implicitly.
+- Run `status` after each Submit. Continue until every section is complete; workload
+  alone never justifies stopping before Review, Export, Save and post-save checks.
+  The LLM's decision to stop early is not normal completion. Never register an ID
+  as reviewed merely because it was fetched or to make Export pass.
+- On session resume, first run `status` against the same Scan/checkpoint, then `next`
+  for pending IDs. Accepted results persist in an atomic checkpoint outside the
+  repository; retain both temporary files. Do not rescan, discard Review or compare
+  current Model/IaC/Markdown/Git because inputs changed. The digest only binds the
+  checkpoint to the original Scan artifact.
+- Only a concrete continuation-blocking failure permits stopping. Report its exact
+  cause, completed counts and remaining sections/IDs; preserve the checkpoint.
+  Corruption, Scan mismatch, stale batches and conflicting judgments are explicit
+  errors. Do not replace a mismatched/corrupt checkpoint or fabricate decisions.
+- When complete, `export` invokes the existing full `review_snapshot()` validation.
+  Pass the exported nine-field Review JSON to existing `save`; incomplete Review
+  has no partial-report save path. Run the existing post-save Local Loop and retain
+  saved reports on its failure, reporting publication and validation separately.
+
+The controller preserves progress and supports resumption across sessions; it does
+not restart a Copilot/agent session forcibly terminated by its platform. External
+agent startup/scheduling is outside this workflow. OS temporary-file cleanup can
+remove checkpoints, so retain the selected external files while resumption is needed.
+
 ## Immutable Snapshot and local lint
 
-The scan emits only version 6. Read naming_context once and every naming/judgment/Human confirmation page. Submit exact Scan/context and all reviewed ID sets, current diagnostic assignments/decisions, additional current issues and unverified scope. Python-proven single-Service owners require no LLM reassignment. Ambiguous owners require evidence for an assigned Service or an explicit unresolved reason; unknown cause stays unverified even after owner assignment. Follow the [complete Review and Human file contract](../../../framework/rules/issues-investigation.md#commands-and-complete-review). Unsupported artifacts and extra/old Review fields are rejected. There is no partial-result saving API.
+The scan emits only version 6. Use the Review Controller described above after Scan; do not process a large combined `detail` dump or construct reviewed-ID lists from retrieval alone. Export retains the exact Scan/context and all reviewed ID sets, current diagnostic assignments/decisions, additional current issues and unverified scope. Python-proven single-Service owners require no LLM reassignment. Ambiguous owners require evidence for an assigned Service or an explicit unresolved reason; unknown cause stays unverified even after owner assignment. Follow the [complete Review and Human file contract](../../../framework/rules/issues-investigation.md#commands-and-complete-review). Unsupported artifacts and extra/old Review fields are rejected. There is no partial-result saving API.
 
 Keep comparison categories separate: `deferred` means reference comparison is on hold, `excluded` means outside the current comparison, `uncompared` means resolution/comparison could not complete, and `error` means a processing/evaluation failure. For validated IMPORT references subject to the existing handoff checks, `unobserved` and `awaiting_handoff` are deferred; `pending_deploy` is excluded. Deferred/excluded records remain in the artifact but receive no Issue ID and do not enter Issue counts. Deferred contributes to partial; pending_deploy does not contribute to uncompared, partial or repair-required counts. Its normal Markdown display is a dedicated exclusion count; causes remain available through explicit detail. Follow the existing [classification and aggregation contract](../../../framework/rules/issues-investigation.md#comparison-coverage).
 

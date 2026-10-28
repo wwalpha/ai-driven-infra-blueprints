@@ -132,11 +132,13 @@ refusal with missing services; do not broaden it automatically.
 
 ```console
 python3 framework/scripts/issues_scan.py scan --environment dev --target-directory cde --service s3 --service iam --artifact /tmp/issues-scan.json
-python3 framework/scripts/issues_scan.py detail --artifact /tmp/issues-scan.json --section naming_context
-python3 framework/scripts/issues_scan.py detail --artifact /tmp/issues-scan.json --section naming --offset 0 --limit 50
-python3 framework/scripts/issues_scan.py detail --artifact /tmp/issues-scan.json --section judgments --offset 0 --limit 50
-python3 framework/scripts/issues_scan.py detail --artifact /tmp/issues-scan.json --section human_confirmations --offset 0 --limit 50
-python3 framework/scripts/issues_scan.py detail --artifact /tmp/issues-scan.json --section ordinary --offset 0 --limit 50
+python3 framework/scripts/issues_scan.py review init --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json
+python3 framework/scripts/issues_scan.py review next --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json --limit 20
+# Explicit LLM judgment of every returned ID, then write /tmp/issues-batch.json.
+python3 framework/scripts/issues_scan.py review submit --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json --submission /tmp/issues-batch.json
+python3 framework/scripts/issues_scan.py review status --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json
+# Repeat Next / LLM Review / Submit / Status until complete, then:
+python3 framework/scripts/issues_scan.py review export --artifact /tmp/issues-scan.json --state /tmp/issues-progress.json --review /tmp/issues-review.json
 python3 framework/scripts/issues_scan.py --task-file tasks/save-local-issues.md save --artifact /tmp/issues-scan.json --review /tmp/issues-review.json
 ```
 
@@ -192,6 +194,95 @@ Still report independently verifiable violations and retain CREATE/IMPORT scope.
 `unverified` normally contains exactly service/check/reason. For `check: "naming"`,
 add `failure_kind` as `input_unavailable`, `read_failure`, or `execution_failure`
 and describe the actual incomplete check in reason. Do not claim unexecuted checks succeeded.
+
+## Review Controller
+
+`issues/review_progress.py` manages only Review execution. Scan artifact v6, bounded
+`detail --offset --limit`, diagnostic/naming/Human semantics, whole-target Task
+checks and report publication remain unchanged. `review init` validates the saved
+artifact and indexes all required IDs; its bounded response reports section counts.
+Naming Context is partitioned into its target/policy and complete individual rule
+materials, without slicing text. The existing `reviewed_naming_context_id` is emitted
+only after every such ID has been explicitly reviewed.
+
+All five commands require external `--artifact` and `--state` files. A schema-1
+checkpoint records Scan ID, SHA-256 of the exact Scan artifact bytes, Naming Context
+ID, environment/target/services, per-section ID results, one issued Batch and
+completion. It is distinct from the final Review JSON. Repeated init reuses only a
+valid matching checkpoint. Digest mismatch rejects a different or modified Scan;
+it does not inspect live inputs, require freshness, trigger rescan or discard Review.
+State reads validate schema/checksum, ID coverage, ordering and recorded judgments.
+
+`next --limit 20 --max-bytes 32768` returns `scan_id`, `section`, `batch_id`,
+`expected_ids` and complete `items`. It records issuance, never confirmation.
+Items carry original masked Scan material, Naming's applicable common/service rules
+and target context, explicit matching Human facts and reference access to other
+previously reviewed Human facts. Judgments retain diagnostic ownership evidence and
+selected services. No machine IaC record set is added to LLM work.
+It shrinks the batch to fit the serialized UTF-8 byte budget, with no text truncation.
+If one item cannot fit, it returns `blocked`, ID, reason and required bytes (exit 2),
+without advancing that ID. A smaller subsequent next invalidates the previous pending
+Batch ID. Retrieve a complete supported batch before judging/submitting it.
+
+The LLM writes a submission with exactly `batch_id`, `section`, `results`:
+
+```json
+{
+  "batch_id": "Batch ID returned by next",
+  "section": "naming",
+  "results": [
+    {
+      "id": "exact returned naming ID",
+      "reviewed": true,
+      "reason": "Applicable pattern and confirmed fixed components checked",
+      "evidence": "Current naming item source/key and applicable rule",
+      "issues": [],
+      "unverified": []
+    }
+  ]
+}
+```
+
+Every expected ID needs an explicit result with all six fields above; reason/evidence
+must be nonempty. An ambiguous diagnostic Judgment also needs `assignment` in the
+existing `diagnostic_assignments` value format. A Diagnostic result needs `decision`
+in the existing `diagnostic_decisions` entry format, including the same diagnostic ID.
+Do not add assignment for Python-proven owners. Only assigned input_invalid
+Judgments create new Diagnostic Decision IDs; check_failure/dependency_wait/unclassified
+and unresolved owners retain existing unverified/processing behavior.
+`issues` and `unverified` use the existing Review contracts and may be recorded in
+any batch, with final additional-finding confirmation after all decisions. Existing
+Review validation functions check assignments, decisions, Naming evidence, Human
+exceptions, additions and unverified scope, without a second implementation.
+
+Submit checks the issued Batch/complete ID set, every explicit result and cumulative
+Issue consistency before one atomic checkpoint replacement. Invalid batches persist
+nothing; identical resubmission is idempotent even after later progress. Different
+accepted judgments or stale/partial submissions raise errors, without implicit overwrite.
+Each operation reuses the existing thread/process OS publication mutex with the
+checkpoint path as an isolated namespace, then reloads the current checkpoint under
+that lock. Atomic replacement alone is not concurrency protection. Conflicting
+writers are checked against the reloaded pending/result state. The existing OS lock
+releases on process exit; no custom persistent lock/history/sidecar is added.
+
+`status` reports Scan/scope, each section's total/reviewed/remaining counts, next
+section, `complete` and `exportable`. Diagnostic totals are determined from completed
+Owner judgments; `pending_dependency` explicitly marks the still-open decision set.
+Completion requires all sections, including final additions, plus full validation.
+`export --review /tmp/issues-review.json` refuses pending IDs and always calls
+`review_snapshot()` before atomically writing exactly the nine-field Review above.
+Errors identify the invalid batch/result ID and reason; status/next locate remaining
+IDs. Export never writes reports or grants save authority.
+
+Scan diagnostic exit 1/2 is not artifact creation failure: continue Review when a
+valid artifact exists, retaining failures and incomplete scope. Output omission calls
+for smaller complete batches, never skipped IDs or fabricated acknowledgements.
+Persist each judged batch, inspect status on resume and continue pending IDs through
+Export, existing Save and post-save Local Loop. Large volume alone is not a stop
+condition. For a real blocker report concrete cause, completed counts and pending
+scope; preserve checkpoint and Scan. This guarantees retained progress/resumption,
+not automatic restart of a platform-terminated agent. Temporary OS files must remain
+available; no repository checkpoint, persistent sidecar or history file is permitted.
 
 ## Snapshot and publication
 
