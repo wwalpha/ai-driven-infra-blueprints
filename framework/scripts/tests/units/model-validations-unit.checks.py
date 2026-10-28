@@ -40,6 +40,9 @@ from validation.findings import Findings
 
 from model import change_plan, sources
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 ROOT = Path(__file__).resolve().parents[4]
 MODULES = (
     full_inputs,
