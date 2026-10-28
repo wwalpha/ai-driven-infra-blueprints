@@ -59,8 +59,8 @@ Select from the Human's requested change using this table before loading a workf
 - For isolated worktree Git integration only, explicit human approval of concrete validation failures may permit commit/rebase/merge/cleanup through `worktree_task.py finalize --human-approved-validation-failure "<approval and accepted failures>"`. Keep the task `suspend` and its current Suspension reason; do not use `--complete` or claim validation PASS. All requested work/inputs must otherwise be finished; scope errors, Git safety blocks, and AWS permission boundaries remain in force. See [worktree skill](../../.agents/skills/worktree/SKILL.md).
 - Complete only after successful final validation under [Validation policy](loop-engineering.md#validation-policy) and all requested work is finished. Use `task_contract.py --task-file tasks/<task-name>.md --complete`; IMPORT completion retains its evidence check. Delete completed contracts when the diff disappears; do not retain task history or evidence.
 - When stopping for a check error, set only this task's Task status to `suspend`, whether the cause is this task, another task, unregistered changes, or the baseline. `## Suspension reason` is mandatory and must name the failed check, target file, concrete error, and any necessary log path outside the repository. Retain only the current stop reason; do not add execution history or evidence. The local loop automatically suspends after all checks finish or child processes stop, including precheck failures. Do not infer which of multiple running tasks to suspend without an explicit selector. Staged validation status changes apply only within the snapshot.
-- When stopping for a standalone check outside the local loop or an error during work, also suspend this contract with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<具体的な問題>'`. Preserve other tasks' contracts and uncommitted changes; do not repair unrelated failures within this task.
-- Reject generation, deploy, and loops while suspended. Resume explicitly with `task_contract.py --task-file tasks/<task-name>.md --resume` to return to running and clear the stop reason. The same command can refresh a running task.
+- When an unresolved error requires stopping outside the local loop, suspend this contract with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<具体的な問題>'`. Preserve other tasks' contracts and uncommitted changes; do not repair unrelated failures within this task. A safely resolved operation error does not itself require stopping or suspension; follow Self recovery below.
+- Reject generation, deploy, and loops while suspended. Resume with `task_contract.py --task-file tasks/<task-name>.md --resume` to return to running and clear the stop reason. The LLM may invoke it without additional Human instruction only under Self recovery below; other resume requirements and Human approval boundaries remain in force. The same command can refresh a running task.
 - Read-only calls may explicitly select no contract; updates require a selected current contract.
 - Do not create or execute another task after the loop succeeds.
 - Do not change task type or work phase during retry.
@@ -303,12 +303,34 @@ The active task's `## Required changes` must have unique Requirement IDs, with o
 
 Only `changed:`, `exists:`, `absent:`, and validator-registered `check:` are permitted Acceptance checks. Reject arbitrary commands, unregistered checks, checks without a corresponding Requirement ID, and Requirement IDs without checks.
 
+## Self recovery
+
+When an operation error is the LLM's own and can be safely resolved within the
+current Task authority, identify the operation and inspect the Git diff, index and
+Task baseline before correcting it. Restore only the LLM's own erroneous changes,
+including unnecessary files; never discard Human or other Task changes. Correct this
+Task's contract omissions or mistakes. Before editing a necessary file, establish that
+it is justified by the current Goal and authority, then register its exact path in
+Modified files and Allowed paths. Do not expand authority merely to make a check pass.
+Validate the contract and actual change scope after repair. If resolved, continue the
+same Task with its existing validation and Acceptance checks.
+
+The local loop still suspends on failure. If already suspended, inspect the recorded
+reason and current state. Only when all stopping causes were the LLM's own safely
+repairable operation errors, have been resolved, and no other blocking condition
+remains, the LLM may use the existing `--resume` without Human instruction. Keep the
+same Task type, Goal and target; rerun required failed checks and do not bypass Retry
+limits. A Human approval requirement, AWS or other safety boundary, unresolved check,
+unknown ownership or original content, conflict with another Task or Human change, or
+work beyond the current authority prevents autonomous resumption. Do not infer approval
+from recovery or from a valid contract. No new recovery history or state is recorded.
+
 ## Retry and stop
 
 - Automatic correction for the same active task, task type, and logical failure class is limited to 3 iterations. The explicitly authorized one-shot CloudFormation Implement handoff keeps static FAILs in the same child, limited to 3 static cycles. No repair count or SAME/NEW history carries across Deploy runs.
 - Stop if the same error occurs twice consecutively without material progress.
 - Do not fix missing human input by inventing values.
-- Stop on out-of-scope file changes.
+- Stop on unresolved out-of-scope file changes. An LLM-owned operation error may be repaired first under Self recovery; preserve other changes and do not proceed while a scope violation remains.
 - Treat unapproved delete/replacement as waiting for human confirmation with an explanation, not as failure or automatic retry. If not approved, stop without executing deploy/apply.
 - Stop if `framework/materials/aws/` differs from the baseline.
 - Do not suppress failing checks to obtain a pass.

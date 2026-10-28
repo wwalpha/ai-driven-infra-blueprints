@@ -51,7 +51,37 @@ def check_task_contract() -> None:
         assert not validator.errors
         assert validator.requirement_ids == ["R1"]
 
+        # Scope follows remaining Git changes after an agent-owned mistake is repaired.
+        mistake = root / "mistake.txt"
+        write(mistake, "accidental\n")
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        assert any(
+            "outside task scope: mistake.txt" in error for error in validator.errors
+        )
+        mistake.unlink()
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        assert not validator.errors, validator.errors
+
         active = root / "tasks" / "example.md"
+        registered = governance.replace(
+            "- `README.md`", "- `README.md`\n- `needed.txt`"
+        )
+        write(active, registered)
+        write(root / "needed.txt", "authorized change\n")
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        assert not validator.errors, validator.errors
+        write(root / "other-task.txt", "preserve\n")
+        validator = MODULE.Validator(root)
+        validator.check_task_scope()
+        assert any(
+            "outside task scope: other-task.txt" in error for error in validator.errors
+        )
+        assert (root / "other-task.txt").read_text() == "preserve\n"
+        (root / "other-task.txt").unlink()
+        (root / "needed.txt").unlink()
         write(
             active,
             active.read_text(encoding="utf-8").replace(
