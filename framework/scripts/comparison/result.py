@@ -206,7 +206,7 @@ def _unconfirmed_key(prop, path, left, right):
             "[]",
             prop + ("." if path and not path.startswith("[") else "") + path,
         ),
-        json.dumps([left, right], sort_keys=True, ensure_ascii=False),
+        json.dumps(safe_value([left, right]), sort_keys=True, ensure_ascii=False),
     )
 
 
@@ -238,7 +238,7 @@ def unconfirmed_references(
             identity = (
                 item.get("path"),
                 json.dumps(
-                    [item.get("model"), item.get("iac")],
+                    safe_value([item.get("model"), item.get("iac")]),
                     sort_keys=True,
                     ensure_ascii=False,
                 ),

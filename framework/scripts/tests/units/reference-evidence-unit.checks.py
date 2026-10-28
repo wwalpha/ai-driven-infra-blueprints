@@ -6486,3 +6486,157 @@ def test_unordered_ambiguous_reference_has_no_individual_claim():
     assert decision.equal is None and result.records[0]["category"] == "uncompared"
     assert not result.display_differences
     resolver.assert_not_called()
+
+
+def expression_unconfirmed_reference(left, right, path):
+    if not isinstance(right, (Expression, ResourceReference)):
+        return ReferenceDecision(NotImplemented)
+    equal = True if left == "matched" else None if left == "pending" else False
+    if isinstance(right, Expression) and left == "matched":
+        equal = right.operands[1][1]["$resource"][1] == "001"
+    return ReferenceDecision(
+        equal,
+        (
+            {
+                "path": path,
+                "model": safe_value(left),
+                "iac": safe_value(right),
+                "local_comparison": "matched"
+                if equal is True
+                else "uncompared"
+                if equal is None
+                else "difference",
+                "identity": "unproven",
+                "allowed_forms": None,
+                "format": {},
+                "reason": "fixture",
+            },
+        ),
+    )
+
+
+@pytest.mark.parametrize("shape", ["join", "nested", "nested_join", "sub", "reference"])
+def test_uncompared_expression_real_correspondence_and_issue_display(shape):
+    ref = ResourceReference({"$resource": ["kms", "001"], "$attribute": "KeyId"})
+    expr = Expression("Join", ["", ["prefix/", ref]])
+    actual = {
+        "join": expr,
+        "nested": {"Value": expr},
+        "nested_join": Expression("Join", ["", ["outer/", expr]]),
+        "sub": Expression("Sub", ["prefix/${Key}", {"Key": ref}]),
+        "reference": ref,
+    }[shape]
+    desired = {"Value": "pending"} if shape == "nested" else "pending"
+    decision = compare_values(
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=expression_unconfirmed_reference,
+    )
+    assert decision.equal is None and decision.correspondence and decision.diagnostics
+    args = ("test", "001", "Setting", desired, actual, decision, "stack", [{}], {})
+    before = setting_result(*args, actual_error=None, redact=safe_value)
+    after = setting_result(
+        *args,
+        actual_error=None,
+        redact=safe_value,
+        display_reference=lambda ref: ("resolved", "fixture"),
+    )
+    assert before.records == after.records and not after.warnings
+    field = after.display_differences[identifier(after.records[0])][0]
+    assert field["model"] == "pending"
+    assert (
+        "resolved" in field["iac"]
+        and "kms/001.KeyId" in field["iac"]
+        and "fixture" in field["iac"]
+    )
+    artifact = dict(
+        version=6,
+        **aggregate(
+            after.records, "fixture", "team", ["test"], after.display_differences
+        ),
+    )
+    assert detail_payload(artifact, "iac")["items"][0]["value_differences"] == [field]
+
+
+def test_unordered_expression_only_uncompared_selected_and_ambiguous():
+    refs = [
+        ResourceReference({"$resource": ["kms", f"00{i}"], "$attribute": "KeyId"})
+        for i in (1, 2)
+    ]
+    actual = [Expression("Join", ["", ["prefix/", ref]]) for ref in refs]
+    desired = ["matched", "pending"]
+    decision = compare_values(
+        desired,
+        actual,
+        "Setting",
+        rules={"Setting": UNORDERED},
+        reference=expression_unconfirmed_reference,
+    )
+    assert decision.equal is None and decision.correspondence and decision.diagnostics
+    resolver = Mock(return_value=("resolved", "fixture"))
+    args = ("test", "001", "Setting", desired, actual, decision, "stack", [{}], {})
+    before = setting_result(*args, actual_error=None, redact=safe_value)
+    after = setting_result(
+        *args, actual_error=None, redact=safe_value, display_reference=resolver
+    )
+    assert before.records == after.records and not after.warnings
+    fields = after.display_differences[identifier(after.records[0])]
+    assert (
+        len(fields) == 1
+        and fields[0]["model"] == "pending"
+        and "kms/002.KeyId" in fields[0]["iac"]
+    )
+    resolver.assert_called_once_with(refs[1])
+    ambiguous = compare_values(
+        ["pending", "pending"],
+        actual,
+        "Setting",
+        rules={"Setting": UNORDERED},
+        reference=expression_unconfirmed_reference,
+    )
+    result = setting_result(
+        "test",
+        "001",
+        "Setting",
+        ["pending", "pending"],
+        actual,
+        ambiguous,
+        "stack",
+        [{}],
+        {},
+        actual_error=None,
+        redact=safe_value,
+        display_reference=resolver,
+    )
+    assert ambiguous.equal is None and not result.display_differences
+
+
+def test_uncompared_expression_redaction_and_resolution_failure():
+    ref = ResourceReference({"$resource": ["kms", "001"], "$attribute": "KeyId"})
+    actual = Expression("Join", ["", ["{{resolve:secretsmanager:never-expose}}", ref]])
+    decision = compare_values(
+        "pending",
+        actual,
+        "Setting",
+        rules={"Setting": ORDERED},
+        reference=expression_unconfirmed_reference,
+    )
+    args = ("test", "001", "Setting", "pending", actual, decision, "stack", [{}], {})
+    before = setting_result(*args, actual_error=None, redact=safe_value)
+    after = setting_result(
+        *args,
+        actual_error=None,
+        redact=safe_value,
+        display_reference=Mock(side_effect=ValueError("display bug")),
+    )
+    assert decision.equal is None and decision.correspondence and decision.diagnostics
+    assert (
+        before.records == after.records and after.records[0]["category"] == "uncompared"
+    )
+    assert "never-expose" not in json.dumps(
+        [after.records, after.warnings, after.display_differences]
+    )
+    assert "ValueError: display bug" in after.warnings[0]["message"]
+    assert "未解決" in after.display_differences[identifier(after.records[0])][0]["iac"]
