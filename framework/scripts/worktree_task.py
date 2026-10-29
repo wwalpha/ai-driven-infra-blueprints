@@ -464,9 +464,13 @@ def _run_model_guard(target, task_file, approved=False, *, sources=None):
         'if sys.argv[2] == "approved": options["contract_file"] = sys.argv[1]\n'
         'if sys.argv[3] != "null": options["supplied"] = set(json.loads(sys.argv[3]))\n'
         "with tasks.selected_task(root, sys.argv[1]):\n"
-        "    require_import_changes(root, **options)\n"
         "    text = tasks.read_task_snapshot(root, sys.argv[1], live=True).text\n"
-        "    if '## Out-of-task FAIL approvals' in text:\n"
+        "    if '- Workflow: `import`' in tasks.section(text, '## Task contract'):\n"
+        "        from task_contract_runtime import check_import\n"
+        "        check_import(root, sys.argv[1], supplied=options.get('supplied'), integration=True)\n"
+        "    else:\n"
+        "        require_import_changes(root, **options)\n"
+        "    if '- Workflow: `import`' not in tasks.section(text, '## Task contract') and '## Out-of-task FAIL approvals' in text:\n"
         "        from validation.runner import Validator\n"
         "        validator = Validator(root, tasks.active_scope(root, task_file=sys.argv[1]), cache=False, model_validation='change')\n"
         "        validator.run()\n"

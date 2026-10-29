@@ -4,6 +4,8 @@ import argparse as argparse
 from functools import wraps as wraps
 
 import import_guard as _imports_import_guard
+from model.importing.scope import read_consumers, restrict, selected
+from model.sources import source_scope
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import TASK_NAME as TASK_NAME
 from task_contract_core import ContextVar as ContextVar
@@ -87,6 +89,69 @@ from validation.runner import Validator
 from validation.task import TaskValidation
 
 
+def check_import(
+    root: Path,
+    name: str,
+    *,
+    supplied: set[str] | None = None,
+    integration: bool = False,
+) -> None:
+    """Check Import evidence and Task acceptance without running design validation."""
+    snapshot = task_snapshot(root, name, executable=False, live=True)
+    contract = section(snapshot.text, "## Task contract")
+    if (
+        contract.count("- Workflow: `import`") != 1
+        or "- Task type: `design`" not in contract
+    ):
+        raise ValueError("IMPORT requires a design import Task")
+    identity = selected(root, contract_file=name)
+    if (
+        identity is None
+        or contract.count("- IMPORT target: `" + "/".join(identity) + "`") != 1
+        or snapshot.scope != frozenset({identity})
+    ):
+        raise ValueError("IMPORT target and Validation scope must match")
+    records = acceptance.approvals(snapshot.text)
+    readers = {identity}
+    for record in records:
+        source = source_scope(root, root / record["source_path"])
+        readers.add((source.environment, source.target, source.service))
+    with selected_task(root, name), restrict(identity), read_consumers(readers):
+        findings = Findings(root)
+        task = TaskValidation(root, findings, contract_file=name)
+        task.check_task_scope()
+        if findings.errors:
+            raise ValueError("Task scope FAIL: " + "; ".join(findings.errors))
+        options = {"contract_file": name} if integration else {}
+        if supplied is not None:
+            options["supplied"] = supplied
+        _imports_import_guard.require_import_changes(root, **options)
+        if not integration:
+            registered = {}
+            if any(kind == "check" for _, kind, _ in task.acceptance_checks):
+                validator = Validator(
+                    root, set(snapshot.scope), cache=False, model_validation="change"
+                )
+                registered = validator.registered_checks()
+                task = TaskValidation(root, validator.findings, contract_file=name)
+                task.check_task_scope()
+            task.check_acceptance_checks(registered, set(snapshot.scope))
+        result = task.acceptance()
+        stale = {r["diagnostic_id"] for r in records} != {
+            r["diagnostic_id"] for r in result["approved"]
+        }
+        if result["status"] != "PASS" or stale:
+            raise ValueError(
+                "Task Acceptance FAIL: "
+                + "; ".join(
+                    task.findings.errors
+                    + result["invalid"]
+                    + (["approval evidence is stale or unverifiable"] if stale else [])
+                )
+            )
+    verify_snapshot(snapshot)
+
+
 def refresh(root, name, resuming=False):
     snapshot = task_snapshot(root, name, executable=False, live=True)
     text = snapshot.text
@@ -112,6 +177,15 @@ def complete(root, name):
     with task_reads(root, snapshot=snapshot):
         if status(text) != "running":
             raise ValueError("only a running task can complete")
+        if "- Workflow: `import`" in section(text, "## Task contract"):
+            check_import(root, name)
+            verify_snapshot(snapshot)
+            atomic_files(
+                {safe_path(root, name): set_status(text, "completed")},
+                staging_directory=root,
+            )
+            invalidate_task_reads(root)
+            return
         require_import_changes = _imports_import_guard.require_import_changes
         previous = os.environ.get(SELECTOR)
         try:

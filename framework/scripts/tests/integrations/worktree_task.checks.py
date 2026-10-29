@@ -22,10 +22,29 @@ import support.import_model_fixtures as _imports_support_import_model_fixtures
 import validation.loop as _imports_validation_loop
 from import_guard import require_import_changes
 from model.adapters.task import edit_write_context
+from model.format import serialize
+from model.identity import allocate
+from model.importing import cli as import_cli
 from model.sources import load_model
 from support import blueprint_loop_fixtures as loop_checks
-from support.import_model_fixtures import dependency_fixture, operation_fixture
+from support.import_model_fixtures import (
+    VPC_ID,
+    aws,
+    correspondence,
+    dependency_fixture,
+    exclusions,
+    operation_fixture,
+    publish_fixture,
+    reference_fields,
+    resource_values,
+    service_values,
+    stage,
+)
+from support.import_model_fixtures import (
+    fixture as import_fixture,
+)
 from support.it_case_receipt import it_case
+from support.model_sources import write_model
 from support.worktree_task_fixtures import (
     SCRIPT,
     Path,
@@ -56,6 +75,138 @@ from model import prepare_edit, publish_edit
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+def _check_import_completion_and_approved_integration():
+    for suspended in (False, True):
+        with fixture() as root:
+            import_fixture(root, "vpc", register=False, focused=True)
+            consumer = service_values("vpc-endpoint", ["EC2.VPCEndpoint"])
+            consumer.update(
+                resource_values(
+                    "001",
+                    "EC2.VPCEndpoint",
+                    "endpoint",
+                    "IMPORT",
+                    [("VpcId", "[001](vpc.md#vpc-main)")],
+                )
+            )
+            consumer.update(
+                reference_fields(
+                    "vpc",
+                    "desired.row.001-001.value",
+                    "[001](vpc.md#vpc-main)",
+                    "dev/cde/vpc/001",
+                    kind="EC2.VPC",
+                    mode="link",
+                )
+            )
+            write_model(root / "model/dev/cde/vpc-endpoint.properties", consumer)
+            git(root, "add", "model", "project.json")
+            git(root, "commit", "-qm", "Import fixture")
+            relative = "model/dev/cde/vpc.properties"
+            design = "docs/designs/dev/cde/vpc.md"
+            target, state = start(root, files=(relative, design))
+            name = state["task_file"]
+            contract = target / name
+            contract.write_text(
+                contract.read_text()
+                .replace("`governance`", "`design`")
+                .replace(
+                    "- Task status:",
+                    "- Workflow: `import`\n- IMPORT target: `dev/cde/vpc`\n- Task status:",
+                )
+                .replace("- `framework`", "- `dev/cde/vpc`")
+            )
+            path = target / relative
+            with (
+                mapping_alias(SCRIPT.parents[2], target),
+                tasks.selected_task(target, name),
+            ):
+                before = load_model(path)
+                cli = aws("vpc", changed=True)
+                identity = "subnet-managed-new"
+                cli.responses["ec2", "describe-subnets"]["Subnets"].append(
+                    {
+                        "SubnetId": identity,
+                        "VpcId": VPC_ID,
+                        "CidrBlock": "10.11.0.0/26",
+                        "AvailabilityZone": "ap-northeast-1a",
+                        "MapPublicIpOnLaunch": False,
+                        "Tags": [{"Key": "Name", "Value": "audit-private-1a"}],
+                    }
+                )
+                acquired = import_cli.acquire(
+                    target, "dev", "vpc", "cde", cli_runner=cli
+                )
+                values = dict(before.authoritative)
+                for key, value in before.authoritative.items():
+                    if key.startswith(
+                        (
+                            "desired.resource.002.",
+                            "display.resource.002.",
+                            "desired.row.002-",
+                            "observed.row.002-",
+                        )
+                    ):
+                        values[key.replace(".002", ".009", 1)] = value
+                del values["desired.resource.009.logicalId"]
+                values = allocate(values, ["009"])
+                values.update(
+                    {
+                        "desired.resource.009.anchor": "vpc-managed-009",
+                        "desired.row.009-001.value": "[009](#vpc-managed-009)",
+                        "observed.row.009-001.value": identity,
+                        "desired.row.009-003.value": "`10.11.0.0/26`",
+                        "desired.row.009-004.value": "`audit-private-1a`",
+                    }
+                )
+                selected = [correspondence(acquired, identity, "009")]
+                stage(
+                    target,
+                    acquired,
+                    {relative: serialize(values)},
+                    selected,
+                    exclusions(acquired, selected),
+                )
+                assert publish_fixture(target, acquired, "vpc")["model"] == "reflected"
+                candidate = path.read_bytes()
+                path.write_bytes(candidate + b"\n# tampered\n")
+                with pytest.raises(
+                    ValueError, match="differs from acquired change plan"
+                ):
+                    tasks.complete(target, name)
+                path.write_bytes(candidate)
+                consumer_path = target / "model/dev/cde/vpc-endpoint.properties"
+                consumer_before = consumer_path.read_bytes()
+                consumer_path.write_bytes(consumer_before + b"\n# unauthorized\n")
+                with pytest.raises(
+                    ValueError, match="outside task scope|Modified files"
+                ):
+                    tasks.complete(target, name)
+                consumer_path.write_bytes(consumer_before)
+                if suspended:
+                    tasks.suspend(target, name, "Synthetic validation failure")
+                    approval = "Human accepts synthetic validation failure"
+                    with pytest.raises(wt.Blocked, match="task must be completed"):
+                        wt.finalize(root, "example")
+                    assert tasks.status(contract.read_text()) == "suspend"
+                else:
+                    tasks.complete(target, name)
+                    approval = None
+                with patch.object(
+                    wt.python_env,
+                    "runtime",
+                    return_value=(
+                        Path(sys.executable),
+                        wt.python_env.environment(Path(sys.prefix)),
+                    ),
+                ):
+                    result = wt.finalize(root, "example", approval)
+                assert result["cleaned"]
+                assert (root / relative).read_bytes() == candidate
+                if suspended:
+                    assert approval in git(root, "log", "-1", "--format=%b")
 
 
 @it_case
@@ -784,7 +935,7 @@ def check_approved_model_reads():
                 contract = target / state["task_file"]
                 text = contract.read_text().replace(
                     "- Task type: `design`",
-                    "- Task type: `design`\n- Workflow: `import`",
+                    "- Task type: `design`\n- Workflow: `import`\n- IMPORT target: `stg/cde/vpc`",
                 )
                 contract.write_text(
                     text.replace("- `framework`", "- `stg/cde/vpc`\n- `dev/cde/vpc`")
@@ -834,6 +985,7 @@ def check_approved_model_reads():
                     retained(root, target, state, before)
                     assert git(target, "rev-parse", "HEAD") == state["start"]
                     assert (target / state["task_file"]).read_bytes() == saved
+    _check_import_completion_and_approved_integration()
     print(
         "Approved suspended Model Git integration and missing IMPORT evidence rejection: PASS"
     )

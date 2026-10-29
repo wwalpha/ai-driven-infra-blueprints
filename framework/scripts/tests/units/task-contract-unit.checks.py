@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import os
 import subprocess
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import model.sources as _imports_model_sources
 import pytest
@@ -1045,3 +1045,175 @@ def check_completion_requires_acceptance(approval_task):
         with pytest.raises(ValueError, match="Task Acceptance FAIL"):
             transitions.complete(root, task.contract_file)
     assert tasks.status((root / task.contract_file).read_text()) == "running"
+
+
+def check_import_completion_skips_common_validator():
+    with repository_fixture() as root:
+        name = "tasks/import.md"
+        text = transition_contract(
+            name, ["file.txt"], kind="design", scope="dev/team/vpc"
+        )
+        text = text.replace(
+            "## Task contract\n",
+            "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
+        )
+        transitions.start(root, name, text)
+        (root / "file.txt").write_text("changed", encoding="utf-8")
+        with (
+            patch.object(task_runtime._imports_import_guard, "require_import_changes"),
+            patch.object(
+                task_runtime,
+                "Validator",
+                side_effect=AssertionError("common Validator invoked"),
+            ),
+        ):
+            transitions.complete(root, name)
+        assert tasks.status((root / name).read_text(encoding="utf-8")) == "completed"
+
+
+@pytest.mark.parametrize(
+    "case", ["scope", "missing", "outside", "acceptance", "suspend"]
+)
+def check_import_completion_rejects_invalid_task(case):
+    with repository_fixture() as root:
+        name = "tasks/import.md"
+        text = transition_contract(
+            name, ["file.txt"], kind="design", scope="dev/team/vpc"
+        )
+        text = text.replace(
+            "## Task contract\n",
+            "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
+        )
+        if case == "scope":
+            text = text.replace("- `dev/team/vpc`", "- `dev/team/vpc-endpoint`")
+        transitions.start(root, name, text)
+        if case != "acceptance":
+            (root / "file.txt").write_text("changed", encoding="utf-8")
+        if case == "outside":
+            (root / "outside.txt").write_text("outside", encoding="utf-8")
+        if case == "suspend":
+            transitions.suspend(root, name, "synthetic failure")
+        failure = ValueError("missing sealed evidence") if case == "missing" else None
+        with patch.object(
+            task_runtime._imports_import_guard,
+            "require_import_changes",
+            side_effect=failure,
+        ):
+            with pytest.raises(ValueError):
+                transitions.complete(root, name)
+        assert tasks.status((root / name).read_text()) == (
+            "suspend" if case == "suspend" else "running"
+        )
+
+
+def check_suspended_import_guard_is_read_only():
+    with repository_fixture() as root:
+        name = "tasks/import.md"
+        text = transition_contract(
+            name, ["file.txt"], kind="design", scope="dev/team/vpc"
+        )
+        text = text.replace(
+            "## Task contract\n",
+            "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
+        )
+        transitions.start(root, name, text)
+        (root / "file.txt").write_text("changed", encoding="utf-8")
+        transitions.suspend(root, name, "synthetic failure")
+        with patch.object(
+            task_runtime._imports_import_guard, "require_import_changes"
+        ) as guard:
+            task_runtime.check_import(root, name, integration=True)
+            guard.assert_called_once_with(root, contract_file=name)
+        with pytest.raises(ValueError, match="suspend task cannot execute"):
+            tasks.task_snapshot(root, name)
+        assert tasks.status((root / name).read_text()) == "suspend"
+
+
+@pytest.mark.parametrize("available", [True, False])
+def check_import_registered_acceptance(available):
+    with repository_fixture() as root:
+        name = "tasks/import.md"
+        text = transition_contract(
+            name, ["file.txt"], kind="design", scope="dev/team/vpc"
+        )
+        text = text.replace(
+            "## Task contract\n",
+            "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
+        )
+        text = text.replace("`changed:file.txt`", "`check:framework.rule-readings`")
+        transitions.start(root, name, text)
+        (root / "file.txt").write_text("changed")
+        handler = Mock(return_value=None)
+        registered = {"framework.rule-readings": handler} if available else {}
+        with (
+            patch.object(task_runtime._imports_import_guard, "require_import_changes"),
+            patch.object(
+                task_runtime.Validator, "registered_checks", return_value=registered
+            ),
+        ):
+            if available:
+                transitions.complete(root, name)
+                handler.assert_called_once()
+            else:
+                with pytest.raises(
+                    ValueError, match="unknown registered Acceptance check"
+                ):
+                    transitions.complete(root, name)
+
+
+@pytest.mark.parametrize("change", ["none", "candidate", "dependency", "human"])
+def check_import_rechecks_approved_failures(approval_task, change):
+    root, old_task, record, source = approval_task
+    name = old_task.contract_file
+    contract = root / name
+    text = (
+        contract.read_text()
+        .replace("`migration`", "`design`")
+        .replace(
+            "## Task contract\n",
+            "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
+        )
+        .replace("qa-synthetic/team-a/cloudwatch-logs", "dev/team/vpc")
+    )
+    contract.write_text(text)
+    task = TaskValidation(root, Findings(root), contract_file=name)
+    task.check_task_scope()
+    record["candidate"] = acceptance.candidate(task, record["dependencies"])
+    with import_scope.read_consumers({("qa-synthetic", "team-a", "cloudwatch-logs")}):
+        acceptance.approve(task, [record])
+    if change == "candidate":
+        (root / "file.txt").write_text("changed after approval")
+    elif change == "dependency":
+        source.write_text(source.read_text() + "\n# changed dependency\n")
+    elif change == "human":
+        contract.write_text(
+            contract.read_text().replace("exclude_this_task_only", "unapproved")
+        )
+    with patch.object(task_runtime._imports_import_guard, "require_import_changes"):
+        if change == "none":
+            task_runtime.check_import(root, name, integration=True)
+        else:
+            with pytest.raises(ValueError):
+                task_runtime.check_import(root, name, integration=True)
+
+
+@pytest.mark.parametrize("check", ["exists:missing.txt", "absent:file.txt"])
+def check_import_path_acceptance_is_enforced(check):
+    with repository_fixture() as root:
+        name = "tasks/import.md"
+        text = transition_contract(
+            name, ["file.txt"], kind="design", scope="dev/team/vpc"
+        )
+        text = text.replace(
+            "## Task contract\n",
+            "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
+        )
+        text = text.replace("changed:file.txt", check)
+        transitions.start(root, name, text)
+        (root / "file.txt").write_text("changed")
+        with patch.object(task_runtime._imports_import_guard, "require_import_changes"):
+            with pytest.raises(
+                ValueError, match="required path missing|forbidden path exists"
+            ):
+                transitions.complete(root, name)
+        assert tasks.status((root / name).read_text()) == "running"
