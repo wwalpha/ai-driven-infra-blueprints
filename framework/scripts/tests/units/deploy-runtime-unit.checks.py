@@ -3365,7 +3365,7 @@ def check_destroy_order_and_safety():
     assert sum(
         (op == "list-exports" for op, _ in _state_check_order_and_safety_138.fake.calls)
     ) == 0 and (not _state_check_order_and_safety_138.fake.deleted)
-    for operation in ("list-imports",):
+    for operation in ("list_imports",):
         _state_check_order_and_safety_138.fake = destroy.Fake(
             ["A"], exports={"Vpc": ("A", [])}
         )
@@ -3377,9 +3377,9 @@ def check_destroy_order_and_safety():
         with patch.object(
             _state_check_order_and_safety_138.fake,
             "aws",
-            side_effect=lambda op, *args, aws=aws, operation=operation: {}
+            side_effect=lambda op, *args, aws=aws, operation=operation, **kwargs: {}
             if op == operation
-            else aws(op, *args),
+            else aws(op, *args, **kwargs),
         ):
             destroy.rejects(
                 lambda *,
@@ -3464,7 +3464,7 @@ def check_destroy_order_and_safety():
         assert (
             events.call_count == 2
             and len(history) == 2
-            and ("--no-paginate" in events.call_args.args)
+            and events.call_args.kwargs["StackName"] == destroy.stack_id("A")
         )
     print("D09: PASS failure stops starts, drains peers, leaves lower order")
     for override in (
@@ -3485,58 +3485,15 @@ def check_destroy_order_and_safety():
 
 
 def check_destroy_unused_export():
-    backend = destroy.M.AwsBackend(destroy.ROOT, "dev", "123456789012", destroy.TARGET)
-    diagnostic = "An error occurred (ValidationError) when calling the ListImports operation: Export 'Vpc' is not imported by any stack.\n"
     fake = destroy.Fake(["A"], exports={"Vpc": ("A", [])})
     state = destroy.session({"A": 10})
     destroy.M.preflight(state, fake, 1, lambda: None)
-    aws = fake.aws
-    with (
-        patch.object(
-            destroy.M.subprocess,
-            "run",
-            return_value=SimpleNamespace(returncode=255, stdout="", stderr=diagnostic),
-        ),
-        patch.object(
-            fake,
-            "aws",
-            side_effect=lambda op, *args: backend.aws(op, *args)
-            if op == "list-imports"
-            else aws(op, *args),
-        ),
-    ):
-        destroy.M.dependencies(state, fake, lambda: None)
-        assert state["dependencySnapshot"] == [
-            {"export": "Vpc", "producer": "A", "importers": []}
-        ]
-        assert not fake.deleted
-    for error in (
-        diagnostic.replace("ValidationError", "AccessDenied"),
-        diagnostic.replace("is not imported by any stack", "does not exist"),
-        "An error occurred (ValidationError) when calling the ListImports operation: Invalid export name",
-    ):
-        with patch.object(
-            destroy.M.subprocess,
-            "run",
-            return_value=SimpleNamespace(returncode=255, stdout="", stderr=error),
-        ):
-            destroy.rejects(
-                lambda: backend.aws("list-imports", "--export-name", "Vpc"),
-                "list-imports:",
-            )
-    with patch.object(
-        destroy.M.subprocess,
-        "run",
-        return_value=SimpleNamespace(returncode=255, stdout="", stderr=diagnostic),
-    ):
-        destroy.rejects(lambda: backend.aws("list-exports"), "outside standard destroy")
-    with patch.object(
-        destroy.M.subprocess,
-        "run",
-        return_value=SimpleNamespace(returncode=0, stdout='{"Imports": []}', stderr=""),
-    ):
-        assert backend.aws("list-imports", "--export-name", "Vpc") == {"Imports": []}
-    print("D16: PASS unused export means no dependencies; other AWS errors still block")
+    destroy.M.dependencies(state, fake, lambda: None)
+    assert state["dependencySnapshot"] == [
+        {"export": "Vpc", "producer": "A", "importers": []}
+    ]
+    assert not fake.deleted
+    print("D16: PASS unused export means no dependencies")
 
 
 def check_destroy_absence():

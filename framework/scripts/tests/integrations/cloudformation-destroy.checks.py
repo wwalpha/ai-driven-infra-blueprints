@@ -15,7 +15,6 @@ import json
 import os
 from collections import Counter
 from contextlib import redirect_stderr, redirect_stdout
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import model.sources as _imports_model_sources
@@ -183,23 +182,10 @@ def _callback_check_controller_checked_read(read_text, /, path, *args, **kwargs)
     return read_text(path, *args, **kwargs)
 
 
-def _callback_check_controller_aws_run(
-    _state_check_controller_338, /, command, **kwargs
+def _callback_check_controller_sdk(
+    _state_check_controller_338, context, service, operation, arguments, **kwargs
 ):
-    assert command[0] == "aws", command
-    service_index = (
-        command.index("sts") if "sts" in command else command.index("cloudformation")
-    )
-    response = _state_check_controller_338.fake.aws(
-        command[service_index + 1], *command[service_index + 2 : -3]
-    )
-    if response is None:
-        return SimpleNamespace(
-            returncode=1,
-            stdout="",
-            stderr="An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id A does not exist",
-        )
-    return SimpleNamespace(returncode=0, stdout=json.dumps(response), stderr="")
+    return _state_check_controller_338.fake.aws(operation, **arguments)
 
 
 def _callback_check_controller_checked_glob(
@@ -237,9 +223,9 @@ def check_controller(tmp_path):
         _state_check_controller_338.root.mkdir()
         fixture(_state_check_controller_338.root, {"A": 10})
         _state_check_controller_338.fake = Fake(["A"])
-        # Use the real AWS backend/real context; subprocess is the sole fake boundary.
+        # Use the real AWS backend/real context; SDK request is the fake boundary.
         aws_run = _bind_framework_callback(
-            _callback_check_controller_aws_run, _state_check_controller_338
+            _callback_check_controller_sdk, _state_check_controller_338
         )
         read_text, rglob = Path.read_text, Path.rglob
         checked_read = _bind_framework_callback(
@@ -259,7 +245,10 @@ def check_controller(tmp_path):
             str(base / "session.json"),
         ]
         with (
-            patch.object(M.subprocess, "run", side_effect=aws_run),
+            patch("utils.aws.client.request", side_effect=aws_run),
+            patch.object(M.cloudformation, "request", side_effect=aws_run),
+            patch.object(M, "request", side_effect=aws_run),
+            patch("utils.aws.sts.request", side_effect=aws_run),
             patch(
                 "shutil.which",
                 side_effect=lambda command: "aws" if command == "aws" else None,
@@ -277,8 +266,8 @@ def check_controller(tmp_path):
             assert state["states"]["A"]["observedSynced"]
             counts = Counter(op for op, _ in _state_check_controller_338.fake.calls)
             assert (
-                counts["get-caller-identity"] == counts["delete-stack"] == 1
-                and counts["list-exports"] == 0
+                counts["get_caller_identity"] == counts["delete_stack"] == 1
+                and counts["list_exports"] == 0
             )
             assert not any(
                 counts[op]
@@ -323,12 +312,12 @@ def check_controller(tmp_path):
             assert len(_state_check_controller_338.fake.calls) == previous_calls
             state_path.write_text(pristine)
         print(
-            "D01: PASS real controller fake subprocess: STS=1, delete=1 by StackId, heavy AWS APIs=0"
+            "D01: PASS real controller fake SDK: STS=1, delete=1 by StackId, heavy AWS APIs=0"
         )
         # --local-plan is genuinely offline, even before task creation.
         with (
             patch.object(
-                M.subprocess, "run", side_effect=AssertionError("local-plan used AWS")
+                M, "request", side_effect=AssertionError("local-plan used AWS")
             ),
             redirect_stdout(io.StringIO()),
         ):
@@ -344,7 +333,10 @@ def check_controller(tmp_path):
         _state_check_controller_338.fake.completed.clear()
         _state_check_controller_338.fake.deleted.clear()
         with (
-            patch.object(M.subprocess, "run", side_effect=aws_run),
+            patch("utils.aws.client.request", side_effect=aws_run),
+            patch.object(M.cloudformation, "request", side_effect=aws_run),
+            patch.object(M, "request", side_effect=aws_run),
+            patch("utils.aws.sts.request", side_effect=aws_run),
             patch("shutil.which", return_value="aws"),
             patch.object(M.tempfile, "gettempdir", return_value=str(base)),
             patch.object(M.time, "sleep", lambda _: None),
@@ -368,7 +360,10 @@ def check_controller(tmp_path):
         )
         _state_check_controller_338.fake.calls.clear()
         with (
-            patch.object(M.subprocess, "run", side_effect=aws_run),
+            patch("utils.aws.client.request", side_effect=aws_run),
+            patch.object(M.cloudformation, "request", side_effect=aws_run),
+            patch.object(M, "request", side_effect=aws_run),
+            patch("utils.aws.sts.request", side_effect=aws_run),
             patch("shutil.which", return_value="aws"),
             patch.object(M.tempfile, "gettempdir", return_value=str(base)),
             redirect_stdout(io.StringIO()),
@@ -401,7 +396,10 @@ def check_controller(tmp_path):
             str(base / "multi.json"),
         ]
         with (
-            patch.object(M.subprocess, "run", side_effect=aws_run),
+            patch("utils.aws.client.request", side_effect=aws_run),
+            patch.object(M.cloudformation, "request", side_effect=aws_run),
+            patch.object(M, "request", side_effect=aws_run),
+            patch("utils.aws.sts.request", side_effect=aws_run),
             patch(
                 "shutil.which",
                 side_effect=lambda command: "aws" if command == "aws" else None,
@@ -416,9 +414,9 @@ def check_controller(tmp_path):
         counts = Counter(op for op, _ in _state_check_controller_338.fake.calls)
         assert _state_check_controller_338.fake.deleted == ["A", "B", "C"]
         assert (
-            counts["get-caller-identity"] == 1
-            and counts["list-exports"] == 0
-            and counts["delete-stack"] == 3
+            counts["get_caller_identity"] == 1
+            and counts["list_exports"] == 0
+            and counts["delete_stack"] == 3
         )
         print(
             "D14: PASS 3 real-guard deletes: STS=1, exports=0, full tree/body scans=0"
@@ -438,7 +436,10 @@ def check_controller(tmp_path):
             )
             _state_check_controller_338.fake.hook = mutate
             with (
-                patch.object(M.subprocess, "run", side_effect=aws_run),
+                patch("utils.aws.client.request", side_effect=aws_run),
+                patch.object(M.cloudformation, "request", side_effect=aws_run),
+                patch.object(M, "request", side_effect=aws_run),
+                patch("utils.aws.sts.request", side_effect=aws_run),
                 patch("shutil.which", return_value="aws"),
                 patch.object(M.tempfile, "gettempdir", return_value=str(base)),
                 patch.object(M.time, "sleep", lambda _: None),

@@ -51,26 +51,31 @@ class Fake(M.AwsBackend):
         self.retained = set()
         self.hook = None
 
-    def aws(self, operation, *arguments):
+    def aws(self, operation, **arguments):
         with self.lock:
             self.calls.append((operation, arguments))
             assert operation in M.AwsBackend.READS | {
-                "delete-stack",
-                "get-caller-identity",
+                "delete_stack",
+                "get_caller_identity",
             }, operation
-            if operation == "get-caller-identity":
+            if operation == "get_caller_identity":
                 return {
                     "Account": self.target.get(
                         "awsExecutionAccountId", self.target["awsAccountId"]
                     )
                 }
-            if operation == "list-imports":
-                return {"Imports": self.export_imports[arguments[1]][1]}
-            identity = arguments[1]
+            if operation == "list_imports":
+                return {"Imports": self.export_imports[arguments["ExportName"]][1]}
+            identity = arguments["StackName"]
             name = identity.split("/")[1] if identity.startswith("arn:") else identity
-            if operation == "describe-stacks":
+            if operation == "describe_stacks":
                 if name in self.absent or name in self.completed:
-                    return None
+                    raise M.AwsError(
+                        "cloudformation",
+                        operation,
+                        "ValidationError",
+                        stack_absent=True,
+                    )
                 actual = "CREATE_COMPLETE"
                 if name in self.running:
                     self.polls[name] += 1
@@ -101,9 +106,9 @@ class Fake(M.AwsBackend):
                     ],
                 }
                 return {"Stacks": [stack | self.overrides.get(name, {})]}
-            if operation == "delete-stack":
+            if operation == "delete_stack":
                 assert identity == stack_id(name), "delete must use pinned StackId"
-                assert "--deletion-mode" not in arguments
+                assert "DeletionMode" not in arguments
                 assert name not in self.running
                 self.running.add(name)
                 self.deleted.append(name)
@@ -111,7 +116,7 @@ class Fake(M.AwsBackend):
                 if self.hook:
                     self.hook(name)
                 return {}
-            if operation == "describe-stack-events":
+            if operation == "describe_stack_events":
                 return {
                     "StackEvents": [
                         {

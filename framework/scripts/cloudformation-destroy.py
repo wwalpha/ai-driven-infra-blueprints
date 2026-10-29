@@ -7,16 +7,16 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
-import aws_context as _imports_aws_context
+import deploy.context as _imports_aws_context
 from model.adapters.observed import destroy_plan, sync_destroyed
 from model.core import stack_model
 from model.files import load_model
@@ -27,14 +27,8 @@ from task_contract_core import (
     task_read_scope,
 )
 from task_contract_core import task_snapshot as read_task_snapshot
-from utils.aws.client import (
-    API_BUDGET_SECONDS,
-    READ_RATES,
-    THROTTLING,
-    AwsError,
-    empty_list_imports,
-    read_api,
-)
+from utils.aws import cloudformation
+from utils.aws.client import API_BUDGET_SECONDS, AwsError, connection_context, request
 from utils.aws.identity import execution_account, select_profile
 from utils.cloudformation.export_resolution import stack_exports
 from utils.cloudformation.inputs import Blocked
@@ -116,7 +110,7 @@ def task_snapshot(root, environment, target, requested, plan):
 
 
 class AwsBackend:
-    READS = {"describe-stacks", "list-imports", "describe-stack-events"}
+    READS = {"describe_stacks", "list_imports", "describe_stack_events"}
 
     def __init__(
         self, root, environment, directory, target, profile=None, timing_log=None
@@ -128,113 +122,25 @@ class AwsBackend:
             target,
         )
         self.profile = select_profile(target, profile)
+        self.context = connection_context(
+            self.profile, target["awsRegion"], execution_account(target)
+        )
         self.timing_log = timing_log
-        self.env = (
-            os.environ.copy()
-        )  # Freeze the invocation's credential chain; never persist credentials.
 
-    def aws(self, operation, *arguments):
-        if operation not in self.READS | {"delete-stack"}:
+    def aws(self, operation, *, deadline=None, **arguments):
+        if operation not in self.READS | {"delete_stack"}:
             raise Blocked(f"operation outside standard destroy: {operation}")
-        api = operation.replace("-", "_")
-        if api not in READ_RATES:
-            return self._aws_once(operation, arguments, controlled=False)
-        deadline = time.monotonic() + API_BUDGET_SECONDS
-        token, seen, items, result = None, set(), [], None
-        field = "Imports" if operation == "list-imports" else "Stacks"
-        while True:
-            page_arguments = (
-                *arguments,
-                "--no-paginate",
-                *(["--next-token", token] if token else []),
-            )
-            response = read_api(
-                execution_account(self.target),
-                self.target["awsRegion"],
-                api,
-                _bind_framework_callback(
-                    self._aws_once, operation, page_arguments, controlled=True
-                ),
-                deadline=deadline,
-            )
-            if response is None:
-                return None
-            if not isinstance(response, dict) or not isinstance(
-                response.get(field), list
-            ):
-                raise Blocked("incomplete destroy reference response: " + operation)
-            items.extend(response[field])
-            result = response if result is None else result
-            token = response.get("NextToken")
-            if token is None:
-                return {
-                    key: value for key, value in result.items() if key != "NextToken"
-                } | {field: items}
-            if not isinstance(token, str) or not token or token in seen:
-                raise Blocked("invalid destroy reference pagination: " + operation)
-            seen.add(token)
-
-    def _aws_once(self, operation, arguments, *, controlled):
-        command = ["aws", "--region", self.target["awsRegion"]]
-        if self.profile:
-            command += ["--profile", self.profile]
-        command += [
-            "cloudformation",
-            operation,
-            *arguments,
-            "--output",
-            "json",
-            "--no-cli-pager",
-        ]
         started = time.perf_counter()
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                env=self.env | ({"AWS_MAX_ATTEMPTS": "1"} if controlled else {}),
-            )
-            if result.returncode:
-                # Only this exact CFN not-found diagnostic constitutes absence.
-                if operation == "describe-stacks" and re.search(
-                    r"\(ValidationError\).*Stack with id .+ does not exist",
-                    result.stderr,
-                ):
-                    return None
-                match = re.fullmatch(
-                    r"\s*An error occurred \(([^()]+)\) when calling the (\w+) operation: ([^\r\n]*)\s*",
-                    result.stderr,
+            if operation == "describe_stack_events":
+                return request(
+                    self.context,
+                    "cloudformation",
+                    operation,
+                    arguments,
+                    deadline=deadline,
                 )
-                if (
-                    operation == "list-imports"
-                    and match
-                    and match[2] == "ListImports"
-                    and arguments.count("--export-name") == 1
-                    and arguments.index("--export-name") + 1 < len(arguments)
-                    and not any(
-                        arg == "--next-token" or arg.startswith("--next-token=")
-                        for arg in arguments
-                    )
-                    and empty_list_imports(
-                        "cloudformation",
-                        "list_imports",
-                        match[1],
-                        match[3],
-                        {"ExportName": arguments[arguments.index("--export-name") + 1]},
-                    )
-                ):
-                    return {"Imports": []}
-                if controlled:
-                    match = re.search(r"\(([^)]+)\) when calling", result.stderr)
-                    if match and match[1] in THROTTLING:
-                        raise AwsError(
-                            "cloudformation", operation.replace("-", "_"), match[1]
-                        )
-                raise Blocked(
-                    f"{operation}: {result.stderr.strip() or 'AWS CLI failed'}"
-                )
-            return json.loads(result.stdout) if result.stdout.strip() else {}
+            return getattr(cloudformation, operation)(self.context, **arguments)
         finally:
             if self.timing_log:
                 with self.timing_log.open("a", encoding="utf-8") as stream:
@@ -250,42 +156,52 @@ class AwsBackend:
                     )
 
     def describe(self, identity):
-        response = self.aws("describe-stacks", "--stack-name", identity)
-        if response is None:
-            return None
-        stacks = response.get("Stacks", [])
-        if len(stacks) != 1:
+        try:
+            response = self.aws("describe_stacks", StackName=identity)
+        except AwsError as error:
+            if error.stack_absent:
+                return None
+            raise
+        stacks = response.get("Stacks")
+        if (
+            not isinstance(stacks, list)
+            or len(stacks) != 1
+            or response.get("NextToken") is not None
+        ):
             raise Blocked("describe-stacks must return exactly one stack")
         return stacks[0]
 
     def delete(self, stack_id):
-        return self.aws("delete-stack", "--stack-name", stack_id)
+        return self.aws("delete_stack", StackName=stack_id)
 
     def events(self, stack_id):
-        # Stop at this deletion's root start, avoiding old retained events/history pages.
-        events, arguments = [], []
+        events, token, seen = [], None, set()
+        deadline = time.monotonic() + API_BUDGET_SECONDS
         while True:
-            response = self.aws(
-                "describe-stack-events",
-                "--stack-name",
-                stack_id,
-                "--no-paginate",
-                *arguments,
-            )
+            arguments = {"StackName": stack_id}
+            if token is not None:
+                arguments["NextToken"] = token
+            response = self.aws("describe_stack_events", deadline=deadline, **arguments)
             page = response.get("StackEvents")
             if not isinstance(page, list):
                 raise Blocked("invalid describe-stack-events response")
             for event in page:
-                events.append(event)
+                item = dict(event)
+                if isinstance(item.get("Timestamp"), datetime):
+                    item["Timestamp"] = item["Timestamp"].isoformat()
+                events.append(item)
                 if (
                     event.get("PhysicalResourceId") == stack_id
                     and event.get("ResourceType") == "AWS::CloudFormation::Stack"
                     and event.get("ResourceStatus") == "DELETE_IN_PROGRESS"
                 ):
                     return events
-            if not response.get("NextToken"):
+            token = response.get("NextToken")
+            if token is None:
                 return events
-            arguments = ["--next-token", response["NextToken"]]
+            if not isinstance(token, str) or not token or token in seen:
+                raise Blocked("invalid describe-stack-events pagination")
+            seen.add(token)
 
 
 def validate_identity(stack, name, target, pinned=None):
@@ -440,9 +356,7 @@ def dependencies(session, backend, save):
         producer = owners[export["ExportingStackId"]]
         if states[producer]["status"] in {"DELETE_COMPLETE", "ALREADY_ABSENT"}:
             continue
-        imports = backend.aws("list-imports", "--export-name", export["Name"]).get(
-            "Imports"
-        )
+        imports = backend.aws("list_imports", ExportName=export["Name"]).get("Imports")
         if not isinstance(imports, list) or any(
             not isinstance(name, str) or not name for name in imports
         ):
@@ -767,6 +681,9 @@ def controller_main(argv=None, root=None):
         )
         save = persist
         save()
+        auth_context = connection_context(
+            profile, target["awsRegion"], execution_account(target)
+        )
         started = time.perf_counter()
         authenticated = context.check_deploy_context(
             root,
@@ -774,7 +691,6 @@ def controller_main(argv=None, root=None):
             args.aws_account_id,
             args.alias,
             args.profile,
-            read_only=True,
         )
         if authenticated != target:
             raise Blocked("AWS context changed during authentication")
@@ -792,6 +708,8 @@ def controller_main(argv=None, root=None):
         backend = AwsBackend(
             root, args.environment, directory, target, args.profile, args.timing_log
         )
+        if backend.context != auth_context:
+            raise Blocked("AWS authentication context changed during authentication")
         session["context"] = {
             "account": execution_account(target),
             "region": target["awsRegion"],

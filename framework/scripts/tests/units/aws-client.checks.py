@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from threading import Lock
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -176,45 +177,6 @@ def check_list_imports_sdk_pages(monkeypatch):
         cloudformation.list_imports(context, ExportName="Vpc")
     with pytest.raises(sdk.AwsError, match="InvalidPage"):
         cloudformation.list_imports(context, ExportName="Vpc")
-
-
-def check_list_imports_cli_delegation(tmp_path, monkeypatch):
-    backend = destroy.AwsBackend(
-        tmp_path,
-        "dev",
-        "123456789012",
-        {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
-    )
-    diagnostic = "An error occurred (ValidationError) when calling the ListImports operation: Export 'Vpc' is not imported by any stack.\n"
-    process = Mock(
-        return_value=SimpleNamespace(returncode=255, stdout="", stderr=diagnostic)
-    )
-    monkeypatch.setattr(destroy.subprocess, "run", process)
-    monkeypatch.setattr(
-        destroy, "read_api", lambda account, region, operation, send, **kw: send()
-    )
-    assert backend.aws("list-imports", "--export-name", "Vpc") == {"Imports": []}
-    for message, arguments in [
-        (diagnostic, ("--export-name", "Other")),
-        (
-            diagnostic.replace("ValidationError", "AccessDenied"),
-            ("--export-name", "Vpc"),
-        ),
-        (diagnostic.replace("ListImports", "ListExports"), ("--export-name", "Vpc")),
-        (diagnostic, ("--export-name", "Vpc", "--next-token", "next")),
-        (diagnostic, ("--export-name", "Vpc", "--next-token=next")),
-    ]:
-        process.return_value.stderr = message
-        with pytest.raises(destroy.Blocked):
-            backend.aws("list-imports", *arguments)
-    process.side_effect = [
-        SimpleNamespace(
-            returncode=0, stdout='{"Imports": ["A"], "NextToken": "next"}', stderr=""
-        ),
-        SimpleNamespace(returncode=255, stdout="", stderr=diagnostic),
-    ]
-    with pytest.raises(destroy.Blocked):
-        backend.aws("list-imports", "--export-name", "Vpc")
 
 
 def _callback_check_client_concurrency_Session___init__(self, calls, /, **kwargs):
@@ -397,8 +359,14 @@ def check_structured_errors_and_secrets(monkeypatch):
         ),
     )
     with pytest.raises(sdk.AwsError) as caught:
-        sdk.request(context, "cloudformation", "describe_stacks", {})
+        sdk.request(context, "cloudformation", "describe_stacks", {"StackName": "x"})
     assert caught.value.stack_absent
+    for name in ("other", "", "X"):
+        with pytest.raises(sdk.AwsError) as mismatch:
+            sdk.request(
+                context, "cloudformation", "describe_stacks", {"StackName": name}
+            )
+        assert not mismatch.value.stack_absent
     monkeypatch.setattr(
         secretsmanager,
         "request",
@@ -476,71 +444,90 @@ def check_read_sdk_attempts_do_not_change_mutation_clients(monkeypatch):
     assert mutation.meta.config.retries["total_max_attempts"] == 2
 
 
-def check_destroy_cli_controls_every_page_and_retry(tmp_path, monkeypatch):
-    clock = Clock()
-    monkeypatch.setattr(sdk, "time", clock)
-    monkeypatch.setattr(destroy, "time", clock)
-    monkeypatch.setattr(sdk, "_rate_locks", {})
-    monkeypatch.setattr(sdk, "_rate_next", {})
-    monkeypatch.setattr(sdk.random, "uniform", lambda a, b: 1)
+def check_destroy_sdk_delegation(tmp_path, monkeypatch):
+    backend = destroy.AwsBackend(
+        tmp_path,
+        "dev",
+        "123456789012",
+        {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
+        timing_log=tmp_path / "timing",
+    )
+    call = Mock(return_value={"Imports": []})
+    monkeypatch.setattr(destroy.cloudformation, "list_imports", call)
+    assert backend.aws("list_imports", ExportName="Vpc") == {"Imports": []}
+    call.assert_called_once_with(backend.context, ExportName="Vpc")
+    assert json.loads((tmp_path / "timing").read_text())["phase"] == "awsApi"
+    with pytest.raises(destroy.Blocked, match="outside standard destroy"):
+        backend.aws("list_exports")
+
+
+def check_destroy_stack_identity_and_errors(tmp_path, monkeypatch):
     backend = destroy.AwsBackend(
         tmp_path,
         "dev",
         "123456789012",
         {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
     )
-    process = Mock(
+    describe = Mock(return_value={"Stacks": [{"StackId": "pinned"}]})
+    delete = Mock(return_value={})
+    monkeypatch.setattr(destroy.cloudformation, "describe_stacks", describe)
+    monkeypatch.setattr(destroy.cloudformation, "delete_stack", delete)
+    assert backend.describe("pinned")["StackId"] == "pinned"
+    backend.delete("pinned")
+    delete.assert_called_once_with(backend.context, StackName="pinned")
+    describe.return_value = {"Stacks": [{}], "NextToken": "incomplete"}
+    with pytest.raises(destroy.Blocked):
+        backend.describe("pinned")
+    describe.side_effect = sdk.AwsError(
+        "cloudformation", "describe_stacks", "ValidationError", stack_absent=True
+    )
+    assert backend.describe("pinned") is None
+    describe.side_effect = sdk.AwsError(
+        "cloudformation", "describe_stacks", "AccessDenied"
+    )
+    with pytest.raises(sdk.AwsError):
+        backend.describe("pinned")
+
+
+def check_destroy_events_pagination_and_json(tmp_path, monkeypatch):
+    backend = destroy.AwsBackend(
+        tmp_path,
+        "dev",
+        "123456789012",
+        {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
+    )
+    stamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    root = {
+        "PhysicalResourceId": "stack-id",
+        "ResourceType": "AWS::CloudFormation::Stack",
+        "ResourceStatus": "DELETE_IN_PROGRESS",
+        "Timestamp": stamp,
+    }
+    request = Mock(
         side_effect=[
-            SimpleNamespace(
-                returncode=0, stdout='{"Imports":["A"],"NextToken":"next"}', stderr=""
-            ),
-            SimpleNamespace(
-                returncode=255,
-                stdout="",
-                stderr="An error occurred (Throttling) when calling the ListImports operation: slow",
-            ),
-            SimpleNamespace(returncode=0, stdout='{"Imports":["B"]}', stderr=""),
+            {"StackEvents": [], "NextToken": "next"},
+            {"StackEvents": [root, {"old": True}], "NextToken": "older"},
         ]
     )
-    monkeypatch.setattr(destroy.subprocess, "run", process)
-    assert backend.aws("list-imports", "--export-name", "Export") == {
-        "Imports": ["A", "B"]
-    }
-    assert process.call_count == 3 and clock.waits == [1, 1]
-    for index, call_item in enumerate(process.call_args_list):
-        assert "--no-paginate" in call_item.args[0]
-        assert call_item.kwargs["env"]["AWS_MAX_ATTEMPTS"] == "1"
-        assert ("--next-token" in call_item.args[0]) == (index > 0)
-    process.reset_mock()
-    with pytest.raises(destroy.Blocked, match="outside standard destroy"):
-        backend.aws("list-exports")
-    process.assert_not_called()
-
-
-@pytest.mark.parametrize("token", ["same", "", 123])
-def check_destroy_incomplete_pagination_blocks(tmp_path, monkeypatch, token):
-    clock = Clock()
-    monkeypatch.setattr(sdk, "time", clock)
-    monkeypatch.setattr(destroy, "time", clock)
-    monkeypatch.setattr(sdk, "_rate_locks", {})
-    monkeypatch.setattr(sdk, "_rate_next", {})
-    backend = destroy.AwsBackend(
-        tmp_path,
-        "dev",
-        "123456789012",
-        {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
-    )
-    process = Mock(
-        return_value=SimpleNamespace(
-            returncode=0,
-            stdout=json.dumps({"Imports": [], "NextToken": token}),
-            stderr="",
-        )
-    )
-    monkeypatch.setattr(destroy.subprocess, "run", process)
-    with pytest.raises(destroy.Blocked, match="pagination"):
-        backend.aws("list-imports", "--export-name", "Export")
-    assert process.call_count == (2 if token == "same" else 1)
+    monkeypatch.setattr(destroy, "request", request)
+    events = backend.events("stack-id")
+    assert json.loads(json.dumps(events))[0]["Timestamp"] == stamp.isoformat()
+    assert root["Timestamp"] is stamp and request.call_count == 2
+    assert request.call_args.args[3] == {"StackName": "stack-id", "NextToken": "next"}
+    for token in ("", 4, "repeat"):
+        request.reset_mock(side_effect=True)
+        request.side_effect = lambda *args, token=token, **kwargs: {
+            "StackEvents": [],
+            "NextToken": token,
+        }
+        with pytest.raises(destroy.Blocked, match="pagination"):
+            backend.events("stack-id")
+    request.side_effect = [
+        {"StackEvents": [], "NextToken": "next"},
+        sdk.AwsError("cloudformation", "describe_stack_events", "AccessDenied"),
+    ]
+    with pytest.raises(sdk.AwsError):
+        backend.events("stack-id")
 
 
 @pytest.mark.parametrize("operation", list(sdk.READ_RATES))

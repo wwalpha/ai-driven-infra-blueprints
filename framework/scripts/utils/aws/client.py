@@ -18,6 +18,7 @@ _clients = {}
 API_BUDGET_SECONDS = 60
 READ_RATES = {
     "describe_stacks": 5,
+    "describe_stack_events": 5,
     "get_template": 5,
     "list_exports": 5,
     "list_imports": 1,
@@ -207,14 +208,16 @@ def request(context, service, operation, arguments, *, deadline=None):
         ):
             return {"Imports": []}
         status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-        message = details.get("Message", "").lower()
+        raw_message = details.get("Message", "")
+        message = raw_message.lower() if isinstance(raw_message, str) else ""
         # ValidationException/ResourceNotFound alone never proves a Stack is absent.
         absent = (
             service == "cloudformation"
             and operation == "describe_stacks"
             and code == "ValidationError"
-            and "stack" in message
-            and "does not exist" in message
+            and isinstance(arguments.get("StackName"), str)
+            and bool(arguments["StackName"])
+            and raw_message == f"Stack with id {arguments['StackName']} does not exist"
         )
         missing = (
             service == "secretsmanager"
