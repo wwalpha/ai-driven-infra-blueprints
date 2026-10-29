@@ -317,14 +317,22 @@ def save(path, backend):
     write_records(path, records)
 
 
-def write_records(path, records):
-    path = safe_path(path)
+def records_text(records: list[dict]) -> str | None:
+    """Encode the same signed entrance without changing the caller's records."""
     if records:
-        payload, *peers = records
+        payload, *peers = copy.deepcopy(records)
         if peers:
             payload["peers"] = peers
         owner = safe_path(Path(payload["publication"]["repository"]))
-        atomic_replace_file(path, sealed(owner, payload), mode=0o600)
+        return sealed(owner, payload)
+    return None
+
+
+def write_records(path, records):
+    path = safe_path(path)
+    text = records_text(records)
+    if text is not None:
+        atomic_replace_file(path, text, mode=0o600)
     else:
         path.unlink(missing_ok=True)
 

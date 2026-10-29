@@ -29,6 +29,7 @@ from deploy import (
     generation_resume,
     handoff,
     operation_journal,
+    operation_reset,
     temporary,
 )
 from deploy.model_cache import RunModels
@@ -429,7 +430,6 @@ def run(
             directory = args.alias or args.aws_account_id
             journal = operation_journal.location(target)
             resources.enter_context(operation_journal.locked(journal))
-            temporary.reclaim(journal, root, target)
             backend = backend_type(
                 root,
                 args.environment,
@@ -439,6 +439,9 @@ def run(
                 args.approve_change_set,
             )
             backend.timing, backend.phase = timing, phase
+            if not args.recover_operations:
+                operation_reset.check_fences(journal, target, args.stack, backend)
+            temporary.reclaim(journal, root, target)
             backend.workdir = temporary.create(
                 journal, root, initial_task, target, args.stack
             )

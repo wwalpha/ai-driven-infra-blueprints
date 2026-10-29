@@ -10,7 +10,7 @@ from pathlib import Path
 from utils.cloudformation.inputs import Blocked
 from utils.sealed_evidence import read_sealed, write_sealed
 
-from deploy import handoff, operation_journal
+from deploy import handoff, operation_journal, operation_reset
 
 
 def references(records):
@@ -49,6 +49,13 @@ def reclaim(journal, root, target):
     """Unknown files survive; no PID inference, global /tmp sweep or lock removal."""
     records = operation_journal.read(journal) or []
     needed = references(records)
+    try:
+        needed.update(operation_reset.retained_templates(journal))
+    except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
+        print(
+            f"Deploy temporary files retained: reset evidence: {error}", file=sys.stderr
+        )
+        return
     for directory in journal.parent.glob("inputs-*"):
         try:
             operation_journal.private_path(directory, directory=True)

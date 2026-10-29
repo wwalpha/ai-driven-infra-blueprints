@@ -179,6 +179,81 @@ Recovery uses the current explicitly authorized Stack scope for pending generati
 
 Keep controller timing and per-Stack preparation/poll/execution durations within the run. Existing external timing.jsonl records phase, operation/service, success/failure, UTC and duration; never log secrets or API arguments/responses. Metrics are diagnostics and grant no execution authority.
 
+### Human-authorized operation journal reset
+
+Only the Human chooses whether to reset, retry Recover, or abandon an operation.
+Recover failure, invalid JSON/signature, unknown AWS state, publication errors and a new
+Task/worktree never authorize automatic reset. The LLM may explain diagnostics and the
+CLI, but must never enter the confirmation, simulate a console, invoke Apply on the
+Human's behalf, or delete/edit reset evidence to bypass a fence. Console simulation in
+tests is confined to synthetic offline fixtures. This retains the Human-consent operating
+boundary: a CLI cannot prove that the person controlling a terminal is human. A signed
+Plan or ordinary command arguments provide no consent by themselves.
+
+From the selected repository root, inspect an ALL Plan (no Apply) to discover record
+fingerprints, then optionally create a RECORD Plan:
+
+```console
+python3 -B framework/scripts/cloudformation-operation-reset.py plan --environment dev --alias cde --mode all
+python3 -B framework/scripts/cloudformation-operation-reset.py plan --environment dev --alias cde --mode record --record <record-sha256>
+python3 -B framework/scripts/cloudformation-operation-reset.py apply --environment dev --alias cde --plan <plan-sha256>
+```
+
+Use `--aws-account-id <account>` instead of `--alias` for a numeric target. Managed
+worktrees use their registered Python through `framework/scripts/run-python.py`.
+Target/Account/Region and the journal location come from independently validated
+`project.json`, never damaged JSON. Reset calls no AWS APIs. Plan takes the ordinary
+account/Region lock, validates signed records when possible and freezes the original
+SHA-256, target configuration, exact selection and local input-template inventory.
+It saves a sealed private Plan outside Git and changes no journal. Its report lists
+owners, Tasks, Stack/ChangeSet IDs, execution-evidence presence, shared publication paths
+and lost recovery scope without printing template or Model contents.
+
+Apply requires the same target/Plan and an interactive Human-operated console. The
+Human reviews the entire report and types the exact displayed phrase:
+`RESET <execution-account> <region> <ALL-or-RECORD> <full-plan-sha256>`.
+No `--force`, `--yes`, approval argument, saved approval inheritance or automatic Deploy
+is available. Changed journal, configuration, selection or template bytes stop Apply;
+create and review a new Plan rather than applying stale consent.
+
+RECORD selects entire signed peer records, including all operations, generation Producer
+proofs and indivisible pending Observed/Generation publication. Stack-only partial
+deletion is unavailable. Other records survive through the existing journal encoder.
+ALL also accepts invalid JSON, signatures or structure; no unverified field identifies
+its owner or narrows scope. Its report explicitly treats other Tasks and the original
+execution scope as unknown. Unsafe ownership, symlinks, hardlinks, permissions and
+redirected paths still block both modes.
+
+Before its sole atomic journal replacement/removal, Apply saves the complete original,
+SHA-256, approved Plan/target/selection, expected replacement, Human confirmation and all
+existing account/Region `inputs-*` files under private `resets/<plan-sha256>/` beside the
+journal. The sealed `intent.json` is durable before journal mutation and also serves as
+the independent fence; `result.json` records completion. Backup/audit failure leaves the
+journal unchanged. Copies are first staged under private `reset-staging/<plan-sha256>/`;
+the complete verified archive becomes active by one directory rename. An incomplete
+staged copy therefore cannot install a fence. Result-write failure leaves the original and fence intact. Retrying
+the same Plan requires fresh console confirmation and accepts only the exact original
+or intended result with matching archive. Other bytes stop retry. Incomplete, modified
+or unsafe archives stop new Deploy. Temporary reclamation preserves archived input
+references and never removes archives. Preserve this private evidence and its local
+seal before OS temporary-directory cleanup, which is outside Framework retention.
+No automatic archive/fence deletion is provided.
+
+A fresh ordinary Deploy, including another Task or checkout, checks applicable fences
+under the same account/Region lock before recovery or preparation. Known executions reuse
+original-token event polling, exact Stack identity/state and required Output checks.
+Confirmed successful Stacks then follow the ordinary existing-Stack UPDATE/No-Change
+path with current Task, Model/IaC and ChangeSet checks. Running, unknown, unreadable or
+unverifiable execution blocks new starts. Executable old ChangeSets, unfinished runtime
+mutations and unknown publication-only scope require separate Human investigation.
+An unverified ALL reset leaves an account/Region-wide fence: current successful/absent
+Stacks alone cannot reconstruct lost execution scope, and Reset consent cannot clear
+that fence or authorize Execute. Diagnostics identify the retained archive; reconciling
+missing proof is a separate Human-controlled operation, with no bypass in this CLI.
+`--recover-operations` retains its recovery-only behavior and never starts a new Deploy.
+Reset proves no AWS success, Observed completion, Model integrity or generation completion
+and never grants new ChangeSet approval.
+
 ### Deployment execution
 
 Use current Task/target/account/Region/profile/scope/input guards before each mutation, original ChangeSet ID/Stack ID and full content re-fetch immediately before Execute, and one stable persisted Token for uncertain submissions. Human approval applies only to the current complete destructive ChangeSet. Stop new starts on errors, drain peers, synchronize each success and verify Output/Export facts. Retain/DELETE_SKIPPED/unknown destruction and integrated children without identifiers never reset identifiers. Do not change IaC, widen scope or infer missing evidence.
