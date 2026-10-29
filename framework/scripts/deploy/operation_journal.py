@@ -365,12 +365,13 @@ def _restore_template(backend, unit, state):
 
 def _recovery_guard(backend, task, /):
     from_snapshot = backend.run_context
+    alias = backend.target.get("alias")
     if (
         deploy_context.load_target(
             backend.root,
             backend.environment,
-            backend.target["awsAccountId"],
-            backend.target.get("alias"),
+            None if alias else backend.target["awsAccountId"],
+            alias,
         )
         != backend.target
     ):

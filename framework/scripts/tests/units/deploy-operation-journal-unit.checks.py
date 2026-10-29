@@ -19,6 +19,7 @@ from deploy.controller import create_runtime
 from support.pytest_cli import run
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
+from utils.project_targets import DeployContextError
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -485,6 +486,73 @@ class FinishBootstrap:
         )
         state.pop("bootstrap")
         state["status"] = "NOT_STARTED"
+
+
+@pytest.mark.parametrize("alias", [None, "cde", "non-cde"])
+def test_recovery_guard_resolves_saved_target_from_project(tmp_path, alias):
+    backend, task, _, _ = backend_for(tmp_path)
+    target = {**TARGET, **({"alias": alias} if alias else {})}
+    backend.target = target
+    (backend.root / "project.json").write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {**TARGET, "environment": "dev"},
+                    {**TARGET, "environment": "dev", "alias": "cde"},
+                    {**TARGET, "environment": "dev", "alias": "non-cde"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    with patch.object(J, "task_snapshot", return_value=task) as snapshot:
+        J.RecoveryGuard(backend, task)()
+    snapshot.assert_called_once_with(backend.root, live=True)
+    assert backend.target == target
+    backend.aws.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("awsRegion", "us-east-1"),
+        ("awsProfile", "other-profile"),
+        ("awsAccountId", "210987654321"),
+        ("awsExecutionAccountId", "210987654321"),
+        ("iacEngine", "terraform"),
+        ("alias", None),
+        ("alias", "renamed"),
+    ],
+)
+def test_recovery_guard_rejects_changed_project_target(tmp_path, field, value):
+    backend, task, _, _ = backend_for(tmp_path)
+    backend.target = {**TARGET, "alias": "cde", "awsProfile": "deploy"}
+    changed = {**backend.target, "environment": "dev", field: value}
+    if value is None:
+        changed.pop(field)
+    (backend.root / "project.json").write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {**TARGET, "environment": "dev"},
+                    {**TARGET, "environment": "dev", "alias": "non-cde"},
+                    changed,
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    error = DeployContextError if field == "alias" else Blocked
+    message = (
+        "topology target must exist exactly once: dev/cde"
+        if field == "alias"
+        else "project target changed during unfinished-operation recovery"
+    )
+    with patch.object(J, "task_snapshot") as snapshot:
+        with pytest.raises(error, match=message):
+            J.RecoveryGuard(backend, task)()
+    snapshot.assert_not_called()
+    backend.aws.assert_not_called()
 
 
 @pytest.mark.parametrize("changed", ["none", "target", "task", "model"])
