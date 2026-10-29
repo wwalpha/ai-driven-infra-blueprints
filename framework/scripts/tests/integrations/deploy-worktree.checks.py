@@ -581,6 +581,7 @@ def check_stepwise_checkpoint_publication_isolation(boundary):
         with pytest.raises(ValueError, match="checkpoint evidence"):
             publication.publish(root, "deploy")
         assert git(primary, "rev-parse", "HEAD") == base
+        assert not wt.load(root, "deploy")[3].get("deployCheckpoints")
         if boundary in {"commit", "receipt"}:
             guard = (
                 patch.object(wt, "git", partial(interrupt_git, wt.git, root, "commit"))

@@ -107,7 +107,16 @@ def check_git_next_actions_are_exposed_until_publication_succeeds(status):
     )
     assert report["nextActions"] == actions
     backend.run_context["checkpointPending"] = {"stacks": ["A"], "after": {}}
-    assert steps.describe(backend)["result"] != "COMPLETE"
+    pending_report = steps.describe(backend)
+    assert pending_report["result"] != "COMPLETE"
+    assert not any(
+        a["action"] == "deploy-publish" for a in pending_report["nextActions"]
+    )
+    assert not pending_report["gitPublication"]["retryable"]
+    assert not any(
+        a["action"] == "deploy-publish"
+        for a in pending_report["gitPublication"]["nextActions"]
+    )
     backend.run_context.pop("checkpointPending")
     states["A"]["status"] = "FAILED"
     assert steps.describe(backend)["result"] == "STOPPED"

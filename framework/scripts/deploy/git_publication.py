@@ -457,6 +457,13 @@ def describe(root, state, progress, error=None):
             result.pop("pendingSource", None)
             result.pop("error", None)
             return result
+        if (
+            pending
+            and not set(pending["stacks"]) <= state.get("deployCheckpoints", {}).keys()
+        ):
+            raise ws.Blocked(
+                "finish the pending Stack checkpoint before Git publication"
+            )
         # A dirty/unavailable base or an inconsistent retained intent needs review before retry.
         base_root = wt.base_worktree(root, state)
         intent = result.get("intent")

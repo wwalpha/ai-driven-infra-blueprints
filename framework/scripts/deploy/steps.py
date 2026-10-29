@@ -337,6 +337,17 @@ def describe(backend: SimpleNamespace) -> dict:
     publication = copy.deepcopy(context.get("gitPublication"))
     if publication is not None:
         publication["checkpointRequired"] = pending["stacks"] if pending else []
+        if pending:
+            publication["nextActions"] = [
+                action
+                for action in publication.get("nextActions", [])
+                if action.get("action") != "deploy-publish"
+            ]
+            publication["retryable"] = False
+            if publication.get("status") != "CONFLICT":
+                publication["reason"] = (
+                    "finish the pending Stack checkpoint before Git publication"
+                )
     complete = (
         generation_resume.complete(context)
         and all(s.get("checkpointed") for s in states.values())
@@ -436,7 +447,7 @@ def describe(backend: SimpleNamespace) -> dict:
             and not context.get("generationError")
             else []
         )
-        + context.get("gitPublication", {}).get("nextActions", []),
+        + [action for action in (publication or {}).get("nextActions", [])],
     }
 
 

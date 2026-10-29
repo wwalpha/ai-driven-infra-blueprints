@@ -673,7 +673,7 @@ def check_stepwise_without_receipt_never_creates_checkpoint(
 
 
 @pytest.mark.parametrize(
-    "status", ["PENDING", "CONFLICT", "SUCCESS", "UNKNOWN", "INTENT"]
+    "status", ["PENDING", "CONFLICT", "SUCCESS", "UNKNOWN", "INTENT", "CHECKPOINT"]
 )
 def check_publication_guidance_only_offers_proven_git_retry(
     tmp_path, monkeypatch, checkpoint_evidence, status
@@ -687,7 +687,9 @@ def check_publication_guidance_only_offers_proven_git_retry(
         "source": "checkpoint",
         "conflicts": [{"path": "model/dev/app/ec2.properties"}],
     }
-    progress["checkpointPending"] = {"stacks": ["B"]}
+    if status == "CHECKPOINT":
+        state["deployPublication"]["status"] = "PENDING"
+        progress["checkpointPending"] = {"stacks": ["B"]}
     if status == "UNKNOWN":
         progress.pop("stepwise")
     if status == "INTENT":
@@ -704,7 +706,7 @@ def check_publication_guidance_only_offers_proven_git_retry(
             "deploy",
         ]
         assert result["nextActions"][0]["source"] == "checkpoint"
-        assert result["checkpointRequired"] == ["B"]
+        assert result["checkpointRequired"] == []
     elif status == "CONFLICT":
         assert result["humanApprovalRequired"]
         assert result["nextActions"][0]["command"] is None
@@ -715,7 +717,7 @@ def check_publication_guidance_only_offers_proven_git_retry(
     else:
         assert not result["nextActions"] and not result["retryable"]
         assert result["status"] == (
-            "PENDING" if status in {"UNKNOWN", "INTENT"} else "SUCCESS"
+            "PENDING" if status in {"UNKNOWN", "INTENT", "CHECKPOINT"} else "SUCCESS"
         )
 
 
