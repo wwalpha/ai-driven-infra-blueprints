@@ -459,12 +459,14 @@ def deploy_finalize(where, task_id):
             raise wt.Blocked("another integration intent is pending")
         parent_state["deployIntegrationIntent"] = plan
         wt.save(parent_path, parent_state)
-        if wt.changed_paths(parent) or wt.output(parent, "rev-parse", "HEAD") not in {
+        parent_head = wt.output(parent, "rev-parse", "HEAD")
+        if wt.changed_paths(parent) or parent_head not in {
             request["parentTip"],
             commit,
         }:
             raise wt.Blocked("parent changed during child integration")
-        wt.git(parent, "merge", "--ff-only", "--no-autostash", commit)
+        if parent_head != commit:
+            wt.git(parent, "merge", "--ff-only", "--no-autostash", commit)
         if wt.output(parent, "rev-parse", "HEAD") != commit:
             raise wt.Blocked("repair merge differs from intended commit")
         changes = {

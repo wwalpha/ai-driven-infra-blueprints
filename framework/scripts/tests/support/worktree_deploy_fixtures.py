@@ -12,7 +12,6 @@ from model.dependency_index import rebuild as rebuild_index
 from support.deploy_controller_fixtures import invoke
 from support.deploy_controller_fixtures import seed as seed_project
 from support.repository_fixtures import git
-from support.worktree_task_fixtures import cli as worktree_cli
 from task_contract_core import start
 
 
@@ -52,9 +51,7 @@ def seed(root, state_path, case="orders", **kwargs):
         )
         + "\n"
     )
-    # Retain master's lifecycle fixture; finish its provisioning through real setup.
-    state = worktree_cli(root, "create", task_id="deploy")
-    state = wt.setup(root, "deploy")
+    state = wt.create(root, "deploy")
     target = Path(state["worktree"])
     start(target, state["task_file"], saved_contract)
     rebuild_index(target)

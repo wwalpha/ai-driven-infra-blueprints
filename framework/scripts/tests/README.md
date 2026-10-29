@@ -98,6 +98,8 @@ Worktree関連5 ITは27関数・29入口。実Git/Worktree、CLI連携、状態�
 削除した内部パターン数、既存UT対応、各IT固有の保証は[削減一覧](CASES.md#worktree-it-runtime-reduction-master-1024v4)を参照。
 ローカルで長時間ITや性能比較を再実行しない。関連短時間UT・構文・登録静的整合性を確認し、ITと時間測定は既存Framework ITに委ねる。30%以上の時間削減は実測前には達成扱いにしない。
 
+Deploy repair専用ITは2関数3入口（normal batch/stepsとMerge復旧）。通常修復は両方式の独立Deployと実CLI・fresh Validationまで通し、Merge復旧は正式Requestと実Git FF直後中断・永続State再開・証拠/入力保持・Cleanupを検証する。同じ異常YAMLはbatchだけで一度確認する。Assertionの対応は[責務一覧](CASES.md#worktree-deploy-repair-performance-responsibilities)を参照。進捗/Journalの永続化地点は維持し、性能未計測や10秒未達を達成扱いにしない。
+
 ## 実行入口
 
 リポジトリルートから実行する。管理worktreeでは登録済みPython環境のwrapperを使う。

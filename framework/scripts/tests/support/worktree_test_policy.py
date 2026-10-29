@@ -11,6 +11,7 @@ WORKTREE_CASES = {
         "check_snapshot_ignores_base_history",
         "check_unmanaged_mutation_is_rejected",
         "check_managed_task_authority",
+        "check_mutation_rechecks_live_authority",
         "check_git_failure_preserves_stack_success",
         "check_resume_adopts_only_unchanged_successes",
         "check_completion_keeps_states_separate",
@@ -120,6 +121,7 @@ WORKTREE_CASES = {
     ),
     "integrations/worktree-deploy-repair.checks.py": (
         "check_external_implement_round_trip",
+        "check_merge_recovery",
     ),
     "integrations/worktree-deploy-checkpoint.checks.py": (
         "check_parallel_checkpoint_and_restart",

@@ -5,8 +5,6 @@ import re
 from task_contract_core import task_reads
 from utils.aws import cloudformation, kms, s3, secretsmanager, sts
 
-from deploy import worktree
-
 MUTATIONS = {
     "create_change_set",
     "execute_change_set",
@@ -27,7 +25,6 @@ SERVICES = {
 def call(runtime, service, operation, arguments):
     if operation in MUTATIONS:
         with task_reads(runtime.root, live=True):
-            worktree.require(runtime.root)
             runtime.guard()
     with runtime.timing.phase(
         "awsApi", service=service, operation=operation.replace("_", "-")

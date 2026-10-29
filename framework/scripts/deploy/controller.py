@@ -37,6 +37,7 @@ from deploy import (
     operation_journal,
     secret_bootstrap,
     steps,
+    worktree,
 )
 from deploy import recovery as repair_ops
 from deploy import run_context as run_ops
@@ -80,7 +81,7 @@ def create_runtime(
         workdir=None,
         states={},
         save=lambda: None,
-        guard=lambda: None,
+        guard=partial(worktree.require, root),
         hashes={},
         run_context={},
         refresh_validation=lambda unit: None,

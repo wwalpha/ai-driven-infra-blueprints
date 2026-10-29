@@ -2,9 +2,11 @@
 
 import copy
 import hashlib
+import json
 import subprocess
 import sys
 from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -14,8 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 import worktree_state as ws
+from deploy import controller, guards, inputs, operation_journal, run_context, worktree
 from deploy import git_publication as publication
-from deploy import guards, inputs, operation_journal, run_context, worktree
 from support.pytest_cli import run
 from task_contract_core import task_digest
 
@@ -30,44 +32,175 @@ def task(root):
     )
 
 
-@pytest.mark.parametrize("problem", [None, "head", "ancestry", "owner", "merged"])
+def _callback_snapshot_git(replies, /, root, *args, **kwargs):
+    reply = replies[args]
+    if isinstance(reply, Exception):
+        raise reply
+    return SimpleNamespace(stdout=reply, returncode=0)
+
+
+@pytest.mark.parametrize(
+    "problem",
+    [
+        None,
+        "head",
+        "ancestry",
+        "owner",
+        "merged",
+        "branch",
+        "missing",
+        "locked",
+        "stale",
+        "setup",
+        "digest",
+        "lifecycle",
+        "conflict",
+        "operation",
+        "git",
+        "checkpoint",
+        "checkpoint-parent",
+        "checkpoint-tree",
+        "checkpoint-message",
+        "repository-lines",
+    ],
+)
 def check_snapshot_ignores_base_history(tmp_path, monkeypatch, problem):
     primary = tmp_path / "primary"
     root = primary / ".worktrees/deploy"
-    meta = primary / "state.json"
-    meta.parent.mkdir()
-    meta.touch()
+    root.mkdir(parents=True)
+    snapshot = task(root)
+    meta = ws.state_path(primary, "deploy")
+    meta.parent.mkdir(parents=True)
     state = dict(
         task_id="deploy",
-        task_file="tasks/deploy.md",
+        task_file=snapshot.name,
+        primary=str(primary),
+        branch="codex/worktree/deploy",
         worktree=str(root),
         start="snapshot",
         tip="tip",
         merged=None,
+        python_setup={"status": "ready"},
+        deployIdentity={"taskDigest": snapshot.task_digest},
     )
+    records = f"worktree {primary}\0HEAD main\0branch refs/heads/main\0\0"
+    entry = f"worktree {root}\0HEAD tip\0branch refs/heads/{state['branch']}\0"
+    replies = {
+        ("rev-parse", "--show-toplevel"): str(root),
+        ("rev-parse", "--is-bare-repository"): "false",
+        ("rev-parse", "--path-format=absolute", "--git-common-dir"): str(
+            primary / ".git"
+        ),
+        ("rev-parse", "--verify", "snapshot^{commit}"): "snapshot",
+        ("rev-parse", "HEAD"): "tip",
+        ("merge-base", "--is-ancestor", "snapshot", "tip"): "",
+        ("diff", "--name-only", "--diff-filter=U", "-z"): "",
+    }
+    repository_command = (
+        "rev-parse",
+        "--show-toplevel",
+        "--is-bare-repository",
+        "--path-format=absolute",
+        "--git-common-dir",
+    )
+    replies[repository_command] = "\n".join((str(root), "false", str(primary / ".git")))
+    if problem == "repository-lines":
+        replies[repository_command] = "ambiguous\npath\nfalse\ncommon"
+    names = (
+        "MERGE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "rebase-merge",
+        "rebase-apply",
+        "sequencer",
+    )
+    replies[
+        (
+            "rev-parse",
+            "--path-format=absolute",
+            *[a for n in names for a in ("--git-path", n)],
+        )
+    ] = "\n".join(str(root / n) for n in names)
     if problem == "owner":
         state["worktree"] += "-other"
-    if problem == "merged":
+    elif problem == "merged":
         state["merged"] = "published"
-    monkeypatch.setattr(
-        ws, "repository", Mock(return_value=(root, primary / ".git", primary))
-    )
-    monkeypatch.setattr(ws, "state_path", Mock(return_value=meta))
-    monkeypatch.setattr(ws, "load", Mock(return_value=(primary, None, meta, state)))
-    monkeypatch.setattr(ws, "task_worktree", Mock(return_value=root))
-    values = iter(["snapshot", "bad" if problem == "head" else "tip"])
-    monkeypatch.setattr(ws, "output", Mock(side_effect=values))
-    git = Mock(return_value=SimpleNamespace(returncode=int(problem == "ancestry")))
-    monkeypatch.setattr(ws, "git", git)
-    if problem:
-        with pytest.raises(ValueError):
-            ws.deploy_start_commit(root, "tasks/deploy.md", required=True)
-    else:
-        assert (
-            ws.deploy_start_commit(root, "tasks/deploy.md", required=True) == "snapshot"
+    elif problem == "branch":
+        entry = entry.replace(state["branch"], "other")
+    elif problem == "missing":
+        entry = ""
+    elif problem in {"locked", "stale"}:
+        entry += "locked\0" if problem == "locked" else "prunable stale\0"
+    elif problem == "setup":
+        state["python_setup"]["status"] = "failed"
+    elif problem == "digest":
+        state["deployIdentity"]["taskDigest"] = "changed"
+    elif problem == "lifecycle":
+        state["branch"] = "other"
+    elif problem == "head":
+        replies[("rev-parse", "HEAD")] = "unexpected"
+    elif problem in {"ancestry", "git"}:
+        key = (
+            ("merge-base", "--is-ancestor", "snapshot", "tip")
+            if problem == "ancestry"
+            else ("rev-parse", "HEAD")
         )
-        assert git.call_args.args[1:4] == ("merge-base", "--is-ancestor", "snapshot")
-        assert git.call_args.args[4] == "tip"
+        replies[key] = ws.Blocked("git verification failed")
+    elif problem == "conflict":
+        replies[("diff", "--name-only", "--diff-filter=U", "-z")] = "conflict\0"
+    elif problem == "operation":
+        (root / "MERGE_HEAD").touch()
+    elif problem and problem.startswith("checkpoint"):
+        state["deployCheckpointIntent"] = {
+            "head": "tip",
+            "tree": "tree",
+            "message": "checkpoint",
+        }
+        replies.update(
+            {
+                ("rev-parse", "HEAD"): "checkpoint",
+                ("rev-parse", "HEAD^"): "wrong"
+                if problem == "checkpoint-parent"
+                else "tip",
+                ("rev-parse", "HEAD^{tree}"): "wrong"
+                if problem == "checkpoint-tree"
+                else "tree",
+                ("log", "-1", "--format=%s"): "wrong"
+                if problem == "checkpoint-message"
+                else "checkpoint",
+                ("merge-base", "--is-ancestor", "snapshot", "checkpoint"): "",
+            }
+        )
+    replies[("worktree", "list", "--porcelain", "-z")] = records + (
+        entry + "\0" if entry else ""
+    )
+    meta.write_text(json.dumps(state), encoding="utf-8")
+    git = Mock(side_effect=partial(_callback_snapshot_git, replies))
+    monkeypatch.setattr(ws, "git", git)
+    if problem not in {None, "checkpoint", "repository-lines"}:
+        with pytest.raises(ValueError):
+            worktree.require(root, snapshot)
+    else:
+        assert worktree.require(root, snapshot) == state
+        assert git.call_count == (7 if problem is None else 10)
+        assert (
+            sum(call.args[1:3] == ("worktree", "list") for call in git.call_args_list)
+            == 1
+        )
+        if problem is None:
+            replies[("rev-parse", "HEAD")] = "unexpected"
+            with pytest.raises(ValueError, match="HEAD"):
+                worktree.require(root, snapshot)
+            replies[("rev-parse", "HEAD")] = "tip"
+            replies[("worktree", "list", "--porcelain", "-z")] = records
+            with pytest.raises(ValueError, match="missing"):
+                worktree.require(root, snapshot)
+            replies[("worktree", "list", "--porcelain", "-z")] = records + entry + "\0"
+        # A later operation rereads lifecycle bytes rather than reusing authorization.
+        state["merged"] = "published"
+        meta.write_text(json.dumps(state), encoding="utf-8")
+        with pytest.raises(ValueError, match="merged"):
+            worktree.require(root, snapshot)
     assert all("refs/heads/main" not in str(call) for call in git.call_args_list)
 
 
@@ -77,16 +210,26 @@ def check_unmanaged_mutation_is_rejected(tmp_path, monkeypatch, operation):
     monkeypatch.setattr(worktree.tasks, "task_snapshot", Mock(return_value=snapshot))
     monkeypatch.setattr(
         ws,
-        "deploy_start_commit",
+        "deploy_task_state",
         Mock(side_effect=ws.Blocked("registered managed worktree required")),
     )
     monkeypatch.setattr(guards, "task_reads", Mock(return_value=nullcontext()))
-    runtime = SimpleNamespace(
-        root=tmp_path, guard=Mock(), timing=Mock(), connection=None
+    monkeypatch.setattr(
+        controller._imports_utils_aws_client,
+        "connection_context",
+        Mock(return_value=None),
     )
+    runtime = controller.create_runtime(
+        tmp_path,
+        "dev",
+        "target",
+        {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+    )
+    runtime.guard = Mock(wraps=runtime.guard)
+    runtime.timing = Mock()
     with pytest.raises(ValueError, match="managed worktree"):
         guards.call(runtime, "cloudformation", operation, {})
-    runtime.guard.assert_not_called()
+    runtime.guard.assert_called_once()
     runtime.timing.phase.assert_not_called()
 
 
@@ -94,18 +237,76 @@ def check_unmanaged_mutation_is_rejected(tmp_path, monkeypatch, operation):
 def check_managed_task_authority(tmp_path, monkeypatch, problem):
     snapshot = task(tmp_path)
     state = {
+        "worktree": str(tmp_path),
         "python_setup": {"status": "failed" if problem == "setup" else "ready"},
         "deployIdentity": {
             "taskDigest": "changed" if problem == "contract" else snapshot.task_digest
         },
     }
-    monkeypatch.setattr(ws, "deploy_start_commit", Mock(return_value="snapshot"))
-    monkeypatch.setattr(ws, "managed_task_state", Mock(return_value=state))
+    monkeypatch.setattr(ws, "deploy_task_state", Mock(return_value=("snapshot", state)))
     if problem:
         with pytest.raises(ValueError):
             worktree.require(tmp_path, snapshot)
     else:
         assert worktree.require(tmp_path, snapshot) is state
+
+
+@pytest.mark.parametrize(
+    "problem", ["task", "status", "account", "scope", "target", "input", "ownership"]
+)
+def check_mutation_rechecks_live_authority(tmp_path, monkeypatch, problem):
+    snapshot = task(tmp_path)
+    snapshot.status = "running"
+    snapshot.text += "- AWS API execution: `allowed`\n- Deploy/apply: `allowed`\n- Target environment: `dev`\n- Target AWS account: `123456789012`\n- Deployment scope: `A`\n"
+    target = {"awsAccountId": "123456789012"}
+    context = SimpleNamespace(load_target=Mock(return_value=target))
+    args = SimpleNamespace(
+        stack=["A"], environment="dev", alias=None, aws_account_id="123456789012"
+    )
+    run = {
+        "taskDigest": snapshot.task_digest,
+        "consumedInputs": {"infra/a.yaml": "hash"},
+    }
+    runtime = SimpleNamespace(
+        root=tmp_path,
+        file_digest=Mock(return_value="hash"),
+        timing=SimpleNamespace(phase=Mock(return_value=nullcontext())),
+        connection=None,
+    )
+    runtime.guard = partial(
+        run_context._callback_run_guard,
+        args,
+        runtime,
+        context,
+        tmp_path,
+        target,
+        run,
+        target,
+    )
+    require = Mock(return_value={})
+    monkeypatch.setattr(worktree, "require", require)
+    monkeypatch.setattr(run_context, "task_snapshot", Mock(return_value=snapshot))
+    mutation = Mock(return_value={})
+    monkeypatch.setattr(guards.SERVICES["s3"], "put_object", mutation)
+    guards.call(runtime, "s3", "put_object", {})
+    if problem == "task":
+        snapshot.task_digest = "changed"
+    elif problem == "status":
+        snapshot.status = "suspend"
+    elif problem == "account":
+        snapshot.text = snapshot.text.replace("123456789012", "999999999999")
+    elif problem == "scope":
+        args.stack = ["other"]
+    elif problem == "target":
+        context.load_target.return_value = {"awsAccountId": "other"}
+    elif problem == "input":
+        runtime.file_digest.return_value = "changed"
+    else:
+        require.side_effect = ws.Blocked("worktree changed")
+    with pytest.raises((ValueError, run_context.Blocked)):
+        guards.call(runtime, "s3", "put_object", {})
+    assert mutation.call_count == 1
+    assert require.call_count == 2
 
 
 def check_git_failure_preserves_stack_success(tmp_path, monkeypatch):

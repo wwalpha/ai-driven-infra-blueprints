@@ -50,18 +50,36 @@ def worktrees(root):
     return records
 
 
-def repository(where):
-    root = Path(output(where, "rev-parse", "--show-toplevel")).resolve()
-    if output(root, "rev-parse", "--is-bare-repository") != "false":
+def _repository(where: Path) -> tuple[Path, Path, Path, list[dict[str, str]]]:
+    values = output(
+        where,
+        "rev-parse",
+        "--show-toplevel",
+        "--is-bare-repository",
+        "--path-format=absolute",
+        "--git-common-dir",
+    ).splitlines()
+    # A newline in a path makes the batched output ambiguous.
+    if len(values) != 3:
+        values = [
+            output(where, "rev-parse", "--show-toplevel"),
+            output(where, "rev-parse", "--is-bare-repository"),
+            output(where, "rev-parse", "--path-format=absolute", "--git-common-dir"),
+        ]
+    root, bare, common = values
+    root = Path(root).resolve()
+    if bare != "false":
         raise Blocked("a non-bare Git repository is required")
-    common = Path(
-        output(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    )
+    common = Path(common)
     records = worktrees(root)
     primary = Path(records[0]["worktree"]).resolve()
     if not primary.is_dir() or "prunable" in records[0]:
         raise Blocked("primary worktree is missing or stale")
-    return root, common, primary
+    return root, common, primary, records
+
+
+def repository(where):
+    return _repository(where)[:3]
 
 
 def metadata_directory(primary):
@@ -80,6 +98,10 @@ def state_path(primary, task_id):
 
 def load(where, task_id):
     root, common, primary = repository(where)
+    return _load(primary, common, task_id)
+
+
+def _load(primary: Path, common: Path, task_id: str) -> tuple[Path, Path, Path, dict]:
     path = state_path(primary, task_id)
     state = json.loads(path.read_text(encoding="utf-8"))
     if (
@@ -143,14 +165,24 @@ def committed_task_paths(root, task_file):
 
 def deploy_start_commit(root, task_file, *, required=False, allow_merged=False):
     """Deploy pins its own history; the publication branch is not an AWS input."""
-    _, _, primary = repository(root)
+    verified = deploy_task_state(
+        root, task_file, required=required, allow_merged=allow_merged
+    )
+    return verified[0] if verified is not None else None
+
+
+def deploy_task_state(
+    root: Path, task_file: str, *, required: bool = False, allow_merged: bool = False
+) -> tuple[str, dict] | None:
+    """Read ownership and fixed history once for this authorization operation only."""
+    _, common, primary, records = _repository(root)
     path = state_path(primary, Path(task_file).stem)
     managed = root.resolve().parent == primary / ".worktrees"
     if not path.exists():
         if required or managed:
             raise Blocked("Deploy requires its registered managed worktree")
         return None
-    state = load(root, Path(task_file).stem)[3]
+    state = _load(primary, common, Path(task_file).stem)[3]
     if Path(state["worktree"]) != root.resolve():
         if required or managed:
             raise Blocked("Deploy Task belongs to another managed worktree")
@@ -161,7 +193,7 @@ def deploy_start_commit(root, task_file, *, required=False, allow_merged=False):
         and not allow_merged
     ):
         raise Blocked("Deploy Task lifecycle is mismatched or already merged")
-    task_worktree(root, state)
+    task_worktree(root, state, records=records)
     start = output(root, "rev-parse", "--verify", state["start"] + "^{commit}")
     head = output(root, "rev-parse", "HEAD")
     intent = state.get("deployCheckpointIntent")
@@ -175,7 +207,7 @@ def deploy_start_commit(root, task_file, *, required=False, allow_merged=False):
         raise Blocked("unexpected Deploy worktree HEAD; retain snapshot for review")
     if git(root, "merge-base", "--is-ancestor", start, head, check=False).returncode:
         raise Blocked("Deploy snapshot start is not an ancestor of its HEAD")
-    return start
+    return start, state
 
 
 def idle_operations(root, *, runner=None):
@@ -220,11 +252,11 @@ def changed_paths(root):
     return set(collect_working_paths(root, runner=git).all_paths)
 
 
-def task_worktree(root, state):
+def task_worktree(root, state, *, records=None):
     target = Path(state["worktree"])
     entries = [
         entry
-        for entry in worktrees(root)
+        for entry in (worktrees(root) if records is None else records)
         if Path(entry["worktree"]).resolve() == target
     ]
     if (

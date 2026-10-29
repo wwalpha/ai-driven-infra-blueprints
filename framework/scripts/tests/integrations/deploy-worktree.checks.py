@@ -111,13 +111,15 @@ def check_start_creates_and_reuses_official_worktree(monkeypatch):
             state["task_file"],
             deploy_contract(state["task_file"], ["file.txt"]),
         )
-        runtime = SimpleNamespace(root=primary, guard=Mock())
+        runtime = SimpleNamespace(
+            root=primary, guard=Mock(side_effect=partial(worktree.require, primary))
+        )
         with (
             selected_task(primary, state["task_file"]),
             pytest.raises(ValueError, match="another managed worktree"),
         ):
             guards.call(runtime, "cloudformation", "execute_change_set", {})
-        runtime.guard.assert_not_called()
+        runtime.guard.assert_called_once()
 
 
 def check_git_conflict_checkpoints_peers_and_recovers(monkeypatch, tmp_path):

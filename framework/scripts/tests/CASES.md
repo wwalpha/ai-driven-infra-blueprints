@@ -2546,7 +2546,8 @@ observed-resume UTはCIで毎回実行する。IT runnerとGitHub Actionsの入�
 
 | Case ID | Check | Class | File | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
-| `external-repair::round-trip` | `check_external_implement_round_trip` | IT | [integrations/worktree-deploy-repair.checks.py](integrations/worktree-deploy-repair.checks.py) | pytest / 4 | 管理worktree固有の依存indexを準備し、normalの実CLI修復とmerge直後中断から再開。Fake AWS待機なし・有界poll・Patch復元 | 統合境界のみ |
+| `external-repair::round-trip` | `check_external_implement_round_trip` | IT | [integrations/worktree-deploy-repair.checks.py](integrations/worktree-deploy-repair.checks.py) | pytest / 2 | batch/steps各方式で実Controller失敗→正式Request→実CLI修復Validation→Commit/FF/Cleanup→独立Deploy→最終fresh Validation | 統合境界のみ |
+| `external-repair::merge-recovery` | `check_merge_recovery` | IT | [integrations/worktree-deploy-repair.checks.py](integrations/worktree-deploy-repair.checks.py) | pytest / 1 | 正式Request/Checkpoint/Validationから実FF直後中断、永続Stateで同一CommitのFinalize再実行、証跡・入力保持、Cleanupと親再開 | 実Git / Controller失敗は一度のみ |
 | `external-repair::base-sync` | `check_sync_base_preserves_candidate` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L65) | direct / 1 | 実GitのBase更新と未commit候補の保持・同期後統合 | 統合境界のみ |
 | `external-repair::failure-classes` | `check_failure_classes` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py#L116) | pytest / 6 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::status-helpers-preserve-task-identity` | `check_status_helpers_preserve_task_identity` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py#L156) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
@@ -4425,7 +4426,7 @@ Reset tests use synthetic private journals, a simulated Human console, and Fake 
 
 | ID | Function | Level | Source | Runner / Count | Coverage | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| `deploy-worktree::check_snapshot_ignores_base_history` | `check_snapshot_ignores_base_history` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 5 | snapshot ignores base history | Synthetic offline / no Git fixture |
+| `deploy-worktree::check_snapshot_ignores_base_history` | `check_snapshot_ignores_base_history` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 20 | live ownership, fixed history, interrupted checkpoint and ambiguous repository output | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_unmanaged_mutation_is_rejected` | `check_unmanaged_mutation_is_rejected` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 6 | unmanaged mutation is rejected | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_managed_task_authority` | `check_managed_task_authority` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 3 | managed task authority | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_git_failure_preserves_stack_success` | `check_git_failure_preserves_stack_success` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | git failure preserves stack success | Synthetic offline / no Git fixture |
@@ -4468,3 +4469,25 @@ Reset tests use synthetic private journals, a simulated Human console, and Fake 
 | `issues-snapshot::glue-naming-alternatives` | `check_glue_naming_table_alternatives` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | 共通表parserの複数PatternとGlue四形式 | Naming rule tables |
 | `issues-review-progress::automatic-pass-resume-save` | `check_scan_automatic_pass_resume_review_export_save` | IT | [integrations/issues-review-progress.checks.py](integrations/issues-review-progress.checks.py) | pytest / 1 | Scan→機械判定→必要項目Review→別process再開→Export→保存 | Synthetic Model / Human conflict / automatic names |
 | `issues-review-progress::3000-automatic-names` | `check_3000_automatic_names_excluded_from_review_payload` | IT | [integrations/issues-review-progress.checks.py](integrations/issues-review-progress.checks.py) | pytest / 1 | 3000正常名の全情報保持・個別Review/Payloadゼロ・Export/保存 | Synthetic expanded Scan / measured fixture review |
+
+| `deploy-worktree::mutation-live-authority` | `check_mutation_rechecks_live_authority` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 7 | Task/status/Account/scope/Target/IaC/ownership changes rejected immediately before a second mutation | Synthetic inputs / real guard / no Git fixture |
+
+## Worktree Deploy repair performance responsibilities
+
+Repair ITは旧1関数4条件（normal/merge × batch/steps）から2関数3条件。
+実Controllerの失敗証拠を各ケースで正式APIへ渡し、Request/Validation/Result/署名は手作りしない。
+runner・Receipt・reachability・Worktree責務登録を維持する。性能結果は完了報告で示す。
+
+| 旧Assertion / 検証責務 | 現在の保証先 |
+| --- | --- |
+| Controller失敗、正式Failure/Request/Checkpoint、親tipの一致 | `failed_request` を通る全3条件。Merge復旧では初回Controllerだけ実行 |
+| 子の排他、固定親tip、正式契約、許可IaCだけの修正 | `managed_delivery` を通る全3条件 |
+| 不正YAMLの実Validation拒否、static回数、suspend→resume | normal batchで一度実行。stepsでの同一Validator異常入力反復を除去 |
+| 実CLI create / repair-validate / finalizeとfresh Validation | normal batch/steps両条件。Merge復旧は同じ正式APIと実fresh子Validation |
+| 実FF直後の例外、永続StateからFinalize再実行 | `check_merge_recovery`。中断前後の同一Commit、追加Commitなし、重複FFなし、Request/Validation保持を明示検証 |
+| Result/Request除去、子Cleanup、親Task再開、accepted_changes | 全3条件 |
+| 修復後の独立Deploy、未完了Journal消滅、最終fresh Model/入力検証 | normal batch/steps両条件。Merge復旧の重複Deploy/最終loopを除去し、非修復入力hash保持を直接確認 |
+| AWS成功の非再実行とJournal復旧 | 既存 `deploy-worktree::check_managed_journal_recovery_never_reexecutes_success`、operation-journal/steps UT。両方式のController公開/競合は既存 `check_controller_keeps_aws_success_after_rewrite_and_conflict` |
+
+Worktree認可UTは実Git/Worktreeを作らず、live HEAD/state/登録の再読込、branch削除/変更/lock/stale、merged、Python setup、Task digest、Lifecycle、Checkpoint正当性、競合/未完了Git、Git失敗、Repositoryバッチ読取の曖昧時fallbackを検証する。
+進捗保存回数とJournal保存順は変更しない。既存UTで成功状態/入力digest保持、mode変更拒否、未完了Journal必須、復旧を保持する。

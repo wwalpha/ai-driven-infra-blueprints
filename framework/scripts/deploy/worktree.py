@@ -46,8 +46,9 @@ def require(root, snapshot=None):
     snapshot = snapshot or tasks.task_snapshot(root, live=True)
     if not is_deploy(snapshot.text):
         return None
-    ws.deploy_start_commit(root, snapshot.name, required=True)
-    state = ws.managed_task_state(root, snapshot.name)
+    _, state = ws.deploy_task_state(root, snapshot.name, required=True)
+    if Path(state["worktree"]) != root:
+        raise ws.Blocked("source write requires its managed worktree")
     if state.get("python_setup", {}).get("status") != "ready":
         raise ws.Blocked("Deploy requires successful managed Python setup")
     if (

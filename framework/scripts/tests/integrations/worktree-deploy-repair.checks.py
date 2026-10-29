@@ -102,9 +102,9 @@ def validate_parent(parent):
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
 
-@pytest.mark.parametrize("boundary", ["normal", "merge"])
-@pytest.mark.parametrize("mode", ["batch", "steps"])
-def check_external_implement_round_trip(tmp_path, monkeypatch, boundary, mode):
+def failed_request(
+    tmp_path: Path, monkeypatch, mode: str
+) -> tuple[Path, Path, Path, dict, str]:
     report, aws = tmp_path / "run.json", tmp_path / "aws.json"
     parent = seed(tmp_path / "project", report, "repair")
     monkeypatch.chdir(parent)
@@ -150,8 +150,15 @@ def check_external_implement_round_trip(tmp_path, monkeypatch, boundary, mode):
     request_path.parent.mkdir()
     write_sealed(parent, request_path, request)
     request = wt.deploy_checkpoint(parent, "deploy", request_path)
+    return parent, report, aws, request, relative
+
+
+@pytest.mark.parametrize("mode", ["batch", "steps"])
+def check_external_implement_round_trip(tmp_path, monkeypatch, mode):
+    parent, report, aws, request, relative = failed_request(tmp_path, monkeypatch, mode)
+    request_path = Path(request["requestPath"])
     request, result_path = managed_delivery(
-        parent, request, relative, boundary, tmp_path
+        parent, request, relative, "normal", reject_invalid=mode == "batch"
     )
     assert git(parent, "rev-parse", "HEAD").strip() == request["commit"]
     assert not result_path.exists() and not request_path.parent.exists()
@@ -167,6 +174,22 @@ def check_external_implement_round_trip(tmp_path, monkeypatch, boundary, mode):
     ) == 0
     assert not report.with_suffix(".operations.json").exists()
     validate_parent(parent)
+
+
+def check_merge_recovery(tmp_path, monkeypatch):
+    # The real failed controller supplies the Request; only Git recovery is replayed.
+    parent, _, _, request, relative = failed_request(tmp_path, monkeypatch, "batch")
+    before = {
+        name: sha(parent / name) for name in request["inputs"] if name != relative
+    }
+    request, result_path = managed_delivery(parent, request, relative, "merge")
+    assert git(parent, "rev-parse", "HEAD").strip() == request["commit"]
+    assert not result_path.exists() and not Path(request["requestPath"]).parent.exists()
+    assert {name: sha(parent / name) for name in before} == before
+    with selected_task(parent, "tasks/deploy.md"):
+        assert accepted_changes(
+            parent, (parent / "tasks/deploy.md").read_text(), {relative}
+        ) == {relative}
 
 
 def drive_steps(parent, report, aws):
@@ -197,7 +220,14 @@ def drive_steps(parent, report, aws):
     raise AssertionError("short Deploy never completed")
 
 
-def managed_delivery(parent, request, relative, boundary, tmp_path):
+def managed_delivery(
+    parent: Path,
+    request: dict,
+    relative: str,
+    boundary: str,
+    *,
+    reject_invalid: bool = False,
+) -> tuple[dict, Path]:
     assert request["parentTip"] == git(parent, "rev-parse", "HEAD").strip()
     suspend(
         parent,
@@ -240,7 +270,7 @@ def managed_delivery(parent, request, relative, boundary, tmp_path):
     record_validation = _bind_framework_callback(
         _callback_external_round_trip_record_validation, diagnostics, real_run
     )
-    if boundary == "normal":
+    if reject_invalid:
         approved = (child / relative).read_text()
         (child / relative).write_text("Resources: [invalid")
         with (
@@ -282,11 +312,30 @@ def managed_delivery(parent, request, relative, boundary, tmp_path):
             pytest.raises(InterruptedError),
         ):
             wt.finalize(child, "repair-one")
-    result = (
-        _callback_external_round_trip_lifecycle("finalize", child, "repair-one")
-        if boundary == "normal"
-        else wt.finalize(child, "repair-one")
-    )
+        # FF succeeded before the exception. Retry must finish this exact commit.
+        interrupted = wt.load(parent, "repair-one")[-1]
+        interrupted_head = git(parent, "rev-parse", "HEAD").strip()
+        assert interrupted_head == git(child, "rev-parse", "HEAD").strip()
+        assert Path(request["requestPath"]).is_file()
+        assert Path(request["requestPath"]).with_name("validation.json").is_file()
+        assert interrupted["commit"] == interrupted_head
+    with patch.object(wt, "git", wraps=wt.git) as retry_git:
+        result = (
+            _callback_external_round_trip_lifecycle("finalize", child, "repair-one")
+            if boundary == "normal"
+            else wt.finalize(child, "repair-one")
+        )
+    if boundary == "merge":
+        assert not any(
+            call.args[:3] == (parent, "merge", "--ff-only")
+            for call in retry_git.call_args_list
+        )
+    if boundary == "merge":
+        assert result["commit"] == result["tip"] == interrupted_head
+        assert (
+            git(parent, "rev-list", "--count", request["parentTip"] + "..HEAD").strip()
+            == "1"
+        )
     result_path = Path(result["repair_result"])
     assert (
         result_path.is_file()
