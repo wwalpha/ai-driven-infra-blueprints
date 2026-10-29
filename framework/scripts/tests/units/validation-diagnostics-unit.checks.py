@@ -690,6 +690,66 @@ def check_aggregate_keeps_same_key_failure(tmp_path, complete):
     assert any(result is child for result in findings.results.values())
 
 
+@pytest.mark.parametrize("same_key", [False, True])
+@pytest.mark.parametrize(
+    "reason",
+    [None, "actual incomplete check", "parent: required check has not started"],
+)
+def check_aggregate_reservation_and_actual_incomplete(tmp_path, same_key, reason):
+    findings = Findings(tmp_path)
+    parent = findings.result("parent", None)
+    if reason:
+        parent.metadata.update(complete=False, reason=reason)
+    child_id = "parent" if same_key else "child"
+    child = CheckResult(
+        child_id, None, findings.candidate, status="PASS", metadata={"complete": True}
+    )
+    findings.results[(child_id, None, (findings.candidate, object()))] = child
+    aggregate = findings.aggregate("parent", None, [(child_id, None)])
+    assert aggregate.status == ("FAIL" if reason else "PASS")
+    assert findings.status == aggregate.status
+    if reason:
+        assert reason in aggregate.metadata["reason"]
+
+
+@pytest.mark.parametrize("reader", ["status", "failures"])
+@pytest.mark.parametrize("outcome", ["PASS", "exception", "interrupt"])
+@pytest.mark.parametrize("existing_failure", [False, True])
+def check_read_during_handler_has_no_result_side_effect(
+    tmp_path, reader, outcome, existing_failure
+):
+    findings = Findings(tmp_path)
+    if existing_failure:
+        findings.evaluate(
+            "earlier", None, lambda: {"status": "FAIL", "reason": "existing failure"}
+        )
+    later = findings.result("later", None)
+
+    def handler():
+        active = findings.get_result("normal-required", None)
+        before = (active.status, dict(active.metadata), active.started, active.errors)
+        records = findings.failures() if reader == "failures" else findings.status
+        assert (active.status, active.metadata, active.started, active.errors) == before
+        assert later.metadata == {}
+        if existing_failure and reader == "failures":
+            assert any("existing failure" in record["reason"] for record in records)
+        if outcome == "exception":
+            raise RuntimeError("actual exception")
+        if outcome == "interrupt":
+            raise KeyboardInterrupt("actual interruption")
+
+    result = findings.evaluate("normal-required", None, handler)
+    assert result.status == ("PASS" if outcome == "PASS" else "FAIL")
+    if outcome == "PASS":
+        assert result.metadata["complete"] is True
+    else:
+        assert "actual" in result.metadata["reason"]
+    assert findings.evaluate("later", None, lambda: None).status == "PASS"
+    assert findings.status == (
+        "FAIL" if existing_failure or outcome != "PASS" else "PASS"
+    )
+
+
 def check_candidate_binding_retains_failures_not_stale_success(tmp_path):
     findings = Findings(tmp_path)
     common = findings.evaluate("validation.catalog", None, lambda: None)

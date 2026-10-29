@@ -84,6 +84,14 @@ def check_metadata(metadata):
 
 def finish_result(result):
     unavailable, unverified = check_metadata(result.metadata)
+    if (
+        result.reserved
+        and not result.started
+        and not result.errors
+        and not result.metadata
+        and result.status == "FAIL"
+    ):
+        result.reservation_reason = True
     if result.status not in {"PASS", "FAIL"}:
         result.errors = (
             *result.errors,
@@ -155,6 +163,7 @@ class CheckResult:
     metadata: dict = field(default_factory=dict)
     started: bool = False
     reserved: bool = False  # Local plan slot; imported results are child evidence.
+    reservation_reason: bool = False
 
 
 class Findings:
@@ -232,7 +241,19 @@ class Findings:
             and parent.reserved
             and not parent.started
             and not parent.errors
-            and parent.metadata.get("complete") is not True
+            and parent.status == "FAIL"
+            and (
+                not parent.metadata
+                or parent.reservation_reason
+                and parent.metadata
+                == {
+                    "status": "FAIL",
+                    "complete": False,
+                    "reason": f"{check_id}: required check has not started",
+                    "unavailable_services": {},
+                    "unverified": [],
+                }
+            )
             else None
         )
         children, missing = [], []
@@ -251,6 +272,12 @@ class Findings:
                 missing.append(
                     f"{child_id} {sorted(child_scope or [])}: required child result missing"
                 )
+        if (
+            parent is not None
+            and parent is not reservation
+            and all(child is not parent for child in children)
+        ):
+            children.append(finish_result(parent))
         failures = [child for child in children if child.status == "FAIL"]
         if not children and not missing:
             missing.append(f"{check_id}: required child plan is empty")
@@ -343,6 +370,8 @@ class Findings:
                 ],
             )
         for result in self.results.values():
+            if self._evaluations:
+                result = replace(result, metadata=dict(result.metadata))
             if (
                 result.candidate is not self.candidate
                 or finish_result(result).status != "FAIL"
