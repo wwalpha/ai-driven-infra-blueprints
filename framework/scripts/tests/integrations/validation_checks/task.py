@@ -27,6 +27,8 @@ def check_task_contract() -> None:
 
 - Task type: `governance`
 - Task status: `running`
+## Validation scope
+- `framework`
 ## Modified files
 - `tasks/example.md`
 - `README.md`
@@ -48,7 +50,7 @@ def check_task_contract() -> None:
         write(root / "README.md", "changed\n")
         validator = MODULE.Validator(root)
         validator.check_task_scope()
-        assert not validator.errors
+        assert not validator.errors, validator.errors
         assert validator.requirement_ids == ["R1"]
 
         # Scope follows remaining Git changes after an agent-owned mistake is repaired.
@@ -95,7 +97,9 @@ def check_task_contract() -> None:
         infrastructure = governance.replace(
             "- Task type: `governance`",
             "- Task type: `infrastructure`\n- Infrastructure phase: `implement`",
-        ).replace("READMEを更新する。", "IaCを更新する。")
+        ).replace("READMEを更新する。", "IaCを更新する。").replace(
+            "- `framework`", "- `dev/123456789012/cloudformation-stacks`"
+        )
         write(active, infrastructure)
         validator = MODULE.Validator(root)
         validator.check_task_scope()

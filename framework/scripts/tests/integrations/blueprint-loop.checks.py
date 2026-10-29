@@ -391,6 +391,8 @@ def check_failure_suspension(tmp_path):
         root,
         other,
         "## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
+        "## Required changes\n- [R1] Preserve this unrelated Task contract\n"
+        "## Acceptance checks\n- [R1] `exists:tasks/other.md`\n"
         "## Validation scope\n- `framework`\n## Modified files\n- `tasks/other.md`\n"
         "## Allowed paths\n- `tasks/other.md`\n",
     )

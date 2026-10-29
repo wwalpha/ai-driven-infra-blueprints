@@ -777,7 +777,18 @@ def check_static_exports_share_mapping_and_skip_observed(mapping_inputs, monkeyp
                 deploy_observed.sync_successful(backend, [{"name": "Stack"}], states)
                 is None
             )
-            assert states == {"Stack": {"observedSynced": True}}
+            assert states == {
+                "Stack": {
+                    "observedSynced": True,
+                    "observedServices": [],
+                    "observedCoverage": {
+                        logical: {
+                            "status": "EXCLUDED",
+                            "reason": "proven static Parameter Export scaffold",
+                        }
+                    },
+                }
+            }
         assert loaded == {}
 
 

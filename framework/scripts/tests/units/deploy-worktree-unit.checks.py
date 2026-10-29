@@ -19,6 +19,9 @@ from deploy import guards, inputs, operation_journal, run_context, worktree
 from support.pytest_cli import run
 from task_contract_core import task_digest
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 def task(root):
     text = "## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n- Infrastructure phase: `deploy`\n"

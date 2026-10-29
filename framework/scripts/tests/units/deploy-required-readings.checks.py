@@ -4,9 +4,14 @@
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
+from support.pytest_cli import run
 from utils.markdown_format import markdown_sections, rule_readings
+
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 def check_rule_section_boundaries():
@@ -53,6 +58,4 @@ def check_broken_rule_reference_rejected(tmp_path, target):
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 if __name__ == "__main__":
-    from support.pytest_cli import run
-
     raise SystemExit(run(__file__))

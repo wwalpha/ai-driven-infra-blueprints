@@ -1019,7 +1019,11 @@ def check_real_final_candidate_guard_never_calls_full(project_workspace, workflo
         name,
         "## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `"
         + workflow
-        + "`\n- AWS API execution: `forbidden`\n- AWS mutation: `forbidden`\n- Deploy/apply: `forbidden`\n## Validation scope\n- `preview/team/logs`\n## Modified files\n"
+        + "`\n- AWS API execution: `forbidden`\n- AWS mutation: `forbidden`\n- Deploy/apply: `forbidden`\n"
+        "## Required changes\n- [R1] Correct the LogGroup name without Full validation\n"
+        "## Acceptance checks\n- [R1] `changed:"
+        + relative
+        + "`\n## Validation scope\n- `preview/team/logs`\n## Modified files\n"
         + listing
         + "## Allowed paths\n"
         + listing,

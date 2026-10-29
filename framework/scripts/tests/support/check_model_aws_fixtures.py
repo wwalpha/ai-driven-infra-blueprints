@@ -498,6 +498,7 @@ REPRESENTATIVES = {
         "DeliveryStreamName",
         "fixture",
     ),
+    "datazone": ("DataZone.Project", "DomainIdentifier", "fixture"),
     "ec2": ("EC2.Instance", "InstanceType", "a1.medium"),
     "eventbridge": ("Events.Rule", "Name", "fixture"),
     "glue": ("Glue.Job", "Name", "fixture"),

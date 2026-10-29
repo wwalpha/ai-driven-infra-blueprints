@@ -29,6 +29,9 @@ from support.worktree_deploy_fixtures import seed
 from support.worktree_task_fixtures import fixture, git
 from task_contract_core import read_task_snapshot, selected_task, set_status, start
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 @pytest.fixture(autouse=True)
 def private_evidence(tmp_path, monkeypatch):
