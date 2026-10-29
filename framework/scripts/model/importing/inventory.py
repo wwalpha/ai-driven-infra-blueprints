@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 from functools import partial as _bind_framework_callback
 from threading import RLock
+from typing import Any
 
 import aws_mapping_compare as mapping_compare
 from aws_mapping import readonly
@@ -16,6 +17,7 @@ from utils.property_path import definition_path
 from utils.script_loader import module
 
 import model.identity as _dependency_model_identity
+import model.importing.sdk_inventory as sdk_inventory
 import model.projection as _imports_model_projection
 import model.sources as _dependency_model_sources
 from model.importing.discovery import (
@@ -147,6 +149,16 @@ def _callback_ImportInventory_schema_load(kind, self, /):
 def _callback_ImportInventory_identity_resolve(kind, record, self, /):
     catalog_outputs = _imports_model_projection.catalog_outputs
     mapping, mapped = self.mapping(owners(self.ctx.root)[kind])
+    if "identityComponents" in record:
+        return {
+            key: record[key]
+            for key in (
+                "identityProperty",
+                "identityProperties",
+                "identityComponents",
+                "identityStatus",
+            )
+        }
     if "cloudProperties" in record:
         pointers = self.schema(kind).get("primaryIdentifier", ())
         values = [
@@ -186,11 +198,7 @@ def _callback_ImportInventory_identity_resolve(kind, record, self, /):
 
 def _callback_ImportInventory_normalize_run(normalize, record, self, service, /):
     result = normalize(self.ctx, service, [record])[0]
-    required = (
-        self.schema(record["kind"]).get("required", ())
-        if "cloudProperties" in record
-        else ()
-    )
+    required = self.ctx.catalog.required_properties(record["kind"])
     missing_required = any(
         value["status"] == "missing"
         and prop.removeprefix(record["kind"] + ".").split(".")[0] in required
@@ -204,8 +212,13 @@ def _callback_ImportInventory_normalize_run(normalize, record, self, service, /)
         )
     ):
         denied = any(
-            "AccessDenied" in capture.get("reason", "")
-            or "Unauthorized" in capture.get("reason", "")
+            capture.get("errorCode")
+            in {
+                "AccessDenied",
+                "AccessDeniedException",
+                "UnauthorizedOperation",
+                "UnauthorizedException",
+            }
             for capture in result["properties"].values()
         )
         self.status(
@@ -213,6 +226,14 @@ def _callback_ImportInventory_normalize_run(normalize, record, self, service, /)
             "permission_denied" if denied else "failed",
             "Property or identity acquisition incomplete",
         )
+    else:
+        gaps = [
+            {"record": result["record"], "property": prop, "status": capture["status"]}
+            for prop, capture in result["properties"].items()
+            if capture["status"] in {"unobservable", "withheld"}
+        ]
+        if gaps:
+            self.status(record["kind"], "limited", limitations=gaps)
     return result
 
 
@@ -223,7 +244,16 @@ def _callback_ImportInventory_inventory_collect(filters, kind, self, service, /)
         self.status(kind, "not_modelled")
         return []
     try:
-        if plan.mode == "adapter":
+        if plan.mode == "scoped_sdk":
+            parents = None
+            if kind == "SQS.QueuePolicy":
+                parents = self.inventory(service, "SQS.Queue")
+                if self.statuses["SQS.Queue"]["status"] not in {"complete", "empty"}:
+                    raise comparator().AcquisitionError(
+                        "sqs.get_queue_attributes", "ParentInventoryIncomplete"
+                    )
+            records = sdk_inventory.collect(self.ctx, kind, parents=parents)
+        elif plan.mode == "adapter":
             records = adapter_inventory(self.ctx, service, (kind,))
         elif plan.mode == "parent_derived":
             # Associations belong to the existing subnet expansion, not independent candidates.
@@ -361,7 +391,7 @@ class ImportInventory:
             and record["kind"] != "EC2.SubnetRouteTableAssociation"
         ]
 
-    def status(self, kind, status, reason=None):
+    def status(self, kind, status, reason=None, *, limitations=None):
         with self._lock:
             current = self._statuses.get(kind, {}).get("status")
             if current in {
@@ -371,16 +401,35 @@ class ImportInventory:
                 "requires_filter",
             }:
                 return
+            existing = self._statuses.get(kind, {}).get("limitations", [])
             self._statuses[kind] = {
                 "status": status,
                 **({"reason": reason} if reason else {}),
+                **(
+                    {
+                        "enumerationComplete": True,
+                        "propertiesComplete": False,
+                        "limitations": [
+                            *existing,
+                            *(item for item in limitations if item not in existing),
+                        ],
+                    }
+                    if status == "limited"
+                    else {}
+                ),
             }
 
     def failure(self, kind, error):
         if isinstance(error, comparator().AcquisitionError):
             status = (
                 "permission_denied"
-                if "AccessDenied" in error.code or "Unauthorized" in error.code
+                if error.code
+                in {
+                    "AccessDenied",
+                    "AccessDeniedException",
+                    "UnauthorizedOperation",
+                    "UnauthorizedException",
+                }
                 else "unsupported"
                 if error.code
                 in {"UnsupportedActionException", "UnsupportedOperationException"}
@@ -409,6 +458,20 @@ class ImportInventory:
                 "cloudcontrol.list_resources", "ListUnsupported", "unsupported"
             )
         required = handlers["list"].get("handlerSchema", {}).get("required", ())
+        if (
+            kind == "Glue.Connection"
+            and tuple(required) == ("CatalogId",)
+            and filters is None
+        ):
+            account = self.ctx.target.get("awsAccountId")
+            execution = self.ctx.target.get("awsExecutionAccountId", account)
+            if not isinstance(account, str) or not account or account != execution:
+                raise m.AcquisitionError(
+                    "cloudcontrol.list_resources",
+                    "TargetAccountMismatch",
+                    "requires_filter",
+                )
+            filters = {"CatalogId": account}
         if required and (
             filters is None or any(name not in filters for name in required)
         ):
@@ -535,6 +598,28 @@ def inventory_for(ctx):
     return ImportInventory(ctx)
 
 
+def codebuild_details(ctx: Any, names: list[str]) -> list[dict[str, Any]]:
+    if any(not isinstance(name, str) or not name for name in names) or len(
+        set(names)
+    ) != len(names):
+        raise ValueError("IMPORT CodeBuild project names are invalid or duplicate")
+    projects = []
+    for offset in range(0, len(names), 100):
+        requested = names[offset : offset + 100]
+        response = ctx.call("codebuild", "batch_get_projects", names=requested)
+        found = response.get("projects")
+        missing = response.get("projectsNotFound", [])
+        if not isinstance(found, list) or not isinstance(missing, list) or missing:
+            raise ValueError("IMPORT CodeBuild batch has missing projects")
+        returned = [
+            item.get("name") if isinstance(item, dict) else None for item in found
+        ]
+        if len(returned) != len(set(returned)) or set(returned) != set(requested):
+            raise ValueError("IMPORT CodeBuild batch response does not match request")
+        projects.extend(found)
+    return projects
+
+
 def adapter_inventory(ctx, service, resource_types):
     mapping, _ = inventory_for(ctx).mapping(service)
     ctx.allowed.update(
@@ -565,14 +650,19 @@ def adapter_inventory(ctx, service, resource_types):
                 api + "." + operation, "InvalidInventoryResponse"
             )
         items = response[collection] if collection else [response]
+        if kind == "CodeBuild.Project":
+            items = codebuild_details(ctx, items)
         for item in items:
-            detail = adapter_detail(kind)
+            detail = None if kind == "CodeBuild.Project" else adapter_detail(kind)
             if detail is not None:
                 operation, key, result_key = detail
                 selector = (
                     item if kind == "KinesisFirehose.DeliveryStream" else item[key]
                 )
-                item = ctx.call(api, operation, **inputs, **{key: selector})[result_key]
+                response = ctx.call(api, operation, **inputs, **{key: selector})
+                item = response if result_key == "$" else response[result_key]
+                if kind == "Macie.ClassificationJob" and item.get(key) != selector:
+                    raise ValueError("IMPORT job detail identifier mismatch")
                 if api == "quicksight":
                     item = dict(item, **inputs)
             record = dict(item)

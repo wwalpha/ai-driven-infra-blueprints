@@ -69,7 +69,7 @@ from model.sources import model_paths, scope_for
 
 SERVICES = tuple(
     "athena cloudformation-stacks cloudtrail cloudwatch-logs codebuild codecommit "
-    "codepipeline config data-firehose ec2 eventbridge glue guardduty iam kms lambda "
+    "codepipeline config data-firehose datazone ec2 eventbridge glue guardduty iam kms lambda "
     "lake-formation macie mwaa quicksight route53 s3 secrets-manager security-hub security-group sqs "
     "transit-gateway vpc vpc-endpoint".split()
 )

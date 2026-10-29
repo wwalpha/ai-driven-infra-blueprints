@@ -22,6 +22,7 @@ from model.importing import coverage, discovery, inventory
 from support.fixture_cases import load_case
 from support.pytest_cli import run
 from utils.mapping_runtime import runtime_properties
+from utils.script_loader import module
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -441,12 +442,20 @@ def check_derived_and_real_mapping_gaps(monkeypatch):
     quicksight = inspector.resource(
         coverage.runtime_registry(root, "quicksight"), "QuickSight.Group"
     )
-    assert quicksight["modelled"] and quicksight["staticStatus"] == "broken"
-    assert quicksight["identity"]["status"] == "broken"
-    assert any(
-        p["reasonCode"] == "API_NOT_ALLOWED" for p in quicksight["propertyDiagnostics"]
-    )
+    assert quicksight["modelled"] and quicksight["staticStatus"] == "ready"
+    assert quicksight["identity"]["status"] == "ready"
+    assert quicksight["properties"]["capturable"] == 5
     assert all(r["runtimeVerified"] is False for r in (result, quicksight))
+
+
+def test_codepipeline_sdk_getter_uses_name_and_preserves_response():
+    adapter = module("aws-compare-services/codepipeline.py", "test.codepipeline")
+    response = {"pipeline": {"stages": [{"actions": [{"environmentVariables": []}]}]}}
+    ctx = SimpleNamespace(call=Mock(return_value=response))
+    resource = SimpleNamespace(value=Mock(return_value="example"))
+    assert adapter.SDK_OPERATIONS["CodePipeline.Pipeline"] == "get_pipeline"
+    assert adapter.fetch_sdk(ctx, resource, "get_pipeline") == response
+    ctx.call.assert_called_once_with("codepipeline", "get_pipeline", name="example")
 
 
 if __name__ == "__main__":

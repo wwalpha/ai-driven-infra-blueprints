@@ -36,6 +36,7 @@ from model.cli import main
 from model.format import owner, serialize
 from model.identity import COUNTERS
 from model.importing import cli as m
+from model.importing import inventory as import_inventory
 from model.importing.evidence import FORMAT_FIELDS
 from model.importing.inventory import (
     ImportInventory,
@@ -1333,6 +1334,8 @@ def check_model_operation_shape_preservation(tmp_path, shape):
         "binding-task",
         "binding-worktree",
         "binding-risk",
+        "completion",
+        "legacy-receipt",
     ],
 )
 def check_external_completion_proof(tmp_path, monkeypatch, failure):
@@ -1362,7 +1365,11 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
         "acquiredAt": datetime.now(timezone.utc).isoformat(),
     }
     review_proof_fixture(root, proof)
-    if failure == "expired":
+    if failure == "completion":
+        proof["completion"]["acquisition"] = False
+    elif failure == "legacy-receipt":
+        proof["version"] = 6
+    elif failure == "expired":
         proof["acquiredAt"] = (
             datetime.now(timezone.utc) - timedelta(days=8)
         ).isoformat()
@@ -1810,8 +1817,11 @@ def check_cloudcontrol_json_and_readonly_boundary():
             ctx.call("cloudcontrol", operation)
     with pytest.raises(ValueError, match="allowlist"):
         ctx.call("datazone", "get_domain", identifier="unvalidated-selector")
-    with pytest.raises(ValueError, match="unimplemented service"):
-        m.comparator().Context(m.ROOT, target, services=("datazone",))
+    datazone = m.comparator().Context(m.ROOT, target, services=("datazone",))
+    assert datazone.allowed == {
+        ("sts", "get_caller_identity"),
+        ("datazone", "get_project"),
+    }
 
 
 def _callback_check_composite_identity_same_resource_only_values(
@@ -2125,7 +2135,7 @@ def check_legacy_adapter_api_counts():
         "config": 3,
         "cloudwatch-logs": 2,
         "data-firehose": 3,
-        "quicksight": 7,
+        "quicksight": 8,
         "security-hub": 2,
         "transit-gateway": 2,
     }
@@ -3773,6 +3783,87 @@ def check_generation_preserves_model_guards(generation_model_guard, failure):
     with pytest.raises(ValueError, match=diagnostic):
         import_guard.require_import_changes(root, generation=True)
     assert issues.read_bytes() == original
+
+
+def test_macie_inventory_pairs_list_and_detail(monkeypatch):
+    mapping, _ = import_comparison(m.ROOT, "macie")
+    monkeypatch.setattr(
+        import_inventory,
+        "inventory_for",
+        lambda ctx: SimpleNamespace(mapping=lambda service: (mapping, {})),
+    )
+    ctx = SimpleNamespace(
+        allowed=set(),
+        pages=Mock(return_value={"items": [{"jobId": "one"}, {"jobId": "two"}]}),
+        call=Mock(side_effect=[{"jobId": "one"}, {"jobId": "two"}]),
+    )
+    records = import_inventory.adapter_inventory(
+        ctx, "macie", ("Macie.ClassificationJob",)
+    )
+    assert [record["identity"] for record in records] == ["one", "two"]
+    assert ctx.call.call_count == 2
+    ctx.call = Mock(return_value={"jobId": "other"})
+    with pytest.raises(ValueError, match="identifier mismatch"):
+        import_inventory.adapter_inventory(ctx, "macie", ("Macie.ClassificationJob",))
+
+
+def test_codebuild_inventory_batches_and_rejects_incomplete():
+    names = [f"project-{i}" for i in range(101)]
+    ctx = SimpleNamespace(
+        call=Mock(
+            side_effect=[
+                {"projects": [{"name": n} for n in names[:100]]},
+                {"projects": [{"name": names[100]}]},
+            ]
+        )
+    )
+    assert len(import_inventory.codebuild_details(ctx, names)) == 101
+    assert [len(call.kwargs["names"]) for call in ctx.call.call_args_list] == [100, 1]
+    ctx.call = Mock(
+        side_effect=[
+            {"projects": [{"name": name} for name in names[:100]]},
+            m.comparator().AcquisitionError(
+                "codebuild.batch_get_projects", "AccessDenied"
+            ),
+        ]
+    )
+    with pytest.raises(m.comparator().AcquisitionError):
+        import_inventory.codebuild_details(ctx, names)
+    for response in (
+        {"projects": []},
+        {"projects": [{"name": "a"}, {"name": "a"}]},
+        {"projects": [{"name": "a"}], "projectsNotFound": ["a"]},
+    ):
+        ctx.call = Mock(return_value=response)
+        with pytest.raises(ValueError):
+            import_inventory.codebuild_details(ctx, ["a"])
+    with pytest.raises(ValueError, match="duplicate"):
+        import_inventory.codebuild_details(ctx, ["a", "a"])
+
+
+def test_glue_connection_uses_only_verified_target_account():
+    ctx = SimpleNamespace(
+        target={"awsAccountId": ACCOUNT},
+        pages=Mock(return_value={"ResourceDescriptions": []}),
+    )
+    inventory = SimpleNamespace(
+        ctx=ctx,
+        schema=lambda kind: {
+            "handlers": {"list": {"handlerSchema": {"required": ["CatalogId"]}}}
+        },
+        mapping=lambda service: (None, {}),
+    )
+    assert (
+        ImportInventory.cloud_inventory(inventory, "glue", "Glue.Connection", None)
+        == []
+    )
+    assert json.loads(ctx.pages.call_args.kwargs["ResourceModel"]) == {
+        "CatalogId": ACCOUNT
+    }
+    ctx.target["awsExecutionAccountId"] = "999999999999"
+    with pytest.raises(m.comparator().AcquisitionError):
+        ImportInventory.cloud_inventory(inventory, "glue", "Glue.Connection", None)
+    assert ctx.pages.call_count == 1
 
 
 if __name__ == "__main__":

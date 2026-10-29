@@ -634,7 +634,11 @@ resourceTypes:
         model: {include: true}
         display: {show: true, name: Id}
         access: [read-only]
-        aws: {getter: base, path: Name, normalize: typed}
+        source:
+          kind: provider-output
+          location: CloudFormation Glue.Table Id
+          constraint: Glue GetTable returns Name, CatalogId and DatabaseName but does not return the CloudFormation Id.
+          classification: sdk_unavailable
       CatalogId:
         model: {include: true}
         display: {show: true, name: CatalogId}

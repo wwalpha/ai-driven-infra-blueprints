@@ -10,6 +10,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from aws_mapping import response_shape, runtime_registry
@@ -23,11 +24,13 @@ from utils.script_loader import module
 
 from model.importing.discovery import (
     ADAPTER_INVENTORIES,
+    SCOPED_INVENTORIES,
     DiscoveryPlan,
     adapter_detail,
     resolve,
     type_name,
 )
+from model.importing.limitations import sensitive
 
 Diagnostic = dict[str, Any]
 
@@ -115,7 +118,7 @@ class Coverage:
             operation, selector, result = detail
             selected = (
                 shape
-                if kind == "KinesisFirehose.DeliveryStream"
+                if kind in {"KinesisFirehose.DeliveryStream", "CodeBuild.Project"}
                 else response_shape(shape, selector)
             )
             if selected.type_name != "string":
@@ -129,12 +132,54 @@ class Coverage:
                 raise ValueError(
                     "Inventory detail requires additional SDK input selectors"
                 )
-            shape = response_shape(detail_model.output_shape, result)
+            shape = (
+                detail_model.output_shape
+                if result == "$"
+                else response_shape(detail_model.output_shape, result)
+            )
         return shape
+
+    def scoped_shape(self, kind: str) -> Any:
+        spec = SCOPED_INVENTORIES[kind]
+        for operation in spec.operations:
+            self.operation(spec.api, operation)
+        operation, path = spec.payload
+        shape = self.operation(spec.api, operation).output_shape
+        return shape if path == "$" else response_shape(shape, path)
 
     def identifier(
         self, mapping: Registry, kind: str, plan: DiscoveryPlan, adapter: Any
     ) -> Diagnostic:
+        if plan.mode == "scoped_sdk":
+            try:
+                self.scoped_shape(kind)
+                for parent in plan.parents:
+                    parent_plan = resolve(
+                        mapping, mapping.properties, parent, self.schema
+                    )
+                    if (
+                        parent_plan.mode != "cloudcontrol"
+                        or parent_plan.status != "ready"
+                    ):
+                        raise ValueError(
+                            "Required parent inventory is unavailable: " + parent
+                        )
+                for prop in SCOPED_INVENTORIES[kind].components:
+                    if kind + "." + prop not in mapping.properties:
+                        raise ValueError("Identity component has no Mapping: " + prop)
+            except ValueError as error:
+                return diagnostic("broken", "SCOPED_IDENTITY_INVALID", str(error))
+            return diagnostic(
+                "uncertain" if kind == "SQS.QueuePolicy" else "ready",
+                "STRUCTURE_REVIEW_REQUIRED"
+                if kind == "SQS.QueuePolicy"
+                else "SCOPED_SDK_IDENTITY",
+                "Original queue grouping requires explicit Human structure selection"
+                if kind == "SQS.QueuePolicy"
+                else "Parent selectors and composite identity are preserved by the SDK inventory; live scope and uniqueness require runtime checks",
+                components=list(SCOPED_INVENTORIES[kind].components),
+                scope=["executionAccount", "region", "resourceType"],
+            )
         if plan.mode == "not_modelled":
             return diagnostic(
                 "not_modelled", "NO_MODEL_PROPERTIES", "No Import candidate"
@@ -290,7 +335,10 @@ class Coverage:
         result["reasonCode"] = result.pop("reason_code")
         result["requiredFilters"] = list(result.pop("required_filters"))
         result["parents"] = list(result["parents"])
-        if plan.mode == "adapter":
+        if plan.mode == "scoped_sdk":
+            result["operations"] = list(SCOPED_INVENTORIES[kind].operations)
+            result.update(identity)
+        elif plan.mode == "adapter":
             result["inventory"] = list(ADAPTER_INVENTORIES[kind])
             result.update(
                 diagnostic(
@@ -484,6 +532,60 @@ class Coverage:
         identity: Diagnostic,
         adapter: Any,
     ) -> Diagnostic:
+        if (
+            adapter
+            and callable(getattr(adapter, "sensitive", None))
+            and sensitive(SimpleNamespace(module=adapter), key)
+        ):
+            return diagnostic(
+                "unobservable",
+                "SENSITIVE_VALUE_WITHHELD",
+                "API output is withheld by the Import sensitive-property contract",
+            )
+        if plan.mode == "scoped_sdk":
+            spec = SCOPED_INVENTORIES[kind]
+            if key.removeprefix(kind + ".") in spec.selectors:
+                return diagnostic(
+                    "capturable",
+                    "VALIDATED_SELECTOR",
+                    "Verified account/parent selector retained separately from AWS response values",
+                    source="verified_selector",
+                )
+            if prop.source == "aws":
+                try:
+                    shape = self.scoped_shape(kind)
+                    path = prop.field.path
+                    if (
+                        kind == "DataZone.Project"
+                        and getter.get("kind") == "cloudcontrol"
+                    ):
+                        path = {"DomainId": "domainId", "Id": "id", "Name": "name"}[
+                            path
+                        ]
+                    if kind != "SQS.QueuePolicy":
+                        response_shape(shape, path)
+                    if getter.get("kind") == "sdk" and (
+                        getter["service"],
+                        getter["operation"],
+                    ) not in getattr(adapter, "APIS", ()):
+                        raise ValueError("SDK API is outside adapter allowlist")
+                    if getter.get("kind") == "sdk" and (
+                        getattr(adapter, "SDK_OPERATIONS", {}).get(kind)
+                        != getter["operation"]
+                        or not callable(getattr(adapter, "fetch_sdk", None))
+                    ):
+                        raise ValueError(
+                            "SDK operation/resource selector is not registered"
+                        )
+                    if prop.field.classification != "supported":
+                        raise ValueError(prop.field.reason or "Getter unavailable")
+                except (ValueError, KeyError) as error:
+                    return diagnostic("broken", "SCOPED_PROPERTY_INVALID", str(error))
+                return diagnostic(
+                    "capturable",
+                    "SCOPED_SDK_PAYLOAD",
+                    "Property is read from the registered inventory payload; optional absence remains a runtime result",
+                )
         if prop.source != "aws":
             return diagnostic(
                 "unobservable",

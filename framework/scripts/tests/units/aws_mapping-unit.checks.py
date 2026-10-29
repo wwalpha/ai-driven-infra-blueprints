@@ -187,7 +187,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (179, 52, 50, 63, 80, 79)
+    ) == (179, 52, 50, 63, 82, 81)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -233,6 +233,22 @@ def check_v3_registry():
     del baseline_properties["lake-formation"]["LakeFormation.Resource"]
     del definitions["lake-formation"]["sdk-lakeformation-resource"]
     del metadata["lake-formation"]
+    assert metadata.pop("datazone") == {
+        "RESOURCE_TYPES": [],
+        "IDENTITIES": {},
+        "GETTERS": {},
+        "APIS": [("datazone", "get_project")],
+    }
+    metadata["quicksight"]["APIS"].remove(("quicksight", "describe_group"))
+    table_id = baseline_properties["glue"]["Glue.Table"]["Id"]
+    assert table_id["model"]["include"] and table_id["source"] == {
+        "kind": "provider-output",
+        "location": "CloudFormation Glue.Table Id",
+        "constraint": "Glue GetTable returns Name, CatalogId and DatabaseName but does not return the CloudFormation Id.",
+        "classification": "sdk_unavailable",
+    }
+    del table_id["source"]
+    table_id["aws"] = {"getter": "base", "path": "Name", "normalize": "typed"}
     for kind, selected in tgw_properties.items():
         actual = properties["ec2"][kind]
         assert {

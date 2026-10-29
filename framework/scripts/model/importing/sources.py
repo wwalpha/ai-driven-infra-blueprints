@@ -3,6 +3,7 @@
 import json
 import re
 from functools import partial as _bind_framework_callback
+from pathlib import Path
 
 from utils.json_format import document_sha256
 from utils.json_format import strict_json as json_read
@@ -10,6 +11,7 @@ from utils.json_format import strict_json as json_read
 import model.core as _imports_model_core
 import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
+import model.importing.limitations as limitations
 import model.operations as _imports_model_operations
 import model.projection as _imports_model_projection
 from model.core import entries as entries
@@ -66,13 +68,17 @@ def selection_records(
     selection, records, old, new, property_schema, warnings=None, *, matching=None
 ):
     """Validate declared correspondences; no Python matching or addition decisions."""
-    if set(selection) != {"resources", "excluded", "unreflected"} or any(
-        not isinstance(selection[k], list) for k in selection
+    if (
+        set(selection) - {"resources", "excluded", "unreflected", "limitations"}
+        or not {"resources", "excluded", "unreflected"} <= set(selection)
+        or any(not isinstance(selection[k], list) for k in selection)
     ):
         raise ValueError(
             "IMPORT selection requires resources, excluded and unreflected lists"
         )
     acquired = {r["record"]: r for r in records}
+    if len(acquired) != len(records):
+        raise ValueError("IMPORT acquisition contains duplicate record identities")
     old_resources = dict(entries(old, "desired.resource."))
     new_resources = dict(entries(new, "desired.resource."))
     rows = resource_row_index(old)
@@ -163,6 +169,8 @@ def selection_records(
         required = {"record", "resource", "action", "reason", "basis"} | (
             {"before"} if item.get("action") in {"replace", "bind"} else set()
         )
+        if "structure" in item:
+            required.add("structure")
         if (
             set(item) != required
             or not isinstance(item["reason"], str)
@@ -204,6 +212,35 @@ def selection_records(
             raise ValueError(
                 "IMPORT refresh/replace/bind requires an existing IMPORT Resource of the acquired type; CREATE is protected"
             )
+        if record["kind"] == "SQS.QueuePolicy":
+            queue_property = "SQS.QueuePolicy.Queues[]"
+            queue_values = record["properties"].get(queue_property, {}).get("value")
+            if (
+                not isinstance(queue_values, list)
+                or len(queue_values) != 1
+                or not all(isinstance(value, str) and value for value in queue_values)
+            ):
+                raise ValueError(
+                    "IMPORT QueuePolicy candidate has unknown queue identity"
+                )
+            for prior_id, prior_resource in old_resources.items():
+                if prior_resource["resourceType"] != record["kind"]:
+                    continue
+                prior_queues = property_values(
+                    old,
+                    prior_id,
+                    queue_property,
+                    property_schema(queue_property),
+                    rows=rows,
+                )
+                if (
+                    isinstance(prior_queues, list)
+                    and set(queue_values) & set(prior_queues)
+                    and (prior_id != rid or not typed_equal(prior_queues, queue_values))
+                ):
+                    raise ValueError(
+                        "IMPORT QueuePolicy overlaps an existing queue group; original structure is unresolved"
+                    )
         basis = item["basis"]
         if (
             not isinstance(basis, list)
@@ -213,9 +250,8 @@ def selection_records(
             raise ValueError(
                 "IMPORT correspondence basis must name distinct acquired Properties"
             )
-        if "identityComponents" in record:
-            if record.get("identityStatus") != "known":
-                raise ValueError("IMPORT acquired primary identity is unknown")
+        if record.get("identityStatus", "known") != "known":
+            raise ValueError("IMPORT acquired primary identity is unknown")
         if (
             not isinstance(record["identity"], str)
             or not record["identity"].strip()
@@ -296,7 +332,29 @@ def selection_records(
                     "reason": "Existing physical IDs are unknown; explicitly managed addition may duplicate an existing resource",
                 }
             )
-        selected[rid] = record if action == "add" else {**record, "_action": action}
+        chosen = dict(record)
+        if action != "add":
+            chosen["_action"] = action
+        if "structure" in item:
+            structure = item["structure"]
+            if (
+                record["kind"] != "SQS.QueuePolicy"
+                or not isinstance(structure, dict)
+                or set(structure) != {"queues", "reason"}
+                or not isinstance(structure["reason"], str)
+                or not structure["reason"].strip()
+                or not typed_equal(
+                    structure["queues"],
+                    record["properties"]
+                    .get("SQS.QueuePolicy.Queues[]", {})
+                    .get("value"),
+                )
+            ):
+                raise ValueError(
+                    "IMPORT QueuePolicy structure must explicitly confirm the acquired single queue"
+                )
+            chosen["_structureResolved"] = True
+        selected[rid] = chosen
         selected_identities.add(identity_key)
         used.add(record["record"])
     for item in selection["excluded"]:
@@ -325,6 +383,9 @@ def selection_records(
             raise ValueError("IMPORT unreflected Property is unknown")
     if used != acquired.keys():
         raise ValueError("IMPORT every acquired record needs an explicit disposition")
+    limitations.validate(
+        selection, selected, old, new, Path(__file__).resolve().parents[4]
+    )
     return selected
 
 
@@ -334,7 +395,20 @@ def pending_items(selection, selected, values, property_schema):
     known = {(item["record"], item.get("property")) for item in pending}
     rows = resource_row_index(values)
     for rid, record in selected.items():
+        if record.get("structureStatus") == "unresolved" and not record.get(
+            "_structureResolved"
+        ):
+            pending.append(
+                {
+                    "record": record["record"],
+                    "reason": record["structureReason"],
+                    "category": "structure",
+                }
+            )
+        resolved = {item["property"] for item in record.get("_limitations", ())}
         for prop, capture in record["properties"].items():
+            if prop in resolved:
+                continue
             if (record["record"], prop) in known:
                 continue
             represented = any(row["property"] == prop for _, row in rows[rid])

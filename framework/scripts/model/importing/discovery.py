@@ -30,6 +30,8 @@ ADAPTER_INVENTORIES = {
         "describe_delivery_channels",
         "DeliveryChannels",
     ),
+    "CodeBuild.Project": ("codebuild", "list_projects", "projects"),
+    "Macie.ClassificationJob": ("macie2", "list_classification_jobs", "items"),
     "Logs.LogGroup": ("logs", "describe_log_groups", "logGroups"),
     "QuickSight.DataSource": ("quicksight", "list_data_sources", "DataSources"),
     "QuickSight.VPCConnection": (
@@ -46,6 +48,52 @@ ADAPTER_INVENTORIES = {
 }
 
 
+@dataclass(frozen=True)
+class ScopedInventory:
+    api: str
+    operations: tuple[str, ...]
+    payload: tuple[str, str]
+    components: tuple[str, ...]
+    selectors: tuple[str, ...] = ()
+
+
+SCOPED_INVENTORIES = {
+    "QuickSight.Group": ScopedInventory(
+        "quicksight",
+        ("list_namespaces", "list_groups"),
+        ("list_groups", "GroupList[]"),
+        ("AwsAccountId", "Namespace", "GroupName"),
+        ("AwsAccountId", "Namespace"),
+    ),
+    "Glue.Table": ScopedInventory(
+        "glue",
+        ("get_catalogs", "get_databases", "get_tables"),
+        ("get_tables", "TableList[]"),
+        ("CatalogId", "DatabaseName", "TableInput.Name"),
+        ("CatalogId", "DatabaseName"),
+    ),
+    "LakeFormation.Resource": ScopedInventory(
+        "lakeformation",
+        ("list_resources", "describe_resource"),
+        ("describe_resource", "ResourceInfo"),
+        ("ResourceArn",),
+    ),
+    "DataZone.Project": ScopedInventory(
+        "datazone",
+        ("list_domains", "list_projects", "get_project"),
+        ("get_project", "$"),
+        ("DomainId", "Id"),
+    ),
+    "SQS.QueuePolicy": ScopedInventory(
+        "sqs",
+        ("get_queue_attributes",),
+        ("get_queue_attributes", "Attributes"),
+        ("Queues[]",),
+        ("Queues[]",),
+    ),
+}
+
+
 def adapter_detail(kind: str) -> tuple[str, str, str] | None:
     """Existing inventory detail envelopes, shared with offline shape inspection."""
     if kind == "KinesisFirehose.DeliveryStream":
@@ -54,6 +102,10 @@ def adapter_detail(kind: str) -> tuple[str, str, str] | None:
             "DeliveryStreamName",
             "DeliveryStreamDescription",
         )
+    if kind == "CodeBuild.Project":
+        return "batch_get_projects", "names", "projects[]"
+    if kind == "Macie.ClassificationJob":
+        return "describe_classification_job", "jobId", "$"
     if kind == "QuickSight.DataSource":
         return "describe_data_source", "DataSourceId", "DataSource"
     if kind == "QuickSight.VPCConnection":
@@ -125,6 +177,14 @@ def resolve(
             "NO_MODEL_PROPERTIES",
             "No model.include properties",
         )
+    if kind in SCOPED_INVENTORIES:
+        return DiscoveryPlan(
+            "scoped_sdk",
+            "uncertain",
+            "SCOPED_SDK_INVENTORY",
+            "SDK inventory preserves parent selectors and composite identity",
+            parents=("SQS.Queue",) if kind == "SQS.QueuePolicy" else (),
+        )
     if kind in ADAPTER_INVENTORIES and kind in mapping.identities:
         return DiscoveryPlan(
             "adapter",
@@ -192,6 +252,14 @@ def resolve(
             "ready",
             "PROVIDER_LIST",
             "Cloud Control List has no required filters",
+        )
+    if kind == "Glue.Connection" and required == ("CatalogId",):
+        return DiscoveryPlan(
+            "cloudcontrol",
+            "ready",
+            "TARGET_ACCOUNT_FILTER",
+            "CatalogId comes from the verified target account when execution and target accounts match",
+            required,
         )
     try:
         parents = filter_parents(sorted(mapping.resource_types), kind, required, schema)

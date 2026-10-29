@@ -1,12 +1,16 @@
 """codepipeline: selected properties -> read-only SDK responses; inputs in fetch()."""
 
+from typing import Any
+
 from model.adapters.aws import MISSING
 
 APIS = {("codepipeline", "get_pipeline")}
 
 
-def sensitive(prop):
-    return False
+def sensitive(prop: str) -> bool:
+    return prop.endswith("EnvironmentVariables[].Value") or prop.endswith(
+        "Stages[].Actions[].Configuration"
+    )
 
 
 def fetch(ctx, r, getter):
@@ -15,3 +19,10 @@ def fetch(ctx, r, getter):
         result["pipeline"],
         PipelineArn=result.get("metadata", {}).get("pipelineArn", MISSING),
     )
+
+
+SDK_OPERATIONS = {"CodePipeline.Pipeline": "get_pipeline"}
+
+
+def fetch_sdk(ctx: Any, r: Any, operation: str) -> dict[str, Any]:
+    return ctx.call("codepipeline", operation, name=r.value("Name"))

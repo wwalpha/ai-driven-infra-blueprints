@@ -144,6 +144,7 @@ class AwsCli:
                     else "EnableDnsHostnames"
                 ): {"Value": True}
             },
+            ("quicksight", "list-namespaces"): {"Namespaces": []},
             ("quicksight", "list-data-sources"): {
                 "DataSources": [
                     {"DataSourceId": "actual-source"},
@@ -627,13 +628,14 @@ def review_proof_fixture(root, proof):
             "reviewDigest",
             "recordsDigest",
             "selectionDigest",
+            "limitationsDigest",
             "referencesDigest",
             "proposedValuesDigest",
             "impactDigest",
         )
     }
     binding.update(
-        version=2,
+        version=3,
         **FORMAT_FIELDS,
         task=proof["task"],
         worktree=str(root.resolve()),
@@ -645,8 +647,11 @@ def review_proof_fixture(root, proof):
         ).isoformat(),
     )
     proof.update(
-        version=6,
+        version=7,
         **FORMAT_FIELDS,
+        completion={"acquisition": True, "properties": True, "review": True},
+        observationComplete=True,
+        limitationsDigest=binding["limitationsDigest"],
         reviewBinding=binding,
         reviewBindingDigest=document_sha256(binding),
     )

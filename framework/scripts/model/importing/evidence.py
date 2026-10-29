@@ -4,15 +4,21 @@ import shutil
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import utils.import_evidence as _receipt_storage
+from generation_inputs import GenerationInputs
+from task_contract_core import task_reads
+from utils.input_cache import recording_inputs
 from utils.json_format import document_sha256, json_text
+from utils.script_loader import module
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.importing.approval as _imports_model_importing_approval
 import model.importing.inventory as _imports_model_importing_inventory
+import model.importing.limitations as limitations
 import model.importing.repository as _imports_model_importing_repository
 import model.importing.scope as _imports_model_importing_scope
 from model.format import FORMAT_FIELDS as FORMAT_FIELDS
@@ -33,10 +39,10 @@ def read_proof(root, *, contract_file=None):
         if file.is_symlink():
             raise ValueError("symlink import evidence")
         proof = read_sealed(root, file)
-        require_format(proof, 6, "receipt")
+        require_format(proof, 7, "receipt")
         require_fresh_acquisition(proof)
         if (
-            proof["version"] != 6
+            proof["version"] != 7
             or proof["task"] != workflow(root, **reference)
             or proof["base"] != base_revision(root, **reference)
             or proof["scope"] != list(selected(root, **reference))
@@ -71,11 +77,59 @@ def read_proof(root, *, contract_file=None):
             raise ValueError(
                 "IMPORT Review binding belongs to another Task/Worktree/scope/acquisition"
             )
+        completion = proof.get("completion")
+        if (
+            not isinstance(completion, dict)
+            or set(completion) != {"acquisition", "properties", "review"}
+            or any(type(value) is not bool for value in completion.values())
+            or proof["complete"]
+            and not all(completion.values())
+            or proof.get("limitationsDigest") != binding["limitationsDigest"]
+            or type(proof.get("observationComplete")) is not bool
+        ):
+            raise ValueError(
+                "IMPORT receipt completion/limitations binding is invalid; reacquire and review"
+            )
         return proof
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ValueError(
             "IMPORT change has no verified /import evidence: " + str(error)
         ) from error
+
+
+def checked_completion(
+    root: Path,
+    evidence: Path,
+    acquisition: dict[str, Any],
+    output: dict[Path, str],
+    plan: dict[str, Any],
+    binding: dict[str, Any],
+) -> tuple[dict[str, bool], bool]:
+    """Recheck the actual candidate and Review; a caller's complete flag grants nothing."""
+    cli = module("model/importing/cli.py", "model.importing.cli")
+    inputs = GenerationInputs(root)
+    try:
+        with task_reads(root), recording_inputs(inputs):
+            _, _, current_output, selection, review, _, _ = cli.review_inputs(
+                root, tuple(acquisition["scope"]), Path(evidence), acquisition, inputs
+            )
+            if (
+                current_output != output
+                or selection != plan.get("selection")
+                or _imports_model_importing_approval.review_binding(review, acquisition)
+                != binding
+            ):
+                raise ValueError(
+                    "IMPORT completion differs from current candidate/Selection/Review binding"
+                )
+            inputs.verify()
+        return {
+            "acquisition": acquisition_complete(acquisition),
+            "properties": review["completion"]["propertiesResolved"],
+            "review": True,
+        }, review["completion"]["allPropertiesObserved"]
+    finally:
+        inputs.close()
 
 
 def record_import(root, output, evidence, plan, complete=True, *, review_binding=None):
@@ -122,9 +176,12 @@ def record_import(root, output, evidence, plan, complete=True, *, review_binding
         raise ValueError(
             "IMPORT Task already published; use display recovery or a new Task"
         )
+    completion, observed = checked_completion(
+        root, evidence, acquisition, output, plan, review_binding
+    )
     sources = source_hashes
     proof = {
-        "version": 6,
+        "version": 7,
         **FORMAT_FIELDS,
         "reviewBinding": review_binding,
         "reviewBindingDigest": document_sha256(review_binding),
@@ -138,7 +195,10 @@ def record_import(root, output, evidence, plan, complete=True, *, review_binding
         "acquiredAt": acquisition["acquiredAt"],
         "ownedArtifacts": plan["ownedArtifacts"],
         "connection": acquisition["connection"],
-        "complete": complete and acquisition_complete(acquisition),
+        "completion": completion,
+        "observationComplete": observed,
+        "limitationsDigest": review_binding["limitationsDigest"],
+        "complete": complete and all(completion.values()),
         "model": "pending",
         "markdown": "not-run",
         "designValidation": "not-run",
@@ -234,7 +294,10 @@ def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, sourc
         (directory / "candidates").mkdir()
         # This is a disposition/evidence document, never a Model mutation language.
         (directory / "selection.json").write_text(
-            json_text({"resources": [], "excluded": [], "unreflected": []}) + "\n",
+            json_text(
+                {"resources": [], "excluded": [], "unreflected": [], "limitations": []}
+            )
+            + "\n",
             encoding="utf-8",
         )
         return directory / "acquisition.json", value
@@ -294,6 +357,7 @@ def validate_inventory(value):
     inventory = value.get("inventory")
     allowed = {
         "complete",
+        "limited",
         "empty",
         "unsupported",
         "permission_denied",
@@ -312,15 +376,79 @@ def validate_inventory(value):
         )
     ):
         raise ValueError("IMPORT acquisition inventory status is invalid")
+    records = {record["record"]: record for record in value.get("records", [])}
+    if len(records) != len(value.get("records", [])):
+        raise ValueError("IMPORT duplicate acquisition record")
+    for kind, item in inventory.items():
+        if item["status"] != "limited":
+            continue
+        expected = []
+        for record in records.values():
+            if record["kind"] != kind:
+                continue
+            if record.get("identityStatus", "known") != "known" or any(
+                capture["status"] == "unavailable"
+                for capture in record["properties"].values()
+            ):
+                raise ValueError("IMPORT limited inventory has unresolved acquisition")
+            for prop, capture in record["properties"].items():
+                if capture["status"] in {"unobservable", "withheld"}:
+                    if (
+                        limitations.contract(
+                            Path(__file__).resolve().parents[4], prop, capture["status"]
+                        )
+                        != capture
+                    ):
+                        raise ValueError(
+                            "IMPORT limited inventory has unverified limitation evidence"
+                        )
+                    expected.append(
+                        {
+                            "record": record["record"],
+                            "property": prop,
+                            "status": capture["status"],
+                        }
+                    )
+        if (
+            not expected
+            or item.get("enumerationComplete") is not True
+            or item.get("propertiesComplete") is not False
+            or sorted(item.get("limitations", []), key=json_text)
+            != sorted(expected, key=json_text)
+        ):
+            raise ValueError(
+                "IMPORT limited inventory must bind every limitation to its acquired record"
+            )
     return inventory
 
 
 def acquisition_complete(value):
     require_format(value, 3, "acquisition")
-    return all(
-        item["status"] in {"complete", "empty"}
-        for item in validate_inventory(value).values()
-    )
+    inventory = validate_inventory(value)
+    if any(
+        item["status"] not in {"complete", "limited", "empty", "not_modelled"}
+        for item in inventory.values()
+    ):
+        return False
+    for record in value.get("records", []):
+        status = inventory.get(record["kind"], {}).get("status")
+        if (
+            status not in {"complete", "limited"}
+            or record.get("identityStatus", "known") != "known"
+            or not record.get("identity")
+        ):
+            return False
+        allowed = (
+            {"captured", "missing", "unobservable", "withheld"}
+            if status == "limited"
+            else {"captured", "missing"}
+        )
+        if any(
+            capture["status"] not in allowed
+            for capture in record["properties"].values()
+        ):
+            return False
+    return True
 
 
 def require_fresh_acquisition(value):

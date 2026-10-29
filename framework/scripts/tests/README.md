@@ -35,6 +35,17 @@ Git/WorktreeとCLI実行境界は既存専用ITに任せ、Import ITのPopen Git
 目標10秒未満と削減対象UT+IT合計時間の非悪化は、公式Framework ITのbaseline_refを使う同条件比較で判定する。
 CI実測前に高速化達成と報告しない。Fixtureのコピー削減だけから性能効果を断定しない。
 
+### Import 第2段階の検証
+
+`import-sdk-inventory-unit` は親Scope・複合Identity・全ページ・途中失敗・9型のCoverage到達性、
+`import-limitations-unit` はMapping/SDKに基づく取得不能分類、Treatment、秘匿、Bindingと未完了判定を検証する。
+`import-model` の `check_limited_acquisition_preserves_values_and_completes` は取得不能項目を含む
+Acquire→Review→未承認拒否→既存値保持の提案→再開→Publish→Receipt→Task完了を検証する。
+承認は会話上の運用境界で、テストのBindingやFixtureは人間の認証を証明しない。
+
+Framework実装を明示検証する際は既存の公式IT runnerで、関連するImport業務ITとCLI ITを実行する。
+業務ITは既存の独立Fixtureとリポジトリ読み取りProviderを使用し、worktreeを作成しない。
+
 ### Offline Import Coverage
 
 ```console

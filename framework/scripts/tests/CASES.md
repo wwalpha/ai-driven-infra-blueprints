@@ -4292,6 +4292,23 @@ Progress mechanics reuse existing Naming/Human/diagnostic validators; business I
 | `acceptance::human-review-cli` | `check_task_acceptance_human_failure_review` | IT | [integrations/task_contract.checks.py](integrations/task_contract.checks.py) | pytest / 1 | Task/Validation/explicit Human approval/Acceptance and stale-candidate CLI rejection preserve raw FAIL | Synthetic Git/Model; CI only |
 | `validation-result::reasons` | `check_fail_reasons_and_returned_results` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | Planned missing check executes; exceptions/interruption/returned CheckResult and invalid metadata retain scoped reasoned FAIL | Synthetic Findings |
 
+## Import SDK inventory and limitations
+
+`units/import-model-unit.checks.py::test_macie_inventory_pairs_list_and_detail` は一覧と詳細の JobId の対応、および不一致の拒否を検証する。
+
+`units/import-model-unit.checks.py::test_codebuild_inventory_batches_and_rejects_incomplete` は100件単位の分割と未取得・重複を検証する。
+
+`units/import-model-unit.checks.py::test_glue_connection_uses_only_verified_target_account` は対象AccountからのCatalogId導出と不一致の拒否を検証する。
+
+### Import acquisition limitations and completion
+
+| Case | Function | Class | Suite | Entry | Responsibility | Scope |
+| --- | --- | --- | --- | --- | --- | --- |
+| `import-limitations::roundtrip` | `check_limited_acquisition_preserves_values_and_completes` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 1 | Acquire→全件Review→未承認拒否→保持提案→再開→Publish→Receipt→Task完了、AWS再取得なし | Import limitations |
+
+`units/import-sdk-inventory-unit.checks.py` は9型の共通Discovery到達性、親Scope、同名複合Identity、ページング途中失敗、SQS構造未確定を検証する。
+`units/import-limitations-unit.checks.py` は取得不能根拠、Treatment、既存Row保持、新規任意項目省略、偽装/重複/不適格状態拒否、秘匿、Binding変更、対象外と空を検証する。
+
 ## Offline Import capability coverage
 
 | Case ID | Function | Layer | Source | Execution / Count | Contract | Scope |

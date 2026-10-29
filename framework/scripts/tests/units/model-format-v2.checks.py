@@ -831,14 +831,14 @@ def check_properties_import_review_operations(action):
             {"record-one": []},
             lambda prop: {"type": "string"},
         )
-        assert review["version"] == 4 and len(review["dispositions"]) == 1
+        assert review["version"] == 5 and len(review["dispositions"]) == 1
         assert review["dispositions"][0]["operation"] == action
         assert (
             review["dispositions"][0]["physicalId"]
             == acquisition["records"][0]["identity"]
         )
         verify_review(review, review)
-        assert review_binding(review, acquisition)["version"] == 2
+        assert review_binding(review, acquisition)["version"] == 3
         assert scope.path.read_text(encoding="utf-8") == serialize(values)
 
 

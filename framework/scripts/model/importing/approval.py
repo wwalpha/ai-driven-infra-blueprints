@@ -16,6 +16,7 @@ import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
 import model.importing.evidence as _dependency_model_importing_evidence
 import model.importing.inventory as _dependency_model_importing_inventory
+import model.importing.limitations as limitations
 import model.importing.sources as _dependency_model_importing_sources
 import model.references as _dependency_model_references
 import model.sources as _dependency_model_sources
@@ -48,14 +49,28 @@ def review_binding(review: JsonObject, acquisition: JsonObject) -> JsonObject:
         raise ValueError(
             "IMPORT all Resource selections must be answered before final approval/publication"
         )
+    unresolved = {
+        (item["record"], item["property"])
+        for item in review["limitations"]
+        if item["selected"] and item["treatment"] is None
+    }
+    if unresolved or any(
+        item.get("category") == "structure"
+        for disposition in review["dispositions"]
+        for item in disposition["unreflected"]
+    ):
+        raise ValueError(
+            "IMPORT limitations/structure require explicit Human selections before final approval/publication"
+        )
     return verify_review_binding(
         {
-            "version": 2,
+            "version": 3,
             **FORMAT_FIELDS,
             **expected,
             "reviewDigest": review["reviewDigest"],
             "recordsDigest": document_sha256(review["dispositions"]),
             "selectionDigest": document_sha256(review["selection"]),
+            "limitationsDigest": review["limitationsDigest"],
             "referencesDigest": document_sha256(review["referenceProvenance"]),
             "proposedValuesDigest": review["proposedValuesDigest"],
             "impactDigest": document_sha256(review.get("referenceImpact", {})),
@@ -67,13 +82,14 @@ def review_binding(review: JsonObject, acquisition: JsonObject) -> JsonObject:
 
 def verify_review_binding(binding: JsonObject) -> JsonObject:
     """Validate receipt structure/lifetime, never authenticate conversational consent."""
-    _dependency_model_importing_evidence.require_format(binding, 2, "Review binding")
+    _dependency_model_importing_evidence.require_format(binding, 3, "Review binding")
     hashes = {
         "acquisitionDigest",
         "sourceBaselineDigest",
         "reviewDigest",
         "recordsDigest",
         "selectionDigest",
+        "limitationsDigest",
         "referencesDigest",
         "proposedValuesDigest",
         "impactDigest",
@@ -363,7 +379,10 @@ def build_review(
         )
         properties = []
         for prop, capture in sorted(record["properties"].items()):
-            withheld = capture.get("reason") == "sensitive Property"
+            withheld = (
+                capture.get("status") == "withheld"
+                or capture.get("reason") == "sensitive Property"
+            )
             left = [] if withheld else rows(before.values, old_rows, prior, prop)
             right = (
                 left
@@ -414,6 +433,11 @@ def build_review(
                     record["kind"]
                 ),
                 "physicalId": record.get("identityComponents", record["identity"]),
+                "structure": {
+                    "status": record.get("structureStatus", "known"),
+                    "reason": record.get("structureReason"),
+                    "selection": decision.get("structure"),
+                },
                 "name": names or {"status": "not-acquired"},
                 "matching": details,
                 "operation": decision["action"],
@@ -438,8 +462,51 @@ def build_review(
                 ],
             }
         )
+    treatments = {
+        (item["record"], item["property"]): item
+        for item in selection.get("limitations", [])
+    }
+    limitation_report = []
+    for record in records:
+        decision = decisions[record["record"]]
+        rid = decision.get("resource")
+        existing = matching[record["record"]]["existingResources"]
+        if rid is None and len(existing) == 1:
+            rid = existing[0]
+        for prop, capture in sorted(record["properties"].items()):
+            if capture["status"] not in {"unobservable", "withheld"}:
+                continue
+            item = treatments.get((record["record"], prop), {})
+            limitation_report.append(
+                {
+                    "resourceType": record["kind"],
+                    "record": record["record"],
+                    "identity": record.get("identityComponents", record["identity"]),
+                    "property": prop,
+                    "status": capture["status"],
+                    "reasonCode": capture["reasonCode"],
+                    "reason": capture["reason"],
+                    "evidence": capture["evidence"],
+                    "currentModelValuePresent": bool(
+                        limitations.row_state(before.authoritative, rid, prop)
+                    )
+                    if rid
+                    else False,
+                    "selected": decision["action"] not in {"excluded", "unresolved"},
+                    "treatment": item.get("treatment"),
+                    "treatmentReason": item.get("reason"),
+                    "handling": "preserve existing Row without AWS confirmation"
+                    if item.get("treatment") == "retain_existing"
+                    else "omit new unobserved Row"
+                    if item.get("treatment") == "omit_unobserved"
+                    else "excluded; no Model change"
+                    if decision["action"] == "excluded"
+                    else "unresolved",
+                    "residualRisk": "The current value is not verified by AWS; accepting this limitation does not make it observed",
+                }
+            )
     review = {
-        "version": 4,
+        "version": 5,
         "modelFormat": 2,
         "snapshotVersion": 2,
         "referenceMeaningVersion": 1,
@@ -455,6 +522,22 @@ def build_review(
         "sourceBaselineDigest": document_sha256(acquisition["sources"]),
         "inventory": inventory,
         "selection": selection,
+        "limitationsDigest": document_sha256(selection.get("limitations", [])),
+        "limitations": limitation_report,
+        "completion": {
+            "acquisitionEstablished": _dependency_model_importing_evidence.acquisition_complete(
+                acquisition
+            ),
+            "propertiesResolved": not pending,
+            "allPropertiesObserved": _dependency_model_importing_evidence.acquisition_complete(
+                acquisition
+            )
+            and all(
+                capture["status"] in {"captured", "missing"}
+                for record in records
+                for capture in record["properties"].values()
+            ),
+        },
         "dispositions": dispositions,
         "warnings": warnings,
         "serviceChanges": service_changes,
@@ -471,9 +554,13 @@ def build_review(
 
 def verify_review(review: JsonObject, expected: JsonObject) -> None:
     """Integrity/meaning comparison only; a matching digest never grants approval."""
-    _dependency_model_importing_evidence.require_format(review, 4, "Review")
-    _dependency_model_importing_evidence.require_format(expected, 4, "expected Review")
+    _dependency_model_importing_evidence.require_format(review, 5, "Review")
+    _dependency_model_importing_evidence.require_format(expected, 5, "expected Review")
     content = {key: value for key, value in review.items() if key != "reviewDigest"}
+    if review.get("limitationsDigest") != document_sha256(
+        review.get("selection", {}).get("limitations", [])
+    ):
+        raise ValueError("IMPORT Review limitations digest changed")
     if review.get("reviewDigest") != document_sha256(
         content
     ) or not _dependency_model_importing_sources.typed_equal(review, expected):

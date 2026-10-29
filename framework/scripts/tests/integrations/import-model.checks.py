@@ -20,9 +20,11 @@ import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
 import sync_files
 import sync_runtime
+import task_contract
 from model.core import entries
 from model.format import parse, serialize
 from model.identity import COUNTERS, allocate
+from model.importing import approval as import_approval
 from model.importing import repository
 from model.importing.scope import read_context
 from model.operations import operation_values
@@ -32,6 +34,7 @@ from support.import_model_fixtures import (
     SUBNETS,
     TARGET,
     VPC_ID,
+    AwsCli,
     CloudControlCli,
     aws,
     correspondence,
@@ -43,6 +46,7 @@ from support.import_model_fixtures import (
     publish_fixture,
     resource_values,
     review_fixture,
+    service_values,
     snapshot,
     stage,
 )
@@ -53,6 +57,7 @@ from task_contract_core import selected_task, start
 from utils import sealed_evidence
 from utils.json_format import document_sha256
 from validation import change
+from validation.task import TaskValidation
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -1404,6 +1409,152 @@ def check_repository_snapshot_detects_real_changes(tmp_path):
         p.relative_to(root).as_posix() for p in (path, added, deleted, task)
     }
     assert state(root).baseline == baseline
+
+
+def _callback_limited_task_paths(self, args):
+    return repository.changed_paths(self.root)
+
+
+def check_limited_acquisition_preserves_values_and_completes(tmp_path):
+    root = tmp_path / "limited"
+    root.mkdir()
+    project_fixture(root)
+    service, kind = "lake-formation", "LakeFormation.Resource"
+    path = root / "model/dev" / ACCOUNT / (service + ".properties")
+    arn = "arn:aws:s3:::limited-fixture"
+    role = (
+        "arn:aws:iam::"
+        + ACCOUNT
+        + ":role/aws-service-role/lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess"
+    )
+    values = {
+        **service_values(service, [kind]),
+        **resource_values(
+            "001",
+            kind,
+            "registered-data",
+            "IMPORT",
+            [
+                ("ResourceArn", m.model_literal(arn)),
+                ("UseServiceLinkedRole", "`true`"),
+                ("RoleArn", m.model_literal(role)),
+                ("WithFederation", "`false`"),
+                ("HybridAccessEnabled", "`false`"),
+            ],
+        ),
+    }
+    write_model(path, values)
+    checkpoint(root)
+    source = path.relative_to(root).as_posix()
+    document = "docs/designs/dev/" + ACCOUNT + "/" + service + ".md"
+    files = ["tasks/import-fixture.md", source, document]
+    listing = "\n".join("- `" + name + "`" for name in files)
+    contract = (
+        "# Limited Import fixture\n## Task contract\n- Task type: `design`\n- Workflow: `import`\n- Task status: `running`\n- IMPORT target: `dev/"
+        + ACCOUNT
+        + "/"
+        + service
+        + "`\n## Goal\nReflect acquired values with explicit retained input\n## Required changes\n- [R1] Reflect selected resource\n## Validation scope\n- `dev/"
+        + ACCOUNT
+        + "/"
+        + service
+        + "`\n## Modified files\n"
+        + listing
+        + "\n## Allowed paths\n"
+        + listing
+        + "\n## Acceptance checks\n- [R1] `exists:"
+        + document
+        + "`\n"
+    )
+    start(root, "tasks/import-fixture.md", contract)
+    cli = AwsCli()
+    cli.responses["lakeformation", "list-resources"] = {
+        "ResourceInfoList": [{"ResourceArn": arn}]
+    }
+    cli.responses["lakeformation", "describe-resource"] = {
+        "ResourceInfo": {
+            "ResourceArn": arn,
+            "RoleArn": role,
+            "WithFederation": True,
+            "HybridAccessEnabled": False,
+        }
+    }
+    acquired = m.acquire(
+        root, "dev", service, ACCOUNT, cli_runner=cli, resource_types=[kind]
+    )
+    assert acquired["inventory"][kind]["status"] == "limited"
+    assert (
+        acquired["records"][0]["properties"][kind + ".UseServiceLinkedRole"]["status"]
+        == "unobservable"
+    )
+    proposed = {**values, "desired.row.001-004.value": "`true`"}
+    selected = [
+        {
+            "record": acquired["records"][0]["record"],
+            "resource": "001",
+            "action": "refresh",
+            "reason": "Human-selected existing registration",
+            "basis": [],
+        }
+    ]
+    stage(root, acquired, {source: serialize(proposed)}, selected)
+    first = review_fixture(root, acquired, service)
+    assert first["review"]["limitations"][0]["treatment"] is None
+    with pytest.raises(ValueError, match="limitations/structure"):
+        m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
+    with (
+        patch.object(TaskValidation, "git_paths", _callback_limited_task_paths),
+        pytest.raises(ValueError),
+    ):
+        task_contract.complete(root, "tasks/import-fixture.md")
+    selection_path = Path(acquired["selection"])
+    selection = json.loads(selection_path.read_text())
+    selection["limitations"] = [
+        {
+            "record": selected[0]["record"],
+            "property": kind + ".UseServiceLinkedRole",
+            "reasonCode": "REQUEST_INPUT_NOT_OBSERVABLE",
+            "treatment": "retain_existing",
+            "reason": "Explicitly retain the existing input without an AWS confirmation",
+        }
+    ]
+    selection_path.write_text(json_text(selection))
+    reviewed = review_fixture(root, acquired, service)
+    binding = import_approval.review_binding(
+        reviewed["review"],
+        import_guard.read_acquisition(
+            root, Path(acquired["evidence"]), ("dev", ACCOUNT, service), False
+        ),
+    )
+    count = len(cli.calls)
+    sealed = import_guard.read_acquisition(
+        root, Path(acquired["evidence"]), ("dev", ACCOUNT, service), False
+    )
+    (Path(acquired["evidence"]).parent / "checkpoint.json").write_text(
+        json_text(import_approval.checkpoint(sealed, selected))
+    )
+    resumed = m.resume_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
+    assert resumed["status"] == "resumed" and resumed["answers"] == selected
+    # The fixture represents consent to this unchanged Review; Python checks integrity only.
+    result = m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
+    assert result["status"] == "complete" and len(cli.calls) == count
+    proof = import_guard.read_proof(root)
+    assert proof["complete"] and proof["completion"] == {
+        "acquisition": True,
+        "properties": True,
+        "review": True,
+    }
+    assert proof["observationComplete"] is False and proof["reviewBinding"] == binding
+    after = load_model(path)
+    assert (
+        after.authoritative["desired.row.001-002.value"]
+        == values["desired.row.001-002.value"]
+    )
+    assert "observed.row.001-002.value" not in after.authoritative
+    import_guard.require_import_changes(root)
+    with patch.object(TaskValidation, "git_paths", _callback_limited_task_paths):
+        task_contract.complete(root, "tasks/import-fixture.md")
+    assert "Task status: `completed`" in (root / "tasks/import-fixture.md").read_text()
 
 
 if __name__ == "__main__":

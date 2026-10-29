@@ -43,6 +43,7 @@ import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from model.core import entries as entries
 from model.importing import approval as import_approval
+from model.importing import limitations
 from model.importing.evidence import (
     acquired,
     acquisition_complete,
@@ -55,6 +56,7 @@ from model.importing.evidence import (
     discard_acquisition as discard_acquisition,
 )
 from model.importing.inventory import inventory_for
+from model.importing.limitations import sensitive as sensitive
 from model.importing.scope import (
     model_path,
     read_consumers,
@@ -241,16 +243,6 @@ def record_outputs(root, identity, sources, views, consumers=None):
             )
 
 
-def sensitive(resource, prop):
-    return resource.module.sensitive(prop or "") or bool(
-        re.search(
-            r"password|credential|accesskey|secretstring|secretbinary|privatekey|token|authorization|username",
-            prop or "",
-            re.I,
-        )
-    )
-
-
 def unsafe(value):
     text = json_text(value)
     return (
@@ -434,12 +426,20 @@ def _normalize_records(ctx, service, records):
             )
         captured = {}
         for prop, field in fields.items():
+            restriction = limitations.contract(
+                ctx.root, prop, "withheld" if sensitive(proxy, prop) else "unobservable"
+            )
+            if restriction is not None:
+                captured[prop] = restriction
+                continue
             try:
                 if sensitive(proxy, prop):
                     raise ValueError("sensitive Property")
-                if field.classification != "supported":
+                if prop in record.get("selectorProperties", {}):
+                    value = record["selectorProperties"][prop]
+                elif field.classification != "supported":
                     raise ValueError(field.classification + ": " + field.reason)
-                if prop in properties and field.getter != "tags":
+                elif prop in properties and field.getter != "tags":
                     _, value = mapping_value(
                         ctx, proxy, mapping, properties[prop], prop
                     )
@@ -467,7 +467,11 @@ def _normalize_records(ctx, service, records):
                     "status": "captured",
                     "value": value,
                     "valueShape": shape,
-                    "source": properties[prop].source if prop in properties else "aws",
+                    "source": "verified_selector"
+                    if prop in record.get("selectorProperties", {})
+                    else properties[prop].source
+                    if prop in properties
+                    else "aws",
                 }
             except (
                 ValueError,
@@ -483,7 +487,15 @@ def _normalize_records(ctx, service, records):
                     if sensitive(proxy, prop)
                     else type(error).__name__
                 )
-                captured[prop] = {"status": "unavailable", "reason": reason}
+                captured[prop] = {
+                    "status": "unavailable",
+                    "reason": reason,
+                    **(
+                        {"errorCode": error.code}
+                        if isinstance(error, m.AcquisitionError)
+                        else {}
+                    ),
+                }
         identity = inventory_for(ctx).identity(kind, record)
         normalized.append(
             {
@@ -492,6 +504,11 @@ def _normalize_records(ctx, service, records):
                 "identity": record["identity"],
                 **identity,
                 "properties": captured,
+                **{
+                    key: record[key]
+                    for key in ("provenance", "structureStatus", "structureReason")
+                    if key in record
+                },
             }
         )
     return normalized
