@@ -232,7 +232,17 @@ def require_complete(root, task):
             for name, receipt in state.get("deployCheckpoints", {}).items()
         )
     ):
-        raise ws.Blocked("Deploy Task still has unfinished Stack checkpoints")
+        raise ws.Blocked(
+            "Deploy Task still has unfinished Stack checkpoints; missing receipts: "
+            + ", ".join(
+                sorted(
+                    set(state["deployIdentity"]["stacks"])
+                    - set(state.get("deployCheckpoints", {}))
+                )
+            )
+            + "; retain AWS/Observed/Git evidence and review original checkpoint records; "
+            "restore only verified durable evidence, never rerun AWS or regenerate receipts automatically"
+        )
     publication = state.get("deployPublication", {})
     if (
         state.get("deployCheckpointIntent")
@@ -253,7 +263,15 @@ def require_complete(root, task):
             "Deploy Git publication remains pending; AWS success is retained"
         )
     if progress["stepwise"]:
-        wt._worktree_runtime().checkpoint_source(root, state, progress)
+        try:
+            wt._worktree_runtime().checkpoint_source(root, state, progress)
+        except ws.Blocked as error:
+            raise ws.Blocked(
+                str(error)
+                + "; Task completion refused; retain AWS/Observed/Git evidence and "
+                "review original checkpoint records; restore only verified durable evidence, "
+                "never rerun AWS or regenerate receipts automatically"
+            ) from error
 
 
 def discard_progress(state):

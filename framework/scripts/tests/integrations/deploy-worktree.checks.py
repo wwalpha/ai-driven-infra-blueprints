@@ -676,7 +676,9 @@ def check_stepwise_final_contract_checkpoint(boundary):
         assert wt.cleanup(primary, "deploy")["cleaned"]
 
 
-@pytest.mark.parametrize("problem", ["target", "commit", "zero"])
+@pytest.mark.parametrize(
+    "problem", ["target", "commit", "zero", "coverage", "services"]
+)
 def check_task_completion_rechecks_checkpoint_receipts(problem):
     with stepwise_repository() as (primary, backend, relative):
         root = backend.root
@@ -702,6 +704,10 @@ def check_task_completion_rechecks_checkpoint_receipts(problem):
             }
         elif problem == "commit":
             state["deployCheckpoints"]["A"]["commit"] = "unrecorded-commit"
+        elif problem == "coverage":
+            state["deployCheckpoints"]["A"]["coverage"] = {"ec2": {"other": True}}
+        elif problem == "services":
+            state["deployCheckpoints"]["A"]["services"] = ["other"]
         else:
             assert (
                 state["deployCheckpoints"]["A"]["commit"]
@@ -728,7 +734,8 @@ def check_task_completion_rechecks_checkpoint_receipts(problem):
         )
 
 
-def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
+@pytest.mark.parametrize("missing", [None, "one", "all"])
+def check_stepwise_success_while_peer_running(tmp_path, monkeypatch, missing):
     report, aws = tmp_path / "report.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", report, "orders", same_group=True)
     primary = Path(ws.load(root, "deploy")[0])
@@ -783,6 +790,37 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
         invoke(root, report, aws, ["--action", "checkpoint", "--sync-stack", second])
         == 0
     )
+    _, _, path, lifecycle = wt.load(root, "deploy")
+    if missing == "one":
+        lifecycle["deployCheckpoints"].pop(first)
+    elif missing == "all":
+        lifecycle["deployCheckpoints"] = {}
+    if missing:
+        wt.save(path, lifecycle)
+        evidence = worktree.progress_path(root).read_bytes()
+        metadata = path.read_bytes()
+        provider = aws.read_bytes()
+        heads = [git(where, "rev-parse", "HEAD") for where in (primary, root)]
+        statuses = [git(where, "status", "--porcelain") for where in (primary, root)]
+        with selected_task(root, "tasks/deploy.md"):
+            with pytest.raises(ValueError, match="missing receipts:.*" + first):
+                tasks.complete(root, "tasks/deploy.md")
+        assert (
+            read_task_snapshot(root, "tasks/deploy.md", live=True).status == "running"
+        )
+        assert worktree.progress_path(root).read_bytes() == evidence
+        assert path.read_bytes() == metadata
+        assert aws.read_bytes() == provider
+        assert [git(where, "rev-parse", "HEAD") for where in (primary, root)] == heads
+        assert [
+            git(where, "status", "--porcelain") for where in (primary, root)
+        ] == statuses
+        assert lifecycle["deployPublication"]["status"] == "SUCCESS"
+        assert all(
+            saved["status"] == "SUCCESS" and saved["observedSynced"]
+            for saved in worktree.read_progress(root, lifecycle)["states"].values()
+        )
+        return
     with selected_task(root, "tasks/deploy.md"):
         worktree.require_complete(
             root, read_task_snapshot(root, "tasks/deploy.md", live=True)

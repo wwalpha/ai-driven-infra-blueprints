@@ -327,6 +327,8 @@ def checkpoint_source(root, state, progress, source=None):
             or not saved.get("observedSynced")
             or entry.get("stackId") != saved.get("stackId")
             or entry.get("stackStatus") != saved.get("stackStatus")
+            or entry.get("coverage", {}) != saved.get("observedCoverage", {})
+            or entry.get("services", []) != saved.get("observedServices", [])
             or (
                 entry["commit"] != state["tip"]
                 and not wt.ancestor(root, entry["commit"], state["branch"])

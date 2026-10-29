@@ -266,6 +266,8 @@ def checkpoint_evidence(tmp_path, monkeypatch):
                 "unit": unit,
                 "stackId": "stack-a",
                 "stackStatus": "CREATE_COMPLETE",
+                "coverage": {"ResourceA": {"status": "MATCHED"}},
+                "services": ["ec2"],
             }
         },
     }
@@ -280,6 +282,8 @@ def checkpoint_evidence(tmp_path, monkeypatch):
                 "observedSynced": True,
                 "stackId": "stack-a",
                 "stackStatus": "CREATE_COMPLETE",
+                "observedCoverage": {"ResourceA": {"status": "MATCHED"}},
+                "observedServices": ["ec2"],
             }
         },
         "inputDigests": {"A": digest},
@@ -331,13 +335,19 @@ def check_publication_requires_exact_saved_checkpoint(
         "normal",
         "zero",
         "receipt",
+        "noReceipts",
         "digest",
         "target",
         "unit",
         "commit",
         "tree",
         "stackId",
+        "stackStatus",
+        "coverage",
+        "services",
         "task",
+        "checkpointIntent",
+        "checkpointPending",
         "gitPending",
         "gitConflict",
         "batch",
@@ -369,6 +379,8 @@ def check_final_completion_rechecks_saved_checkpoint_evidence(
     entry = state["deployCheckpoints"]["A"]
     if problem == "receipt":
         state["deployCheckpoints"].pop("A")
+    elif problem == "noReceipts":
+        state["deployCheckpoints"] = {}
     elif problem == "digest":
         entry["inputDigest"] = "other"
     elif problem == "target":
@@ -382,8 +394,18 @@ def check_final_completion_rechecks_saved_checkpoint_evidence(
         entry["tree"] = "other"
     elif problem == "stackId":
         entry["stackId"] = "other"
+    elif problem == "stackStatus":
+        entry["stackStatus"] = "UPDATE_COMPLETE"
+    elif problem == "coverage":
+        entry["coverage"] = {"ec2": {"missing": True}}
+    elif problem == "services":
+        entry["services"] = ["other"]
     elif problem == "task":
         entry["taskDigest"] = "other"
+    elif problem == "checkpointIntent":
+        state["deployCheckpointIntent"] = {"head": "checkpoint"}
+    elif problem == "checkpointPending":
+        progress["checkpointPending"] = {"stacks": ["A"]}
     elif problem == "zero":
         entry["commit"] = state["tip"]
     elif problem in {"gitPending", "gitConflict"}:
