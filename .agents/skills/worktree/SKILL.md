@@ -17,7 +17,7 @@ When performing validation/integration, read [Validation scope](../../../framewo
 
 ## Sandbox permission approval and continuation
 
-Apply this procedure to **create, setup (when needed), finalize and cleanup**, regardless of the Codex model. The agent requests permissions through its execution tool; the Python helper cannot open the platform's approval UI. Do not end the task merely because a sandboxed helper invocation returns `status: blocked` with a write denial.
+Apply this procedure to **create, setup (when needed), normal Deploy checkpoint, finalize and cleanup**, regardless of the Codex model. The agent requests permissions through its execution tool; the Python helper cannot open the platform's approval UI. Do not end the task merely because a sandboxed helper invocation returns `status: blocked` with a write denial.
 
 Before **each operation**, inspect the relevant Git/Task/lock state and the execution environment's effective Sandbox restrictions using read-only information. Determine the actual write destinations for that operation, including the Git common directory, linked worktree administration/index, lifecycle metadata and, for create/setup when needed, the shared Python environment. Compare resolved paths with the effective policy, including protected exceptions and symlinks. Do not probe by writing or infer a denial from ordinary filesystem permissions alone. If the policy confirms a required destination is protected, request native permission on the **first invocation**, including for a new Task; a prior denial is not required. If normal access is allowed, run normally without an unnecessary approval. If restrictions or destinations are unknown, do not assume either access or denial: use the ordinary invocation and identify any failure below. Keep knowledge only in the current execution context; add no persistent permission-state file. Finalize/cleanup guards and the Python helper remain unchanged.
 
@@ -149,6 +149,10 @@ python3 -B framework/scripts/worktree_task.py cleanup --task-id <task-id>
 Cleanup success and failure JSON include `cleanup.phase`, `cleanup.remaining` (checkout, Git registration, branch and task-state presence), `cleanup.stop_reason`, `cleanup.retry_command` and `cleanup.next_action`. A blocked result requires resolving its stop reason before retrying; the retry command is not permission to bypass a guard. A missing checkout alone does not mean cleanup completed. After a partial removal, use the same official cleanup command from a surviving checkout containing this recovery implementation.
 
 Different worktrees still share AWS resources. Cross-worktree AWS mutation locking is a separate responsibility; this skill adds none and does not relax existing deployment controls.
+
+## Normal Deploy Stack checkpoints
+
+`cloudformation-deploy.py --action checkpoint --sync-stack <StackName>` uses the separate `worktree_task.deploy_stack_checkpoint` lifecycle operation. It requires the registered running infrastructure Task, exact synchronized Model/view candidate, complete generation, scoped validation, current AWS success and a clean available registered base. Only that candidate is staged. A durable intent pins parent/tree/Task/Stack scope before commit; the same commit is verified after interruption and merged ff-only without rebase. Empty candidates create no commit. Current-Task `deployCheckpoints` receipts acknowledge integrated Stacks; the unfinished Operation Journal is acknowledged only after the receipt is durable. No Task completion, cleanup or repair handoff is implied. Base advancement or foreign changes stop safely. Finalize/cleanup remain the final Task operations.
 
 ## Explicit CloudFormation repair handoff
 

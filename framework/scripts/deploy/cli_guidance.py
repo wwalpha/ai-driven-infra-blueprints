@@ -40,13 +40,27 @@ Failures return stage/cause/nextAction; command=null means stop for review.
 """
 
 CONTROLLER_HELP = """Examples (use the current Task, target and exact Deployment scope):
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action advance
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action sync --sync-stack app-network
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action checkpoint --sync-stack app-network
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --profile app-dev
   env BLUEPRINT_TASK_FILE=tasks/update-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --sequential --pause-after-group
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --recover-operations
 
 Existing Task: running infrastructure deploy/update, explicit AWS/Deploy permission,
-matching environment/account/alias and exact StackName scope are required. Deploy
-inputs must be committed. Each invocation is independent and uses latest inputs.
+matching environment/account/alias and exact StackName scope are required.
+Managed Worktree short operations: advance starts/polls one turn and returns without
+Model writes; status returns AWS/Observed/generation/checkpoint and nextActions without
+publication or Git. The LLM chooses sync timing and explicit successful --sync-stack
+names, then checkpoint after generation. Repeat --sync-stack for a shared candidate.
+Checkpoint validates the candidate and ff-only merges into the registered local base;
+Task stays running. Advanced base/foreign differences stop without automatic rebase.
+Retry the same action after interruption; original tokens, publication and commit
+intents are reconciled. All four barriers are required for COMPLETE. No automatic Reset.
+Omitting --action retains the compatibility batch controller. Do not mix it or legacy
+--recover-operations into an unfinished short-operation Journal.
+Status reports the last verified Stack state; advance obtains fresh AWS observations.
+Compatibility batch Deploy inputs must be committed; each batch uses latest inputs.
 Repeat --stack for multiple Stacks; MaxConcurrentStacks is the Model limit within
 one DeployOrder group. --sequential only lowers it to one; no CLI numeric override.
 --pause-after-group is update-only. GROUP_COMPLETE is a producer/consumer handoff,
@@ -128,6 +142,10 @@ non-sensitive outputs, or read-only state attributes if outputs are absent; requ
 agreement if both exist. Synchronize only authorized observations/generated views.
 See framework/rules/terraform.md#validation-and-execution for authoritative boundaries.
 """
+
+
+class DeployStepBlocked(ValueError):
+    """Framework-authored step precondition; never wrap raw AWS/parameter errors."""
 
 
 class PreparationError(ValueError):
@@ -247,7 +265,9 @@ def safe_error(error):
     }
     if diagnostics:
         result["diagnostics"] = diagnostics
-    if isinstance(error, PreparationError):
+    if isinstance(error, DeployStepBlocked):
+        result.update(code="DEPLOY_STEP_BLOCKED", reason=str(error))
+    elif isinstance(error, PreparationError):
         if error.code in {
             "PREPARATION_INPUT_CHANGED",
             "PREPARATION_ENVIRONMENT_INCOMPLETE",

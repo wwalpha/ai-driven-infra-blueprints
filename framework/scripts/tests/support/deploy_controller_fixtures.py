@@ -93,6 +93,7 @@ def seed(root, state_path, case="orders", *, same_group=False):
         template.write_text(json.dumps(document))
     services = ["s3", "ec2"]
     fixture["data"]["s3"].update(fixture["data"].get("s3_extra", {}))
+    fixture["data"]["ec2"].update(fixture["data"].get("ec2_extra", {}))
     model = root / "model/dev" / ACCOUNT
     stack_values = {"desired.deployment.maxConcurrentStacks": "2"}
     stacks = fixture["data"]["stacks"]

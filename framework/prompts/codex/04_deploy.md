@@ -30,7 +30,23 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/check-deploy-con
 
 Helpの例示Target・パス・IDは今回の確定値へ置換する。JSONの`stage`・`cause`・`nextAction`を確認し、`command: null`では操作を推測しない。案内は権限・承認を与えない。
 
-Preparationはoffline。AIが契約候補と出力範囲を確認してから登録する。Controllerが所有する認証、Stack対応、入力検証、AWS取得、Observed同期・生成をAI側から重複実行しない。
+Preparationはoffline。AIが契約候補と出力範囲を確認してから登録する。登録済みWorktreeでは起動先は短時間の`--action advance`。認証、Stack対応、入力検証、AWS取得、Observed同期・生成は既存Pythonを使い、AIが同種の処理を再実装しない。
+
+## LLM-controlled Stack checkpoints
+
+同じTask・Target・完全な`--stack`範囲を毎回指定し、次の操作をLLMが順番に選ぶ。
+
+1. `--action advance`で実行可能なAWS Stackを先に投入する。各呼出しはRUNNINGを1回確認し、同じDeployOrderと並列上限を守って空き枠へ投入して戻る。CloudFormationはCLI終了後もAWS側で進む。
+2. `--action status`でStack別AWS/Observed/生成/checkpointと次の操作を確認する。直ちに投入可能なAWS操作があれば先にadvanceする。
+3. AWS実行中に直ちに行うAWS操作がなければ、成功済み未同期Stackを選び`--action sync --sync-stack <StackName>`を実行する。対象成功の再確認、全リソースの識別子確認、Observedのみの保存、参照伝播と必要な生成はPythonが行う。
+4. 同期・生成完了後、`--action checkpoint --sync-stack <StackName>`で必要な検証と対象差分だけのcommit・ローカル基底へのff-only統合を行う。Taskはrunningを維持する。基底名は登録済みWorktreeのmain/master設定で確定し、推測して別branchへ統合しない。
+5. checkpoint後はadvanceへ戻る。全StackのAWS成功、Observed全件確認、必要生成とcheckpointが完了した場合だけDeploy全体を完了とする。
+
+`--sync-stack`は同期・checkpointだけに指定し、不可分な候補には全対象を繰り返す。Producer依存で生成不能なViewだけを既存待機キューに残す。依存解消後にLLMがsyncを再実行するまでcheckpointしない。更新0件でも全実値確認が必要。desired、IMPORT実体、秘匿ARN規則は維持する。
+
+Sub Agent、PythonによるLLM制御、Model自動更新スケジューラ、背景Model writer、固定間隔自動同期を使わない。保存中は同じWorktreeの入力を編集しない。checkpointの途中に最終finalizeを使わない。
+
+中断時は同じ短時間操作を再実行し、元Stack/ChangeSet/Token、保存publication、commit intentと統合済みreceiptを照合する。Journalの未知・破損を理由にResetしない。基底進行や第三者差分では停止し、強制統合・自動rebase・resetをしない。`--action`省略の従来一括実行と`--recover-operations`は互換入口として残るが、短時間操作の未完了Journalには混用できない。
 
 ## Confirm unapproved delete/replacement
 

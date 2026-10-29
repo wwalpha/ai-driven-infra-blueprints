@@ -14,6 +14,7 @@ from model.adapters.observed import (
     propagate_references,
     reference_key,
     resolve_resources,
+    static_export_handle,
 )
 from model.identity import resource_link
 from utils.cloudformation.inputs import Blocked as Blocked
@@ -170,13 +171,43 @@ def collect_successful(backend, units, states, *, generated_views=None):
         target=backend.target,
     )
     catalog = DesignSchemaCatalog(root) if loaded else None
+    for unit in units:
+        states[unit["name"]]["observedServices"] = sorted(
+            {entry[0].stem for entry in mapped[unit["name"]].values()}
+        )
     changes, identifiers = {}, {}
     for unit in units:
         name = unit["name"]
         document, parameters = backend.templates[name]
+        coverage = {}
+        states[name]["observedCoverage"] = coverage
+        pseudo = {
+            "AWS::StackName": name,
+            "AWS::Region": backend.target["awsRegion"],
+            "AWS::AccountId": backend.target.get(
+                "awsExecutionAccountId", backend.target["awsAccountId"]
+            ),
+        }
+        for logical in document.get("Resources", {}) | removed.get(name, {}):
+            if logical not in selected[name]:
+                coverage[logical] = {
+                    "status": "EXCLUDED",
+                    "reason": "Condition inactive or retained/identity-free removal",
+                }
+            elif logical not in mapped[name]:
+                if not static_export_handle(document, logical, parameters, pseudo):
+                    ambiguous(f"{name}/{logical}: selected resource was not mapped")
+                coverage[logical] = {
+                    "status": "EXCLUDED",
+                    "reason": "proven static Parameter Export scaffold",
+                }
+            else:
+                coverage[logical] = {"status": "UNRESOLVED"}
         if not mapped[name]:
             continue
-        stack = backend.aws("describe_stacks", StackName=name)["Stacks"][0]
+        stack = backend.aws(
+            "describe_stacks", StackName=states[name].get("stackId", name)
+        )["Stacks"][0]
         planned = (
             getattr(backend, "run_context", {})
             .get("pendingObserved", {})
@@ -213,6 +244,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
         ].items():
             if logical in removed.get(name, {}):
                 if not selected_outputs:
+                    coverage[logical] = {"status": "NO_IDENTIFIER"}
                     continue  # Integrated children have no independent identifier to reset.
                 if not deleted_resource(
                     backend,
@@ -222,6 +254,10 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     states[name],
                     by_logical,
                 ):
+                    coverage[logical] = {
+                        "status": "EXCLUDED",
+                        "reason": "physical resource retained/DELETE_SKIPPED",
+                    }
                     continue
                 for rid, row in rows:
                     if row["property"] in selected_outputs:
@@ -232,11 +268,16 @@ def collect_successful(backend, units, states, *, generated_views=None):
                             root / "docs/designs" / path.relative_to(root / "model")
                         ).with_suffix(".md")
                         identifiers[own_key(path, resource)] = "PENDING_DEPLOY"
+                coverage[logical] = {"status": "UPDATED", "reason": "confirmed removal"}
                 continue
             definition = document["Resources"][logical]
             actual = by_logical.get(logical)
             if not actual or actual["ResourceType"] != definition["Type"]:
                 ambiguous(f"{name}/{logical}: actual resource missing/type mismatch")
+            if not selected_outputs:
+                coverage[logical] = {"status": "NO_IDENTIFIER"}
+            checked = set()
+            updated = False
             for rid, row in rows:
                 prop = row["property"]
                 if prop not in selected_outputs:
@@ -274,6 +315,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 if (
                     not isinstance(value, str)
                     or not value
+                    or value == "PENDING_DEPLOY"
                     or re.search(r"\barn:aws[a-z-]*:", value, re.I)
                     or any(c in value for c in "\r\n`")
                 ):
@@ -294,9 +336,25 @@ def collect_successful(backend, units, states, *, generated_views=None):
                         f"{name}/{logical}: multiple identifiers for one Resource"
                     )
                 identifiers[anchor_key] = value
+                checked.add(prop)
+                updated |= loaded[path].get(f"observed.row.{rid}.value") != f"`{value}`"
                 changes.setdefault(path, {})[f"observed.row.{rid}.value"] = f"`{value}`"
+            if checked != set(selected_outputs):
+                ambiguous(
+                    f"{name}/{logical}: required identifiers were not all confirmed"
+                )
+            if checked:
+                coverage[logical] = {"status": "UPDATED" if updated else "MATCHED"}
+        if any(item["status"] == "UNRESOLVED" for item in coverage.values()):
+            ambiguous(f"{name}: unresolved Observed resource coverage")
     if not changes:
-        return {}, [], None
+        if not getattr(backend, "run_context", {}).get("stepwise"):
+            return {}, [], None
+        changes = {
+            entry[0]: {} for mapping in mapped.values() for entry in mapping.values()
+        }
+        if not changes:
+            return {}, [], None
     propagate_references(root, loaded, changes, identifiers)
     destinations, views, sync = observed_destinations(
         root, environment, directory, loaded, changes

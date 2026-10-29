@@ -58,6 +58,9 @@ OPERATION_FIELDS = {
     "cleanupStackId",
     "failureTemplateSafety",
     "bootstrap",
+    "bootstrapAttempted",
+    "emptyStackRecreated",
+    "failureEvents",
     "preparationId",
     "changeSetStarted",
     "changeSetCreateSeconds",
@@ -65,6 +68,13 @@ OPERATION_FIELDS = {
     "noChangeEvidence",
     "preExecutionRecovery",
     "delivery",
+    "checkpointRequired",
+    "observedCoverage",
+    "observedServices",
+    "failure",
+    "schedulerError",
+    "pollReadFailures",
+    "unconfirmedPolls",
 }
 PUBLICATION_FIELDS = {
     "repository",
@@ -79,6 +89,13 @@ PUBLICATION_FIELDS = {
     "modelInputs",
     "inputDigests",
     "generationProducers",
+    "stepwise",
+    "stepUnits",
+    "consumedInputs",
+    "inputIdentities",
+    "checkpointPending",
+    "generationError",
+    "currentFailure",
 }
 
 
@@ -221,7 +238,14 @@ def target_identity(target):
 
 def unfinished(state):
     return bool(
-        state.get("bootstrap")
+        state.get("checkpointRequired")
+        and (
+            state.get("status") != "NOT_STARTED"
+            or state.get("emptyStackRecreated")
+            or state.get("bootstrapAttempted")
+            or state.get("cleanupStatus")
+        )
+        or state.get("bootstrap")
         or state.get("cleanupStatus") == "DELETE_INTENT"
         or state.get("status") == "RUNNING"
         or state.get("status") == "SUCCESS"
@@ -234,6 +258,10 @@ def unfinished(state):
 
 
 def operation_record(backend, unit, fields=OPERATION_FIELDS):
+    if backend.run_context.get("stepwise"):
+        unit = next(
+            u for u in backend.run_context["stepUnits"] if u["name"] == unit["name"]
+        )
     return {
         "unit": copy.deepcopy(unit),
         "inputDigest": backend.run_context["inputDigests"].get(unit["name"]),
@@ -294,6 +322,7 @@ def save(path, backend):
             unit["name"]: operation_record(backend, unit)
             for unit in backend.units
             if unfinished(backend.states[unit["name"]])
+            or unit["name"] in context.get("checkpointPending", {}).get("stacks", [])
         }
     )
     publication = {}
@@ -464,10 +493,26 @@ def recover(backend, path, task, scope):
     backend.prepared_operations = {}
     backend.pending_publication = {}
     backend.retained_records = read(path) or []
+    if any(
+        r["publication"].get("stepwise")
+        and (
+            set(scope) & r["operations"].keys()
+            or r["publication"].get("repository") == str(backend.root)
+            and r["publication"].get("taskFile") == task.name
+        )
+        for r in backend.retained_records
+    ):
+        raise Blocked(
+            "LLM-controlled operation pending; use --action advance/sync/checkpoint/status, never reset"
+        )
     selected = set(scope)
     for record in backend.retained_records:
         if target_identity(record["target"]) != target_identity(backend.target):
             raise Blocked("unfinished operation Account/Region changed")
+        if record["publication"].get("stepwise"):
+            for name, operation in record["operations"].items():
+                validate_operation(record["target"], name, operation)
+            continue
         for name, operation in list(record["operations"].items()):
             validate_operation(record["target"], name, operation)
             if name not in selected and not aws_unfinished(
@@ -872,6 +917,27 @@ def aws_unfinished(target, name, operation, aws, *, boundary=None):
     if name in cache:
         return cache[name]
     state = operation["state"]
+    if (
+        state.get("checkpointRequired")
+        and state.get("status") == "FAILED"
+        and state.get("executionEvidence")
+    ):
+        validate_operation(target, name, operation)
+        stack = aws("describe_stacks", StackName=state["stackId"])["Stacks"][0]
+        events = aws("describe_stack_events", StackName=state["stackId"])["StackEvents"]
+        cache[name] = not (
+            stack.get("StackId") == state["stackId"]
+            and stack.get("StackStatus") == state.get("stackStatus")
+            and stack.get("StackStatus") in FAILED
+            and any(
+                e.get("StackId") == state["stackId"]
+                and e.get("ClientRequestToken") == state["clientToken"]
+                and e.get("ResourceType") == "AWS::CloudFormation::Stack"
+                and e.get("ResourceStatus") == state["stackStatus"]
+                for e in events
+            )
+        )
+        return cache[name]
     evidence = state.get("noChangeEvidence")
     if (
         evidence is not None

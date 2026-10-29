@@ -105,6 +105,11 @@ base:
       desired.row.002-005.comment: 名前
 cases:
   orders: {}
+  matched:
+    data:
+      ec2_extra:
+        observed.row.001-001.value: '`vpc-fixture`'
+        observed.row.002-001.value: '`subnet-fixture`'
   same-group:
     data:
       same_group: true

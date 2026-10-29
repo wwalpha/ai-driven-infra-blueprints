@@ -273,13 +273,16 @@ def dependency_read(
 ) -> JsonObject:
     if operation not in {
         "describe_stacks",
+        "describe_stack_events",
         "describe_change_set",
         "get_template",
         "list_exports",
         "list_imports",
     }:
         raise Blocked("repair dependency proof permits only Import/Export reads")
-    if operation == "describe_stacks" and not arguments.get("StackName"):
+    if operation in {"describe_stacks", "describe_stack_events"} and not arguments.get(
+        "StackName"
+    ):
         raise Blocked("repair dependency proof requires a scoped StackName")
     return getattr(cloudformation, operation)(connection, **arguments)
 

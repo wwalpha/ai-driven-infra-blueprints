@@ -1450,9 +1450,12 @@ def check_integrated_child_mapping(project_workspace):
         {k: v for k, v in resources.items() if k not in children}
     )
     state = states([unit])
-    with patch(
-        "deploy.observed.resolve_resources",
-        return_value=(plan[0], {unit["name"]: children}),
+    with (
+        patch("deploy.observed.selected_resources", return_value=set(children)),
+        patch(
+            "deploy.observed.resolve_resources",
+            return_value=(plan[0], {unit["name"]: children}),
+        ),
     ):
         publish_collected(backend, [unit], state)
     assert state[unit["name"]]["observedSynced"]
@@ -1475,9 +1478,12 @@ def check_integrated_child_mapping(project_workspace):
             ]
         }
     )
-    with patch(
-        "deploy.observed.resolve_resources",
-        return_value=(plan[0], {unit["name"]: children}),
+    with (
+        patch("deploy.observed.selected_resources", return_value=set(children)),
+        patch(
+            "deploy.observed.resolve_resources",
+            return_value=(plan[0], {unit["name"]: children}),
+        ),
     ):
         publish_collected(backend, [unit], state)
     assert before == {path: path.read_bytes() for path in before}

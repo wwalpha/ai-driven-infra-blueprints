@@ -2548,7 +2548,7 @@ observed-resume UTはCIで毎回実行する。IT runnerとGitHub Actionsの入�
 
 | Case ID | Check | Class | File | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
-| `external-repair::round-trip` | `check_external_implement_round_trip` | IT | [integrations/worktree-deploy-repair.checks.py](integrations/worktree-deploy-repair.checks.py) | pytest / 2 | 管理worktree固有の依存indexを準備し、normalの実CLI修復とmerge直後中断から再開。Fake AWS待機なし・有界poll・Patch復元 | 統合境界のみ |
+| `external-repair::round-trip` | `check_external_implement_round_trip` | IT | [integrations/worktree-deploy-repair.checks.py](integrations/worktree-deploy-repair.checks.py) | pytest / 4 | 管理worktree固有の依存indexを準備し、normalの実CLI修復とmerge直後中断から再開。Fake AWS待機なし・有界poll・Patch復元 | 統合境界のみ |
 | `external-repair::base-sync` | `check_sync_base_preserves_candidate` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L65) | direct / 1 | 実GitのBase更新と未commit候補の保持・同期後統合 | 統合境界のみ |
 | `external-repair::failure-classes` | `check_failure_classes` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py#L116) | pytest / 6 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::status-helpers-preserve-task-identity` | `check_status_helpers_preserve_task_identity` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py#L156) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
@@ -4338,6 +4338,26 @@ Task/approval/recovery cases retain their existing responsibilities.
 | `validation-result::real-policy` | `test_real_scoped_policy_aggregation` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 8 | CREATE/IMPORT, normal/Pending references and parent reservation on/off all finish real generation comparison and Policy validation with PASS/exit 0 | Existing Model fixture |
 | `validation-result::pending-final` | `test_pending_model_only_validation_and_final_acceptance` | UT | [units/model-reference-classification-unit.checks.py](units/model-reference-classification-unit.checks.py) | pytest / 14 | Normal Pending generation/comparison/Policy checks pass; invalid target/attribute/type, stale artifact, IaC failure and required-handler interruption remain reasoned FAIL/exit 1 | Existing Model fixture |
 
+
+## LLM-controlled Deploy and normal Stack checkpoints
+
+| Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `deploy-steps::advance` | `check_advance_returns_with_running_peers_without_sync` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | One turn, parallel peers, explicit sync and DeployOrder barrier | Fake backend, no Worktree |
+| `deploy-steps::execute-once` | `check_advance_retains_original_execute_after_interruption` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Original execution token and no duplicate Execute | Fake backend |
+| `deploy-steps::unfinished` | `check_checkpoint_pending_is_unfinished_even_after_observed` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Pending checkpoint is unfinished; completed state is removed | Synthetic states |
+| `deploy-steps::no-reset` | `check_corrupt_journal_is_never_reset` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Corrupt evidence retained without Reset | Private temporary journal |
+| `deploy-steps::coverage` | `check_every_identifier_is_confirmed` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 4 | Updated/matched, zero diff and missing actual identifier | Synthetic Model mapping and AWS replies |
+| `stack-checkpoint::restart` | `check_parallel_checkpoint_and_restart` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 6 | Parallel AWS, Model-only explicit sync, real main FF, before/after commit and after merge recovery, final completion | Managed Worktree lifecycle and Fake AWS |
+| `stack-checkpoint::guards` | `check_checkpoint_rejects_foreign_changes_and_preserves_success` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 3 | Foreign changes/base advancement rejected, completed peer retained after failure | Real Git, scoped publication and Fake AWS |
+| `stack-checkpoint::publication-crash` | `check_model_publication_interruption` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 1 | Process death inside Model publication, guarded reconciliation without Execute replay | Private synthetic Worktree |
+| `stack-checkpoint::generation-wait` | `check_generation_wait_and_resume` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 1 | Injected Producer wait uses real durable generation queue, blocks checkpoint and resumes after peer sync | Fake wait discovery; real Model/generation/Git |
+| `stack-checkpoint::zero-diff` | `check_zero_difference_checkpoint` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 1 | All identifiers already match, real generation/validation, no empty commit | Managed Worktree and Fake AWS |
+| `deploy-steps::runtime-pending` | `check_runtime_cleanup_returns_after_one_read` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Existing cleanup retains original StackId and returns after one read | Fake AWS, no wait |
+| `deploy-steps::safe-diagnostics` | `check_step_diagnostics_do_not_expose_unknown_error_values` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Authored stop reasons and hashed unknown exceptions remain distinct | Synthetic exceptions |
+| `deploy-steps::unrelated-owner` | `check_legacy_recovery_retains_unrelated_step_journal` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Compatibility recovery preserves another Task's pending step checkpoint | Signed temporary journal, no AWS |
+
+| `deploy-steps::unknown-poll` | `check_unknown_poll_stops_without_resubmit` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Unknown AWS state stops with original token and no new Execute | Fake backend |
 
 ## Human-authorized Deploy Operation Journal reset
 

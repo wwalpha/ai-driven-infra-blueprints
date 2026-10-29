@@ -39,6 +39,10 @@ InputPaths: TypeAlias = Callable[[Iterable[StackUnit]], list[Path]]
 
 
 class DeployRunContext(TypedDict, total=False):
+    stepwise: bool
+    stepUnits: list[StackUnit]
+    checkpointPending: JsonObject
+    currentFailure: str | None
     repository: str
     taskFile: str
     taskDigest: str

@@ -86,6 +86,14 @@ atomic publication/rollback; do not regenerate metadata or empty files during sy
 
 ## Observation publication
 
+Explicit Deploy sync reports coverage for every Stack resource: UPDATED, MATCHED,
+NO_IDENTIFIER, a reasoned EXCLUDED, or UNRESOLVED. Actual values must be confirmed
+for every applicable identifier before observedSynced is set, including zero-diff
+success. Conditions, retained/deleted resources, hidden ARN identifiers, proven static
+Export scaffolds and integrated children keep their existing selection rules. An
+unmapped selected resource, unavailable identifier or unvisited required row blocks
+completion. Update count alone is never evidence of complete synchronization.
+
 Observation publication uses the shared Model API with an explicit Row allowlist.
 Preserve non-observed fields, reference metadata, fixed placement and unrelated bytes.
 General synchronization cannot change IMPORT physical identity. Model/display saves are

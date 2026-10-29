@@ -143,6 +143,7 @@ def check_preparation():
         assert not any(name.startswith("infra/") for name in documents)
         assert "AGENTS.md" in documents and "target-summary" in documents
         assert all(name in plan["controllerArgv"] for name in STACKS)
+        assert "--action" not in plan["controllerArgv"]
         assert "readingCharacters" not in plan and "readingStages" not in plan
         assert all("readCharacters" not in doc for doc in plan["documents"])
         assert "framework/rules/task-contract.md" in documents

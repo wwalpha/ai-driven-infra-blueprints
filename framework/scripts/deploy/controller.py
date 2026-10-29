@@ -36,6 +36,7 @@ from deploy import (
     observed,
     operation_journal,
     secret_bootstrap,
+    steps,
 )
 from deploy import recovery as repair_ops
 from deploy import run_context as run_ops
@@ -795,6 +796,17 @@ def controller_main(
     )
     parser.add_argument("--profile")
     parser.add_argument(
+        "--action",
+        choices=("advance", "sync", "checkpoint", "status"),
+        help="short LLM-controlled operation; advance never publishes Model changes",
+    )
+    parser.add_argument(
+        "--sync-stack",
+        action="append",
+        default=[],
+        help="explicit successful StackName for sync/checkpoint; repeat for an indivisible candidate",
+    )
+    parser.add_argument(
         "--approve-change-set",
         action="append",
         default=[],
@@ -816,7 +828,13 @@ def controller_main(
         help="update phase only: explicit producer/consumer IaC handoff",
     )
     args = parser.parse_args(argv)
+    if args.action and (args.recover_operations or args.pause_after_group):
+        parser.error("--action cannot be combined with legacy recovery/group execution")
+    if bool(args.sync_stack) != (args.action in {"sync", "checkpoint"}):
+        parser.error("--sync-stack is required only with sync/checkpoint")
     root = (root if root is not None else Path.cwd()).resolve()
+    if args.action:
+        return steps.run(args, root, timing, create_runtime, load_units)
     return run_ops.run(
         args, root, timing, Path(__file__).parent.parent, create_runtime, load_units
     )

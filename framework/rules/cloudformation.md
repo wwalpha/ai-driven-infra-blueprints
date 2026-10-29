@@ -163,6 +163,46 @@ executorにHeadBucket/Location/Encryption/Policy、ListBucket、GetObject（固�
 
 ## Independent controller runs and execution timing
 
+### LLM-controlled short operations
+
+Managed Worktree Deploy may use explicit `--action advance|sync|checkpoint|status` on
+`cloudformation-deploy.py`. Preparation starts `advance`. The same current Task, Target
+and full Deployment scope remain mandatory. Advance performs one poll/prepare/execute
+turn with the existing concurrency/order/approval/input guards and returns without a
+completion wait or Model publication. LLM fills available AWS slots first, then selects
+successful `--sync-stack` names when AWS is waiting. Sync rechecks original AWS success,
+confirms every applicable resource identifier and uses existing atomic Observed and
+generation recovery. Status does no mutation, publication or Git operation.
+
+Only the LLM selects sync timing. No agents, Model background workers, fixed-period
+sync or Python-driven LLM control participate. Wait-only generation retains exact
+Producer/Consumer evidence; required unfinished generation blocks checkpoint. LLM may
+sync its Producer and retry an indivisible combined candidate explicitly.
+
+Normal Stack checkpoint is separate from repair-checkpoint and final finalize. Under
+the Worktree lifecycle lock it validates the exact authorized Model/view candidate,
+saves parent/tree/Task/Stack intent, commits only that candidate, and ff-only integrates
+into the registered local main/master base while the Task remains running. Unknown
+commits, foreign changes and an advanced base stop without automatic rebase/reset.
+Empty differences create no empty commit. Lifecycle receipts survive a crash between
+merge and Journal acknowledgement and last only until this Task's ordinary cleanup.
+The Journal retains pending checkpoint operations, never a completed deployment ledger.
+All AWS/Observed/generation/checkpoint barriers are required for COMPLETE.
+
+Repeat the same action after interruption; never Execute a RUNNING operation again.
+Uncertain submissions retain original IDs/Tokens. Pending publication uses existing
+ownership/CAS/rollback; commit/merge recovery verifies the saved exact intent. Do not
+mix the compatibility batch/recover entrance into an unfinished short-operation run.
+Reset remains exclusively a Human decision under the existing signed Plan/fence rules.
+Existing authorized Secrets bootstrap and failed-CREATE cleanup remain runtime recovery.
+In short operations cleanup performs one original-Stack read and returns pending;
+its existing token, provenance, safety and one-retry guards survive CLI boundaries.
+External Implement handoff remains separate. Only its verified exact child attribution
+can adopt repaired inputs; an inherited verified repair commit may join the next
+ff-only checkpoint. Other unintegrated commits remain blockers.
+
+### Compatibility batch execution
+
 `deploy/run_context.py` owns one memory-only DeployRunContext, immutable inputs and scheduler/Observed barriers. `deploy/operation_journal.py` owns only unfinished AWS and publication operations with target/account/Region exclusion. No old Session or Workflow data is read, migrated or mechanically deleted. Current Task, AWS permission, account/Region/profile, Stack ownership and destructive ChangeSet approval remain required.
 
 Each run reads current AWS status, creates CREATE/UPDATE ChangeSets from latest IaC and handles No Change without Execute. Previously successful Stacks are ordinary UPDATE candidates. Already-running AWS operations are observed before preparation; unknown state blocks. Verify every required Output/Export, including Outputs-only changes, using current Stack identity/status, actual OutputKey/OutputValue/ExportName and GetTemplate definition/value digests, without ListExports; missing exports never count as success and never cause Deploy to edit IaC.

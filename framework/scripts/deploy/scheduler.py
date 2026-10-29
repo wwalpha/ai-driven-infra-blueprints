@@ -64,9 +64,16 @@ def run_group(
     save: Save = lambda: None,
     sleep: Sleep = time.sleep,
     drain_only: bool = False,
+    single_step: bool = False,
 ) -> str:
     """Single event loop owns the queue; AWS executions overlap, Python decisions do not."""
-    pending = [unit for unit in units if states[unit["name"]]["status"] != "SUCCESS"]
+    pending = [
+        unit
+        for unit in units
+        if states[unit["name"]]["status"] != "SUCCESS"
+        or single_step
+        and not states[unit["name"]].get("observedSynced")
+    ]
     if not pending:
         return (
             "STOPPED"
@@ -141,11 +148,15 @@ def run_group(
             save()
         if any(s.get("pollReadFailures", 0) >= 3 for s in states.values()):
             return "STOPPED"
-        if any(
-            states[u["name"]]["status"] == "SUCCESS"
-            and not states[u["name"]].get("observedSynced")
-            for u in group
-        ) and hasattr(backend, "sync_completed"):
+        if (
+            any(
+                states[u["name"]]["status"] == "SUCCESS"
+                and not states[u["name"]].get("observedSynced")
+                for u in group
+            )
+            and not single_step
+            and hasattr(backend, "sync_completed")
+        ):
             if not backend.sync_completed():
                 stopped = True
         running = sum(states[unit["name"]]["status"] == "RUNNING" for unit in group)
@@ -273,4 +284,6 @@ def run_group(
                 for unit in group
             ):
                 return "STOPPED" if input_blocked else "GROUP_COMPLETE"
+        if single_step:
+            return "STOPPED" if stopped else "ACTIVE"
         sleep(5)

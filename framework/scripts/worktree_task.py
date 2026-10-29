@@ -12,6 +12,7 @@ from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_st
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 
 import task_contract as tasks
 import worktree_python as python_env
@@ -1027,6 +1028,12 @@ def deploy_request(where, request_path):
 
 def deploy_checkpoint(where, task_id, session_path):
     return _worktree_runtime().deploy_checkpoint(where, task_id, session_path)
+
+
+def deploy_stack_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
+    return module("worktree_checkpoint.py", "worktree_checkpoint").checkpoint(
+        backend, names
+    )
 
 
 def deploy_child_contract(target, state, request):

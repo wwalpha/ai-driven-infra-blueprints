@@ -103,13 +103,18 @@ def validate_parent(parent):
 
 
 @pytest.mark.parametrize("boundary", ["normal", "merge"])
-def check_external_implement_round_trip(tmp_path, monkeypatch, boundary):
+@pytest.mark.parametrize("mode", ["batch", "steps"])
+def check_external_implement_round_trip(tmp_path, monkeypatch, boundary, mode):
     report, aws = tmp_path / "run.json", tmp_path / "aws.json"
     parent = seed(tmp_path / "project", report, "repair")
     monkeypatch.chdir(parent)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
     aws_state(aws, repair=True)
-    assert invoke(parent, report, aws) == 2
+    assert (
+        drive_steps(parent, report, aws)
+        if mode == "steps"
+        else invoke(parent, report, aws)
+    ) == 2
     saved = json.loads(report.read_text())
     relative = "infra/cloudformation/templates/second.yaml"
     model = f"model/dev/{ACCOUNT}/ec2.properties"
@@ -155,9 +160,41 @@ def check_external_implement_round_trip(tmp_path, monkeypatch, boundary):
             parent, (parent / "tasks/deploy.md").read_text(), {relative}
         ) == {relative}
     # Independent current-input Deploy is a separate invocation, with no result/session entrance.
-    assert invoke(parent, report, aws) == 0
+    assert (
+        drive_steps(parent, report, aws)
+        if mode == "steps"
+        else invoke(parent, report, aws)
+    ) == 0
     assert not report.with_suffix(".operations.json").exists()
     validate_parent(parent)
+
+
+def drive_steps(parent, report, aws):
+    for _ in range(12):
+        result = invoke(parent, report, aws, ["--action", "advance"])
+        if result:
+            return result
+        saved = json.loads(report.read_text(encoding="utf-8"))
+        for name, state in saved["states"].items():
+            if state["status"] != "SUCCESS" or state.get("checkpointed"):
+                continue
+            assert (
+                invoke(parent, report, aws, ["--action", "sync", "--sync-stack", name])
+                == 0
+            )
+            assert (
+                invoke(
+                    parent,
+                    report,
+                    aws,
+                    ["--action", "checkpoint", "--sync-stack", name],
+                )
+                == 0
+            )
+        final = json.loads(report.read_text(encoding="utf-8"))
+        if all(s.get("checkpointed") for s in final["states"].values()):
+            return 0
+    raise AssertionError("short Deploy never completed")
 
 
 def managed_delivery(parent, request, relative, boundary, tmp_path):

@@ -156,7 +156,11 @@ def cleanup_failed_create(
     return True
 
 
-def wait_cleanup(aws, save, state):
+class RuntimePending(Blocked):
+    """The same owned AWS cleanup is still running; return control to the LLM."""
+
+
+def wait_cleanup(aws, save, state, *, single_step: bool = False):
     for _ in range(120):
         try:
             current = aws("describe_stacks", StackName=state["stackId"])["Stacks"][0][
@@ -172,6 +176,10 @@ def wait_cleanup(aws, save, state):
             return
         if current != "DELETE_IN_PROGRESS":
             raise Blocked("failed CREATE cleanup stopped: " + current)
+        if single_step:
+            raise RuntimePending(
+                "failed CREATE cleanup still running; poll the same StackId with advance"
+            )
         time.sleep(5)
     raise Blocked("failed CREATE cleanup timeout; inspect same StackId before resuming")
 
