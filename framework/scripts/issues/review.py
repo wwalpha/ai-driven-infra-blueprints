@@ -427,12 +427,30 @@ def mandatory_name_errors(artifact, name, actual):
         )
     suffix = target.get("suffix")
     applicable = applicable_patterns(artifact, name)
+    terminal_suffix_patterns = {
+        pattern
+        for entry in artifact["naming_context"]
+        .get("rules", {})
+        .get(kind.partition(".")[0], [])
+        for target_kind, target_prop, pattern, scope in naming_rules(entry["text"])
+        if target_kind == kind
+        and naming_target_matches(prop, {target_prop}, kind)
+        and scope == "mandatory"
+        and pattern.endswith("[-{{suffix}}]")
+    }
     if (
         suffix
         and applicable
         and not any(
             "{{suffix}}" not in pattern
-            or pattern_matches(pattern, actual, {"suffix": suffix})
+            or (
+                pattern_matches(pattern, actual, {"suffix": suffix})
+                and (
+                    pattern not in terminal_suffix_patterns
+                    or (kind, prop) == ("IAM.Role", "RoleName")
+                    or actual.endswith("-" + suffix)
+                )
+            )
             for pattern in applicable
         )
     ):

@@ -28,6 +28,7 @@ from issues.review import (
     naming_decision,
     review_names,
     review_snapshot,
+    validate_naming_issue,
 )
 from issues.runner import scan_stage
 from model.validations.naming import (
@@ -1572,6 +1573,76 @@ def check_target_and_naming_regressions(tmp_path):
         review_names(data)
 
 
+def check_configured_suffix_must_end_name(tmp_path):
+    check = TestCase()
+    for kind, prop, value, status in (
+        (
+            "Macie.ClassificationJob",
+            "name",
+            "macie-venusinf-dev-sad-skbm1r",
+            "AUTO_PASS",
+        ),
+        (
+            "Macie.ClassificationJob",
+            "name",
+            "macie-venusinf-dev-sad-p4x8r2",
+            "VIOLATION_CANDIDATE",
+        ),
+        (
+            "Macie.ClassificationJob",
+            "name",
+            "macie-venusinf-dev-sad-skbm1r-p4x8r2",
+            "VIOLATION_CANDIDATE",
+        ),
+        (
+            "S3.Bucket",
+            "BucketName",
+            "venusinf-dev-data-123456789012-skbm1r",
+            "AUTO_PASS",
+        ),
+        (
+            "S3.Bucket",
+            "BucketName",
+            "venusinf-dev-data-123456789012-skbm1r-p4x8r2",
+            "VIOLATION_CANDIDATE",
+        ),
+        ("CodeBuild.Project", "Name", "cbld-venusinf-dev-build-skbm1r", "AUTO_PASS"),
+        (
+            "CodeBuild.Project",
+            "Name",
+            "cbld-venusinf-dev-build-skbm1r-p4x8r2",
+            "VIOLATION_CANDIDATE",
+        ),
+    ):
+        data, name = decision_artifact(tmp_path, kind, prop, value)
+        data["naming_context"]["target_context"].update(
+            alias="non-cde", suffix="skbm1r"
+        )
+        data["target"] = "non-cde"
+        name["decision"] = naming_decision(data, name)
+        check.assertEqual(name["decision"]["status"], status, value)
+        check.assertEqual(bool(review_names(data)), status != "AUTO_PASS", value)
+        if value.endswith("skbm1r-p4x8r2"):
+            check.assertEqual(len(name["decision"]["violations"]), 1)
+            issue = dict(
+                violation="format",
+                applied_rule=name["decision"]["violations"][0]["applied_rule"],
+            )
+            validate_naming_issue(data, issue, name)
+
+    data, name = decision_artifact(tmp_path, "EC2.VPC", "Name", "vpc-app-dev-extra")
+    data["naming_context"]["target_context"]["suffix"] = "skbm1r"
+    data["naming_context"]["rules"]["EC2"] = [
+        dict(
+            text=(
+                "| X | X | `EC2.VPC` | `Name` | `vpc-{{application}}-{{environment}}[-{{suffix}}]` |\n"
+                "| X | X | `EC2.VPC` | `Name` | `vpc-{{application}}-{{environment}}-{{purpose}}` |"
+            )
+        )
+    ]
+    check.assertEqual(naming_decision(data, name)["status"], "AUTO_PASS")
+
+
 @pytest.mark.parametrize(
     "kind,prop,value,status",
     [
@@ -1674,7 +1745,9 @@ def check_automatic_naming_integrity(tmp_path, fault):
         data["naming_context"]["target_context"]["suffix"] = "blue"
         assert naming_decision(data, name)["status"] == "VIOLATION_CANDIDATE"
         name["value"] += "-blue-extra"
-        assert naming_decision(data, name)["status"] == "AUTO_PASS"
+        assert naming_decision(data, name)["status"] == "VIOLATION_CANDIDATE"
+        name["value"] = "cbld-app-dev-build-extra-blue"
+        TestCase().assertEqual(naming_decision(data, name)["status"], "AUTO_PASS")
         return
     if fault == "required_suffix":
         data["naming_context"]["rules"]["EC2"] = [

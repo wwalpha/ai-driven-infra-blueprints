@@ -123,6 +123,17 @@ def multiple_target_naming_scan_review_save(tmp_path):
             (target["environment"], target["alias"], target["suffix"]),
             ("dev", alias, suffix),
         )
+        if alias == "non-cde":
+            name = next(
+                item
+                for item in data["naming"]["names"]
+                if item["resourceType"] == "S3.Bucket"
+                and item["property"] == "BucketName"
+            )
+            name["value"] = "venusinf-dev-data-123456789012-skbm1r-p4x8r2"
+            name["decision"] = naming_decision(data, name)
+            check.assertEqual(name["decision"]["status"], "VIOLATION_CANDIDATE")
+            check.assertIn(name, review_names(data))
         artifact_path = tmp_path / (alias + "-scan.json")
         artifact_path.write_text(json.dumps(data), encoding="utf-8")
         review = ReviewController(
