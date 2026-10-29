@@ -11,6 +11,7 @@ from utils.arn_values import context_value, generated_attribute, named_arn
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
+from utils.iac_values import same
 from utils.json_format import AwsDocumentError, strict_json, validate_aws_document
 from utils.reference_contracts import (
     ARN_DEFAULTS,
@@ -331,14 +332,7 @@ class ProducerValues:
                         ):
                             comparisons.append(None)
                         else:
-                            target_match = (
-                                re.fullmatch(pattern, str(target)) if pattern else None
-                            )
-                            comparisons.append(
-                                (match.group("id") == target_match.group("id"))
-                                if match and target_match
-                                else observed == target
-                            )
+                            comparisons.append(same(observed, target))
                     if linked_values.drift_fields:
                         self.drift_fields.update(linked_values.drift_fields)
                         raise ReferenceResolutionError(

@@ -245,6 +245,9 @@ def test_required_input_literal_or_link(fixture, value, expected):
     [
         ("example", "logical_only", False),
         ("another-secret", "conflict", True),
+        ("example:other-secret", "conflict", True),
+        ("example:json-key", "conflict", True),
+        ("example:AWSCURRENT", "conflict", True),
         (
             "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:example-AbCd12",
             "unresolved",
@@ -279,8 +282,17 @@ def test_required_link_observed_identity(fixture, observed, expected, conflict):
     assert ("Desired and Observed differ" in actual.reason) is conflict
 
 
-@pytest.mark.parametrize("same", [True, False])
-def test_required_link_with_recorded_arn(fixture, same):
+@pytest.mark.parametrize(
+    "suffix,other",
+    [
+        ("", False),
+        ("", True),
+        (":json-key", False),
+        (":AWSCURRENT", False),
+        (":other-secret", False),
+    ],
+)
+def test_required_link_with_recorded_arn(fixture, suffix, other):
     _, _, consumer, _ = fixture
     secret, secret_values = resource(
         consumer.root, "secrets", "SecretsManager.Secret", attribute="Id"
@@ -296,10 +308,10 @@ def test_required_link_with_recorded_arn(fixture, same):
     )
     values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
     values["observed.row.001-001.value"] = (
-        "`" + (arn if same else arn.replace("example", "another")) + "`"
+        "`" + (arn.replace("example", "another") if other else arn) + suffix + "`"
     )
     save(scope, values)
-    if same:
+    if not suffix and not other:
         assert (
             result(consumer, "SecretsManager_RotationSchedule_001", "Id").status
             == "logical_only"
