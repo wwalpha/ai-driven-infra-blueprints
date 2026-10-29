@@ -67,7 +67,7 @@ class Inputs:
     def _initialize(self, root, environment, directory, services, *, catalog=None):
         self.root, self.environment, self.directory = root, environment, directory
         self.services = sorted(set(services))
-        self.target = load_target(root, environment, directory)
+        self.target = load_target(root, environment, directory, include_naming=True)
         self.catalog = catalog or DesignSchemaCatalog(root)
         self.models, self.rows, self.resources = {}, {}, {}
         self.documents, self.stack_inputs = {}, {}

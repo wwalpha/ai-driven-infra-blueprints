@@ -3,10 +3,12 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -80,6 +82,75 @@ def check_scan_review_export_save_and_local_loop(tmp_path):
         )
         assert result.returncode == 0, (result.stdout, result.stderr)
         assert "PASS" in result.stdout
+    multiple_target_naming_scan_review_save(tmp_path / "multiple")
+
+
+def multiple_target_naming_scan_review_save(tmp_path):
+    check = TestCase()
+    tmp_path.mkdir()
+    root = tmp_path / "repository"
+    fixture(root, services=["s3"])
+    project_path = root / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    original = project["targets"][0]
+    project["targets"] = [
+        dict(original, alias=alias, suffix=suffix)
+        for alias, suffix in (("cde", "p4x8r2"), ("non-cde", "skbm1r"))
+    ]
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    for alias, suffix in (("cde", "p4x8r2"), ("non-cde", "skbm1r")):
+        for base in (
+            "model/dev",
+            "docs/designs/dev",
+            "issues/dev",
+            "infra/cloudformation/parameters/dev",
+        ):
+            parent = root / base
+            shutil.copytree(parent / "123456789012", parent / alias)
+        confirmations = root / "issues/dev" / alias / "human-confirmations.yaml"
+        confirmations.write_text(
+            json.dumps(
+                dict(version=2, environment="dev", target=alias, confirmations=[])
+            ),
+            encoding="utf-8",
+        )
+        templates = root / "infra/cloudformation/templates"
+        (templates / alias).mkdir()
+        shutil.copy2(templates / "shared.yaml", templates / alias / "shared.yaml")
+        data = scan(root, "dev", alias, ["cloudformation-stacks", "s3"], jobs=1)
+        target = data["naming_context"]["target_context"]
+        check.assertEqual(
+            (target["environment"], target["alias"], target["suffix"]),
+            ("dev", alias, suffix),
+        )
+        artifact_path = tmp_path / (alias + "-scan.json")
+        artifact_path.write_text(json.dumps(data), encoding="utf-8")
+        review = ReviewController(
+            root, artifact_path, tmp_path / (alias + "-progress.json")
+        )
+        review.initialize()
+        finish(review)
+        output = tmp_path / (alias + ".json")
+        review.export(output)
+        exported = json.loads(output.read_text(encoding="utf-8"))
+        snapshot = json.loads(review_snapshot(data, exported).data)
+        check.assertEqual(snapshot["naming_context"]["target_context"], target)
+        reports = [f"issues/dev/{alias}/issues.md", f"issues/dev/{alias}/iac-issues.md"]
+        with task(root, data["services"], name="save-" + alias, allowed=reports):
+            path = root / "tasks" / ("save-" + alias + ".md")
+            path.write_text(
+                path.read_text(encoding="utf-8").replace(
+                    "dev/123456789012/", "dev/" + alias + "/"
+                ),
+                encoding="utf-8",
+            )
+            paths, saved, _ = save_scan(root, data, exported)
+        check.assertEqual(
+            json.loads(saved.data)["naming_context"]["target_context"], target
+        )
+        check.assertEqual(
+            [path.relative_to(root).as_posix() for path in paths], reports
+        )
 
 
 def check_process_exit_resume_from_checkpoint_and_save(tmp_path):

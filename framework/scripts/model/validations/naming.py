@@ -79,7 +79,9 @@ def provider_naming_errors(
         fifo = (conditions or {}).get(
             "FifoQueue" if kind == "SQS.Queue" else "FifoTopic"
         )
-        if fifo == "true" and not value.endswith(".fifo"):
+        if (
+            fifo is True or isinstance(fifo, str) and fifo.lower() == "true"
+        ) and not value.endswith(".fifo"):
             return ["FIFO names must end with .fifo"]
     return []
 

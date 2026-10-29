@@ -8,6 +8,7 @@ from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from functools import partial
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -45,6 +46,7 @@ from support.issues_scan_fixtures import (
 from support.pytest_cli import run
 from task_contract_core import active_scope, selected_task, task_reads, task_snapshot
 from utils.function_wrapper import BoundCallback
+from utils.project_targets import select_target
 from validation.findings import Findings
 
 if not __debug__:
@@ -1455,7 +1457,9 @@ def decision_artifact(root, kind, prop, value, mode="CREATE"):
     definitions = Path(__file__).resolve().parents[4]
     files = naming_rule_files(definitions, kind.partition(".")[0])
     data["naming_context"] = dict(
-        target_context=dict(environment="dev", awsAccountId="123456789012"),
+        target_context=dict(
+            environment="dev", awsAccountId="123456789012", suffix=None
+        ),
         rules={
             "common": [
                 dict(
@@ -1475,7 +1479,7 @@ def decision_artifact(root, kind, prop, value, mode="CREATE"):
     data["naming_context_id"] = identifier(data["naming_context"])
     errors = []
     if value is not None:
-        if prop != "Name" or not kind.startswith("EC2."):
+        if prop != "Name tag" and (prop != "Name" or not kind.startswith("EC2.")):
             errors = DesignSchemaCatalog(definitions).literal_errors(kind, prop, value)
         errors.extend(provider_naming_errors(kind, prop, value))
     name = dict(
@@ -1494,6 +1498,78 @@ def decision_artifact(root, kind, prop, value, mode="CREATE"):
     data["naming"]["names"] = [name]
     name["decision"] = naming_decision(data, name)
     return data, name
+
+
+def check_target_and_naming_regressions(tmp_path):
+    check = TestCase()
+    common = dict(
+        environment="dev",
+        awsAccountId="123456789012",
+        awsRegion="ap-northeast-1",
+        iacEngine="cloudformation",
+    )
+    topology = {
+        "targets": [
+            dict(common, alias="cde", suffix="p4x8r2"),
+            dict(common, alias="non-cde", suffix="skbm1r"),
+            dict(common, alias="plain"),
+        ]
+    }
+    for alias, suffix in (("cde", "p4x8r2"), ("non-cde", "skbm1r"), ("plain", None)):
+        target = select_target(topology, "dev", alias=alias)
+        check.assertEqual((target["environment"], target["suffix"]), ("dev", suffix))
+    for purpose in (
+        "ApplicationBuild",
+        "AwsInfrastructureValidation",
+        "Package",
+        "PrimaryQuarantineAndSign",
+        "Quarantine",
+        "QuarantineSign",
+        "SignVerify",
+        "ApplicationRelease",
+        "GlueConnection",
+        "VulnerabilityScan",
+    ):
+        data, name = decision_artifact(
+            tmp_path, "IAM.Role", "RoleName", f"venusinf-dev-{purpose}Role-p4x8r2"
+        )
+        data["naming_context"]["target_context"]["suffix"] = "p4x8r2"
+        check.assertEqual(naming_decision(data, name)["status"], "AUTO_PASS")
+    data, name = decision_artifact(
+        tmp_path, "Macie.ClassificationJob", "name", "macie-venusinf-dev-sad-p4x8r2"
+    )
+    data["naming_context"]["target_context"]["suffix"] = "skbm1r"
+    check.assertEqual(naming_decision(data, name)["status"], "VIOLATION_CANDIDATE")
+    name["value"] = "macie-venusinf-dev-sad-skbm1r"
+    check.assertEqual(naming_decision(data, name)["status"], "AUTO_PASS")
+    data, name = decision_artifact(tmp_path, "EC2.VPC", "Name", "vpc-app-stg")
+    check.assertEqual(naming_decision(data, name)["status"], "VIOLATION_CANDIDATE")
+    for kind in ("EC2.TransitGatewayVpcAttachment", "EC2.TransitGatewayRouteTable"):
+        data, name = decision_artifact(tmp_path, kind, "Name tag", "wrong")
+        check.assertNotEqual(naming_decision(data, name)["status"], "AUTO_PASS")
+    for kind, prop, condition in (
+        ("SQS.Queue", "QueueName", "FifoQueue"),
+        ("SNS.Topic", "TopicName", "FifoTopic"),
+    ):
+        for value in (True, "true", "True"):
+            check.assertTrue(
+                provider_naming_errors(kind, prop, "queue", {condition: value})
+            )
+        for value in (False, "false", "False"):
+            check.assertFalse(
+                provider_naming_errors(kind, prop, "queue", {condition: value})
+            )
+        data, name = decision_artifact(tmp_path, kind, prop, "queue", "IMPORT")
+        name["conditions"] = {condition: "unknown"}
+        check.assertEqual(naming_decision(data, name)["status"], "REVIEW_REQUIRED")
+    data, name = decision_artifact(
+        tmp_path, "IAM.Role", "RoleName", "arbitrary", "IMPORT"
+    )
+    check.assertEqual(naming_decision(data, name)["status"], "AUTO_PASS")
+    data, name = decision_artifact(tmp_path, "IAM.Role", "RoleName", "app-dev-DataRole")
+    del data["naming_context"]["target_context"]["suffix"]
+    with pytest.raises(ValueError, match="rescan"):
+        review_names(data)
 
 
 @pytest.mark.parametrize(

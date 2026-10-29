@@ -397,7 +397,7 @@ def mandatory_name_errors(artifact, name, actual):
     rule = rules[0] if rules else ""
     target = artifact["naming_context"].get("target_context", {})
     errors = []
-    if (kind, prop) == ("IAM.Role", "RoleName"):
+    if (kind, prop) == ("IAM.Role", "RoleName") and "suffix" in target:
         errors.extend(check_iam_role_suffix(actual, target.get("suffix")))
     if kind in {"Glue.Job", "Glue.SecurityConfiguration"} and prop == "Name":
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", actual):
@@ -425,17 +425,19 @@ def mandatory_name_errors(artifact, name, actual):
         errors.append(
             "Secret Name requires application/environment/purpose_path with lower-kebab-case components"
         )
-    for pattern in applicable_patterns(artifact, name):
-        suffix = target.get("suffix")
-        if (
-            suffix
-            and "{{suffix}}" in pattern
-            and not pattern_matches(pattern, actual, {"suffix": suffix})
-        ):
-            errors.append(
-                "Configured target suffix is required in the applicable pattern"
-            )
-            rule = pattern
+    suffix = target.get("suffix")
+    applicable = applicable_patterns(artifact, name)
+    if (
+        suffix
+        and applicable
+        and not any(
+            "{{suffix}}" not in pattern
+            or pattern_matches(pattern, actual, {"suffix": suffix})
+            for pattern in applicable
+        )
+    ):
+        errors.append("Configured target suffix is required in the applicable pattern")
+        rule = sorted(applicable)[0]
     return [(rule, error) for error in errors]
 
 
@@ -460,7 +462,34 @@ def naming_decision(artifact, name):
         or name["resourceType"] in {"SQS.Queue", "SNS.Topic"}
     ):
         pending.append("A selected condition for mandatory Naming rules is unconfirmed")
+    if name["resourceType"] in {"SQS.Queue", "SNS.Topic"}:
+        key = "FifoQueue" if name["resourceType"] == "SQS.Queue" else "FifoTopic"
+        value = name.get("conditions", {}).get(key, False)
+        if (
+            value is not None
+            and not isinstance(value, bool)
+            and (not isinstance(value, str) or value.lower() not in {"true", "false"})
+        ):
+            pending.append("FIFO condition is unconfirmed")
     if name.get("resourceMode", "CREATE") == "CREATE":
+        if name["resourceType"] == "IAM.Role" and "suffix" not in artifact[
+            "naming_context"
+        ].get("target_context", {}):
+            pending.append("Selected target suffix configuration is unavailable")
+        kind, prop = name["resourceType"], name["property"]
+        rules = (
+            artifact["naming_context"].get("rules", {}).get(kind.partition(".")[0], [])
+        )
+        mandatory = {
+            pattern
+            for rule in rules
+            for target_kind, target, pattern, scope in naming_rules(rule["text"])
+            if target_kind == kind
+            and naming_target_matches(prop, {target}, kind)
+            and scope == "mandatory"
+        }
+        if len(mandatory) > 1 and not patterns and naming_value(name) is not None:
+            pending.append("No mandatory pattern can be selected; review required")
         if (
             any(
                 "{{suffix}}" in re.sub(r"\[[^\]]*\]", "", pattern)
@@ -493,6 +522,13 @@ def review_names(artifact):
     """Never trust an asserted AUTO_PASS; recompute from the immutable Scan evidence."""
     pending = []
     seen = set()
+    target = artifact["naming_context"].get("target_context", {})
+    if any("decision" in name for name in artifact["naming"]["names"]) and (
+        target.get("environment") != artifact.get("environment")
+        or target.get("alias", target.get("awsAccountId")) != artifact.get("target")
+        or "suffix" not in target
+    ):
+        raise ValueError("incomplete Naming target context; rescan required")
     for name in artifact["naming"]["names"]:
         key = required_text(name, "id")
         if key in seen:

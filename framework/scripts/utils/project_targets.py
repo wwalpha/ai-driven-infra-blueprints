@@ -59,6 +59,8 @@ def select_target(topology, environment, account_id=None, alias=None):
     if engine not in {"cloudformation", "terraform"}:
         raise DeployContextError(f"invalid target IaC engine: {engine}")
     resolved = {
+        "environment": environment,
+        "suffix": target.get("suffix"),
         "awsAccountId": resolved_account_id,
         "awsRegion": region,
         "iacEngine": engine,
@@ -76,7 +78,9 @@ def load_target(
     environment: str,
     account_id: str | None = None,
     alias: str | None = None,
-) -> dict[str, str]:
+    *,
+    include_naming: bool = False,
+) -> dict[str, str | None]:
     input_text = _imports_validation_cache.input_text
     path = root / "project.json"
     try:
@@ -86,13 +90,17 @@ def load_target(
     except json.JSONDecodeError as error:
         raise DeployContextError(f"project.json is invalid: {error}") from error
 
-    return select_target(topology, environment, account_id, alias)
+    target = select_target(topology, environment, account_id, alias)
+    if not include_naming:
+        target.pop("environment")
+        target.pop("suffix")
+    return target
 
 
 LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
-def load_target_directory(root, environment, directory):
+def load_target_directory(root, environment, directory, *, include_naming=False):
     """Reuse topology validation without invoking credential checks or any AWS operation."""
     try:
         return load_target(
@@ -100,6 +108,7 @@ def load_target_directory(root, environment, directory):
             environment,
             directory if directory.isdigit() else None,
             None if directory.isdigit() else directory,
+            include_naming=include_naming,
         )
     except DeployContextError as error:
         raise ValueError(str(error)) from error
