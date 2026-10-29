@@ -23,6 +23,26 @@ def main() -> None:
     root = Path(__file__).resolve().parents[4]
     assert snapshot_errors(root) == []
     catalog = CloudFormationSchemaCatalog(root)
+    resource = catalog.schema("LakeFormation.Resource")
+    assert catalog.required_properties("LakeFormation.Resource") == {
+        "ResourceArn",
+        "UseServiceLinkedRole",
+    }
+    assert resource["primaryIdentifier"] == ["/properties/Id"]
+    assert resource["readOnlyProperties"] == ["/properties/Id"]
+    assert resource["createOnlyProperties"] == ["/properties/ResourceArn"]
+    assert "handlers" not in resource
+    for name in ("UseServiceLinkedRole", "WithFederation", "HybridAccessEnabled"):
+        assert catalog.literal_errors("LakeFormation.Resource", name, "true") == []
+        assert catalog.literal_errors("LakeFormation.Resource", name, "not-a-boolean")
+    assert (
+        catalog.property_schema("LakeFormation.Resource", "RoleArn")["type"] == "string"
+    )
+    assert catalog.typed_literal_errors("LakeFormation.Resource", "RoleArn", 42)
+    assert not catalog.typed_literal_errors(
+        "LakeFormation.Resource", "RoleArn", "arn:aws:iam::123456789012:role/example"
+    )
+    assert "WithPrivilegedAccess" not in resource["properties"]
 
     # Boolean conversion still feeds enum/const checks and the existing diagnostic.
     catalog.schemas["AWS::Test::Boolean"] = {

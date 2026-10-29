@@ -21,6 +21,7 @@ from utils.script_loader import module
 
 # Existing fetch code explicitly copies these inputs into its projected response.
 INPUT_SOURCES = {
+    "LakeFormation.Resource.UseServiceLinkedRole": "model",
     "Macie.Session.AwsAccountId": "target",
     "QuickSight.DataSource.AwsAccountId": "model",
     "QuickSight.VPCConnection.AwsAccountId": "model",

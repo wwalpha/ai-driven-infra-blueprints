@@ -451,6 +451,8 @@ IMPORT_PROPERTIES = {
         "IAM.Role",
         "Arn",
     ),
+    "LakeFormation.Resource.ResourceArn": (("Glue.Connection", "S3.Bucket"), "Arn"),
+    "LakeFormation.Resource.RoleArn": ("IAM.Role", "Arn"),
     "Lambda.Function.Role": ("IAM.Role", "Arn"),
     "Lambda.Function.KmsKeyArn": ("KMS.Key", "Arn"),
     "CodeBuild.Project.ServiceRole": ("IAM.Role", "Arn"),

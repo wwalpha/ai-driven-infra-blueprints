@@ -499,7 +499,7 @@ def test_rulebook_complete_static_coverage():
                 assert rule.whole in {"ORDERED", "UNORDERED", "KEYED"}, (kind, path)
         # Reading the schema here is test-time evidence, never a runtime prerequisite.
         assert catalog.cloudformation_type(kind).startswith("AWS::")
-    assert len(kinds) == 176 and len({k.split(".")[0] for k in kinds}) == 46
+    assert len(kinds) == 177 and len({k.split(".")[0] for k in kinds}) == 46
     assert set(registry.RULES) - kinds == {"QuickSight.Group"}
     assert registry.resource("QuickSight.Group").imported_arn is not None
     assert not (ROOT / "framework/scripts/comparison/services").exists()
@@ -517,6 +517,26 @@ def test_rulebook_complete_static_coverage():
         is not None
     )
     assert registry.resource("KMS.Key").identity_same is not None
+
+
+@pytest.mark.parametrize(
+    "path,value,other",
+    [
+        (
+            "ResourceArn",
+            "arn:aws:glue:ap-northeast-1:123456789012:connection/example",
+            "other",
+        ),
+        ("RoleArn", "arn:aws:iam::123456789012:role/example", "other"),
+        ("UseServiceLinkedRole", False, True),
+        ("WithFederation", True, False),
+        ("HybridAccessEnabled", False, True),
+    ],
+)
+def test_lakeformation_resource_model_iac_comparison(path, value, other):
+    rules = registry.rules("LakeFormation.Resource")
+    assert compare_values(value, value, path, rules=rules).equal is True
+    assert compare_values(value, other, path, rules=rules).equal is False
 
 
 def test_unregistered_rule_is_framework_error():

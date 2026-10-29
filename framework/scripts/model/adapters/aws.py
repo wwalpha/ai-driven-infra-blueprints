@@ -61,12 +61,16 @@ from model.identity import (
     select_anchor,
 )
 from model.literal_values import projection_conflicts, typed_value, value_shape
-from model.sources import model_paths
+from model.projection import reference_resolver
+from model.reference_nodes import is_reference
+from model.reference_nodes import parse as parse_model_reference
+from model.reference_values import reference_value
+from model.sources import model_paths, scope_for
 
 SERVICES = tuple(
     "athena cloudformation-stacks cloudtrail cloudwatch-logs codebuild codecommit "
     "codepipeline config data-firehose ec2 eventbridge glue guardduty iam kms lambda "
-    "macie mwaa quicksight route53 s3 secrets-manager security-hub security-group sqs "
+    "lake-formation macie mwaa quicksight route53 s3 secrets-manager security-hub security-group sqs "
     "transit-gateway vpc vpc-endpoint".split()
 )
 ROOT = Path(__file__).resolve().parents[4]
@@ -878,6 +882,20 @@ class Resource:
                 value = typed_value(row, raw, schema)
             elif norm in {"json", "policy", "set"}:
                 value = policy_json(value)
+        if isinstance(value, str) and value.lstrip().startswith("{"):
+            try:
+                reference = policy_json(value)
+            except ValueError:
+                reference = None
+            if is_reference(reference):
+                scope = scope_for(self.model.path)
+                resolver = reference_resolver(self.model.values, scope, self.ctx.root)
+                resolved = reference_value(
+                    resolver, scope, parse_model_reference(reference), field=prop
+                )
+                if resolved.status != "resolved":
+                    raise Unresolved(resolved.reason or "Model reference is unresolved")
+                value = resolved.value
         value = self.resolve_json(value, norm)
         return value
 
@@ -1069,6 +1087,16 @@ def compare_resource(ctx, resource):
             response, value = mapped_value(ctx, resource, mapping, definition, prop)
             if value == MISSING:
                 value = field.copy_default()
+            if resource.kind == "LakeFormation.Resource" and value == MISSING:
+                results.append(
+                    {
+                        **item,
+                        "status": "sdk_unavailable",
+                        "apis": ctx.trace[start:],
+                        "reason": "DescribeResource did not return this attribute",
+                    }
+                )
+                continue
             if resource.kind == "KMS.Alias" and response.get("ParentMismatch"):
                 parent = resource.parent()
                 results.append(

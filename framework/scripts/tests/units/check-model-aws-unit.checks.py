@@ -11,7 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from unittest.mock import Mock
 
 import support.check_model_aws_fixtures as _retained_fixture_offline_network
+import support.model_reference_fixtures as reference_fixtures
 from aws_mapping import Identity
+from model.validations.schema import validate_required_properties
 from support.aws_mapping_compare_fixtures import (
     ROOT,
     checks,
@@ -43,6 +45,7 @@ from support.check_model_aws_fixtures import (
     sys,
     write_model,
 )
+from utils.aws_mappings import mapping_alias
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -1206,6 +1209,121 @@ def check_mapping_transforms():
     print(
         "P4 Mapping: PASS (include=false, transforms, SDK collections, shared cache, blocked APIs, missing definitions)"
     )
+
+
+def check_lakeformation_resource_comparison(tmp_path):
+    with mapping_alias(ROOT, tmp_path):
+        reference_fixtures.project(tmp_path)
+        glue_scope, glue = reference_fixtures.resource(
+            tmp_path, "glue", "Glue.Connection", attribute="ConnectionInput.Name"
+        )
+        glue["desired.row.001-001.value"] = "`example-connection`"
+        glue.update(
+            {
+                "desired.row.001-002.property": "Glue.Connection.CatalogId",
+                "desired.row.001-002.value": "`123456789012`",
+                "desired.row.001-002.comment": "catalog",
+            }
+        )
+        reference_fixtures.save(glue_scope, glue)
+        role_scope, role = reference_fixtures.resource(
+            tmp_path, "roles", "IAM.Role", attribute="RoleName"
+        )
+        role["desired.row.001-001.value"] = "`lake-role`"
+        reference_fixtures.save(role_scope, role)
+        scope, values = reference_fixtures.resource(
+            tmp_path,
+            "lake-formation",
+            "LakeFormation.Resource",
+            attribute="ResourceArn",
+        )
+        values["desired.row.001-001.value"] = (
+            "`"
+            + json.dumps(reference_fixtures.reference("Glue_Connection_001", "Arn"))
+            + "`"
+        )
+        for index, (name, value) in enumerate(
+            (
+                (
+                    "RoleArn",
+                    json.dumps(reference_fixtures.reference("IAM_Role_001", "Arn")),
+                ),
+                ("UseServiceLinkedRole", "false"),
+                ("WithFederation", "true"),
+                ("HybridAccessEnabled", "false"),
+            ),
+            2,
+        ):
+            prefix = f"desired.row.001-{index:03d}."
+            values[prefix + "property"] = "LakeFormation.Resource." + name
+            values[prefix + "value"] = "`" + value + "`"
+            values[prefix + "comment"] = "fixture"
+        reference_fixtures.save(scope, values)
+        validate_required_properties(values, ROOT)
+        for row in ("001-001", "001-003"):
+            incomplete = {
+                key: value
+                for key, value in values.items()
+                if not key.startswith("desired.row." + row + ".")
+            }
+            with pytest.raises(
+                ValueError, match="required provider schema property missing"
+            ):
+                validate_required_properties(incomplete, ROOT)
+        target = dict(TARGET, environment="qa", directory="team")
+        arn = "arn:aws:glue:ap-northeast-1:123456789012:connection/example-connection"
+        role_arn = "arn:aws:iam::123456789012:role/lake-role"
+        response = {
+            "ResourceInfo": {
+                "ResourceArn": arn,
+                "RoleArn": role_arn,
+                "WithFederation": True,
+                "HybridAccessEnabled": False,
+            }
+        }
+        for expected, payload in (
+            ("match", response),
+            (
+                "difference",
+                {
+                    "ResourceInfo": dict(
+                        response["ResourceInfo"], RoleArn=role_arn + "-other"
+                    )
+                },
+            ),
+            ("sdk_unavailable", {"ResourceInfo": {"ResourceArn": arn}}),
+        ):
+            ctx = SchemaOffline(tmp_path, target=target)
+            ctx.verified = True
+            selected = m.Model(ctx, scope.path).resources[0]
+            with patch.object(ctx, "call", return_value=payload) as call:
+                result = {
+                    item["propertiesKey"].rsplit(".", 1)[-1]: item["status"]
+                    for item in m.compare_resource(ctx, selected)
+                }
+            assert result["ResourceArn"] == "match"
+            assert result["RoleArn"] == expected
+            assert result["UseServiceLinkedRole"] == "sdk_unavailable"
+            assert result["WithFederation"] == (
+                "sdk_unavailable" if expected == "sdk_unavailable" else "match"
+            )
+            call.assert_called_once_with(
+                "lakeformation", "describe_resource", ResourceArn=arn
+            )
+        selected.rows[0][1]["value"] = (
+            "`"
+            + json.dumps(reference_fixtures.reference("Glue_Connection_001", "Name"))
+            + "`"
+        )
+        with pytest.raises(ValueError):
+            selected.value("ResourceArn", "arn")
+        selected.rows[0][1]["value"] = (
+            "`"
+            + json.dumps(reference_fixtures.reference("Glue_Connection_999", "Arn"))
+            + "`"
+        )
+        with pytest.raises(ValueError):
+            selected.value("ResourceArn", "arn")
 
 
 if __name__ == "__main__":

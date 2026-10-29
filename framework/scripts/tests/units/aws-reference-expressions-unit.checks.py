@@ -616,7 +616,7 @@ def test_arn_contract_inventory_covers_every_derivable_type():
     }
     assert {kind for kind, _, _ in CASES} == ARN_SHAPES.keys() - generated
     catalog = DesignSchemaCatalog(FRAMEWORK)
-    assert len(catalog.resource_types) == 176
+    assert len(catalog.resource_types) == 177
     assert set(catalog.api_schemas) == {"Macie.ClassificationJob", "QuickSight.Group"}
     assert all(
         "AWS::" + kind.replace(".", "::") in catalog.resource_types
@@ -789,6 +789,42 @@ def test_explicit_context_and_creation_names_must_agree(models, kind, properties
     inputs, symbol = producer(models, kind, properties)
     with pytest.raises(Blocked):
         inputs.reference_literal(symbol)
+
+
+def test_lakeformation_connection_arn_and_formal_returns(models):
+    inputs, symbol = producer(
+        models,
+        "Glue.Connection",
+        {"CatalogId": "123456789012", "ConnectionInput": {"Name": "fixture"}},
+    )
+    schema = DesignSchemaCatalog(FRAMEWORK)
+    glue = schema.schema("Glue.Connection")
+    lake = schema.schema("LakeFormation.Resource")
+    assert REF_ATTRIBUTES["Glue.Connection"] == "Name"
+    assert getatt_attribute("Glue.Connection", "Name", glue)
+    assert not getatt_attribute("Glue.Connection", "Arn", glue)
+    assert "LakeFormation.Resource" not in REF_ATTRIBUTES
+    assert getatt_attribute("LakeFormation.Resource", "Id", lake)
+    arn = "arn:aws:glue:ap-northeast-1:123456789012:connection/fixture"
+    assert inputs.reference_literal(symbol) == arn
+    name = inputs.evaluate("producer", {"Ref": "Resource001"})
+    assert name["$attribute"] == "Name"
+    assert (
+        inputs.reference_same(symbol, name, "LakeFormation.Resource", "ResourceArn")
+        is False
+    )
+    expression = inputs.evaluate(
+        "producer",
+        {
+            "Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:connection/${Resource001}"
+        },
+    )
+    assert (
+        inputs.reference_same(
+            symbol, expression, "LakeFormation.Resource", "ResourceArn"
+        )
+        is True
+    )
 
 
 def test_import_name_cannot_depend_on_a_resource(models):

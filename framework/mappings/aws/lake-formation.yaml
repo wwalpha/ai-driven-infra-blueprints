@@ -8,6 +8,12 @@ getters:
     result: ResourceDescription.Properties
     resourceType: LakeFormation.PrincipalPermissions
     identifier: [/properties/PrincipalIdentifier, /properties/ResourceIdentifier]
+  sdk-lakeformation-resource:
+    kind: sdk
+    service: lakeformation
+    operation: describe_resource
+    result: ResourceInfo
+    resourceType: LakeFormation.Resource
 resourceTypes:
   LakeFormation.PrincipalPermissions:
     properties:
@@ -136,3 +142,43 @@ resourceTypes:
         display: {show: false, name: Resource.TableWithColumns.ColumnWildcard.ExcludedColumnNames}
         access: [create-only]
         aws: {getter: provider-lakeformation-principalpermissions, path: Resource.TableWithColumns.ColumnWildcard.ExcludedColumnNames, normalize: typed}
+  LakeFormation.Resource:
+    properties:
+      Id:
+        model: {include: false}
+        display: {show: false, name: Id}
+        access: [read-only]
+        source:
+          kind: provider-output
+          location: CloudFormation Id output
+          constraint: DescribeResource does not return the CloudFormation Id.
+          classification: sdk_unavailable
+      ResourceArn:
+        model: {include: true}
+        display: {show: true, name: ResourceArn}
+        access: [create-only]
+        aws: {getter: sdk-lakeformation-resource, path: ResourceArn, normalize: arn}
+      RoleArn:
+        model: {include: true}
+        display: {show: true, name: RoleArn}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-resource, path: RoleArn, normalize: arn}
+      UseServiceLinkedRole:
+        model: {include: true}
+        display: {show: true, name: UseServiceLinkedRole}
+        access: [read-write]
+        source:
+          kind: model
+          location: desired row LakeFormation.Resource.UseServiceLinkedRole
+          constraint: DescribeResource does not return this request input.
+          classification: sdk_unavailable
+      WithFederation:
+        model: {include: true}
+        display: {show: true, name: WithFederation}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-resource, path: WithFederation, normalize: typed}
+      HybridAccessEnabled:
+        model: {include: true}
+        display: {show: true, name: HybridAccessEnabled}
+        access: [read-write]
+        aws: {getter: sdk-lakeformation-resource, path: HybridAccessEnabled, normalize: typed}

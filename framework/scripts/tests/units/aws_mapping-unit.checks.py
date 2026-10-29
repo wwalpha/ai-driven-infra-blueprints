@@ -187,7 +187,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (178, 52, 50, 63, 79, 78)
+    ) == (179, 52, 50, 63, 80, 79)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -230,6 +230,9 @@ def check_v3_registry():
     }
     assert sum(map(len, tgw_properties.values())) == 18
     baseline_properties = deepcopy(properties)
+    del baseline_properties["lake-formation"]["LakeFormation.Resource"]
+    del definitions["lake-formation"]["sdk-lakeformation-resource"]
+    del metadata["lake-formation"]
     for kind, selected in tgw_properties.items():
         actual = properties["ec2"][kind]
         assert {
@@ -271,7 +274,7 @@ def check_v3_registry():
             == expected
         )
     print(
-        "YAML v3/environment baseline: PASS (50 files, 178 types, 52 adapter types, 50 identities, 63 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
+        "YAML v3/environment baseline: PASS (50 files, 179 types, 52 adapter types, 50 identities, 63 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
     )
 
 

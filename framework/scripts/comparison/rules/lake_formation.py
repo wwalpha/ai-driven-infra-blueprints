@@ -3,6 +3,10 @@
 from ..methods import properties
 
 RULES = {
+    "LakeFormation.Resource": properties(
+        references="ResourceArn RoleArn",
+        scalars="UseServiceLinkedRole WithFederation HybridAccessEnabled",
+    ),
     "LakeFormation.PrincipalPermissions": properties(
         objects="""
             Principal

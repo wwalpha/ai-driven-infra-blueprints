@@ -247,7 +247,11 @@ def test_registered_contract_route(models, prop, producer, attribute):
     )
     with pytest.raises(ValueError):
         resolver.validate_attribute(producer, "UnsupportedAttribute", field=prop)
-    wrong = "KMS.Key" if producer == "S3.Bucket" else "S3.Bucket"
+    wrong = (
+        "KMS.Key"
+        if producer == "S3.Bucket" or prop == "LakeFormation.Resource.ResourceArn"
+        else "S3.Bucket"
+    )
     with pytest.raises(ValueError):
         resolver.validate_attribute(wrong, "Arn", field=prop)
     inputs.resources["producer"]["001"]["resourceMode"] = "IMPORT"
@@ -429,8 +433,17 @@ def test_common_markdown_projection_and_restoration(
     models, kind, rows, observed, expected
 ):
     resource(models, "s3", "S3.Bucket", attribute="BucketName", observed=observed)
+    secret_observed = (
+        "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture-AbCdEf"
+        if observed == "confirmed-value"
+        else observed
+    )
     resource(
-        models, "secret", "SecretsManager.Secret", attribute="Id", observed=observed
+        models,
+        "secret",
+        "SecretsManager.Secret",
+        attribute="Id",
+        observed=secret_observed,
     )
     scope, first = resource(
         models, "subnet", "EC2.Subnet", attribute="SubnetId", observed=observed
@@ -480,7 +493,8 @@ def test_common_markdown_projection_and_restoration(
     if observed in {None, "PENDING_DEPLOY"}:
         assert "$modelRef" in str(rendered) and expected not in str(rendered)
     else:
-        assert expected in str(rendered) and "$modelRef" not in str(rendered)
+        rendered_expected = secret_observed if kind == "CodeBuild.Project" else expected
+        assert rendered_expected in str(rendered) and "$modelRef" not in str(rendered)
     path = models / "docs/designs/qa/team/receiver.md"
     markdown = generate_markdown(path, values, models)
     assert "reference-rows" not in markdown and "reference-value" not in markdown
@@ -809,7 +823,7 @@ def test_inventory_is_exactly_the_supported_framework_types():
         kind.removeprefix("AWS::").replace("::", ".") for kind in catalog.resource_types
     }
     assert set(INVENTORY) == types | set(catalog.api_schemas)
-    assert (len(types), len(catalog.api_schemas)) == (176, 2)
+    assert (len(types), len(catalog.api_schemas)) == (177, 2)
 
 
 @pytest.mark.parametrize("kind", sorted(INVENTORY))
