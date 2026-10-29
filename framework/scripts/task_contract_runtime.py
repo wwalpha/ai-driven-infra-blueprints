@@ -4,7 +4,12 @@ import argparse as argparse
 from functools import wraps as wraps
 
 import import_guard as _imports_import_guard
-from model.importing.scope import read_consumers, restrict, selected
+from model.importing.scope import (
+    read_consumers,
+    require_write_scope,
+    restrict,
+    selected,
+)
 from model.sources import source_scope
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import TASK_NAME as TASK_NAME
@@ -122,30 +127,37 @@ def check_import(
         task.check_task_scope()
         if findings.errors:
             raise ValueError("Task scope FAIL: " + "; ".join(findings.errors))
+        require_write_scope(root, task.permission_paths | (supplied or set()), identity)
         options = {"contract_file": name} if integration else {}
         if supplied is not None:
             options["supplied"] = supplied
         _imports_import_guard.require_import_changes(root, **options)
-        if not integration:
-            registered = {}
-            if any(kind == "check" for _, kind, _ in task.acceptance_checks):
-                validator = Validator(
-                    root, set(snapshot.scope), cache=False, model_validation="change"
-                )
-                registered = validator.registered_checks()
-                task = TaskValidation(root, validator.findings, contract_file=name)
-                task.check_task_scope()
-            task.check_acceptance_checks(registered, set(snapshot.scope))
+        registered = {}
+        if any(kind == "check" for _, kind, _ in task.acceptance_checks):
+            validator = Validator(
+                root, set(snapshot.scope), cache=False, model_validation="change"
+            )
+            registered = validator.registered_checks()
+            task = TaskValidation(root, validator.findings, contract_file=name)
+            task.check_task_scope()
+        task.check_acceptance_checks(registered, set(snapshot.scope))
         result = task.acceptance()
+        required_failed = any(
+            kind == "check"
+            and value in registered
+            and task.findings.result(value, set(snapshot.scope)).status != "PASS"
+            for _, kind, value in task.acceptance_checks
+        )
         stale = {r["diagnostic_id"] for r in records} != {
             r["diagnostic_id"] for r in result["approved"]
         }
-        if result["status"] != "PASS" or stale:
+        if result["status"] != "PASS" or stale or required_failed:
             raise ValueError(
                 "Task Acceptance FAIL: "
                 + "; ".join(
                     task.findings.errors
                     + result["invalid"]
+                    + (["required Acceptance check failed"] if required_failed else [])
                     + (["approval evidence is stale or unverifiable"] if stale else [])
                 )
             )

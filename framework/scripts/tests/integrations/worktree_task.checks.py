@@ -106,7 +106,8 @@ def _check_import_completion_and_approved_integration():
             git(root, "commit", "-qm", "Import fixture")
             relative = "model/dev/cde/vpc.properties"
             design = "docs/designs/dev/cde/vpc.md"
-            target, state = start(root, files=(relative, design))
+            foreign_view = "docs/designs/dev/cde/vpc-endpoint.md"
+            target, state = start(root, files=(relative, design, foreign_view))
             name = state["task_file"]
             contract = target / name
             contract.write_text(
@@ -202,6 +203,25 @@ def _check_import_completion_and_approved_integration():
                         wt.python_env.environment(Path(sys.prefix)),
                     ),
                 ):
+                    saved = contract.read_text()
+                    contract.write_text(
+                        saved.replace(
+                            "exists:" + relative, "exists:missing-required.txt"
+                        )
+                    )
+                    with pytest.raises(wt.Blocked, match="required path missing"):
+                        wt.finalize(root, "example", approval)
+                    assert target.exists() and tasks.status(contract.read_text()) == (
+                        "suspend" if suspended else "completed"
+                    )
+                    contract.write_text(saved)
+                    foreign = target / foreign_view
+                    foreign.parent.mkdir(parents=True, exist_ok=True)
+                    foreign.write_text("unauthorized view")
+                    with pytest.raises(wt.Blocked, match="outside selected"):
+                        wt.finalize(root, "example", approval)
+                    assert target.exists() and contract.read_text() == saved
+                    foreign.unlink()
                     result = wt.finalize(root, "example", approval)
                 assert result["cleaned"]
                 assert (root / relative).read_bytes() == candidate

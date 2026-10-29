@@ -205,6 +205,19 @@ def allowed_source(root, file, identity):
     return (scope.environment, scope.target, scope.service) == identity
 
 
+def require_write_scope(root, paths, identity):
+    document = root / "docs/designs" / identity[0] / identity[1] / (identity[2] + ".md")
+    for relative in paths:
+        file = root / relative
+        if relative.startswith("model/") and not allowed_source(root, file, identity):
+            raise ValueError("IMPORT Model is outside selected target: " + relative)
+        if relative.startswith("docs/designs/") and file.suffix in {".md", ".json"}:
+            if file != document and not (
+                file.parent == document.with_suffix("") and file.suffix == ".json"
+            ):
+                raise ValueError("IMPORT view is outside selected target: " + relative)
+
+
 def placement_names(path, required=None):
     entries = _imports_model_core.entries
     stack_snapshot = _imports_model_sources.stack_snapshot

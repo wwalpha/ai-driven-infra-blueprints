@@ -1129,8 +1129,9 @@ def check_suspended_import_guard_is_read_only():
         assert tasks.status((root / name).read_text()) == "suspend"
 
 
-@pytest.mark.parametrize("available", [True, False])
-def check_import_registered_acceptance(available):
+@pytest.mark.parametrize("integration", [False, True])
+@pytest.mark.parametrize("outcome", ["pass", "fail", "missing"])
+def check_import_registered_acceptance(outcome, integration):
     with repository_fixture() as root:
         name = "tasks/import.md"
         text = transition_contract(
@@ -1143,22 +1144,31 @@ def check_import_registered_acceptance(available):
         text = text.replace("`changed:file.txt`", "`check:framework.rule-readings`")
         transitions.start(root, name, text)
         (root / "file.txt").write_text("changed")
-        handler = Mock(return_value=None)
-        registered = {"framework.rule-readings": handler} if available else {}
+        handler = Mock(
+            return_value={"status": "FAIL", "reason": "failed"}
+            if outcome == "fail"
+            else None
+        )
+        registered = (
+            {"framework.rule-readings": handler} if outcome != "missing" else {}
+        )
         with (
             patch.object(task_runtime._imports_import_guard, "require_import_changes"),
+            patch.object(
+                task_runtime.Validator,
+                "run",
+                side_effect=AssertionError("common Validator run"),
+            ),
             patch.object(
                 task_runtime.Validator, "registered_checks", return_value=registered
             ),
         ):
-            if available:
-                transitions.complete(root, name)
+            if outcome == "pass":
+                task_runtime.check_import(root, name, integration=integration)
                 handler.assert_called_once()
             else:
-                with pytest.raises(
-                    ValueError, match="unknown registered Acceptance check"
-                ):
-                    transitions.complete(root, name)
+                with pytest.raises(ValueError, match="Acceptance"):
+                    task_runtime.check_import(root, name, integration=integration)
 
 
 @pytest.mark.parametrize("change", ["none", "candidate", "dependency", "human"])
@@ -1197,8 +1207,11 @@ def check_import_rechecks_approved_failures(approval_task, change):
                 task_runtime.check_import(root, name, integration=True)
 
 
-@pytest.mark.parametrize("check", ["exists:missing.txt", "absent:file.txt"])
-def check_import_path_acceptance_is_enforced(check):
+@pytest.mark.parametrize("integration", [False, True])
+@pytest.mark.parametrize(
+    "check", ["changed:missing.txt", "exists:missing.txt", "absent:file.txt"]
+)
+def check_import_path_acceptance_is_enforced(check, integration):
     with repository_fixture() as root:
         name = "tasks/import.md"
         text = transition_contract(
@@ -1213,7 +1226,68 @@ def check_import_path_acceptance_is_enforced(check):
         (root / "file.txt").write_text("changed")
         with patch.object(task_runtime._imports_import_guard, "require_import_changes"):
             with pytest.raises(
-                ValueError, match="required path missing|forbidden path exists"
+                ValueError,
+                match="required changed path missing|required path missing|forbidden path exists",
             ):
-                transitions.complete(root, name)
+                task_runtime.check_import(root, name, integration=integration)
         assert tasks.status((root / name).read_text()) == "running"
+
+
+@pytest.mark.parametrize("integration", [False, True])
+@pytest.mark.parametrize(
+    "path,allowed",
+    [
+        ("model/dev/team/vpc.properties", True),
+        ("model/dev/team/vpc/part-001.properties", True),
+        ("docs/designs/dev/team/vpc.md", True),
+        ("docs/designs/dev/team/vpc/policy.json", True),
+        ("model/dev/team/vpc-endpoint.properties", False),
+        ("model/dev/team/vpc-endpoint/part-001.properties", False),
+        ("docs/designs/dev/team/vpc-endpoint.md", False),
+        ("docs/designs/dev/team/vpc-endpoint/policy.json", False),
+    ],
+)
+def check_import_fixed_write_scope(path, allowed, integration):
+    with repository_fixture() as root:
+        name = "tasks/import.md"
+        text = transition_contract(name, [path], kind="design", scope="dev/team/vpc")
+        text = text.replace(
+            "## Task contract\n",
+            "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
+        )
+        transitions.start(root, name, text)
+        destination = root / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("changed")
+        with patch.object(task_runtime._imports_import_guard, "require_import_changes"):
+            if allowed:
+                task_runtime.check_import(root, name, integration=integration)
+            else:
+                with pytest.raises(ValueError, match="outside selected"):
+                    task_runtime.check_import(root, name, integration=integration)
+
+
+def check_import_rejects_committed_foreign_view():
+    with repository_fixture() as root:
+        name = "tasks/import.md"
+        path = "docs/designs/dev/team/vpc-endpoint.md"
+        text = transition_contract(name, [path], kind="design", scope="dev/team/vpc")
+        text = text.replace(
+            "## Task contract\n",
+            "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
+        )
+        transitions.start(root, name, text)
+        baseline = git(root, "rev-parse", "HEAD")
+        destination = root / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("committed foreign view")
+        git(root, "add", path)
+        git(root, "commit", "-qm", "foreign view")
+        with (
+            patch.object(task_runtime._imports_import_guard, "require_import_changes"),
+            patch(
+                "validation.task.repository.task_start_commit", return_value=baseline
+            ),
+        ):
+            with pytest.raises(ValueError, match="outside selected"):
+                task_runtime.check_import(root, name, integration=True)
