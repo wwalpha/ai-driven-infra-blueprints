@@ -7,7 +7,7 @@ from copy import deepcopy
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -16,6 +16,8 @@ import pytest
 from deploy import observed as deploy_observed
 from model.adapters import observed
 from model.core import entries as entries
+from model.display import display_rows
+from model.projection import resource_rows
 from support.model_sources import allocate_fixture, write_model
 from utils.sealed_evidence import read_sealed, write_sealed
 
@@ -410,6 +412,106 @@ def check_preflight_indexed_multiple_stacks(preflight_files):
     assert set(loaded) == set(paths)
     assert set(mapped) == {"First", "Second"}
     assert len(loads.call_args_list) == 3
+
+
+@pytest.mark.parametrize(
+    "kind,properties",
+    [
+        ("LakeFormation.Resource", ["Id"]),
+        (
+            "LakeFormation.PrincipalPermissions",
+            ["PrincipalIdentifier", "ResourceIdentifier"],
+        ),
+    ],
+)
+@pytest.mark.parametrize("existing_rows", [False, True])
+def check_lakeformation_arn_identifiers_are_not_collected(
+    preflight_files, monkeypatch, kind, properties, existing_rows
+):
+    root, paths, documents = preflight_files
+    source = paths[0]
+    text = source.read_text(encoding="utf-8")
+    text = text.replace("EC2.VPC", kind).replace("EC2_VPC", kind.replace(".", "_"))
+    text = text.replace(kind + ".VpcId", kind + "." + properties[0])
+    if not existing_rows:
+        text = (
+            "\n".join(
+                line
+                for line in text.splitlines()
+                if not line.startswith("desired.row.")
+            )
+            + "\n"
+        )
+    else:
+        text += "observed.row.001-001.value=`PENDING_DEPLOY`\n"
+        if len(properties) > 1:
+            text += f"desired.row.001-002.property={kind}.{properties[1]}\ndesired.row.001-002.value=[self](#resource-{kind.replace('.', '_')}_001)\ndesired.row.001-002.comment=identifier\n"
+    write_model(source, text)
+    document = documents["First"]
+    document["Resources"]["Bucket"]["Type"] = "AWS::" + kind.replace(".", "::")
+    document["Outputs"] = {
+        name: {"Value": {"Fn::GetAtt": ["Bucket", name]}} for name in properties
+    }
+    arn = "LakeFormation-arn:aws:glue:ap-northeast-1:123456789012:connection/example"
+    backend = SimpleNamespace(
+        root=root,
+        environment="dev",
+        directory="123456789012",
+        target={"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"},
+        templates={"First": (document, {})},
+        run_context={},
+        aws=Mock(
+            side_effect=[
+                {
+                    "Stacks": [
+                        {
+                            "StackStatus": "CREATE_COMPLETE",
+                            "Outputs": [
+                                {"OutputKey": name, "OutputValue": arn}
+                                for name in properties
+                            ],
+                        }
+                    ]
+                },
+                {
+                    "StackResourceSummaries": [
+                        {
+                            "LogicalResourceId": "Bucket",
+                            "ResourceType": document["Resources"]["Bucket"]["Type"],
+                            "PhysicalResourceId": arn,
+                        }
+                    ]
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(observed, "active_scope", lambda root: None)
+    before = source.read_bytes()
+    assert deploy_observed.collect_successful(
+        backend, [{"name": "First"}], {"First": {}}
+    ) == ({}, [], None)
+    assert source.read_bytes() == before
+    if existing_rows:
+        values = sources.load_model(source).authoritative
+        rows = resource_rows(values, "001", kind, root)
+        assert not display_rows(kind, rows, root=root)
+    document["Outputs"] = {}
+    _, mapped = observed.resolve_resources(
+        root,
+        "dev",
+        "123456789012",
+        backend.templates,
+        [{"name": "First"}],
+        {"First": {"Bucket"}},
+        target=backend.target,
+    )
+    assert mapped["First"]["Bucket"][4] == set()
+    plan = observed.destroy_plan(
+        root, "dev", "123456789012", ["First"], check_scope=False
+    )
+    assert plan["updates"] == {"First": {}}
+    assert plan["owners"]["First"][0]["logicalId"] == "Bucket"
+    assert source.read_bytes() == before
 
 
 @pytest.mark.parametrize(

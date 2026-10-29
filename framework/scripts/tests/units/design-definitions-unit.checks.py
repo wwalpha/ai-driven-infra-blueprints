@@ -35,6 +35,9 @@ EXPECTED = {
     ],
     "HIDDEN_PROPERTIES": [
         "CodeCommit.Repository.RepositoryId",
+        "LakeFormation.PrincipalPermissions.PrincipalIdentifier",
+        "LakeFormation.PrincipalPermissions.ResourceIdentifier",
+        "LakeFormation.Resource.Id",
         "QuickSight.Group.Arn",
         "SecretsManager.RotationSchedule.Id",
         "SecretsManager.Secret.Id",
@@ -173,5 +176,5 @@ if __name__ == "__main__":
     check_duplicates()
     check_registration()
     print(
-        "Design definitions: PASS (25 services; 31 policy formats; seven collections; service dependency direction)"
+        "Design definitions: PASS (26 services; 31 policy formats; seven collections; service dependency direction)"
     )
