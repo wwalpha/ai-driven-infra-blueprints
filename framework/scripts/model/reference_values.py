@@ -267,17 +267,20 @@ class ProducerValues:
                 self.value(name)
         for required in self.resolver.catalog.required_design_properties(self.kind):
             rows = [
-                row
-                for _, row in self.rows
+                (rid, row)
+                for rid, row in self.rows
                 if row["property"] == self.kind + "." + required
             ]
             if len(rows) != 1:
                 return False
-            raw = literal(rows[0]["value"])
+            rid, row = rows[0]
+            raw = literal(row["value"])
             if resource_link(raw):
                 field = self.kind + "." + required
                 try:
-                    _, _, linked = self.resolver.resolve(raw, self.snapshot.scope)
+                    snapshot, number, linked = self.resolver.resolve(
+                        raw, self.snapshot.scope
+                    )
                 except (ReferenceResolutionError, FileNotFoundError) as error:
                     raise ModelNeedsFixError(
                         str(error), code="MODEL_REF_TARGET_MISSING"
@@ -296,7 +299,61 @@ class ProducerValues:
                 for attribute in declared[kind]:
                     self.resolver.validate_attribute(kind, attribute, field=field)
                     self.resolver.validate_reference_type(kind, attribute, field)
-            elif re.match(r"^\[[^\]]+\]\([^)]*#", rows[0]["value"]):
+                observed = self.value(required)
+                if (
+                    observed is None
+                    and f"observed.row.{rid}.value" in self.snapshot.authoritative
+                ):
+                    return False
+                if observed is not None:
+                    linked_values = ProducerValues(
+                        snapshot, number, linked, self.resolver
+                    )
+                    comparisons = []
+                    for attribute in declared[kind]:
+                        pattern = VALUE_IDENTITIES.get((kind, attribute))
+                        match = (
+                            re.fullmatch(pattern, str(observed)) if pattern else None
+                        )
+                        if pattern and not match:
+                            continue
+                        if not pattern and len(declared[kind]) != 1:
+                            continue
+                        normalized = reference_attribute(kind, attribute)
+                        target_field = RETURN_ATTRIBUTE_PROPERTIES.get(
+                            (kind, normalized), normalized
+                        )
+                        target = linked_values.value(target_field)
+                        if target is None:
+                            comparisons.append(None)
+                        elif str(observed).startswith("arn:") != str(target).startswith(
+                            "arn:"
+                        ):
+                            comparisons.append(None)
+                        else:
+                            target_match = (
+                                re.fullmatch(pattern, str(target)) if pattern else None
+                            )
+                            comparisons.append(
+                                (match.group("id") == target_match.group("id"))
+                                if match and target_match
+                                else observed == target
+                            )
+                    if linked_values.drift_fields:
+                        self.drift_fields.update(linked_values.drift_fields)
+                        raise ReferenceResolutionError(
+                            "Desired and Observed differ: "
+                            + ", ".join(sorted(self.drift_fields))
+                        )
+                    if True not in comparisons:
+                        if comparisons and None not in comparisons:
+                            self.drift_fields.add(required)
+                            raise ModelNeedsFixError(
+                                "Desired and Observed differ: " + required,
+                                code="MODEL_REF_VALUE_CONFLICT",
+                            )
+                        return False
+            elif re.match(r"^\[[^\]]+\]\([^)]*#", row["value"]):
                 raise ModelNeedsFixError(
                     "invalid Markdown Resource reference: " + raw,
                     code="MODEL_REF_TARGET_MISSING",

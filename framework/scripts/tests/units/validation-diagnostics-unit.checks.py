@@ -740,8 +740,11 @@ def check_read_during_handler_has_no_result_side_effect(
     later = findings.result("later", None)
 
     result = findings.evaluate(
-        "normal-required", None,
-        partial(read_during_handler, findings, later, reader, outcome, existing_failure),
+        "normal-required",
+        None,
+        partial(
+            read_during_handler, findings, later, reader, outcome, existing_failure
+        ),
     )
     assert result.status == ("PASS" if outcome == "PASS" else "FAIL")
     if outcome == "PASS":

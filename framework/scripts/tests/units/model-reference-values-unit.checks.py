@@ -241,6 +241,75 @@ def test_required_input_literal_or_link(fixture, value, expected):
 
 
 @pytest.mark.parametrize(
+    "observed,expected,conflict",
+    [
+        ("example", "logical_only", False),
+        ("another-secret", "conflict", True),
+        (
+            "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:example-AbCd12",
+            "unresolved",
+            False,
+        ),
+        ("UNSET", "unresolved", False),
+    ],
+)
+def test_required_link_observed_identity(fixture, observed, expected, conflict):
+    _, _, consumer, _ = fixture
+    secret, secret_values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Name"
+    )
+    secret_values["desired.row.001-001.value"] = "`example`"
+    save(secret, secret_values)
+    scope, values = resource(
+        consumer.root,
+        "rotation",
+        "SecretsManager.RotationSchedule",
+        attribute="SecretId",
+    )
+    values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+    values["observed.row.001-001.value"] = "`" + observed + "`"
+    save(scope, values)
+    if conflict:
+        with pytest.raises(ModelNeedsFixError) as error:
+            result(consumer, "SecretsManager_RotationSchedule_001", "Id")
+        assert error.value.diagnostic["code"] == "MODEL_REF_VALUE_CONFLICT"
+        return
+    actual = result(consumer, "SecretsManager_RotationSchedule_001", "Id")
+    assert actual.status == expected
+    assert ("Desired and Observed differ" in actual.reason) is conflict
+
+
+@pytest.mark.parametrize("same", [True, False])
+def test_required_link_with_recorded_arn(fixture, same):
+    _, _, consumer, _ = fixture
+    secret, secret_values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Id"
+    )
+    arn = "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:example-AbCd12"
+    secret_values["observed.row.001-001.value"] = "`" + arn + "`"
+    save(secret, secret_values)
+    scope, values = resource(
+        consumer.root,
+        "rotation",
+        "SecretsManager.RotationSchedule",
+        attribute="SecretId",
+    )
+    values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+    values["observed.row.001-001.value"] = (
+        "`" + (arn if same else arn.replace("example", "another")) + "`"
+    )
+    save(scope, values)
+    if same:
+        assert (
+            result(consumer, "SecretsManager_RotationSchedule_001", "Id").status
+            == "logical_only"
+        )
+    else:
+        with pytest.raises(ModelNeedsFixError, match="MODEL_REF_VALUE_CONFLICT"):
+            result(consumer, "SecretsManager_RotationSchedule_001", "Id")
+
+
+@pytest.mark.parametrize(
     "link",
     [
         "[Missing](secrets.md#missing)",
