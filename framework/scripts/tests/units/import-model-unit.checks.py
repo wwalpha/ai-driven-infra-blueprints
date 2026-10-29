@@ -2081,6 +2081,32 @@ def check_import_profile_mode_delegation():
     assert len(cli.calls) == 1 and cli.calls[0][0:2] == ("sts", "get-caller-identity")
 
 
+def check_subnet_route_table_association_normalization():
+    cli = aws("vpc")
+    subnet = cli.responses[("ec2", "describe-subnets")]["Subnets"][0]
+    cli.responses[("ec2", "describe-route-tables")] = {
+        "RouteTables": [{
+            "RouteTableId": "rtb-00000000000000001",
+            "VpcId": subnet["VpcId"],
+            "Associations": [{
+                "RouteTableAssociationId": "rtbassoc-00000000000000001",
+                "SubnetId": subnet["SubnetId"],
+                "AssociationState": {"State": "associated"},
+            }],
+        }]
+    }
+    target = {"environment": "dev", "directory": "cde", "awsAccountId": ACCOUNT,
+              "awsRegion": "ap-northeast-1", "awsProfile": "confirmed"}
+    ctx = m.import_context(m.ROOT, target, cli, "vpc")
+    ctx.verify()
+    records = m.normalize_records(ctx, "vpc", m.inventory(ctx, "vpc", ["EC2.Subnet", "EC2.RouteTable"]))
+    selected = next(r for r in records if r["identity"] == subnet["SubnetId"])
+    association = selected["properties"]["EC2.SubnetRouteTableAssociation.RouteTableId"]
+    assert association["status"] == "captured"
+    assert association["value"] == "rtb-00000000000000001"
+    assert inventory_for(ctx).statuses["EC2.Subnet"]["status"] == "complete"
+
+
 def check_legacy_adapter_api_counts():
     # Baseline counts are physical mock transport invocations on the identical fixture.
     expected = {

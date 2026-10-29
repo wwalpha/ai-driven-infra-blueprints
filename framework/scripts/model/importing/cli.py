@@ -452,13 +452,14 @@ def _normalize_records(ctx, service, records):
                     }
                     continue
                 shape = "projection" if array_paths(prop) else "leaf"
-                field_path = schema_property(kind, prop)
+                property_kind = ".".join(prop.split(".")[:2])
+                field_path = schema_property(property_kind, prop)
                 extracted = normalize(field_path, value, shape)
                 for item in extracted.values:
                     if item == m.MISSING or unsafe(item):
                         raise ValueError("sensitive or unresolved AWS value")
                 errors = validation_errors(
-                    property_catalog(), kind, field_path, extracted
+                    property_catalog(), property_kind, field_path, extracted
                 )
                 if errors:
                     raise ValueError("; ".join(errors))
