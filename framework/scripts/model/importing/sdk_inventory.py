@@ -1,9 +1,11 @@
 """Parent-scoped SDK paths used by the existing Import inventory."""
 
 import json
+import re
 from typing import Any
 from urllib.parse import urlparse
 
+from utils.aws_sdk import aws_runtime
 from utils.json_format import policy_json
 
 from model.importing.discovery import SCOPED_INVENTORIES
@@ -142,7 +144,6 @@ def glue_tables(ctx: Any) -> list[dict[str, Any]]:
                 "TableList",
                 CatalogId=catalog_id,
                 DatabaseName=name,
-                ResourceShareType="ALL",
             ):
                 table_name = identifier(table.get("Name"))
                 if (
@@ -228,6 +229,17 @@ def datazone_projects(ctx: Any) -> list[dict[str, Any]]:
 def queue_policies(ctx: Any, parents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     account = account_for(ctx)
     records = []
+    region = ctx.target["awsRegion"]
+    endpoint = (
+        aws_runtime()
+        .sdk_session()
+        .get_component("endpoint_resolver")
+        .construct_endpoint("sqs", region)
+    )
+    if not endpoint or endpoint.get("endpointName") != region:
+        raise ValueError("SQS endpoint is unknown for target region")
+    hosts = {endpoint["hostname"], endpoint.get("sslCommonName")}
+    hosts.update(variant["hostname"] for variant in endpoint.get("variants", []))
     for parent in parents:
         if parent.get("kind") != "SQS.Queue":
             raise ValueError("QueuePolicy requires acquired Queue parents")
@@ -235,10 +247,15 @@ def queue_policies(ctx: Any, parents: list[dict[str, Any]]) -> list[dict[str, An
         url = identifier(url)
         parsed = urlparse(url)
         if (
-            parsed.scheme != "https"
-            or parsed.path.split("/")[1:2] != [account]
-            or not parsed.hostname
-            or parsed.hostname.split(".")[1:2] != [ctx.target["awsRegion"]]
+            parsed.geturl() != url
+            or parsed.scheme != "https"
+            or parsed.netloc not in hosts
+            or parsed.query
+            or parsed.fragment
+            or not re.fullmatch(
+                r"/" + account + r"/[A-Za-z0-9_-]{1,80}(?:\.fifo)?", parsed.path
+            )
+            or len(parsed.path.rsplit("/", 1)[-1]) > 80
         ):
             raise ValueError("SQS queue is outside target scope")
         response = ctx.call(

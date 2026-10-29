@@ -11,8 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
+from botocore.validate import ParamValidator
 from model.importing import cli, coverage, inventory, sdk_inventory
 from support.pytest_cli import run
+from utils.aws_sdk import aws_runtime
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -27,6 +29,18 @@ TARGET = {
 }
 
 
+SDK = aws_runtime().sdk_session()
+
+
+def validate_input(api, operation, inputs):
+    model = SDK.get_service_model(api)
+    name = aws_runtime().operation_name(model, operation)
+    shape = model.operation_model(name).input_shape
+    errors = ParamValidator().validate(inputs, shape) if shape else None
+    if errors and errors.has_errors():
+        raise ValueError(errors.generate_report())
+
+
 class Context:
     def __init__(self, pages, details=None):
         self.target = dict(TARGET)
@@ -36,6 +50,7 @@ class Context:
         self.calls = []
 
     def pages(self, api, operation, **inputs):
+        validate_input(api, operation, inputs)
         self.calls.append((api, operation, inputs))
         value = self.responses[(operation, tuple(sorted(inputs.items())))]
         if isinstance(value, Exception):
@@ -43,11 +58,29 @@ class Context:
         return value
 
     def call(self, api, operation, **inputs):
+        validate_input(api, operation, inputs)
         self.calls.append((api, operation, inputs))
         value = self.details[(operation, tuple(sorted(inputs.items())))]
         if isinstance(value, Exception):
             raise value
         return value
+
+
+@pytest.mark.parametrize(
+    "inputs",
+    [
+        {"CatalogId": ACCOUNT},
+        {"DatabaseName": "db", "UnknownParameter": "ALL"},
+        {"DatabaseName": 123},
+    ],
+)
+def test_sdk_shape_rejects_invalid_inputs(inputs):
+    with pytest.raises(ValueError):
+        validate_input("glue", "get_tables", inputs)
+
+
+def test_sdk_shape_accepts_valid_inputs():
+    validate_input("glue", "get_tables", {"CatalogId": ACCOUNT, "DatabaseName": "db"})
 
 
 def test_groups_preserve_namespace_and_selector_provenance():
@@ -108,7 +141,6 @@ def test_glue_all_catalogs_databases_and_same_named_tables():
                     (
                         ("CatalogId", catalog),
                         ("DatabaseName", database),
-                        ("ResourceShareType", "ALL"),
                     ),
                 )
             ] = {
@@ -128,6 +160,22 @@ def test_glue_all_catalogs_databases_and_same_named_tables():
         "DatabaseList": [{"Name": "a", "CatalogId": "999999999999"}]
     }
     with pytest.raises(ValueError, match="scope mismatch"):
+        sdk_inventory.collect(ctx, "Glue.Table")
+    database_key = ("get_databases", (("CatalogId", catalogs[1]),))
+    pages[database_key] = ValueError("database failed")
+    with pytest.raises(ValueError, match="database failed"):
+        sdk_inventory.collect(ctx, "Glue.Table")
+    pages[database_key] = {"DatabaseList": [{"Name": "a", "CatalogId": catalogs[1]}]}
+    table_key = ("get_tables", (("CatalogId", catalogs[1]), ("DatabaseName", "a")))
+    pages[table_key] = ValueError("tables failed")
+    with pytest.raises(ValueError, match="tables failed"):
+        sdk_inventory.collect(ctx, "Glue.Table")
+    table = {"CatalogId": catalogs[1], "DatabaseName": "a", "Name": "same"}
+    pages[table_key] = {"TableList": [table, dict(table)]}
+    with pytest.raises(ValueError, match="Duplicate scoped SDK identity"):
+        sdk_inventory.collect(ctx, "Glue.Table")
+    pages[table_key] = {"TableList": [dict(table, DatabaseName="other")]}
+    with pytest.raises(ValueError, match="table scope mismatch"):
         sdk_inventory.collect(ctx, "Glue.Table")
 
 
@@ -202,6 +250,46 @@ def test_queue_policy_never_infers_grouping_or_merges_documents():
     assert len(records) == 2
     assert all(r["structureStatus"] == "unresolved" for r in records)
     assert records[0]["identity"] != records[1]["identity"]
+    for call in ctx.call.call_args_list:
+        validate_input("sqs", "get_queue_attributes", call.kwargs)
+
+
+@pytest.mark.parametrize(
+    "region,url,valid",
+    [
+        (REGION, f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/queue", True),
+        (
+            "cn-north-1",
+            f"https://sqs.cn-north-1.amazonaws.com.cn/{ACCOUNT}/queue.fifo",
+            True,
+        ),
+        (
+            "us-gov-west-1",
+            f"https://sqs.us-gov-west-1.amazonaws.com/{ACCOUNT}/queue",
+            True,
+        ),
+        (REGION, f"https://sqs.{REGION}.evil.example/{ACCOUNT}/queue", False),
+        (REGION, f"https://sqs.us-east-1.amazonaws.com/{ACCOUNT}/queue", False),
+        (REGION, f"https://sqs.{REGION}.amazonaws.com/123456789013/queue", False),
+        (REGION, f"https://sqs.{REGION}.amazonaws.com:443/{ACCOUNT}/queue", False),
+        (REGION, f"https://user@sqs.{REGION}.amazonaws.com/{ACCOUNT}/queue", False),
+        (REGION, f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/queue/extra", False),
+        (REGION, f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/queue?x=1", False),
+        (REGION, f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT}/queue#", False),
+        (REGION, f"http://sqs.{REGION}.amazonaws.com/{ACCOUNT}/queue", False),
+    ],
+)
+def test_queue_url_scope(region, url, valid):
+    target = dict(TARGET, awsRegion=region)
+    ctx = SimpleNamespace(target=target, allowed=set(), call=Mock(return_value={}))
+    parents = [{"kind": "SQS.Queue", "cloudProperties": {"QueueUrl": url}}]
+    if valid:
+        assert sdk_inventory.collect(ctx, "SQS.QueuePolicy", parents=parents) == []
+        validate_input("sqs", "get_queue_attributes", ctx.call.call_args.kwargs)
+    else:
+        with pytest.raises(ValueError, match="outside target scope"):
+            sdk_inventory.collect(ctx, "SQS.QueuePolicy", parents=parents)
+        ctx.call.assert_not_called()
 
 
 @pytest.mark.parametrize("kind", list(sdk_inventory.SCOPED_INVENTORIES))
@@ -226,6 +314,31 @@ def test_scoped_inventory_failure_is_not_empty(kind):
     )
     with pytest.raises(ValueError, match="API failed"):
         sdk_inventory.collect(ctx, kind, parents=parents)
+
+
+def test_glue_table_pagination_validates_each_page_request():
+    module = cli.comparator()
+    ctx = SimpleNamespace(
+        allowed={("glue", "get_tables")},
+        verified=True,
+        import_mode=True,
+        session=None,
+        cache={},
+        metrics=Counter(),
+        call=Mock(
+            side_effect=[
+                {"TableList": [{"Name": "a"}], "NextToken": "next"},
+                {"TableList": [{"Name": "b"}]},
+            ]
+        ),
+    )
+    result = module.Context._pages(
+        ctx, "glue", "get_tables", CatalogId=ACCOUNT, DatabaseName="db"
+    )
+    assert [item["Name"] for item in result["TableList"]] == ["a", "b"]
+    for call in ctx.call.call_args_list:
+        validate_input("glue", "get_tables", call.kwargs)
+    assert ctx.call.call_args_list[1].kwargs["NextToken"] == "next"
 
 
 def test_pagination_keeps_all_pages_and_rejects_second_page_error():
@@ -286,6 +399,8 @@ def test_nine_inventory_paths_share_runtime_discovery(service, kind, mode):
         "uncertain" if kind == "SQS.QueuePolicy" else "ready"
     )
     assert result["runtimeVerified"] is False
+    if mode == "scoped_sdk":
+        assert "Not statically verified" in result["identity"]["inputValidation"]
 
 
 @pytest.mark.parametrize(

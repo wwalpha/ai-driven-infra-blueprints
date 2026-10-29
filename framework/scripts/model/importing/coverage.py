@@ -178,6 +178,7 @@ class Coverage:
                 if kind == "SQS.QueuePolicy"
                 else "Parent selectors and composite identity are preserved by the SDK inventory; live scope and uniqueness require runtime checks",
                 components=list(SCOPED_INVENTORIES[kind].components),
+                inputValidation="Not statically verified; operation existence does not validate runtime inputs",
                 scope=["executionAccount", "region", "resourceType"],
             )
         if plan.mode == "not_modelled":
