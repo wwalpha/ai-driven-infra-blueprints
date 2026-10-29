@@ -268,6 +268,36 @@ def test_queue_policy_never_infers_grouping_or_merges_documents():
             f"https://sqs.us-gov-west-1.amazonaws.com/{ACCOUNT}/queue",
             True,
         ),
+        ("us-east-1", f"https://sqs.us-east-1.amazonaws.com/{ACCOUNT}/queue", True),
+        (
+            "us-east-1",
+            f"https://sqs-fips.us-east-1.amazonaws.com/{ACCOUNT}/queue",
+            True,
+        ),
+        ("us-east-1", f"https://sqs-fips.us-east-1.api.aws/{ACCOUNT}/queue", True),
+        (REGION, f"https://sqs.{REGION}.api.aws/{ACCOUNT}/queue", True),
+        ("us-gov-west-1", f"https://sqs.us-gov-west-1.api.aws/{ACCOUNT}/queue", True),
+        (REGION, f"https://ap-northeast-1.queue.amazonaws.com/{ACCOUNT}/queue", True),
+        ("us-east-1", f"https://queue.amazonaws.com/{ACCOUNT}/queue", True),
+        ("cn-north-1", f"https://cn-north-1.queue.amazonaws.com/{ACCOUNT}/queue", True),
+        (
+            "ap-east-2",
+            f"https://{{service}}-fips.{{region}}.{{dnsSuffix}}/{ACCOUNT}/queue",
+            False,
+        ),
+        (REGION, f"https://sqs-fips.{REGION}.amazonaws.com/{ACCOUNT}/queue", False),
+        (REGION, f"https://sqs-fips.{REGION}.api.aws/{ACCOUNT}/queue", False),
+        ("ap-east-2", f"https://sqs-fips.ap-east-2.api.aws/{ACCOUNT}/queue", False),
+        (
+            "af-south-1",
+            f"https://af-south-1.queue.amazonaws.com/{ACCOUNT}/queue",
+            False,
+        ),
+        (
+            "us-gov-west-1",
+            f"https://us-gov-west-1.queue.amazonaws.com/{ACCOUNT}/queue",
+            False,
+        ),
         (REGION, f"https://sqs.{REGION}.evil.example/{ACCOUNT}/queue", False),
         (REGION, f"https://sqs.us-east-1.amazonaws.com/{ACCOUNT}/queue", False),
         (REGION, f"https://sqs.{REGION}.amazonaws.com/123456789013/queue", False),
@@ -290,6 +320,23 @@ def test_queue_url_scope(region, url, valid):
         with pytest.raises(ValueError, match="outside target scope"):
             sdk_inventory.collect(ctx, "SQS.QueuePolicy", parents=parents)
         ctx.call.assert_not_called()
+
+
+def test_queue_url_unknown_region_is_rejected_before_call():
+    ctx = SimpleNamespace(
+        target=dict(TARGET, awsRegion="us-east-999"), allowed=set(), call=Mock()
+    )
+    parents = [
+        {
+            "kind": "SQS.Queue",
+            "cloudProperties": {
+                "QueueUrl": f"https://sqs.us-east-999.amazonaws.com/{ACCOUNT}/queue"
+            },
+        }
+    ]
+    with pytest.raises(ValueError, match="endpoint is unknown"):
+        sdk_inventory.collect(ctx, "SQS.QueuePolicy", parents=parents)
+    ctx.call.assert_not_called()
 
 
 @pytest.mark.parametrize("kind", list(sdk_inventory.SCOPED_INVENTORIES))

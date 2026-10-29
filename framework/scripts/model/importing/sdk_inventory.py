@@ -230,16 +230,65 @@ def queue_policies(ctx: Any, parents: list[dict[str, Any]]) -> list[dict[str, An
     account = account_for(ctx)
     records = []
     region = ctx.target["awsRegion"]
-    endpoint = (
-        aws_runtime()
-        .sdk_session()
-        .get_component("endpoint_resolver")
-        .construct_endpoint("sqs", region)
-    )
-    if not endpoint or endpoint.get("endpointName") != region:
+    resolver = aws_runtime().sdk_session().get_component("endpoint_resolver")
+    endpoint = resolver.construct_endpoint("sqs", region)
+    if (
+        not endpoint
+        or endpoint.get("endpointName") != region
+        or region not in resolver.get_available_endpoints("sqs", endpoint["partition"])
+    ):
         raise ValueError("SQS endpoint is unknown for target region")
-    hosts = {endpoint["hostname"], endpoint.get("sslCommonName")}
-    hosts.update(variant["hostname"] for variant in endpoint.get("variants", []))
+    partition = endpoint["partition"]
+    hosts = {endpoint["hostname"]}
+    dual = resolver.construct_endpoint(
+        "sqs", region, partition_name=partition, use_dualstack_endpoint=True
+    )
+    if dual:
+        hosts.add(dual["hostname"])
+    # Only concrete regional FIPS variants establish SQS support; defaults are templates.
+    if partition == "aws" and any(
+        variant.get("tags") == ["fips"] and "{" not in variant.get("hostname", "")
+        for variant in endpoint.get("variants", [])
+    ):
+        for dualstack in (False, True):
+            resolved = resolver.construct_endpoint(
+                "sqs",
+                region,
+                partition_name=partition,
+                use_fips_endpoint=True,
+                use_dualstack_endpoint=dualstack,
+            )
+            if resolved:
+                hosts.add(resolved["hostname"])
+    # AWS documents HTTPS legacy endpoints only for these Regions.
+    legacy_regions = {
+        "us-east-1",
+        "us-east-2",
+        "us-west-1",
+        "us-west-2",
+        "ap-south-1",
+        "ap-northeast-1",
+        "ap-northeast-2",
+        "ap-northeast-3",
+        "ap-southeast-1",
+        "ap-southeast-2",
+        "ca-central-1",
+        "eu-central-1",
+        "eu-west-1",
+        "eu-west-2",
+        "eu-west-3",
+        "eu-north-1",
+        "sa-east-1",
+    }
+    if partition == "aws" and region in legacy_regions:
+        hosts.add(endpoint.get("sslCommonName"))
+    if partition == "aws-cn" and region in {"cn-north-1", "cn-northwest-1"}:
+        hosts.add(f"{region}.queue.amazonaws.com")
+    hosts = {
+        host
+        for host in hosts
+        if isinstance(host, str) and "{" not in host and "}" not in host
+    }
     for parent in parents:
         if parent.get("kind") != "SQS.Queue":
             raise ValueError("QueuePolicy requires acquired Queue parents")
