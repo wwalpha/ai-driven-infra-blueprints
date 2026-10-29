@@ -111,7 +111,125 @@ def test_list_quarantine_display(fixture):
 def test_missing_generated_kms_value(fixture):
     _, _, consumer, _ = fixture
     value = result(consumer, "KMS_Key_001")
-    assert value.status == "unresolved" and value.value is None and value.reason
+    assert value.status == "logical_only" and value.value is None
+
+
+@pytest.mark.parametrize("attribute", ["Id", "Arn"])
+def test_hidden_secret_logical_reference(fixture, attribute):
+    _, _, consumer, policy = fixture
+    producer, values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Name"
+    )
+    values["desired.row.001-001.value"] = "`fixture-secret`"
+    save(producer, values)
+    node = reference("SecretsManager_Secret_001", attribute)
+    assert (
+        result(consumer, "SecretsManager_Secret_001", attribute).status
+        == "logical_only"
+    )
+    document = {
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "secretsmanager:GetSecretValue",
+                "Resource": node,
+            }
+        ]
+    }
+    warnings = []
+    assert (
+        generated_document(
+            document,
+            consumer.root,
+            resolver=reference_resolver(policy, consumer, consumer.root),
+            scope=consumer,
+            property_name="IAM.ManagedPolicy.PolicyDocument",
+            warnings=warnings,
+        )
+        == document
+    )
+    assert not warnings
+    with pytest.raises(ValueError, match="Model reference"):
+        validate_aws_document(document)
+
+
+def test_required_input_is_not_an_output(fixture):
+    _, _, consumer, _ = fixture
+    producer, values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Name"
+    )
+    values["desired.row.001-001.value"] = "`UNSET`"
+    save(producer, values)
+    resolver = Resolver(consumer.root)
+    resolver.validate_attribute("SecretsManager.Secret", "Id")
+    with patch.object(
+        resolver.catalog, "required_design_properties", return_value={"Name"}
+    ):
+        value = reference_value(
+            resolver, consumer, parse(reference("SecretsManager_Secret_001", "Id"))
+        )
+    assert value.status == "unresolved"
+
+
+def test_other_hidden_output_requires_design_input(fixture):
+    _, _, consumer, _ = fixture
+    producer, values = resource(
+        consumer.root, "codecommit", "CodeCommit.Repository", attribute="RepositoryName"
+    )
+    values["desired.row.001-001.value"] = "`fixture-repo`"
+    save(producer, values)
+    assert (
+        result(consumer, "CodeCommit_Repository_001", "RepositoryId").status
+        == "logical_only"
+    )
+    values["desired.row.001-001.value"] = "`UNSET`"
+    save(producer, values)
+    assert (
+        result(consumer, "CodeCommit_Repository_001", "RepositoryId").status
+        == "unresolved"
+    )
+    values["desired.row.001-001.value"] = "`not a valid repository name!`"
+    save(producer, values)
+    with pytest.raises(ModelNeedsFixError):
+        result(consumer, "CodeCommit_Repository_001", "RepositoryId")
+
+
+def test_logical_only_checks_existing_value_conflicts(fixture):
+    _, _, consumer, _ = fixture
+    producer, values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Name"
+    )
+    values["desired.row.001-001.value"] = "`${Unconfirmed}`"
+    save(producer, values)
+    with pytest.raises(ModelNeedsFixError):
+        result(consumer, "SecretsManager_Secret_001", "Id")
+    values["desired.row.001-001.value"] = "`first-secret`"
+    values["observed.row.001-001.value"] = "`different-secret`"
+    save(producer, values)
+    assert result(consumer, "SecretsManager_Secret_001", "Id").status == "unresolved"
+
+
+def test_hidden_output_observation_and_pending(fixture):
+    _, _, consumer, _ = fixture
+    producer, values = resource(
+        consumer.root,
+        "secrets",
+        "SecretsManager.Secret",
+        attribute="Id",
+        observed="PENDING_DEPLOY",
+    )
+    assert (
+        result(consumer, "SecretsManager_Secret_001", "Id").status == "pending_deploy"
+    )
+    arn = "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:fixture-AbCd12"
+    values["observed.row.001-001.value"] = "`" + arn + "`"
+    save(producer, values)
+    value = result(consumer, "SecretsManager_Secret_001", "Arn")
+    assert (value.status, value.value) == ("resolved", arn)
+    values["observed.row.001-001.value"] = "`not-an-arn`"
+    save(producer, values)
+    with pytest.raises(ModelNeedsFixError):
+        result(consumer, "SecretsManager_Secret_001", "Arn")
 
 
 @pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
@@ -608,9 +726,11 @@ def test_unconfirmed_path_does_not_use_absence_default(fixture):
 
 
 def test_generated_json_reports_every_unresolved_pointer(fixture):
-    _, _, consumer, policy = fixture
+    producer, values, consumer, policy = fixture
+    values["desired.row.001-001.value"] = "`UNSET`"
+    save(producer, values)
     document = {
-        "a/b~": [reference("KMS_Key_001"), json.dumps(reference("KMS_Key_001"))]
+        "a/b~": [reference("S3_Bucket_001"), json.dumps(reference("S3_Bucket_001"))]
     }
     resolver = reference_resolver(policy, consumer, consumer.root)
     warnings = []
@@ -627,17 +747,17 @@ def test_generated_json_reports_every_unresolved_pointer(fixture):
     )
     message = json.dumps(warnings)
     for expected in (
-        "KMS_Key_001",
+        "S3_Bucket_001",
         '"attribute": "Arn"',
         "/a~1b~0/0",
         "/a~1b~0/1",
         "REFERENCE_UNRESOLVED",
-        "KeyId",
+        "BucketName",
     ):
         assert expected in message
     with pytest.raises(ValueError, match="Model reference"):
         validate_aws_document(document)
-    assert document["a/b~"][0] == reference("KMS_Key_001")
+    assert document["a/b~"][0] == reference("S3_Bucket_001")
 
 
 def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
@@ -815,11 +935,11 @@ def test_reference_cache_observed_generation_and_invocation(fixture):
             )
             _, first = projection.document_references(document, **contract)
             expected = copy.deepcopy(first)
-            first[0]["message"] = "external contamination"
+            first.append({"message": "external contamination"})
             assert projection.document_references(document, **contract)[1] == expected
             assert evaluate.call_count == 1
             assert scan.call_count == 1
-            categories = [expected[0]["category"]]
+            categories = ["LOGICAL_ONLY" if not expected else expected[0]["category"]]
             for value in (
                 "PENDING_DEPLOY",
                 "12345678-1234-1234-1234-123456789012",
@@ -847,7 +967,7 @@ def test_reference_cache_observed_generation_and_invocation(fixture):
                     diagnostics,
                 )
             assert categories == [
-                "REFERENCE_UNRESOLVED",
+                "LOGICAL_ONLY",
                 "REFERENCE_PENDING_DEPLOY",
                 "RESOLVED",
             ]
@@ -862,6 +982,9 @@ def test_reference_cache_observed_generation_and_invocation(fixture):
 @pytest.mark.parametrize("read_only, expected_calls", [(False, 3), (True, 2)])
 def test_reference_cache_candidate_and_rollback(fixture, read_only, expected_calls):
     _, _, consumer, policy = fixture
+    resource(
+        consumer.root, "kms", "KMS.Key", attribute="KeyId", observed="PENDING_DEPLOY"
+    )
     key = "desired.row.001-002.document"
     with (
         input_context(read_only=read_only),
@@ -931,11 +1054,7 @@ def test_vpc_json_view_and_saved_policy(fixture, observed):
     )
     assert projected["Statement"][0]["Resource"] == "arn:aws:s3:::fixture-materials"
     assert [w["category"] for w in warnings] == (
-        ["REFERENCE_UNRESOLVED"]
-        if observed is None
-        else ["REFERENCE_PENDING_DEPLOY"]
-        if observed == "PENDING_DEPLOY"
-        else []
+        ["REFERENCE_PENDING_DEPLOY"] if observed == "PENDING_DEPLOY" else []
     )
     nested = {"items": [node, {"encoded": json.dumps([node, "keep", 3])}]}
     value = generated_document(

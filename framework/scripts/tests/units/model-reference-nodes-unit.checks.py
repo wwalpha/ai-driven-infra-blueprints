@@ -583,7 +583,7 @@ def reference_decision(inputs, left, right, path):
 @pytest.mark.parametrize(
     "observed,expected",
     [
-        (None, "unresolved"),
+        (None, "logical_only"),
         ("PENDING_DEPLOY", "PENDING_DEPLOY"),
         (
             "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
@@ -607,11 +607,7 @@ def check_display_and_stable_design(tmp_path, models, observed, expected):
         == document
     )
     assert [warning["category"] for warning in warnings] == (
-        ["REFERENCE_UNRESOLVED"]
-        if observed is None
-        else ["REFERENCE_PENDING_DEPLOY"]
-        if observed == "PENDING_DEPLOY"
-        else []
+        ["REFERENCE_PENDING_DEPLOY"] if observed == "PENDING_DEPLOY" else []
     )
     displayed = reference_display(policy, consumer.path, tmp_path)
     assert json.loads(displayed["desired.row.001-002.document"])["Statement"][0][

@@ -193,5 +193,33 @@ def test_phase_selection_uses_authoritative_observations(observed, phase):
         assert report["issue_count"] == 1
 
 
+@pytest.mark.parametrize(
+    "kind,attribute",
+    [("SecretsManager.Secret", "Id"), ("CodeCommit.Repository", "RepositoryId")],
+)
+def test_hidden_generated_output_defers_without_identifier_row(kind, attribute):
+    inputs = SimpleNamespace(
+        local_comparison=True,
+        rows={"producer": {"001": []}},
+        models={"producer": SimpleNamespace(authoritative={})},
+        catalog=Mock(),
+    )
+    inputs.catalog.schema.return_value = {
+        "readOnlyProperties": ["/properties/" + attribute]
+    }
+    symbol = {"$resource": ["producer", "001"], "$attribute": attribute}
+    with pytest.raises(ImportReferenceDeferred) as failure:
+        defer_import_reference(
+            inputs, symbol, {"resourceType": kind}, "Consumer.Resource.Value"
+        )
+    assert failure.value.iac_cause["phase"] == "unobserved"
+    inputs.catalog.schema.return_value = {"readOnlyProperties": []}
+    with pytest.raises(Blocked) as failure:
+        defer_import_reference(
+            inputs, symbol, {"resourceType": kind}, "Consumer.Resource.Value"
+        )
+    assert failure_category(failure.value) == "uncompared"
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

@@ -609,7 +609,7 @@ def document_references(
             diagnostics.extend(error.diagnostics)
             continue
         resolutions[node] = result
-        if result.status != "resolved":
+        if result.status not in {"resolved", "logical_only"}:
             diagnostics.append(result.diagnostic)
     for diagnostic in diagnostics:
         diagnostic.update(

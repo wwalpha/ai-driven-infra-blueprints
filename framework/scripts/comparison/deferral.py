@@ -1,6 +1,8 @@
 """IMPORT waits and normal exclusions within the six comparison categories."""
 
 from design.policy_tables import literal
+from design.services.definitions.registry import HIDDEN_PROPERTIES
+from utils.arn_values import generated_attribute
 from utils.cloudformation.inputs import Blocked
 
 from .reference_evidence import identifier_text
@@ -70,7 +72,10 @@ def defer_import_reference(inputs, symbol, resource, consumer_property):
         for rid, row in inputs.rows[service][identity]
         if row["property"] == kind + "." + attribute
     ]
-    if not rows:
+    if not rows and not (
+        kind + "." + attribute in HIDDEN_PROPERTIES
+        and generated_attribute(inputs.catalog.schema(kind), attribute)
+    ):
         raise Blocked("identifier Property is missing; reference contract is unproven")
     if len(rows) > 1:
         raise Blocked("identifier Property is ambiguous")

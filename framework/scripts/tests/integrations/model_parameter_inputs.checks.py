@@ -9,23 +9,39 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import io
 import json
 from contextlib import redirect_stdout
+from functools import partial
 
+import pytest
 import support.model_parameter_inputs_fixtures as _exports_support_model_parameter_inputs_fixtures
 import sync_runtime
+from comparison.deferral import ImportReferenceDeferred
 from model.files import trace_model
 from model.format import serialize
 from model.operations import CandidateReads
+from model.projection import generated_document, reference_resolver
 from model.references import incoming
 from model.references import usages as usages
 from model.sources import design_source_digest, load_model
+from model.validations.json_settings import validate_json_settings
 from support.import_model_fixtures import (
     reference_fields,
     resource_values,
     service_values,
 )
 from support.model_parameter_inputs_fixtures import fixture as fixture
+from support.model_reference_fixtures import (
+    FRAMEWORK,
+    comparison,
+    project,
+    reference,
+    resource,
+    save,
+)
 from support.model_sources import write_model
 from support.service_fixtures import authored_service, topology
+from utils.aws_mappings import mapping_alias
+from utils.cloudformation.inputs import load_template_inputs
+from utils.json_format import validate_aws_document
 from utils.source_reads import FileReads
 
 from model import dependency_index
@@ -286,6 +302,128 @@ def check_service_contracts(tmp_path):
         assert after.authoritative == before.authoritative and after.warnings
         producer.write_bytes(original)
     assert path.read_bytes() == serialize(before.authoritative).encode("utf-8")
+
+
+def check_logical_secret_end_to_end(tmp_path):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        _, _, consumer, policy = project(tmp_path)
+        (tmp_path / "model/qa/team/kms.properties").unlink()
+        producer, first = resource(
+            tmp_path, "secrets", "SecretsManager.Secret", attribute="Name"
+        )
+        _, second = resource(
+            tmp_path, "secrets", "SecretsManager.Secret", attribute="Name", number="002"
+        )
+        first["desired.row.001-001.value"] = "`first-secret`"
+        second["desired.row.002-001.value"] = "`second-secret`"
+        first.update(
+            {
+                key: value
+                for key, value in second.items()
+                if key.startswith(
+                    (
+                        "desired.resource.002.",
+                        "desired.row.002.",
+                        "display.resource.002.",
+                    )
+                )
+            }
+        )
+        first["desired.service.identity.lastAllocated"] = json.dumps(
+            {"SecretsManager.Secret": 2}
+        )
+        save(producer, first)
+        node = reference("SecretsManager_Secret_001", "Id")
+        document = {
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "secretsmanager:GetSecretValue",
+                    "Resource": node,
+                }
+            ]
+        }
+        policy["desired.row.001-002.document"] = json.dumps(document)
+        save(consumer, policy)
+        warnings = []
+        validate_json_settings(policy, consumer.path, warnings=warnings)
+        projected = generated_document(
+            document,
+            tmp_path,
+            resolver=reference_resolver(policy, consumer, tmp_path),
+            scope=consumer,
+            property_name="IAM.ManagedPolicy.PolicyDocument",
+            warnings=warnings,
+        )
+        assert projected == document and not warnings
+        with pytest.raises(ValueError, match="Model reference"):
+            validate_aws_document(json.dumps(projected), template=True)
+        parameter_file = tmp_path / "parameters.json"
+        parameter_file.write_text(
+            json.dumps(
+                [{"ParameterKey": "Policy", "ParameterValue": json.dumps(projected)}]
+            )
+        )
+        with pytest.raises(ValueError, match="Model reference"):
+            load_template_inputs(
+                tmp_path / "unused.yaml",
+                parameter_file,
+                document={"Parameters": {"Policy": {"Type": "String"}}},
+            )
+        inputs = comparison(tmp_path, ("iam", "secrets"))
+        template = inputs.stack_inputs["producer"][0]
+        template["Resources"] = {
+            "Resource001": {"Type": "AWS::SecretsManager::Secret"},
+            "Resource002": {"Type": "AWS::SecretsManager::Secret"},
+        }
+        template["Outputs"]["Reference"]["Value"] = {"Ref": "Resource001"}
+        inputs.stack = partial(_stack_for_reference, inputs)
+        row = {
+            "property": "IAM.ManagedPolicy.PolicyDocument",
+            "value": policy["desired.row.001-002.value"],
+            "document": json.dumps(document),
+        }
+        desired = inputs.prepare_value(
+            "iam", row, "IAM.ManagedPolicy", stack="consumer", row_id="001-002"
+        ).require_value()["Statement"][0]["Resource"]
+        same = inputs.evaluate("producer", {"Ref": "Resource001"})
+        other = inputs.evaluate("producer", {"Ref": "Resource002"})
+        imported = inputs.evaluate("consumer", {"Fn::ImportValue": "ExampleKmsKeyArn"})
+        inputs.stack_inputs["consumer"][0]["Parameters"] = {
+            "SecretArn": {"Type": "String"}
+        }
+        inputs.stack_inputs["consumer"][1]["SecretArn"] = (
+            "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:unproven-AbCd12"
+        )
+        parameter = inputs.evaluate("consumer", {"Ref": "SecretArn"})
+        path = "PolicyDocument.Statement[].Resource"
+        assert inputs.reference_same(desired, same, "IAM.ManagedPolicy", path) is True
+        assert (
+            inputs.reference_same(desired, imported, "IAM.ManagedPolicy", path) is True
+        )
+        assert inputs.reference_same(desired, other, "IAM.ManagedPolicy", path) is False
+        assert (
+            inputs.reference_same(
+                desired,
+                parameter,
+                "IAM.ManagedPolicy",
+                path,
+            )
+            is None
+        )
+        first["desired.resource.001.resourceMode"] = "IMPORT"
+        save(producer, first)
+        importing = comparison(tmp_path, ("iam", "secrets"))
+        importing.model("secrets")
+        with pytest.raises(ImportReferenceDeferred) as deferred:
+            importing.desired_reference(
+                "iam", desired, "SecretsManager.RotationSchedule", "SecretId", "Id"
+            )
+        assert deferred.value.iac_cause["phase"] == "unobserved"
+
+
+def _stack_for_reference(inputs, unit):
+    return inputs.root / (unit["name"] + ".yaml"), inputs.stack_inputs[unit["name"]]
 
 
 if __name__ == "__main__":

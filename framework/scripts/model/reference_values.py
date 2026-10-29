@@ -16,6 +16,7 @@ from utils.reference_contracts import (
     ARN_DEFAULTS,
     ARN_SHAPES,
     RETURN_ATTRIBUTE_PROPERTIES,
+    VALUE_IDENTITIES,
     _arn_pattern,
     reference_attribute,
 )
@@ -34,7 +35,7 @@ from model.core import (
 
 @dataclass(frozen=True)
 class ReferenceValue:
-    status: Literal["resolved", "pending_deploy", "unresolved"]
+    status: Literal["resolved", "pending_deploy", "logical_only", "unresolved"]
     value: object = None
     reason: str = ""
     diagnostic: dict = field(default_factory=dict)
@@ -132,6 +133,7 @@ class ProducerValues:
         self.environment_pending_fields = set()
         self.observed_fields = set()
         self.drift_fields = set()
+        self.missing_outputs = ()
 
     def value(self, field, *, recorded=False):
         rows = [
@@ -180,6 +182,13 @@ class ProducerValues:
         for source, value in (("desired", desired), ("observed", observed)):
             if value is None:
                 continue
+            identity_pattern = VALUE_IDENTITIES.get((self.kind, field))
+            if identity_pattern and re.fullmatch(identity_pattern, str(value)) is None:
+                raise ModelNeedsFixError(
+                    "invalid Producer identifier: " + field,
+                    code="MODEL_REF_INVALID_VALUE",
+                    modelKey=f"{source}.row.{rid}.value",
+                )
             shape = ARN_SHAPES.get(self.kind)
             if shape:
                 identifier, _, patterns = shape
@@ -236,6 +245,34 @@ class ProducerValues:
             )
             for field in fields
         )
+
+    def logical_only(self, fields: tuple[str, ...]) -> bool:
+        if not fields or not all(
+            generated_attribute(self.schema, field) for field in fields
+        ):
+            return False
+        for _, row in self.rows:
+            prop = row["property"]
+            if not prop.startswith(self.kind + ".") or "[" in prop:
+                continue
+            name = prop.removeprefix(self.kind + ".")
+            try:
+                schema = self.resolver.catalog.property_schema(self.kind, name)
+            except KeyError:
+                continue
+            if schema.get("type") == "string" and not resource_link(
+                literal(row["value"])
+            ):
+                self.value(name)
+        for required in self.resolver.catalog.required_design_properties(self.kind):
+            rows = [
+                row
+                for _, row in self.rows
+                if row["property"] == self.kind + "." + required
+            ]
+            if len(rows) != 1 or self.value(required) is None:
+                return False
+        return not self.drift_fields
 
     def arn(self, attribute):
         direct = self.value(attribute)
@@ -322,6 +359,7 @@ class ProducerValues:
             for group in ("partition", "region", "account"):
                 if "{" + group + "}" in ARN_SHAPES[self.kind][1]:
                     context_value(pseudo, group)
+            self.missing_outputs = tuple(missing)
             raise ReferenceResolutionError(
                 "no confirmed ARN components: " + ", ".join(missing),
                 category="REFERENCE_PENDING_DEPLOY"
@@ -364,12 +402,18 @@ def reference_value(resolver, scope, node, **contract):
                     )
                 )
             )
-        except ReferenceResolutionError:
+        except ReferenceResolutionError as error:
             if producer.drift_fields:
                 raise ReferenceResolutionError(
                     "Desired and Observed differ: "
                     + ", ".join(sorted(producer.drift_fields))
                 ) from None
+            if error.diagnostic[
+                "category"
+            ] == "REFERENCE_UNRESOLVED" and producer.logical_only(
+                producer.missing_outputs
+            ):
+                return ReferenceValue("logical_only")
             raise
         except Blocked as error:
             raise FrameworkUnsupportedError(str(error)) from error
@@ -384,6 +428,8 @@ def reference_value(resolver, scope, node, **contract):
                 (resource["resourceType"], attribute), attribute
             )
             pending = producer.waiting([field])
+            if not pending and producer.logical_only((field,)):
+                return ReferenceValue("logical_only")
             raise ReferenceResolutionError(
                 "explicit Producer output PENDING_DEPLOY"
                 if pending
