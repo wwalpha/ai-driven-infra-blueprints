@@ -924,7 +924,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `unknown/cloudformation-deploy.checks.py:2051` | `check_api_timing` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L1252) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-deploy.checks.py:2468` | `check_secret_runtime_bootstrap` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L1575) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-destroy.checks.py:134` | `check_destroy_order_and_safety` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L2019) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/cloudformation-destroy.checks.py:208` | `check_destroy_unused_export` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L2091) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/cloudformation-destroy.checks.py:208` | `check_destroy_unused_export` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | 未使用Exportの依存確認 | 配置/共有fixture分離 |
 | `unknown/cloudformation-destroy.checks.py:232` | `check_destroy_absence` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L2111) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-destroy.checks.py:321` | `check_controller` | IT | [integrations/cloudformation-destroy.checks.py](integrations/cloudformation-destroy.checks.py#L159) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-destroy.checks.py:426` | `check_observed` | IT | [integrations/cloudformation-destroy.checks.py](integrations/cloudformation-destroy.checks.py#L274) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
@@ -2492,6 +2492,9 @@ limit; changed-input and changed-authority checks remain outside that context.
 | `deploy-sdk::deletion-evidence` | `check_deletion_evidence` | UT | [units/deploy-sdk.checks.py](units/deploy-sdk.checks.py#L149) | pytest / 5 | Delete/Snapshot/Retain/skipped/unknown preserve identifiers correctly | Execution evidence |
 | `deploy-sdk::initialization` | `check_client_concurrency` | UT | [units/aws-client.checks.py](units/aws-client.checks.py#L44) | pytest / 1 | context isolation and serialized Session/client initialization | Fake Session |
 | `deploy-sdk::pagination` | `check_complete_pages` | UT | [units/aws-client.checks.py](units/aws-client.checks.py#L98) | pytest / 6 | complete inventories and invalid-token rejection | SDK pages |
+| `destroy-sdk::delegation` | `check_destroy_sdk_delegation` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 1 | ListImportsのSDK委譲、タイミング記録、対象外操作の拒否 | Mock SDK wrapper |
+| `destroy-sdk::identity-errors` | `check_destroy_stack_identity_and_errors` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 1 | 固定StackIdのDescribe/Delete、応答不完全・不存在・権限エラーの区別 | Mock SDK wrappers |
+| `destroy-sdk::events` | `check_destroy_events_pagination_and_json` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 1 | Eventsのページング、終了条件、日時JSON化、不正Token・APIエラー | Mock SDK request |
 | `deploy-sdk::decoder` | `check_scalars_and_intrinsics` | UT | [units/cloudformation-format.checks.py](units/cloudformation-format.checks.py#L30) | pytest / 1 | isolated CFn loader, JSON/YAML, intrinsics and existing scalar semantics | Source text/bytes |
 | `boolean-literal::valid` | `check_boolean_literal` | UT | [units/cloudformation-format.checks.py](units/cloudformation-format.checks.py#L20) | pytest / 8 | Model booleanの大文字・小文字・混合表記をPython boolへ変換 | 合成リテラル |
 | `boolean-literal::invalid` | `check_invalid_boolean_literal` | UT | [units/cloudformation-format.checks.py](units/cloudformation-format.checks.py#L25) | pytest / 15 | yes/no・数値・空白・JSON文字列・非文字列をValueErrorで拒否 | 合成リテラル |
@@ -4031,7 +4034,7 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | `exports-retry::deadline` | `check_export_retry_shares_deadline` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 3 | 全ページ/試行共通60秒、待機前/再試行前/次ページの期限確認 | Mock request/clock |
 | `exports-retry::non-throttling` | `check_export_non_throttling_is_not_retried` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 3 | AccessDenied/ValidationError/InvalidContinuationToken非再試行 | Mock AWS errors |
 | `exports-retry::invalid-page` | `check_export_retry_retains_page_validation` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 4 | 再試行後も重複/数値/空Tokenと不正ページを拒否 | Mock pages |
-| `exports-retry::operation-boundary` | `check_other_operations_do_not_retry_throttling` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 4 | list_importsと更新create/execute/delete非再試行 | Mock request |
+| `exports-retry::operation-boundary` | `check_other_operations_do_not_retry_throttling` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 4 | 履歴: 旧Export専用制御での境界。現在のListImportsは共通read制御対象 | 旧Mock request |
 
 ## IMPORT共通Change Validation
 
