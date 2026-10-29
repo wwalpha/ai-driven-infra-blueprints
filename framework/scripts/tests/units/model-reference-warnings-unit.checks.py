@@ -700,6 +700,35 @@ def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name
         assert findings.status == "PASS"
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("TimeoutInMinutes", "`invalid-integer`"),
+        ("Tags", "`123`"),
+        ("Environment", "`123`"),
+    ],
+)
+def check_full_model_rejects_invalid_native_values(tmp_path, field, value):
+    values = codebuild_values()
+    values.update(
+        {
+            "desired.row.001-999.property": "CodeBuild.Project." + field,
+            "desired.row.001-999.value": value,
+            "desired.row.001-999.comment": "invalid fixture",
+        }
+    )
+    findings = _check_model_inputs(
+        tmp_path / "model/dev/target/codebuild.properties",
+        values,
+        tmp_path,
+        definitions_root=Path(__file__).resolve().parents[4],
+    )
+    assert any(
+        "provider schema violation" in error and field in error
+        for error in findings.errors
+    ), findings.errors
+
+
 def check_model_document_uses_authoritative_json(tmp_path):
     values = {
         "desired.service.iam.serviceId": "iam",

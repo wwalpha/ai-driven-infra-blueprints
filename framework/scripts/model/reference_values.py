@@ -18,6 +18,7 @@ from utils.reference_contracts import (
     RETURN_ATTRIBUTE_PROPERTIES,
     VALUE_IDENTITIES,
     _arn_pattern,
+    contract,
     reference_attribute,
 )
 
@@ -270,7 +271,37 @@ class ProducerValues:
                 for _, row in self.rows
                 if row["property"] == self.kind + "." + required
             ]
-            if len(rows) != 1 or self.value(required) is None:
+            if len(rows) != 1:
+                return False
+            raw = literal(rows[0]["value"])
+            if resource_link(raw):
+                field = self.kind + "." + required
+                try:
+                    _, _, linked = self.resolver.resolve(raw, self.snapshot.scope)
+                except (ReferenceResolutionError, FileNotFoundError) as error:
+                    raise ModelNeedsFixError(
+                        str(error), code="MODEL_REF_TARGET_MISSING"
+                    ) from error
+                kind = linked["resourceType"]
+                declared = contract(field)
+                if not declared:
+                    raise FrameworkUnsupportedError(
+                        "reference contract unproven: " + field
+                    )
+                if kind not in declared:
+                    raise ModelNeedsFixError(
+                        "Resource reference type differs from receiving property",
+                        code="MODEL_REF_TYPE_MISMATCH",
+                    )
+                for attribute in declared[kind]:
+                    self.resolver.validate_attribute(kind, attribute, field=field)
+                    self.resolver.validate_reference_type(kind, attribute, field)
+            elif re.match(r"^\[[^\]]+\]\([^)]*#", rows[0]["value"]):
+                raise ModelNeedsFixError(
+                    "invalid Markdown Resource reference: " + raw,
+                    code="MODEL_REF_TARGET_MISSING",
+                )
+            elif self.value(required) is None:
                 return False
         return not self.drift_fields
 

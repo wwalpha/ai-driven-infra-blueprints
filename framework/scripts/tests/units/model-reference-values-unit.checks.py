@@ -16,7 +16,7 @@ import pytest
 import sync_runtime
 from deploy.model_cache import RunModels
 from design.policy_tables import Policy, policy_lines
-from model.core import ModelNeedsFixError, entries
+from model.core import FrameworkUnsupportedError, ModelNeedsFixError, entries
 from model.format import patch as patch_properties
 from model.format import serialize
 from model.identity import Resolver
@@ -32,6 +32,7 @@ from model.reference_presentation import Presentation
 from model.reference_values import reference_value
 from model.render import generate_files
 from model.sources import load_model
+from model.validations.full_inputs import check_model_inputs as _check_model_inputs
 from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
@@ -151,6 +152,217 @@ def test_hidden_secret_logical_reference(fixture, attribute):
     assert not warnings
     with pytest.raises(ValueError, match="Model reference"):
         validate_aws_document(document)
+
+
+@pytest.mark.parametrize("attribute", ["Arn", "PrincipalId"])
+def test_api_generated_output_without_physical_value(fixture, attribute):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root, "quicksight", "QuickSight.Group", attribute="AwsAccountId"
+    )
+    values["desired.row.001-001.value"] = "`123456789012`"
+    for index, (name, value) in enumerate(
+        (("Namespace", "default"), ("GroupName", "example")), 2
+    ):
+        prefix = f"desired.row.001-{index:03d}."
+        values.update(
+            {
+                prefix + "property": "QuickSight.Group." + name,
+                prefix + "value": "`" + value + "`",
+                prefix + "comment": "fixture",
+            }
+        )
+    save(scope, values)
+    assert result(consumer, "QuickSight_Group_001", attribute).status == "logical_only"
+    with pytest.raises(ModelNeedsFixError):
+        result(consumer, "QuickSight_Group_001", "NotRegistered")
+
+
+def test_other_api_generated_output(fixture):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root, "macie", "Macie.ClassificationJob", attribute="name"
+    )
+    values["desired.row.001-001.value"] = "`example`"
+    for index, (name, value) in enumerate(
+        (
+            ("jobType", "ONE_TIME"),
+            (
+                "s3JobDefinition",
+                '{"bucketDefinitions":[{"accountId":"123456789012","buckets":["example-bucket"]}]}',
+            ),
+        ),
+        2,
+    ):
+        prefix = f"desired.row.001-{index:03d}."
+        values.update(
+            {
+                prefix + "property": "Macie.ClassificationJob." + name,
+                prefix + "value": "`" + value + "`",
+                prefix + "comment": "fixture",
+            }
+        )
+    save(scope, values)
+    assert (
+        result(consumer, "Macie_ClassificationJob_001", "jobId").status
+        == "logical_only"
+    )
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            "`arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:example-AbCd12`",
+            "logical_only",
+        ),
+        ("[Secret](secrets.md#saved-001)", "logical_only"),
+        ("`UNSET`", "unresolved"),
+    ],
+)
+def test_required_input_literal_or_link(fixture, value, expected):
+    _, _, consumer, _ = fixture
+    secret, secret_values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Name"
+    )
+    secret_values["desired.row.001-001.value"] = "`example`"
+    save(secret, secret_values)
+    scope, values = resource(
+        consumer.root,
+        "rotation",
+        "SecretsManager.RotationSchedule",
+        attribute="SecretId",
+    )
+    values["desired.row.001-001.value"] = value
+    save(scope, values)
+    assert (
+        result(consumer, "SecretsManager_RotationSchedule_001", "Id").status == expected
+    )
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "[Missing](secrets.md#missing)",
+        "[Wrong](s3.md#saved-001)",
+        "[Malformed](secrets.md#)",
+    ],
+)
+def test_required_input_invalid_link_fails(fixture, link):
+    _, _, consumer, _ = fixture
+    secret, secret_values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Name"
+    )
+    secret_values["desired.row.001-001.value"] = "`example`"
+    save(secret, secret_values)
+    scope, values = resource(
+        consumer.root,
+        "rotation",
+        "SecretsManager.RotationSchedule",
+        attribute="SecretId",
+    )
+    values["desired.row.001-001.value"] = link
+    save(scope, values)
+    with pytest.raises(ModelNeedsFixError):
+        result(consumer, "SecretsManager_RotationSchedule_001", "Id")
+
+
+def test_required_input_missing_row(fixture):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root,
+        "rotation",
+        "SecretsManager.RotationSchedule",
+        attribute="SecretId",
+    )
+    for key in tuple(values):
+        if key.startswith("desired.row.001-001."):
+            del values[key]
+    save(scope, values)
+    assert (
+        result(consumer, "SecretsManager_RotationSchedule_001", "Id").status
+        == "unresolved"
+    )
+
+
+def test_required_link_without_contract_is_unverified(fixture):
+    _, _, consumer, _ = fixture
+    secret, secret_values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Name"
+    )
+    secret_values["desired.row.001-001.value"] = "`example`"
+    save(secret, secret_values)
+    scope, values = resource(
+        consumer.root,
+        "rotation",
+        "SecretsManager.RotationSchedule",
+        attribute="SecretId",
+    )
+    values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+    save(scope, values)
+    with patch("model.reference_values.contract", return_value={}):
+        with pytest.raises(FrameworkUnsupportedError):
+            result(consumer, "SecretsManager_RotationSchedule_001", "Id")
+
+
+def test_required_input_missing_producer_model(fixture):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root,
+        "rotation",
+        "SecretsManager.RotationSchedule",
+        attribute="SecretId",
+    )
+    values["desired.row.001-001.value"] = "[Missing](absent.md#saved-001)"
+    save(scope, values)
+    with pytest.raises(ModelNeedsFixError):
+        result(consumer, "SecretsManager_RotationSchedule_001", "Id")
+
+
+def test_full_model_rejects_invalid_secret_password_length(fixture):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Name"
+    )
+    values["desired.row.001-001.value"] = "`example`"
+    values.update(
+        {
+            "desired.row.001-002.property": "SecretsManager.Secret.GenerateSecretString.PasswordLength",
+            "desired.row.001-002.value": "`invalid-integer`",
+            "desired.row.001-002.comment": "invalid fixture",
+        }
+    )
+    save(scope, values)
+    findings = _check_model_inputs(
+        scope.path, values, consumer.root, definitions_root=FRAMEWORK
+    )
+    assert any(
+        "provider schema violation" in error and "PasswordLength" in error
+        for error in findings.errors
+    ), findings.errors
+
+
+def test_required_link_rejects_invalid_attribute_contract(fixture):
+    _, _, consumer, _ = fixture
+    secret, secret_values = resource(
+        consumer.root, "secrets", "SecretsManager.Secret", attribute="Name"
+    )
+    secret_values["desired.row.001-001.value"] = "`example`"
+    save(secret, secret_values)
+    scope, values = resource(
+        consumer.root,
+        "rotation",
+        "SecretsManager.RotationSchedule",
+        attribute="SecretId",
+    )
+    values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+    save(scope, values)
+    with patch(
+        "model.reference_values.contract",
+        return_value={"SecretsManager.Secret": ("NotRegistered",)},
+    ):
+        with pytest.raises(ModelNeedsFixError):
+            result(consumer, "SecretsManager_RotationSchedule_001", "Id")
 
 
 def test_required_input_is_not_an_output(fixture):

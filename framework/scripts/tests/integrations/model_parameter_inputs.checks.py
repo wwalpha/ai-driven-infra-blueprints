@@ -21,6 +21,7 @@ from model.operations import CandidateReads
 from model.projection import generated_document, reference_resolver
 from model.references import incoming
 from model.references import usages as usages
+from model.render import generate_files
 from model.sources import design_source_digest, load_model
 from model.validations.json_settings import validate_json_settings
 from support.import_model_fixtures import (
@@ -411,6 +412,48 @@ def check_logical_secret_end_to_end(tmp_path):
             )
             is None
         )
+        rotation, rotation_values = resource(
+            tmp_path,
+            "rotation",
+            "SecretsManager.RotationSchedule",
+            attribute="SecretId",
+        )
+        rotation_values["desired.row.001-001.value"] = "[Secret](secrets.md#saved-001)"
+        save(rotation, rotation_values)
+        linked_document = {
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "secretsmanager:GetSecretValue",
+                    "Resource": reference("SecretsManager_RotationSchedule_001", "Id"),
+                }
+            ]
+        }
+        policy["desired.row.001-002.document"] = json.dumps(linked_document)
+        save(consumer, policy)
+        linked_warnings = []
+        validate_json_settings(policy, consumer.path, warnings=linked_warnings)
+        assert (
+            generated_document(
+                linked_document,
+                tmp_path,
+                resolver=reference_resolver(policy, consumer, tmp_path),
+                scope=consumer,
+                property_name="IAM.ManagedPolicy.PolicyDocument",
+                warnings=linked_warnings,
+            )
+            == linked_document
+        )
+        assert not linked_warnings
+        view = tmp_path / "docs/designs/qa/team/iam.md"
+        artifacts = generate_files(
+            view, load_model(consumer).values, tmp_path, warnings=linked_warnings
+        )
+        assert (
+            json.loads(artifacts[view.with_suffix("") / "policy.json"])
+            == linked_document
+        )
+        assert not linked_warnings
         first["desired.resource.001.resourceMode"] = "IMPORT"
         save(producer, first)
         importing = comparison(tmp_path, ("iam", "secrets"))

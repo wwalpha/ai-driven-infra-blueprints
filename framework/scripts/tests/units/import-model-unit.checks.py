@@ -2085,21 +2085,32 @@ def check_subnet_route_table_association_normalization():
     cli = aws("vpc")
     subnet = cli.responses[("ec2", "describe-subnets")]["Subnets"][0]
     cli.responses[("ec2", "describe-route-tables")] = {
-        "RouteTables": [{
-            "RouteTableId": "rtb-00000000000000001",
-            "VpcId": subnet["VpcId"],
-            "Associations": [{
-                "RouteTableAssociationId": "rtbassoc-00000000000000001",
-                "SubnetId": subnet["SubnetId"],
-                "AssociationState": {"State": "associated"},
-            }],
-        }]
+        "RouteTables": [
+            {
+                "RouteTableId": "rtb-00000000000000001",
+                "VpcId": subnet["VpcId"],
+                "Associations": [
+                    {
+                        "RouteTableAssociationId": "rtbassoc-00000000000000001",
+                        "SubnetId": subnet["SubnetId"],
+                        "AssociationState": {"State": "associated"},
+                    }
+                ],
+            }
+        ]
     }
-    target = {"environment": "dev", "directory": "cde", "awsAccountId": ACCOUNT,
-              "awsRegion": "ap-northeast-1", "awsProfile": "confirmed"}
+    target = {
+        "environment": "dev",
+        "directory": "cde",
+        "awsAccountId": ACCOUNT,
+        "awsRegion": "ap-northeast-1",
+        "awsProfile": "confirmed",
+    }
     ctx = m.import_context(m.ROOT, target, cli, "vpc")
     ctx.verify()
-    records = m.normalize_records(ctx, "vpc", m.inventory(ctx, "vpc", ["EC2.Subnet", "EC2.RouteTable"]))
+    records = m.normalize_records(
+        ctx, "vpc", m.inventory(ctx, "vpc", ["EC2.Subnet", "EC2.RouteTable"])
+    )
     selected = next(r for r in records if r["identity"] == subnet["SubnetId"])
     association = selected["properties"]["EC2.SubnetRouteTableAssociation.RouteTableId"]
     assert association["status"] == "captured"

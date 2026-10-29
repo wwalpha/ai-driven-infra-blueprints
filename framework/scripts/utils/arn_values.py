@@ -11,7 +11,7 @@ from utils.reference_contracts import ARN_DEFAULTS, ARN_SHAPES
 
 def generated_attribute(schema, field):
     path = "/properties/" + field.replace(".", "/")
-    return any(
+    return field in schema.get("identifierOutputs", ()) or any(
         path == pointer or path.startswith(pointer.rstrip("/") + "/")
         for pointer in schema.get("readOnlyProperties", ())
     )
