@@ -3865,6 +3865,33 @@ def test_glue_connection_uses_only_verified_target_account():
         ImportInventory.cloud_inventory(inventory, "glue", "Glue.Connection", None)
     assert ctx.pages.call_count == 1
 
+    ctx.target.pop("awsExecutionAccountId")
+    with pytest.raises(m.comparator().AcquisitionError):
+        ImportInventory.cloud_inventory(
+            inventory, "glue", "Glue.Connection", {"CatalogId": "999999999999"}
+        )
+    assert ctx.pages.call_count == 1
+    ctx.pages.return_value = {"ResourceDescriptions": [{}]}
+    inventory.failure = Mock()
+    inventory.cloud_record = Mock(
+        return_value={
+            "kind": "Glue.Connection",
+            "identity": "connection",
+            "cloudProperties": {"CatalogId": "999999999999"},
+        }
+    )
+    assert (
+        ImportInventory.cloud_inventory(inventory, "glue", "Glue.Connection", None)
+        == []
+    )
+    assert inventory.failure.call_args.args[1].code == "CatalogScopeMismatch"
+    inventory.cloud_record.return_value["cloudProperties"]["CatalogId"] = ACCOUNT
+    record = ImportInventory.cloud_inventory(
+        inventory, "glue", "Glue.Connection", None
+    )[0]
+    assert record["selectorProperties"] == {"Glue.Connection.CatalogId": ACCOUNT}
+    assert record["provenance"]["selectors"] == {"CatalogId": ACCOUNT}
+
 
 if __name__ == "__main__":
     from support.pytest_cli import run

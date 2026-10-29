@@ -7,6 +7,7 @@ from dataclasses import asdict
 from functools import partial as _bind_framework_callback
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
+from typing import Any
 
 import task_contract_core as task_contract
 import utils.project_targets as _imports_project_targets
@@ -288,6 +289,19 @@ def normalize_records(ctx, service, records):
     ]
 
 
+def empty_capture(value: Any, missing: Any) -> str | None:
+    """Inspect an already-acquired sensitive projection without retaining its values."""
+    if value == missing:
+        return "missing"
+    if isinstance(value, list):
+        states = [empty_capture(item, missing) for item in value]
+        if all(state in {"missing", "empty"} for state in states):
+            return "missing" if "missing" in states else "empty"
+    if value == {}:
+        return "empty"
+    return None
+
+
 def _normalize_records(ctx, service, records):
     """Reuse Mapping and adapter getters without constructing any public Model source."""
     m = comparator()
@@ -426,14 +440,33 @@ def _normalize_records(ctx, service, records):
             )
         captured = {}
         for prop, field in fields.items():
+            hidden = sensitive(proxy, prop)
             restriction = limitations.contract(
-                ctx.root, prop, "withheld" if sensitive(proxy, prop) else "unobservable"
+                ctx.root, prop, "withheld" if hidden else "unobservable"
             )
-            if restriction is not None:
-                captured[prop] = restriction
-                continue
+            safe_empty = False
             try:
-                if sensitive(proxy, prop):
+                if (
+                    restriction is not None
+                    and hidden
+                    and field.classification == "supported"
+                    and field.getter in record["getters"]
+                ):
+                    _, probe = mapping_value(
+                        ctx, proxy, mapping, properties[prop], prop
+                    )
+                    absence = empty_capture(probe, m.MISSING)
+                    if absence == "missing":
+                        captured[prop] = {
+                            "status": "missing",
+                            "reason": "AWS optional value not retrieved",
+                        }
+                        continue
+                    safe_empty = absence == "empty"
+                if restriction is not None and not safe_empty:
+                    captured[prop] = restriction
+                    continue
+                if hidden and not safe_empty:
                     raise ValueError("sensitive Property")
                 if prop in record.get("selectorProperties", {}):
                     value = record["selectorProperties"][prop]

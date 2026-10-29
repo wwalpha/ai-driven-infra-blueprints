@@ -448,5 +448,116 @@ def test_scoped_getter_permission_and_registration_are_checked(monkeypatch):
     assert result["properties"]["broken"] == 3
 
 
+def test_empty_pipeline_environment_is_captured_without_withholding():
+    ctx = cli.import_context(
+        cli.ROOT,
+        TARGET,
+        Mock(side_effect=AssertionError("Unexpected AWS request")),
+        "codepipeline",
+        no_profile=True,
+    )
+    ctx.verified = True
+    payload = {
+        "name": "pipeline",
+        "roleArn": f"arn:aws:iam::{ACCOUNT}:role/pipeline",
+        "stages": [
+            {
+                "name": "stage",
+                "actions": [{"name": "action", "environmentVariables": []}],
+            }
+        ],
+    }
+    record = {
+        "kind": "CodePipeline.Pipeline",
+        "identity": "pipeline",
+        "getters": {
+            "base": payload,
+            "sdk-codepipeline-pipeline": {"pipeline": payload},
+        },
+    }
+    normalized = cli.normalize_records(ctx, "codepipeline", [record])[0]
+    assert (
+        normalized["properties"][
+            "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
+        ]["status"]
+        == "missing"
+    )
+    for leaf in ("Name", "Type", "Value"):
+        capture = normalized["properties"][
+            "CodePipeline.Pipeline.Stages[].Actions[].EnvironmentVariables[]." + leaf
+        ]
+        assert capture["status"] == "captured" and capture["value"] == [[[]]]
+
+
+def test_missing_sensitive_environment_is_not_a_withheld_value():
+    ctx = cli.import_context(
+        cli.ROOT,
+        TARGET,
+        Mock(side_effect=AssertionError("Unexpected AWS request")),
+        "codebuild",
+        no_profile=True,
+    )
+    ctx.verified = True
+    record = {
+        "kind": "CodeBuild.Project",
+        "identity": "project",
+        "getters": {
+            "base": {"name": "project", "environment": {"type": "LINUX_CONTAINER"}}
+        },
+    }
+    normalized = cli.normalize_records(ctx, "codebuild", [record])[0]
+    assert (
+        normalized["properties"][
+            "CodeBuild.Project.Environment.EnvironmentVariables[].Value"
+        ]["status"]
+        == "missing"
+    )
+
+
+def test_missing_sensitive_sdk_getter_is_not_an_approval_exception(monkeypatch):
+    adapter = cli.comparator().service_module("codepipeline")
+    monkeypatch.setattr(adapter, "SDK_OPERATIONS", {})
+    ctx = cli.import_context(
+        cli.ROOT,
+        TARGET,
+        Mock(side_effect=AssertionError("Unexpected AWS request")),
+        "codepipeline",
+        no_profile=True,
+    )
+    ctx.verified = True
+    payload = {
+        "name": "pipeline",
+        "stages": [
+            {
+                "actions": [
+                    {
+                        "environmentVariables": [
+                            {
+                                "name": "PRIVATE",
+                                "value": "DO-NOT-EXPOSE",
+                                "type": "PLAINTEXT",
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+    }
+    record = {
+        "kind": "CodePipeline.Pipeline",
+        "identity": "pipeline",
+        "getters": {
+            "base": payload,
+            "sdk-codepipeline-pipeline": {"pipeline": payload},
+        },
+    }
+    normalized = cli.normalize_records(ctx, "codepipeline", [record])[0]
+    capture = normalized["properties"][
+        "CodePipeline.Pipeline.Stages[].Actions[].EnvironmentVariables[].Value"
+    ]
+    assert capture["status"] == "unavailable"
+    assert "DO-NOT-EXPOSE" not in str(normalized) + str(ctx.trace)
+
+
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

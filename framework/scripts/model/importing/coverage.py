@@ -542,6 +542,16 @@ class Coverage:
                 "SENSITIVE_VALUE_WITHHELD",
                 "API output is withheld by the Import sensitive-property contract",
             )
+        if (
+            key == "Glue.Connection.CatalogId"
+            and plan.reason_code == "TARGET_ACCOUNT_FILTER"
+        ):
+            return diagnostic(
+                "capturable",
+                "VALIDATED_SELECTOR",
+                "CatalogId is checked against both the verified target account and returned resource identity",
+                source="verified_selector",
+            )
         if plan.mode == "scoped_sdk":
             spec = SCOPED_INVENTORIES[kind]
             if key.removeprefix(kind + ".") in spec.selectors:

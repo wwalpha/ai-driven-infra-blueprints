@@ -458,11 +458,7 @@ class ImportInventory:
                 "cloudcontrol.list_resources", "ListUnsupported", "unsupported"
             )
         required = handlers["list"].get("handlerSchema", {}).get("required", ())
-        if (
-            kind == "Glue.Connection"
-            and tuple(required) == ("CatalogId",)
-            and filters is None
-        ):
+        if kind == "Glue.Connection" and tuple(required) == ("CatalogId",):
             account = self.ctx.target.get("awsAccountId")
             execution = self.ctx.target.get("awsExecutionAccountId", account)
             if not isinstance(account, str) or not account or account != execution:
@@ -471,7 +467,14 @@ class ImportInventory:
                     "TargetAccountMismatch",
                     "requires_filter",
                 )
-            filters = {"CatalogId": account}
+            if filters is None:
+                filters = {"CatalogId": account}
+            elif not isinstance(filters, dict) or filters.get("CatalogId") != account:
+                raise m.AcquisitionError(
+                    "cloudcontrol.list_resources",
+                    "TargetAccountMismatch",
+                    "requires_filter",
+                )
         if required and (
             filters is None or any(name not in filters for name in required)
         ):
@@ -516,11 +519,21 @@ class ImportInventory:
         records = []
         for description in descriptions:
             try:
-                records.append(
-                    self.cloud_record(
-                        service, kind, description, schema, mapping, mapped
-                    )
+                record = self.cloud_record(
+                    service, kind, description, schema, mapping, mapped
                 )
+                if kind == "Glue.Connection":
+                    catalog = filters["CatalogId"]
+                    if record["cloudProperties"].get("CatalogId") != catalog:
+                        raise m.AcquisitionError(
+                            "cloudcontrol.list_resources", "CatalogScopeMismatch"
+                        )
+                    record["selectorProperties"] = {kind + ".CatalogId": catalog}
+                    record["provenance"] = {
+                        "api": "cloudcontrol.list_resources",
+                        "selectors": {"CatalogId": catalog},
+                    }
+                records.append(record)
             except (
                 m.AcquisitionError,
                 ValueError,

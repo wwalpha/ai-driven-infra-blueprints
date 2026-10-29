@@ -65,6 +65,30 @@ def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
             prop,
         ):
             return None
+        getter = mapping.getters.get(mapped.field.getter, {})
+        reader = adapter.service_module(service)
+        if (
+            mapped.source != "aws"
+            or mapped.field.classification != "supported"
+            or not getter
+        ):
+            return None
+        if getter["kind"] == "sdk" and (
+            (getter["service"], getter["operation"]) not in reader.APIS
+            or getattr(reader, "SDK_OPERATIONS", {}).get(kind) != getter["operation"]
+            or not callable(getattr(reader, "fetch_sdk", None))
+        ):
+            return None
+        if getter["kind"] == "adapter" and (
+            kind not in getter["resources"]
+            or not reader.APIS
+            or not callable(getattr(reader, "fetch", None))
+        ):
+            return None
+        if getter["kind"] == "cloudcontrol" and "read" not in DesignSchemaCatalog(
+            root
+        ).schema(kind).get("handlers", {}):
+            return None
         return {
             "status": "withheld",
             "reasonCode": "SENSITIVE_VALUE_WITHHELD",
