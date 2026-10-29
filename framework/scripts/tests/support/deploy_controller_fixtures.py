@@ -330,7 +330,7 @@ def _callback_clients_request(
                 result = {"Parameters": []}
             elif operation == "describe_stacks":
                 if stack is None:
-                    error("ValidationError", "Stack with id fixture does not exist")
+                    error("ValidationError", f"Stack with id {arguments['StackName']} does not exist")
                 result = {
                     "Stacks": [
                         {
