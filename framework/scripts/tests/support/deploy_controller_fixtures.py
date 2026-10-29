@@ -340,6 +340,11 @@ def _callback_clients_request(
                             "StackId": stack_id,
                             "StackName": name,
                             "StackStatus": stack["status"],
+                            **(
+                                {"Outputs": knobs["fence_exports"].get(name, [])}
+                                if "fence_exports" in knobs
+                                else {}
+                            ),
                         }
                     ]
                 }
@@ -403,6 +408,11 @@ def _callback_clients_request(
                     "executed": False,
                     "stackId": stack_id,
                     "parameters": arguments.get("Parameters", []),
+                    **(
+                        {"type": arguments["ChangeSetType"]}
+                        if knobs.get("reset_updates")
+                        else {}
+                    ),
                 }
                 result = {"Id": change, "StackId": stack_id}
             elif operation == "describe_change_set":
@@ -479,7 +489,8 @@ def _callback_clients_request(
                     "status": "ROLLBACK_COMPLETE"
                     if failed
                     else "UPDATE_COMPLETE"
-                    if knobs.get("remove") and name == "cfn-stack-app-dev-first"
+                    if (knobs.get("remove") and name == "cfn-stack-app-dev-first")
+                    or change.get("type") == "UPDATE"
                     else "CREATE_COMPLETE",
                     "id": stack_id,
                 }
@@ -488,6 +499,10 @@ def _callback_clients_request(
                     persist()
                     os._exit(73)
                 result = {}
+            elif operation == "list_imports" and "fence_imports" in knobs:
+                result = {
+                    "Imports": knobs["fence_imports"].get(arguments["ExportName"], [])
+                }
             elif operation == "describe_stack_events":
                 change = state["changes"].get(name)
                 failed = change and change.get("failed")
@@ -674,6 +689,7 @@ def clients(root, state_path, aws_path):
             "list_stack_resources",
             "delete_stack",
             "get_template",
+            "list_imports",
         ],
         "s3": [
             "head_bucket",

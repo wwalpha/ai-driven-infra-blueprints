@@ -239,20 +239,60 @@ references and never removes archives. Preserve this private evidence and its lo
 seal before OS temporary-directory cleanup, which is outside Framework retention.
 No automatic archive/fence deletion is provided.
 
-A fresh ordinary Deploy, including another Task or checkout, checks applicable fences
-under the same account/Region lock before recovery or preparation. Known executions reuse
-original-token event polling, exact Stack identity/state and required Output checks.
-Confirmed successful Stacks then follow the ordinary existing-Stack UPDATE/No-Change
-path with current Task, Model/IaC and ChangeSet checks. Running, unknown, unreadable or
-unverifiable execution blocks new starts. Executable old ChangeSets, unfinished runtime
-mutations and unknown publication-only scope require separate Human investigation.
-An unverified ALL reset leaves an account/Region-wide fence: current successful/absent
-Stacks alone cannot reconstruct lost execution scope, and Reset consent cannot clear
-that fence or authorize Execute. Diagnostics identify the retained archive; reconciling
-missing proof is a separate Human-controlled operation, with no bypass in this CLI.
-`--recover-operations` retains its recovery-only behavior and never starts a new Deploy.
-Reset proves no AWS success, Observed completion, Model integrity or generation completion
-and never grants new ChangeSet approval.
+A fresh ordinary Deploy, including another Task or checkout, checks fences under the
+same account/Region lock before recovery/preparation and again at the normal Import
+checks before preparation and Execute. Each archived operation is `PENDING` until
+verified or explicitly Human-resolved. Known original-token success reuses the existing
+polling, exact Stack identity/terminal-state and required Output checks. Before a fresh
+Execute, an immutable signed verification intent and `VERIFIED_COMPLETE` receipt save
+the original operation fingerprint, Execute evidence, StackId, terminal status and
+verified Output requirements. A missing/modified result after intent blocks; it cannot
+be silently reverified. Subsequent Deploys verify that receipt without comparing the old
+CREATE against a later UPDATE status. The ordinary current-Task Stack/ChangeSet/Output
+checks continue unchanged; historical success grants no Execute approval.
+
+Unverified archived operations remain dependency inputs after removal from the ordinary
+journal. The existing Delivery/live Import/Export independence checks run before new
+Execute. A differently named dependent Stack is blocked until completion or explicit
+resolution; a proven independent Stack may proceed. Missing Delivery, incomplete
+inventories, changed identities and unreadable dependency proof never imply independence.
+Executable old ChangeSets and unfinished runtime mutations remain pending.
+
+An unknown-scope ALL Reset remains fenced by default. Human investigation has its own
+Plan/Apply, separate from Reset consent, from the selected repository root:
+
+```console
+python3 -B framework/scripts/cloudformation-operation-reset.py fence-plan --environment dev --alias cde --fence <reset-plan-sha256> --stack <exact-StackName> --risk "<Human investigation, affected scope and residual duplicate-execution risk>"
+python3 -B framework/scripts/cloudformation-operation-reset.py fence-apply --environment dev --alias cde --plan <fence-plan-sha256>
+```
+
+Repeat `--stack` for each explicitly chosen Stack; never infer this list from damaged
+JSON. These two commands authenticate the selected Account/Region using existing
+context checks (`--profile` is optional) and use read-only DescribeStacks/StackEvents.
+The dedicated signed Plan displays Account/Region, Reset ID, exact Stack scope, original
+proof presence, current AWS identity/status, matching original-token event status,
+read errors/unknowns, the Human's risk statement and an explicit duplicate-execution
+warning. No template, Output value or secret contents are displayed. A successful or
+absent current Stack cannot reconstruct lost execution scope or certify the old Execute.
+AWS read failure stays `UNKNOWN`; no machine safety conclusion is recorded.
+
+Fence Apply rechecks target configuration, journal bytes, immutable archive and appended
+evidence inventory, and AWS observations before and after interactive approval. A known
+running AWS operation blocks Apply. The Human must type the separate exact phrase
+`RESOLVE <execution-account> <region> <reset-id> <comma-separated-StackNames> <full-fence-plan-sha256>`.
+There is no `--force`/`--yes`, noninteractive approval, LLM approval or Reset-consent reuse.
+Changes require a new Plan/review. An atomic signed append under the original archive
+records the complete Plan, approval and `HUMAN_RESOLVED`; originals remain immutable.
+This is an explicit Human risk exception, never `VERIFIED_COMPLETE`. For unknown scope,
+only the listed future StackNames are released from that particular Reset fence; all
+other names and all other Reset fences remain effective. For known scope, only the
+listed archived Stack operations are resolved. Damaged historical verification proof
+still blocks. Approval never starts Deploy or approves its current ChangeSet.
+
+`--recover-operations` retains recovery-only behavior and never starts a new Deploy.
+Reset and Fence resolution prove no Observed completion, Model integrity or generation
+completion. Preserve the private archives, appended proofs and local seal before OS
+temporary-directory cleanup; neither operation deletes archives or erases fences.
 
 ### Deployment execution
 

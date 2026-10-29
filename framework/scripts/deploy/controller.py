@@ -405,6 +405,8 @@ def template_arguments(
 def check_imports(
     runtime: SimpleNamespace, unit: StackUnit, boundary: DeliveryBoundary | None = None
 ) -> None:
+    if hasattr(runtime, "check_reset_fences"):
+        runtime.check_reset_fences()
     boundary = {} if boundary is None else boundary
     exports = runtime.exports_for([unit], boundary)
     return change_sets.check_imports(

@@ -931,6 +931,16 @@ def aws_unfinished(target, name, operation, aws, *, boundary=None):
 
 def dependency_states(backend, unit, *, imports, hints, boundary):
     """Unrelated unfinished Stacks are allowed only across proved dependency boundaries."""
+    reset_pending = getattr(backend, "reset_pending", [])
+    for group in reset_pending:
+        require_independent(
+            group,
+            {unit["name"]},
+            backend.aws,
+            imports={unit["name"]: imports},
+            hints=hints,
+            boundary=boundary,
+        )
     pending = {
         name: operation["state"]
         for record in getattr(backend, "retained_records", [])
@@ -947,7 +957,11 @@ def dependency_states(backend, unit, *, imports, hints, boundary):
         hints=hints,
         boundary=boundary,
     )
-    return {**{name: {"status": "RUNNING"} for name in pending}, **backend.states}
+    return {
+        **{name: {"status": "RUNNING"} for group in reset_pending for name in group},
+        **{name: {"status": "RUNNING"} for name in pending},
+        **backend.states,
+    }
 
 
 def export_stack(entry):

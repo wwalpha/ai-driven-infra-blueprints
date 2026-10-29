@@ -440,6 +440,9 @@ def run(
             )
             backend.timing, backend.phase = timing, phase
             if not args.recover_operations:
+                backend.check_reset_fences = _bind_framework_callback(
+                    operation_reset.check_fences, journal, target, args.stack, backend
+                )
                 operation_reset.check_fences(journal, target, args.stack, backend)
             temporary.reclaim(journal, root, target)
             backend.workdir = temporary.create(

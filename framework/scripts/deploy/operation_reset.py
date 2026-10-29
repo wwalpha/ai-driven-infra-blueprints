@@ -1,4 +1,4 @@
-"""Explicit Human console reset; immutable evidence survives independently of the journal."""
+"""Human Reset/Fence resolution; immutable evidence survives independently of the journal."""
 
 from __future__ import annotations
 
@@ -10,10 +10,13 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterable
+from typing import Callable, Iterable
 
+from utils.aws.client import AwsError, connection_context, request
+from utils.aws.identity import execution_account, select_profile
 from utils.cloudformation.inputs import Blocked
 from utils.file_operations import atomic_replace_file
 from utils.json_format import fingerprint
@@ -22,10 +25,13 @@ from utils.sealed_evidence import read_sealed, sealed
 from utils.type_contracts import JsonObject
 
 from deploy import operation_journal as J
+from deploy.context import check_deploy_context
 from deploy.typing import Target
 
 Document = JsonObject
 IDENTIFIER = re.compile(r"[0-9a-f]{64}")
+STACK_NAME = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,127}")
+COMPLETE = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
 
 
 def digest(value: bytes | None) -> str | None:
@@ -545,74 +551,537 @@ def retained_templates(journal: Path) -> set[Path]:
     }
 
 
+def signed_document(journal: Path, path: Path) -> Document:
+    J.private_path(path.parent, directory=True)
+    read_private(path)
+    return read_sealed(journal.parent, path)
+
+
+def operations(value: Document) -> Iterable[tuple[str, Document]]:
+    for record in value["removedRecords"]:
+        yield from {
+            **record["publication"].get("generationProducers", {}),
+            **record["operations"],
+        }.items()
+
+
+def verified_completion(
+    journal: Path,
+    folder: Path,
+    name: str,
+    operation: Document,
+) -> bool:
+    identity = {
+        "fence": folder.name,
+        "stack": name,
+        "operation": fingerprint(operation),
+    }
+    identifier = fingerprint(identity)
+    intent = folder / ("verified-" + identifier + ".intent.json")
+    result = folder / ("verified-" + identifier + ".json")
+    if intent.exists() or result.exists():
+        if signed_document(journal, intent) != identity:
+            raise Blocked("reset fence verification intent changed: " + name)
+        proof = signed_document(journal, result)
+        if (
+            proof.get("identity") != identity
+            or proof.get("status") != "VERIFIED_COMPLETE"
+            or proof.get("executionEvidence")
+            != operation["state"].get("executionEvidence")
+            or proof.get("stackId") != operation["state"].get("stackId")
+            or not isinstance(operation["state"].get("expectedOutputs"), dict)
+            or proof.get("expectedOutputs")
+            != operation["state"].get("expectedOutputs", {})
+            or proof.get("terminalStatus") not in COMPLETE
+        ):
+            raise Blocked("reset fence success evidence changed: " + name)
+        return True
+    return False
+
+
+def completion(
+    journal: Path,
+    folder: Path,
+    target: Target,
+    name: str,
+    operation: Document,
+    backend: SimpleNamespace,
+    *,
+    resolved: bool = False,
+) -> bool:
+    """A receipt proves past completion, independently of the current Stack status."""
+    J.validate_operation(target, name, operation)
+    if verified_completion(journal, folder, name, operation):
+        return True
+    state = copy.deepcopy(operation["state"])
+    if resolved:
+        return False
+    if not isinstance(state.get("expectedOutputs"), dict):
+        return False
+    if state.get("bootstrap") or state.get("cleanupStatus") == "DELETE_INTENT":
+        return False
+    # An external running operation has no original Execute token to certify.
+    if state.get("externalOperation"):
+        return False
+    try:
+        if state.get("executionEvidence"):
+            status = backend.poll(operation["unit"], state)
+            if status not in COMPLETE:
+                return False
+        elif not J.aws_unfinished(
+            target, name, {**operation, "state": state}, backend.aws
+        ):
+            status = state.get("stackStatus")
+            if status not in COMPLETE:
+                return False
+        else:
+            return False
+        stack = backend.aws("describe_stacks", StackName=state["stackId"])["Stacks"]
+        if (
+            len(stack) != 1
+            or stack[0].get("StackId") != state["stackId"]
+            or stack[0].get("StackStatus") != status
+        ):
+            return False
+    except (Blocked, AwsError):
+        return False
+    # Persist the intent first: a missing/torn result can never silently become PENDING.
+    identity = {
+        "fence": folder.name,
+        "stack": name,
+        "operation": fingerprint(operation),
+    }
+    identifier = fingerprint(identity)
+    intent = folder / ("verified-" + identifier + ".intent.json")
+    result = folder / ("verified-" + identifier + ".json")
+    save_once(intent, sealed(journal.parent, identity).encode("utf-8"))
+    save_once(
+        result,
+        sealed(
+            journal.parent,
+            {
+                "identity": identity,
+                "status": "VERIFIED_COMPLETE",
+                "executionEvidence": operation["state"].get("executionEvidence"),
+                "stackId": operation["state"].get("stackId"),
+                "terminalStatus": status,
+                "expectedOutputs": operation["state"].get("expectedOutputs", {}),
+            },
+        ).encode("utf-8"),
+    )
+    return True
+
+
+def resolution_challenge(value: Document) -> str:
+    account, region = J.target_identity(value["target"])
+    return f"RESOLVE {account} {region} {value['fence']} {','.join(value['stacks'])} {value['id']}"
+
+
+def resolution_confirm(value: Document) -> Document:
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        raise Blocked("Fence Apply requires a human-operated interactive console")
+    print(json.dumps(value, ensure_ascii=False, indent=2))
+    print(
+        "Only the Human may approve the scope and residual duplicate-execution risk. An LLM must never enter approval."
+    )
+    expected = resolution_challenge(value)
+    try:
+        entered = input(
+            "Confirm the entire Fence Plan by typing:\n" + expected + "\n> "
+        )
+    except EOFError as error:
+        raise Blocked("Human Fence approval cancelled") from error
+    if entered != expected:
+        raise Blocked("explicit Human Fence approval does not match the Plan")
+    return {
+        "method": "interactive-console",
+        "challenge": expected,
+        "time": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def resolutions(journal: Path, folder: Path, value: Document) -> set[str]:
+    path = J.safe_path(folder / "resolutions")
+    if not path.exists():
+        return set()
+    J.private_path(path, directory=True)
+    resolved: set[str] = set()
+    for item in sorted(path.iterdir()):
+        result = signed_document(journal, item)
+        plan = result["plan"]
+        verify_plan(plan, item.stem)
+        if (
+            item.name != plan["id"] + ".json"
+            or plan["fence"] != folder.name
+            or plan["archiveDigest"] != fingerprint(value)
+            or plan["target"] != value["target"]
+            or result.get("status") != "HUMAN_RESOLVED"
+            or result["approval"].get("method") != "interactive-console"
+            or result["approval"].get("challenge") != resolution_challenge(plan)
+        ):
+            raise Blocked("reset fence Human resolution evidence changed")
+        resolved.update(plan["stacks"])
+    return resolved
+
+
+def fence_inventory(folder: Path) -> dict[str, str]:
+    inventory = {}
+    for path in sorted(folder.rglob("*")):
+        if path.is_symlink():
+            raise Blocked("unsafe reset fence snapshot path")
+        if path.is_dir():
+            J.private_path(path, directory=True)
+        else:
+            inventory[path.relative_to(folder).as_posix()] = digest(read_private(path))
+    return inventory
+
+
+def inspect_aws(
+    aws: Callable[..., Document],
+    target: Target,
+    name: str,
+    original: list[Document],
+) -> Document:
+    """Report only identities, statuses and evidence presence, never Output/secret values."""
+    result: Document = {
+        "stack": name,
+        "originalEvidencePresent": bool(original),
+        "operations": [],
+    }
+    try:
+        response = aws("describe_stacks", StackName=name)
+        stacks = response.get("Stacks")
+        if (
+            not isinstance(stacks, list)
+            or len(stacks) != 1
+            or response.get("NextToken")
+        ):
+            raise Blocked("incomplete Stack inventory")
+        stack = stacks[0]
+        J.validate_operation(
+            target,
+            name,
+            {"unit": {"name": name}, "state": {"stackId": stack.get("StackId")}},
+        )
+        if not stack.get("StackId") or not isinstance(stack.get("StackStatus"), str):
+            raise Blocked("incomplete Stack identity/status")
+        result.update(stackId=stack["StackId"], stackStatus=stack["StackStatus"])
+    except AwsError as error:
+        result["stackStatus"] = "ABSENT" if error.stack_absent else "UNKNOWN"
+        result["readError"] = error.code
+    for operation in original:
+        state = operation["state"]
+        evidence = {
+            "operation": fingerprint(operation),
+            "stackId": state.get("stackId"),
+            "changeSetId": state.get("changeSetId"),
+            "hasExecutionEvidence": bool(state.get("executionEvidence")),
+            "hasOutputRequirements": isinstance(state.get("expectedOutputs"), dict),
+            "hasBootstrap": bool(state.get("bootstrap")),
+            "cleanupStatus": state.get("cleanupStatus"),
+            "status": "UNKNOWN",
+        }
+        if state.get("executionEvidence"):
+            try:
+                events = aws("describe_stack_events", StackName=state["stackId"])[
+                    "StackEvents"
+                ]
+                matched = [
+                    event
+                    for event in events
+                    if event.get("ResourceType") == "AWS::CloudFormation::Stack"
+                    and event.get("ClientRequestToken") == state["clientToken"]
+                    and event.get("StackId") == state["stackId"]
+                ]
+                if matched:
+                    evidence["status"] = matched[0].get("ResourceStatus", "UNKNOWN")
+            except (AwsError, KeyError, TypeError) as error:
+                evidence["readError"] = type(error).__name__
+        result["operations"].append(evidence)
+    return result
+
+
+def resolution_snapshot(
+    root: Path,
+    environment: str,
+    account: str | None,
+    alias: str | None,
+    identifier: str,
+    stacks: Iterable[str],
+    risk: str,
+    aws: Callable[..., Document],
+) -> Document:
+    target, journal, project_sha = select(root, environment, account, alias)
+    selected = sorted(stacks)
+    if (
+        not IDENTIFIER.fullmatch(identifier)
+        or not selected
+        or len(set(selected)) != len(selected)
+        or any(
+            not isinstance(name, str) or not STACK_NAME.fullmatch(name)
+            for name in selected
+        )
+        or not risk.strip()
+    ):
+        raise Blocked(
+            "Fence Plan requires exact reset ID, unique StackNames and explicit residual risk"
+        )
+    folder = J.safe_path(journal.parent / "resets" / identifier)
+    value = verify_archive(journal, folder)
+    if J.target_identity(value["target"]) != J.target_identity(target):
+        raise Blocked("Fence target Account/Region differs")
+    original = list(operations(value))
+    if not value["unknownScope"] and not set(selected) <= {
+        name for name, _ in original
+    }:
+        raise Blocked("Fence Stack scope does not match the reset archive")
+    resolved = resolutions(journal, folder, value)
+    before = fence_inventory(folder)
+    observations = [
+        inspect_aws(aws, target, name, [op for stack, op in original if stack == name])
+        for name in selected
+    ]
+    if before != fence_inventory(folder):
+        raise Blocked("Fence evidence snapshot changed during inspection")
+    result = {
+        "version": 1,
+        "repository": str(root),
+        "environment": environment,
+        "account": account,
+        "alias": alias,
+        "target": target,
+        "journal": str(journal),
+        "projectSha256": project_sha,
+        "fence": identifier,
+        "archiveDigest": fingerprint(value),
+        "stacks": selected,
+        "snapshot": before,
+        "journalSha256": digest(read_private(journal)) if journal.exists() else None,
+        "aws": observations,
+        "residualRisk": risk,
+        "status": "PENDING",
+        "unknownScope": value["unknownScope"],
+        "history": [
+            {
+                "stack": name,
+                "operation": fingerprint(operation),
+                "status": "VERIFIED_COMPLETE"
+                if verified_completion(journal, folder, name, operation)
+                else "HUMAN_RESOLVED"
+                if name in resolved
+                else "PENDING",
+            }
+            for name, operation in original
+        ],
+        "warning": "Original scope/evidence may be lost. Current successful or absent Stacks do not prove the old Execute completed. Duplicate execution remains possible. Human exception approval is not machine-verified safety; only these Stacks in this Fence are resolved. Other scope remains fenced. No Deploy starts automatically.",
+    }
+    result["id"] = fingerprint(result)
+    return result
+
+
+def resolution_plan(
+    root: Path,
+    environment: str,
+    account: str | None,
+    alias: str | None,
+    identifier: str,
+    stacks: Iterable[str],
+    risk: str,
+    aws: Callable[..., Document],
+) -> Document:
+    _, journal, _ = select(root, environment, account, alias)
+    with J.locked(journal):
+        value = resolution_snapshot(
+            root, environment, account, alias, identifier, stacks, risk, aws
+        )
+        folder = directory(journal.parent / "fence-plans")
+        save_once(
+            folder / (value["id"] + ".json"),
+            sealed(journal.parent, value).encode("utf-8"),
+        )
+        return value
+
+
+def resolution_apply(
+    root: Path,
+    environment: str,
+    account: str | None,
+    alias: str | None,
+    identifier: str,
+    aws: Callable[..., Document],
+) -> Document:
+    _, journal, _ = select(root, environment, account, alias)
+    with J.locked(journal):
+        if not IDENTIFIER.fullmatch(identifier):
+            raise Blocked("invalid Fence Plan fingerprint")
+        value = signed_document(
+            journal, journal.parent / "fence-plans" / (identifier + ".json")
+        )
+        verify_plan(value, identifier)
+        current = resolution_snapshot(
+            root,
+            environment,
+            account,
+            alias,
+            value["fence"],
+            value["stacks"],
+            value["residualRisk"],
+            aws,
+        )
+        if value != current:
+            raise Blocked("Fence target or snapshot changed after Plan")
+        if any(
+            item["stackStatus"].endswith("_IN_PROGRESS")
+            or any(op["status"].endswith("_IN_PROGRESS") for op in item["operations"])
+            for item in value["aws"]
+        ):
+            raise Blocked("Fence retains a known running AWS operation")
+        approval = resolution_confirm(value)
+        if current != resolution_snapshot(
+            root,
+            environment,
+            account,
+            alias,
+            value["fence"],
+            value["stacks"],
+            value["residualRisk"],
+            aws,
+        ):
+            raise Blocked("Fence snapshot changed during Human approval")
+        folder = directory(journal.parent / "resets" / value["fence"] / "resolutions")
+        save_once(
+            folder / (identifier + ".json"),
+            sealed(
+                journal.parent,
+                {
+                    "plan": value,
+                    "approval": approval,
+                    "status": "HUMAN_RESOLVED",
+                },
+            ).encode("utf-8"),
+        )
+        return {
+            "status": "HUMAN_RESOLVED",
+            "fence": value["fence"],
+            "stacks": value["stacks"],
+            "plan": identifier,
+        }
+
+
+def read_fence_aws(connection: tuple, operation: str, **arguments: object) -> Document:
+    if operation not in {"describe_stacks", "describe_stack_events"}:
+        raise Blocked("Fence inspection permits only read-only Stack evidence")
+    return request(connection, "cloudformation", operation, arguments)
+
+
 def check_fences(
     journal: Path, target: Target, scope: Iterable[str], backend: SimpleNamespace
 ) -> None:
     selected = set(scope)
+    pending = []
     for folder, value in archives(journal):
         if J.target_identity(value["target"]) != J.target_identity(target):
             raise Blocked("reset fence Account/Region differs from Deploy")
-        if value["unknownScope"]:
+        resolved = resolutions(journal, folder, value)
+        if value["unknownScope"] and selected - resolved:
             raise Blocked(
                 "reset fence has unknown AWS execution scope; separate Human investigation required: "
                 + str(folder)
             )
-        for record in value["removedRecords"]:
-            for name, operation in {
-                **record["publication"].get("generationProducers", {}),
-                **record["operations"],
-            }.items():
-                if name not in selected:
-                    continue
-                J.validate_operation(record["target"], name, operation)
-                state = copy.deepcopy(operation["state"])
-                if (
-                    state.get("bootstrap")
-                    or state.get("cleanupStatus") == "DELETE_INTENT"
-                ):
-                    raise Blocked(
-                        "reset fence retains unfinished runtime mutation; Human investigation required: "
-                        + name
-                    )
-                if state.get("executionEvidence") or state.get("externalOperation"):
-                    status = backend.poll(operation["unit"], state)
-                    if status not in {
-                        "CREATE_COMPLETE",
-                        "UPDATE_COMPLETE",
-                        "IMPORT_COMPLETE",
-                        "RECHECK",
-                    }:
-                        raise Blocked(
-                            "reset fence AWS execution is unfinished or unknown; Human investigation required: "
-                            + name
-                        )
-                elif not J.aws_unfinished(
-                    record["target"], name, copy.deepcopy(operation), backend.aws
-                ):
-                    continue
-                else:
-                    raise Blocked(
-                        "reset fence original Execute result is unknown or ChangeSet remains executable; Human investigation required: "
-                        + name
-                    )
+        for name, operation in operations(value):
+            # Even Human resolution cannot hide damaged previously verified success evidence.
+            verified = completion(
+                journal,
+                folder,
+                value["target"],
+                name,
+                operation,
+                backend,
+                resolved=name in resolved,
+            )
+            if verified or name in resolved:
+                continue
+            if name in selected:
+                raise Blocked(
+                    "reset fence AWS execution is unfinished or unknown; Human investigation required: "
+                    + name
+                )
+            pending.append({name: operation["state"]})
+    backend.reset_pending = pending
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("plan", "apply"))
+    parser.add_argument(
+        "action", choices=("plan", "apply", "fence-plan", "fence-apply")
+    )
     parser.add_argument("--environment", required=True)
     selector = parser.add_mutually_exclusive_group(required=True)
     selector.add_argument("--aws-account-id")
     selector.add_argument("--alias")
     parser.add_argument("--mode", choices=("record", "all"))
     parser.add_argument("--record", action="append", default=[])
+    parser.add_argument("--fence", help="exact Reset archive fingerprint to resolve")
+    parser.add_argument("--stack", action="append", default=[])
+    parser.add_argument(
+        "--risk",
+        help="Human-specified impact scope and residual duplicate-execution risk",
+    )
+    parser.add_argument("--profile")
     parser.add_argument(
         "--plan", help="exact Plan SHA-256 fingerprint returned by plan"
     )
     args = parser.parse_args(argv)
     try:
         root = Path.cwd()
-        if args.action == "plan":
+        if args.action.startswith("fence-"):
+            if args.mode or args.record:
+                raise Blocked(
+                    "Fence operations accept no Reset mode or record selection"
+                )
+            if args.action == "fence-plan":
+                if args.plan or not args.fence or not args.stack or not args.risk:
+                    raise Blocked(
+                        "fence-plan requires --fence, --stack and --risk; accepts no --plan"
+                    )
+            elif not args.plan or args.fence or args.stack or args.risk:
+                raise Blocked(
+                    "fence-apply requires --plan; scope comes only from that Plan"
+                )
+            target = check_deploy_context(
+                root, args.environment, args.aws_account_id, args.alias, args.profile
+            )
+            aws = partial(
+                read_fence_aws,
+                connection_context(
+                    select_profile(target, args.profile),
+                    target["awsRegion"],
+                    execution_account(target),
+                ),
+            )
+            if args.action == "fence-plan":
+                result = resolution_plan(
+                    root,
+                    args.environment,
+                    args.aws_account_id,
+                    args.alias,
+                    args.fence,
+                    args.stack,
+                    args.risk,
+                    aws,
+                )
+            else:
+                result = resolution_apply(
+                    root,
+                    args.environment,
+                    args.aws_account_id,
+                    args.alias,
+                    args.plan,
+                    aws,
+                )
+        elif args.fence or args.stack or args.risk or args.profile:
+            raise Blocked("Reset plan/apply accept no Fence scope or profile")
+        elif args.action == "plan":
             if args.plan or not args.mode:
                 raise Blocked("plan requires --mode and accepts no --plan")
             result = report(

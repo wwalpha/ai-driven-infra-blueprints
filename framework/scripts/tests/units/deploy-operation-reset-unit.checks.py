@@ -385,6 +385,7 @@ def executed_record(root):
         changeSetId="arn:aws:cloudformation:ap-northeast-1:123456789012:changeSet/old/id",
         clientToken="original-token",
         changeDigest="changes",
+        expectedOutputs={},
     )
     state["executionEvidence"] = {
         "StackId": state["stackId"],
@@ -404,6 +405,8 @@ class FenceAws:
         self.calls.append(operation)
         if self.condition == "unreadable":
             raise AwsError("cloudformation", operation, "AccessDenied")
+        if operation == "get_template":
+            return {"TemplateBody": {}}
         status = (
             "CREATE_IN_PROGRESS" if self.condition == "running" else "CREATE_COMPLETE"
         )
@@ -554,6 +557,409 @@ def test_staged_backup_without_activation_does_not_install_a_fence(workspace):
     assert (
         journal.parent / "resets" / document["id"] / "original.bin"
     ).read_bytes() == before
+
+
+def fence_plan(root, identifier, aws, stacks=("One",)):
+    return R.resolution_plan(
+        root,
+        "dev",
+        TARGET["awsAccountId"],
+        None,
+        identifier,
+        stacks,
+        "Human reviewed the selected scope; missing original execution proof leaves duplicate-execution risk",
+        aws,
+    )
+
+
+def human_resolve(root, document, aws):
+    with (
+        patch.object(sys.stdin, "isatty", return_value=True),
+        patch.object(sys.stdout, "isatty", return_value=True),
+        patch("builtins.input", return_value=R.resolution_challenge(document)),
+    ):
+        return R.resolution_apply(
+            root, "dev", TARGET["awsAccountId"], None, document["id"], aws
+        )
+
+
+def unknown_reset(workspace):
+    root, journal = workspace
+    journal.write_bytes(b"broken journal")
+    document = plan(root)
+    human_apply(root, document)
+    return document
+
+
+class InspectionAws:
+    def __init__(self, status="CREATE_COMPLETE"):
+        self.status = status
+        self.calls = []
+
+    def __call__(self, operation, **arguments):
+        self.calls.append(operation)
+        if self.status == "UNKNOWN":
+            raise AwsError("cloudformation", operation, "AccessDenied")
+        if operation == "describe_stacks":
+            name = arguments["StackName"]
+            return {
+                "Stacks": [
+                    {
+                        "StackId": f"arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{name}/id",
+                        "StackStatus": self.status,
+                    }
+                ]
+            }
+        if operation == "describe_stack_events":
+            return {"StackEvents": []}
+        raise AssertionError("unexpected mutation: " + operation)
+
+
+@pytest.mark.parametrize("status", ["CREATE_COMPLETE", "UNKNOWN"])
+def test_human_resolution_is_limited_to_one_fence_and_named_scope(workspace, status):
+    root, journal = workspace
+    reset = unknown_reset(workspace)
+    archive = journal.parent / "resets" / reset["id"]
+    original = R.fence_inventory(archive)
+    aws = InspectionAws(status)
+    document = fence_plan(root, reset["id"], aws)
+    assert (
+        document["unknownScope"] and not document["aws"][0]["originalEvidencePresent"]
+    )
+    assert document["aws"][0]["stackStatus"] == status
+    human_resolve(root, document, aws)
+    R.check_fences(journal, TARGET, ["One"], Mock())
+    with pytest.raises(Blocked, match="unknown AWS execution scope"):
+        R.check_fences(journal, TARGET, ["Other"], Mock())
+    assert all(
+        R.digest(R.read_private(archive / path)) == digest
+        for path, digest in original.items()
+    )
+    # A second archive remains fenced even for the already approved StackName.
+    journal.write_bytes(b"another damaged journal")
+    journal.chmod(0o600)
+    second = plan(root)
+    human_apply(root, second)
+    with pytest.raises(Blocked, match="unknown AWS execution scope"):
+        R.check_fences(journal, TARGET, ["One"], Mock())
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "noninteractive",
+        "wrong",
+        "reset-consent",
+        "journal",
+        "aws",
+        "configuration",
+        "during-approval",
+        "plan-tamper",
+        "archive-tamper",
+    ],
+)
+def test_resolution_requires_fresh_exact_human_consent(workspace, condition):
+    root, journal = workspace
+    reset = unknown_reset(workspace)
+    aws = InspectionAws()
+    document = fence_plan(root, reset["id"], aws)
+    folder = journal.parent / "resets" / reset["id"]
+    entered = R.resolution_challenge(document)
+    if condition == "wrong":
+        entered += " Other"
+    elif condition == "reset-consent":
+        entered = R.challenge(reset)
+    elif condition == "journal":
+        J.write_records(journal, [record(root, "Other")])
+    elif condition == "aws":
+        aws.status = "UPDATE_COMPLETE"
+    elif condition == "configuration":
+        path = root / "project.json"
+        path.write_text(path.read_text() + "\n")
+    elif condition == "plan-tamper":
+        path = journal.parent / "fence-plans" / (document["id"] + ".json")
+        path.write_text(path.read_text().replace("PENDING", "HUMAN_RESOLVED"))
+    elif condition == "archive-tamper":
+        (folder / "original.bin").write_bytes(b"different original")
+    with (
+        patch.object(sys.stdin, "isatty", return_value=condition != "noninteractive"),
+        patch.object(sys.stdout, "isatty", return_value=True),
+        patch(
+            "builtins.input",
+            side_effect=ChangeFenceApproval(aws, entered)
+            if condition == "during-approval"
+            else None,
+            return_value=entered,
+        ),
+        pytest.raises((Blocked, ValueError)),
+    ):
+        R.resolution_apply(
+            root, "dev", TARGET["awsAccountId"], None, document["id"], aws
+        )
+    assert not (folder / "resolutions").exists()
+
+
+class ChangeFenceApproval:
+    def __init__(self, aws, entered):
+        self.aws, self.entered = aws, entered
+
+    def __call__(self, prompt):
+        self.aws.status = "UPDATE_COMPLETE"
+        return self.entered
+
+
+def test_resolution_rejects_wrong_stack_and_keeps_peer_records(workspace):
+    root, journal = workspace
+    selected = record(root)
+    peer = record(root, "Other", "tasks/other.md")
+    J.write_records(journal, [selected, peer])
+    document = plan(root, "record", [fingerprint(selected)])
+    human_apply(root, document)
+    before = journal.read_bytes()
+    with pytest.raises(Blocked, match="scope does not match"):
+        fence_plan(root, document["id"], InspectionAws(), ["Other"])
+    resolution = fence_plan(root, document["id"], InspectionAws())
+    human_resolve(root, resolution, InspectionAws())
+    assert journal.read_bytes() == before
+    R.check_fences(journal, TARGET, ["One"], Mock())
+
+
+@pytest.mark.parametrize("status", ["CREATE_IN_PROGRESS", "UPDATE_IN_PROGRESS"])
+def test_human_resolution_does_not_release_known_running_stack(workspace, status):
+    root, _ = workspace
+    reset = unknown_reset(workspace)
+    aws = InspectionAws(status)
+    document = fence_plan(root, reset["id"], aws)
+    with pytest.raises(Blocked, match="known running"):
+        human_resolve(root, document, aws)
+
+
+def verified_reset(workspace):
+    root, journal = workspace
+    original = executed_record(root)
+    J.write_records(journal, [original])
+    document = plan(root)
+    human_apply(root, document)
+    backend = create_runtime(root, "dev", TARGET["awsAccountId"], TARGET)
+    backend.aws = FenceAws(original["operations"]["One"]["state"], "success")
+    return document, backend
+
+
+def test_past_create_success_survives_later_update_without_polling(workspace):
+    _, journal = workspace
+    document, backend = verified_reset(workspace)
+    R.check_fences(journal, TARGET, ["One"], backend)
+    archive = journal.parent / "resets" / document["id"]
+    proof = R.signed_document(
+        journal,
+        next(
+            path
+            for path in archive.glob("verified-*.json")
+            if ".intent." not in path.name
+        ),
+    )
+    assert proof["status"] == "VERIFIED_COMPLETE"
+    assert proof["terminalStatus"] == "CREATE_COMPLETE"
+    assert proof["executionEvidence"]["clientToken"] == "original-token"
+    backend.poll = Mock(
+        side_effect=AssertionError("old CREATE must never be polled again")
+    )
+    backend.aws = Mock(
+        side_effect=AssertionError("past success must not use current UPDATE status")
+    )
+    R.check_fences(journal, TARGET, ["One"], backend)
+    assert not backend.reset_pending
+
+
+@pytest.mark.parametrize("damage", ["missing", "signature", "intent", "save"])
+def test_success_evidence_damage_and_persistence_failure_fail_closed(workspace, damage):
+    _, journal = workspace
+    document, backend = verified_reset(workspace)
+    archive = journal.parent / "resets" / document["id"]
+    if damage == "save":
+        with (
+            patch.object(R, "save_once", side_effect=FailVerification(R.save_once)),
+            pytest.raises(OSError),
+        ):
+            R.check_fences(journal, TARGET, ["One"], backend)
+    else:
+        R.check_fences(journal, TARGET, ["One"], backend)
+        path = next(
+            path
+            for path in archive.glob("verified-*.json")
+            if ".intent." not in path.name
+        )
+        if damage == "missing":
+            path.unlink()
+        elif damage == "intent":
+            next(archive.glob("verified-*.intent.json")).unlink()
+        else:
+            path.write_text(path.read_text().replace("VERIFIED_COMPLETE", "PENDING"))
+    backend.poll = Mock(
+        side_effect=AssertionError("damaged proof must not be recreated")
+    )
+    with pytest.raises((Blocked, ValueError, OSError)):
+        R.check_fences(journal, TARGET, ["One"], backend)
+    backend.poll.assert_not_called()
+
+
+class FailVerification:
+    def __init__(self, original):
+        self.original = original
+
+    def __call__(self, path, content):
+        if path.name.startswith("verified-") and ".intent." not in path.name:
+            raise OSError("simulated verification persistence failure")
+        self.original(path, content)
+
+
+@pytest.mark.parametrize("condition", ["lock", "save", "tamper"])
+def test_resolution_lock_save_and_evidence_fail_closed(workspace, condition):
+    root, journal = workspace
+    reset = unknown_reset(workspace)
+    aws = InspectionAws()
+    document = fence_plan(root, reset["id"], aws)
+    if condition == "lock":
+        with J.locked(journal), pytest.raises(Blocked, match="lock busy"):
+            human_resolve(root, document, aws)
+    elif condition == "save":
+        with (
+            patch.object(
+                R, "save_once", side_effect=OSError("resolution write failed")
+            ),
+            pytest.raises(OSError),
+        ):
+            human_resolve(root, document, aws)
+    else:
+        human_resolve(root, document, aws)
+        path = (
+            journal.parent
+            / "resets"
+            / reset["id"]
+            / "resolutions"
+            / (document["id"] + ".json")
+        )
+        path.write_text(path.read_text().replace("HUMAN_RESOLVED", "VERIFIED_COMPLETE"))
+    with pytest.raises((Blocked, ValueError)):
+        R.check_fences(journal, TARGET, ["One"], Mock())
+
+
+class DependencyAws(FenceAws):
+    def __init__(self, state, dependency):
+        super().__init__(state, "running")
+        self.dependency = dependency
+
+    def __call__(self, operation, **arguments):
+        if operation == "list_imports":
+            if self.dependency == "incomplete":
+                return {"Imports": [], "NextToken": "unread"}
+            return {"Imports": ["Consumer"] if self.dependency == "live" else []}
+        if operation == "describe_stacks":
+            name = arguments["StackName"].split(":stack/")[-1].split("/")[0]
+            if name == "One":
+                return {
+                    "Stacks": [
+                        {
+                            "StackId": self.state["stackId"],
+                            "StackStatus": "CREATE_IN_PROGRESS",
+                            "Outputs": [
+                                {
+                                    "OutputKey": "Id",
+                                    "OutputValue": "id",
+                                    "ExportName": "ProducerId",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            return {
+                "Stacks": [
+                    {
+                        "StackId": f"arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{name}/id",
+                        "StackStatus": "UPDATE_COMPLETE",
+                    }
+                ]
+            }
+        return super().__call__(operation, **arguments)
+
+
+@pytest.mark.parametrize(
+    "dependency", ["live", "planned", "independent", "unknown", "incomplete"]
+)
+def test_archived_operations_use_delivery_and_live_dependency_proof(
+    workspace, dependency
+):
+    root, journal = workspace
+    original = executed_record(root)
+    operation = original["operations"]["One"]
+    if dependency != "unknown":
+        operation["state"]["delivery"] = {"imports": {}}
+    J.write_records(journal, [original])
+    human_apply(root, plan(root))
+    backend = create_runtime(root, "dev", TARGET["awsAccountId"], TARGET)
+    backend.aws = DependencyAws(operation["state"], dependency)
+    R.check_fences(journal, TARGET, ["Consumer"], backend)
+    imports = {"ProducerId"} if dependency == "planned" else set()
+    if dependency == "independent":
+        states = J.dependency_states(
+            backend, {"name": "Consumer"}, imports=imports, hints={}, boundary={}
+        )
+        assert states["One"]["status"] == "RUNNING"
+    else:
+        with pytest.raises(Blocked):
+            J.dependency_states(
+                backend, {"name": "Consumer"}, imports=imports, hints={}, boundary={}
+            )
+    assert not list((journal.parent / "resets").rglob("verified-*.json"))
+
+
+def test_fence_cli_rejects_bypass_and_missing_scope(workspace, monkeypatch):
+    root, _ = workspace
+    monkeypatch.chdir(root)
+    for arguments in (
+        ["fence-plan"],
+        ["fence-apply"],
+        ["fence-plan", "--yes"],
+        ["fence-apply", "--force"],
+    ):
+        invocation = [
+            *arguments,
+            "--environment",
+            "dev",
+            "--aws-account-id",
+            TARGET["awsAccountId"],
+        ]
+        if any(value in invocation for value in ("--yes", "--force")):
+            with pytest.raises(SystemExit):
+                R.main(invocation)
+        else:
+            assert R.main(invocation) == 2
+
+
+@pytest.mark.parametrize("condition", ["missing", "invalid", "unreflected"])
+def test_completion_requires_original_output_requirements(workspace, condition):
+    root, journal = workspace
+    original = executed_record(root)
+    operation = original["operations"]["One"]
+    if condition == "missing":
+        operation["state"].pop("expectedOutputs")
+    elif condition == "invalid":
+        operation["state"]["expectedOutputs"] = []
+    else:
+        operation["state"]["expectedOutputs"] = {
+            "Id": {
+                "export": None,
+                "definitionDigest": fingerprint({"Value": "expected"}),
+                "valueDigest": fingerprint("expected"),
+            }
+        }
+    J.write_records(journal, [original])
+    human_apply(root, plan(root))
+    backend = create_runtime(root, "dev", TARGET["awsAccountId"], TARGET)
+    backend.aws = FenceAws(operation["state"], "success")
+    with pytest.raises(Blocked, match="unfinished or unknown"):
+        R.check_fences(journal, TARGET, ["One"], backend)
+    assert not list((journal.parent / "resets").rglob("verified-*.json"))
 
 
 if __name__ == "__main__":

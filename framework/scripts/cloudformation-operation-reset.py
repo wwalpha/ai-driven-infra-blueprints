@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Human-operated CloudFormation journal reset CLI. Never runs AWS operations."""
+"""Human-operated journal Reset and read-only Fence resolution CLI."""
 
 from deploy.operation_reset import main
 

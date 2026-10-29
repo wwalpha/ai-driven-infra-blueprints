@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,10 +19,13 @@ from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
     child_environment,
+    clients,
     seed,
 )
 from support.pytest_cli import run
 from task_contract_core import start
+from utils.aws.client import connection_context
+from utils.aws.identity import execution_account
 from utils.json_format import fingerprint
 
 if not __debug__:
@@ -100,6 +104,9 @@ def check_record_reset_then_fresh_deploy_from_new_task(tmp_path):
     root, report, aws, journal, original = interrupted(tmp_path)
     reset(root, journal, "record")
     task = fresh_task(root)
+    provider = json.loads(aws.read_text(encoding="utf-8"))
+    provider["knobs"]["reset_updates"] = True
+    aws.write_text(json.dumps(provider), encoding="utf-8")
     result = child(root, report, aws, task)
     assert result.returncode == 0, result.stdout + result.stderr
     calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
@@ -118,6 +125,29 @@ def check_record_reset_then_fresh_deploy_from_new_task(tmp_path):
         for _, op, args in calls
     )
     assert json.loads(report.read_text(encoding="utf-8"))["taskFile"] == task
+    assert (
+        json.loads(aws.read_text(encoding="utf-8"))["stacks"][original["unit"]["name"]][
+            "status"
+        ]
+        == "UPDATE_COMPLETE"
+    )
+    first_receipts = {
+        path: path.read_bytes()
+        for path in journal.parent.glob("resets/*/verified-*.json")
+    }
+    assert first_receipts
+    again = child(root, report, aws, task)
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert all(path.read_bytes() == raw for path, raw in first_receipts.items())
+    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
+    assert (
+        sum(
+            op == "execute_change_set"
+            and args["ChangeSetName"] == original["state"]["changeSetId"]
+            for _, op, args in calls
+        )
+        == 1
+    )
 
 
 def check_created_stack_before_observed_is_rechecked_after_all_reset(tmp_path):
@@ -183,6 +213,131 @@ def check_reset_with_unconfirmed_execute_stops_new_execution(tmp_path):
     calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
     assert sum(op == "execute_change_set" for _, op, _ in calls) == 1
     assert sum(op == "create_change_set" for _, op, _ in calls) == 1
+
+
+def resolve_fence(root, report, aws_path, journal, reset, names):
+    with (
+        patch.object(J, "location", return_value=journal),
+        patch("utils.aws.client.client", clients(root, report, aws_path)),
+        patch("socket.socket.connect", side_effect=AssertionError("network forbidden")),
+    ):
+        target = reset["target"]
+        aws = partial(
+            R.read_fence_aws,
+            connection_context(None, target["awsRegion"], execution_account(target)),
+        )
+        document = R.resolution_plan(
+            root,
+            "dev",
+            ACCOUNT,
+            None,
+            reset["id"],
+            names,
+            "Human investigated the listed Stacks and accepts missing-token and duplicate-execution risk for this scope",
+            aws,
+        )
+        with (
+            patch.object(sys.stdin, "isatty", return_value=True),
+            patch.object(sys.stdout, "isatty", return_value=True),
+            patch("builtins.input", return_value=R.resolution_challenge(document)),
+        ):
+            R.resolution_apply(root, "dev", ACCOUNT, None, document["id"], aws)
+    return document
+
+
+def check_corrupt_reset_human_resolution_then_fresh_process_starts(tmp_path):
+    report, aws = tmp_path / "run.json", tmp_path / "aws.json"
+    root = seed(tmp_path / "project", report)
+    aws_state(aws)
+    journal = report.with_suffix(".operations.json")
+    journal.write_bytes(b"lost original Execute scope")
+    journal.chmod(0o600)
+    document = reset(root, journal, "all")
+    archive = journal.parent / "resets" / document["id"]
+    original = R.fence_inventory(archive)
+    names = ["cfn-stack-app-dev-first", "cfn-stack-app-dev-second"]
+    resolve_fence(root, report, aws, journal, document, names)
+    assert not any(
+        operation == "execute_change_set"
+        for _, operation, _ in json.loads(aws.read_text(encoding="utf-8"))["calls"]
+    )
+    task = fresh_task(root)
+    result = child(root, report, aws, task)
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
+    assert sum(operation == "execute_change_set" for _, operation, _ in calls) == 2
+    assert all(
+        R.digest(R.read_private(archive / path)) == digest
+        for path, digest in original.items()
+    )
+    records = [
+        R.signed_document(journal, path) for path in (archive / "resolutions").iterdir()
+    ]
+    assert records[0]["status"] == "HUMAN_RESOLVED"
+    assert not list(archive.glob("verified-*.json"))
+
+
+def pending_producer(tmp_path, dependent):
+    root, report, aws, journal, original = interrupted(tmp_path)
+    provider = json.loads(aws.read_text(encoding="utf-8"))
+    producer, consumer = original["unit"]["name"], "cfn-stack-app-dev-second"
+    provider["stacks"][producer]["status"] = "CREATE_IN_PROGRESS"
+    provider["knobs"].update(
+        fence_exports={
+            producer: [
+                {"OutputKey": "Id", "OutputValue": "id", "ExportName": "ProducerId"}
+            ]
+        },
+        fence_imports={"ProducerId": [consumer] if dependent else []},
+    )
+    aws.write_text(json.dumps(provider), encoding="utf-8")
+    document = reset(root, journal, "all")
+    # An independent repository/Task shares the account journal but owns its current inputs.
+    fresh = seed(tmp_path / "fresh-project", report, same_group=True)
+    task = fresh_task(fresh)
+    path = fresh / task
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(
+        "- Deployment scope: `cfn-stack-app-dev-first`, `cfn-stack-app-dev-second`",
+        "- Deployment scope: `cfn-stack-app-dev-second`",
+    )
+    path.write_text(text, encoding="utf-8")
+    # The fixture CLI obtains its invocation scope from this selected contract.
+    (fresh / "tasks/deploy.md").write_text(text, encoding="utf-8")
+    return fresh, report, aws, journal, task, document, producer
+
+
+def check_reset_pending_producer_blocks_dependent_consumer(tmp_path):
+    root, report, aws, journal, task, document, producer = pending_producer(
+        tmp_path, True
+    )
+    result = child(root, report, aws, task)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "unfinished Stack dependency conflicts" in result.stdout + result.stderr
+    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
+    assert sum(operation == "execute_change_set" for _, operation, _ in calls) == 1
+    assert sum(operation == "create_change_set" for _, operation, _ in calls) == 1
+    assert any(operation == "list_imports" for _, operation, _ in calls)
+    assert (journal.parent / "resets" / document["id"] / "original.bin").exists()
+
+
+def check_reset_pending_producer_allows_proven_independent_stack(tmp_path):
+    root, report, aws, journal, task, document, producer = pending_producer(
+        tmp_path, False
+    )
+    result = child(root, report, aws, task)
+    assert result.returncode == 0, result.stdout + result.stderr
+    provider = json.loads(aws.read_text(encoding="utf-8"))
+    assert provider["stacks"][producer]["status"] == "CREATE_IN_PROGRESS"
+    assert (
+        sum(operation == "execute_change_set" for _, operation, _ in provider["calls"])
+        == 2
+    )
+    assert any(operation == "list_imports" for _, operation, _ in provider["calls"])
+    # It remains PENDING; an independent success cannot approve the old Execute.
+    assert not list(
+        (journal.parent / "resets" / document["id"]).glob("verified-*.json")
+    )
 
 
 if __name__ == "__main__":
