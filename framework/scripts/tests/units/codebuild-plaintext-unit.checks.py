@@ -18,6 +18,7 @@ from design.services.codebuild import codebuild_display_row, codebuild_formal_ro
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.publication import save_scan
+from issues.review import review_names
 from issues.runner import codebuild_plaintext_diagnostics, scan
 from model.core import entries
 from model.display import display_rows
@@ -908,7 +909,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
             review = dict(
                 scan_id=artifact["scan_id"],
                 reviewed_naming_context_id=artifact["naming_context_id"],
-                reviewed_names=[item["id"] for item in artifact["naming"]["names"]],
+                reviewed_names=[item["id"] for item in review_names(artifact)],
                 reviewed_judgments=[item["id"] for item in artifact["judgments"]],
                 diagnostic_assignments={
                     item["id"]: dict(

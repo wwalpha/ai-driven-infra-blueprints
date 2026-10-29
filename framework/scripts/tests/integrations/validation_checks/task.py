@@ -94,11 +94,13 @@ def check_task_contract() -> None:
         validator.check_task_scope()
         assert "requirement has no Acceptance check: R1" in validator.errors
 
-        infrastructure = governance.replace(
-            "- Task type: `governance`",
-            "- Task type: `infrastructure`\n- Infrastructure phase: `implement`",
-        ).replace("READMEを更新する。", "IaCを更新する。").replace(
-            "- `framework`", "- `dev/123456789012/cloudformation-stacks`"
+        infrastructure = (
+            governance.replace(
+                "- Task type: `governance`",
+                "- Task type: `infrastructure`\n- Infrastructure phase: `implement`",
+            )
+            .replace("READMEを更新する。", "IaCを更新する。")
+            .replace("- `framework`", "- `dev/123456789012/cloudformation-stacks`")
         )
         write(active, infrastructure)
         validator = MODULE.Validator(root)
