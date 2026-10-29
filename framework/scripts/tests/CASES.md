@@ -2081,7 +2081,7 @@ partial-cache validation spies on compare_generation with the full consumer scop
 
 | 元パス | ケース | 区分 | 現在の入口 | 実行 / 件数 | 責務 | 保持内容 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `worktree_task.checks.py` | `check_approved_model_reads` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L600) | direct / 1 | 承認済suspendのModel実Git統合とIMPORT証跡欠落時のcommit前拒否（2条件） | 統合境界のみ |
+| `worktree_task.checks.py` | `check_approved_model_reads` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L600) | direct / 1 | 通常完了と承認済suspendのImport実Git統合、証跡・範囲・必須パス・対象外Viewの拒否を両経路で分担し、承認なし統合と証跡欠落も拒否 | 統合境界のみ |
 
 既存 `check_suspend_and_resume` に状態非依存の契約参照、通常実行拒否、selector・構造・symlink拒否を追加。
 

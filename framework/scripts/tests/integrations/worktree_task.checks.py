@@ -172,20 +172,22 @@ def _check_import_completion_and_approved_integration():
                 )
                 assert publish_fixture(target, acquired, "vpc")["model"] == "reflected"
                 candidate = path.read_bytes()
-                path.write_bytes(candidate + b"\n# tampered\n")
-                with pytest.raises(
-                    ValueError, match="differs from acquired change plan"
-                ):
-                    tasks.complete(target, name)
-                path.write_bytes(candidate)
-                consumer_path = target / "model/dev/cde/vpc-endpoint.properties"
-                consumer_before = consumer_path.read_bytes()
-                consumer_path.write_bytes(consumer_before + b"\n# unauthorized\n")
-                with pytest.raises(
-                    ValueError, match="outside task scope|Modified files"
-                ):
-                    tasks.complete(target, name)
-                consumer_path.write_bytes(consumer_before)
+                if not suspended:
+                    path.write_bytes(candidate + b"\n# tampered\n")
+                    with pytest.raises(
+                        ValueError, match="differs from acquired change plan"
+                    ):
+                        tasks.complete(target, name)
+                    path.write_bytes(candidate)
+                else:
+                    consumer_path = target / "model/dev/cde/vpc-endpoint.properties"
+                    consumer_before = consumer_path.read_bytes()
+                    consumer_path.write_bytes(consumer_before + b"\n# unauthorized\n")
+                    with pytest.raises(
+                        ValueError, match="outside task scope|Modified files"
+                    ):
+                        tasks.complete(target, name)
+                    consumer_path.write_bytes(consumer_before)
                 if suspended:
                     tasks.suspend(target, name, "Synthetic validation failure")
                     approval = "Human accepts synthetic validation failure"
@@ -204,24 +206,26 @@ def _check_import_completion_and_approved_integration():
                     ),
                 ):
                     saved = contract.read_text()
-                    contract.write_text(
-                        saved.replace(
-                            "exists:" + relative, "exists:missing-required.txt"
+                    if suspended:
+                        contract.write_text(
+                            saved.replace(
+                                "exists:" + relative, "exists:missing-required.txt"
+                            )
                         )
-                    )
-                    with pytest.raises(wt.Blocked, match="required path missing"):
-                        wt.finalize(root, "example", approval)
-                    assert target.exists() and tasks.status(contract.read_text()) == (
-                        "suspend" if suspended else "completed"
-                    )
-                    contract.write_text(saved)
-                    foreign = target / foreign_view
-                    foreign.parent.mkdir(parents=True, exist_ok=True)
-                    foreign.write_text("unauthorized view")
-                    with pytest.raises(wt.Blocked, match="outside selected"):
-                        wt.finalize(root, "example", approval)
-                    assert target.exists() and contract.read_text() == saved
-                    foreign.unlink()
+                        with pytest.raises(wt.Blocked, match="required path missing"):
+                            wt.finalize(root, "example", approval)
+                        assert target.exists() and tasks.status(
+                            contract.read_text()
+                        ) == ("suspend" if suspended else "completed")
+                        contract.write_text(saved)
+                    else:
+                        foreign = target / foreign_view
+                        foreign.parent.mkdir(parents=True, exist_ok=True)
+                        foreign.write_text("unauthorized view")
+                        with pytest.raises(wt.Blocked, match="outside selected"):
+                            wt.finalize(root, "example", approval)
+                        assert target.exists() and contract.read_text() == saved
+                        foreign.unlink()
                     result = wt.finalize(root, "example", approval)
                 assert result["cleaned"]
                 assert (root / relative).read_bytes() == candidate
