@@ -90,6 +90,12 @@ def save_progress(backend, fields):
     context = backend.run_context
     progress = {
         "identity": state["deployIdentity"],
+        "stepwise": bool(context.get("stepwise")),
+        "directory": context.get("directory"),
+        "stepUnits": copy.deepcopy(context.get("stepUnits", [])),
+        "checkpointPending": {"stacks": list(context["checkpointPending"]["stacks"])}
+        if context.get("checkpointPending")
+        else None,
         "states": {
             name: {
                 key: copy.deepcopy(value)
@@ -106,6 +112,12 @@ def save_progress(backend, fields):
     }
     previous = read_progress(backend.root, state)
     if previous:
+        if type(previous.get("stepwise")) is not bool:
+            raise ws.Blocked("Deploy mode is unknown; review retained Task evidence")
+        if previous["stepwise"] != progress["stepwise"]:
+            raise ws.Blocked(
+                "Deploy execution mode changed; retain original Task evidence"
+            )
         for name, saved in previous["states"].items():
             if (
                 saved.get("status") == "SUCCESS"
@@ -198,6 +210,7 @@ def require_complete(root, task):
     progress = read_progress(root, state)
     if (
         progress is None
+        or type(progress.get("stepwise")) is not bool
         or set(progress["states"]) != set(state["deployIdentity"]["stacks"])
         or progress["pendingObserved"]
         or progress["pendingGeneration"]
@@ -209,16 +222,38 @@ def require_complete(root, task):
         raise ws.Blocked(
             "Deploy Task still has unfinished AWS/Observed/generation work"
         )
+    if progress.get("stepwise") is True and (
+        progress.get("checkpointPending")
+        or set(state.get("deployCheckpoints", {}))
+        != set(state["deployIdentity"]["stacks"])
+        or any(
+            receipt.get("taskDigest") != task.task_digest
+            or receipt.get("inputDigest") != progress["inputDigests"].get(name)
+            for name, receipt in state.get("deployCheckpoints", {}).items()
+        )
+    ):
+        raise ws.Blocked("Deploy Task still has unfinished Stack checkpoints")
     publication = state.get("deployPublication", {})
     if (
         state.get("deployCheckpointIntent")
         or ws.changed_paths(root)
         or publication.get("status") != "SUCCESS"
         or publication.get("publishedSource") != state["tip"]
+        or not publication.get("commit")
+        or wt.git(
+            root,
+            "merge-base",
+            "--is-ancestor",
+            publication["commit"],
+            state["base"],
+            check=False,
+        ).returncode
     ):
         raise ws.Blocked(
             "Deploy Git publication remains pending; AWS success is retained"
         )
+    if progress["stepwise"]:
+        wt._worktree_runtime().checkpoint_source(root, state, progress)
 
 
 def discard_progress(state):

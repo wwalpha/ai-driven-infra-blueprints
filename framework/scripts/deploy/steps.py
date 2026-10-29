@@ -203,8 +203,8 @@ def checkpoint_receipts(backend: SimpleNamespace) -> dict:
             raise Blocked("checkpoint acknowledgement candidate changed")
         backend.run_context.pop("checkpointPending")
     if backend.phase == "deploy":
-        backend.run_context["gitPublication"] = copy.deepcopy(
-            state.get("deployPublication", {"status": "PENDING"})
+        backend.run_context["gitPublication"] = git_publication.describe(
+            backend.root, state, worktree.read_progress(backend.root, state)
         )
     return receipts
 
@@ -334,8 +334,13 @@ def describe(backend: SimpleNamespace) -> dict:
     context = backend.run_context
     states = backend.states
     pending = context.get("checkpointPending")
-    complete = generation_resume.complete(context) and all(
-        s.get("checkpointed") for s in states.values()
+    publication = copy.deepcopy(context.get("gitPublication"))
+    if publication is not None:
+        publication["checkpointRequired"] = pending["stacks"] if pending else []
+    complete = (
+        generation_resume.complete(context)
+        and all(s.get("checkpointed") for s in states.values())
+        and not pending
     )
     publication_pending = (
         getattr(backend, "phase", None) == "deploy"
@@ -374,7 +379,7 @@ def describe(backend: SimpleNamespace) -> dict:
         else "STOPPED"
         if failed
         else "PENDING",
-        "gitPublication": context.get("gitPublication"),
+        "gitPublication": publication,
         "repairFailure": context.get("currentFailure"),
         "states": {
             name: {
@@ -430,7 +435,8 @@ def describe(backend: SimpleNamespace) -> dict:
             and not context.get("pendingObserved")
             and not context.get("generationError")
             else []
-        ),
+        )
+        + context.get("gitPublication", {}).get("nextActions", []),
     }
 
 

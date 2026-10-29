@@ -312,6 +312,14 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
             unit = next(u for u in context["stepUnits"] if u["name"] == name)
             receipts[name] = {
                 "commit": commit,
+                "identity": copy.deepcopy(state["deployIdentity"]),
+                "tree": wt.output(target, "rev-parse", commit + "^{tree}"),
+                "inputs": {
+                    p.relative_to(target).as_posix(): context["consumedInputs"][
+                        p.relative_to(target).as_posix()
+                    ]
+                    for p in backend.deployment_input_paths([unit])
+                },
                 "taskDigest": context["taskDigest"],
                 "inputDigest": context["inputDigests"].get(name),
                 "unit": copy.deepcopy(unit),

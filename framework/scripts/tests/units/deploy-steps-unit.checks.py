@@ -77,6 +77,42 @@ def check_checkpoint_pending_is_unfinished_even_after_observed():
     assert report["gitPublication"]["status"] == "CONFLICT"
 
 
+@pytest.mark.parametrize("status", ["PENDING", "CONFLICT", "SUCCESS"])
+def check_git_next_actions_are_exposed_until_publication_succeeds(status):
+    states = {"A": {"status": "SUCCESS", "observedSynced": True, "checkpointed": True}}
+    action = (
+        {
+            "action": "deploy-publish",
+            "command": ["python3", "worktree_task.py", "deploy-publish"],
+        }
+        if status == "PENDING"
+        else {
+            "action": "review-publication-conflict",
+            "command": None,
+            "humanApprovalRequired": True,
+        }
+    )
+    actions = [] if status == "SUCCESS" else [action]
+    backend = SimpleNamespace(
+        phase="deploy",
+        states=states,
+        run_context={
+            "states": states,
+            "gitPublication": {"status": status, "nextActions": actions},
+        },
+    )
+    report = steps.describe(backend)
+    assert report["result"] == (
+        "COMPLETE" if status == "SUCCESS" else "PUBLICATION_PENDING"
+    )
+    assert report["nextActions"] == actions
+    backend.run_context["checkpointPending"] = {"stacks": ["A"], "after": {}}
+    assert steps.describe(backend)["result"] != "COMPLETE"
+    backend.run_context.pop("checkpointPending")
+    states["A"]["status"] = "FAILED"
+    assert steps.describe(backend)["result"] == "STOPPED"
+
+
 def check_unknown_poll_stops_without_resubmit():
     scoped = units(10)
     state = states(scoped)

@@ -1,6 +1,7 @@
 """Checkpoint Deploy outputs and publish only their snapshot delta under the Git lock."""
 
 import copy
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -14,7 +15,7 @@ from model.observed import verify_observed_outputs
 from utils.aws_mappings import definition_root
 from validation.runner import Validator
 
-from deploy import worktree
+from deploy import contracts, inputs, worktree
 
 
 def check_scope(root, task_file):
@@ -137,6 +138,7 @@ def conflicts(root, baseline, base, source, files):
             "base": base,
             "source": source,
             "snapshot": baseline,
+            "impact": {"gitPublication": "BLOCKED", "awsEvidence": "RETAINED"},
         }
         if relative.startswith("model/") and relative.endswith(".properties"):
             versions = [blob(root, rev, relative) for rev in (baseline, base, source)]
@@ -302,6 +304,198 @@ def resolved_tree(root, base, source, publication, resolution):
     return tree
 
 
+def checkpoint_source(root, state, progress, source=None):
+    """Verify saved local receipts without synchronizing or committing any candidate."""
+    source = source or state["tip"]
+    identity = state["deployIdentity"]
+    units = {unit["name"]: unit for unit in progress["stepUnits"]}
+    receipts = state.get("deployCheckpoints", {})
+    if not receipts or set(units) != set(identity["stacks"]):
+        raise ws.Blocked(
+            "Stepwise publication requires saved Stack checkpoint evidence"
+        )
+    for name, entry in receipts.items():
+        saved = progress["states"].get(name, {})
+        if (
+            name not in units
+            or entry.get("identity") != identity
+            or entry.get("taskDigest") != identity["taskDigest"]
+            or entry.get("unit") != units[name]
+            or not entry.get("inputDigest")
+            or entry["inputDigest"] != progress["inputDigests"].get(name)
+            or saved.get("status") != "SUCCESS"
+            or not saved.get("observedSynced")
+            or entry.get("stackId") != saved.get("stackId")
+            or entry.get("stackStatus") != saved.get("stackStatus")
+            or (
+                entry["commit"] != state["tip"]
+                and not wt.ancestor(root, entry["commit"], state["branch"])
+            )
+            or entry.get("tree")
+            != wt.output(root, "rev-parse", entry["commit"] + "^{tree}")
+        ):
+            raise ws.Blocked(
+                "saved checkpoint Task/Target/Stack evidence changed: " + name
+            )
+        paths = inputs.deployment_input_paths(
+            root,
+            identity["environment"],
+            progress["directory"],
+            identity["target"],
+            [units[name]],
+        )
+        manifest = entry.get("inputs", {})
+        if (
+            set(manifest) != {p.relative_to(root).as_posix() for p in paths}
+            or inputs.fingerprint(
+                [manifest[p.relative_to(root).as_posix()] for p in paths]
+            )
+            != entry["inputDigest"]
+        ):
+            raise ws.Blocked("saved checkpoint input manifest changed: " + name)
+        for relative, digest in manifest.items():
+            if (
+                inputs.file_digest({}, tasks.safe_path(root, relative), fresh=True)
+                != digest
+                or hashlib.sha256(
+                    ws.subprocess_bytes(root, entry["commit"], relative)
+                ).hexdigest()
+                != digest
+            ):
+                raise ws.Blocked("saved checkpoint inputs changed: " + relative)
+    if source in {entry["commit"] for entry in receipts.values()}:
+        return source
+    final = state.get("deployTaskCheckpoint", {})
+    if final.get("commit") != source:
+        raise ws.Blocked("publication source is not a saved checkpoint commit")
+    task = tasks.read_task_snapshot(root, state["task_file"], live=True)
+    if (
+        final.get("parent") not in {entry["commit"] for entry in receipts.values()}
+        or final.get("taskDigest") != task.task_digest
+        or task.status != "completed"
+        or wt.output(root, "rev-parse", source + "^") != final["parent"]
+        or wt.paths(
+            root, "diff", "--no-renames", "--name-only", "-z", final["parent"], source
+        )
+        != {task.name}
+        or ws.subprocess_bytes(root, source, task.name) != task.raw
+    ):
+        raise ws.Blocked("publication source is not a saved checkpoint commit")
+    return source
+
+
+def require_checkpoint_intent(root, state, progress, intent):
+    checkpoint_source(root, state, progress, intent["source"])
+    if wt.output(root, "rev-list", "--parents", "-1", intent["commit"]).split() != [
+        intent["commit"],
+        intent["base"],
+        intent["source"],
+    ]:
+        raise ws.Blocked("Git publication intent differs from its saved checkpoint")
+
+
+def describe(root, state, progress, error=None):
+    """Expose only proven Git recovery operations; this function performs no saves."""
+    result = copy.deepcopy(state.get("deployPublication", {"status": "PENDING"}))
+    result["nextActions"] = []
+    result["retryable"] = False
+    if error is not None:
+        result["error"] = str(error)
+    if progress is None or type(progress.get("stepwise")) is not bool:
+        result.update(
+            status="PENDING",
+            requiresReview=True,
+            reason="Deploy publication mode has no durable evidence",
+        )
+        return result
+    if not progress["stepwise"]:
+        return result
+    pending = progress.get("checkpointPending")
+    result["identity"] = copy.deepcopy(progress["identity"])
+    result["checkpointRequired"] = pending["stacks"] if pending else []
+    result["checkpoints"] = [
+        {
+            "stack": name,
+            "commit": entry["commit"],
+            "inputDigest": entry.get("inputDigest"),
+            "tree": entry.get("tree"),
+        }
+        for name, entry in state.get("deployCheckpoints", {}).items()
+    ]
+    if result["status"] == "CONFLICT":
+        result.update(
+            requiresReview=True,
+            humanApprovalRequired=True,
+            reason="Git conflicts require explicit Human judgment; AWS success is retained",
+        )
+        result["nextActions"] = [
+            {
+                "action": "review-publication-conflict",
+                "command": None,
+                "humanApprovalRequired": True,
+                "base": result.get("base"),
+                "source": result.get("source"),
+                "conflicts": result.get("conflicts", []),
+            }
+        ]
+        return result
+    try:
+        if state.get("deployCheckpointIntent"):
+            raise ws.Blocked(
+                "finish the saved checkpoint operation before Git publication"
+            )
+        source = checkpoint_source(root, state, progress)
+        result["pendingSource"] = source
+        if (
+            result.get("publishedSource") == source
+            and result.get("commit")
+            and wt.ancestor(root, result["commit"], state["base"])
+        ):
+            result.update(status="SUCCESS")
+            result.pop("pendingSource", None)
+            result.pop("error", None)
+            return result
+        # A dirty/unavailable base or an inconsistent retained intent needs review before retry.
+        base_root = wt.base_worktree(root, state)
+        intent = result.get("intent")
+        if intent:
+            require_checkpoint_intent(root, state, progress, intent)
+        if (
+            intent
+            and wt.output(base_root, "rev-parse", "HEAD") != intent["base"]
+            and not wt.ancestor(root, intent["commit"], state["base"])
+        ):
+            raise ws.Blocked(
+                "base changed during pending Git publication; review retained intent"
+            )
+        result.update(status="PENDING", retryable=True, requiresReview=False)
+        result["nextActions"] = [
+            {
+                "action": "deploy-publish",
+                "command": [
+                    "python3",
+                    "-B",
+                    "framework/scripts/worktree_task.py",
+                    "deploy-publish",
+                    "--task-id",
+                    state["task_id"],
+                ],
+                "cwd": str(root),
+                "source": source,
+            }
+        ]
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        RuntimeError,
+        subprocess.SubprocessError,
+    ) as problem:
+        result.update(status="PENDING", requiresReview=True, reason=str(problem))
+    return result
+
+
 def publish(where, task_id, resolution=None, *, automatic=False):
     primary, _, path, state = wt.load(where, task_id)
     root = Path(state["worktree"])
@@ -313,7 +507,22 @@ def publish(where, task_id, resolution=None, *, automatic=False):
         progress = worktree.read_progress(root, state)
         if progress is None:
             raise ws.Blocked("Git publication requires signed Deploy progress")
-        source = checkpoint(root, path, state)
+        if type(progress.get("stepwise")) is not bool:
+            raise ws.Blocked(
+                "Git publication requires a persisted Deploy mode; review original Task evidence"
+            )
+        stepwise = progress["stepwise"]
+        if stepwise and state.get("deployCheckpointIntent"):
+            raise ws.Blocked(
+                "finish the saved checkpoint operation before Git publication"
+            )
+        source = (
+            checkpoint_source(root, state, progress)
+            if stepwise
+            else checkpoint(root, path, state)
+        )
+        snapshot = contracts.validation_snapshot(root) if stepwise else None
+        index = wt.output(root, "write-tree") if stepwise else None
         task = tasks.read_task_snapshot(root, state["task_file"], live=True)
         publication = state.setdefault(
             "deployPublication",
@@ -322,11 +531,13 @@ def publish(where, task_id, resolution=None, *, automatic=False):
         if automatic and publication["status"] == "CONFLICT":
             publication["pendingSource"] = source
             wt.save(path, state)
-            return copy.deepcopy(publication)
+            return describe(root, state, progress)
         base_root = wt.base_worktree(primary, state)
         latest = wt.output(base_root, "rev-parse", "HEAD")
         intent = publication.get("intent")
         if intent:
+            if stepwise:
+                require_checkpoint_intent(root, state, progress, intent)
             if latest == intent["commit"] or wt.ancestor(
                 primary, intent["commit"], state["base"]
             ):
@@ -359,7 +570,7 @@ def publish(where, task_id, resolution=None, *, automatic=False):
         ):
             baseline = state["start"]
         elif source == baseline and publication.get("commit"):
-            return copy.deepcopy(publication)
+            return describe(root, state, progress)
         merged = wt.git(
             root,
             "merge-tree",
@@ -386,7 +597,7 @@ def publish(where, task_id, resolution=None, *, automatic=False):
             )
             wt.save(path, state)
             if resolution is None:
-                return copy.deepcopy(publication)
+                return describe(root, state, progress)
             tree = resolved_tree(root, latest, source, publication, resolution)
         changed = wt.paths(
             root, "diff", "--no-renames", "--name-only", "-z", latest, tree
@@ -401,8 +612,14 @@ def publish(where, task_id, resolution=None, *, automatic=False):
             wt.output(base_root, "rev-parse", "HEAD") != latest
             or wt.changed_paths(base_root)
             or wt.output(root, "rev-parse", "HEAD") != source
-            or wt.changed_paths(root)
+            or (
+                contracts.validation_snapshot(root) != snapshot
+                or wt.output(root, "write-tree") != index
+                if stepwise
+                else wt.changed_paths(root)
+            )
             or tasks.read_task_snapshot(root, task.name, live=True).raw != task.raw
+            or worktree.read_progress(root, state) != progress
         ):
             raise ws.Blocked(
                 "Git publication inputs changed during candidate validation"
@@ -412,7 +629,7 @@ def publish(where, task_id, resolution=None, *, automatic=False):
         ):
             publication.update(status="SUCCESS", publishedSource=source, commit=latest)
             wt.save(path, state)
-            return copy.deepcopy(publication)
+            return describe(root, state, progress)
         # An explicit merge parent preserves the fixed Task branch for ordinary safe cleanup.
         # The tree contains only the reviewed delta; no old Task history is rebased.
         candidate = wt.output(
@@ -435,7 +652,29 @@ def publish(where, task_id, resolution=None, *, automatic=False):
         for key in ("intent", "conflicts", "conflictTree", "pendingSource", "error"):
             publication.pop(key, None)
         wt.save(path, state)
-        return copy.deepcopy(publication)
+        return describe(root, state, progress)
+
+
+def retained(root, task_id, error):
+    try:
+        state = wt.load(root, task_id)[3]
+        return describe(root, state, worktree.read_progress(root, state), error)
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        RuntimeError,
+        subprocess.SubprocessError,
+    ) as problem:
+        return {
+            "status": "PENDING",
+            "retryable": False,
+            "requiresReview": True,
+            "error": str(error),
+            "reason": str(problem),
+            "nextActions": [],
+        }
 
 
 def sync(backend):
@@ -455,7 +694,9 @@ def sync(backend):
         subprocess.SubprocessError,
     ) as error:
         # Git must never change AWS SUCCESS or block another independent Stack's Model save.
-        context["gitPublication"] = {"status": "PENDING", "error": str(error)}
+        context["gitPublication"] = retained(
+            backend.root, Path(context["taskFile"]).stem, error
+        )
     backend.save()
 
 
@@ -473,10 +714,71 @@ def retry(root, task):
         RuntimeError,
         subprocess.SubprocessError,
     ) as error:
-        return {"status": "PENDING", "error": str(error)}
+        return retained(root, state["task_id"], error)
+
+
+def task_checkpoint(root, path, state, task, progress):
+    """Final contract commit stays in finalize, outside Stack checkpoint delivery."""
+    if progress.get("stepwise") is not True:
+        return
+    if (
+        task.status != "completed"
+        or progress.get("checkpointPending")
+        or progress["pendingObserved"]
+        or progress["pendingGeneration"]
+        or set(state.get("deployCheckpoints", {}))
+        != set(state["deployIdentity"]["stacks"])
+        or wt.changed_paths(root) - {task.name}
+    ):
+        raise ws.Blocked(
+            "final Deploy checkpoint requires completed Stack barriers and only its contract change"
+        )
+    final = state.get("deployTaskCheckpoint")
+    if final and final.get("commit") == state["tip"]:
+        checkpoint_source(root, state, progress)
+        return
+    parent = final["parent"] if final else state["tip"]
+    checkpoint_source(root, state, progress, parent)
+    publication = state.get("deployPublication", {})
+    if (
+        publication.get("status") != "SUCCESS"
+        or publication.get("publishedSource") != parent
+        or not wt.ancestor(root, publication["commit"], state["base"])
+    ):
+        raise ws.Blocked("publish all Stack checkpoints before final Task commit")
+    raw_hash = hashlib.sha256(task.raw).hexdigest()
+    expected = {"parent": parent, "taskDigest": task.task_digest, "rawHash": raw_hash}
+    if final is not None and final != expected:
+        raise ws.Blocked("final Task checkpoint differs from its saved intent")
+    state["deployTaskCheckpoint"] = expected
+    wt.save(path, state)
+    intent = state.get("deployCheckpointIntent")
+    if intent and wt.paths(
+        root, "diff", "--no-renames", "--name-only", "-z", parent, intent["tree"]
+    ) != {task.name}:
+        raise ws.Blocked("final Task checkpoint intent contains non-contract changes")
+    commit = checkpoint(root, path, state)
+    if commit == parent:
+        state.pop("deployTaskCheckpoint")
+    else:
+        expected["commit"] = commit
+        checkpoint_source(root, state, progress)
+    wt.save(path, state)
 
 
 def finalize(where, task_id):
+    primary, _, path, state = wt.load(where, task_id)
+    with wt.lifecycle_lock(primary):
+        state = wt.load(primary, task_id)[3]
+        root = Path(state["worktree"])
+        task = tasks.read_task_snapshot(root, state["task_file"], live=True)
+        if task.status != "completed":
+            raise ws.Blocked("Deploy Task must complete its validation before cleanup")
+        worktree.require(root, task)
+        progress = worktree.read_progress(root, state)
+        if progress is None:
+            raise ws.Blocked("final Deploy checkpoint requires signed progress")
+        task_checkpoint(root, path, state, task, progress)
     result = publish(where, task_id)
     if result["status"] != "SUCCESS":
         raise ws.Blocked("Deploy Git publication requires Human conflict review")

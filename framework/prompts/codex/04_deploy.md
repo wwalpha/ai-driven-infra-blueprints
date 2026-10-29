@@ -44,11 +44,17 @@ Preparationはoffline。AIが契約候補と出力範囲を確認してから登
 4. 同期・生成完了後、`--action checkpoint --sync-stack <StackName>`で必要な検証と対象差分のローカルcommitを行う。Git反映は[専用の差分publication](../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication)として試み、PENDING/CONFLICTでもAWS成功・ローカルcheckpointを保持する。Taskはrunningを維持する。
 5. checkpoint後はadvanceへ戻る。全StackのAWS成功、Observed全件確認、必要生成・ローカルcheckpoint・Git反映が完了した場合だけDeploy全体を完了とする。
 
+Git publicationがPENDINGなら、`gitPublication.checkpoints`の保存済みcommit、`checkpointRequired`、`retryable`と`nextActions`を確認する。再試行可能な場合だけ、提示された既存の`worktree_task.py deploy-publish --task-id <id>`で保存済みcheckpointをGit反映する。この操作はAWS Execute、Observed同期、生成、未確定差分のstage/commitを行わない。未確定Model候補は先に明示sync・生成・検証・checkpointを完了する。別Stackの未確定候補があっても、保存済みcheckpointだけのGit反映は独立して扱える。入力・候補・modeの証拠が不足/不一致なら、理由付き要確認として停止する。
+
+CONFLICTでは報告された競合file、base/sourceと影響を提示し、Humanの明示判断を求める。自動解決や未承認の実行可能な解決コマンドを生成しない。保存されたpublication commitがlocal baseに含まれることを確認してから該当Git作業を完了扱いにする。SUCCESSで未反映checkpointがなければ追加のGit再試行を行わない。
+
 `--sync-stack`は同期・checkpointだけに指定し、不可分な候補には全対象を繰り返す。Producer依存で生成不能なViewだけを既存待機キューに残す。依存解消後にLLMがsyncを再実行するまでcheckpointしない。更新0件でも全実値確認が必要。desired、IMPORT実体、秘匿ARN規則は維持する。
 
 Sub Agent、PythonによるLLM制御、Model自動更新スケジューラ、背景Model writer、固定間隔自動同期を使わない。保存中は同じWorktreeの入力を編集しない。checkpointの途中に最終finalizeを使わない。
 
 中断時は同じ短時間操作を再実行し、元Stack/ChangeSet/Token、保存publication、commit intentとローカルreceiptを照合する。Journalの未知・破損を理由にResetしない。Task内の第三者差分は停止し、基底側のGit競合はAWSから分離してHuman判断を待つ。強制統合・自動rebase・resetをしない。`--action`省略の従来一括実行と`--recover-operations`は互換入口として残るが、短時間操作の未完了Journalには混用できない。
+
+checkpoint commit前/receipt未確定の中断は既存の`--action checkpoint`から再開する。receipt確定後・main未反映なら保存済みcommitだけをGit publicationする。main反映済みなら既存intentを照合して証拠だけを確定し、二重commitしない。Task最終完了時の契約file commitはStack単位Model checkpointと別の既存finalize処理に残す。
 
 ## Confirm unapproved delete/replacement
 
