@@ -330,7 +330,12 @@ def check_preparation_success_output(tmp_path, capsys, registered, filename):
         patch.object(
             preparation,
             "register" if registered else "prepare",
-            return_value={"preparationSeconds": 0, "within60Seconds": True},
+            return_value={
+                "preparationSeconds": 0,
+                "within60Seconds": True,
+                "contract": "contract.md",
+                "targetSummary": "target-summary.json",
+            },
         ),
     ):
         args = ["--repository-root", str(root)]
@@ -355,7 +360,14 @@ def check_preparation_success_output(tmp_path, capsys, registered, filename):
         assert preparation.main(args) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["result"] == ("REGISTERED" if registered else "PREPARED_OFFLINE")
-    assert {"plan", "timing", "preparationSeconds", "within60Seconds"} <= report.keys()
+    assert {
+        "plan",
+        "contract",
+        "targetSummary",
+        "timing",
+        "preparationSeconds",
+        "within60Seconds",
+    } <= report.keys()
     if registered:
         argv = shlex.split(report["nextAction"]["command"].split(" && ", 1)[1])
         assert argv[-2:] == ["--run-controller", str(plan)]

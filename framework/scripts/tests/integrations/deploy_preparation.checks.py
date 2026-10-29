@@ -98,12 +98,9 @@ def check_preparation():
             "Deploy repair session" not in text
             and "--state" not in plan["controllerArgv"]
         )
-        for document in plan["documents"]:
-            assert all(
-                len(Path(chunk).read_text(encoding="utf-8")) <= 6000
-                for chunk in document["chunks"]
-            )
-        documents = {d["source"]: d for d in plan["documents"]}
+        assert "documents" not in plan and not (run / "documents").exists()
+        assert Path(plan["contract"]) == run / "contract.md"
+        assert Path(plan["targetSummary"]) == run / "target-summary.json"
         generated = {
             "docs/designs/dev/123456789012/" + name
             for name in (
@@ -115,7 +112,6 @@ def check_preparation():
         }
         assert plan["generatedViews"] == sorted(generated)
         assert generated <= plan["inputIdentities"].keys() and generated <= declared
-        assert not generated & documents.keys()
         for relative, digest in plan["inputs"].items():
             assert (
                 digest
@@ -130,28 +126,14 @@ def check_preparation():
                     ).read_bytes()
                 ).hexdigest()
             )
-        assert {Path(c) for d in plan["documents"] for c in d["chunks"]} == {
-            p.resolve() for p in (run / "documents").iterdir()
-        } | {run / "target-summary.json"}
-        assert len(documents) == len(plan["documents"])
         entrance = root / "model/dev/123456789012/ec2.properties"
         assert all(
             p.relative_to(root).as_posix() in plan["inputIdentities"]
             for p in model_parts(entrance)
         )
-        assert any(name.startswith("model/") for name in documents)
-        assert not any(name.startswith("infra/") for name in documents)
-        assert "AGENTS.md" in documents and "target-summary" in documents
         assert all(name in plan["controllerArgv"] for name in STACKS)
         assert "--action" not in plan["controllerArgv"]
-        assert "readingCharacters" not in plan and "readingStages" not in plan
-        assert all("readCharacters" not in doc for doc in plan["documents"])
-        assert "framework/rules/task-contract.md" in documents
-        assert "framework/rules/project-configuration.md" in documents
-        assert (
-            "framework/rules/terraform.md" not in documents
-            and "README.md" not in documents
-        )
+        (root / "AGENTS.md").write_text("changed instructions", encoding="utf-8")
         assert invoke(["--repository-root", str(root), "--register", str(path)]) == 0
         registered = contracts(root)["tasks/deploy-offline.md"]
         assert paths_in(registered, "## Modified files") == paths_in(
@@ -240,8 +222,8 @@ def check_preparation():
         assert {
             "environment",
             "contractPreparation",
-            "documentRead",
-            "documentReview",
+            "inputSnapshot",
+            "contractReview",
             "contractRegistration",
         } <= {e["phase"] for e in events}
         assert all(e["result"] == "PASS" and e["seconds"] >= 0 for e in events)
@@ -262,15 +244,73 @@ def check_preparation():
             assert launch.call_args.args[0] == plan["controllerArgv"]
             assert not any("session" in arg for arg in launch.call_args.args[0])
         assert (run / "session.json").read_text(encoding="utf-8") == "{}"
-        print(
-            "Offline preparation: required bodies, input fingerprints and audit timing verified"
+        alias_root = base / "alias-repo"
+        fixture(alias_root)
+        for prefix in ("model", "docs/designs", "infra/cloudformation/parameters"):
+            original_path = alias_root / prefix / "dev/123456789012"
+            original_path.rename(original_path.with_name("app"))
+        alias_template = alias_root / "infra/cloudformation/templates/app/shared.yaml"
+        alias_template.parent.mkdir()
+        alias_template.write_bytes(
+            (alias_root / "infra/cloudformation/templates/shared.yaml").read_bytes()
         )
+        (alias_root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "test",
+                    "targets": [TARGET | {"alias": "app"}, TARGET | {"alias": "other"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        alias_base = base / "alias-logs"
+        args = arguments(alias_root, alias_base)
+        selector = args.index("--aws-account-id")
+        args[selector : selector + 2] = ["--alias", "app"]
+        second = args.index(STACKS[1])
+        del args[second - 1 : second + 1]
+        assert invoke(args) == 0
+        alias_run = next((alias_base / "logs").iterdir())
+        alias_plan = json.loads((alias_run / "preparation.json").read_text())
+        assert alias_plan["controllerArgv"].count("--stack") == 1
+        assert "dev/app/ec2" in alias_plan["scope"]
+        assert (
+            invoke(
+                [
+                    "--repository-root",
+                    str(alias_root),
+                    "--register",
+                    str(alias_run / "preparation.json"),
+                ]
+            )
+            == 0
+        )
+        with patch.object(
+            subprocess, "run", return_value=subprocess.CompletedProcess([], 0)
+        ) as alias_launch:
+            assert (
+                M.main(
+                    [
+                        "--repository-root",
+                        str(alias_root),
+                        "--run-controller",
+                        str(alias_run / "preparation.json"),
+                    ]
+                )
+                == 0
+            )
+            assert alias_launch.call_args.kwargs["cwd"] == alias_root
+        print("Offline preparation: input fingerprints and timing verified")
 
 
 @it_case
 def check_stale_and_conflicts():
     for reason in (
         "runtime",
+        "project",
+        "stack",
+        "iac",
+        "parameters",
         "candidate",
         "model",
         "markdown-change",
@@ -299,6 +339,17 @@ def check_stale_and_conflicts():
                     generated.unlink()
                 else:
                     generated.write_text("changed", encoding="utf-8")
+            elif reason in {"project", "stack", "iac", "parameters"}:
+                source = (
+                    root
+                    / {
+                        "project": "project.json",
+                        "stack": "model/dev/123456789012/cloudformation-stacks.properties",
+                        "iac": "infra/cloudformation/templates/shared.yaml",
+                        "parameters": "infra/cloudformation/parameters/dev/123456789012/1.json",
+                    }[reason]
+                )
+                source.write_text(source.read_text() + "\nchanged", encoding="utf-8")
             elif reason == "model":
                 source = root / "model/dev/123456789012/iam.properties"
                 write_model(source, read_model(source) + "# changed\n")
@@ -373,12 +424,9 @@ def check_generated_boundaries():
             assert invoke(arguments(root, base)) == 0
         run = next((base / "logs").iterdir())
         plan = json.loads((run / "preparation.json").read_text(encoding="utf-8"))
-        documents = {d["source"] for d in plan["documents"]}
-        assert "infra/cloudformation/artifacts/execution.json" not in documents
         assert (
             "infra/cloudformation/artifacts/execution.json" in plan["inputIdentities"]
         )
-        assert "infra/cloudformation/artifacts/build.zip" not in documents
         assert "infra/cloudformation/artifacts/build.zip" in plan["inputIdentities"]
         assert "infra/cloudformation/artifacts/build.zip" not in plan["generatedViews"]
         for relative, digest in plan["inputs"].items():

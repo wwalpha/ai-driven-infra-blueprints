@@ -392,7 +392,7 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | validation_checks/design のCatalog/Schema破損・架空Catalog | 現行定義の整合性、通常の設計値と行順・名前・CIDR検証 |
 | validation_checks/contracts のRule/Prompt編集 | 現行のPrompt/Rule/リンク・節・回帰選択 |
 | model_design `check_service_scoped_naming` の仮Rule | 現行service限定の読取と命名検証 |
-| deploy_preparation `check_rule_section_boundaries` の仮Ruleファイル | 文字列による節・anchor・重複・境界検証 |
+| deploy_preparation `check_rule_section_boundaries` の仮Ruleファイル | 汎用Markdownの子節・fence・anchor・重複境界検証 |
 | policy_tables `mapping_cache_checks` の改名・破損Mapping | 同一定義のroot別cache分離と再利用 |
 | update-catalog-lock `main` のCatalogファイル生成・改変 | POSIX/Windowsのcatalogファイル順序 |
 
@@ -621,9 +621,8 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `units/check-model-aws-unit.checks.py:19` | `check_value_normalization` | UT | [units/check-model-aws-unit.checks.py](units/check-model-aws-unit.checks.py#L60) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `units/check-model-aws-unit.checks.py:29` | `check_secret_redaction` | UT | [units/check-model-aws-unit.checks.py](units/check-model-aws-unit.checks.py#L70) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/cloudformation-deploy.checks.py:98` | `check_scheduler` | UT | [units/cloudformation-deploy-unit.checks.py](units/cloudformation-deploy-unit.checks.py#L70) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:334` | `check_workflow_contract` | UT | [units/deploy-required-readings.checks.py](units/deploy-required-readings.checks.py) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
 | `unknown/deploy_preparation.checks.py:344` | `check_dependencies_and_timing` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py#L40) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:382` | `check_rule_section_boundaries` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py#L78) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 配置/共有fixture分離 |
+| `unknown/deploy_preparation.checks.py:382` | `check_rule_section_boundaries` | UT | [units/deploy-required-readings.checks.py](units/deploy-required-readings.checks.py) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 配置/共有fixture分離 |
 | `unknown/design_catalog.checks.py:138` | `check_api_schema` | UT | [units/design_catalog-unit.checks.py](units/design_catalog-unit.checks.py#L31) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
 | `unknown/design_document.checks.py:50` | `check_snapshots` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py#L47) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
 | `unknown/design_layout.checks.py:926` | `check_resource_display_names` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L95) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
@@ -819,7 +818,6 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `units/check-model-aws-unit.checks.py::check_value_normalization` | 1（内部パラメータ化なし） |
 | `units/check-model-aws-unit.checks.py::check_secret_redaction` | 1（内部パラメータ化なし） |
 | `units/cloudformation-deploy-unit.checks.py::check_scheduler` | L17: 2 ((('A', 'B'), ('B', 'C')))<br>L71: 3 (('intent', 'submitted', 'response'))<br>L?: 動的 (state.values())<br>L?: 動的 (state.values())<br>L?: 動的 (state.values())<br>L?: 動的 (enumerate(fake.events))<br>L?: 動的 (enumerate(fake.events))<br>L?: 動的 (results)<br>L?: 動的 (enumerate(fake.events)) |
-| `units/deploy-required-readings.checks.py::check_workflow_contract` | Seven Rule files, exact full/section selection, selected-body and source SHA256 parity with the former reading route. |
 | `units/deploy_preparation-unit.checks.py::check_dependencies_and_timing` | L26: 6 (('boto3', 'botocore', 'PyYAML', 'git')) |
 | `units/deploy-required-readings.checks.py::check_rule_section_boundaries` | L65: 2 (('## Duplicate\\nsame\\n## Duplicate\\nsame\\n', '<a id="shared"></a>\\n## One\\nfirst\\n<a id="shared"></a>\\n## Two\\nsecond\\n')) |
 | `units/design_catalog-unit.checks.py::check_api_schema` | L22: 3 ((MACIE_JOB, QUICKSIGHT_GROUP, 'Macie.Unknown')) |
@@ -1126,9 +1124,9 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `integrations/cloudformation-naming.checks.py::check` | 1（内部パラメータ化なし） |
 | `integrations/cloudformation-naming.checks.py::check_fixtures` | L185: 動的 (paths)<br>L?: 動的 (model_paths(ROOT)) |
 | `integrations/cloudtrail-input-reference.checks.py::check` | L68: 2 ([original + '# annotation\n', original.replace('audit-preview', 'audit-next')])<br>L72: 5 ([(original.replace('resourceType=CloudTrail.Trail', 'resourceType=S3.Bucket'), 'type-mismatched'), (original.replace('017', '018'), 'type-mismatched'), (original.replace('CloudTrail.Trail.TrailName', 'CloudTrail.Trail.Description'), 'exactly one name'), (original.replace('`audit-preview`', '``'), 'exactly one name'), (original + 'desired.row.017-004.property=CloudTrail.Trail.TrailName\ndesired.row.017-004.value=`duplicate`\n', 'exactly one name')])<br>L?: 動的 (values.items()) |
-| `integrations/deploy_preparation.checks.py::check_preparation` | L21: 動的 (root.rglob('*'))<br>L28: 動的 (root.rglob('*'))<br>L36: 動的 (model_parts(root / 'model/dev/123456789012/ec2.properties'))<br>L39: 動的 (declared)<br>L40: 動的 (declared)<br>L46: 動的 (plan['documents'])<br>L47: 動的 (document['chunks'])<br>L48: 動的 (plan['documents'])<br>L50: 4 (('ec2.md', 'iam.md', 'cloudformation-stacks.md', 'iam/worker-role-trust-policy.json'))<br>L54: 動的 (plan['inputs'].items())<br>L56: 動的 ((run / 'documents').iterdir())<br>L56: 動的 (d['chunks'])<br>L56: 動的 (plan['documents'])<br>L59: 動的 (source_inputs(entrance))<br>L61: 動的 (iam['chunks'])<br>L62: 2 ((1, 2))<br>L64: 動的 (STACKS)<br>L66: 動的 (model_rules['chunks'])<br>L83: 動的 ((run / 'timing.jsonl').read_text().splitlines())<br>L84: 動的 (events)<br>L85: 動的 (events)<br>L86: 動的 (events) |
+| `integrations/deploy_preparation.checks.py::check_preparation` | 単一/複数Stack、alias/account、Model parts、JSON、契約/要約と登録・Controller境界 |
 | `integrations/deploy_preparation.checks.py::check_stale_and_conflicts` | L95: 8 (('issue', 'runtime', 'candidate', 'model', 'markdown-change', 'markdown-delete', 'json-change', 'json-delete')) |
-| `integrations/deploy_preparation.checks.py::check_generated_boundaries` | L135: 動的 (original.splitlines())<br>L139: 4 (('authoritative JSON document missing', 'resource 001', 'row 001-002', 'iam/worker-role-trust-policy.json'))<br>L172: 動的 (plan['documents'])<br>L177: 動的 (plan['inputs'].items()) |
+| `integrations/deploy_preparation.checks.py::check_generated_boundaries` | 実行入力・生成物の衝突と既存入力識別 |
 | `integrations/deploy_preparation.checks.py::check_service_generated_equality` | L223: 2 (('iam.md', 'iam/iam-role-001-trust-policy.json')) |
 | `integrations/design_document.checks.py::check_snapshot` | L55: 2 (('CREATE', 'IMPORT'))<br>L?: 動的 (reads.call_args_list) |
 | `integrations/design_document.checks.py::check_links` | L90: 動的 (cases)<br>L107: 3 ([(alias_text, []), (alias_text.replace(observed, 'different'), ['different']), (alias_text.replace(f'[{observed}](kms.md#kms-aliastwo)', f'[{observed}](kms.md#kms-aliasthree)'), [observed])])<br>L?: 80 (range(80))<br>L?: 動的 (zip(expected, validator.errors))<br>L?: 動的 (reads.call_args_list) |
@@ -3610,7 +3608,7 @@ Service契約は既存Model Parameter Inputs UTでサービスごとの小さい
 | [comparison_core.checks.py](integrations/comparison_core.checks.py) | 独立OSプロセスのimport順序/禁止I/O/共有型identity、Orchestratorの実module接続 |
 | [deploy-controller.checks.py](integrations/deploy-controller.checks.py) | Controller→複数Stack/配送/Task/Observed、排出・中断・再開と実永続状態 |
 | [deploy-observed-recovery.checks.py](integrations/deploy-observed-recovery.checks.py) | 実journalとObserved owner→Recovery→新規検証/Publication |
-| [deploy_preparation.checks.py](integrations/deploy_preparation.checks.py) | 実準備CLI→契約/入力fingerprint→登録/Controller起動境界、生成物保護 |
+| [deploy_preparation.checks.py](integrations/deploy_preparation.checks.py) | 実準備CLI→契約/対象要約→入力検証→登録/Controller起動境界、生成物保護・旧形式拒否 |
 | [design_layout.checks.py](integrations/design_layout.checks.py) | 保存Config/ServiceRole Model→Reference読取→実Markdown/Validatorの接続 |
 | [eventbridge-producer-name-reference.checks.py](integrations/eventbridge-producer-name-reference.checks.py) | 保存Producer→EventBridge name参照・変更依存とConsumer不変 |
 | [export-design-pdf.checks.py](integrations/export-design-pdf.checks.py) | 実Design/Pandoc/PDF変換→リンク/成果物、実OSプロセス |
@@ -4051,8 +4049,6 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 
 | Case | Callable | Layer | Entrypoint | Runner / count | Contract | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| `deploy-readings::snapshot` | `check_prompt_independent_snapshot_and_registration` | UT | [units/deploy-required-readings.checks.py](units/deploy-required-readings.checks.py) | pytest / 1 | Prompt変更/削除非依存、7本文/hash、登録再検証 | Added |
-| `deploy-readings::missing-section` | `check_missing_rule_section_stops` | UT | [units/deploy-required-readings.checks.py](units/deploy-required-readings.checks.py) | pytest / 1 | 不明Rule節で停止 | Added |
 | `deploy-readings::parser` | `check_rule_section_boundaries` | UT | [units/deploy-required-readings.checks.py](units/deploy-required-readings.checks.py) | pytest / 1 | 共通Markdown境界・重複検出をPreparation UTから移管 | Moved |
 | `deploy-guidance::routes` | `check_controller_routes` | UT | [units/deploy-cli-guidance.checks.py](units/deploy-cli-guidance.checks.py) | pytest / 12 | 完了/group/復旧/承認/認証/依存/作成/実行/Observed/生成/不明 | Added |
 | `deploy-guidance::repair` | `check_repair_candidate_requires_structured_cause_and_authority` | UT | [units/deploy-cli-guidance.checks.py](units/deploy-cli-guidance.checks.py) | pytest / 10 | 署名証拠の存在だけで修復案内しない | Added |
@@ -4436,3 +4432,7 @@ Reset tests use synthetic private journals, a simulated Human console, and Fake 
 | `registration::valid` | `check_registration_valid_declarations` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 10 | Every Task type and infrastructure phase; Acceptance execution deferred | Added |
 | `registration::legacy` | `check_registration_preserves_legacy_diagnosis` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 3 | Legacy running/suspend/completed diagnostic reads, refresh rejection, suspended state preservation | Added |
 | `registration::retry` | `check_registration_candidate_retry` | IT | [integrations/task_contract.checks.py](integrations/task_contract.checks.py) | pytest / 1 | CLI rejection, candidate repair, same Task ID registration and continuation | Added |
+
+| `deploy-preparation::instructions` | `check_instruction_changes_do_not_invalidate_registration` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 1 | 指示本文変更は登録を妨げない | Added |
+| `deploy-preparation::legacy` | `check_legacy_plan_rejected_before_changes` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 2 | 旧形式の登録・起動前拒否 | Added |
+| `deploy-preparation::broken-link` | `check_broken_rule_reference_rejected` | UT | [units/deploy-required-readings.checks.py](units/deploy-required-readings.checks.py) | pytest / 2 | 不在リンクとanchorの静的検出 | Added |

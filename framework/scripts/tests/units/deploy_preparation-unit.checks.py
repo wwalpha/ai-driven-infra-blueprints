@@ -11,8 +11,10 @@ from types import SimpleNamespace
 import pytest
 from support.deploy_preparation_fixtures import (
     ROOT,
+    STACKS,
     M,
     Path,
+    fixture,
     json,
     patch,
     subprocess,
@@ -102,6 +104,66 @@ def check_identity_failure_precedes_preparation(tmp_path):
         select.assert_called_once_with(target, "explicit")
         candidate.assert_not_called()
         aws.assert_not_called()
+
+
+def check_instruction_changes_do_not_invalidate_registration(tmp_path):
+    root, run = tmp_path / "repo", tmp_path / "run"
+    fixture(root)
+    run.mkdir()
+    args = SimpleNamespace(
+        task_file="tasks/deploy-test.md",
+        service=["ec2", "iam"],
+        environment="dev",
+        aws_account_id="123456789012",
+        alias=None,
+        stack=STACKS,
+        profile=None,
+        sequential=True,
+    )
+    timing = M.Timing(root)
+    with patch.object(
+        M, "environment", return_value={"python": sys.executable, "tools": {}}
+    ):
+        plan = M.prepare(root, args, run, timing)
+    plan["preparationSeconds"] = 0
+    path = run / "preparation.json"
+    path.write_text(json.dumps(plan))
+    for relative in (
+        "AGENTS.md",
+        ".agents/skills/deploy/SKILL.md",
+        "framework/rules/cloudformation.md",
+    ):
+        instruction = root / relative
+        instruction.parent.mkdir(parents=True, exist_ok=True)
+        instruction.write_text("Changed instruction body")
+    task = root / args.task_file
+    task.parent.mkdir()
+    task.write_text(Path(plan["contract"]).read_text())
+    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0)):
+        registered = M.register(root, path, timing)
+    assert registered["registeredContractDigest"] == M.sha(task)
+    assert not any(
+        p.startswith(("AGENTS.md", ".agents/", "framework/")) for p in plan["inputs"]
+    )
+
+
+@pytest.mark.parametrize("operation", ["register", "run_controller"])
+def check_legacy_plan_rejected_before_changes(tmp_path, operation):
+    path = tmp_path / "preparation.json"
+    path.write_text(json.dumps({"documents": []}))
+    with patch.object(M.subprocess, "run") as execute:
+        with pytest.raises(ValueError, match="legacy preparation.*prepare again"):
+            if operation == "register":
+                M.register(tmp_path, path, M.Timing(tmp_path))
+            else:
+                M.run_controller(tmp_path, path)
+        execute.assert_not_called()
+    assert json.loads(path.read_text()) == {"documents": []}
+    report = M.cli_guidance.stopped(
+        "REGISTRATION", M.cli_guidance.InputChanged("legacy", condition="legacy-plan")
+    )
+    assert report["nextAction"]["type"] == "PREPARE_AGAIN"
+    assert "legacy" in report["nextAction"]["reason"]
 
 
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib
 import importlib.metadata
 import json
@@ -29,7 +28,6 @@ from utils.project_targets import load_target
 
 from deploy import cli_guidance
 from deploy.inputs import deployment_input_paths, load_units, paths
-from deploy.required_readings import required_readings
 from deploy.timing import Timing
 
 
@@ -199,73 +197,24 @@ def prepare(root, args, run, timing):
             )
         contract = run / "contract.md"
         contract.write_text(text, encoding="utf-8")
-    with timing.phase("documentRead"):
-        rules = required_readings(root)
-        required = [
-            "AGENTS.md",
-            "project.json",
-            ".agents/skills/deploy/SKILL.md",
-        ]
-        sources.update(rules)
-        required_inputs = {
-            *(
-                (
-                    definition_root(root)
-                    if path.startswith(("framework/", ".agents/"))
-                    else root
-                )
-                / path
-                for path in required
-            ),
-            *rules,
-        }
-        conflicts = generated_views & (execution_inputs | required_inputs)
-        if conflicts:
-            raise ValueError(
-                "generated view conflicts with execution/required input: "
-                + ", ".join(
-                    path.relative_to(root).as_posix() for path in sorted(conflicts)
-                )
-            )
-        sources.update(required_inputs)
+    with timing.phase("inputSnapshot"):
+        sources.add(root / "project.json")
+        if generated_views & sources:
+            raise ValueError("generated view conflicts with execution/required input")
         deferred = (
             execution_inputs
             | generated_views
             | {root / p for p in model_input_paths(root, scope)}
-        )
-        deferred -= sources
+        ) - sources
         identities = {}
         for path in deferred:
             safe_path(root, path.relative_to(root).as_posix())
             identities[path.relative_to(root).as_posix()] = file_revision(path)
-        documents, hashes = [], {}
-        docs = run / "documents"
-        docs.mkdir()
-        for index, path in enumerate(sorted(sources), 1):
-            base = root if path.is_relative_to(root) else definition_root(root)
-            relative = path.relative_to(base).as_posix()
-            safe_path(base, relative)
-            data = path.read_bytes()
-            hashes[relative] = hashlib.sha256(data).hexdigest()
-            if path in rules and data.decode("utf-8") != rules[path]["sourceText"]:
-                raise ValueError(f"rule changed during preparation: {relative}")
-            # Generated views and binary build artifacts remain fingerprinted, without body chunks.
-            if path in generated_views or path.suffix == ".zip":
-                continue
-            content = rules[path]["text"] if path in rules else data.decode("utf-8")
-            chunks = []
-            for offset in range(0, len(content), 6000):
-                output = docs / f"{index:03d}-{len(chunks) + 1:03d}.txt"
-                output.write_text(content[offset : offset + 6000], encoding="utf-8")
-                chunks.append(str(output))
-            documents.append(
-                {
-                    "source": relative,
-                    "sha256": hashes[relative],
-                    "chunks": chunks,
-                    "sections": rules[path]["sections"] if path in rules else [""],
-                }
-            )
+        hashes = {}
+        for path in sorted(sources):
+            relative = path.relative_to(root).as_posix()
+            safe_path(root, relative)
+            hashes[relative] = sha(path)
         summary = {
             "environment": args.environment,
             "alias": target.get("alias"),
@@ -278,7 +227,7 @@ def prepare(root, args, run, timing):
             "serviceIds": services,
             "inputPaths": sorted(
                 path.relative_to(root).as_posix()
-                for path in sources
+                for path in sources | deferred
                 if path.is_relative_to(root)
             ),
             "deliveryRequired": any(
@@ -294,27 +243,6 @@ def prepare(root, args, run, timing):
         summary_text = json.dumps(summary, ensure_ascii=False, indent=2)
         summary_file = run / "target-summary.json"
         summary_file.write_text(summary_text, encoding="utf-8")
-        documents.append(
-            {
-                "source": "target-summary",
-                "chunks": [str(summary_file)],
-                "kind": "variable",
-            }
-        )
-        chunks = []
-        content = contract.read_text(encoding="utf-8")
-        for offset in range(0, len(content), 6000):
-            output = docs / f"contract-{len(chunks) + 1:03d}.txt"
-            output.write_text(content[offset : offset + 6000], encoding="utf-8")
-            chunks.append(str(output))
-        documents.append(
-            {
-                "source": args.task_file,
-                "sha256": sha(contract),
-                "chunks": chunks,
-                "kind": "variable",
-            }
-        )
     selector = (
         ["--alias", args.alias]
         if args.alias
@@ -345,7 +273,7 @@ def prepare(root, args, run, timing):
         "runtime": runtime,
         "inputs": hashes,
         "inputIdentities": identities,
-        "documents": documents,
+        "targetSummary": str(summary_file),
         "generatedViews": sorted(
             path.relative_to(root).as_posix() for path in generated_views
         ),
@@ -374,6 +302,11 @@ def model_input_paths(root, scope):
 
 def register(root, path, timing):
     plan = json.loads(path.read_text(encoding="utf-8"))
+    if "documents" in plan:
+        raise cli_guidance.InputChanged(
+            "legacy preparation contains documents; prepare again",
+            condition="legacy-plan",
+        )
     if plan["repository"] != str(root) or plan["runtime"]["python"] != sys.executable:
         raise cli_guidance.InputChanged(
             "use the same repository and Python interpreter as preparation",
@@ -397,7 +330,7 @@ def register(root, path, timing):
         raise cli_guidance.InputChanged(
             "prepared command paths changed", condition="command-paths"
         )
-    with timing.phase("documentReview", started=plan["reviewStarted"]):
+    with timing.phase("contractReview", started=plan["reviewStarted"]):
         safe_path = _imports_task_contract.safe_path
         for relative, digest in plan["inputs"].items():
             base = (
@@ -466,6 +399,11 @@ def run_controller(root, path):
     """One subprocess/run for the entire prepared scope; safety stays in the controller."""
     task_snapshot = _imports_task_contract.task_snapshot
     plan = json.loads(path.read_text(encoding="utf-8"))
+    if "documents" in plan:
+        raise cli_guidance.InputChanged(
+            "legacy preparation contains documents; prepare again",
+            condition="legacy-plan",
+        )
     if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [
         sys.executable,
         str(definition_root(root) / "framework/scripts/cloudformation-deploy.py"),
@@ -584,6 +522,8 @@ def main(argv=None):
                         root, plan_path, bool(args.register)
                     ),
                     "plan": str(plan_path),
+                    "contract": plan["contract"],
+                    "targetSummary": plan["targetSummary"],
                     "timing": str(timing.path),
                     "preparationSeconds": plan["preparationSeconds"],
                     "within60Seconds": plan["within60Seconds"],

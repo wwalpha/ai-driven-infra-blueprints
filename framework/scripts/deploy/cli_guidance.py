@@ -26,8 +26,8 @@ PREPARATION_HELP = """Examples (replace example target, StackNames and paths wit
 
 Offline Preparation performs no AWS calls or deployment. Use a new task-file;
 repeat --service for all explicitly reviewed owning/referencing services. Read the
-returned documents, target summary and contract before --register. Hashes are not
-proof of reading. Registration rechecks frozen input bytes, identities, file sets
+contract and target summary before --register; read applicable Rules from the Deploy
+prompt. Registration rechecks input bytes, identities, file sets
 and the candidate; a change stops registration and requires a reviewed new preparation.
 --run-controller requires the registered, unchanged Task and the same repository,
 Python, PATH/PYTHONPATH. It launches exactly one controller, with current AWS checks.
@@ -291,6 +291,7 @@ def safe_error(error):
             "deferred-inputs",
             "model-file-set",
             "contract-candidate",
+            "legacy-plan",
         }:
             result["condition"] = error.condition
     elif isinstance(error, FileNotFoundError):
@@ -375,6 +376,13 @@ def python_command(root, script, arguments, *, task_file=None):
 
 def stopped(stage, error):
     cause = safe_error(error)
+    if isinstance(error, InputChanged) and error.condition == "legacy-plan":
+        return guidance(
+            "INPUT_REVALIDATION",
+            cause,
+            "PREPARE_AGAIN",
+            "This legacy preparation contains documents; prepare again before registration or controller launch.",
+        )
     if isinstance(error, InputChanged):
         return guidance(
             "INPUT_REVALIDATION",
@@ -421,7 +429,7 @@ def preparation_result(root, plan_path, registered):
         "PREPARATION",
         None,
         "REVIEW_PREPARATION",
-        "Read the returned documents, target summary and contract before registration.",
+        "Review the contract and target summary and read applicable Rules before registration.",
     )
 
 

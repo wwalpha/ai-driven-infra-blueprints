@@ -211,7 +211,7 @@ def check_implementation_preflight_prompt() -> None:
     assert "git --no-optional-locks status --porcelain --untracked-files=all" in sandbox
     assert "git status --porcelain --untracked-files=all" not in sandbox
     for required in (
-        "create, setup (when needed), finalize and cleanup",
+        "create, setup (when needed), normal Deploy checkpoint, finalize and cleanup",
         "effective Sandbox restrictions",
         "protected exceptions and symlinks",
         "prior denial is not required",
