@@ -712,6 +712,20 @@ def check_aggregate_reservation_and_actual_incomplete(tmp_path, same_key, reason
         assert reason in aggregate.metadata["reason"]
 
 
+def read_during_handler(findings, later, reader, outcome, existing_failure):
+    active = findings.get_result("normal-required", None)
+    before = (active.status, dict(active.metadata), active.started, active.errors)
+    records = findings.failures() if reader == "failures" else findings.status
+    assert (active.status, active.metadata, active.started, active.errors) == before
+    assert later.metadata == {}
+    if existing_failure and reader == "failures":
+        assert any("existing failure" in record["reason"] for record in records)
+    if outcome == "exception":
+        raise RuntimeError("actual exception")
+    if outcome == "interrupt":
+        raise KeyboardInterrupt("actual interruption")
+
+
 @pytest.mark.parametrize("reader", ["status", "failures"])
 @pytest.mark.parametrize("outcome", ["PASS", "exception", "interrupt"])
 @pytest.mark.parametrize("existing_failure", [False, True])
@@ -725,20 +739,10 @@ def check_read_during_handler_has_no_result_side_effect(
         )
     later = findings.result("later", None)
 
-    def handler():
-        active = findings.get_result("normal-required", None)
-        before = (active.status, dict(active.metadata), active.started, active.errors)
-        records = findings.failures() if reader == "failures" else findings.status
-        assert (active.status, active.metadata, active.started, active.errors) == before
-        assert later.metadata == {}
-        if existing_failure and reader == "failures":
-            assert any("existing failure" in record["reason"] for record in records)
-        if outcome == "exception":
-            raise RuntimeError("actual exception")
-        if outcome == "interrupt":
-            raise KeyboardInterrupt("actual interruption")
-
-    result = findings.evaluate("normal-required", None, handler)
+    result = findings.evaluate(
+        "normal-required", None,
+        partial(read_during_handler, findings, later, reader, outcome, existing_failure),
+    )
     assert result.status == ("PASS" if outcome == "PASS" else "FAIL")
     if outcome == "PASS":
         assert result.metadata["complete"] is True
