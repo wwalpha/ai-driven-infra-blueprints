@@ -508,6 +508,7 @@ REPRESENTATIVES = {
     ),
     "iam": ("IAM.Role", "RoleName", "fixture"),
     "kms": ("KMS.Key", "Description", "fixture"),
+    "lake-formation": ("LakeFormation.Resource", "HybridAccessEnabled", True),
     "lambda": ("Lambda.Function", "FunctionName", "fixture"),
     "macie": ("Macie.ClassificationJob", "name", "fixture"),
     "mwaa": ("MWAA.Environment", "Name", "fixture"),

@@ -158,7 +158,7 @@ def check_service_adapters(tmp_path):
             )
     check(type_count == 52, "all adapter types exercised")
     print(
-        f"Service acquisition/field extraction: {type_count} resource types, {field_count} supported mappings, 27 × 4 comparison cases"
+        f"Service acquisition/field extraction: {type_count} resource types, {field_count} supported mappings, {len(REPRESENTATIVES)} × 4 comparison cases"
     )
 
 

@@ -718,6 +718,7 @@ def check_finalize_requires_setup(tmp_path, setup):
     if setup is not None:
         state["python_setup"] = setup
     with (
+        patch.object(wt, "integration_changed_paths", return_value={"file.txt"}),
         patch.object(
             wt, "load", return_value=(tmp_path, None, tmp_path / "state.json", state)
         ),
