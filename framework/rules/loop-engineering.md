@@ -387,7 +387,7 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 2. Confirm scope with AWS ValidateTemplate and change sets for CloudFormation; validation and saved plans for Terraform.
 3. If no unapproved delete/replacement exists, deploy/apply only targets authorized by the active prompt. If any exists, explain targets, reasons, impacts, and current execution state and wait for human confirmation; after approval, resume in the same task with the same change set or saved plan.
 4. Update model observed values and regenerate Markdown only when successful AWS mutation exists.
-5. Run the local loop and finish without proceeding to scenario tests.
+5. Keep AWS, Observed/generation and Git publication separate under [Managed Deploy snapshot](cloudformation.md#managed-deploy-snapshot-and-git-publication). Git conflicts retain AWS success and require Human judgment; resolve/retry only Git publication. Run the scoped local loop, complete after every barrier succeeds, and finalize through that Deploy publication path without proceeding to scenario tests.
 
 `update` phase:
 

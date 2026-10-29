@@ -125,12 +125,14 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
                 wt, "git", partial(interrupted_git, wt.git, boundary, witnessed)
             )
         ):
-            assert step(target, report, aws, "checkpoint", [FIRST]) == 2
+            assert step(target, report, aws, "checkpoint", [FIRST]) == (
+                0 if boundary == "merge" else 2
+            )
         assert witnessed
     assert step(target, report, aws, "checkpoint", [FIRST]) == 0
     sha = git(primary, "rev-parse", "HEAD").strip()
     assert sha != base
-    assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "1"
+    assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "2"
     assert status((target / "tasks/deploy.md").read_text(encoding="utf-8")) == "running"
     assert step(target, report, aws, "checkpoint", [FIRST]) == 0
     assert git(primary, "rev-parse", "HEAD").strip() == sha
@@ -148,7 +150,7 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
     assert (
         len([op for _, op, _ in provider["calls"] if op == "execute_change_set"]) == 2
     )
-    assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "2"
+    assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "4"
     assert "`subnet-fixture`" in (
         primary / f"model/dev/{ACCOUNT}/ec2.properties"
     ).read_text(encoding="utf-8")
@@ -180,9 +182,17 @@ def check_checkpoint_rejects_foreign_changes_and_preserves_success(
         git(primary, "add", "README.md")
         git(primary, "commit", "-qm", "other Task")
     base = git(primary, "rev-parse", "HEAD")
-    if bad != "failure":
+    if bad == "outside":
         assert step(target, report, aws, "checkpoint", [FIRST]) == 2
         assert git(primary, "rev-parse", "HEAD") == base
+        return
+    if bad == "base":
+        assert step(target, report, aws, "checkpoint", [FIRST]) == 0
+        assert (primary / "README.md").read_text() == "base advance\n"
+        finish_peer(aws)
+        assert step(target, report, aws, "advance") == 0
+        assert step(target, report, aws, "sync", [SECOND]) == 0
+        assert step(target, report, aws, "checkpoint", [SECOND]) == 0
         return
     assert step(target, report, aws, "checkpoint", [FIRST]) == 0
     sha = git(primary, "rev-parse", "HEAD")

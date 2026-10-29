@@ -106,6 +106,10 @@ Select validation solely under [Validation policy](../../../framework/rules/loop
 
 The worktree contains committed base inputs only. Do not silently copy/stash the source checkout's dirty files. In particular, infrastructure `/update` needs the human's intended uncommitted model diff **in the new worktree** before child execution. Explicit Model-only IMPORT merge/delete instead uses the Human-specified operation and IDs without pre-edits. If that input is only in the original checkout, retain both checkouts and request explicit input placement; do not run update with missing input or infer/copy unrelated changes.
 
+## Independent Deploy lifecycle
+
+`/deploy` automatically uses this lifecycle through `worktree_task.py deploy-start --task-id <id>`; no explicit Human `/worktree` invocation is needed. Creation/setup and exact unfinished-Task reuse remain owned by the existing helper. Follow [Managed Deploy snapshot and Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) for the Deploy-only fixed baseline, per-Stack checkpoints, delta publication, Human conflict review and Git-only `deploy-publish` recovery. These publication commands require the same permission inspection above. After all barriers and scoped validation pass, complete the contract and run ordinary `finalize`; its Deploy branch verifies publication and uses existing guarded cleanup. Other Tasks retain the sequence below.
+
 ## Complete and integrate
 
 For a normal Model-only /update task (including standalone `import-retarget`) or a
@@ -181,7 +185,7 @@ Different worktrees still share AWS resources. Cross-worktree AWS mutation locki
 
 ## Normal Deploy Stack checkpoints
 
-`cloudformation-deploy.py --action checkpoint --sync-stack <StackName>` uses the separate `worktree_task.deploy_stack_checkpoint` lifecycle operation. It requires the registered running infrastructure Task, exact synchronized Model/view candidate, complete generation, scoped validation, current AWS success and a clean available registered base. Only that candidate is staged. A durable intent pins parent/tree/Task/Stack scope before commit; the same commit is verified after interruption and merged ff-only without rebase. Empty candidates create no commit. Current-Task `deployCheckpoints` receipts acknowledge integrated Stacks; the unfinished Operation Journal is acknowledged only after the receipt is durable. No Task completion, cleanup or repair handoff is implied. Base advancement or foreign changes stop safely. Finalize/cleanup remain the final Task operations.
+`cloudformation-deploy.py --action checkpoint --sync-stack <StackName>` uses `worktree_task.deploy_stack_checkpoint` for the exact synchronized Model/view candidate, complete generation, scoped validation and current AWS success. Independent Deploy records the local source checkpoint separately from [Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication); base advancement or publication conflict retains AWS/Observed success and does not block other independent Stacks. Current-Task `deployCheckpoints` receipts prove local checkpoint completion; the unfinished Journal is acknowledged only after the receipt is durable. Other phases retain their clean-base, ff-only integration guards. No Task completion, cleanup or repair handoff is implied; unknown Task commits and foreign candidate changes still stop safely.
 
 ## Explicit CloudFormation repair handoff
 

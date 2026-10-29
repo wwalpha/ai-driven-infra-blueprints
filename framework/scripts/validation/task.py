@@ -50,6 +50,9 @@ class TaskValidation:
         self.design_impact = None
         self.contract_text = None
         self.import_checked = False
+        self.attribution_root = (
+            getattr(final_candidate, "deploy_source_root", None) or root
+        )
 
     @property
     def scope_paths(self):
@@ -78,14 +81,16 @@ class TaskValidation:
             if self.contract_file is not None
             else task_path(self.root, required=False)
         )
-        start = (
-            repository.task_start_commit(
-                self.root,
-                prompt.relative_to(self.root).as_posix(),
+        start = None
+        if prompt is not None:
+            name = prompt.relative_to(self.root).as_posix()
+            text = input_text(prompt)
+            baseline = (
+                worktree_state.deploy_start_commit
+                if "- Infrastructure phase: `deploy`" in text.splitlines()
+                else repository.task_start_commit
             )
-            if prompt is not None
-            else None
-        )
+            start = baseline(self.root, name)
         if start is None:
             head = worktree_state.git(
                 self.root, "rev-parse", "--verify", "HEAD^{commit}", check=False
@@ -194,7 +199,7 @@ class TaskValidation:
             try:
                 accepted_changes = _imports_deploy_contracts.accepted_changes
                 delegated = accepted_changes(
-                    self.root,
+                    self.attribution_root,
                     self.contract_text,
                     self.permission_paths,
                     **(
@@ -384,9 +389,10 @@ class TaskValidation:
                     accepted_changes = _imports_deploy_contracts.accepted_changes
                     try:
                         attributed = accepted_changes(
-                            self.root,
+                            self.attribution_root,
                             task_snapshot(self.root).text,
                             {path for path in changed if self.under(path, "infra")},
+                            contract_file=self.contract_file,
                         )
                         self.check(
                             attributed

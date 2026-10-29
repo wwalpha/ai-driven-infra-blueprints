@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import model.importing.repository as repository
+from deploy import git_publication, worktree
 
 
 def git_revision(root, name):
@@ -29,5 +30,20 @@ def git_revision(root, name):
 
 @contextmanager
 def publication_repository(revision=git_revision):
-    with patch.object(repository, "publication_revision", revision):
+    # These suites own Model/AWS behavior; dedicated Deploy Worktree UT/IT own lifecycle.
+    with (
+        patch.object(repository, "publication_revision", revision),
+        patch.multiple(
+            worktree,
+            require=lambda *a, **k: None,
+            bind=lambda *a, **k: None,
+            save_progress=lambda *a: None,
+            adopt_successes=lambda *a: None,
+            require_complete=lambda *a: None,
+            check_pending_progress=lambda *a: None,
+            read_progress=lambda *a: None,
+        ),
+        patch.object(git_publication, "sync"),
+        patch.object(git_publication, "retry", return_value=None),
+    ):
         yield

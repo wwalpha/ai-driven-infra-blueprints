@@ -27,7 +27,7 @@ from utils.file_operations import atomic_replace_file
 from utils.json_format import fingerprint
 from utils.sealed_evidence import read_sealed, sealed
 
-from deploy import change_sets, generation_resume, observed, observed_resume
+from deploy import change_sets, generation_resume, observed, observed_resume, worktree
 from deploy import context as deploy_context
 from deploy.model_cache import RunModels
 from deploy.recovery import cleanup_unexecuted, require_authorized
@@ -406,6 +406,7 @@ def _recovery_guard(backend, task, /):
     ):
         raise Blocked("project target changed during unfinished-operation recovery")
     current = task_snapshot(backend.root, live=True)
+    worktree.require(backend.root, current)
     if current.task_digest != task.task_digest:
         raise Blocked("Task changed during unfinished operation recovery")
     for relative, digest in from_snapshot.get("modelInputs", {}).items():
@@ -493,6 +494,7 @@ def recover(backend, path, task, scope):
     backend.prepared_operations = {}
     backend.pending_publication = {}
     backend.retained_records = read(path) or []
+    worktree.check_pending_progress(backend, backend.retained_records, unfinished)
     if any(
         r["publication"].get("stepwise")
         and (
@@ -827,6 +829,7 @@ class JournalSave:
         self.path, self.backend = path, backend
 
     def __call__(self):
+        worktree.save_progress(self.backend, OPERATION_FIELDS)
         save(self.path, self.backend)
 
 

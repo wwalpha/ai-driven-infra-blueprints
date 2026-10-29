@@ -459,6 +459,7 @@ def controller_result(
     states = run_context.get("states", {})
     failures = [s.get("failure", {}) for s in states.values() if s.get("failure")]
     diagnostics = {
+        "gitPublication": run_context.get("gitPublication"),
         "stackFailures": {
             name: s["failure"] for name, s in states.items() if s.get("failure")
         },
@@ -554,6 +555,12 @@ def controller_result(
             "UPDATE_HANDOFF",
             "Only the current group completed. Review authorized producer/consumer IaC changes and current scope before an independent run.",
         )
+    elif result == "PUBLICATION_PENDING":
+        stage, kind, reason = (
+            "GIT_PUBLICATION",
+            "HUMAN_REVIEW",
+            "AWS, Observed and generation succeeded. Review Git publication separately with worktree_task.py deploy-publish; never redeploy successful Stacks to resolve Git conflicts.",
+        )
     elif result == "COMPLETE":
         stage, kind, reason = (
             "COMPLETE",
@@ -603,7 +610,29 @@ def controller_result(
             "HUMAN_REVIEW",
             "Inspect the current structured failure. Cause or safe next operation is not established; stop without retrying.",
         )
-    return guidance(stage, diagnostics, kind, reason, command)
+    return {
+        **guidance(stage, diagnostics, kind, reason, command),
+        "awsStatus": "SUCCESS"
+        if states and all(s.get("status") == "SUCCESS" for s in states.values())
+        else "FAILED"
+        if any(s.get("status") == "FAILED" for s in states.values())
+        else "PENDING",
+        "observedStatus": "SUCCESS"
+        if states
+        and all(
+            s.get("status") == "SUCCESS" and s.get("observedSynced")
+            for s in states.values()
+        )
+        and not run_context.get("pendingObserved")
+        and not run_context.get("observedError")
+        else "PENDING",
+        "generationStatus": "PENDING"
+        if run_context.get("pendingGeneration") or run_context.get("generationError")
+        else "SUCCESS"
+        if states and all(s.get("observedSynced") for s in states.values())
+        else "PENDING",
+        "gitPublication": run_context.get("gitPublication"),
+    }
 
 
 def handoff_result(request=None, *, discarded=False):

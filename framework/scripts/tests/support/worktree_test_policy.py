@@ -7,6 +7,28 @@ from pathlib import Path
 
 # Reviewed Worktree responsibilities, not a filename convention. Exact cases are checked.
 WORKTREE_CASES = {
+    "units/deploy-worktree-unit.checks.py": (
+        "check_snapshot_ignores_base_history",
+        "check_unmanaged_mutation_is_rejected",
+        "check_managed_task_authority",
+        "check_git_failure_preserves_stack_success",
+        "check_resume_adopts_only_unchanged_successes",
+        "check_completion_keeps_states_separate",
+        "check_claim_input_hash_still_blocks",
+        "check_conflict_records_model_values",
+        "check_startup_needs_only_standard_library",
+        "check_progress_preserves_success_and_omits_unowned_fields",
+        "check_reuse_keeps_exact_identity",
+        "check_other_engine_retains_its_completion",
+        "check_unfinished_progress_requires_original_journal",
+    ),
+    "integrations/deploy-worktree.checks.py": (
+        "check_start_creates_and_reuses_official_worktree",
+        "check_git_conflict_checkpoints_peers_and_recovers",
+        "check_controller_keeps_aws_success_after_rewrite_and_conflict",
+        "check_interrupted_publication_retries_and_cleans",
+        "check_managed_journal_recovery_never_reexecutes_success",
+    ),
     "units/worktree-guard-unit.checks.py": (
         "check_registered_guard_process",
         "check_prepare_rejects_before_git_write",

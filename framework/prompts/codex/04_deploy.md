@@ -2,6 +2,8 @@
 
 ## Normal startup
 
+独立DeployはHumanに`/worktree`の追加指定を要求せず、[Managed Deploy snapshot](../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication)に従い`worktree_task.py deploy-start --task-id <id>`で作成/同一Task再利用する。返されたrootでTask登録・Preparation・実行を行う。再開時は元Snapshot/Journalを保持し、未完了操作のRecoverと新規Deployを区別する。
+
 承認済みIaCをTask範囲でDeployし、AWS・Observed・生成物を確認する。Human指定のenvironment・Target・Region/profile・StackName・service IDsを確定し、`project.json`の同一Targetと`tasks/<task-name>.md`を確認する。認証失敗時に別credentialへ切り替えない。DeployはIaC、意図した設計、scenarioを変更しない。
 
 CloudFormationは現在入力とAWS実状態から独立実行する。現在Taskを明示選択し、type/phase/status、AWS許可、Deployment scopeと出力Allowed pathsの不足は停止する。実行・案内はPython CLI、権限と安全制約はRulesを正本とする。
@@ -39,14 +41,14 @@ Preparationはoffline。AIが契約候補と出力範囲を確認してから登
 1. `--action advance`で実行可能なAWS Stackを先に投入する。各呼出しはRUNNINGを1回確認し、同じDeployOrderと並列上限を守って空き枠へ投入して戻る。CloudFormationはCLI終了後もAWS側で進む。
 2. `--action status`でStack別AWS/Observed/生成/checkpointと次の操作を確認する。直ちに投入可能なAWS操作があれば先にadvanceする。
 3. AWS実行中に直ちに行うAWS操作がなければ、成功済み未同期Stackを選び`--action sync --sync-stack <StackName>`を実行する。対象成功の再確認、全リソースの識別子確認、Observedのみの保存、参照伝播と必要な生成はPythonが行う。
-4. 同期・生成完了後、`--action checkpoint --sync-stack <StackName>`で必要な検証と対象差分だけのcommit・ローカル基底へのff-only統合を行う。Taskはrunningを維持する。基底名は登録済みWorktreeのmain/master設定で確定し、推測して別branchへ統合しない。
-5. checkpoint後はadvanceへ戻る。全StackのAWS成功、Observed全件確認、必要生成とcheckpointが完了した場合だけDeploy全体を完了とする。
+4. 同期・生成完了後、`--action checkpoint --sync-stack <StackName>`で必要な検証と対象差分のローカルcommitを行う。Git反映は[専用の差分publication](../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication)として試み、PENDING/CONFLICTでもAWS成功・ローカルcheckpointを保持する。Taskはrunningを維持する。
+5. checkpoint後はadvanceへ戻る。全StackのAWS成功、Observed全件確認、必要生成・ローカルcheckpoint・Git反映が完了した場合だけDeploy全体を完了とする。
 
 `--sync-stack`は同期・checkpointだけに指定し、不可分な候補には全対象を繰り返す。Producer依存で生成不能なViewだけを既存待機キューに残す。依存解消後にLLMがsyncを再実行するまでcheckpointしない。更新0件でも全実値確認が必要。desired、IMPORT実体、秘匿ARN規則は維持する。
 
 Sub Agent、PythonによるLLM制御、Model自動更新スケジューラ、背景Model writer、固定間隔自動同期を使わない。保存中は同じWorktreeの入力を編集しない。checkpointの途中に最終finalizeを使わない。
 
-中断時は同じ短時間操作を再実行し、元Stack/ChangeSet/Token、保存publication、commit intentと統合済みreceiptを照合する。Journalの未知・破損を理由にResetしない。基底進行や第三者差分では停止し、強制統合・自動rebase・resetをしない。`--action`省略の従来一括実行と`--recover-operations`は互換入口として残るが、短時間操作の未完了Journalには混用できない。
+中断時は同じ短時間操作を再実行し、元Stack/ChangeSet/Token、保存publication、commit intentとローカルreceiptを照合する。Journalの未知・破損を理由にResetしない。Task内の第三者差分は停止し、基底側のGit競合はAWSから分離してHuman判断を待つ。強制統合・自動rebase・resetをしない。`--action`省略の従来一括実行と`--recover-operations`は互換入口として残るが、短時間操作の未完了Journalには混用できない。
 
 ## Confirm unapproved delete/replacement
 
@@ -80,4 +82,4 @@ Terraform RulesとHelpに従い、設計済みRoot/workspace/backend/variable in
 
 AWS変更/No Change、Stack別SUCCESS/FAILED/BLOCKED/NOT_STARTED、未反映Output/Export、Observed同期、Markdown/JSON生成、未確定操作を区別する。原因未確定はHuman判断が必要と報告する。
 
-COMPLETEはAWS成功だけではなくObserved・生成まで完了した状態。RECOVEREDとGROUP_COMPLETEを新規Deploy全体の完了として報告しない。Task scope/Acceptanceと許可差分を確認し、[Validation policy](../../rules/loop-engineering.md#validation-policy)の最終検証後にのみTask完了とする。通常Deployはscoped task loopを使う。offline UTから実AWS成功を主張せず、次phase・scenarioを開始しない。
+AWS・Observed・生成・Git publicationを別々に報告する。PUBLICATION_PENDINGはAWS失敗ではなくGitのHuman判断/反映待ちであり、成功Stackを再Deployしない。RECOVEREDとGROUP_COMPLETEを新規Deploy全体の完了として報告しない。Task scope/Acceptanceと許可差分を確認し、[Validation policy](../../rules/loop-engineering.md#validation-policy)の最終検証と全保存/反映の成功後にのみTask完了とする。通常Deployはscoped task loopを使う。offline UTから実AWS成功を主張せず、次phase・scenarioを開始しない。

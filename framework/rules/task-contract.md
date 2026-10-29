@@ -16,6 +16,12 @@ Humans select the worktree for concurrent tasks and IMPORT. Select a contract wi
 Modified files describes planned work. Model publication retains its publication lock
 and each service's rollback-protected output transaction.
 
+Independent `/deploy` automatically selects/creates its managed Worktree through
+`worktree_task.py deploy-start`; the Human need not also invoke `/worktree`.
+Its fixed-snapshot execution and separate Git publication follow
+[Managed Deploy snapshot and Git publication](cloudformation.md#managed-deploy-snapshot-and-git-publication).
+Other Task baseline and integration rules remain unchanged.
+
 Finish editing before running generation/validation; start the next edit only after
 that command exits. While it runs, another LLM, sub-agent or command must not edit,
 add or delete its inputs or generation destinations in the same worktree. The running

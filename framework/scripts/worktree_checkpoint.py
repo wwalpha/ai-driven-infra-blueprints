@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import task_contract as tasks
 import worktree_task as wt
-from deploy import contracts
+from deploy import contracts, git_publication, worktree
 from deploy.cli_guidance import DeployStepBlocked
 from model.observed import verify_observed_outputs
 from validation.findings import Findings
@@ -51,6 +51,8 @@ def validate(backend: SimpleNamespace) -> None:
 
 
 def checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
+    if backend.phase == "deploy":
+        return snapshot_checkpoint(backend, names)
     root, _, path, state = wt.load(backend.root, backend.root.name)
     target = wt.task_worktree(root, state)
     context = backend.run_context
@@ -245,3 +247,85 @@ def checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
         context.pop("checkpointPending", None)
         backend.save()
         return {n: receipts[n] for n in names}
+
+
+def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
+    """Keep the existing synchronized candidate barrier, then publish Git separately."""
+    root, _, path, state = wt.load(backend.root, backend.root.name)
+    target, context = backend.root, backend.run_context
+    with wt.lifecycle_lock(root):
+        state = wt.load(target, target.name)[3]
+        worktree.require(target)
+        pending = context.get("checkpointPending")
+        receipts = state.setdefault("deployCheckpoints", {})
+        if not names or len(names) != len(set(names)):
+            raise DeployStepBlocked("checkpoint requires distinct StackNames")
+        if pending is None:
+            if not set(names) <= receipts.keys():
+                raise DeployStepBlocked(
+                    "no synchronized checkpoint candidate for requested Stacks"
+                )
+            return {n: receipts[n] for n in names}
+        if set(names) != set(pending["stacks"]) or pending.get("after") is None:
+            raise DeployStepBlocked(
+                "checkpoint must include the complete synchronized candidate"
+            )
+        if (
+            context.get("pendingObserved")
+            or context.get("pendingGeneration")
+            or context.get("generationError")
+        ):
+            raise DeployStepBlocked(
+                "required generation remains pending; inspect pendingGeneration"
+            )
+        if any(
+            backend.states[n].get("status") != "SUCCESS"
+            or not backend.states[n].get("observedSynced")
+            for n in names
+        ):
+            raise DeployStepBlocked(
+                "checkpoint requires AWS and complete Observed success"
+            )
+        if contracts.validation_snapshot(target) != pending["after"]:
+            raise DeployStepBlocked("checkpoint candidate changed after sync")
+        changed = wt.changed_paths(target)
+        expected = {
+            p
+            for p in pending["before"].keys() | pending["after"].keys()
+            if pending["before"].get(p) != pending["after"].get(p)
+        }
+        # A saved source commit may already contain this candidate after an interrupted acknowledgement.
+        if (
+            changed
+            and changed != expected
+            or any(not p.startswith(("model/", "docs/designs/")) for p in changed)
+        ):
+            raise DeployStepBlocked(
+                "checkpoint includes changes outside synchronized Model/views"
+            )
+        validate(backend)
+        backend.guard()
+        if contracts.validation_snapshot(target) != pending["after"]:
+            raise DeployStepBlocked("checkpoint candidate changed during validation")
+        commit = git_publication.checkpoint(target, path, state)
+        for name in names:
+            unit = next(u for u in context["stepUnits"] if u["name"] == name)
+            receipts[name] = {
+                "commit": commit,
+                "taskDigest": context["taskDigest"],
+                "inputDigest": context["inputDigests"].get(name),
+                "unit": copy.deepcopy(unit),
+                "stackId": backend.states[name]["stackId"],
+                "stackStatus": backend.states[name]["stackStatus"],
+                "coverage": copy.deepcopy(
+                    backend.states[name].get("observedCoverage", {})
+                ),
+                "services": backend.states[name].get("observedServices", []),
+            }
+        wt.save(path, state)
+        for name in names:
+            backend.states[name].pop("checkpointRequired", None)
+            backend.states[name]["checkpointed"] = True
+        context.pop("checkpointPending", None)
+        backend.save()
+    return {n: receipts[n] for n in names}

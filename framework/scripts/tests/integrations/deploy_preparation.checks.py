@@ -460,6 +460,10 @@ def check_service_generated_equality():
             STACKS,
             ["iam"],
         )
+        contract = contract.replace(
+            "## Acceptance checks\n",
+            "## Acceptance checks\n- [R1] `exists:model/dev/123456789012/iam.properties`\n",
+        )
         start(root, "tasks/deploy-offline.md", contract)
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             assert sync.sync(root, True, "dev", "123456789012", services=["iam"]) == 0

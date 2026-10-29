@@ -23,6 +23,7 @@ from deploy import (
     context,
     contracts,
     generation_resume,
+    git_publication,
     handoff,
     observed,
     observed_resume,
@@ -31,6 +32,7 @@ from deploy import (
     recovery,
     run_context,
     temporary,
+    worktree,
 )
 from deploy.cli_guidance import DeployStepBlocked as Blocked
 from deploy.model_cache import RunModels
@@ -42,6 +44,7 @@ from deploy.typing import StackUnit
 def restore(backend: SimpleNamespace, journal: Path, task: TaskSnapshot) -> None:
     """Read original IDs without recovery polling, publication or new execution."""
     records = operation_journal.read(journal) or []
+    worktree.check_pending_progress(backend, records, operation_journal.unfinished)
     owned = []
     retained = []
     names = {u["name"] for u in backend.units}
@@ -176,7 +179,11 @@ def checkpoint_receipts(backend: SimpleNamespace) -> dict:
             entry["unit"] != unit
             or entry["taskDigest"] != backend.run_context["taskDigest"]
             or backend.input_digest(unit, fresh=True) != entry["inputDigest"]
-            or not wt.ancestor(backend.root, entry["commit"], state["base"])
+            or (
+                not wt.ancestor(backend.root, entry["commit"], state["branch"])
+                if backend.phase == "deploy"
+                else not wt.ancestor(backend.root, entry["commit"], state["base"])
+            )
         ):
             raise Blocked("integrated checkpoint inputs/base changed: " + name)
         backend.states[name] = {
@@ -195,6 +202,10 @@ def checkpoint_receipts(backend: SimpleNamespace) -> dict:
         if contracts.validation_snapshot(backend.root) != pending.get("after"):
             raise Blocked("checkpoint acknowledgement candidate changed")
         backend.run_context.pop("checkpointPending")
+    if backend.phase == "deploy":
+        backend.run_context["gitPublication"] = copy.deepcopy(
+            state.get("deployPublication", {"status": "PENDING"})
+        )
     return receipts
 
 
@@ -326,6 +337,10 @@ def describe(backend: SimpleNamespace) -> dict:
     complete = generation_resume.complete(context) and all(
         s.get("checkpointed") for s in states.values()
     )
+    publication_pending = (
+        getattr(backend, "phase", None) == "deploy"
+        and context.get("gitPublication", {}).get("status") != "SUCCESS"
+    )
     uncertain = any(
         s.get("pollReadFailures") or s.get("schedulerError") for s in states.values()
     )
@@ -352,7 +367,14 @@ def describe(backend: SimpleNamespace) -> dict:
         )
     )
     return {
-        "result": "COMPLETE" if complete else "STOPPED" if failed else "PENDING",
+        "result": "PUBLICATION_PENDING"
+        if complete and publication_pending
+        else "COMPLETE"
+        if complete
+        else "STOPPED"
+        if failed
+        else "PENDING",
+        "gitPublication": context.get("gitPublication"),
         "repairFailure": context.get("currentFailure"),
         "states": {
             name: {
@@ -435,6 +457,10 @@ def run(
             args.alias,
             snapshot=task,
         )
+        if args.action == "status":
+            worktree.require(root, task)
+        else:
+            worktree.bind(root, task, selected, args.environment, args.stack)
         target = context.check_deploy_context(
             root, args.environment, args.aws_account_id, args.alias, args.profile
         )
@@ -571,6 +597,8 @@ def run(
                             backend, [u for u in units if u["name"] in args.sync_stack]
                         )
                     wt.deploy_stack_checkpoint(backend, args.sync_stack)
+                    if phase == "deploy":
+                        git_publication.sync(backend)
                     backend.save()
             result = describe(backend)
         print(json.dumps(result, indent=2))

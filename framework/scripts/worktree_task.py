@@ -215,8 +215,13 @@ def setup(where, task_id):
 def integration_task(target, state, approval=None):
     # A human-approved Git integration does not turn failed validation into completion.
     snapshot = tasks.read_task_snapshot(target, state["task_file"], live=True)
-    task_start_commit(target, state["task_file"])
     text = snapshot.text
+    if "- Infrastructure phase: `deploy`" in text.splitlines():
+        worktree_state.deploy_start_commit(
+            target, state["task_file"], allow_merged=True
+        )
+    else:
+        task_start_commit(target, state["task_file"])
     current = tasks.status(text)
     approval = approval or state.get("validation_failure_approval")
     if approval is not None and (not isinstance(approval, str) or not approval.strip()):
@@ -424,6 +429,9 @@ def cleanup_state(root, path, state):
         phase = "remove_repair_proof"
         if state.get("deployRepair"):
             _worktree_runtime().deploy_handoff.discard_request(state)
+        if state.get("deployIdentity"):
+            phase = "remove_deploy_progress"
+            module("deploy/worktree.py", "deploy.worktree").discard_progress(state)
         phase = "remove_state"
         path.unlink()
         return {
@@ -823,6 +831,11 @@ def finalize(where, task_id, human_approved_validation_failure=None):
     ):
         raise Blocked("human approval must identify the accepted validation failures")
     root, common, path, state = load(where, task_id)
+    if state.get("deployIdentity") and not state.get("merged"):
+        if human_approved_validation_failure is not None:
+            raise Blocked("Deploy publication requires its successful validation")
+        run_deploy_publication(where, task_id, finish=True)
+        return cleanup(root, task_id)
     if state.get("deployRepair"):
         if human_approved_validation_failure is not None:
             raise Blocked("deploy repair result requires successful static validation")
@@ -929,6 +942,7 @@ class FinalCandidate:
     candidate_head: str
     changed_paths: frozenset[str]
     scope: frozenset[tuple[str, str, str]]
+    deploy_source_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -1234,6 +1248,38 @@ def _worktree_runtime():
     return module("worktree_runtime.py", "worktree_runtime")
 
 
+def run_deploy_publication(where, task_id, resolution=None, *, finish=False):
+    """Keep the ordinary launcher dependency-free; publication uses registered Python."""
+    state = load(where, task_id)[3]
+    target = Path(state["worktree"])
+    interpreter, environment = python_env.runtime(target)
+    environment[tasks.SELECTOR] = state["task_file"]
+    result = subprocess.run(
+        [
+            str(interpreter),
+            "-B",
+            "-c",
+            f"import sys,json; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
+            "from deploy import git_publication; "
+            "operation=git_publication.finalize if sys.argv[1]=='finalize' else git_publication.publish; "
+            "print(json.dumps(operation(sys.argv[2],sys.argv[3], *([sys.argv[4]] if sys.argv[4] else []))))",
+            "finalize" if finish else "publish",
+            str(where),
+            task_id,
+            str(resolution) if resolution else "",
+        ],
+        cwd=target,
+        env=environment,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    if result.returncode:
+        raise Blocked(
+            "Deploy Git publication retained: " + result.stderr + result.stdout
+        )
+    return json.loads(result.stdout)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1247,6 +1293,8 @@ def main():
             "repair-checkpoint",
             "repair-validate",
             "sync-base",
+            "deploy-start",
+            "deploy-publish",
         ),
     )
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
@@ -1259,6 +1307,11 @@ def main():
     parser.add_argument("--repair-request", type=Path)
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-base")
+    parser.add_argument(
+        "--publication-resolution",
+        type=Path,
+        help="External JSON with explicit Human approval, current base/source and resolved conflict files; Git only",
+    )
     recovery_mode = parser.add_mutually_exclusive_group()
     recovery_mode.add_argument("--finish-recovery", action="store_true")
     recovery_mode.add_argument(
@@ -1267,6 +1320,8 @@ def main():
         help="Explicitly pin a reviewed clean recovery candidate to the latest descendant base",
     )
     args = parser.parse_args()
+    if args.publication_resolution and args.command != "deploy-publish":
+        parser.error("--publication-resolution requires deploy-publish")
     if (
         args.human_approved_validation_failure is not None
         and args.command != "finalize"
@@ -1281,11 +1336,21 @@ def main():
         parser.error("recovery arguments require recover")
     where = args.repository_root
     try:
-        if args.command != "create":
+        if args.command not in {"create", "deploy-start"}:
             where = load(where, args.task_id)[
                 0
             ]  # Keep diagnostics usable after task checkout removal.
-        if args.command == "sync-base":
+        if args.command == "deploy-start":
+            state = module("deploy/worktree.py", "deploy.worktree").start(
+                where, args.task_id
+            )
+        elif args.command == "deploy-publish":
+            state = {
+                "git_publication": run_deploy_publication(
+                    where, args.task_id, args.publication_resolution
+                )
+            }
+        elif args.command == "sync-base":
             state = sync_base(where, args.task_id, args.expected_base)
         elif args.command == "repair-checkpoint":
             if not args.repair_request:

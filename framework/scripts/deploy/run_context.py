@@ -27,10 +27,12 @@ import deploy.observed as _dependency_deploy_observed
 from deploy import (
     cli_guidance,
     generation_resume,
+    git_publication,
     handoff,
     operation_journal,
     operation_reset,
     temporary,
+    worktree,
 )
 from deploy.model_cache import RunModels
 from deploy.scheduler import run_group
@@ -152,6 +154,7 @@ def _callback_run_deploy_sync_once(backend, save, run_context, units, /):
     finally:
         run_context["metrics"]["observedSyncSeconds"] += time.perf_counter() - started
         save()
+        git_publication.sync(backend)
 
 
 # Peers may have completed while an earlier persisted plan was blocked.
@@ -313,6 +316,7 @@ def _callback_run_guard(
 ) -> TaskSnapshot:
     with task_reads(root, live=True):
         snapshot = task_snapshot(root)
+        worktree.require(root, snapshot)
         active_scope(
             root,
             args.stack,
@@ -381,6 +385,7 @@ def new_context(
 
 
 def _save(backend, journal):
+    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
     operation_journal.save(journal, backend)
 
 
@@ -415,6 +420,7 @@ def run(
             )
             if args.pause_after_group and phase != "update":
                 raise Blocked("--pause-after-group requires the explicit update phase")
+            worktree.bind(root, initial_task, selected, args.environment, args.stack)
             stage = "AUTHENTICATION"
             with timing.phase("authenticationContext"):
                 target = context.check_deploy_context(
@@ -452,12 +458,26 @@ def run(
             operation_journal.recover(backend, journal, initial_task, args.stack)
             operation_journal.publication_conflicts(backend, initial_task)
             if args.recover_operations and not backend.pending_publication:
+                publication = (
+                    git_publication.retry(root, initial_task)
+                    if phase == "deploy"
+                    else None
+                )
+                progress = (
+                    worktree.read_progress(root, worktree.require(root, initial_task))
+                    if phase == "deploy"
+                    else None
+                )
+                recovered_context = {
+                    "states": progress["states"] if progress else {},
+                    "gitPublication": publication,
+                }
                 print(
                     json.dumps(
                         {
                             "result": "RECOVERED",
                             **cli_guidance.controller_result(
-                                "RECOVERED", {}, args, root
+                                "RECOVERED", recovered_context, args, root
                             ),
                         },
                         indent=2,
@@ -508,6 +528,7 @@ def run(
                 _callback_run_refresh_validation, backend, run_context["inputDigests"]
             )
             operation_journal.adopt_recovered(backend)
+            worktree.adopt_successes(backend)
             if args.recover_operations:
                 if run_context.get("pendingGeneration"):
                     generation_resume.run(backend)
@@ -532,6 +553,10 @@ def run(
             units, limit, run_context, backend, backend.save, args.pause_after_group
         )
         backend.save()
+        if result == "COMPLETE" and run_context.get("gitPublication", {}).get(
+            "status"
+        ) in {"PENDING", "CONFLICT"}:
+            result = "PUBLICATION_PENDING"
         failure = handoff.record_failure(backend) if result == "STOPPED" else None
         print(
             json.dumps(

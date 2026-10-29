@@ -30,6 +30,9 @@ def working_revision(root):
 
 
 def task_start_commit(root, name):
+    snapshot = task_snapshot(root, name, executable=False)
+    if "- Infrastructure phase: `deploy`" in snapshot.text.splitlines():
+        return _imports_worktree_state.deploy_start_commit(root, name)
     return _imports_worktree_state.task_start_commit(root, name)
 
 

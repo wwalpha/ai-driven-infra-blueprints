@@ -180,12 +180,14 @@ Producer/Consumer evidence; required unfinished generation blocks checkpoint. LL
 sync its Producer and retry an indivisible combined candidate explicitly.
 
 Normal Stack checkpoint is separate from repair-checkpoint and final finalize. Under
-the Worktree lifecycle lock it validates the exact authorized Model/view candidate,
-saves parent/tree/Task/Stack intent, commits only that candidate, and ff-only integrates
-into the registered local main/master base while the Task remains running. Unknown
-commits, foreign changes and an advanced base stop without automatic rebase/reset.
-Empty differences create no empty commit. Lifecycle receipts survive a crash between
-merge and Journal acknowledgement and last only until this Task's ordinary cleanup.
+the Worktree lifecycle lock it validates the exact authorized Model/view candidate and
+checkpoints only that candidate locally. Independent Deploy uses
+[Managed Deploy snapshot and Git publication](#managed-deploy-snapshot-and-git-publication):
+local checkpoint receipts acknowledge synchronization while Git publication may remain
+PENDING/CONFLICT. Base advancement alone never blocks AWS advancement. Other phases
+retain their ordinary clean-base integration guards. Unknown Task commits and foreign
+changes still stop; empty differences create no empty checkpoint commit. Lifecycle
+receipts survive a crash before Journal acknowledgement and last until guarded cleanup.
 The Journal retains pending checkpoint operations, never a completed deployment ledger.
 All AWS/Observed/generation/checkpoint barriers are required for COMPLETE.
 
@@ -198,14 +200,14 @@ Existing authorized Secrets bootstrap and failed-CREATE cleanup remain runtime r
 In short operations cleanup performs one original-Stack read and returns pending;
 its existing token, provenance, safety and one-retry guards survive CLI boundaries.
 External Implement handoff remains separate. Only its verified exact child attribution
-can adopt repaired inputs; an inherited verified repair commit may join the next
-ff-only checkpoint. Other unintegrated commits remain blockers.
+can adopt repaired inputs; only that exact child delta may join publication.
+Other unexpected Task commits remain blockers.
 
 ### Compatibility batch execution
 
 `deploy/run_context.py` owns one memory-only DeployRunContext, immutable inputs and scheduler/Observed barriers. `deploy/operation_journal.py` owns only unfinished AWS and publication operations with target/account/Region exclusion. No old Session or Workflow data is read, migrated or mechanically deleted. Current Task, AWS permission, account/Region/profile, Stack ownership and destructive ChangeSet approval remain required.
 
-Each run reads current AWS status, creates CREATE/UPDATE ChangeSets from latest IaC and handles No Change without Execute. Previously successful Stacks are ordinary UPDATE candidates. Already-running AWS operations are observed before preparation; unknown state blocks. Verify every required Output/Export, including Outputs-only changes, using current Stack identity/status, actual OutputKey/OutputValue/ExportName and GetTemplate definition/value digests, without ListExports; missing exports never count as success and never cause Deploy to edit IaC.
+Each new Task reads current AWS status, creates CREATE/UPDATE ChangeSets from its pinned IaC and handles No Change without Execute. A managed Deploy Task retains its own unchanged successful Stacks under the snapshot rules below; a new Task has no inherited success authority. Already-running AWS operations are observed before preparation; unknown state blocks. Verify every required Output/Export, including Outputs-only changes, using current Stack identity/status, actual OutputKey/OutputValue/ExportName and GetTemplate definition/value digests, without ListExports; missing exports never count as success and never cause Deploy to edit IaC.
 
 Claim only free slots in the current DeployOrder. Share one RunModels cache for Load Once / same-generation Validate Once; verified Observed deltas invalidate reference-dependent checks only as required by the existing cache contract. Freeze Task/target/consumed inputs and detect changed pending input identities at claim. No all-Model startup scan or cross-invocation validation cache is permitted.
 
@@ -215,9 +217,59 @@ Keep every unprocessed ChangeSet intent during adoption, including interrupted i
 
 Retain existing publication lock/CAS/rollback transaction, generated-artifact equality and ownership/reference index checks. Journal publication identity contains no historical IaC Manifest. Missing/stale reference metadata stops necessary synchronization and is not rebuilt during Deploy. Wait-only generation may remain queued until its producer is observed; pending output candidates and unknown writes must be recovered before new work.
 
-Recovery uses the current explicitly authorized Stack scope for pending generation dependencies, with unexecuted Stacks marked NOT_STARTED. Rebind only unpublished wait records to the new run identity; never restore completed Stack status or move an unresolved publication candidate into a fresh run.
+Recovery uses the current explicitly authorized Stack scope for pending generation dependencies, with unexecuted Stacks marked NOT_STARTED. Rebind only unpublished wait records to the new run identity; never move an unresolved publication candidate into a fresh run. Only the same managed Deploy Task's sealed progress may restore unchanged, Observed-synchronized successes.
 
 Keep controller timing and per-Stack preparation/poll/execution durations within the run. Existing external timing.jsonl records phase, operation/service, success/failure, UTC and duration; never log secrets or API arguments/responses. Metrics are diagnostics and grant no execution authority.
+
+### Managed Deploy snapshot and Git publication
+
+For independent Deploy, resolve the Task and Target, then run the official
+`worktree_task.py deploy-start --task-id <id>` before Task registration/Preparation.
+It creates through existing create/setup or reuses that exact unfinished Task's valid
+Worktree. Use the returned root and registered Python for all subsequent commands.
+Ambiguous/missing ownership, stale locks or unexpected HEAD require review; never
+copy dirty primary inputs, recreate a resumed Task, or reset its operation Journal.
+Help, offline Preparation and read-only diagnostics require no managed Worktree.
+The CloudFormation mutation boundary checks managed ownership again before AWS writes.
+Terraform uses the same Skill isolation before its separately authorized saved-plan apply.
+Controller progress/publication below applies to CloudFormation; Terraform retains its
+existing saved-plan/output verification and ordinary Worktree Git integration.
+
+Deploy baseline checks pin lifecycle start and the verified Task HEAD, independent of
+the current local base's ancestry or rewritten history. Keep Task/Target/Account/Region/
+Stack authority, IaC identity/hash, immutable Model inputs, current destructive-change
+approval and unfinished-operation/Journal guards. Authorized repair still requires its
+existing one-shot handoff followed by a separate independent Deploy; no implicit input refresh.
+Ordinary Governance, Implement, Import and update baseline/rebase/ff-only safeguards remain.
+
+Each successful Stack retains AWS evidence before the existing guarded Observed and
+service generation barriers. The controller saves sealed, Task/Target/snapshot-bound
+progress outside Git and checkpoints exact authorized outputs in its Worktree; successful
+unchanged Stacks may be adopted only within that same Task. Existing scheduler concurrency,
+wait-time synchronization and partial-generation rules still apply. Pending Observed or
+generation work prevents Task completion. The Journal still owns unfinished AWS operations.
+
+Git publication has its own SUCCESS/PENDING/CONFLICT result and never changes AWS SUCCESS.
+Under the existing lifecycle lock, publish only the delta since the last published Task
+snapshot (initially lifecycle start), using a private merge tree against the latest clean
+local base. Validate the actual candidate with the scoped Model/Task validator before
+ff-only delivery. Preserve independent base edits. Publication commits retain both parents
+for ordinary non-force cleanup; Task history is never rebased onto the publication base.
+Base contention, failed validation or conflict retains Worktree, checkpoint, signed
+progress and Journal ownership while other independent Stacks continue their existing barriers.
+
+After a conflict, automatic publication waits for Human judgment. Inspect
+`worktree_task.py deploy-publish --task-id <id>` for current base/source, conflicting
+paths and observed Model keys with snapshot/base/deployed values. Review the affected
+Model items and generated Views, then provide an external UTF-8 JSON file containing
+`approval` (the explicit Human decision), exact `base`/`source` commit IDs and `files`
+(each conflicting relative path mapped to its full resolved UTF-8 text). Run the same
+command with `--publication-resolution <absolute-json-path>` only after that decision.
+Changed identities require renewed review; argument text alone supplies no Human consent.
+No automatic overwrite, conflict resolution, AWS Execute or Journal reset is permitted.
+Git-only recovery does not redeploy successful Stacks. Validate/complete the Task only
+after AWS, Observed, generation and publication succeed; ordinary `finalize` then verifies
+publication and performs existing guarded cleanup. Never clean an unresolved conflict.
 
 ### Human-authorized operation journal reset
 

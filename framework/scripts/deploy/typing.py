@@ -59,6 +59,7 @@ class DeployRunContext(TypedDict, total=False):
     environment: str
     directory: str
     target: Target
+    gitPublication: JsonObject
 
 
 class SchedulerBackend(Protocol):

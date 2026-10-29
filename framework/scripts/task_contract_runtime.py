@@ -4,6 +4,7 @@ import argparse as argparse
 from functools import wraps as wraps
 
 import import_guard as _imports_import_guard
+from deploy import worktree as deploy_worktree
 from model.importing.scope import (
     read_consumers,
     require_write_scope,
@@ -189,6 +190,7 @@ def complete(root, name):
     with task_reads(root, snapshot=snapshot):
         if status(text) != "running":
             raise ValueError("only a running task can complete")
+        deploy_worktree.require_complete(root, snapshot)
         if "- Workflow: `import`" in section(text, "## Task contract"):
             check_import(root, name)
             verify_snapshot(snapshot)

@@ -65,6 +65,16 @@ def check_checkpoint_pending_is_unfinished_even_after_observed():
     assert not operation_journal.unfinished(
         {"status": "SUCCESS", "observedSynced": True}
     )
+    states = {"A": {"status": "SUCCESS", "observedSynced": True, "checkpointed": True}}
+    backend = SimpleNamespace(
+        phase="deploy",
+        states=states,
+        run_context={"states": states, "gitPublication": {"status": "CONFLICT"}},
+    )
+    report = steps.describe(backend)
+    assert report["result"] == "PUBLICATION_PENDING"
+    assert report["states"]["A"]["aws"] == "SUCCESS"
+    assert report["gitPublication"]["status"] == "CONFLICT"
 
 
 def check_unknown_poll_stops_without_resubmit():

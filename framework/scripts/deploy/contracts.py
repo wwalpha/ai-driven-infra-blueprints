@@ -4,9 +4,10 @@ import hashlib
 from pathlib import Path
 
 import task_contract_core as _imports_task_contract
+from model.importing.repository import task_start_commit
 from task_contract_core import task_digest as task_digest
 from utils.file_operations import sha as sha
-from worktree_state import output, paths, task_start_commit
+from worktree_state import output, paths
 from worktree_state import subprocess_bytes as subprocess_bytes
 from worktree_task import load
 
