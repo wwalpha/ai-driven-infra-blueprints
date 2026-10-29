@@ -1,0 +1,84 @@
+version: 1
+base:
+  data:
+    document:
+      version: 3
+      service: fixture
+      getters:
+        base: {kind: adapter, resources: [Test.Item]}
+        provider:
+          kind: cloudcontrol
+          service: cloudcontrol
+          operation: get_resource
+          result: ResourceDescription.Properties
+          resourceType: Test.Item
+          identifier: [/properties/Id]
+        sdk:
+          kind: sdk
+          service: fixture
+          operation: describe_item
+          result: Item
+          resourceType: Test.Item
+      resourceTypes:
+        Test.Item:
+          identity: {getter: base, idPath: Id, arnPath: null, nameProperty: Name}
+          properties:
+            Id:
+              model: {include: true}
+              aws: {getter: base, path: Id, normalize: typed}
+            Name:
+              model: {include: true}
+              aws: {getter: provider, path: Name, normalize: typed}
+    schema:
+      typeName: AWS::Test::Item
+      type: object
+      properties:
+        Id: {type: string}
+        Name: {type: string}
+        Tenant: {type: string}
+      primaryIdentifier: [/properties/Id]
+      handlers: {list: {}, read: {}}
+cases:
+  defaults: {}
+  provider-cases:
+    data:
+      scenarios:
+        - [complete, ready, PROVIDER_LIST]
+        - [no-schema, unsupported, SCHEMA_UNSUPPORTED]
+        - [no-list, unsupported, LIST_UNSUPPORTED]
+        - [no-model, not_modelled, NO_MODEL_PROPERTIES]
+        - [conditional, uncertain, LIST_CONDITIONS_UNCONFIRMED]
+  parent-cases:
+    data:
+      scenarios:
+        - [complete, ready, PARENT_FILTER]
+        - [no-list, unsupported, PARENT_FILTER_UNAVAILABLE]
+        - [not-modelled, unsupported, PARENT_FILTER_UNAVAILABLE]
+        - [ambiguous, unsupported, REQUIRED_FILTER_AMBIGUOUS]
+        - [no-parent, unsupported, REQUIRED_FILTER_UNRESOLVED]
+        - [no-read, uncertain, PARENT_VALUES_UNCONFIRMED]
+        - [sdk-parent, unsupported, PARENT_FILTER_UNAVAILABLE]
+        - [no-schema, unsupported, PARENT_SCHEMA_UNSUPPORTED]
+  sdk-properties:
+    data:
+      scenarios:
+        - [complete, capturable, SDK_SELECTOR]
+        - [not-allowed, broken, API_NOT_ALLOWED]
+        - [no-selector, broken, SDK_SELECTOR_MISSING]
+        - [no-fetch, broken, SDK_SELECTOR_MISSING]
+        - [no-operation, broken, SDK_PATH_INVALID]
+        - [bad-result, broken, SDK_PATH_INVALID]
+        - [bad-path, broken, SDK_PATH_INVALID]
+        - [conditional, uncertain, SDK_SELECTOR_UNCONFIRMED]
+        - [unseeded, uncertain, SDK_SELECTOR_UNCONFIRMED]
+        - [missing-property, broken, SDK_SELECTOR_PROPERTY_MISSING]
+  provider-properties:
+    data:
+      scenarios:
+        - [complete, capturable, PROVIDER_READ]
+        - [no-read, broken, READ_UNSUPPORTED]
+        - [identifier, broken, PROVIDER_IDENTIFIER_MISMATCH]
+        - [write-only, broken, PROVIDER_PATH_INVALID]
+        - [path, broken, PROVIDER_PATH_INVALID]
+        - [no-identity, broken, PROVIDER_IDENTIFIER_MISMATCH]
+        - [envelope, broken, PROVIDER_GETTER_INVALID]

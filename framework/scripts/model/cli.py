@@ -19,6 +19,10 @@ def main(argv=None):
         return module("model/adapters/aws.py", "model.adapters.aws").main(argv[1:])
     if argv[:1] == ["import"]:
         return module("model/importing/cli.py", "model.importing.cli").main(argv[1:])
+    if argv[:1] == ["import-coverage"]:
+        return module("model/importing/coverage.py", "model.importing.coverage").main(
+            argv[1:]
+        )
     if argv[:1] == ["audit"]:
         return module("model/audit.py", "model.audit").main(argv[1:])
     if argv[:1] == ["observed"]:
@@ -33,6 +37,9 @@ def main(argv=None):
     )
     commands.add_parser(
         "import", help="acquire/review/publish/recover one explicitly selected service"
+    )
+    commands.add_parser(
+        "import-coverage", help="inspect all Mapping Import capabilities offline"
     )
     commands.add_parser(
         "observed",

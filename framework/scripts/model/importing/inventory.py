@@ -18,6 +18,13 @@ from utils.script_loader import module
 import model.identity as _dependency_model_identity
 import model.projection as _imports_model_projection
 import model.sources as _dependency_model_sources
+from model.importing.discovery import (
+    ADAPTER_INVENTORIES,
+    adapter_detail,
+    filter_parents,
+    resolve,
+    type_name,
+)
 
 
 def comparator():
@@ -31,10 +38,6 @@ def properties_json(value):
     if not isinstance(result, dict):
         raise ValueError("Cloud Control Properties must be an object")
     return result
-
-
-def type_name(kind):
-    return "AWS::" + kind.replace(".", "::", 1)
 
 
 def pointer_value(properties, pointer):
@@ -215,18 +218,14 @@ def _callback_ImportInventory_normalize_run(normalize, record, self, service, /)
 
 def _callback_ImportInventory_inventory_collect(filters, kind, self, service, /):
     mapping, mapped = self.mapping(service)
-    if not any(
-        prop.include for key, prop in mapped.items() if key.startswith(kind + ".")
-    ):
+    plan = resolve(mapping, mapped, kind)
+    if plan.mode == "not_modelled":
         self.status(kind, "not_modelled")
         return []
     try:
-        if kind in ADAPTER_INVENTORIES and kind in mapping.identities:
+        if plan.mode == "adapter":
             records = adapter_inventory(self.ctx, service, (kind,))
-        elif (
-            kind == "EC2.SubnetRouteTableAssociation"
-            and "EC2.RouteTable" in mapping.resource_types
-        ):
+        elif plan.mode == "parent_derived":
             # Associations belong to the existing subnet expansion, not independent candidates.
             records = []
         else:
@@ -414,18 +413,9 @@ class ImportInventory:
             filters is None or any(name not in filters for name in required)
         ):
             # Resolve a required list selector only from one same-owner primary identifier.
-            candidates = [
-                parent
-                for parent in self.resource_types(service)
-                if parent != kind
-                and tuple(self.schema(parent).get("primaryIdentifier", ()))
-                == tuple("/properties/" + name for name in required)
-                and not self.schema(parent)
-                .get("handlers", {})
-                .get("list", {})
-                .get("handlerSchema", {})
-                .get("required")
-            ]
+            candidates = filter_parents(
+                self.resource_types(service), kind, required, self.schema
+            )
             if len(candidates) != 1:
                 raise m.AcquisitionError(
                     "cloudcontrol.list_resources", "RequiredFilter", "requires_filter"
@@ -545,43 +535,6 @@ def inventory_for(ctx):
     return ImportInventory(ctx)
 
 
-# Existing adapter discovery optimizations; every other Mapping type uses provider discovery.
-ADAPTER_INVENTORIES = {
-    "EC2.VPC": ("ec2", "describe_vpcs", "Vpcs"),
-    "EC2.Subnet": ("ec2", "describe_subnets", "Subnets"),
-    "EC2.RouteTable": ("ec2", "describe_route_tables", "RouteTables"),
-    "EC2.FlowLog": ("ec2", "describe_flow_logs", "FlowLogs"),
-    "EC2.TransitGatewayVpcAttachment": (
-        "ec2",
-        "describe_transit_gateway_vpc_attachments",
-        "TransitGatewayVpcAttachments",
-    ),
-    "Config.ConfigurationRecorder": (
-        "config",
-        "describe_configuration_recorders",
-        "ConfigurationRecorders",
-    ),
-    "Config.DeliveryChannel": (
-        "config",
-        "describe_delivery_channels",
-        "DeliveryChannels",
-    ),
-    "Logs.LogGroup": ("logs", "describe_log_groups", "logGroups"),
-    "QuickSight.DataSource": ("quicksight", "list_data_sources", "DataSources"),
-    "QuickSight.VPCConnection": (
-        "quicksight",
-        "list_vpc_connections",
-        "VPCConnectionSummaries",
-    ),
-    "KinesisFirehose.DeliveryStream": (
-        "firehose",
-        "list_delivery_streams",
-        "DeliveryStreamNames",
-    ),
-    "SecurityHub.Hub": ("securityhub", "describe_hub", None),
-}
-
-
 def adapter_inventory(ctx, service, resource_types):
     mapping, _ = inventory_for(ctx).mapping(service)
     ctx.allowed.update(
@@ -613,20 +566,15 @@ def adapter_inventory(ctx, service, resource_types):
             )
         items = response[collection] if collection else [response]
         for item in items:
-            if kind == "KinesisFirehose.DeliveryStream":
-                item = ctx.call(
-                    "firehose", "describe_delivery_stream", DeliveryStreamName=item
-                )["DeliveryStreamDescription"]
-            if api == "quicksight":
-                operation, key, result_key = (
-                    ("describe_data_source", "DataSourceId", "DataSource")
-                    if kind == "QuickSight.DataSource"
-                    else ("describe_vpc_connection", "VPCConnectionId", "VPCConnection")
+            detail = adapter_detail(kind)
+            if detail is not None:
+                operation, key, result_key = detail
+                selector = (
+                    item if kind == "KinesisFirehose.DeliveryStream" else item[key]
                 )
-                item = dict(
-                    ctx.call(api, operation, **inputs, **{key: item[key]})[result_key],
-                    **inputs,
-                )
+                item = ctx.call(api, operation, **inputs, **{key: selector})[result_key]
+                if api == "quicksight":
+                    item = dict(item, **inputs)
             record = dict(item)
             if api == "ec2":
                 names = [

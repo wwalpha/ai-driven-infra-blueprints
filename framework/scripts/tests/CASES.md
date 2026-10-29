@@ -4296,6 +4296,22 @@ Progress mechanics reuse existing Naming/Human/diagnostic validators; business I
 | `acceptance::human-review-cli` | `check_task_acceptance_human_failure_review` | IT | [integrations/task_contract.checks.py](integrations/task_contract.checks.py) | pytest / 1 | Task/Validation/explicit Human approval/Acceptance and stale-candidate CLI rejection preserve raw FAIL | Synthetic Git/Model; CI only |
 | `validation-result::reasons` | `check_fail_reasons_and_returned_results` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | Planned missing check executes; exceptions/interruption/returned CheckResult and invalid metadata retain scoped reasoned FAIL | Synthetic Findings |
 
+## Offline Import capability coverage
+
+| Case ID | Function | Layer | Source | Execution / Count | Contract | Scope |
+| --- | --- | --- | --- | --- | --- | --- |
+| `import-coverage::provider` | `check_provider_discovery` | UT | [units/import-coverage-unit.checks.py](units/import-coverage-unit.checks.py) | pytest / 5 | List/Schema absence, non-modelled and conditional filter handling | Synthetic Mapping/Schema |
+| `import-coverage::parents` | `check_parent_filters` | UT | [units/import-coverage-unit.checks.py](units/import-coverage-unit.checks.py) | pytest / 8 | Exact required-filter parent, unavailable/unmodelled/ambiguous/SDK/missing-schema parents and omitted identifier values | Synthetic Mapping/Schema |
+| `import-coverage::sdk-identity` | `check_sdk_identity` | UT | [units/import-coverage-unit.checks.py](units/import-coverage-unit.checks.py) | pytest / 6 | Inventory and Identity pair, path/getter mismatch, required SDK selectors and fallback | Synthetic SDK/Mapping |
+| `import-coverage::sdk-properties` | `check_sdk_properties` | UT | [units/import-coverage-unit.checks.py](units/import-coverage-unit.checks.py) | pytest / 10 | Operation/allowlist/SDK_OPERATIONS/fetch_sdk/Result/Path and direct/conditional/unseeded selectors | Synthetic SDK/Mapping; no AWS |
+| `import-coverage::provider-properties` | `check_provider_properties` | UT | [units/import-coverage-unit.checks.py](units/import-coverage-unit.checks.py) | pytest / 7 | Read handler, identifiers, envelope and readable exact property paths | Synthetic provider |
+| `import-coverage::provenance` | `check_local_and_unknown_adapter` | UT | [units/import-coverage-unit.checks.py](units/import-coverage-unit.checks.py) | pytest / 1 | Explicit local_metadata and insufficient adapter reachability stay distinct | Synthetic Mapping |
+| `import-coverage::composite` | `check_composite_identity_and_filters` | UT | [units/import-coverage-unit.checks.py](units/import-coverage-unit.checks.py) | pytest / 1 | Composite scope components retained; malformed filter metadata rejected | Synthetic provider |
+| `import-coverage::cli` | `check_dynamic_owners_and_cli` | UT | [units/import-coverage-unit.checks.py](units/import-coverage-unit.checks.py) | pytest / 1 | New owner auto-enumeration, stable JSON, CLI dispatch, normal/strict/error exits and unknown services | In-memory providers; no Model or writes |
+| `import-coverage::existing-gaps` | `check_derived_and_real_mapping_gaps` | UT | [units/import-coverage-unit.checks.py](units/import-coverage-unit.checks.py) | pytest / 1 | Single registration identity, subnet expansion and missing parent, current QuickSight.Group gaps retained | Read-only Framework definitions |
+
+Existing `import-model-unit` inventory/API-count/parent-filter/Cloud Control/singleflight/partial-retention cases remain the runtime compatibility checks. Existing `import-model` and `import-cli` IT retain Acquire→Review→Publish/CLI integration in the official Framework IT; no redundant IT scenario or CI gate is added.
+
 ## Worktree final candidate classification and Framework validation
 
 | Requirement | Case | Level | Source | Execution / count | Coverage | Boundary |

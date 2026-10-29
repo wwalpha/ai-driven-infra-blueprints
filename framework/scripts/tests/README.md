@@ -35,6 +35,35 @@ Git/WorktreeとCLI実行境界は既存専用ITに任せ、Import ITのPopen Git
 目標10秒未満と削減対象UT+IT合計時間の非悪化は、公式Framework ITのbaseline_refを使う同条件比較で判定する。
 CI実測前に高速化達成と報告しない。Fixtureのコピー削減だけから性能効果を断定しない。
 
+### Offline Import Coverage
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import-coverage --repository-root .
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import-coverage --repository-root . --format json
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py import-coverage --service quicksight --strict
+```
+
+Ownersから動的に全型を列挙し、Model対象判定・取得方式・Identity・include対象の各Propertyを独立に診断する。
+SDK Inventory登録、detail envelope、必須Filterの親探索はRuntimeと同じDiscovery定義を使う。
+親由来AssociationのreadyはSubnetへの付加取得を意味し、独立Import候補を意味しない。
+Identity readyは生成経路の静的成立であり、Discovery失敗やProperties不足を打ち消さない。
+
+Propertyの`capturable`は静的取得経路、`unobservable`は明示された非AWS入力/取得不能値、
+`broken`は実装不整合、`uncertain`は未証明の分岐/selector/projectionを示す。
+Model/Target入力とlocal_metadataはAWS確認値に数えない。SDKの単純な直接呼出しは実fetch_sdkを読んで
+selectorとseedPropertiesを確認し、条件分岐や動的処理は推測せずuncertainを返す。
+AdapterもseedされたpayloadのSchema/Pathが証明できる範囲だけcapturableとし、fetchの存在だけでは成功扱いしない。
+全結果は`runtimeVerified: false`。AWS認証・通信・Model読込/保存は不要。
+
+通常終了は0、`--strict`は未解消のbroken（取得経路不足を含む）があれば1、検証処理/設定エラーは2。
+既存の取得未対応型と不確実性を隠さず出すため、strictをCI必須Gateにはしない。
+`propertyGapTypes`には不整合だけでなく、明示的な非AWS入力と未証明条件も含む。
+固定の型数/サービス数を合格条件にしない。
+
+`import-coverage-unit.checks.py`は小さいメモリ上のMapping/SDK/Schemaと1つのYAML fixtureで判定を検証する。
+新しい取得シナリオは追加していない。既存Import UTのSDK呼出し回数、Cloud Control、親Filter、部分保持、
+singleflight・Context分離を使って互換性を確認し、Acquire→Review→Publishと実CLIの正式ITは既存CIに委ねる。
+
 ## Worktree責務の分離
 
 Worktree機能自体を検証するレビュー済みケースだけが、実worktree操作とLifecycleのMock/fixtureを使う。
