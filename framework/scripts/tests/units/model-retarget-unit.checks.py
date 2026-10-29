@@ -362,6 +362,7 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
     )
     text = (
         contract()
+        + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         + "## Validation scope\n"
         + "".join("- `" + s + "`\n" for s in scopes)
         + "## Modified files\n"
@@ -492,6 +493,7 @@ def check_final_candidate_uses_latest_base(tmp_path):
     listing = "".join("- `" + p + "`\n" for p in [name, relative])
     text = (
         contract()
+        + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         + "## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n## Modified files\n"
         + listing
         + "## Allowed paths\n"

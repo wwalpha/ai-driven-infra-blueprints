@@ -62,9 +62,13 @@ def check_one_parent_merge_and_failed_candidate_repair():
             }
         )
         listed = "\n".join("- `" + path + "`" for path in [name, *paths])
-        text = contract(sources) + (
-            "## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n"
-            "## Modified files\n" + listed + "\n## Allowed paths\n" + listed + "\n"
+        text = (
+            contract(sources)
+            + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
+            + (
+                "## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n"
+                "## Modified files\n" + listed + "\n## Allowed paths\n" + listed + "\n"
+            )
         )
         tasks.start(target, name, text)
         for source in sources:

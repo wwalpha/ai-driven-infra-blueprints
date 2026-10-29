@@ -17,6 +17,7 @@ from task_contract_core import (
     contract_path,
     issues_save_only,
     matches,
+    parse_declarations,
     paths_in,
     task_path,
     task_snapshot,
@@ -154,14 +155,6 @@ class TaskValidation:
                         "--",
                     ]
                 ) - {".lock"}
-        if not self.permission_paths and (
-            prompt is None
-            or "- Task type:"
-            not in task_snapshot(
-                self.root, self.contract_file, executable=self.contract_file is None
-            ).text
-        ):
-            return
         if prompt is None:
             self.check(
                 not self.permission_paths,
@@ -178,93 +171,13 @@ class TaskValidation:
         )
         self.contract_file = prompt.relative_to(self.root).as_posix()
         lines = self.contract_text.splitlines()
-        contract = self.section(lines, "## Task contract")
-        task_types = []
-        for line in contract:
-            match = re.fullmatch(r"- Task type: `([^`]+)`", line)
-            if match:
-                task_types.append(match.group(1))
-        self.check(
-            len(task_types) == 1,
-            f"Task type must appear exactly once in Task contract: {self.relative(prompt)}",
-        )
-        if task_types:
-            self.task_type = task_types[0]
-            self.check(
-                self.task_type in TASK_TYPES, f"unknown Task type: {self.task_type}"
-            )
-
-        infrastructure_phases = []
-        for line in contract:
-            match = re.fullmatch(r"- Infrastructure phase: `([^`]+)`", line)
-            if match:
-                infrastructure_phases.append(match.group(1))
-        expected_phase_count = 1 if self.task_type == "infrastructure" else 0
-        self.check(
-            len(infrastructure_phases) == expected_phase_count,
-            f"Infrastructure phase must appear exactly once for infrastructure tasks only: {self.relative(prompt)}",
-        )
-        if infrastructure_phases:
-            self.infrastructure_phase = infrastructure_phases[0]
-            self.check(
-                self.infrastructure_phase
-                in {"implement", "deploy", "update", "destroy"},
-                f"unknown Infrastructure phase: {self.infrastructure_phase}",
-            )
-
-        requirement_ids: list[str] = []
-        for line in self.section(lines, "## Required changes"):
-            if not line.startswith("- "):
-                continue
-            match = re.fullmatch(r"- \[([A-Z][A-Z0-9-]*)\] .+", line)
-            self.check(
-                match is not None,
-                f"invalid Required changes entry: {self.relative(prompt)}: {line}",
-            )
-            if match:
-                requirement_ids.append(match.group(1))
-        self.check(
-            bool(requirement_ids),
-            f"Required changes section missing or empty: {self.relative(prompt)}",
-        )
-        self.check(
-            len(requirement_ids) == len(set(requirement_ids)),
-            f"duplicate requirement ID: {self.relative(prompt)}",
-        )
-        self.requirement_ids = requirement_ids
-
-        acceptance_ids: set[str] = set()
-        for line in self.section(lines, "## Acceptance checks"):
-            if not line.startswith("- "):
-                continue
-            match = re.fullmatch(
-                r"- \[([A-Z][A-Z0-9-]*)\] `(changed|exists|absent|check):([^`]+)`",
-                line,
-            )
-            self.check(
-                match is not None,
-                f"invalid Acceptance checks entry: {self.relative(prompt)}: {line}",
-            )
-            if not match:
-                continue
-            requirement_id, kind, value = match.groups()
-            acceptance_ids.add(requirement_id)
-            self.acceptance_checks.append((requirement_id, kind, value))
-            self.check(
-                requirement_id in requirement_ids,
-                f"Acceptance check uses unknown requirement ID: {requirement_id}",
-            )
-            if kind != "check":
-                candidate = Path(value)
-                self.check(
-                    not candidate.is_absolute() and ".." not in candidate.parts,
-                    f"unsafe Acceptance check path: {value}",
-                )
-        for requirement_id in requirement_ids:
-            self.check(
-                requirement_id in acceptance_ids,
-                f"requirement has no Acceptance check: {requirement_id}",
-            )
+        declarations = parse_declarations(self.contract_text, self.relative(prompt))
+        self.task_type = declarations.task_type
+        self.infrastructure_phase = declarations.infrastructure_phase
+        self.requirement_ids = list(declarations.requirement_ids)
+        self.acceptance_checks = list(declarations.acceptance_checks)
+        for error in declarations.errors:
+            self.check(False, error)
 
         allowed = [
             match.group(1)

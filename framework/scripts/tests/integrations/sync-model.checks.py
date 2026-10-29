@@ -1416,10 +1416,12 @@ def check_integrated_validator(generated_policy, initial):
     env = register([design, artifact, artifact.parent / "extra.json"])
     task = root / env["BLUEPRINT_TASK_FILE"]
     task.write_text(
-        task.read_text()
-        + "\n## Required changes\n- [R1] Generate the selected service.\n"
-        "## Acceptance checks\n- [R1] `check:framework.generated-service-model`\n"
-        "- [R1] `check:framework.policy-tables`\n- [R1] `exists:docs/designs/dev/123456789012/iam.md`\n"
+        task.read_text().replace(
+            "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n",
+            "## Required changes\n- [R1] Generate the selected service.\n"
+            "## Acceptance checks\n- [R1] `check:framework.generated-service-model`\n"
+            "- [R1] `check:framework.policy-tables`\n- [R1] `exists:docs/designs/dev/123456789012/iam.md`\n",
+        )
     )
     for name in ("AGENTS.md", "README.md", "docs/system-overview.md"):
         p = root / name
@@ -1540,8 +1542,11 @@ def check_integrated_validator_publication_failure(generated_policy):
     env = register([design, artifact])
     task = root / env[tasks.SELECTOR]
     task.write_text(
-        task.read_text() + "\n## Required changes\n- [R1] Publish the service.\n"
-        "## Acceptance checks\n- [R1] `check:framework.policy-tables`\n"
+        task.read_text().replace(
+            "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n",
+            "## Required changes\n- [R1] Publish the service.\n"
+            "## Acceptance checks\n- [R1] `check:framework.policy-tables`\n",
+        )
     )
     originals = {p: p.read_bytes() for p in (design, artifact)}
     validator_module = load("validate-blueprint")

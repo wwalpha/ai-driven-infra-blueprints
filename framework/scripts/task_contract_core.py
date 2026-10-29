@@ -8,7 +8,7 @@ from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from functools import partial as _bind_framework_callback
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
 
 import utils.json_format as _imports_utils_json_format
@@ -402,6 +402,121 @@ def validate_contract(root, name, text, *, check_paths=True):
             matches(value, pattern) for pattern in allowed
         ):
             raise ValueError(f"Modified file is outside Allowed paths: {name}: {value}")
+
+
+@dataclass(frozen=True)
+class ContractDeclarations:
+    task_type: str
+    infrastructure_phase: str
+    requirement_ids: tuple[str, ...]
+    acceptance_checks: tuple[tuple[str, str, str], ...]
+    scope: frozenset[tuple[str, str, str]] | None
+    errors: tuple[str, ...]
+
+
+def parse_declarations(text: str, name: str) -> ContractDeclarations:
+    """Parse declarations only; do not inspect files, Git or execute Acceptance checks."""
+    errors: list[str] = []
+    task_type, infrastructure_phase = "", ""
+    acceptance_checks: list[tuple[str, str, str]] = []
+    sections: dict[str, list[str]] = {}
+    for heading in ("## Task contract", "## Required changes", "## Acceptance checks"):
+        try:
+            sections[heading] = section(text, heading)
+        except ValueError as error:
+            sections[heading] = []
+            errors.append(str(error))
+    contract = sections["## Task contract"]
+    task_types = []
+    for line in contract:
+        match = re.fullmatch("- Task type: `([^`]+)`", line)
+        if match:
+            task_types.append(match.group(1))
+        elif line.startswith("- Task type:"):
+            errors.append(f"invalid Task type declaration: {name}: {line}")
+    if len(task_types) != 1:
+        errors.append(f"Task type must appear exactly once in Task contract: {name}")
+    if task_types:
+        task_type = task_types[0]
+        if task_type not in TASK_TYPES:
+            errors.append(f"unknown Task type: {task_type}")
+    infrastructure_phases = []
+    for line in contract:
+        match = re.fullmatch("- Infrastructure phase: `([^`]+)`", line)
+        if match:
+            infrastructure_phases.append(match.group(1))
+        elif line.startswith("- Infrastructure phase:"):
+            errors.append(f"invalid Infrastructure phase declaration: {name}: {line}")
+    expected_phase_count = 1 if task_type == "infrastructure" else 0
+    if len(infrastructure_phases) != expected_phase_count:
+        errors.append(
+            f"Infrastructure phase must appear exactly once for infrastructure tasks only: {name}"
+        )
+    if infrastructure_phases:
+        infrastructure_phase = infrastructure_phases[0]
+        if infrastructure_phase not in {"implement", "deploy", "update", "destroy"}:
+            errors.append(f"unknown Infrastructure phase: {infrastructure_phase}")
+    requirement_ids: list[str] = []
+    for line in sections["## Required changes"]:
+        match = re.fullmatch(r"- \[([A-Z][A-Z0-9-]*)\] .+", line)
+        if match is None:
+            errors.append(f"invalid Required changes entry: {name}: {line}")
+        if match:
+            requirement_ids.append(match.group(1))
+    if not requirement_ids:
+        errors.append(f"Required changes section missing or empty: {name}")
+    if len(requirement_ids) != len(set(requirement_ids)):
+        errors.append(f"duplicate requirement ID: {name}")
+    acceptance_ids: set[str] = set()
+    for line in sections["## Acceptance checks"]:
+        match = re.fullmatch(
+            r"- \[([A-Z][A-Z0-9-]*)\] `(changed|exists|absent|check):([^`]+)`", line
+        )
+        if match is None:
+            errors.append(f"invalid Acceptance checks entry: {name}: {line}")
+        if not match:
+            continue
+        requirement_id, kind, value = match.groups()
+        acceptance_ids.add(requirement_id)
+        acceptance_checks.append((requirement_id, kind, value))
+        if requirement_id not in requirement_ids:
+            errors.append(
+                f"Acceptance check uses unknown requirement ID: {requirement_id}"
+            )
+        if kind != "check":
+            candidate = PurePosixPath(value)
+            if not (
+                not candidate.is_absolute()
+                and not PureWindowsPath(value).drive
+                and ".." not in candidate.parts
+                and "\\" not in value
+                and not any(char in value for char in "\x00\n\r")
+            ):
+                errors.append(f"unsafe Acceptance check path: {value}")
+    for requirement_id in requirement_ids:
+        if requirement_id not in acceptance_ids:
+            errors.append(f"requirement has no Acceptance check: {requirement_id}")
+    scope = None
+    try:
+        scope = _scope(text)
+    except ValueError as error:
+        errors.append(str(error))
+    return ContractDeclarations(
+        task_type,
+        infrastructure_phase,
+        tuple(requirement_ids),
+        tuple(acceptance_checks),
+        scope,
+        tuple(errors),
+    )
+
+
+def preflight_contract(root: Path, name: str, text: str) -> None:
+    """Require a valid candidate at write boundaries, leaving diagnostic reads available."""
+    validate_contract(root, name, text)
+    declarations = parse_declarations(text, name)
+    if declarations.errors:
+        raise ValueError("; ".join(declarations.errors))
 
 
 @dataclass(frozen=True)
@@ -983,7 +1098,7 @@ def start(root, name, text):
         raise ValueError(f"task contract already exists: {name}")
     if status(text) != "running":
         raise ValueError("new task must have running status")
-    validate_contract(root, name, text)
+    preflight_contract(root, name, text)
     destination = safe_path(root, name)
     destination.parent.mkdir(exist_ok=True)
     atomic_files({destination: text}, staging_directory=root)
@@ -1091,7 +1206,7 @@ def _scope(text: str) -> frozenset[tuple[str, str, str]] | None:
                 "- Task type: `catalog-maintenance`",
                 "- Task type: `migration`",
             }
-            for line in lines
+            for line in section(text, "## Task contract")
         ):
             raise ValueError("framework scope requires a framework task")
         return frozenset()

@@ -143,7 +143,18 @@ def check_self_recovery_resume():
         tasks.start(root, name, contract(name, ["file.txt"]))
         (root / "file.txt").write_text("incorrect")
         git(root, "add", "file.txt")
-        tasks.suspend(root, name, "scope: accidental staged change")
+        tasks.suspend(
+            root, name, "scope: accidental staged change and Acceptance ID typo"
+        )
+        (root / name).write_text(
+            (root / name)
+            .read_text(encoding="utf-8")
+            .replace("- [R1] `changed:file.txt`", "- [R2] `changed:file.txt`"),
+            encoding="utf-8",
+        )
+        other = "tasks/other.md"
+        tasks.start(root, other, contract(other, ["other.txt"]))
+        other_contract = (root / other).read_bytes()
         suspended = (root / name).read_bytes()
         (root / "file.txt").write_text("original\n")
         # A worktree-only repair leaves the staged change present.
@@ -153,10 +164,14 @@ def check_self_recovery_resume():
             tasks.resume(root, name)
         assert (root / name).read_bytes() == suspended
         assert (root / "other.txt").read_text() == "preserve"
+        assert (root / other).read_bytes() == other_contract
         (root / "other.txt").unlink()  # Fixture owner resolves its own change.
         git(root, "restore", "--staged", "file.txt")
         (root / name).write_text(
-            suspended.decode().replace("- `file.txt`", "- `file.txt`\n- `needed.txt`")
+            suspended.decode()
+            .replace("- [R2] `changed:file.txt`", "- [R1] `changed:file.txt`")
+            .replace("- `file.txt`", "- `file.txt`\n- `needed.txt`"),
+            encoding="utf-8",
         )
         (root / "needed.txt").write_text("authorized")
         repaired = (root / name).read_bytes()
@@ -267,3 +282,44 @@ def check_task_acceptance_human_failure_review(tmp_path):
         result = subprocess.run(command, capture_output=True, text=True)
         assert result.returncode == 1 and "stale" in result.stdout
         assert findings.failures()[0]["reason"] == failure["reason"]
+
+
+def check_registration_candidate_retry(tmp_path):
+    with fixture() as root:
+        name = "tasks/same-task.md"
+        candidate = tmp_path / "candidate.md"
+        good = contract(name, ["file.txt"])
+        candidate.write_text(
+            good.replace("`governance`", "`governnace`"), encoding="utf-8"
+        )
+        cli = Path(__file__).resolve().parents[2] / "task_contract.py"
+        command = [
+            sys.executable,
+            str(cli),
+            "--repository-root",
+            str(root),
+            "--task-file",
+            name,
+            "--source",
+            str(candidate),
+        ]
+        rejected = subprocess.run(
+            command, capture_output=True, text=True, encoding="utf-8"
+        )
+        assert rejected.returncode != 0
+        assert "unknown Task type: governnace" in rejected.stdout + rejected.stderr
+        assert not (root / name).exists()
+        assert not (root / "tasks").exists()
+        candidate.write_text(good, encoding="utf-8")
+        accepted = subprocess.run(
+            command, capture_output=True, text=True, encoding="utf-8"
+        )
+        assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+        assert list((root / "tasks").iterdir()) == [root / name]
+        assert (root / name).read_text(encoding="utf-8") == good
+        (root / "file.txt").write_text("continued authorized work", encoding="utf-8")
+        findings = Findings(root)
+        task = TaskValidation(root, findings, contract_file=name)
+        task.check_task_scope()
+        task.check_acceptance_checks({})
+        assert not findings.errors, findings.errors

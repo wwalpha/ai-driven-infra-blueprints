@@ -275,6 +275,7 @@ def check_fifth_save_failure_retains_first_four(tmp_path, failure):
     listed = "\n".join("- `" + path + "`" for path in [name, *paths])
     text = (
         contract(sources)
+        + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         + "## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n## Modified files\n"
         + listed
         + "\n## Allowed paths\n"

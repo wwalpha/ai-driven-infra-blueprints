@@ -2241,6 +2241,7 @@ def check_intermediate_source_context(tmp_path, monkeypatch, action):
     )
     text = (
         operation_contract(action)
+        + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         + "## Validation scope\n- `stg/cde/vpc`\n## Modified files\n"
         + listed
         + "\n## Allowed paths\n"
@@ -2960,6 +2961,7 @@ def check_issues_never_waive_delete_reference_safety(tmp_path, broken_type):
     name = "tasks/deletion.md"
     text = (
         operation_contract("import-delete", source="stg/cde/service-a/001")
+        + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         + "## Validation scope\n- `stg/cde/service-a`\n"
     )
     text += f"## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n"
@@ -3730,7 +3732,9 @@ def generation_model_guard(tmp_path, monkeypatch):
     listed = "".join(f"- `{p}`\n" for p in sorted(sources | {name}))
     text = (
         "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
-        "- Workflow: `update`\n## Validation scope\n"
+        "- Workflow: `update`\n"
+        "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
+        "## Validation scope\n"
         "- `stg/cde/service-a`\n- `stg/cde/service-b`\n"
         "## Modified files\n" + listed + "## Allowed paths\n" + listed
     )

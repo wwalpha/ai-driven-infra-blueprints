@@ -11,7 +11,7 @@ For `/import`, use the worktree selected by the Human; follow [08_import](../../
 
 ## Read before execution
 
-At start read [Task transition](../../../framework/rules/task-contract.md#task-transition), [Task boundary](../../../framework/rules/task-contract.md#task-boundary), [Acceptance contract](../../../framework/rules/task-contract.md#acceptance-contract), [Retry and stop](../../../framework/rules/task-contract.md#retry-and-stop), and [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy). Read only the selected child skill and its mandatory/conditional references, including its task-type completion section; these remain authoritative for child permissions and finish conditions.
+At start read [Task transition](../../../framework/rules/task-contract.md#task-transition), [Task boundary](../../../framework/rules/task-contract.md#task-boundary), [Acceptance contract](../../../framework/rules/task-contract.md#acceptance-contract), [Self recovery](../../../framework/rules/task-contract.md#self-recovery), [Retry and stop](../../../framework/rules/task-contract.md#retry-and-stop), and [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy). Read only the selected child skill and its mandatory/conditional references, including its task-type completion section; these remain authoritative for child permissions and finish conditions.
 
 When performing validation/integration, read [Validation scope](../../../framework/rules/loop-engineering.md#validation-scope), [Conflict resolution and reproducible validation](../../../framework/rules/loop-engineering.md#conflict-resolution-and-reproducible-validation), and [Retry and stop](../../../framework/rules/loop-engineering.md#retry-and-stop). Read [Local loop](../../../framework/rules/loop-engineering.md#local-loop) when a loop is required, [Framework regression](../../../framework/rules/loop-engineering.md#framework-regression) only when the validation classification requires it, [Validation cache](../../../framework/rules/loop-engineering.md#validation-cache) when reusing results, and [Timing and long-running execution](../../../framework/rules/loop-engineering.md#timing-and-long-running-execution) for long runs/recovery. Read the applicable recovery sections when entering those procedures. Use the Python 3 launcher required by that workflow (`python3` below). Do not unconditionally reread unchanged material already confirmed in the same Task; revisit necessary sections when inputs, classification or dependencies change or evidence is insufficient.
 
@@ -73,6 +73,35 @@ For every Python task/check/loop command in the returned worktree, use the commo
 python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --source <external-contract>
 ```
 
+### Correcting this Task's own declaration errors
+
+If `--source` rejects a contract candidate, compare the concrete error with the
+original Human request. Correct only the LLM's own declaration mistake within the
+unchanged Goal, target and authority, then rerun `--source` with the same Task ID,
+selector and worktree. Continue the original work after registration succeeds.
+Pre-registration rejection creates no contract: do not suspend it or create another
+Task/worktree to retry. A simple pre-registration Task type typo may be corrected;
+changing the substantive Task type, Goal or target requires a new Human request.
+
+For errors after registration or Validation/local-loop failure, first assess
+[Self recovery](../../../framework/rules/task-contract.md#self-recovery). Inspect
+ownership, Git diff, index and Task baseline before correcting only safely repairable
+LLM mistakes. Requirement/Acceptance ID typos, necessary file omissions justified by
+the original Goal, unnecessary LLM-owned edits and declaration inconsistencies within
+the same authority may be repaired. Register exact necessary paths before editing;
+never broaden Allowed paths merely to pass Validation or add unauthorized files.
+Validate the repaired contract and actual change scope. While suspended, run only
+the existing `--check-resume-scope`; if it passes, all stopping causes were safely
+repaired LLM errors and no blocker remains, use existing `--resume`, then rerun the
+failed checks and continue. Ordinary Validation, generation and Deploy remain forbidden
+while suspended. Python validates and transitions status; the LLM decides corrections.
+
+Never infer ownership or Human consent, discard Human/other-Task edits, bypass a
+conflict or safety boundary, omit failed checks, or recreate a Task to evade retry
+limits. Retain at most 3 correction iterations per logical failure class and stop on
+the same error twice consecutively without material progress. If safe recovery does
+not apply or fails within those limits, preserve state and follow Retry and stop.
+
 Select validation solely under [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy): text-only Skill/Prompt/Markdown changes require diff, reference and `git diff --check`; Model changes use Change Validation; View-only regeneration retains scoped generation, synchronization and migration checks; IaC and Framework changes retain their scoped and applicable static or regression checks. Do not automatically promote ordinary tasks to Full. Explicit Full/release requests and special recovery retain their existing required Full/IT checks. Generated views are not independent text-only changes. Run lifecycle create/setup/finalize/cleanup with the ordinary launcher from a surviving checkout, so cleanup does not depend on the worktree-local Interpreter it removes. Pandoc and WeasyPrint native libraries remain OS prerequisites for PDF export; AWS CLI and Terraform remain external tools.
 
 The worktree contains committed base inputs only. Do not silently copy/stash the source checkout's dirty files. In particular, infrastructure `/update` needs the human's intended uncommitted model diff **in the new worktree** before child execution. Explicit Model-only IMPORT merge/delete instead uses the Human-specified operation and IDs without pre-edits. If that input is only in the original checkout, retain both checkouts and request explicit input placement; do not run update with missing input or infer/copy unrelated changes.
@@ -106,7 +135,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py
 python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id>
 ```
 
-If validation/local loop fails, report the concrete failures and stop by default. If the human explicitly approves commit and merge despite those failures, keep the contract `suspend` with its Suspension reason; do not run `--complete` or report validation PASS. With all requested work and inputs otherwise finished, use:
+If validation/local loop fails, first assess and, when applicable, perform existing Self recovery as described above. If unresolved or outside its safety boundaries, report the concrete failures and stop. If the human explicitly approves commit and merge despite those failures, keep the contract `suspend` with its Suspension reason; do not run `--complete` or report validation PASS. With all requested work and inputs otherwise finished, use:
 
 ```console
 python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id> --human-approved-validation-failure "<human approval identifying the accepted failures>"
@@ -138,7 +167,7 @@ It then checks a clean worktree holding the local base, rebases the task onto it
 
 Exit 0 and JSON `status: ok` indicate success; exit 1 and `status: blocked` give the reason and retained branch/worktree/commit/merge state when available (invalid CLI arguments exit 2). Apply [Sandbox permission approval and continuation](#sandbox-permission-approval-and-continuation) before stopping for a sandbox write denial. Do not parse long Git stdout or construct ad hoc recovery shells.
 
-For failed validation/loop, stop before finalize/commit unless the human explicitly approves the exception above. Other suspended tasks, missing input, approval waits or conflicts still stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Ordinary finalize never completes or resumes a task; the Model-only/Framework final-candidate path completes only after validation passes. A dirty base is never stashed/reset/overwritten. Rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A base change during integration stops safely; rerun finalize only after reviewing the reported state.
+For failed validation/loop, assess Self recovery first; if unresolved, stop before finalize/commit unless the human explicitly approves the exception above. Other suspended tasks, missing input, approval waits or conflicts still stop before finalize/commit. Keep worktree and branch; use the child's existing suspension/resume rules. Ordinary finalize never completes or resumes a task; the Model-only/Framework final-candidate path completes only after validation passes. A dirty base is never stashed/reset/overwritten. Rebase failure runs `rebase --abort`, preserves the task commit and worktree, and requires human review; do not guess conflict resolutions. A base change during integration stops safely; rerun finalize only after reviewing the reported state.
 
 Cleanup runs only after verified merge. It removes only this task's state JSON after its worktree/branch are removed; the shared `.worktrees/.blueprint/` directory and other tasks' state remain. Dirty worktrees, unmerged/changed branches, locked/stale entries and ignored user artifacts are retained. The sole stale-registration recovery exception is a missing task checkout after a verified merge: cleanup must prove the saved branch/HEAD/merge identity, a unique matching Git administration directory, an unchanged retained index, and no locks or unfinished Git operations before retrying ordinary Git worktree removal. Missing, redirected or ambiguous Git metadata fails closed. Never use force removal or repository-wide prune. The shared Python environment is never removed. Unknown ignored files and directories require preservation before cleanup. Import completion evidence lives in `evidence_store(worktree)` outside the repository. Finalize verifies it before integration; successful cleanup removes only this task's sealed receipt after checkout/branch removal. Failed or interrupted integration retains retry evidence. Unknown ignored artifacts remain blockers; `.worktrees/.blueprint` lifecycle state is unchanged. A merge followed by cleanup failure remains merged and can use the existing cleanup retry. If cleanup fails, report the merged commit and remaining worktree/branch; do not roll back the merge. From a surviving repository root, retry only the helper:
 

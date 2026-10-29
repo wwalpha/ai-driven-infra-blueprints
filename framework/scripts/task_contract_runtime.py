@@ -59,7 +59,7 @@ from task_contract_core import input_is_file as input_is_file
 from task_contract_core import input_is_symlink as input_is_symlink
 from task_contract_core import input_select as input_select
 from task_contract_core import input_text as input_text
-from task_contract_core import invalidate_task_reads
+from task_contract_core import invalidate_task_reads, preflight_contract
 from task_contract_core import issues_save_only as issues_save_only
 from task_contract_core import matches as matches
 from task_contract_core import memoized as memoized
@@ -173,10 +173,10 @@ def refresh(root, name, resuming=False):
     if state == "completed":
         if resuming:
             raise ValueError("completed task cannot resume")
-        validate_contract(root, name, text)
+        preflight_contract(root, name, text)
         return
     text = set_status(text, "running")
-    validate_contract(root, name, text)
+    preflight_contract(root, name, text)
     if text != snapshot.text:
         verify_snapshot(snapshot)
         atomic_files({safe_path(root, name): text}, staging_directory=root)

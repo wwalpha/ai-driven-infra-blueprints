@@ -101,6 +101,7 @@ def check_issue_loop_has_no_git_change_checks(tmp_path):
         root,
         name,
         "## Task contract\n- Task type: `migration`\n- Task status: `running`\n"
+        "## Required changes\n- [R1] Save issue report\n## Acceptance checks\n- [R1] `exists:issues/dev/cde/issues.md`\n"
         "## Validation scope\n- `dev/cde/s3`\n## Modified files\n- `tasks/issues.md`\n"
         "- `issues/dev/cde/issues.md`\n## Allowed paths\n- `tasks/issues.md`\n- `issues/dev/cde/issues.md`\n",
     )
@@ -1164,6 +1165,7 @@ def check_startup_diagnostics(tmp_path, phase):
             root,
             name,
             f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
+            f"## Required changes\n- [R1] Diagnose startup\n## Acceptance checks\n- [R1] `exists:{name}`\n"
             f"## Validation scope\n- `framework`\n## Modified files\n- `{name}`\n"
             f"## Allowed paths\n- `{name}`\n",
         )

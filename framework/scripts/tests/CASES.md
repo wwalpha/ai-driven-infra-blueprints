@@ -4403,3 +4403,13 @@ Reset tests use synthetic private journals, a simulated Human console, and Fake 
 | `operation-reset::check_reset_pending_producer_blocks_dependent_consumer` | `check_reset_pending_producer_blocks_dependent_consumer` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 1 | reset pending producer blocks dependent consumer | Synthetic offline / scoped Human consent / immutable evidence / Fake AWS |
 | `operation-reset::check_reset_pending_producer_allows_proven_independent_stack` | `check_reset_pending_producer_allows_proven_independent_stack` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 1 | reset pending producer allows proven independent stack | Synthetic offline / scoped Human consent / immutable evidence / Fake AWS |
 | `operation-reset::test_completion_requires_original_output_requirements` | `test_completion_requires_original_output_requirements` | UT | [units/deploy-operation-reset-unit.checks.py](units/deploy-operation-reset-unit.checks.py) | pytest / 3 | original Output proof must be present and reflected before completion | Synthetic offline / Fake AWS / no new Execute |
+
+
+## Contract registration preflight and existing self recovery
+
+| Origin | Case | Kind | Location | Execution | Coverage | Change |
+| --- | --- | --- | --- | --- | --- | --- |
+| `registration::declarations` | `check_registration_declaration_parity` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 32 | Type, phase, Requirement/Acceptance, path and scope rejection; no publication and identical later diagnostics | Added |
+| `registration::valid` | `check_registration_valid_declarations` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 10 | Every Task type and infrastructure phase; Acceptance execution deferred | Added |
+| `registration::legacy` | `check_registration_preserves_legacy_diagnosis` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 3 | Legacy running/suspend/completed diagnostic reads, refresh rejection, suspended state preservation | Added |
+| `registration::retry` | `check_registration_candidate_retry` | IT | [integrations/task_contract.checks.py](integrations/task_contract.checks.py) | pytest / 1 | CLI rejection, candidate repair, same Task ID registration and continuation | Added |

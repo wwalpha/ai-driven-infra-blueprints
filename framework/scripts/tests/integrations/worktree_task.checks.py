@@ -1258,7 +1258,10 @@ def check_model_operation_integration():
             candidate = Path(directory) / "candidate"
             sources = operation_candidate(root, candidate, action)
             target, state = start(root, files=tuple(sorted(sources)))
-            text = operation_contract(action)
+            text = (
+                operation_contract(action)
+                + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
+            )
             for heading in ("Modified files", "Allowed paths"):
                 text += (
                     "\n## "
@@ -1329,7 +1332,10 @@ def check_model_refactor_integration():
         candidate = Path(directory) / "candidate"
         sources = dependency_refactor(root, candidate)
         target, state = start(root, files=tuple(sorted(sources)))
-        text = dependency_contract()
+        text = (
+            dependency_contract()
+            + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
+        )
         for heading in ("Modified files", "Allowed paths"):
             text += (
                 "\n## "

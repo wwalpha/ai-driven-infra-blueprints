@@ -446,6 +446,7 @@ def check_model_publication_task_revision_reuses_original_read(tmp_path):
     )
     text = (
         operation_contract("import-merge") + "## Validation scope\n- `stg/cde/vpc`\n"
+        "## Required changes\n- [R1] Publish Model candidate\n## Acceptance checks\n- [R1] `changed:model/stg/cde/vpc.properties`\n"
         "## Modified files\n" + listed + "\n## Allowed paths\n" + listed + "\n"
     )
     tasks.start(tmp_path, name, text)

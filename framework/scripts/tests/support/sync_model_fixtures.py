@@ -111,6 +111,7 @@ def _callback_generated_policy_register(model, root, /, outputs):
         name,
         "# Test\n## Task contract\n- Task type: `design`\n"
         "- Task status: `running`\n## Validation scope\n- `dev/123456789012/iam`\n"
+        "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         f"## Modified files\n{listed}\n## Allowed paths\n{listed}\n",
     )
     return {tasks.SELECTOR: name}

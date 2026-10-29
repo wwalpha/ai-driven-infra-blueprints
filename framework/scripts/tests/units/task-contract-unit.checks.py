@@ -445,7 +445,11 @@ def check_framework_final_classification():
 def check_final_candidate_runs_model_guard(tmp_path):
     name = "tasks/example.md"
     model = "model/dev/team/iam.properties"
-    text = contract("example", [model]).replace("`governance`", "`design`")
+    text = (
+        contract("example", [model])
+        .replace("`governance`", "`design`")
+        .replace("`framework`", "`dev/team/iam`")
+    )
     tasks.start(tmp_path, name, text)
     candidate = SimpleNamespace(base_commit="base", changed_paths={model})
     findings = Findings(tmp_path)
@@ -1291,3 +1295,186 @@ def check_import_rejects_committed_foreign_view():
         ):
             with pytest.raises(ValueError, match="outside selected"):
                 task_runtime.check_import(root, name, integration=True)
+
+
+@pytest.mark.parametrize(
+    "old,new,error",
+    [
+        ("`governance`", "`typo`", "unknown Task type"),
+        ("- Task type: `governance`", "", "Task type must appear exactly once"),
+        (
+            "- Task type: `governance`",
+            "- Task type: `governance`\n- Task type: `migration`",
+            "Task type must appear exactly once",
+        ),
+        (
+            "- Task type: `governance`",
+            "- Task type: `governance`\n- Task type: typo",
+            "invalid Task type declaration",
+        ),
+        (
+            "`governance`",
+            "`infrastructure`",
+            "Infrastructure phase must appear exactly once",
+        ),
+        (
+            "`governance`",
+            "`infrastructure`\n- Infrastructure phase: `typo`",
+            "unknown Infrastructure phase",
+        ),
+        (
+            "`governance`",
+            "`infrastructure`\n- Infrastructure phase: `deploy`\n- Infrastructure phase: `implement`",
+            "Infrastructure phase must appear exactly once",
+        ),
+        (
+            "`governance`",
+            "`governance`\n- Infrastructure phase: `deploy`",
+            "Infrastructure phase must appear exactly once",
+        ),
+        (
+            "`governance`",
+            "`governance`\n- Infrastructure phase: deploy",
+            "invalid Infrastructure phase declaration",
+        ),
+        ("- [R1] Test", "", "Required changes section missing or empty"),
+        ("- [R1] Test", "- malformed", "invalid Required changes entry"),
+        ("- [R1] Test", "malformed", "invalid Required changes entry"),
+        ("- [R1] Test", "- [R1] Test\n- [R1] Duplicate", "duplicate requirement ID"),
+        (
+            "- [R1] Test",
+            "- [R1] Test\n- [R2] Missing check",
+            "requirement has no Acceptance check: R2",
+        ),
+        (
+            "- [R1] `changed:owned.txt`",
+            "- [R2] `changed:owned.txt`",
+            "unknown requirement ID: R2",
+        ),
+        ("- [R1] `changed:owned.txt`", "", "requirement has no Acceptance check: R1"),
+        (
+            "- [R1] `changed:owned.txt`",
+            "- [R1] `execute:owned.txt`",
+            "invalid Acceptance checks entry",
+        ),
+        (
+            "- [R1] `changed:owned.txt`",
+            "- [R1] changed:owned.txt",
+            "invalid Acceptance checks entry",
+        ),
+        ("- [R1] `changed:owned.txt`", "malformed", "invalid Acceptance checks entry"),
+        ("changed:owned.txt", "changed:../outside", "unsafe Acceptance check path"),
+        ("changed:owned.txt", "exists:/outside", "unsafe Acceptance check path"),
+        ("changed:owned.txt", "absent:C:/outside", "unsafe Acceptance check path"),
+        ("changed:owned.txt", "exists:..\\outside", "unsafe Acceptance check path"),
+        ("changed:owned.txt", "exists:bad\x00path", "unsafe Acceptance check path"),
+        ("- `framework`", "", "validation scope missing"),
+        ("- `framework`", "- framework", "invalid validation scope"),
+        ("- `framework`", "- `dev/team`", "invalid validation scope"),
+        (
+            "- `framework`",
+            "- `dev/team/iam`\n- `dev/team/iam`",
+            "duplicate validation scope entry",
+        ),
+        ("- `framework`", "- `framework`\n- `framework`", "invalid validation scope"),
+        ("`governance`", "`design`", "framework scope requires a framework task"),
+        (
+            "## Modified files",
+            "## Validation scope\n- `framework`\n## Modified files",
+            "duplicate Validation scope section",
+        ),
+        (
+            "## Modified files",
+            "## Required changes\n- [R2] Duplicate section\n## Modified files",
+            "duplicate task section: ## Required changes",
+        ),
+    ],
+)
+def check_registration_declaration_parity(tmp_path, old, new, error):
+    name = "tasks/preflight.md"
+    text = transition_contract(name, ["owned.txt"]).replace(old, new)
+    parsed = tasks.parse_declarations(text, name)
+    assert any(error in message for message in parsed.errors), parsed.errors
+    with pytest.raises(ValueError, match=error):
+        tasks.start(tmp_path, name, text)
+    assert not (tmp_path / "tasks").exists(), (
+        "rejected registration must publish nothing"
+    )
+    # Legacy declarations remain readable for diagnosis; normal Validation uses the same errors.
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / name).write_text(text, encoding="utf-8")
+    assert tasks.task_snapshot(tmp_path, name, executable=False).text == text
+    findings = Findings(tmp_path)
+    task = TaskValidation(
+        tmp_path,
+        findings,
+        contract_file=name,
+        final_candidate=SimpleNamespace(base_commit="base", changed_paths=set()),
+    )
+    with patch("import_guard.require_import_changes", return_value=[]):
+        task.check_task_scope()
+    assert findings.errors == list(parsed.errors)
+
+
+@pytest.mark.parametrize(
+    "kind,phase",
+    [
+        ("initialization", ""),
+        ("design", ""),
+        ("scenario-test", ""),
+        ("governance", ""),
+        ("catalog-maintenance", ""),
+        ("migration", ""),
+        ("infrastructure", "implement"),
+        ("infrastructure", "deploy"),
+        ("infrastructure", "update"),
+        ("infrastructure", "destroy"),
+    ],
+)
+def check_registration_valid_declarations(tmp_path, kind, phase):
+    name = "tasks/valid.md"
+    text = transition_contract(name, ["owned.txt"], kind=kind, scope="dev/team/iam")
+    if phase:
+        text = text.replace(
+            "## Validation scope",
+            f"- Infrastructure phase: `{phase}`\n## Validation scope",
+        )
+    text = text.replace(
+        "## Modified files",
+        "- [R1] `exists:future/*.txt`\n- [R1] `absent:old.txt`\n- [R1] `check:dynamic.future`\n## Modified files",
+    )
+    parsed = tasks.parse_declarations(text, name)
+    assert not parsed.errors
+    assert parsed.task_type == kind and parsed.infrastructure_phase == phase
+    assert parsed.requirement_ids == ("R1",)
+    assert len(parsed.acceptance_checks) == 4
+    assert parsed.scope == frozenset({("dev", "team", "iam")})
+    tasks.start(tmp_path, name, text)
+    assert (tmp_path / name).read_text(encoding="utf-8") == text
+    assert not (tmp_path / "owned.txt").exists()  # Acceptance execution is deferred.
+    transitions.refresh(tmp_path, name)
+
+
+@pytest.mark.parametrize("state", ["running", "suspend", "completed"])
+def check_registration_preserves_legacy_diagnosis(tmp_path, state):
+    with repository_fixture() as root:
+        name = "tasks/legacy.md"
+        text = transition_contract(name, ["owned.txt"], state=state).replace(
+            "- [R1] Test", "- [R2] Test"
+        )
+        if state == "suspend":
+            text += "## Suspension reason\nTask declaration typo\n"
+        (root / "tasks").mkdir()
+        path = root / name
+        path.write_text(text, encoding="utf-8")
+        assert tasks.task_snapshot(root, name, executable=False).status == state
+        assert tasks.contracts(root)[name] == text
+        with pytest.raises(ValueError):
+            transitions.refresh(root, name)
+        assert path.read_text(encoding="utf-8") == text
+        if state == "suspend":
+            with pytest.raises(ValueError, match="no Acceptance check"):
+                transitions.check_resume_scope(root, name)
+            with pytest.raises(ValueError, match="no Acceptance check"):
+                transitions.resume(root, name)
+            assert path.read_text(encoding="utf-8") == text
