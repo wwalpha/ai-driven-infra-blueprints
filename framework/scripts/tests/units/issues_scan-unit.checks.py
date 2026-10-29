@@ -1874,7 +1874,10 @@ def check_material_service_isolation(tmp_path, stage):
         assert artifact["naming_context"] == comparison.redacted(
             {key: value for key, value in material.items() if key != "names"}
         )
-        assert artifact["naming"]["names"] == [
+        assert [
+            {key: value for key, value in item.items() if key != "decision"}
+            for item in artifact["naming"]["names"]
+        ] == [
             dict(item, naming_context_id=artifact["naming_context_id"])
             for item in material["names"]
         ]

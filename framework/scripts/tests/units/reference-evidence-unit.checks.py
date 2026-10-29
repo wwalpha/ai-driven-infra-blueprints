@@ -3370,7 +3370,7 @@ def test_naming_materials_mode_and_root_targets():
         item for item in names if item["service"] == "vpc" and item["resource"] == "003"
     )
     assert (
-        selected["pattern_review"] == "required"
+        selected["pattern_review"] == "Scan mandatory-constraint decision"
         and selected["value"] == "`bad_pattern_value`"
     )
     assert "未確認componentを名前から推測せず" in material["review_policy"]

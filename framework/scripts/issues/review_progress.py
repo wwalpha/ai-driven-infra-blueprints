@@ -17,6 +17,7 @@ from .review import (
     diagnostic_index,
     required_text,
     review_additions,
+    review_names,
     review_snapshot,
     reviewed_ids,
     validate_confirmations,
@@ -102,7 +103,7 @@ class ReviewController:
             "human_confirmations": index_items(
                 a["human_confirmations"]["confirmations"], "Human confirmation"
             ),
-            "naming": index_items(a["naming"]["names"], "naming"),
+            "naming": index_items(review_names(a), "naming"),
             "judgments": index_items(a["judgments"], "judgment"),
             "additions": {
                 "final": dict(
@@ -281,6 +282,8 @@ class ReviewController:
                 error = str(failure)
         return dict(
             scan_id=self.identity["scan_id"],
+            automatically_reviewed_names=len(self.artifact["naming"]["names"])
+            - len(self.base["naming"]),
             scope=self.identity["scope"],
             sections={
                 s: dict(

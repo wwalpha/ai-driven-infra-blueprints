@@ -4,32 +4,32 @@ Follow the [common rules](../aws-resource-naming.md) for the common scope, exclu
 
 ## Naming patterns
 
-For `Logs.LogGroup.LogGroupName`, apply the source service's default/recommended format to standard AWS service logs. Apply the 4 patterns below to built-in Glue Job logs. Apply `cwlogs-{{application}}-{{environment}}-{{purpose}}` to other custom application/operational logs.
+For `Logs.LogGroup.LogGroupName`, the following are standard/recommended alternatives, not mandatory structures for every LogGroup. Custom application/operational names are permitted within Provider constraints. Retain `cwlogs-{{application}}-{{environment}}-{{purpose}}` as the basic recommended custom pattern. Never validate a standard AWS name against that unrelated custom pattern.
 
-| AWS service | AWS resource | Catalog resource types | Naming target | Pattern |
-| --- | --- | --- | --- | --- |
-| AWS CodeBuild | Project log group | `Logs.LogGroup` | `LogGroupName` | `/aws/codebuild/{{project_name}}` |
-| AWS Lambda | Standard function log group | `Logs.LogGroup` | `LogGroupName` | `/aws/lambda/{{function_name}}` |
-| AWS Step Functions | Execution log group | `Logs.LogGroup` | `LogGroupName` | `/aws/vendedlogs/states/{{state_machine_name}}` |
-| Amazon VPC | Flow Logs log group | `Logs.LogGroup` | `LogGroupName` | `/aws/vpc/flow-logs[/{{suffix}}]` |
-| AWS Glue | Job log group | `Logs.LogGroup` | `LogGroupName` | The 4 patterns under “Glue Job log group names” below |
-| Other AWS services | Standard service log group | `Logs.LogGroup` | `LogGroupName` | The target service's official default/recommended format |
-| Amazon CloudWatch Logs | Custom application or operational log group | `Logs.LogGroup` | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` |
+| AWS service | AWS resource | Catalog resource types | Naming target | Pattern | Applicability |
+| --- | --- | --- | --- | --- | --- |
+| AWS CodeBuild | Project log group | `Logs.LogGroup` | `LogGroupName` | `/aws/codebuild/{{project_name}}` | alternative |
+| AWS Lambda | Standard function log group | `Logs.LogGroup` | `LogGroupName` | `/aws/lambda/{{function_name}}` | alternative |
+| AWS Step Functions | Execution log group | `Logs.LogGroup` | `LogGroupName` | `/aws/vendedlogs/states/{{state_machine_name}}` | alternative |
+| Amazon VPC | Flow Logs log group | `Logs.LogGroup` | `LogGroupName` | `/aws/vpc/flow-logs[/{{suffix}}]` | prefix |
+| AWS Glue | Job log group | `Logs.LogGroup` | `LogGroupName` | The 4 patterns under “Glue Job log group names” below | alternative |
+| Other AWS services | Standard service log group | `Logs.LogGroup` | `LogGroupName` | The target service's official default/recommended format | alternative |
+| Amazon CloudWatch Logs | Custom application or operational log group | `Logs.LogGroup` | `LogGroupName` | `cwlogs-{{application}}-{{environment}}-{{purpose}}` | alternative |
 
 ## Glue Job log group names
 
-For built-in Glue 5.0 logs, the complete `LogGroupName` must use the following formats according to the custom prefix and SecurityConfiguration's CloudWatch Logs encryption setting.
+Glue 5.0 uses the following standard forms according to its custom prefix and CloudWatch Logs encryption. These forms are Naming alternatives even when the Job version, source Role or encryption setting is unavailable. Naming acceptance does not prove the source configuration or reference correspondence.
 
-| Condition | error log group | output log group |
-| --- | --- | --- |
-| No custom prefix + no SecurityConfiguration | `/aws-glue/jobs/error` | `/aws-glue/jobs/output` |
-| Custom prefix + no SecurityConfiguration | `<prefix>/error` | `<prefix>/output` |
-| No custom prefix + SecurityConfiguration SSE-KMS | `/aws-glue/jobs/<SecurityConfig>-role/<Role>/error` | `/aws-glue/jobs/<SecurityConfig>-role/<Role>/output` |
-| Custom prefix + SecurityConfiguration SSE-KMS | `<prefix>/<SecurityConfig>-role/<Role>/error` | `<prefix>/<SecurityConfig>-role/<Role>/output` |
+| Condition | AWS resource | Catalog resource types | Naming target | Pattern | Applicability |
+| --- | --- | --- | --- | --- | --- |
+| No custom prefix + no encryption | Job logs | `Logs.LogGroup` | `LogGroupName` | `/aws-glue/jobs/error` <br> `/aws-glue/jobs/output` | alternative |
+| Custom prefix + no encryption | Job logs | `Logs.LogGroup` | `LogGroupName` | `{{prefix}}/error` <br> `{{prefix}}/output` | alternative |
+| No custom prefix + SSE-KMS | Job logs | `Logs.LogGroup` | `LogGroupName` | `/aws-glue/jobs/{{security_configuration}}-role/{{role_name}}/error` <br> `/aws-glue/jobs/{{security_configuration}}-role/{{role_name}}/output` | alternative |
+| Custom prefix + SSE-KMS | Job logs | `Logs.LogGroup` | `LogGroupName` | `{{prefix}}/{{security_configuration}}-role/{{role_name}}/error` <br> `{{prefix}}/{{security_configuration}}-role/{{role_name}}/output` | alternative |
 
-- `<prefix>` is the confirmed value of Job argument `--custom-logGroup-prefix`. Do not treat the prefix itself as the complete `LogGroupName`.
+- `{{prefix}}` denotes Job argument `--custom-logGroup-prefix`. Do not treat the prefix itself as the complete `LogGroupName`.
 - The SSE-KMS branch applies when `SecurityConfiguration.EncryptionConfiguration.CloudWatchEncryption.CloudWatchEncryptionMode=SSE-KMS`. Even if SecurityConfiguration is specified, when CloudWatch Logs encryption is `DISABLED`, apply the same format as “no SecurityConfiguration” in the table.
-- `<SecurityConfig>` is the confirmed name of the SecurityConfiguration referenced by the Job; `<Role>` is the confirmed RoleName of the Job execution IAM Role. Do not use a Role ARN as a name component.
+- `{{security_configuration}}` denotes the SecurityConfiguration name and `{{role_name}}` denotes the execution RoleName. Do not use a Role ARN as a name component. Existing Model reference validation continues independently.
 
 ## Application rules
 
@@ -37,8 +37,8 @@ For built-in Glue 5.0 logs, the complete `LogGroupName` must use the following f
 - VPC Flow Logs' `[/{{suffix}}]` is optional. `suffix` uses the selected target's `project.json` setting under the common rules; when configured, use `/aws/vpc/flow-logs/<suffix>`, otherwise omit the preceding `/` as well and use `/aws/vpc/flow-logs`.
 - Do not require AWS service default/recommended formats to conform to `cwlogs-...` or the common lower-kebab-case format. Retain service-specific separators and case.
 - Use confirmed source resource names for `function_name`, `state_machine_name`, etc. Do not infer placeholder values or the source service.
-- For other AWS services, verify the default/recommended format in the target service's official documentation and confirm correspondence with the source resource. Do not classify unverified formats as conforming.
-- Do not classify a name as conforming merely because it starts with `/aws/`; confirm correspondence between the source service and name format.
+- Other AWS standard formats and custom names are permitted. Missing source-service/version/encryption evidence alone is neither a Naming violation nor a Review requirement. This does not bypass Provider constraints or independent source/reference validation.
+- An `/aws/` prefix alone proves no source correspondence. Naming AUTO_PASS records only the applicable Naming checks; it does not certify source-service configuration.
 - IMPORT retains actual names; do not treat naming convention mismatches as errors/blockers.
 - Do not automatically change existing resources or confirmed names in existing detailed designs. Handle rename/replacement only with a separate explicit request.
 - Continue validating confirmed name values, reference consistency, and AWS provider schema type/pattern/length constraints.

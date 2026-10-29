@@ -159,7 +159,7 @@ The Review has exactly these keys:
 {
   "scan_id": "this Scan ID",
   "reviewed_naming_context_id": "this Scan naming context ID",
-  "reviewed_names": ["all naming IDs"],
+  "reviewed_names": ["all Naming IDs other than AUTO_PASS"],
   "reviewed_judgments": ["all judgment IDs"],
   "reviewed_confirmations": ["all Human confirmation IDs"],
   "diagnostic_assignments": {
@@ -174,7 +174,9 @@ The Review has exactly these keys:
 }
 ```
 
-Review every naming/judgment/confirmation ID, with no duplicates or sampling. Submit
+Scan retains every Naming ID, Provider result, applicable rules and deterministic decision: `AUTO_PASS` (mandatory checks proven), `VIOLATION_CANDIDATE` (evidenced mandatory violation), or `REVIEW_REQUIRED` (evidence missing for an applicable mandatory check). Recommended Pattern differences, optional additions/omissions, unknown optional components and missing source-service guesses alone never require Review. An unresolved mandatory constraint cannot AUTO_PASS.
+
+Review every non-AUTO_PASS naming ID and every judgment/confirmation ID, with no duplicates or sampling. Snapshot and Controller recompute automatic decisions from Scan evidence, reject forged decisions/duplicate IDs and require the exact remaining IDs in `reviewed_names`. Snapshot retains `automatically_reviewed_names` separately; their union with reviewed IDs covers every Scan name. Legacy Scan names without a decision still require explicit Review. Existing machine diagnostics and all Human confirmations remain mandatory even for AUTO_PASS names. Submit
 one decision for each current ordinary input violation or owner-assigned input violation.
 Assignments cover exactly the owner-ambiguous diagnostic IDs. Python-proven owners require no assignment. Assigned decisions require a selected service and nonempty evidence; unresolved decisions require a nonempty reason and retain their diagnostic ID in unverified. Only input_invalid diagnostics with a proven owner can become ordinary Issues. check_failure remains in processing_errors and unverified; dependency_wait and unclassified remain unverified even after owner assignment. Every ID still requires review. Decisions cover only ordinary input violations and owner-assigned input violations; unresolved diagnostics never become Issues.
 `issue` decisions require ID/outcome/reason. `excluded` and `conflict` additionally
@@ -188,7 +190,7 @@ source path/positive line, resource/property/rule. Additional Naming Issues use
 `applied_rule`, `violation` and concrete `evidence`. Violation is one of
 `required_missing`, `format`, `confirmed_mismatch`, `rule_missing`, or
 `provider_constraint`; confirmed mismatches also require `expected` and `actual`.
-Inspect all naming IDs and only components present in the applicable pattern. Unknown
+`format` requires an evidenced applicable mandatory structure or explicit mandatory rule, not recommended Pattern mismatch alone. Confirmed mismatches require a unique, provable component binding; reject invented expected/actual values. Existing diagnostics cannot be duplicated by changing Rule or Source spelling. Inspect required naming IDs and only components present in the applicable pattern. Unknown
 semantic components are neither violations nor unverified; never infer their values.
 Still report independently verifiable violations and retain CREATE/IMPORT scope.
 `unverified` normally contains exactly service/check/reason. For `check: "naming"`,
@@ -200,7 +202,7 @@ and describe the actual incomplete check in reason. Do not claim unexecuted chec
 `issues/review_progress.py` manages only Review execution. Scan artifact v6, bounded
 `detail --offset --limit`, diagnostic/naming/Human semantics, whole-target Task
 checks and report publication remain unchanged. `review init` validates the saved
-artifact and indexes all required IDs; its bounded response reports section counts.
+artifact and indexes all required IDs, excluding recomputed AUTO_PASS names; its bounded response reports section counts and the automatic count. AUTO_PASS names remain in paged Scan detail and never enter individual Naming batches or checkpoint acknowledgements.
 Naming Context is partitioned into its target/policy and complete individual rule
 materials, without slicing text. The existing `reviewed_naming_context_id` is emitted
 only after every such ID has been explicitly reviewed.

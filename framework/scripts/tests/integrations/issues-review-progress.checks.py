@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from issues.publication import render_snapshot, save_scan
 from issues.records import identifier
-from issues.review import review_snapshot
+from issues.review import naming_decision, review_names, review_snapshot
+from issues.review_progress import ReviewController
 from issues.runner import scan
 from support.issues_review_progress_fixtures import (
     ROOT,
@@ -301,6 +303,141 @@ def check_large_review_complete_id_coverage_and_equivalent_reports(tmp_path):
     assert exported == legacy
     assert review_snapshot(data, exported) == review_snapshot(data, legacy)
     assert rendered == render_snapshot(review.root, review_snapshot(data, legacy))
+
+
+def check_scan_automatic_pass_resume_review_export_save(tmp_path):
+    root = tmp_path / "repository"
+    fixture(root, services=["cloudwatch-logs", "sqs"])
+    human = root / "issues/dev/123456789012/human-confirmations.yaml"
+    facts = json.loads(human.read_text(encoding="utf-8"))
+    facts["confirmations"] = [
+        dict(
+            id="environment-conflict",
+            service="sqs",
+            fact="environment=stg",
+            scope=dict(resource="001", property="QueueName"),
+            exceptions=[],
+            evidence="Explicit synthetic Human fact conflicts with target",
+        )
+    ]
+    human.write_text(json.dumps(facts), encoding="utf-8")
+    data = scan(
+        root,
+        "dev",
+        "123456789012",
+        ["cloudformation-stacks", "cloudwatch-logs", "sqs"],
+        jobs=1,
+    )
+    automatic = [
+        n for n in data["naming"]["names"] if n["decision"]["status"] == "AUTO_PASS"
+    ]
+    required = review_names(data)
+    assert any(n["service"] == "cloudwatch-logs" for n in automatic)
+    assert any(n["service"] == "sqs" for n in required)
+    review = controller(tmp_path, data)
+    status = review.initialize()
+    assert status["sections"]["naming"]["total"] == len(required)
+    review.submit(submission(review.next_batch(1)))
+    # A fresh process verifies persisted progress against the unchanged Scan.
+    assert cli(review, "status").returncode == 0
+    reviewed_names = []
+    while not review.status()["complete"]:
+        batch = review.next_batch()
+        if batch["section"] == "naming":
+            reviewed_names.extend(batch["expected_ids"])
+        review.submit(submission(batch))
+    assert set(reviewed_names) == {n["id"] for n in required}
+    exported, _ = publish(review, tmp_path)
+    assert set(exported["reviewed_names"]) == {n["id"] for n in required}
+    assert exported["reviewed_confirmations"] == ["environment-conflict"]
+    snapshot = json.loads(review_snapshot(data, exported).data)
+    assert set(snapshot["automatically_reviewed_names"]) == {n["id"] for n in automatic}
+    assert len(snapshot["naming"]["names"]) == len(data["naming"]["names"])
+
+
+def check_3000_automatic_names_excluded_from_review_payload(tmp_path):
+    root = tmp_path / "repository"
+    fixture(root, services=["cloudwatch-logs"])
+    data = scan(
+        root,
+        "dev",
+        "123456789012",
+        ["cloudformation-stacks", "cloudwatch-logs"],
+        jobs=1,
+    )
+    source = next(
+        n for n in data["naming"]["names"] if n["service"] == "cloudwatch-logs"
+    )
+    data["naming"]["names"] = []
+    started = time.perf_counter()
+    for i in range(3000):
+        name = dict(
+            source,
+            id=f"log-{i}",
+            resource=f"{i:04d}",
+            value=f"/aws-glue/jobs/security-{i}-role/ExecutionRole-{i}/"
+            + ("error" if i % 2 else "output"),
+        )
+        name["decision"] = naming_decision(data, name)
+        data["naming"]["names"].append(name)
+    decision_seconds = time.perf_counter() - started
+    assert all(n["decision"]["status"] == "AUTO_PASS" for n in data["naming"]["names"])
+    legacy_names = [
+        dict(
+            {
+                key: value
+                for key, value in name.items()
+                if key not in {"decision", "conditions", "provider_checked"}
+            },
+            pattern_review="required",
+        )
+        for name in data["naming"]["names"]
+    ]
+    legacy_bytes = len(json.dumps(legacy_names, ensure_ascii=False).encode("utf-8"))
+    review = controller(tmp_path, data)
+    started = time.perf_counter()
+    review.initialize()
+    payload_bytes = 0
+    naming_batches = 0
+    while not review.status()["complete"]:
+        batch = review.next_batch()
+        payload_bytes += len(json.dumps(batch, ensure_ascii=False).encode("utf-8"))
+        naming_batches += batch["section"] == "naming"
+        review.submit(submission(batch))
+    elapsed = time.perf_counter() - started
+    assert naming_batches == 0
+    assert review.status()["automatically_reviewed_names"] == 3000
+    exported, _ = publish(review, tmp_path)
+    assert exported["reviewed_names"] == []
+    assert not review_snapshot(data, exported).data.count('"violation":')
+    assert payload_bytes < legacy_bytes
+    legacy_data = dict(data, naming=dict(names=legacy_names))
+    legacy_path = tmp_path / "legacy-scan.json"
+    legacy_path.write_text(json.dumps(legacy_data), encoding="utf-8")
+    legacy = ReviewController(root, legacy_path, tmp_path / "legacy-progress.json")
+    started = time.perf_counter()
+    legacy.initialize()
+    finish(legacy, limit=100)
+    legacy_elapsed = time.perf_counter() - started
+    assert legacy.status()["sections"]["naming"]["reviewed"] == 3000
+    print(
+        json.dumps(
+            dict(
+                naming_total=3000,
+                auto_pass=3000,
+                old_naming_review=3000,
+                new_naming_review=0,
+                mandatory_violations=0,
+                false_positives=0,
+                old_naming_payload_bytes=legacy_bytes,
+                new_naming_payload_bytes=0,
+                all_new_review_payload_bytes=payload_bytes,
+                decision_seconds=decision_seconds,
+                old_synthetic_review_seconds=legacy_elapsed,
+                new_synthetic_review_seconds=elapsed,
+            )
+        )
+    )
 
 
 if __name__ == "__main__":

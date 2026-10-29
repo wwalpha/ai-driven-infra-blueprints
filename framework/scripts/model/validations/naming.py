@@ -19,6 +19,7 @@ from utils.input_cache import memoized
 from validation.diagnostics import InputValidationError
 from validation.findings import Findings
 
+from model.core import literal
 from model.projection import design_target, resource_rows
 
 NAMING_EXEMPT_PROPERTIES = {
@@ -34,6 +35,53 @@ NAMING_EXEMPT_PROPERTIES = {
     "Route53.HostedZone.Name",
     "Route53.RecordSet.Name",
 }
+
+
+def value_available(value: object, shown: object) -> bool:
+    """Require an unmasked literal before claiming a name's checks are complete."""
+    raw = literal(value) if isinstance(value, str) else None
+    return (
+        isinstance(raw, str)
+        and bool(raw.strip())
+        and raw.lower()
+        not in {
+            "unresolved",
+            "unset",
+            "tbd",
+            "todo",
+            "pending_deploy",
+            "未確定",
+        }
+        and not any(token in raw for token in ("${", "{{", "<masked"))
+        and not raw.startswith(("[", "{"))
+        and shown == value
+    )
+
+
+def provider_naming_errors(
+    kind: str, field: str, value: str, conditions: dict[str, str | None] | None = None
+) -> list[str]:
+    """Retain explicit AWS constraints not represented by every provider schema."""
+    if (kind, field) == ("S3.Bucket", "BucketName") and (
+        not 3 <= len(value) <= 63
+        or not re.fullmatch(r"[a-z0-9][a-z0-9.-]*[a-z0-9]", value)
+    ):
+        return ["S3 BucketName must be lowercase and 3–63 characters"]
+    if (kind, field) == ("SQS.Queue", "QueueName") and (
+        len(value) > 80 or not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.fifo)?", value)
+    ):
+        return ["SQS QueueName has invalid characters or exceeds 80 characters"]
+    if (kind, field) == ("KMS.Alias", "AliasName") and (
+        not value.startswith("alias/") or value.startswith("alias/aws/")
+    ):
+        return ["KMS AliasName must use alias/ and exclude reserved alias/aws/"]
+    if (kind, field) in {("SQS.Queue", "QueueName"), ("SNS.Topic", "TopicName")}:
+        fifo = (conditions or {}).get(
+            "FifoQueue" if kind == "SQS.Queue" else "FifoTopic"
+        )
+        if fifo == "true" and not value.endswith(".fifo"):
+            return ["FIFO names must end with .fifo"]
+    return []
 
 
 @memoized
@@ -74,6 +122,12 @@ def naming_targets(root: Path, namespace: str | None = None) -> dict[str, set[st
 
 def naming_rule_rows(text: str) -> Iterator[tuple[str, str, str]]:
     """Read the same naming tables used by the coverage check."""
+    for kind, target, pattern, _ in naming_rules(text):
+        yield kind, target, pattern
+
+
+def naming_rules(text: str) -> Iterator[tuple[str, str, str, str]]:
+    """Optional applicability column distinguishes obligations from alternatives."""
     for line in text.splitlines():
         if not line.startswith("|"):
             continue
@@ -81,10 +135,16 @@ def naming_rule_rows(text: str) -> Iterator[tuple[str, str, str]]:
         if (
             len(cells) in {5, 6}
             and cells[2].startswith("`")
-            and re.fullmatch(r"`[^`]+`", cells[4])
+            and re.fullmatch(r"`[^`]+`(?:\s*<br>\s*`[^`]+`)*", cells[4])
         ):
             for kind in re.findall(r"`([^`]+)`", cells[2]):
-                yield kind, cells[3].strip("`"), cells[4].strip("`")
+                for pattern in re.findall(r"`([^`]+)`", cells[4]):
+                    scope = (
+                        cells[5]
+                        if len(cells) == 6 and cells[5] in {"alternative", "prefix"}
+                        else "mandatory"
+                    )
+                    yield kind, cells[3].strip("`"), pattern, scope
 
 
 def naming_coverage_errors(
@@ -212,6 +272,16 @@ def naming_errors(
                 except KeyError:
                     continue  # 設計専用の名前には対応する provider 属性がない。
                 if errors:
+                    return errors
+                if errors := provider_naming_errors(
+                    kind,
+                    field,
+                    row[2].strip('`"'),
+                    {
+                        entry[1].removeprefix(kind + "."): entry[2].strip('`"')
+                        for entry in rows
+                    },
+                ):
                     return errors
     if mode == "IMPORT":
         return []  # IMPORT でも上記の名前確認と provider／schema の検証は適用する。

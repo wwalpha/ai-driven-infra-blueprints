@@ -11,8 +11,12 @@ from typing import Any
 from model.core import literal
 from model.validations.naming import (
     NAMING_EXEMPT_PROPERTIES,
+    check_iam_role_suffix,
     naming_rule_rows,
+    naming_rules,
     naming_target_matches,
+    provider_naming_errors,
+    value_available,
 )
 from task_contract_core import safe_path
 from utils.yaml_format import yaml_read
@@ -36,6 +40,7 @@ def required_text(item, key):
 
 
 TARGET_FIELDS = ("service", "resource", "property", "rule")
+PATTERN_BOUNDARIES = "-/:._ "
 
 
 def target_identity(record):
@@ -174,10 +179,22 @@ def naming_patterns(artifact, name):
 
 
 def pattern_matches(pattern, value, fixed=None):
-    """Prove only literal structure; unknown components remain unrestricted."""
+    """Accept extra boundary-separated components without guessing their meaning."""
+    return bool(pattern_values(pattern, value, fixed=fixed))
+
+
+def pattern_values(pattern, value, component=None, fixed=None):
+    """Collect every possible binding, including optional and extra components."""
     fixed = fixed or {}
+    if "suffix" in fixed:
+        pattern = pattern.replace("[-{{suffix}}]", "-{{suffix}}").replace(
+            "[/{{suffix}}]", "/{{suffix}}"
+        )
     tokens = re.split(r"(\{\{[a-z_]+\}\}|\[|\])", pattern)
-    positions, optional = {0}, []
+    positions = {(0, None)} | {
+        (pos + 1, None) for pos, char in enumerate(value) if char in PATTERN_BOUNDARIES
+    }
+    optional = []
     for token in tokens:
         if token == "[":
             optional.append(positions.copy())
@@ -186,30 +203,37 @@ def pattern_matches(pattern, value, fixed=None):
                 raise ValueError("invalid naming pattern")
             positions.update(optional.pop())
         elif token.startswith("{{"):
-            component = token[2:-2]
-            if component in fixed:
-                expected = fixed[component]
+            key = token[2:-2]
+            if key in fixed:
+                expected = fixed[key]
                 positions = {
-                    pos + len(expected)
-                    for pos in positions
+                    (pos + len(expected), expected if key == component else observed)
+                    for pos, observed in positions
                     if value.startswith(expected, pos)
                 }
             else:
-                positions = (
-                    set(range(min(positions) + 1, len(value) + 1))
-                    if positions
-                    else set()
-                )
+                positions = {
+                    (end, value[pos:end] if key == component else observed)
+                    for pos, observed in positions
+                    for end in range(pos + 1, len(value) + 1)
+                    if value[pos] not in "-/:." and value[end - 1] not in "-/:."
+                }
         else:
             positions = {
-                pos + len(token) for pos in positions if value.startswith(token, pos)
+                (pos + len(token), observed)
+                for pos, observed in positions
+                if value.startswith(token, pos)
             }
     if optional:
         raise ValueError("invalid naming pattern")
-    return len(value) in positions
+    return {
+        observed
+        for pos, observed in positions
+        if pos == len(value) or (pos < len(value) and value[pos] in PATTERN_BOUNDARIES)
+    }
 
 
-def confirmed_components(artifact, name):
+def component_facts(artifact, name):
     target = artifact["naming_context"].get("target_context", {})
     values = {
         component: target[key]
@@ -240,65 +264,290 @@ def confirmed_components(artifact, name):
                 conflicts.add(component)
             else:
                 values[component] = value
-    return values
+    return values, conflicts
+
+
+def confirmed_components(artifact, name):
+    return component_facts(artifact, name)[0]
+
+
+def pattern_prefix_applies(pattern, value):
+    prefix = re.split(r"\[|\{\{", pattern)[0]
+    return (
+        bool(prefix)
+        and value.startswith(prefix)
+        and (len(value) == len(prefix) or value[len(prefix)] in PATTERN_BOUNDARIES)
+    )
+
+
+def naming_value(name):
+    value = name.get("value")
+    return (
+        literal(value)
+        if name.get("value_available") is True and value_available(value, value)
+        else None
+    )
+
+
+def applicable_patterns(artifact, name):
+    """A single resource/property rule proves scope; alternatives need evidence."""
+    kind, prop = name["resourceType"], name["property"]
+    value = naming_value(name) or ""
+    rules = artifact["naming_context"].get("rules", {}).get(kind.partition(".")[0], [])
+    patterns = {
+        pattern
+        for rule in rules
+        for target_kind, target, pattern, scope in naming_rules(rule["text"])
+        if target_kind == kind
+        and naming_target_matches(prop, {target}, kind)
+        and (
+            scope == "mandatory"
+            or (scope == "prefix" and pattern_prefix_applies(pattern, value))
+        )
+    }
+    if (
+        name["resourceType"] == "Organizations.Policy"
+        and name.get("conditions", {}).get("Type") != "SERVICE_CONTROL_POLICY"
+    ):
+        return set()
+    if len(patterns) <= 1:
+        return patterns
+    return {pattern for pattern in patterns if pattern_matches(pattern, value)}
+
+
+def naming_violations(artifact, name):
+    """Evidence shared by Scan decisions and validation of additional Naming Issues."""
+    patterns = naming_patterns(artifact, name)
+    applicable = applicable_patterns(artifact, name)
+    common = artifact["naming_context"].get("rules", {}).get("common", [])
+    common_rule = next((rule["path"] for rule in common), "")
+    violations = []
+    actual = naming_value(name)
+    if name.get("required_missing"):
+        violations.append(dict(violation="required_missing", applied_rule=common_rule))
+    provider_errors = name.get("provider_errors", [])
+    if actual is not None:
+        provider_errors = list(
+            dict.fromkeys(
+                [
+                    *provider_errors,
+                    *provider_naming_errors(
+                        name["resourceType"],
+                        name["property"],
+                        actual,
+                        name.get("conditions"),
+                    ),
+                ]
+            )
+        )
+    for error in provider_errors:
+        violations.append(dict(violation="provider_constraint", applied_rule=error))
+    if name.get("property") == "(no selected naming property)":
+        return violations
+    exempt = name["resourceType"] + "." + name["property"] in NAMING_EXEMPT_PROPERTIES
+    create = name.get("resourceMode", "CREATE") == "CREATE"
+    if not patterns and not exempt and create:
+        violations.append(dict(violation="rule_missing", applied_rule=common_rule))
+    if actual is None:
+        return violations
+    if (
+        create
+        and applicable
+        and not any(pattern_matches(pattern, actual) for pattern in applicable)
+    ):
+        violations.extend(
+            dict(violation="format", applied_rule=pattern)
+            for pattern in sorted(applicable)
+        )
+    confirmed = confirmed_components(artifact, name)
+    for component, expected in confirmed.items():
+        relevant = [p for p in applicable if "{{" + component + "}}" in p]
+        if not relevant or any(
+            pattern_matches(pattern, actual, {component: expected})
+            for pattern in relevant
+        ):
+            continue
+        observed = set().union(
+            *(pattern_values(pattern, actual, component) for pattern in relevant)
+        )
+        # A component mismatch is evidence only when every binding identifies one value.
+        if len(observed) == 1 and None not in observed:
+            violations.extend(
+                dict(
+                    violation="confirmed_mismatch",
+                    applied_rule=pattern,
+                    expected=expected,
+                    actual=next(iter(observed)),
+                )
+                for pattern in sorted(relevant)
+            )
+    if create:
+        errors = mandatory_name_errors(artifact, name, actual)
+        violations.extend(
+            dict(violation="format", applied_rule=rule, constraint=error)
+            for rule, error in errors
+        )
+    return violations
+
+
+def mandatory_name_errors(artifact, name, actual):
+    """Explicit service rules remain obligations independently of recommended formats."""
+    kind, prop = name["resourceType"], name["property"]
+    rules = sorted(naming_patterns(artifact, name))
+    rule = rules[0] if rules else ""
+    target = artifact["naming_context"].get("target_context", {})
+    errors = []
+    if (kind, prop) == ("IAM.Role", "RoleName"):
+        errors.extend(check_iam_role_suffix(actual, target.get("suffix")))
+    if kind in {"Glue.Job", "Glue.SecurityConfiguration"} and prop == "Name":
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", actual):
+            errors.append("Glue Name must use lower-kebab-case")
+        if (
+            kind == "Glue.SecurityConfiguration"
+            and name.get("same_type_count", 1) > 1
+            and not re.match(r"glsc-(?:0[1-9]|[1-9][0-9])(?:-|$)", actual)
+        ):
+            errors.append(
+                "Multiple Glue SecurityConfigurations require a positive two-digit sequence"
+            )
+    if (kind, prop) == ("SecretsManager.Secret", "Name") and (
+        actual.endswith("-")
+        or actual.startswith("/")
+        or actual.endswith("/")
+        or "//" in actual
+    ):
+        errors.append(
+            "Secret Name must have non-empty path components and no trailing hyphen"
+        )
+    if (kind, prop) == ("SecretsManager.Secret", "Name") and not re.fullmatch(
+        r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*){2,}", actual
+    ):
+        errors.append(
+            "Secret Name requires application/environment/purpose_path with lower-kebab-case components"
+        )
+    for pattern in applicable_patterns(artifact, name):
+        suffix = target.get("suffix")
+        if (
+            suffix
+            and "{{suffix}}" in pattern
+            and not pattern_matches(pattern, actual, {"suffix": suffix})
+        ):
+            errors.append(
+                "Configured target suffix is required in the applicable pattern"
+            )
+            rule = pattern
+    return [(rule, error) for error in errors]
+
+
+def naming_decision(artifact, name):
+    violations = naming_violations(artifact, name)
+    pending = []
+    if name.get("property") != "(no selected naming property)" and not name.get(
+        "required_missing"
+    ):
+        if naming_value(name) is None:
+            pending.append(
+                "Selected name value is unavailable; mandatory checks are unverified"
+            )
+        elif name.get("provider_checked") is not True:
+            pending.append("Provider constraints have not been checked")
+    confirmed, conflicts = component_facts(artifact, name)
+    patterns = applicable_patterns(artifact, name)
+    if any("{{" + key + "}}" in pattern for key in conflicts for pattern in patterns):
+        pending.append("Conflicting confirmed component values require review")
+    if any(value is None for value in name.get("conditions", {}).values()) and (
+        name.get("resourceMode", "CREATE") == "CREATE"
+        or name["resourceType"] in {"SQS.Queue", "SNS.Topic"}
+    ):
+        pending.append("A selected condition for mandatory Naming rules is unconfirmed")
+    if name.get("resourceMode", "CREATE") == "CREATE":
+        if (
+            any(
+                "{{suffix}}" in re.sub(r"\[[^\]]*\]", "", pattern)
+                for pattern in patterns
+            )
+            and "suffix" not in confirmed
+        ):
+            pending.append("Required target suffix is unconfirmed")
+        if name["resourceType"] == "Organizations.Policy" and "Type" not in name.get(
+            "conditions", {}
+        ):
+            pending.append(
+                "Policy Type is required to determine mandatory pattern applicability"
+            )
+    return dict(
+        status="VIOLATION_CANDIDATE"
+        if violations
+        else "REVIEW_REQUIRED"
+        if pending
+        else "AUTO_PASS",
+        applied_rules=sorted(patterns),
+        rule_refs=["common", name["resourceType"].partition(".")[0]],
+        violations=violations,
+        pending=pending,
+        basis="Mandatory Name, Provider constraints, applicable structure and proven component bindings; recommendations alone are not violations",
+    )
+
+
+def review_names(artifact):
+    """Never trust an asserted AUTO_PASS; recompute from the immutable Scan evidence."""
+    pending = []
+    seen = set()
+    for name in artifact["naming"]["names"]:
+        key = required_text(name, "id")
+        if key in seen:
+            raise ValueError("duplicate naming ID")
+        seen.add(key)
+        if (
+            "naming_context_id" in name
+            and name["naming_context_id"] != artifact["naming_context_id"]
+        ):
+            raise ValueError("Naming item context ID mismatch")
+        if "decision" not in name:
+            pending.append(name)
+            continue
+        decision = naming_decision(artifact, name)
+        if name["decision"] != decision:
+            raise ValueError("Naming decision does not match Scan evidence")
+        if decision["status"] != "AUTO_PASS":
+            pending.append(name)
+    return pending
 
 
 def validate_naming_issue(artifact, item, name):
     violation = item["violation"]
     applied = required_text(item, "applied_rule")
-    patterns = naming_patterns(artifact, name)
-    value = name.get("value")
-    actual = (
-        literal(value)
-        if name.get("value_available") and isinstance(value, str)
-        else None
-    )
-    if violation == "rule_missing":
-        common = artifact["naming_context"]["rules"].get("common", [])
-        if (
-            patterns
-            or name["resourceType"] + "." + name["property"] in NAMING_EXEMPT_PROPERTIES
-            or applied not in {rule["path"] for rule in common}
-            or name.get("pattern_review") == "not applicable"
-        ):
-            raise ValueError("Naming rule coverage is not missing")
-    elif violation == "provider_constraint":
-        if actual is None or applied not in name.get("provider_errors", []):
-            raise ValueError("Naming provider constraint is not established")
-    elif violation == "required_missing":
-        common = artifact["naming_context"]["rules"].get("common", [])
-        if (
-            not name.get("required_missing")
-            or value is not None
-            or applied not in patterns | {rule["path"] for rule in common}
-        ):
-            raise ValueError("Naming item does not establish a missing required name")
-    elif applied not in patterns:
-        raise ValueError("Naming applied_rule does not apply to this item")
-    if violation == "format":
-        if actual is None or any(
-            pattern_matches(pattern, actual) for pattern in patterns
-        ):
-            raise ValueError("Naming format violation is not established")
-    if violation == "confirmed_mismatch":
-        expected, observed = (
-            required_text(item, "expected"),
-            required_text(item, "actual"),
+    if name.get("resourceMode") == "IMPORT" and (
+        violation in {"format", "rule_missing"}
+        or (
+            violation == "required_missing"
+            and name["resourceType"] not in {"IAM.Role", "CodeBuild.Project"}
         )
-        confirmed = confirmed_components(artifact, name)
-        if (
-            not actual
-            or expected == observed
-            or any(pattern_matches(pattern, actual, confirmed) for pattern in patterns)
-            or not any(
-                expected == value
-                and "{{" + component + "}}" in applied
-                and pattern_matches(applied, actual, {component: observed})
-                for component, value in confirmed.items()
+    ):
+        raise ValueError("IMPORT is exempt from framework naming conventions")
+    candidates = naming_violations(artifact, name)
+    if violation == "required_missing" and applied in naming_patterns(artifact, name):
+        candidates = [dict(candidate, applied_rule=applied) for candidate in candidates]
+    if not any(
+        candidate["violation"] == violation
+        and candidate["applied_rule"] == applied
+        and (
+            violation != "confirmed_mismatch"
+            or all(
+                item.get(key) == candidate.get(key) for key in ("expected", "actual")
             )
-        ):
-            raise ValueError("Naming mismatch is not established by confirmed values")
-    elif "expected" in item or ("actual" in item and item["actual"] != actual):
+        )
+        for candidate in candidates
+    ):
+        raise ValueError(
+            "Naming "
+            + violation
+            + " violation is not established by mandatory constraints and confirmed bindings"
+        )
+    if violation != "confirmed_mismatch" and (
+        "expected" in item
+        or ("actual" in item and item["actual"] != literal(name.get("value")))
+    ):
         raise ValueError("Naming evidence contradicts the naming item")
 
 
@@ -508,6 +757,7 @@ def review_additions(
     if not additions:
         return []
     naming = {item["id"]: item for item in artifact["naming"]["names"]}
+    naming_causes = set()
     for item in additions:
         if (
             not isinstance(item, dict)
@@ -539,6 +789,11 @@ def review_additions(
             )
         if (
             any(matches_naming_item(item, name) for name in naming.values())
+            or any(
+                item.get("service") == name.get("service")
+                and matches_source(item.get("source"), name.get("source"))
+                for name in naming.values()
+            )
             or item.get("rule") == "review.naming"
             or "naming_item_id" in item
         ):
@@ -554,6 +809,12 @@ def review_additions(
                 raise ValueError("Naming Issue must match its naming item")
             for key in ("rule", "violation", "evidence"):
                 required_text(item, key)
+            if any(
+                matches_naming_item(record, name) for record in artifact["ordinary"]
+            ):
+                raise ValueError(
+                    "Existing diagnostics require diagnostic_decisions, not additional Issues"
+                )
             if item["rule"] != "review.naming" or item["violation"] not in {
                 "required_missing",
                 "format",
@@ -568,6 +829,10 @@ def review_additions(
             }:
                 raise ValueError("IMPORT is exempt from framework naming conventions")
             validate_naming_issue(artifact, item, name)
+            cause = (name["id"], item["violation"])
+            if cause in naming_causes:
+                raise ValueError("duplicate Naming violation")
+            naming_causes.add(cause)
         elif set(item) & {
             "violation",
             "evidence",
@@ -640,7 +905,7 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
     }
     reviewed_ids(
         review["reviewed_names"],
-        [item["id"] for item in artifact["naming"]["names"]],
+        [item["id"] for item in review_names(artifact)],
         "naming",
     )
     reviewed_ids(
@@ -661,6 +926,11 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
     validate_review_unverified(artifact, unverified)
     data = deepcopy(artifact)
     data["reviewed"] = True
+    data["automatically_reviewed_names"] = [
+        item["id"]
+        for item in artifact["naming"]["names"]
+        if item["id"] not in review["reviewed_names"]
+    ]
     data["notice_overview"] = {}
     data["unverified"].extend(deepcopy(unverified))
     for item in unresolved:

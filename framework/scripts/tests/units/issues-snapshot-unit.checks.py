@@ -16,13 +16,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import issues.publication as publication
 import pytest
 from comparison import Comparison
+from design.catalog import DesignSchemaCatalog
 from issues.artifact import summary
 from issues.integrity import target_services
 from issues.materials import naming_materials
 from issues.publication import render_snapshot, save_scan
 from issues.records import identifier
-from issues.review import human_confirmations, review_snapshot
+from issues.review import (
+    human_confirmations,
+    naming_decision,
+    review_names,
+    review_snapshot,
+)
 from issues.runner import scan_stage
+from model.validations.naming import (
+    naming_rule_files,
+    naming_rule_rows,
+    provider_naming_errors,
+)
 from support.issues_scan_fixtures import (
     fixture,
     forbid_report_text,
@@ -675,7 +686,7 @@ def check_independent_issue_on_naming_property(tmp_path, kind, prop):
             {"application": "venusinf", "suffix": "confirmed"},
             "dev",
             "stg",
-            True,
+            False,
             None,
         ),
         (
@@ -702,7 +713,7 @@ def check_independent_issue_on_naming_property(tmp_path, kind, prop):
             {"application": "venusinf"},
             "dev",
             "test-dev",
-            True,
+            False,
             None,
         ),
         (
@@ -729,7 +740,7 @@ def check_independent_issue_on_naming_property(tmp_path, kind, prop):
             {"application": "venusinf"},
             "dev",
             "test-dev",
-            True,
+            False,
             None,
         ),
         (
@@ -1437,6 +1448,355 @@ def check_snapshot_rejects_invalid_current_values(tmp_path, fault):
         with pytest.raises(ValueError):
             save_scan(tmp_path, data, review)
         publish.assert_not_called()
+
+
+def decision_artifact(root, kind, prop, value, mode="CREATE"):
+    data = snapshot_artifact(root, services=["naming"])
+    definitions = Path(__file__).resolve().parents[4]
+    files = naming_rule_files(definitions, kind.partition(".")[0])
+    data["naming_context"] = dict(
+        target_context=dict(environment="dev", awsAccountId="123456789012"),
+        rules={
+            "common": [
+                dict(
+                    path=files[0].relative_to(definitions).as_posix(),
+                    text=files[0].read_text(encoding="utf-8"),
+                )
+            ],
+            kind.partition(".")[0]: [
+                dict(
+                    path=path.relative_to(definitions).as_posix(),
+                    text=path.read_text(encoding="utf-8"),
+                )
+                for path in files[1:]
+            ],
+        },
+    )
+    data["naming_context_id"] = identifier(data["naming_context"])
+    errors = []
+    if value is not None:
+        if prop != "Name" or not kind.startswith("EC2."):
+            errors = DesignSchemaCatalog(definitions).literal_errors(kind, prop, value)
+        errors.extend(provider_naming_errors(kind, prop, value))
+    name = dict(
+        id="n1",
+        service="naming",
+        resource="001",
+        resourceType=kind,
+        property=prop,
+        value=value,
+        value_available=value is not None,
+        required_missing=value is None,
+        provider_errors=errors,
+        provider_checked=True,
+        resourceMode=mode,
+    )
+    data["naming"]["names"] = [name]
+    name["decision"] = naming_decision(data, name)
+    return data, name
+
+
+@pytest.mark.parametrize(
+    "kind,prop,value,status",
+    [
+        ("EC2.VPC", "Name", "vpc-app-dev", "AUTO_PASS"),
+        ("EC2.VPC", "Name", "vpc-app-dev-extra", "AUTO_PASS"),
+        ("EC2.VPC", "Name", "vpc-app-dev_extra", "AUTO_PASS"),
+        ("EC2.VPC", "Name", "prefix_vpc-_app-dev", "AUTO_PASS"),
+        ("EC2.VPC", "Name", "prefix-vpc-app-dev-001", "AUTO_PASS"),
+        ("EC2.VPC", "Name", "vpc-app", "VIOLATION_CANDIDATE"),
+        ("EC2.VPC", "Name", "wrong-app-dev", "VIOLATION_CANDIDATE"),
+        ("EC2.VPC", "Name", "vpc-app-stg", "VIOLATION_CANDIDATE"),
+        ("EC2.VPC", "Name", None, "VIOLATION_CANDIDATE"),
+        ("IAM.Role", "RoleName", "app-dev-DataRole", "AUTO_PASS"),
+        ("IAM.Role", "RoleName", "app-dev-dataRole", "VIOLATION_CANDIDATE"),
+        ("IAM.Role", "RoleName", "app-dev-DataRole-" + "x" * 64, "VIOLATION_CANDIDATE"),
+        ("S3.Bucket", "BucketName", "app-dev-data-123456789012-extra", "AUTO_PASS"),
+        ("S3.Bucket", "BucketName", "Invalid_Bucket", "VIOLATION_CANDIDATE"),
+        ("SQS.Queue", "QueueName", "sqs-app-dev-data", "AUTO_PASS"),
+        ("SQS.Queue", "QueueName", "sqs-app-dev-data.fifo", "AUTO_PASS"),
+        ("SQS.Queue", "QueueName", "x" * 81, "VIOLATION_CANDIDATE"),
+        ("Glue.Job", "Name", "glue-app-dev-data-extra", "AUTO_PASS"),
+        ("Logs.LogGroup", "LogGroupName", "/aws/lambda/MyFunction", "AUTO_PASS"),
+        ("Logs.LogGroup", "LogGroupName", "/aws/codebuild/MyProject", "AUTO_PASS"),
+        (
+            "Logs.LogGroup",
+            "LogGroupName",
+            "/aws/vendedlogs/states/MyStateMachine",
+            "AUTO_PASS",
+        ),
+        ("Logs.LogGroup", "LogGroupName", "Custom/operations_logs", "AUTO_PASS"),
+        (
+            "Logs.LogGroup",
+            "LogGroupName",
+            "/aws-glue/jobs/glsc-p4x8r2-role/venusinf-dev-IfOutbound29Role-p4x8r2/error",
+            "AUTO_PASS",
+        ),
+        (
+            "Logs.LogGroup",
+            "LogGroupName",
+            "/aws-glue/jobs/glsc-other-role/OtherRole/output",
+            "AUTO_PASS",
+        ),
+        ("Logs.LogGroup", "LogGroupName", "invalid:logs", "VIOLATION_CANDIDATE"),
+    ],
+)
+def check_mandatory_naming_decisions(tmp_path, kind, prop, value, status):
+    data, name = decision_artifact(tmp_path, kind, prop, value)
+    assert name["decision"]["status"] == status
+    assert bool(review_names(data)) == (status != "AUTO_PASS")
+    assert name["decision"]["basis"]
+    review = review_for(data)
+    snapshot = json.loads(review_snapshot(data, review).data)
+    assert snapshot["automatically_reviewed_names"] == (
+        ["n1"] if status == "AUTO_PASS" else []
+    )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "forged",
+        "omitted",
+        "duplicate",
+        "provider_unchecked",
+        "value_unavailable",
+        "confirmed_conflict",
+        "suffix",
+        "fifo",
+        "import",
+        "recommendation",
+        "spoofed_duplicate",
+        "duplicate_naming_cause",
+        "source_spoof",
+        "configured_optional_suffix",
+        "required_suffix",
+        "standard_prefix_suffix",
+        "alternative_scope",
+        "glue_number",
+        "import_fifo",
+        "forged_available",
+    ],
+)
+def check_automatic_naming_integrity(tmp_path, fault):
+    data, name = decision_artifact(tmp_path, "EC2.VPC", "Name", "vpc-app-dev")
+    if fault == "forged_available":
+        data, name = decision_artifact(
+            tmp_path, "Logs.LogGroup", "LogGroupName", "UNSET"
+        )
+        assert name["value_available"] is True
+        assert name["decision"]["status"] == "VIOLATION_CANDIDATE"
+        name["provider_errors"] = []
+        assert naming_decision(data, name)["status"] == "REVIEW_REQUIRED"
+        name["value"] = "<masked:secret>"
+        assert naming_decision(data, name)["status"] == "REVIEW_REQUIRED"
+        return
+    if fault == "configured_optional_suffix":
+        data, name = decision_artifact(
+            tmp_path, "CodeBuild.Project", "Name", "cbld-app-dev-build"
+        )
+        data["naming_context"]["target_context"]["suffix"] = "blue"
+        assert naming_decision(data, name)["status"] == "VIOLATION_CANDIDATE"
+        name["value"] += "-blue-extra"
+        assert naming_decision(data, name)["status"] == "AUTO_PASS"
+        return
+    if fault == "required_suffix":
+        data["naming_context"]["rules"]["EC2"] = [
+            dict(
+                text="| X | X | `EC2.VPC` | `Name` | `vpc-{{application}}-{{environment}}-{{suffix}}` |"
+            )
+        ]
+        name["value"] = "vpc-app-dev-token"
+        assert naming_decision(data, name)["status"] == "REVIEW_REQUIRED"
+        return
+    if fault == "standard_prefix_suffix":
+        data, name = decision_artifact(
+            tmp_path, "Logs.LogGroup", "LogGroupName", "/aws/vpc/flow-logs"
+        )
+        data["naming_context"]["target_context"]["suffix"] = "blue"
+        assert naming_decision(data, name)["status"] == "VIOLATION_CANDIDATE"
+        name["value"] += "/blue"
+        assert naming_decision(data, name)["status"] == "AUTO_PASS"
+        return
+    if fault == "alternative_scope":
+        data["naming_context"]["rules"]["EC2"] = [
+            dict(
+                text="| X | X | `EC2.VPC` | `Name` | `vpc-{{application}}-{{environment}}` | alternative |"
+            )
+        ]
+        name["value"] = "human-custom-name"
+        assert naming_decision(data, name)["status"] == "AUTO_PASS"
+        return
+    if fault == "glue_number":
+        data, name = decision_artifact(
+            tmp_path, "Glue.SecurityConfiguration", "Name", "glsc"
+        )
+        name["same_type_count"] = 2
+        assert naming_decision(data, name)["status"] == "VIOLATION_CANDIDATE"
+        name["value"] = "glsc-01"
+        assert naming_decision(data, name)["status"] == "AUTO_PASS"
+        return
+    if fault == "import_fifo":
+        data, name = decision_artifact(
+            tmp_path, "SQS.Queue", "QueueName", "Human_Actual", "IMPORT"
+        )
+        name["conditions"] = {"FifoQueue": "true"}
+        assert naming_decision(data, name)["status"] == "VIOLATION_CANDIDATE"
+        return
+    if fault == "source_spoof":
+        name["source"] = dict(
+            path="model/dev/123456789012/naming.properties", key="desired.row.001.value"
+        )
+        review = review_for(data)
+        review["issues"] = [
+            dict(
+                service="naming",
+                resource="001",
+                property="Other",
+                source=name["source"],
+                rule="fake-rule",
+                message="Spoofed Naming issue",
+            )
+        ]
+        with pytest.raises(ValueError, match="naming_item_id"):
+            review_snapshot(data, review)
+        return
+    if fault == "duplicate_naming_cause":
+        name["value"] = "wrong-app-dev"
+        name["decision"] = naming_decision(data, name)
+        review = review_for(data)
+        issue = dict(
+            service="naming",
+            resource="001",
+            property="Name",
+            rule="review.naming",
+            naming_item_id="n1",
+            applied_rule="vpc-{{application}}-{{environment}}",
+            violation="format",
+            evidence="Mandatory structure is absent",
+            message="Wrong prefix",
+        )
+        review["issues"] = [issue, dict(issue, message="Same cause, different prose")]
+        with pytest.raises(ValueError, match="duplicate Naming"):
+            review_snapshot(data, review)
+        return
+    if fault == "forged":
+        name["value"] = "vpc-app-stg"
+        with pytest.raises(ValueError, match="decision"):
+            review_snapshot(data, review_for(data))
+        return
+    if fault == "duplicate":
+        data["naming"]["names"].append(deepcopy(name))
+        with pytest.raises(ValueError, match="duplicate naming"):
+            review_names(data)
+        return
+    if fault in {"provider_unchecked", "value_unavailable", "confirmed_conflict"}:
+        if fault == "confirmed_conflict":
+            data["human_confirmations"]["confirmations"] = [
+                dict(
+                    id="conflict",
+                    service="naming",
+                    fact="environment=stg",
+                    scope=dict(resource="001", property="Name"),
+                    exceptions=[],
+                    evidence="Human fact contradicts target",
+                )
+            ]
+        else:
+            name[
+                "provider_checked"
+                if fault == "provider_unchecked"
+                else "value_available"
+            ] = False
+        name["decision"] = naming_decision(data, name)
+        assert name["decision"]["status"] == "REVIEW_REQUIRED"
+        assert review_names(data) == [name]
+        return
+    if fault == "suffix":
+        data, name = decision_artifact(
+            tmp_path, "IAM.Role", "RoleName", "app-dev-DataRole"
+        )
+        data["naming_context"]["target_context"]["suffix"] = "blue"
+        assert naming_decision(data, name)["status"] == "VIOLATION_CANDIDATE"
+        return
+    if fault == "fifo":
+        data, name = decision_artifact(
+            tmp_path, "SQS.Queue", "QueueName", "sqs-app-dev-data"
+        )
+        name["conditions"] = {"FifoQueue": "true"}
+        assert naming_decision(data, name)["status"] == "VIOLATION_CANDIDATE"
+        name["conditions"]["FifoQueue"] = None
+        assert naming_decision(data, name)["status"] == "REVIEW_REQUIRED"
+        return
+    if fault == "import":
+        data, name = decision_artifact(
+            tmp_path, "SQS.Queue", "QueueName", "Human_Actual", "IMPORT"
+        )
+        assert name["decision"]["status"] == "AUTO_PASS"
+        name["provider_errors"] = ["AWS constraint violation"]
+        assert naming_decision(data, name)["status"] == "VIOLATION_CANDIDATE"
+        return
+    if fault == "omitted":
+        name["value"] = "vpc-app-stg"
+        name["decision"] = naming_decision(data, name)
+        review = review_for(data)
+        review["reviewed_names"] = []
+        with pytest.raises(ValueError, match="naming IDs"):
+            review_snapshot(data, review)
+        return
+    issue = dict(
+        service="naming",
+        resource="001",
+        property="Name",
+        rule="review.naming",
+        naming_item_id="n1",
+        applied_rule="vpc-{{application}}-{{environment}}",
+        violation="format",
+        evidence="Current naming evidence",
+        message="Naming finding",
+    )
+    if fault == "recommendation":
+        review = review_for(data)
+        review["issues"] = [issue]
+        with pytest.raises(ValueError, match="mandatory"):
+            review_snapshot(data, review)
+    else:
+        name["value"] = "vpc-app-stg"
+        name["decision"] = naming_decision(data, name)
+        data["ordinary"] = [
+            dict(
+                id="machine",
+                service="naming",
+                resource="001",
+                property="EC2.VPC.Name",
+                rule="existing.provider",
+                message="Existing diagnostic",
+            )
+        ]
+        issue.update(
+            violation="confirmed_mismatch",
+            expected="dev",
+            actual="stg",
+            rule="review.naming",
+        )
+        review = review_for(data)
+        review["issues"] = [issue]
+        with pytest.raises(ValueError, match="Existing diagnostics"):
+            review_snapshot(data, review)
+
+
+def check_glue_naming_table_alternatives():
+    path = (
+        Path(__file__).resolve().parents[4]
+        / "framework/rules/aws-resource-naming/Logs.md"
+    )
+    patterns = {
+        pattern
+        for kind, prop, pattern in naming_rule_rows(path.read_text(encoding="utf-8"))
+        if (kind, prop) == ("Logs.LogGroup", "LogGroupName")
+    }
+    assert "/aws-glue/jobs/error" in patterns and "/aws-glue/jobs/output" in patterns
+    assert "{{prefix}}/{{security_configuration}}-role/{{role_name}}/output" in patterns
 
 
 if __name__ == "__main__":

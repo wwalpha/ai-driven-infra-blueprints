@@ -34,6 +34,7 @@ from issues.artifact import detail_payload, review_payload, summary
 from issues.materials import naming_materials
 from issues.publication import save_scan
 from issues.reports import iac_report
+from issues.review import review_names
 from issues.runner import mechanical, scan
 from model.core import entries, properties
 from model.files import load_model, model_file_contents, read_model, resource_row_index
@@ -545,7 +546,7 @@ def review_for(artifact):
     return dict(
         scan_id=artifact["scan_id"],
         reviewed_naming_context_id=artifact["naming_context_id"],
-        reviewed_names=[item["id"] for item in artifact["naming"]["names"]],
+        reviewed_names=[item["id"] for item in review_names(artifact)],
         reviewed_judgments=[item["id"] for item in artifact["judgments"]],
         diagnostic_assignments={},
         issues=[],

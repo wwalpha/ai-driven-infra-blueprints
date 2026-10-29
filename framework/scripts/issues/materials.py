@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 
 from design.catalog import selected_properties
 from design.layout import (
@@ -13,6 +14,8 @@ from model.validations.naming import (
     naming_rule_files,
     naming_target_matches,
     naming_targets,
+    provider_naming_errors,
+    value_available,
 )
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
@@ -31,26 +34,6 @@ def rule_section(text, heading):
         if active:
             result.append(line)
     return "\n".join(result)
-
-
-def value_available(value, shown):
-    raw = literal(value) if isinstance(value, str) else None
-    return (
-        isinstance(raw, str)
-        and bool(raw.strip())
-        and raw.lower()
-        not in {
-            "unresolved",
-            "unset",
-            "tbd",
-            "todo",
-            "pending_deploy",
-            "未確定",
-        }
-        and not any(token in raw for token in ("${", "{{", "<masked"))
-        and not raw.startswith(("[", "{"))
-        and shown == value
-    )
 
 
 def naming_materials(comparison, *, service=None):
@@ -84,6 +67,10 @@ def naming_materials(comparison, *, service=None):
                     "materials": notes,
                 }
             )
+        type_counts = Counter(
+            resource.get("resourceType")
+            for resource in comparison.resources[service].values()
+        )
         for identity, resource in comparison.resources[service].items():
             try:
                 mode = resource_mode(resource)
@@ -260,8 +247,24 @@ def naming_materials(comparison, *, service=None):
                     selected.append((None, None, field, None))
                 if not selected:
                     selected.append((None, None, "(no selected naming property)", None))
+                conditions = {
+                    prop: literal(candidate["value"])
+                    if value_available(
+                        candidate["value"],
+                        comparison.redacted(candidate["value"], prop),
+                    )
+                    else None
+                    for _, candidate in rows
+                    if (prop := candidate["property"].removeprefix(kind + "."))
+                    in {"FifoQueue", "FifoTopic", "Type"}
+                }
                 for rid, row, field, value in selected:
                     provider_errors = []
+                    provider_checked = field == "Name tag" or (
+                        field == "Name"
+                        and kind
+                        in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}
+                    )
                     shown = comparison.redacted(value, field)
                     available = value_available(value, shown)
                     if field != "Name tag" and available:
@@ -269,8 +272,14 @@ def naming_materials(comparison, *, service=None):
                             provider_errors = comparison.catalog.literal_errors(
                                 kind, field, literal(value)
                             )
+                            provider_checked = True
                         except KeyError:
                             pass  # Design-only names do not have provider properties.
+                        provider_errors.extend(
+                            provider_naming_errors(
+                                kind, field, literal(value), conditions
+                            )
+                        )
                     key = (
                         f"desired.row.{rid}.value"
                         if rid
@@ -285,8 +294,18 @@ def naming_materials(comparison, *, service=None):
                         "property": field,
                         "value": shown,
                         "value_available": available,
-                        "required_missing": field in required and value is None,
+                        "required_missing": field in required
+                        and (
+                            value is None
+                            or (isinstance(value, str) and not literal(value).strip())
+                            or (
+                                kind in {"IAM.Role", "CodeBuild.Project"}
+                                and not available
+                            )
+                        ),
                         "provider_errors": comparison.redacted(provider_errors, field),
+                        "provider_checked": provider_checked,
+                        "conditions": conditions,
                         "rule": namespace,
                         "rule_targets": sorted(targets),
                         "scope": "IMPORT framework convention excluded"
@@ -300,7 +319,7 @@ def naming_materials(comparison, *, service=None):
                         if field == "(no selected naming property)"
                         else "exact exemption scope applies"
                         if kind + "." + field in NAMING_EXEMPT_PROPERTIES
-                        else "required"
+                        else "Scan mandatory-constraint decision"
                         if mode == "CREATE"
                         else "framework convention excluded",
                         "human_context_id": identifier([service, "notes"])
@@ -314,10 +333,12 @@ def naming_materials(comparison, *, service=None):
                     }
                     if field == "Name tag":
                         entry["tag_values"] = tag_values
+                    if kind == "Glue.SecurityConfiguration":
+                        entry["same_type_count"] = type_counts[kind]
                     names.append(entry)
     return {
         "target_context": comparison.target,
         "rules": rules,
         "names": names,
-        "review_policy": "全名称を確認し、Patternに含まれるcomponentだけを対象に正本で確定した値を比較する。未確認componentを名前から推測せず、その不足だけでIssueや未検証にしない。独立して確認できる固定要素、構造、形式、確定値の違反は報告する。検査実行不能は未検証に残す。coverage除外をconvention/値検証除外へ拡大しない。applied_ruleは対象のPattern、rule_missingは共通規則のpath、provider_constraintは対象のprovider_errorsを指定する。confirmed_mismatchの期待値は対象設定または対象に対応するHuman confirmationのcomponent=valueから確認する。",
+        "review_policy": "全名称を保持し、AUTO_PASS以外だけをLLM Reviewする。必須条件と適用が証明されたPatternを検査する。未確認componentを名前から推測せず、その不足だけでIssueや未検証にしない。推奨形式との差異、追加要素、省略可能要素だけではIssueにしない。必須条件の検査不能はREVIEW_REQUIREDに残す。既存の機械診断とHuman confirmationは全件確認する。applied_ruleは対象Pattern、rule_missingは共通規則path、provider_constraintはprovider_errorsを指定する。confirmed_mismatchは一意に証明されたcomponentの期待値と実値を要求する。",
     }, judgments

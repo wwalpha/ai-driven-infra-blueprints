@@ -10,6 +10,7 @@ import issues.aggregate as _imports_issues_aggregate
 
 from .aggregate import IAC_CATEGORIES, pending_deploy_count
 from .records import brief, identifier
+from .review import review_names
 
 CHANNELS = ("warnings", "information", "unverified", "processing_errors")
 
@@ -63,10 +64,14 @@ def summary(artifact):
     comparison_status = _imports_issues_aggregate.comparison_status
     view = artifact["overview"]
     counts = view["records"]
+    pending_names = review_names(artifact) if "naming" in artifact else []
     return dict(
         ordinary_candidates=len(artifact.get("ordinary", [])),
         judgment_items=len(artifact.get("judgments", [])),
         naming_items=len(artifact.get("naming", {}).get("names", [])),
+        naming_auto_pass=len(artifact.get("naming", {}).get("names", []))
+        - len(pending_names),
+        naming_review_required=len(pending_names),
         iac_differences=counts["difference"],
         iac_uncompared=counts["uncompared"],
         iac_errors=counts["error"],
@@ -116,9 +121,9 @@ def review_payload(artifact, artifact_path):
         artifact=str(artifact_path),
         iac_summary=artifact["overview"],
         review_required=dict(
-            names=len(artifact["naming"]["names"]),
+            names=len(review_names(artifact)),
             judgments=len(artifact["judgments"]),
-            policy="naming_contextとnaming/judgmentsの全IDを確認し、全Human確定情報と今回の診断を確認し、今回のIssue／除外／矛盾を根拠とともに確定する。",
+            policy="naming_context、AUTO_PASS以外のnaming、judgmentsの全IDと、全Human確定情報・今回の診断を確認する。AUTO_PASSは個別LLM Review不要。",
         ),
         human_confirmations=dict(
             total=len(artifact["human_confirmations"]["confirmations"]),
@@ -286,6 +291,8 @@ def validate_artifact(artifact):
         raise ValueError("invalid scan_id")
     if identifier(artifact["naming_context"]) != artifact["naming_context_id"]:
         raise ValueError("invalid naming_context_id")
+    if "naming" in artifact:
+        review_names(artifact)
     records, meta = artifact["iac"], artifact["record_meta"]
     if len(records) != len(meta) or artifact["overview"]["record_count"] != len(
         records

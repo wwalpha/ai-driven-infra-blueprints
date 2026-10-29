@@ -24,7 +24,7 @@ from .integrity import selected_scope, target_services
 from .materials import naming_materials
 from .ownership import resolve
 from .records import identifier, safe_text
-from .review import human_confirmations
+from .review import human_confirmations, naming_decision
 
 
 @task_read_scope
@@ -635,6 +635,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     ):
         artifact[key] = comparison.redacted(artifact[key])
     artifact["checks"] = validator.checks + stages.checks
+    for name in artifact["naming"]["names"]:
+        name["decision"] = naming_decision(artifact, name)
     for result in [*validator.findings.results.values(), *stages.results.values()]:
         finish_result(result)
     artifact["check_results"] = [
