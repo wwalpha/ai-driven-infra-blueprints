@@ -2,7 +2,7 @@
 
 ## Normal startup
 
-独立DeployはHumanに`/worktree`の追加指定を要求せず、[Managed Deploy snapshot](../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication)に従い`worktree_task.py deploy-start --task-id <id>`で作成/同一Task再利用する。返されたrootでTask登録・Preparation・実行を行う。再開時は元Snapshot/Journalを保持し、未完了操作のRecoverと新規Deployを区別する。
+独立DeployはHumanに`/worktree`の追加指定を要求せず、[Managed Deploy snapshot](../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication)に従い`worktree_task.py deploy-start --task-id <id>`で作成/同一Task再利用する。返されたrootでTask登録・Preparation・実行を行う。再開時は元Snapshot/progress/current requestを保持し、未完了操作のRecoverと新規Deployを区別する。
 
 承認済みIaCをTask範囲でDeployし、AWS・Observed・生成物を確認する。Human指定のenvironment・Target・Region/profile・StackName・service IDsを確定し、`project.json`の同一Targetと`tasks/<task-name>.md`を確認する。認証失敗時に別credentialへ切り替えない。DeployはIaC、意図した設計、scenarioを変更しない。
 

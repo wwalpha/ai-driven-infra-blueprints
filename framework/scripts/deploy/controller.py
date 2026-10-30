@@ -1030,7 +1030,9 @@ def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
             reported = True
             # A nonzero result is a failed invocation even when handled internally.
             if result:
-                raise Blocked("controller stopped; see operation journal/diagnostics")
+                raise Blocked(
+                    "controller stopped; see current request/progress diagnostics"
+                )
             return result
     except (OSError, ValueError, Blocked) as error:
         if not reported:

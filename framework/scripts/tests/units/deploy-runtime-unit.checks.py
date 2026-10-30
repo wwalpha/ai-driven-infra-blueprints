@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import deploy.s3_delivery as _imports_deploy_s3_delivery
 from botocore.exceptions import ReadTimeoutError
-from deploy import failures, run_context
+from deploy import failures
 from deploy.timing import Timing
 from generation_inputs import GenerationInputs
 from model.adapters.observed import mappings
@@ -92,6 +92,60 @@ def execution_poll_aws(event, actual, operation, **args):
         if operation == "describe_stack_events"
         else {"Stacks": [{"StackId": "stack-A", "StackStatus": actual[0]}]}
     )
+
+
+TEST_OBSERVATION = SimpleNamespace(sync=None)
+
+
+def supervise_turns(units, limit, context, backend, save, **kwargs):
+    """Test supervisor chooses bounded advances, explicit observation and authorized repair."""
+    for _ in range(100):
+        result = scheduler.run_group(
+            units, limit, context["states"], backend, save, single_step=True
+        )
+        successful = [
+            unit
+            for unit in units
+            if context["states"][unit["name"]]["status"] == "SUCCESS"
+            and not context["states"][unit["name"]].get("observedSynced")
+        ]
+        if successful and TEST_OBSERVATION.sync is not None:
+            TEST_OBSERVATION.sync(backend, successful, context["states"])
+            save()
+        context.setdefault("metrics", {})["deployOrderCount"] = len(
+            {
+                int(unit["deployOrder"])
+                for unit in units
+                if all(
+                    context["states"][peer["name"]]["status"] == "SUCCESS"
+                    for peer in units
+                    if peer["deployOrder"] == unit["deployOrder"]
+                )
+            }
+        )
+        if result in {"ACTIVE", "GROUP_COMPLETE"}:
+            continue
+        failed = [
+            unit
+            for unit in units
+            if context["states"][unit["name"]]["status"] == "FAILED"
+        ]
+        if (
+            result == "STOPPED"
+            and failed
+            and hasattr(backend, "repair")
+            and not any(
+                state.get("schedulerError") for state in context["states"].values()
+            )
+        ):
+            repaired = [
+                backend.repair(unit, context["states"][unit["name"]]) for unit in failed
+            ]
+            save()
+            if all(repaired):
+                continue
+        return result
+    raise AssertionError("test supervisor did not settle bounded turns")
 
 
 def check_sdk_execution():
@@ -492,9 +546,9 @@ def check_empty_rollback_recreation(tmp_path):
         "metrics": {"observedSyncSeconds": 0},
     }
     synced = _check_empty_rollback_recreation_synced
-    with patch.object(run_context, "sync_successful", side_effect=synced):
+    with patch.object(TEST_OBSERVATION, "sync", side_effect=synced):
         assert (
-            run_context.run_deploy(
+            supervise_turns(
                 scoped,
                 2,
                 session,
@@ -1664,9 +1718,9 @@ def check_parallel_and_restart():
         "states": states(scoped),
         "metrics": {"observedSyncSeconds": 0},
     }
-    with patch.object(run_context, "sync_successful"):
+    with patch.object(TEST_OBSERVATION, "sync"):
         assert (
-            run_context.run_deploy(
+            supervise_turns(
                 scoped, 1, saved, sequential, lambda: None, sleep=lambda _: None
             )
             == "STOPPED"
@@ -1691,9 +1745,9 @@ def check_parallel_and_restart():
         "states": state,
         "metrics": {"observedSyncSeconds": 0},
     }
-    with patch.object(run_context, "sync_successful", side_effect=sync):
+    with patch.object(TEST_OBSERVATION, "sync", side_effect=sync):
         assert (
-            run_context.run_deploy(
+            supervise_turns(
                 scoped,
                 4,
                 session,
@@ -1798,40 +1852,6 @@ def check_parallel_and_restart():
         "A",
         "B",
     ]  # A was polled, never redeployed.
-
-    # Observed failure during restart also drains peers; it never leaves a RUNNING stack unobserved.
-    state = {"A": {"status": "SUCCESS"}, "B": {"status": "RUNNING"}}
-    _state_check_parallel_and_restart_1131.backend = Fake(
-        {"B": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]}
-    )
-    _state_check_parallel_and_restart_1131.backend.running = {"B"}
-    session = {
-        "inputRevision": 0,
-        "states": state,
-        "metrics": {"observedSyncSeconds": 0},
-    }
-    with patch.object(
-        run_context,
-        "sync_successful",
-        side_effect=ValueError("AMBIGUOUS_OBSERVED_MAPPING"),
-    ):
-        assert (
-            run_context.run_deploy(
-                selected,
-                2,
-                session,
-                _state_check_parallel_and_restart_1131.backend,
-                lambda: None,
-                sleep=lambda _: None,
-            )
-            == "STOPPED"
-        )
-    assert (
-        state["B"]["status"] == "SUCCESS"
-        and not _state_check_parallel_and_restart_1131.backend.running
-        and not starts(_state_check_parallel_and_restart_1131.backend)
-    )
-    assert session["observedError"] == "AMBIGUOUS_OBSERVED_MAPPING"
 
 
 def check_api_timing(tmp_path):
@@ -2138,8 +2158,8 @@ def _callback_check_secret_runtime_bootstrap_configure_validate(
 def _callback_check_secret_runtime_bootstrap_configure_run(
     active, backend, session, synced, /
 ):
-    with patch.object(run_context, "sync_successful", side_effect=synced):
-        return run_context.run_deploy(
+    with patch.object(TEST_OBSERVATION, "sync", side_effect=synced):
+        return supervise_turns(
             active, 2, session, backend, backend.save, sleep=lambda _: None
         )
 
@@ -3063,10 +3083,19 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
     path = tmp_path / "session.json"
     save = _bind_framework_callback(_capacity_save, path, session, snapshots)
     sync = _bind_framework_callback(_callback_check_parallel_and_restart_sync, synced)
-    with patch.object(run_context, "sync_successful", side_effect=sync):
-        result = run_context.run_deploy(
-            scoped, limit, session, backend, save, sleep=lambda _: None
-        )
+    with patch.object(TEST_OBSERVATION, "sync", side_effect=sync):
+        if violation:
+            result = scheduler.run_group(
+                scoped, limit, saved, backend, save, sleep=lambda _: None
+            )
+            sync(
+                backend,
+                [unit for unit in scoped if saved[unit["name"]]["status"] == "SUCCESS"],
+                saved,
+            )
+            save()
+        else:
+            result = supervise_turns(scoped, limit, session, backend, save)
     # Ordinary failure/retry behavior is covered by the existing runtime recovery cases.
     if violation:
         assert result == "STOPPED"
@@ -3100,9 +3129,9 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
             )
         # Recompute the current scope after draining; a past capacity error is not a fence.
         restored = json.loads(path.read_text(encoding="utf-8"))
-        with patch.object(run_context, "sync_successful", side_effect=sync):
+        with patch.object(TEST_OBSERVATION, "sync", side_effect=sync):
             TestCase().assertEqual(
-                run_context.run_deploy(
+                supervise_turns(
                     scoped, limit, restored, backend, lambda: None, sleep=lambda _: None
                 ),
                 "STOPPED" if failure else "COMPLETE",
@@ -3128,14 +3157,13 @@ def check_capacity_optimized_python():
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from deploy.run_context import run_deploy
+from deploy.scheduler import run_group
 units = [{'name': n, 'deployOrder': 10} for n in ('A', 'B', 'C')]
 states = {n: {'status': 'RUNNING' if n != 'C' else 'READY', 'clientToken': n} for n in ('A', 'B', 'C')}
 session = {'states': states, 'metrics': {'observedSyncSeconds': 0}}
 backend = SimpleNamespace(poll=Mock(return_value='CREATE_COMPLETE'), prepare=Mock(), execute=Mock(),
                           prepare_delivery_group=Mock(), repair=Mock())
-with patch('deploy.run_context.sync_successful'):
-    result = run_deploy(units, 1, session, backend, lambda: None, sleep=lambda _: None)
+result = run_group(units, 1, states, backend, lambda: None, sleep=lambda _: None)
 for state in states.values():
     state.pop('executionSeconds', None)
 print(json.dumps([result, states, backend.prepare.call_count, backend.execute.call_count,

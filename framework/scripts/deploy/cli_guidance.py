@@ -60,7 +60,7 @@ The LLM chooses sync timing and explicit scope; no background writer or Sub Agen
 Deploy result, Model save, Snapshot validation and Git publication are independent.
 A consistent failed Snapshot can complete its Task with Deploy FAIL unchanged.
 Intermediate saves keep Task running and fixed IaC/parameters/artifacts unchanged.
-Old Task/Journal/Fence/Output/checkpoint history never gates current-state adoption.
+Current request identity and saved candidate integrity determine the next action.
 Current Stack requests retain original IDs/tokens across lost replies and Worktrees;
 a stale COMPLETE alone never settles an uncertain Execute. Retire only requests with proven identity-specific completion or loss of effect.
 Choose an explicit --action for every invocation.
@@ -295,7 +295,6 @@ def safe_error(error):
             "deferred-inputs",
             "model-file-set",
             "contract-candidate",
-            "legacy-plan",
         }:
             result["condition"] = error.condition
     elif isinstance(error, FileNotFoundError):
@@ -380,13 +379,6 @@ def python_command(root, script, arguments, *, task_file=None):
 
 def stopped(stage, error):
     cause = safe_error(error)
-    if isinstance(error, InputChanged) and error.condition == "legacy-plan":
-        return guidance(
-            "INPUT_REVALIDATION",
-            cause,
-            "PREPARE_AGAIN",
-            "This legacy preparation contains documents; prepare again before registration or controller launch.",
-        )
     if isinstance(error, InputChanged):
         return guidance(
             "INPUT_REVALIDATION",

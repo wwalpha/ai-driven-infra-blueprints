@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 from deploy import generation_resume as M
 from deploy import observed_resume
-from deploy import run_context as controller
 from deploy.model_cache import RunModels
 from model.format import parse as parse_properties
 from model.format import patch as patch_properties
@@ -641,18 +640,10 @@ def check_durable_resume(owned, interruption):
     backend.save = partial(save_copy, saved, backend.run_context)
     if interruption == "foreign-journal":
         before = journal.read_bytes()
-        with patch.object(controller, "sync_successful") as sync:
-            assert not controller._callback_run_deploy_sync_once(
-                backend, backend.save, backend.run_context, backend.units
-            )
-        sync.assert_not_called()
+        with pytest.raises(Blocked):
+            invoke(backend, generation)
         assert journal.read_bytes() == before
-        assert backend.sync_failed and backend.run_context["pendingGeneration"]
-        assert "journal" in backend.run_context["generationError"]
-        assert not any(
-            key in backend.run_context
-            for key in ("observedError", "observedRecoveryError", "observedFailures")
-        )
+        assert backend.run_context["pendingGeneration"]
         return
     prepared = invoke(backend, generation)
     assert prepared.call_count == int(interruption != "published")
@@ -667,48 +658,15 @@ def mark_observed(backend, units, states):
     return None
 
 
-def run_deploy(backend):
-    with patch.object(controller, "sync_successful", side_effect=mark_observed):
-        backend.result = controller.run_deploy(
-            backend.units,
-            1,
-            backend.run_context,
-            backend,
-            backend.save,
-            sleep=lambda _: None,
+def generate_saved_views(backend):
+    try:
+        M.run(backend)
+    except Blocked:
+        backend.result = "STOPPED"
+    else:
+        backend.result = (
+            "PENDING" if backend.run_context.get("pendingGeneration") else "GENERATED"
         )
-
-
-def check_service_failure_keeps_observed_barriers_and_final_pending(owned):
-    backend, views, _ = owned
-    runtime = Fake()
-    runtime.__dict__.update(backend.__dict__)
-    runtime.run_context["states"]["early"].pop("observedSynced")
-    generation = generation_for(runtime, views)
-    generation.expected_outputs.pop(views["kms"])
-    fail_service(generation, views["kms"])
-    prepare = invoke(runtime, generation, operation=run_deploy)
-    assert runtime.result == "STOPPED" and runtime.sync_failed
-    prepare.assert_called_once()
-    assert starts(runtime) == []
-    assert runtime.run_context["states"]["early"]["observedSynced"]
-    assert all(
-        runtime.run_context["states"][name]["status"] == "NOT_STARTED"
-        for name in ("build", "release")
-    )
-    assert "kms" in runtime.run_context["generationError"]
-    assert not any(
-        name in runtime.run_context
-        for name in ("observedError", "observedRecoveryError", "observedFailures")
-    )
-    runtime.run_context = json.loads(json.dumps(runtime.run_context))
-    runtime.save = partial(save_copy, [], runtime.run_context)
-    retry = generation_for(runtime, {"kms": views["kms"]})
-    invoke(runtime, retry, operation=run_deploy)
-    assert runtime.result == "COMPLETE" and not runtime.sync_failed
-    assert starts(runtime) == ["build", "release"]
-    assert not runtime.run_context["pendingGeneration"]
-    assert "generationError" not in runtime.run_context
 
 
 def add_unclassified(generation, ownership):
@@ -747,8 +705,8 @@ def check_unclassified_failure_stops_and_revalidates_saved_services(
         if phase == "publication"
         else publish_candidate
     )
-    invoke(runtime, generation, publish, operation=run_deploy)
-    assert runtime.result == "STOPPED" and runtime.sync_failed
+    invoke(runtime, generation, publish, operation=generate_saved_views)
+    assert runtime.result == "STOPPED"
     assert starts(runtime) == []
     assert runtime.run_context["states"]["early"]["observedSynced"]
     assert "orphan generation failure" in runtime.run_context["generationError"]
@@ -767,10 +725,10 @@ def check_unclassified_failure_stops_and_revalidates_saved_services(
     runtime.run_context = json.loads(json.dumps(saved[-1]))
     runtime.save = partial(save_copy, saved, runtime.run_context)
     retry = generation_for(runtime, views)
-    prepare = invoke(runtime, retry, operation=run_deploy)
+    prepare = invoke(runtime, retry, operation=generate_saved_views)
     prepare.assert_called_once()
-    assert runtime.result == "COMPLETE"
-    assert starts(runtime) == ["build", "release"]
+    assert runtime.result == "GENERATED"
+    assert starts(runtime) == []
     assert not runtime.run_context["pendingGeneration"]
     assert "generationError" not in runtime.run_context
 
@@ -836,22 +794,8 @@ def check_all_successful_stacks_cannot_complete_with_generation_error(owned, pen
         backend.run_context["pendingGeneration"].clear()
     backend.run_context["generationError"] = "unclassified generation failure"
     assert not M.complete(backend.run_context)
-    with patch.object(M, "run") as generate:
-        # The final completion gate must also reject an ineffective recovery callback.
-        assert (
-            controller.run_deploy(
-                backend.units,
-                1,
-                backend.run_context,
-                backend,
-                backend.save,
-                sleep=lambda _: None,
-            )
-            == "STOPPED"
-        )
-    generate.assert_called_once()
-    assert "unclassified generation failure" in backend.run_context["generationError"]
-    backend.run_context["result"] = "COMPLETE"
+    assert not M.complete(backend.run_context)
+    assert backend.run_context["generationError"] == "unclassified generation failure"
 
 
 def check_unexpected_report_error_is_not_suppressed_for_deferred_generation(owned):
@@ -870,74 +814,11 @@ def check_success_has_no_pending_or_errors(owned):
     backend, views, _ = owned
     runtime = Fake()
     runtime.__dict__.update(backend.__dict__)
-    invoke(runtime, generation_for(runtime, views), operation=run_deploy)
-    assert runtime.result == "COMPLETE" and not runtime.sync_failed
-    assert starts(runtime) == ["build", "release"]
+    invoke(runtime, generation_for(runtime, views), operation=generate_saved_views)
+    assert runtime.result == "GENERATED"
+    assert starts(runtime) == []
     assert not runtime.run_context["pendingGeneration"]
     assert "generationError" not in runtime.run_context
-
-
-def check_order_10_to_60_and_complete(owned):
-    backend, views, _ = owned
-    units = backend.units[:2]
-    backend.units = units
-    backend.run_context["states"].pop("release")
-    first = generation_for(backend, views, ["iam"])
-    invoke(backend, first)
-    runtime = Fake()
-    runtime.__dict__.update(backend.__dict__)
-    generation = generation_for(runtime, {"iam": views["iam"]})
-    with (
-        patch.object(controller, "sync_successful", side_effect=mark_observed),
-        patch.object(
-            M.sync_runtime,
-            "generation_context",
-            return_value=nullcontext(SimpleNamespace(contents={}, selections={})),
-        ),
-        patch.object(
-            M.sync_runtime, "prepare_generation", return_value=generation
-        ) as prepare,
-        patch.object(M.sync_runtime, "validate_generation"),
-        patch.object(M.sync_runtime, "report_generation"),
-        patch.object(
-            M.sync_runtime, "publish_generation", side_effect=publish_candidate
-        ),
-    ):
-        assert (
-            controller.run_deploy(
-                units,
-                1,
-                runtime.run_context,
-                runtime,
-                runtime.save,
-                sleep=lambda _: None,
-            )
-            == "COMPLETE"
-        )
-    assert starts(runtime) == ["build"] and prepare.call_count == 1
-    assert M.complete(runtime.run_context)
-
-
-def check_final_gate_and_workflow(owned):
-    backend, views, _ = owned
-    for state in backend.run_context["states"].values():
-        state.update(status="SUCCESS", observedSynced=True)
-    with patch.object(M, "run"):
-        assert (
-            controller.run_deploy(
-                backend.units,
-                1,
-                backend.run_context,
-                backend,
-                backend.save,
-                sleep=lambda _: None,
-            )
-            == "STOPPED"
-        )
-    assert (
-        "iam" in backend.run_context["generationError"]
-        and "pending design" in backend.run_context["generationError"]
-    )
 
 
 @pytest.mark.parametrize(
@@ -1024,105 +905,6 @@ def check_real_indexed_producer_and_observed_cache(
             )
 
 
-@pytest.mark.parametrize("phase", ["after-observed", "only", "candidate"])
-@pytest.mark.parametrize("guard", [False, True])
-def check_generation_error_retains_confirmed_observed(owned, phase, guard):
-    backend, _, _ = owned
-    session = backend.run_context
-    if phase != "only":
-        session["states"]["early"].pop("observedSynced")
-    if phase == "candidate":
-        next(iter(session["pendingGeneration"].values()))["generated"]["outputs"] = {}
-        session["pendingObserved"] = {"stage": "PREPARED"}
-    pending = copy.deepcopy(session["pendingGeneration"])
-    if guard:
-        # After-observed Guard failure occurs inside generation.run, after Model commit.
-        backend.guard.side_effect = (
-            [None, Blocked("publication failed")]
-            if phase == "after-observed"
-            else Blocked("publication failed")
-        )
-    with (
-        patch.object(controller, "sync_successful", side_effect=mark_observed) as sync,
-        patch.object(
-            M,
-            "run",
-            wraps=M.run,
-            side_effect=None if guard else OSError("publication failed"),
-        ),
-    ):
-        assert not controller._callback_run_deploy_sync_once(
-            backend, backend.save, session, backend.units
-        )
-    assert sync.call_count == int(phase == "after-observed")
-    assert bool(session["states"]["early"].get("observedSynced")) == (
-        phase != "candidate"
-    )
-    assert backend.sync_failed and session["generationError"] == "publication failed"
-    assert session["pendingGeneration"] == pending
-    assert not any(
-        key in session
-        for key in ("observedError", "observedRecoveryError", "observedFailures")
-    )
-    if phase == "candidate":
-        assert session["pendingObserved"] == {"stage": "PREPARED"}
-
-
-def check_generation_retry_does_not_repeat_observed(owned):
-    backend, views, _ = owned
-    backend.run_context["states"]["early"].pop("observedSynced")
-    with (
-        patch.object(controller, "sync_successful", side_effect=mark_observed) as sync,
-        patch.object(M, "run", side_effect=OSError("publication failed")),
-    ):
-        assert not controller._callback_run_deploy_sync_once(
-            backend, backend.save, backend.run_context, backend.units
-        )
-    sync.assert_called_once()
-    backend.sync_failed = False
-    generation = generation_for(backend, views)
-    with (
-        patch.object(controller, "sync_successful") as sync,
-        patch.object(
-            M.sync_runtime,
-            "generation_context",
-            return_value=nullcontext(SimpleNamespace(contents={}, selections={})),
-        ),
-        patch.object(M.sync_runtime, "prepare_generation", return_value=generation),
-        patch.object(M.sync_runtime, "validate_generation"),
-        patch.object(
-            M.sync_runtime, "publish_generation", side_effect=publish_candidate
-        ),
-    ):
-        assert controller._callback_run_deploy_sync_once(
-            backend, backend.save, backend.run_context, backend.units
-        )
-    sync.assert_not_called()
-    assert backend.run_context["states"]["early"]["observedSynced"]
-    assert not backend.run_context["pendingGeneration"]
-    assert "generationError" not in backend.run_context
-
-
-@pytest.mark.parametrize("failed", [False, True])
-def check_generation_only_preserves_observed_history(owned, failed):
-    backend, _, _ = owned
-    history = {
-        "observedError": "first Observed failure",
-        "observedRecoveryError": "latest Observed failure",
-        "observedFailures": [
-            {"stage": "MODEL_PUBLISHED", "cause": "first Observed failure"}
-        ],
-    }
-    backend.run_context.update(copy.deepcopy(history))
-    with patch.object(
-        M, "run", side_effect=OSError("generation failed") if failed else None
-    ):
-        assert controller._callback_run_deploy_sync_once(
-            backend, backend.save, backend.run_context, backend.units
-        ) == (not failed)
-    assert {k: backend.run_context[k] for k in history} == history
-
-
 def check_waiting_identity_survives_later_stack_input_claim(owned):
     backend, views, _ = owned
     invoke(backend, generation_for(backend, views, ["iam"]))
@@ -1202,18 +984,6 @@ def check_published_candidate_preserves_model_input_guards(owned, change, failed
         M.run(backend)
     prepare.assert_not_called()
     assert len(backend.run_context["pendingGeneration"]) == 3
-
-
-def check_same_failure_is_not_retried_while_draining(owned):
-    backend, _, _ = owned
-    with patch.object(M, "run", side_effect=OSError("publication failed")) as generate:
-        assert not controller._callback_run_deploy_sync_once(
-            backend, backend.save, backend.run_context, backend.units
-        )
-        assert not controller._callback_run_deploy_sync_once(
-            backend, backend.save, backend.run_context, backend.units
-        )
-    generate.assert_called_once()
 
 
 if __name__ == "__main__":

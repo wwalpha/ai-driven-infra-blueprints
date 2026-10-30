@@ -34,8 +34,7 @@ if not __debug__:
 TESTS = Path(__file__).resolve().parent
 REPAIR_SUITE = "integrations/worktree-deploy-repair.checks.py"
 REPAIR_CASES = (
-    REPAIR_SUITE + "::check_external_implement_round_trip[batch]",
-    REPAIR_SUITE + "::check_external_implement_round_trip[steps]",
+    REPAIR_SUITE + "::check_external_implement_round_trip",
     REPAIR_SUITE + "::check_merge_recovery",
 )
 CHECKPOINT_SUITE = "integrations/worktree-deploy-checkpoint.checks.py"
@@ -397,14 +396,7 @@ def run_parallel_repair(suite, tests, output):
         for (path, name), value in registered_cases(tests).items()
         if path == suite_key
     }
-    expected = (
-        {
-            "check_external_implement_round_trip": ("pytest", 2),
-            "check_merge_recovery": ("pytest", 1),
-        }
-        if suite_key == REPAIR_SUITE
-        else {case.split("::", 1)[1]: ("pytest", 1) for case in cases}
-    )
+    expected = {case.split("::", 1)[1]: ("pytest", 1) for case in cases}
     if ledger != expected:
         raise ValueError(f"repair ledger mismatch: {ledger}")
     logs = Path(tempfile.mkdtemp(prefix="framework-repair-it-logs-"))

@@ -303,10 +303,7 @@ def model_input_paths(root, scope):
 def register(root, path, timing):
     plan = json.loads(path.read_text(encoding="utf-8"))
     if "documents" in plan:
-        raise cli_guidance.InputChanged(
-            "legacy preparation contains documents; prepare again",
-            condition="legacy-plan",
-        )
+        raise ValueError("unsupported preparation field: documents")
     if plan["repository"] != str(root) or plan["runtime"]["python"] != sys.executable:
         raise cli_guidance.InputChanged(
             "use the same repository and Python interpreter as preparation",
@@ -400,10 +397,7 @@ def run_controller(root, path):
     task_snapshot = _imports_task_contract.task_snapshot
     plan = json.loads(path.read_text(encoding="utf-8"))
     if "documents" in plan:
-        raise cli_guidance.InputChanged(
-            "legacy preparation contains documents; prepare again",
-            condition="legacy-plan",
-        )
+        raise ValueError("unsupported preparation field: documents")
     if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [
         sys.executable,
         str(definition_root(root) / "framework/scripts/cloudformation-deploy.py"),

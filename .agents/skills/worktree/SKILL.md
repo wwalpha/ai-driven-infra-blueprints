@@ -190,7 +190,7 @@ current Model, generates available Views, validates and uses
 `worktree_task.deploy_stack_checkpoint` plus Git publication in the same operation.
 Success, failure, rollback, unexecuted, running and unknown Stack observations are
 permitted. Receipts prove saved candidates, never AWS SUCCESS. `--action checkpoint`
-is the compatibility resume for an already saved candidate, not a required second stage.
+resumes an already saved candidate, not a required second stage.
 Snapshot structure/reference/scope/View and actual latest-base validation remain required.
 A failed attempt may finish as completed with Deploy FAIL after its consistent Snapshot
 is committed/merged. Include the final Task status in that same candidate. Active/uncertain

@@ -13,19 +13,6 @@ from utils.local_evidence import read_sealed, write_sealed
 from deploy import handoff, operation_journal
 
 
-def references(records):
-    return {
-        Path(state["delivery"]["path"])
-        for record in records
-        for operation in [
-            *record["operations"].values(),
-            *record["publication"].get("generationProducers", {}).values(),
-        ]
-        for state in [operation["state"]]
-        if state.get("delivery", {}).get("path")
-    }
-
-
 def create(journal, root, task, target, stacks):
     files = sorted(name + ".json" for name in stacks)
     if any(Path(name).name != name for name in files):
@@ -45,21 +32,14 @@ def create(journal, root, task, target, stacks):
     return path
 
 
-def reclaim(journal, root, target, *, states=None):
+def reclaim(journal, root, target, *, states):
     """Unknown files survive; no PID inference, global /tmp sweep or lock removal."""
-    if states is not None:
-        needed = {
-            Path(saved["delivery"]["path"])
-            for saved in states.values()
-            if saved.get("status") in {"RUNNING", "READY", "CHANGESET_CREATING"}
-            and saved.get("delivery", {}).get("path")
-        }
-    else:
-        try:
-            records = operation_journal.read(journal) or []
-        except (Blocked, OSError, ValueError, KeyError, TypeError):
-            return
-        needed = references(records)
+    needed = {
+        Path(saved["delivery"]["path"])
+        for saved in states.values()
+        if saved.get("status") in {"RUNNING", "READY", "CHANGESET_CREATING"}
+        and saved.get("delivery", {}).get("path")
+    }
     for directory in journal.parent.glob("inputs-*"):
         try:
             operation_journal.private_path(directory, directory=True)

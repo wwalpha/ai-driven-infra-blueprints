@@ -179,11 +179,9 @@ def read_progress(root, state):
             context.get(key) != progress["identity"].get(key)
             for key in ("taskFile", "taskDigest", "target", "environment")
         )
-        or context.get("stepwise") is True
-        and not isinstance(context.get("consumedInputs"), dict)
+        or not isinstance(context.get("consumedInputs"), dict)
         or not isinstance(context.get("inputDigests"), dict)
         or not isinstance(context.get("stepUnits"), list)
-        or type(context.get("stepwise")) is not bool
         or any(
             key in context and not isinstance(context[key], dict)
             for key in ("pendingObserved", "pendingGeneration", "checkpointPending")
@@ -204,66 +202,6 @@ def read_progress(root, state):
             "Deploy progress checkpoint candidate is incomplete or corrupt"
         )
     return progress
-
-
-def check_pending_progress(backend, records, unfinished):
-    if getattr(backend, "phase", None) != "deploy":
-        return
-    state = require(backend.root)
-    progress = read_progress(backend.root, state)
-    if progress is None:
-        return
-    pending = {
-        name
-        for name, saved in progress["runContext"]["states"].items()
-        if unfinished(saved)
-    }
-    owned = [
-        record
-        for record in records
-        if record["publication"].get("repository") == str(backend.root)
-        and record["publication"].get("taskDigest")
-        == state["deployIdentity"]["taskDigest"]
-    ]
-    recorded = {name for record in owned for name in record["operations"]}
-    if (
-        pending - recorded
-        or (
-            progress["runContext"].get("pendingObserved")
-            or progress["runContext"].get("pendingGeneration")
-        )
-        and not any(
-            record["publication"].get("pendingObserved")
-            or record["publication"].get("pendingGeneration")
-            for record in owned
-        )
-    ):
-        raise ws.Blocked(
-            "signed Deploy progress has unfinished work without its operation Journal; review original evidence, never resend or reset automatically"
-        )
-
-
-def adopt_successes(backend):
-    if getattr(backend, "phase", None) != "deploy":
-        return
-    state = require(backend.root)
-    progress = read_progress(backend.root, state)
-    if progress is None:
-        return
-    for unit in backend.units:
-        name = unit["name"]
-        saved = progress["runContext"]["states"].get(name, {})
-        if saved.get("status") != "SUCCESS" or not saved.get("observedSynced"):
-            continue
-        backend.claim_inputs(unit)
-        if backend.input_digest(unit, fresh=True) != progress["runContext"][
-            "inputDigests"
-        ].get(name):
-            # Only a separately authorized repair may introduce a fresh Deploy input.
-            if not state.get("iacRepair", {}).get("commit"):
-                raise ws.Blocked("successful Stack snapshot input changed: " + name)
-            continue
-        backend.states[name] = copy.deepcopy(saved)
 
 
 def attempts_finished(states, result):

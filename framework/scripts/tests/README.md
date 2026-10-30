@@ -121,7 +121,7 @@ Worktree関連5 ITは27関数・29入口。実Git/Worktree、CLI連携、状態�
 削除した内部パターン数、既存UT対応、各IT固有の保証は[削減一覧](CASES.md#worktree-it-runtime-reduction-master-1024v4)を参照。
 ローカルで長時間ITや性能比較を再実行しない。関連短時間UT・構文・登録静的整合性を確認し、ITと時間測定は既存Framework ITに委ねる。30%以上の時間削減は実測前には達成扱いにしない。
 
-Deploy repair専用ITは2関数3入口（normal batch/stepsとMerge復旧）。通常修復は両方式の独立Deployと実CLI・fresh Validationまで通し、Merge復旧は正式Requestと実Git FF直後中断・永続State再開・証拠/入力保持・Cleanupを検証する。同じ異常YAMLはbatchだけで一度確認する。Assertionの対応は[責務一覧](CASES.md#worktree-deploy-repair-performance-responsibilities)を参照。進捗/Journalの永続化地点は維持し、性能未計測や10秒未達を達成扱いにしない。
+Deploy repair専用ITは2関数2入口（明示actionによる通常修復とMerge復旧）。通常修復は現行の独立Deployと実CLI・fresh Validationまで通し、Merge復旧は正式Requestと実Git FF直後中断・永続State再開・証拠/入力保持・Cleanupを検証する。異常YAMLは通常修復で一度確認する。Assertionの対応は[責務一覧](CASES.md#worktree-deploy-repair-performance-responsibilities)を参照。progress/current requestの永続化地点は維持し、性能未計測や10秒未達を達成扱いにしない。
 
 ## Dependency index（v3のみ）
 
@@ -158,7 +158,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
-`worktree-deploy-repair.checks.py` の batch、steps、Merge復旧は、各ケースを独立Pythonプロセスで同時実行する。各プロセスは全ケースを収集して固定された3 node IDとの一致を確認し、指定ケースだけを実行する。親は正常終了とケース別Receiptを検証して一つに統合し、既存の台帳到達性検査に渡す。一時領域と検証キャッシュはケースごとに分離し、共有Fixtureは読み取り専用とする。失敗・中断時は残存プロセスを停止してケース別ログを保存する。baselineと他のスイートは従来の実行経路を使う。
+`worktree-deploy-repair.checks.py` の通常修復、Merge復旧は、各ケースを独立Pythonプロセスで同時実行する。各プロセスは全ケースを収集して固定された2 node IDとの一致を確認し、指定ケースだけを実行する。親は正常終了とケース別Receiptを検証して一つに統合し、既存の台帳到達性検査に渡す。一時領域と検証キャッシュはケースごとに分離し、共有Fixtureは読み取り専用とする。失敗・中断時は残存プロセスを停止してケース別ログを保存する。baselineと他のスイートは従来の実行経路を使う。
 
 登録件数とparameter数は `CASES.md` と実収集から照合する。pytestは既存 `PytestReceipt`、直接実行は正常return後の `@it_case`、module型は末尾の `module_complete(__file__)` で完了を確認する。未登録suite、未実行・未完了ケース、不正receipt、非0終了を失敗とする。件数を合格ノルマにしない。
 

@@ -155,15 +155,6 @@ def check_advance_retains_original_execute_after_interruption():
 
 def check_checkpoint_pending_is_unfinished_even_after_observed(monkeypatch):
     monkeypatch.setattr(publication, "display", lambda backend: {"status": "CONFLICT"})
-    assert not operation_journal.unfinished(
-        {"status": "NOT_STARTED", "checkpointRequired": True}
-    )
-    assert operation_journal.unfinished(
-        {"status": "SUCCESS", "observedSynced": True, "checkpointRequired": True}
-    )
-    assert not operation_journal.unfinished(
-        {"status": "SUCCESS", "observedSynced": True}
-    )
     states = {"A": {"status": "SUCCESS", "observedSynced": True, "checkpointed": True}}
     backend = SimpleNamespace(
         phase="deploy",
@@ -294,27 +285,6 @@ def check_unknown_poll_stops_without_resubmit():
     assert len([e for e in backend.events if e[0] == "start"]) == 1
 
 
-def check_restore_ignores_legacy_journal_without_removing_it(tmp_path):
-    journal = tmp_path / "journal.json"
-    journal.write_text("broken", encoding="utf-8")
-    journal.chmod(0o600)
-    backend = SimpleNamespace(
-        root=tmp_path, units=[{"name": "A"}], run_context={"inputDigests": {}}
-    )
-    with (
-        patch.object(steps.worktree, "require", return_value=None),
-        patch.object(steps.worktree, "progress_state", return_value={}),
-        patch.object(steps.worktree, "read_progress", return_value=None),
-        patch.object(
-            operation_journal,
-            "read",
-            side_effect=AssertionError("ordinary restore must not read legacy history"),
-        ),
-    ):
-        steps.restore(backend, journal, SimpleNamespace(name="tasks/deploy.md"))
-    TestCase().assertEqual(journal.read_text(encoding="utf-8"), "broken")
-
-
 def check_runtime_cleanup_returns_after_one_read():
     aws = Mock(
         return_value={
@@ -329,51 +299,6 @@ def check_runtime_cleanup_returns_after_one_read():
             recovery.wait_cleanup(aws, Mock(), state, single_step=True)
     aws.assert_called_once_with("describe_stacks", StackName="original")
     assert state["cleanupStatus"] == "DELETE_INTENT"
-
-
-def check_legacy_recovery_retains_unrelated_step_journal(tmp_path):
-    target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
-    record = {
-        "target": target,
-        "operations": {
-            "A": {
-                "unit": {"name": "A"},
-                "inputDigest": None,
-                "state": {"status": "NOT_STARTED", "checkpointRequired": True},
-            }
-        },
-        "publication": {
-            "repository": str(tmp_path),
-            "taskFile": "tasks/other.md",
-            "taskDigest": "other",
-            "target": target,
-            "environment": "dev",
-            "directory": "app",
-            "stepwise": True,
-        },
-    }
-    journal = tmp_path / "journal.json"
-    journal.parent.chmod(0o700)
-    operation_journal.write_records(journal, [record])
-    backend = SimpleNamespace(
-        root=tmp_path,
-        environment="dev",
-        directory="app",
-        target=target,
-        aws=Mock(
-            side_effect=AssertionError(
-                "unrelated step must not be polled or synchronized"
-            )
-        ),
-    )
-    operation_journal.recover(
-        backend,
-        journal,
-        SimpleNamespace(name="tasks/current.md", task_digest="current", text=""),
-        ["B"],
-    )
-    assert backend.retained_records == [record]
-    assert operation_journal.read(journal) == [record]
 
 
 def check_step_diagnostics_do_not_expose_unknown_error_values():
@@ -1963,7 +1888,6 @@ class TestCurrentState(TestCase):
                 )
                 steps.restore(
                     backend,
-                    Path("/unused-journal"),
                     SimpleNamespace(task_digest="task"),
                 )
                 self.assertEqual(
@@ -2084,7 +2008,6 @@ def progress_backend(root, context):
         }
     )
     context["repository"] = str(root)
-    context.setdefault("stepwise", True)
     context.setdefault("consumedInputs", {})
     context.setdefault("stepUnits", [{"name": "A"}])
     return SimpleNamespace(

@@ -128,28 +128,15 @@ def final_tree(root, changed, task):
         ).stdout.strip()
 
 
-def checkpoint(root, path, state, *, preflight=None):
+def checkpoint(root, path, state, *, preflight):
     task = tasks.read_task_snapshot(root, state["task_file"], live=True)
     worktree.require(root, task)
     changed = output_changes(root, state)
-    if not changed and not state.get("deployCheckpointIntent") and preflight is None:
-        return wt.output(root, "rev-parse", "HEAD")
     before = {
         p: tasks.safe_path(root, p).read_bytes() if (root / p).is_file() else None
         for p in changed
     }
-    if preflight is None:
-        head = wt.output(root, "rev-parse", "HEAD")
-        index = wt.output(root, "write-tree")
-        candidate = contracts.validation_snapshot(root)
-        check_scope(root, state["task_file"])
-        if (
-            wt.output(root, "rev-parse", "HEAD") != head
-            or wt.output(root, "write-tree") != index
-            or contracts.validation_snapshot(root) != candidate
-        ):
-            raise ws.Blocked("Deploy checkpoint inputs changed during preflight")
-    elif (
+    if (
         task.raw != preflight["task"]
         or changed != preflight["changed"]
         or wt.output(root, "rev-parse", "HEAD") != preflight["head"]
@@ -179,11 +166,7 @@ def checkpoint(root, path, state, *, preflight=None):
         if not changed:
             return head
         wt.git(root, "add", "--", *[f":(top,literal){p}" for p in sorted(changed)])
-        if (
-            preflight
-            and preflight.get("tree")
-            and wt.output(root, "write-tree") != preflight["tree"]
-        ):
+        if preflight.get("tree") and wt.output(root, "write-tree") != preflight["tree"]:
             raise ws.Blocked(
                 "checkpoint tree differs from the validated final candidate"
             )
@@ -443,9 +426,7 @@ def checkpoint_source(root, state, progress, source=None):
             for name, unit in units.items()
         }
     if not receipts or set(units) != set(identity["stacks"]):
-        raise ws.Blocked(
-            "Stepwise publication requires saved Stack checkpoint evidence"
-        )
+        raise ws.Blocked("Git publication requires saved checkpoint evidence")
     for name, entry in receipts.items():
         if (
             name not in units
@@ -512,14 +493,10 @@ def describe(root, state, progress, error=None):
     result["retryable"] = False
     if error is not None:
         result["error"] = str(error)
-    if progress is None or type(progress["runContext"].get("stepwise")) is not bool:
+    if progress is None:
         result.update(
-            status="PENDING",
-            requiresReview=True,
-            reason="Deploy publication mode has no durable evidence",
+            status="PENDING", requiresReview=True, reason="Deploy progress is missing"
         )
-        return result
-    if not progress["runContext"]["stepwise"]:
         return result
     pending = progress["runContext"].get("checkpointPending")
     result["identity"] = copy.deepcopy(progress["identity"])
@@ -625,22 +602,13 @@ def publish(where, task_id, resolution=None, *, automatic=False):
         progress = worktree.read_progress(root, state)
         if progress is None:
             raise ws.Blocked("Git publication requires current Deploy progress")
-        if type(progress["runContext"].get("stepwise")) is not bool:
-            raise ws.Blocked(
-                "Git publication requires a persisted Deploy mode; review original Task evidence"
-            )
-        stepwise = progress["runContext"]["stepwise"]
-        if stepwise and state.get("deployCheckpointIntent"):
+        if state.get("deployCheckpointIntent"):
             raise ws.Blocked(
                 "finish the saved checkpoint operation before Git publication"
             )
-        source = (
-            checkpoint_source(root, state, progress)
-            if stepwise
-            else checkpoint(root, path, state)
-        )
-        snapshot = contracts.validation_snapshot(root) if stepwise else None
-        index = wt.output(root, "write-tree") if stepwise else None
+        source = checkpoint_source(root, state, progress)
+        snapshot = contracts.validation_snapshot(root)
+        index = wt.output(root, "write-tree")
         task = tasks.read_task_snapshot(root, state["task_file"], live=True)
         publication = state.setdefault(
             "deployPublication",
@@ -654,8 +622,7 @@ def publish(where, task_id, resolution=None, *, automatic=False):
         latest = wt.output(base_root, "rev-parse", "HEAD")
         intent = publication.get("intent")
         if intent:
-            if stepwise:
-                require_checkpoint_intent(root, state, progress, intent)
+            require_checkpoint_intent(root, state, progress, intent)
             if latest == intent["commit"] or wt.ancestor(
                 primary, intent["commit"], state["base"]
             ):
@@ -733,8 +700,6 @@ def publish(where, task_id, resolution=None, *, automatic=False):
             or (
                 contracts.validation_snapshot(root) != snapshot
                 or wt.output(root, "write-tree") != index
-                if stepwise
-                else wt.changed_paths(root)
             )
             or tasks.read_task_snapshot(root, task.name, live=True).raw != task.raw
             or worktree.read_progress(root, state) != progress
@@ -824,23 +789,6 @@ def display(backend):
     )
 
 
-def retry(root, task):
-    state = worktree.require(root, task)
-    if worktree.read_progress(root, state) is None:
-        return None
-    try:
-        return publish(root, state["task_id"], automatic=True)
-    except (
-        OSError,
-        ValueError,
-        KeyError,
-        TypeError,
-        RuntimeError,
-        subprocess.SubprocessError,
-    ) as error:
-        return retained(root, state["task_id"], error)
-
-
 def finalize(where, task_id):
     primary, _, path, state = wt.load(where, task_id)
     with wt.lifecycle_lock(primary):
@@ -854,8 +802,7 @@ def finalize(where, task_id):
         if progress is None:
             raise ws.Blocked("final Deploy checkpoint requires current progress")
         worktree.require_complete(root, task)
-        if progress["runContext"]["stepwise"]:
-            checkpoint_source(root, state, progress)
+        checkpoint_source(root, state, progress)
     result = describe(root, state, progress)
     if result["status"] != "SUCCESS":
         raise ws.Blocked(

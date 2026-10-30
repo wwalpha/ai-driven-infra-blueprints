@@ -148,22 +148,17 @@ def check_instruction_changes_do_not_invalidate_registration(tmp_path):
 
 
 @pytest.mark.parametrize("operation", ["register", "run_controller"])
-def check_legacy_plan_rejected_before_changes(tmp_path, operation):
+def check_unsupported_preparation_field_rejected_before_changes(tmp_path, operation):
     path = tmp_path / "preparation.json"
     path.write_text(json.dumps({"documents": []}))
     with patch.object(M.subprocess, "run") as execute:
-        with pytest.raises(ValueError, match="legacy preparation.*prepare again"):
+        with pytest.raises(ValueError, match="unsupported preparation field"):
             if operation == "register":
                 M.register(tmp_path, path, M.Timing(tmp_path))
             else:
                 M.run_controller(tmp_path, path)
         execute.assert_not_called()
     assert json.loads(path.read_text()) == {"documents": []}
-    report = M.cli_guidance.stopped(
-        "REGISTRATION", M.cli_guidance.InputChanged("legacy", condition="legacy-plan")
-    )
-    assert report["nextAction"]["type"] == "PREPARE_AGAIN"
-    assert "legacy" in report["nextAction"]["reason"]
 
 
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")

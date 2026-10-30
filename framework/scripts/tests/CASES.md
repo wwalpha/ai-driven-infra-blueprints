@@ -2537,8 +2537,6 @@ Task fixtureは独立した通常Gitとtask_contract.startで開始・選択し�
 | `observed-resume::journal` | `check_journal_ownership` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L64) | pytest / 7 | own originals, complete restoration, unrelated receipt and third bytes rejection | journal records |
 | `observed-resume::plan` | `check_plan_validation` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L110) | pytest / 13 | Task/extra identity field/evidence/manifest/candidate/desired/unrelated bytes/file set/Allowed paths/stage/original-set/manifest-set checks | isolated bytes |
 | `observed-resume::intent-io` | `check_intent_save_failure` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L146) | pytest / 1 | failed intent persistence leaves Model untouched | session I/O |
-| `observed-resume::peer-barrier` | `check_pending_plan_drained_peer_barrier` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L198) | pytest / 1 | saved plan finishes before drained peers synchronize | scheduler state |
-| `observed-resume::first-error` | `check_original_failure_retained` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 4 | Generation待ちと共存するObserved保存/Guard失敗で最初の原因と最新復旧原因/履歴を保持 | 拡張 |
 
 | `observed-resume::task-bytes` | `check_exact_task_bytes_bound` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L173) | pytest / 1 | pending plan binds full contract bytes in addition to the existing normalized session identity | Task text |
 
@@ -2552,7 +2550,7 @@ observed-resume UTはCIで毎回実行する。IT runnerとGitHub Actionsの入�
 
 | Case ID | Check | Class | File | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
-| `external-repair::round-trip` | `check_external_implement_round_trip` | IT | [integrations/worktree-deploy-repair.checks.py](integrations/worktree-deploy-repair.checks.py) | pytest / 2 | batch/steps各方式で実Controller失敗→正式Request→実CLI修復Validation→Commit/FF/Cleanup→独立Deploy→最終fresh Validation | 統合境界のみ |
+| `external-repair::round-trip` | `check_external_implement_round_trip` | IT | [integrations/worktree-deploy-repair.checks.py](integrations/worktree-deploy-repair.checks.py) | pytest / 1 | 明示actionの実Controller失敗→正式Request→実CLI修復Validation→Commit/FF/Cleanup→独立Deploy→最終fresh Validation | 統合境界のみ |
 | `external-repair::merge-recovery` | `check_merge_recovery` | IT | [integrations/worktree-deploy-repair.checks.py](integrations/worktree-deploy-repair.checks.py) | pytest / 1 | 正式Request/Checkpoint/Validationから実FF直後中断、永続Stateで同一CommitのFinalize再実行、証跡・入力保持、Cleanupと親再開 | 実Git / Controller失敗は一度のみ |
 | `external-repair::base-sync` | `check_sync_base_preserves_candidate` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L65) | direct / 1 | 実GitのBase更新と未commit候補の保持・同期後統合 | 統合境界のみ |
 | `external-repair::failure-classes` | `check_failure_classes` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py#L116) | pytest / 6 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
@@ -2886,7 +2884,6 @@ Refactorの重複incoming CLI起動4回、decodingの子Python8回を削除。
 | `worktree-runtime::check_metadata_symlinks` | `check_metadata_symlinks` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py#L432) | pytest / 3 | metadata symlinks | 不足判定のみ追加・ITの入力反復を廃止 |
 | `worktree-runtime::check_candidate_staleness` | `check_candidate_staleness` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py#L120) | pytest / 5 | candidate staleness | 不足判定のみ追加・ITの入力反復を廃止 |
 | `worktree-runtime::check_acquired_plan_completion` | `check_acquired_plan_completion` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L777) | pytest / 3 | acquired plan completion | 不足判定のみ追加・ITの入力反復を廃止 |
-| `worktree-runtime::check_controller_sleep_injection` | `check_controller_sleep_injection` | UT | [units/cloudformation-deploy-unit.checks.py](units/cloudformation-deploy-unit.checks.py#L162) | pytest / 1 | controller sleep injection | 不足判定のみ追加・ITの入力反復を廃止 |
 
 ## Single-file staging and publication
 
@@ -2939,7 +2936,6 @@ through os.replace, without depending on temporary filenames.
 | group_delivery失敗 (1) | `check_delivery_failure_stops_execution`: 実SDK wrapperのAccessDenied→終了2、Create/Executeなし。細分条件はSDK `check_conditional_put_outcomes`、runtime `check_delivery_encryption` |
 | approval_resume (1)、subprocess_execution_resume (2)、remove_controller_process_resume (7) | 承認・受理直後process death・Remove positiveは `check_approved_remove_recovers_without_duplicate_execute`。ReadTimeout/JSON再構成はruntime `check_execute_timeout_keeps_evidence`。Retain/skipped/complete/missing/SnapshotはSDK `check_deletion_evidence`、token/StackId/physical不一致は `check_deletion_event_identity` |
 | input_guard_drains_peer (1) | runtime `check_guard_failure_drains_accepted_peer`: guard実例外→新規停止・受理済peer drain |
-| observed_io_resume (1)、observed_publication_process_resume (8)、observed_drains_peer_then_resumes (1) | design I/O/複数peer/後続Order停止は `check_observed_failure_drains_peers_and_resumes`、実Model-partial起動時復旧は `check_pending_observed_recovers_before_model_load`。plan保存失敗は `check_intent_save_failure`、Model/generation I/Oは `check_finish_io_failure`、committed段階は `check_finish_committed_stages`、session同期失敗は `check_session_sync_failure_drains_and_resumes`。生成物journalは小型 `check_generated_journal_recovery_uses_observed_owner`。一般的process death/atomic rollbackは既存 `model-properties-v2.checks.py::check_managed_properties_save[process-death] と model_templates.checks.py::check_transactions` のpublication IT（下記参照） |
 | generated_external_change_rejected (9)、generated_change_during_publication (1) | observed-resume `check_generated_classification`（JSON削除補強）、`check_generated_journal`、`check_generated_plan_snapshot`。公開途中の外部変更は既存 `sync-model.checks.py::check_input_mutation` / `check_publication_boundary` / `check_publication_rechecks_excluded_outputs` のinput snapshot/publication IT。controller往復の重複を削除 |
 | observed_external_change_rejected (11) | observed-resume `check_classification`、`check_plan_validation`、`check_execution_identity`、`check_journal_ownership`、`check_exact_task_bytes_bound`、`check_owned_resume_boundaries`。IaC入力変更・Task/targetのguardは既存runtime `check_session_cli`。署名evidence/approval/pending改変はhandoff `check_signed_protected_fields` |
 | legacy_session_without_observed_plan (2) | observed-resume `check_session_without_plan_and_signed_removal`: 正当なplanなしsessionと署名済plan除去を区別 |
@@ -2961,7 +2957,6 @@ through os.replace, without depending on temporary filenames.
 | `deploy-reduction::guard_failure_drains_accepted_peer` | `check_guard_failure_drains_accepted_peer` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L1976) | pytest / 1 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 | `deploy-reduction::real_input_failure_details` | `check_real_input_failure_details` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py#L1991) | pytest / 2 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 | `deploy-reduction::finish_io_failure` | `check_finish_io_failure` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L450) | pytest / 2 | 実行証拠付きplanを保持し、PREPAREDのModel I/O失敗でgenerationなし、MODEL_PUBLISHEDのgeneration I/O失敗でModel再公開・生成物公開なし | 直接関数・小fixture |
-| `deploy-reduction::session_sync_failure_drains_and_resumes` | `check_session_sync_failure_drains_and_resumes` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py#L533) | pytest / 1 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 
 | controller suite内の処理 | 1024v4設計値 | 再構成後の静的呼出構造 |
 |---|---:|---:|
@@ -3925,9 +3920,6 @@ checks retain exact journals, CAS, partial publication and execution/approval ev
 
 | Case ID | Function | Layer | File | Mode / count | Coverage | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| `deploy-generation::phase-error` | `check_generation_error_retains_confirmed_observed` | UT | [units/deploy-generation-resume-unit.checks.py](units/deploy-generation-resume-unit.checks.py) | pytest / 6 | Generation実行/候補復旧/Guard例外の分類、Observed確定と両pending保持 | 拡張 |
-| `deploy-generation::resume-only` | `check_generation_retry_does_not_repeat_observed` | UT | [units/deploy-generation-resume-unit.checks.py](units/deploy-generation-resume-unit.checks.py) | pytest / 1 | Generation再開成功時にObserved再保存なし、generationError解消 | 追加 |
-| `deploy-generation::observed-history` | `check_generation_only_preserves_observed_history` | UT | [units/deploy-generation-resume-unit.checks.py](units/deploy-generation-resume-unit.checks.py) | pytest / 2 | Generation単独成功/失敗で既存Observedエラー履歴を保持 | 追加 |
 | `worktree-runtime::observed-barrier` | `check_checkpoint_observed_barrier` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 7 | Checkpointで同一Observed保護、Generationのみでも既存入力検証へ進む | 追加 |
 
 
@@ -3954,27 +3946,11 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `independent-deploy::test_journal_excludes_history_and_approval_and_discards_success` | `test_journal_excludes_history_and_approval_and_discards_success` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::test_running_restart_observes_original_token_without_execute` | `test_running_restart_observes_original_token_without_execute` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | Journal 原子保存の中断で元の Intent を保持し、再開で元の token を使用 | 追加 |
-| `independent-deploy::test_uncertain_operation_is_retained_without_new_token` | `test_uncertain_operation_is_retained_without_new_token` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::test_aws_success_before_observed_recovers_without_execute` | `test_aws_success_before_observed_recovers_without_execute` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::test_publication_recovery_failure_preserves_evidence` | `test_publication_recovery_failure_preserves_evidence` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::test_journal_tampering_and_redirects_are_rejected` | `test_journal_tampering_and_redirects_are_rejected` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::test_current_changeset_approval_is_not_restored` | `test_current_changeset_approval_is_not_restored` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::test_new_task_is_not_owned_by_unexecuted_old_changeset` | `test_new_task_is_not_owned_by_unexecuted_old_changeset` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
 | `independent-deploy::test_new_context_accepts_latest_iac_and_ignores_old_files` | `test_new_context_accepts_latest_iac_and_ignores_old_files` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
 | `independent-deploy::test_successful_stack_latest_iac_is_claimed_for_new_update` | `test_successful_stack_latest_iac_is_claimed_for_new_update` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::test_no_change_still_checks_all_four_kms_exports` | `test_no_change_still_checks_all_four_kms_exports` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::test_kms_four_exports_update_and_no_change_require_aws_facts` | `test_kms_four_exports_update_and_no_change_require_aws_facts` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
 | `independent-deploy::check_one_shot_request_requires_current_authority` | `check_one_shot_request_requires_current_authority` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 6 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
 | `independent-deploy::check_delivered_request_evidence_is_discarded` | `check_delivered_request_evidence_is_discarded` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 5 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
-| `independent-deploy::recovery-guard` | `test_recovery_guard_preserves_current_task_target_and_model` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 4 | 復旧中のTask/target/Model変更を拒否 | 追加 |
-| `independent-deploy::adoption-interruption` | `test_adoption_claim_failure_keeps_every_unprocessed_changeset` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 引き継ぎ中断で未処理ChangeSetの証跡を失わない | 追加 |
-| `independent-deploy::terminal-output` | `test_terminal_output_failure_discards_execution_intent` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | AWS確定後のExport未反映は失敗報告しExecute意図を破棄 | 追加 |
-| `independent-deploy::bootstrap-recovery` | `test_bootstrap_restart_restores_failure_and_only_current_owner` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 元Tokenの失敗eventとowner再取得、完了後Journal破棄 | 追加 |
-| `independent-deploy::bootstrap-input-guard` | `test_recovery_mutation_guard_fixes_bootstrap_inputs` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 3 | 復旧mutation直前のconsumer/owner入力固定 | 追加 |
 | `independent-deploy::observed-run-context` | `check_run_context_owns_observed_publication` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 2 | RunContextの新規/未完了Observed publication経路 | 追加 |
-| `independent-deploy::waiting-generation` | `test_waiting_generation_recovers_scope_without_inheriting_completed_stacks` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 未公開の生成待ちを新実行へ再結合、過去Stack成功や未確定候補は引き継がない | 追加 |
 
 ## Modelを正本とする配列表示
 
@@ -3999,21 +3975,11 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| `deploy-recovery::test_new_task_recovers_original_execution_then_uses_latest_inputs` | `test_new_task_recovers_original_execution_then_uses_latest_inputs` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::test_foreign_destination_settles_aws_before_refusing_local_publication` | `test_foreign_destination_settles_aws_before_refusing_local_publication` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::test_unrelated_stack_operations_survive_recovery_and_new_run_saves` | `test_unrelated_stack_operations_survive_recovery_and_new_run_saves` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 2 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::test_changed_original_operation_proof_blocks_before_aws` | `test_changed_original_operation_proof_blocks_before_aws` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 5 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::test_signed_operation_must_match_execution_target` | `test_signed_operation_must_match_execution_target` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 3 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::test_unrelated_stack_requires_proved_dependency_boundary` | `test_unrelated_stack_requires_proved_dependency_boundary` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 5 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::test_process_kill_releases_lock_retains_original_journal_and_token` | `test_process_kill_releases_lock_retains_original_journal_and_token` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
 | `deploy-recovery::test_lock_rejects_unsafe_files_without_unlinking` | `test_lock_rejects_unsafe_files_without_unlinking` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 3 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::test_partial_scope_keeps_atomic_plan_with_all_original_operation_proofs` | `test_partial_scope_keeps_atomic_plan_with_all_original_operation_proofs` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::test_peer_owners_keep_every_entry_when_new_operation_is_saved` | `test_peer_owners_keep_every_entry_when_new_operation_is_saved` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::test_unrelated_publication_blocks_only_shared_task_files` | `test_unrelated_publication_blocks_only_shared_task_files` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
 | `deploy-recovery::test_existing_readable_lock_is_reused_without_unlink` | `test_existing_readable_lock_is_reused_without_unlink` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
 | `deploy-recovery::check_current_task_reauthorizes_only_safe_signed_publication` | `check_current_task_reauthorizes_only_safe_signed_publication` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 9 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
 | `deploy-recovery::check_unused_failure_cleanup_preserves_active_or_unknown_evidence` | `check_unused_failure_cleanup_preserves_active_or_unknown_evidence` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 10 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
-| `deploy-recovery::check_owned_directory_cleanup` | `check_owned_directory_cleanup` | UT | [units/deploy-temporary-unit.checks.py](units/deploy-temporary-unit.checks.py) | pytest / 19 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
+| `deploy-recovery::check_owned_directory_cleanup` | `check_owned_directory_cleanup` | UT | [units/deploy-temporary-unit.checks.py](units/deploy-temporary-unit.checks.py) | pytest / 22 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
 | `deploy-recovery::check_controller_closes_lock_and_cleans_workdir_on_return_or_error` | `check_controller_closes_lock_and_cleans_workdir_on_return_or_error` | UT | [units/deploy-temporary-unit.checks.py](units/deploy-temporary-unit.checks.py) | pytest / 2 | Task独立復旧・元Token・OS排他・所有と参照に基づくCleanup | Synthetic offline / short process |
 
 
@@ -4023,7 +3989,6 @@ assertionは削除し、JSON/Markdown内容・構文・AWS文書検証・正本�
 | --- | --- | --- | --- | --- | --- | --- |
 | `deploy-scope::locks` | `check_handoff_lock_order_fails_without_waiting_or_releasing_owner` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | Journal→Repairの非待機排他と競合後再取得 | Synthetic offline |
 | `deploy-scope::authentication` | `check_dependency_reader_uses_current_authentication` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 3 | alias/Account選択、現Target/STS認証、読取API限定 | Synthetic offline |
-| `deploy-scope::dependency-graph` | `test_deploy_and_handoff_dependency_graph` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 8 | 共通Import/Export判定の双方向・間接依存、共通Producerのみの独立、取得不備の安全停止 | Synthetic offline |
 | `deploy-scope::checkpoint` | `check_checkpoint_uses_scoped_barrier_under_ordered_locks` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 4 | Checkpointの実変更範囲・Publication衝突、Journal/Repair排他、Commit前停止 | Synthetic offline |
 
 ## v1026v10 Change Validation residual regressions
@@ -4141,9 +4106,6 @@ These UTs exercise cache units and execution boundaries; existing generation/imp
 | Case | Function | Layer | Location | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
 | `export-scope::saved-conflicts` | `check_controller_scopes_saved_hint_conflicts` | UT | [units/cloudformation-export-resolution.checks.py](units/cloudformation-export-resolution.checks.py) | pytest / 6 | Importなし・無関係ExportのProducer/Value矛盾は非阻害、必要Exportの矛盾はBLOCKED、ImportなしのExport APIは0回 | Synthetic offline |
-| `export-scope::controller-proof` | `test_controller_passes_current_import_proof_to_independence` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 4 | delivery・Producer outputs・未完了Operationの既知ProducerはListExports 0回、未知だけ1回、同一境界Describe共有・次境界Value変更BLOCKED・無効Import除外 | Synthetic offline |
-| `export-scope::hint-conflicts` | `test_planned_hints_cannot_override_unfinished_operation_evidence` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 2 | 今回予定Importと未完了OperationのProducer/Value矛盾はAWS読取前にBLOCKED | Synthetic offline |
-| `export-scope::retained-proof` | `test_no_planned_imports_keep_unfinished_operation_export_proof` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 今回Importなしでも未完了Operationの保存済みValueとAWS実値を比較してBLOCKED | Synthetic offline |
 
 ## Explicit Model literal shapes
 
@@ -4385,7 +4347,7 @@ Task/approval/recovery cases retain their existing responsibilities.
 
 ## LLM-controlled Deploy and normal Stack checkpoints
 
-削減した Full Deploy ケースの保証移管: `before-commit` / `commit` / `receipt` / `merge` は `check_stepwise_checkpoint_publication_isolation` と `check_interrupted_publication_retries_and_cleans`。`delivery` は `check_ordered_delivery_and_observed` と `check_delivery_failure_stops_execution`（配送はCheckpoint候補外）。`base` は `check_controller_keeps_aws_success_after_rewrite_and_conflict` と `check_git_conflict_checkpoints_peers_and_recovers`。`outside` は `check_outside_change_blocks_snapshot_checkpoint`。`zero-diff` は `check_every_identifier_is_confirmed`、`check_task_completion_rechecks_checkpoint_receipts`、`check_zero_delta_checkpoint_returns_head`。
+削減した Full Deploy ケースの保証移管: `before-commit` / `commit` / `receipt` / `merge` は `check_managed_checkpoint_publication_isolation` と `check_interrupted_publication_retries_and_cleans`。`delivery` は `check_ordered_delivery_and_observed` と `check_delivery_failure_stops_execution`（配送はCheckpoint候補外）。`base` は `check_controller_keeps_aws_success_after_rewrite_and_conflict` と `check_git_conflict_checkpoints_peers_and_recovers`。`outside` は `check_outside_change_blocks_snapshot_checkpoint`。`zero-diff` は `check_every_identifier_is_confirmed`、`check_task_completion_rechecks_checkpoint_receipts`、`check_zero_delta_checkpoint_returns_head`。
 
 
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
@@ -4393,7 +4355,6 @@ Task/approval/recovery cases retain their existing responsibilities.
 | `deploy-steps::advance` | `check_advance_returns_with_running_peers_without_sync` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | One turn, parallel peers, explicit sync and DeployOrder barrier | Fake backend, no Worktree |
 | `deploy-steps::execute-once` | `check_advance_retains_original_execute_after_interruption` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Original execution token and no duplicate Execute | Fake backend |
 | `deploy-steps::unfinished` | `check_checkpoint_pending_is_unfinished_even_after_observed` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Pending checkpoint is unfinished; completed state is removed | Synthetic states |
-| `deploy-steps::legacy-retention` | `check_restore_ignores_legacy_journal_without_removing_it` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Legacy bytes retained without reading historical state | Private temporary journal |
 | `deploy-steps::coverage` | `check_every_identifier_is_confirmed` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 8 | Updated/matched, zero diff, missing state/ID and UNKNOWN literal deletion | Synthetic Model mapping and AWS replies |
 | `stack-checkpoint::restart` | `check_parallel_checkpoint_and_restart` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 1 | Parallel AWS, Model sync, Git publication, idempotent checkpoint and final completion | Managed Worktree lifecycle and Fake AWS |
 | `stack-checkpoint::guards` | `check_success_checkpoint_survives_peer_failure` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 1 | Successful peer checkpoint survives failed Stack and FAIL completion | Real Git, scoped publication and Fake AWS |
@@ -4401,7 +4362,6 @@ Task/approval/recovery cases retain their existing responsibilities.
 | `stack-checkpoint::generation-wait` | `check_generation_wait_and_resume` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 1 | Injected Producer wait uses real durable generation queue, blocks checkpoint and resumes after peer sync | Fake wait discovery; real Model/generation/Git |
 | `deploy-steps::runtime-pending` | `check_runtime_cleanup_returns_after_one_read` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Existing cleanup retains original StackId and returns after one read | Fake AWS, no wait |
 | `deploy-steps::safe-diagnostics` | `check_step_diagnostics_do_not_expose_unknown_error_values` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Authored stop reasons and hashed unknown exceptions remain distinct | Synthetic exceptions |
-| `deploy-steps::unrelated-owner` | `check_legacy_recovery_retains_unrelated_step_journal` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Compatibility recovery preserves another Task's pending step checkpoint | Signed temporary journal, no AWS |
 
 | `deploy-steps::unknown-poll` | `check_unknown_poll_stops_without_resubmit` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Unknown AWS state stops with original token and no new Execute | Fake backend |
 
@@ -4411,9 +4371,7 @@ Task/approval/recovery cases retain their existing responsibilities.
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
 | `deploy-worktree::check_start_creates_and_reuses_official_worktree` | `check_start_creates_and_reuses_official_worktree` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | start creates and reuses official worktree | Synthetic offline AWS / real managed Git lifecycle |
-| `deploy-worktree::check_git_conflict_checkpoints_peers_and_recovers` | `check_git_conflict_checkpoints_peers_and_recovers` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | git conflict checkpoints peers and recovers | Synthetic offline AWS / real managed Git lifecycle |
 | `deploy-worktree::check_controller_keeps_aws_success_after_rewrite_and_conflict` | `check_controller_keeps_aws_success_after_rewrite_and_conflict` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | controller keeps aws success after rewrite and conflict | Synthetic offline AWS / real managed Git lifecycle |
-| `deploy-worktree::check_interrupted_publication_retries_and_cleans` | `check_interrupted_publication_retries_and_cleans` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 2 | exact commit/merge intent recovery and non-force cleanup | Synthetic offline / real Git lifecycle |
 
 ## Managed Deploy snapshot unit boundaries
 
@@ -4423,28 +4381,25 @@ Task/approval/recovery cases retain their existing responsibilities.
 | `deploy-worktree::check_unmanaged_mutation_is_rejected` | `check_unmanaged_mutation_is_rejected` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 6 | unmanaged mutation is rejected | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_managed_task_authority` | `check_managed_task_authority` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 3 | managed task authority | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_git_failure_preserves_stack_success` | `check_git_failure_preserves_stack_success` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | git failure preserves stack success | Synthetic offline / no Git fixture |
-| `deploy-worktree::check_resume_adopts_only_unchanged_successes` | `check_resume_adopts_only_unchanged_successes` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 3 | resume adopts only unchanged successes | Synthetic offline / no Git fixture |
-| `deploy-worktree::check_completion_keeps_states_separate` | `check_completion_keeps_states_separate` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 12 | AWS/Observed/generation/checkpoint/Git barriers, durable mode and actual base ancestry | Synthetic offline / no Git fixture |
+| `deploy-worktree::check_completion_keeps_states_separate` | `check_completion_keeps_states_separate` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 12 | AWS/Observed/generation/checkpoint/Git barriers, pending state and actual base ancestry | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_claim_input_hash_still_blocks` | `check_claim_input_hash_still_blocks` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | claim input hash still blocks | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_conflict_records_model_values` | `check_conflict_records_model_values` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 2 | conflict records model values | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_startup_needs_only_standard_library` | `check_startup_needs_only_standard_library` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | startup needs only standard library | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_progress_uses_fixed_identity_without_git` | `check_progress_uses_fixed_identity_without_git` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | Repeated progress saves use fixed identity without Git and reject changed Task digest | Private local fixture |
-| `deploy-worktree::check_progress_preserves_success_and_omits_unowned_fields` | `check_progress_preserves_success_and_omits_unowned_fields` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 2 | Preserve success and reject Batch/Stepwise mode changes | Synthetic offline / no Git fixture |
+| `deploy-worktree::check_progress_preserves_success_and_omits_unowned_fields` | `check_progress_preserves_success_and_omits_unowned_fields` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 2 | Preserve successful attempts and omit unowned fields | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_reuse_keeps_exact_identity` | `check_reuse_keeps_exact_identity` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 5 | reuse keeps exact identity | Synthetic offline / no Git fixture |
 | `deploy-worktree::check_other_engine_retains_its_completion` | `check_other_engine_retains_its_completion` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 2 | other engine retains its completion | Synthetic offline / no Git fixture |
-| `deploy-worktree::check_unfinished_progress_requires_original_journal` | `check_unfinished_progress_requires_original_journal` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 8 | signed unfinished progress requires its original Journal; terminal failures remain independent | Synthetic offline / no Git fixture |
 | `deploy-publication::zero-delta` | `check_zero_delta_checkpoint_returns_head` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | No delta returns existing HEAD without Git commit | Synthetic state / no Git fixture |
 | `deploy-publication::source-baseline` | `check_source_scope_shares_deploy_baseline` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | Source preflight shares verified Deploy baseline and rejects scope failures | Synthetic state |
 | `deploy-publication::preflight-change` | `check_preflight_change_blocks_checkpoint` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 5 | Reject changed task, HEAD, index, candidate or paths after preflight | Synthetic state / no Git fixture |
-| `deploy-publication::direct-preflight-change` | `check_direct_checkpoint_rechecks_preflight` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 4 | Reject HEAD, index, candidate or guard failures during direct checkpoint preflight | Synthetic state / no Git fixture |
 | `deploy-publication::outside-change` | `check_outside_change_blocks_snapshot_checkpoint` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | Foreign file blocks checkpoint before Git changes; content and evidence retained | Synthetic state / no Git fixture |
 | `deploy-publication::evidence` | `check_publication_requires_exact_saved_checkpoint` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 9 | Exact Task/Target/Stack/input/tree/commit receipts and AWS success | Synthetic inputs / no Git fixture |
-| `deploy-publication::checkpoint-required` | `check_stepwise_without_receipt_never_creates_checkpoint` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 2 | Reject missing checkpoint or durable mode without local commit creation | Synthetic state / no Git fixture |
-| `deploy-publication::guidance` | `check_publication_guidance_only_offers_proven_git_retry` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 6 | PENDING retry, unconfirmed checkpoint, CONFLICT approval, SUCCESS, unknown mode and invalid intent | Synthetic state / no Git fixture |
+| `deploy-publication::checkpoint-required` | `check_publication_without_receipt_never_creates_checkpoint` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 2 | Reject missing checkpoint evidence without local commit creation | Synthetic state / no Git fixture |
+| `deploy-publication::guidance` | `check_publication_guidance_only_offers_proven_git_retry` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 6 | PENDING retry, unconfirmed checkpoint, CONFLICT approval, SUCCESS, missing progress and invalid intent | Synthetic state / no Git fixture |
 | `deploy-publication::step-actions` | `check_git_next_actions_are_exposed_until_publication_succeeds` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 3 | Expose Git recovery/Human review actions and retain all completion barriers | Synthetic states |
-| `deploy-publication::isolation` | `check_stepwise_checkpoint_publication_isolation` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 9 | Pre-checkpoint refusal; staged peer/Observed/generation isolation; before/after commit, receipt/intent/merge interruption and candidate race | Isolated real Git / scoped validator stubs |
-| `deploy-publication::final-contract` | `check_stepwise_final_contract_checkpoint` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 14 | Final tracked/ignored Task and Model share one validated source tree; adoption/commit/receipt/publication interruptions resume without extra commits | Isolated real Git / scoped validator stubs |
-| `deploy-publication::running-peer` | `check_stepwise_success_while_peer_running` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | A SUCCESS/B RUNNING; sync/checkpoint; normal, one missing and all missing receipts preserve completion and AWS/progress/publication/Git; finalize/cleanup | Fake AWS / real Model, validators and isolated Git |
+| `deploy-publication::isolation` | `check_managed_checkpoint_publication_isolation` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 9 | Pre-checkpoint refusal; staged peer/Observed/generation isolation; before/after commit, receipt/intent/merge interruption and candidate race | Isolated real Git / scoped validator stubs |
+| `deploy-publication::final-contract` | `check_managed_final_contract_checkpoint` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 14 | Final tracked/ignored Task and Model share one validated source tree; adoption/commit/receipt/publication interruptions resume without extra commits | Isolated real Git / scoped validator stubs |
+| `deploy-publication::running-peer` | `check_managed_success_while_peer_running` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | A SUCCESS/B RUNNING; sync/checkpoint; normal, one missing and all missing receipts preserve completion and AWS/progress/publication/Git; finalize/cleanup | Fake AWS / real Model, validators and isolated Git |
 | `deploy-completion::evidence` | `check_final_completion_rechecks_saved_checkpoint_evidence` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 19 | Snapshot completion is independent of individual receipts; Git candidate identity/input/tree checks remain separate across missing/old receipts, zero delta and saved candidates | Synthetic evidence; AWS success unchanged |
 | `deploy-completion::transition` | `check_task_completion_rechecks_checkpoint_receipts` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 5 | Task completion uses Snapshot integrity; Git-only receipt checks reject foreign Target/unknown commit and accept zero delta without AWS replay | Isolated real Git; unrelated quality validator stubbed |
 
@@ -4459,14 +4414,14 @@ Task/approval/recovery cases retain their existing responsibilities.
 | `registration::retry` | `check_registration_candidate_retry` | IT | [integrations/task_contract.checks.py](integrations/task_contract.checks.py) | pytest / 1 | CLI rejection, candidate repair, same Task ID registration and continuation | Added |
 
 | `deploy-preparation::instructions` | `check_instruction_changes_do_not_invalidate_registration` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 1 | 指示本文変更は登録を妨げない | Added |
-| `deploy-preparation::legacy` | `check_legacy_plan_rejected_before_changes` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 2 | 旧形式の登録・起動前拒否 | Added |
+| `deploy-preparation::unsupported-field` | `check_unsupported_preparation_field_rejected_before_changes` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 2 | 未対応fieldを登録・起動前に拒否 | Added |
 | `deploy-preparation::broken-link` | `check_broken_rule_reference_rejected` | UT | [units/deploy-required-readings.checks.py](units/deploy-required-readings.checks.py) | pytest / 2 | 不在リンクとanchorの静的検出 | Added |
 
 ## Current Deploy observations
 
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| `deploy-current::current-request-cross-worktree` | `check_current_request_is_shared_without_history_or_duplicate_execute` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 3 | Current facts, exact consent, resumable saves and no duplicate mutation | Synthetic offline files / fake AWS / real Git only where required |
+| `deploy-current::current-request-cross-worktree` | `check_current_request_is_shared_without_history_or_duplicate_execute` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | Current facts, exact consent, resumable saves and no duplicate mutation | Synthetic offline files / fake AWS / real Git only where required |
 
 | `deploy-current::test_status_classes_are_distinct` | `TestCurrentState::test_status_classes_are_distinct` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Current AWS categories, request uncertainty and snapshot/result separation | Pure classified replies and Model values |
 | `deploy-current::test_api_errors_are_never_absence` | `TestCurrentState::test_api_errors_are_never_absence` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Current AWS categories, request uncertainty and snapshot/result separation | Pure classified replies and Model values |
@@ -4508,30 +4463,10 @@ Task/approval/recovery cases retain their existing responsibilities.
 
 ## Worktree Deploy repair performance responsibilities
 
-Repair ITは旧1関数4条件（normal/merge × batch/steps）から2関数3条件。
-実Controllerの失敗証拠を各ケースで正式APIへ渡し、Request/Validation/Result/署名は手作りしない。
-runner・Receipt・reachability・Worktree責務登録を維持する。性能結果は完了報告で示す。
-
-| 旧Assertion / 検証責務 | 現在の保証先 |
-| --- | --- |
-| Controller失敗、正式Failure/Request/Checkpoint、親tipの一致 | `failed_request` を通る全3条件。Merge復旧では初回Controllerだけ実行 |
-| 子の排他、固定親tip、正式契約、許可IaCだけの修正 | `managed_delivery` を通る全3条件 |
-| 不正YAMLの実Validation拒否、static回数、suspend→resume | normal batchで一度実行。stepsでの同一Validator異常入力反復を除去 |
-| 実CLI create / repair-validate / finalizeとfresh Validation | normal batch/steps両条件。Merge復旧は同じ正式APIと実fresh子Validation |
-| 実FF直後の例外、永続StateからFinalize再実行 | `check_merge_recovery`。中断前後の同一Commit、追加Commitなし、重複FFなし、Request/Validation保持を明示検証 |
-| Result/Request除去、子Cleanup、親Task再開、accepted_changes | 全3条件 |
-| 修復後の独立Deploy、未完了Journal消滅、最終fresh Model/入力検証 | normal batch/steps両条件。Merge復旧の重複Deploy/最終loopを除去し、非修復入力hash保持を直接確認 |
-
-Worktree認可UTは実Git/Worktreeを作らず、live HEAD/state/登録の再読込、branch削除/変更/lock/stale、merged、Python setup、Task digest、Lifecycle、Checkpoint正当性、競合/未完了Git、Git失敗、Repositoryバッチ読取の曖昧時fallbackを検証する。
-現在要求の送信前保存と固定入力を保持する。旧mode/Journal完了は通常Deployの条件とせず、現在AWSと今回の試行結果を分離して検証する。
-
-| `deploy-current::handoff-current` | `check_handoff_uses_current_state_without_journal` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 3 | Current stack state governs repair handoff | Offline fake AWS |
-| `deploy-current::keyless-progress` | `check_progress_ignores_legacy_files_without_key` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 6 | Old progress and key do not affect current saves | Private local fixtures |
-| `deploy-current::keyless-index` | `check_deploy_builds_missing_index_without_old_seal` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Derive index from current Model without old key | Synthetic Model |
-| `deploy-current::intermediate-sync` | `check_intermediate_sync_does_not_finish_unattempted_deploy` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 2 | Intermediate sync cannot complete unattempted work | Pure states |
-| `deploy-current::failed-unstarted` | `check_failed_attempt_can_finish_with_unstarted_stack` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Failed result permits unstarted later stack | Pure states |
-| `deploy-current::missing-changeset-event` | `TestCurrentState::test_missing_change_set_requires_terminal_original_root_event` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Retire request only with matching root event | Fake AWS |
-| `deploy-current::failure-snapshot` | `check_failed_snapshot_with_unstarted_stack_publishes` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | Publish failed and unstarted Stack observations with completed Task | Synthetic observations and real Git; validation mocked |
+Repair ITは現行actionによる通常修復とMerge中断復旧の2関数2入口。
+通常修復は実Controller失敗、正式Request、異常IaC拒否、子Validation、Commit/FF/Cleanup、独立Deploy、fresh Validationを実行する。
+Merge復旧は正式Requestと実Git FF直後の中断、同じ保存状態での再開、入力・証拠保全とcleanupを検証する。
+旧batch入口や旧Journal再生の互換ケースは実行しない。
 
 ## Offline Import adapter contracts
 
@@ -4591,3 +4526,23 @@ Reset CLI、本体および専用UT/ITを削除。混在節のWorktree/Git復旧
 | `deploy-final::create-recovery` | `check_unconfirmed_create_preserves_original_recovery_identity` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Missing CreateChangeSet triggers same-input/name/token recovery without releasing the request | Local request file / fake AWS |
 
 | `deploy-final::untracked-cleanup` | `check_untracked_cleanup_uses_only_published_exact_task` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 8 | Cleanup uses only exact published completed Task bytes, restores an interrupted own removal, rejects foreign edits/identity/tree and preserves tracked contracts | Local file / synthetic lifecycle |
+
+## Deploy Legacy経路削除
+
+旧batch `run_deploy`/自動sync、operation Journal read/save/recover、非current modeのGit公開、検証済み候補なしの直接checkpointを削除。
+旧方式専用ケースは削除し、世代別mode行列を現行の明示actionだけに統一した。
+current requestの元Token・identity照合・OS lock、保存候補の再開、Model/View生成、Git公開・cleanup、現行update・repairは維持する。
+生成専用ケースはgeneration.runを直接検証し、Runtimeの業務判定はテストsupervisorがbounded turn・明示観測・許可済みrepairを選択する。
+共通lockのプロセス終了時解放・同inode維持・要求bytes保全は既存cross-worktree IT内で検証する。
+関連UTと構文/import/Ruff/収集・登録整合、Framework最終候補検証のみをローカル実行し、IT本体・Full IT・性能・AWSは実行しない。
+
+| `deploy-current::failed-final` | `check_failed_snapshot_with_unstarted_stack_publishes` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 2 | FAIL/UNKNOWNと未実行理由を保持した最終候補をcheckpoint・公開・finalize・cleanupする | Current explicit actions / isolated Git |
+
+| `deploy-current::handoff-current` | `check_handoff_uses_current_state_without_journal` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 3 | Current stack state governs repair handoff | Offline fake AWS |
+| `deploy-current::keyless-index` | `check_deploy_builds_missing_index_without_old_seal` | UT | [units/deploy-lazy-inputs.checks.py](units/deploy-lazy-inputs.checks.py) | pytest / 1 | Derive index from current Model without old key | Synthetic Model |
+| `deploy-current::intermediate-sync` | `check_intermediate_sync_does_not_finish_unattempted_deploy` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 2 | Intermediate sync cannot complete unattempted work | Pure states |
+| `deploy-current::failed-unstarted` | `check_failed_attempt_can_finish_with_unstarted_stack` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Failed result permits unstarted later stack | Pure states |
+| `deploy-current::missing-changeset-event` | `TestCurrentState::test_missing_change_set_requires_terminal_original_root_event` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Retire request only with matching root event | Fake AWS |
+
+| `independent-deploy::test_no_change_still_checks_all_four_kms_exports` | `test_no_change_still_checks_all_four_kms_exports` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |
+| `independent-deploy::test_kms_four_exports_update_and_no_change_require_aws_facts` | `test_kms_four_exports_update_and_no_change_require_aws_facts` | UT | [units/deploy-operation-journal-unit.checks.py](units/deploy-operation-journal-unit.checks.py) | pytest / 1 | 現在入力/未完了操作/単発修復の境界と過去状態非依存 | 追加 |

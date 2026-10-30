@@ -17,7 +17,6 @@ import pytest
 from deploy import observed
 from deploy import observed_resume as M
 from deploy import run_context as controller
-from support.cloudformation_deploy_fixtures import Fake, starts
 from support.pytest_cli import run
 from task_contract_core import selected_task, task_snapshot
 from utils.cloudformation.inputs import Blocked
@@ -364,87 +363,6 @@ def check_exact_task_bytes_bound(proposal):
     changed = M._identity(root, session, {}, "dev", "team")
     assert original["taskDigest"] == changed["taskDigest"]
     assert original["taskBytes"] != changed["taskBytes"]
-
-
-def _callback_check_pending_plan_drained_peer_barrier_sync(
-    calls, session, /, backend, units, states
-):
-    pending = session.get("pendingObserved")
-    names = list(pending["evidence"]) if pending else [u["name"] for u in units]
-    calls.append(names)
-    for name in names:
-        states[name]["observedSynced"] = True
-
-
-def _callback_check_pending_plan_drained_peer_barrier_save(saves, session, /):
-    saves.append(
-        [
-            name
-            for name, state in session["states"].items()
-            if state.get("observedSynced")
-        ]
-    )
-
-
-def check_pending_plan_drained_peer_barrier():
-    units = [{"name": name, "deployOrder": 10} for name in ("A", "B")]
-    session = {
-        "states": {name: {"status": "SUCCESS"} for name in ("A", "B")},
-        "pendingObserved": {"evidence": {"A": {}}},
-        "metrics": {"observedSyncSeconds": 0},
-    }
-    calls, saves = [], []
-    sync = _bind_framework_callback(
-        _callback_check_pending_plan_drained_peer_barrier_sync, calls, session
-    )
-    save = _bind_framework_callback(
-        _callback_check_pending_plan_drained_peer_barrier_save, saves, session
-    )
-    with (
-        patch.object(controller, "sync_successful", sync),
-        patch.object(controller, "run_group", return_value="COMPLETE"),
-    ):
-        assert (
-            controller.run_deploy(units, 2, session, SimpleNamespace(), save)
-            == "COMPLETE"
-        )
-    assert calls == [["A"], ["B"]] and saves == [["A"], ["A", "B"]]
-
-
-@pytest.mark.parametrize("guard", [False, True])
-@pytest.mark.parametrize("pending_stage", [None, "MODEL_PUBLISHED"])
-def check_original_failure_retained(guard, pending_stage):
-    units = [{"name": "A", "deployOrder": 10}]
-    session = {
-        "states": {"A": {"status": "SUCCESS"}},
-        "metrics": {"observedSyncSeconds": 0},
-        "observedError": "original design I/O failure",
-        "observedFailures": [
-            {"stage": "MODEL_PUBLISHED", "cause": "original design I/O failure"}
-        ],
-        "pendingGeneration": {"view": {"generated": {"outputs": None}}},
-    }
-    if pending_stage:
-        session["pendingObserved"] = {"stage": pending_stage}
-    backend = SimpleNamespace()
-    if guard:
-        backend.guard = Mock(side_effect=Blocked("later guard refusal"))
-    with patch.object(
-        controller, "sync_successful", side_effect=Blocked("later guard refusal")
-    ):
-        assert (
-            controller.run_deploy(units, 1, session, backend, lambda: None) == "STOPPED"
-        )
-    assert session["observedError"] == "original design I/O failure"
-    assert session["observedRecoveryError"] == "later guard refusal"
-    assert session["observedFailures"][0]["stage"] == "MODEL_PUBLISHED"
-    assert session["observedFailures"][1] == {
-        "stage": pending_stage or "PLANNING",
-        "cause": "later guard refusal",
-    }
-    assert "generationError" not in session
-    assert not session["states"]["A"].get("observedSynced")
-    assert backend.sync_failed
 
 
 @pytest.mark.parametrize(
@@ -880,10 +798,6 @@ def check_finish_transfers_v16_candidates(owned_proposal, committed):
     )
 
 
-def failing_session_sync(backend, units, states):
-    raise OSError("design publication failed")
-
-
 @pytest.mark.parametrize("pending", [False, True])
 def check_run_context_owns_observed_publication(proposal, pending):
     root, context, source, _, new = proposal
@@ -907,74 +821,6 @@ def check_run_context_owns_observed_publication(proposal, pending):
     finish.assert_called_once_with(backend, units)
     direct_publish.assert_not_called()
     assert collect.call_count == prepare.call_count == int(not pending)
-
-
-def check_session_sync_failure_drains_and_resumes():
-    units = [
-        {
-            "name": name,
-            "deployOrder": order,
-            "template": "app.yaml",
-            "parameters": name + ".json",
-        }
-        for name, order in [("A", 10), ("B", 10), ("D", 10), ("C", 20)]
-    ]
-    session = {
-        "states": {
-            "A": {"status": "SUCCESS", "executionEvidence": {"clientToken": "a"}},
-            "B": {"status": "RUNNING", "executionEvidence": {"clientToken": "b"}},
-            "D": {"status": "SUCCESS", "observedSynced": True},
-            "C": {"status": "NOT_STARTED"},
-        },
-        "pendingObserved": {"stage": "MODEL_PUBLISHED", "evidence": {"A": {}}},
-        "metrics": {"observedSyncSeconds": 0},
-    }
-    backend = Fake({"B": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]})
-    backend.running.add("B")
-    proof = {
-        name: copy.deepcopy(session["states"][name]["executionEvidence"])
-        for name in ("A", "B")
-    }
-    with patch.object(controller, "sync_successful", side_effect=failing_session_sync):
-        assert (
-            controller.run_deploy(
-                units, 2, session, backend, lambda: None, sleep=lambda _: None
-            )
-            == "STOPPED"
-        )
-    assert all(
-        session["states"][name]["status"] == "SUCCESS"
-        and not session["states"][name].get("observedSynced")
-        for name in proof
-    )
-    assert (
-        session["states"]["C"]["status"] == "NOT_STARTED"
-        and not starts(backend)
-        and not backend.running
-    )
-    assert session["observedFailures"] == [
-        {"stage": "MODEL_PUBLISHED", "cause": "design publication failed"}
-    ]
-    assert session["pendingObserved"]["evidence"] == {"A": {}}
-    calls = []
-    sync = _bind_framework_callback(
-        _callback_check_pending_plan_drained_peer_barrier_sync, calls, session
-    )
-    with patch.object(controller, "sync_successful", side_effect=sync):
-        assert (
-            controller.run_deploy(
-                units, 2, session, backend, lambda: None, sleep=lambda _: None
-            )
-            == "COMPLETE"
-        )
-    assert calls == [["A"], ["B"], ["C"]] and starts(backend) == ["C"]
-    assert {
-        name: session["states"][name]["executionEvidence"] for name in proof
-    } == proof
-    assert (
-        "pendingObserved" not in session
-        and session["observedFailures"][0]["cause"] == "design publication failed"
-    )
 
 
 @pytest.mark.parametrize(

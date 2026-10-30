@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -39,7 +40,6 @@ from support.worktree_deploy_fixtures import seed
 from support.worktree_task_fixtures import fixture, git
 from task_contract_core import read_task_snapshot, selected_task, set_status, start
 from utils.aws.client import AwsError
-from utils.sealed_evidence import evidence_store as old_store
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -51,7 +51,6 @@ def pin_progress(backend, identity):
     backend.progress_directory = backend.run_context.get("directory")
     backend.progress_destination = worktree.progress_path(backend.root, create=True)
     backend.run_context["repository"] = str(backend.root)
-    backend.run_context.setdefault("stepwise", False)
     backend.run_context.setdefault("consumedInputs", {})
     backend.run_context.setdefault("stepUnits", [])
     backend.target = identity["target"]
@@ -123,10 +122,41 @@ class RequestProbe:
         return {"Id": arguments.get("ChangeSetName"), "StackId": arguments["StackName"]}
 
 
-@pytest.mark.parametrize("legacy", [None, b"{}", b"{broken"])
-def check_current_request_is_shared_without_history_or_duplicate_execute(
-    tmp_path, legacy
-):
+def assert_request_lock_survives_process_exit(path):
+    original = path.read_bytes()
+    script = "from pathlib import Path; import sys; from deploy.operation_journal import locked\nwith locked(Path(sys.argv[1])):\n print('READY', flush=True)\n sys.stdin.read()\n"
+    environment = {
+        **os.environ,
+        "PYTHONPATH": str(Path(operation_journal.__file__).resolve().parents[1]),
+    }
+    process = subprocess.Popen(
+        [sys.executable, "-B", "-c", script, str(path)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=environment,
+    )
+    try:
+        assert process.stdout.readline().strip() == "READY"
+        inode = path.with_suffix(".lock").stat().st_ino
+        with pytest.raises(ValueError, match="lock busy"):
+            with operation_journal.locked(path):
+                raise AssertionError("concurrent request lock acquired")
+        process.kill()
+        process.wait(timeout=5)
+        with operation_journal.locked(path):
+            assert path.with_suffix(".lock").stat().st_ino == inode
+            assert path.read_bytes() == original
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close()
+
+
+def check_current_request_is_shared_without_history_or_duplicate_execute(tmp_path):
     case = TestCase()
     with (
         fixture() as primary,
@@ -144,9 +174,6 @@ def check_current_request_is_shared_without_history_or_duplicate_execute(
         one = SimpleNamespace(root=first, target=target, aws=probe.aws, states=states)
         two = SimpleNamespace(root=second, target=target, aws=probe.aws, states=states)
         journal = tmp_path / "operations/journal.json"
-        if legacy is not None:
-            journal.parent.mkdir(mode=0o700)
-            journal.write_bytes(legacy)
         with patch.object(operation_journal, "location", return_value=journal):
             arguments = {
                 "StackName": "Example",
@@ -166,7 +193,10 @@ def check_current_request_is_shared_without_history_or_duplicate_execute(
                     probe.send,
                 )
             case.assertEqual(probe.tokens, [("Example", "original")])
-            assert (journal.read_bytes() if journal.exists() else None) == legacy
+            assert not journal.exists()
+            assert_request_lock_survives_process_exit(
+                current_request.location(target, "Example")
+            )
             probe.finished = True
             settled = current_request.reconcile(two, {"name": "Example"})
             case.assertTrue(settled["settled"])
@@ -353,226 +383,44 @@ def check_start_creates_and_reuses_official_worktree(monkeypatch):
         runtime.guard.assert_called_once()
 
 
-def check_git_conflict_checkpoints_peers_and_recovers(monkeypatch, tmp_path):
-    # This case isolates real Git retention; the controller case below runs real Model guards.
-    with (
-        fixture() as primary,
-        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
-        patch.object(
-            wt.python_env, "runtime", return_value=(sys.executable, dict(os.environ))
-        ),
-        patch.object(publication, "check_scope"),
-        patch.object(wt, "_run_model_guard"),
-        patch.object(publication, "validate_candidate"),
-    ):
-        relative = "model/dev/a/ec2.properties"
-        source = primary / relative
-        source.parent.mkdir(parents=True)
-        source.write_text("# model-format: 2\nobserved.row.001-001.value=`before`\n")
-        git(primary, "add", relative)
-        git(primary, "commit", "-qm", "Model fixture")
-        state = worktree.start(primary, "deploy")
-        root = Path(state["worktree"])
-        name = state["task_file"]
-        start(root, name, deploy_contract(name, [relative, "file.txt"]))
-        with selected_task(root, name):
-            identity = worktree.bind(
-                root, read_task_snapshot(root, name), {}, "dev", ["A", "B"]
-            )
-            backend = SimpleNamespace(
-                root=root,
-                phase="deploy",
-                run_context={
-                    "taskFile": name,
-                    "states": {
-                        "A": {"status": "SUCCESS", "observedSynced": True},
-                        "B": {"status": "NOT_STARTED"},
-                    },
-                    "inputDigests": {"A": "digest"},
-                },
-                save=Mock(),
-            )
-            pin_progress(backend, identity)
-            worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-            (root / relative).write_text(
-                "# model-format: 2\nobserved.row.001-001.value=`aws`\n"
-            )
-            source.write_text("# model-format: 2\nobserved.row.001-001.value=`main`\n")
-            git(primary, "add", relative)
-            git(primary, "commit", "-qm", "Conflicting main observation")
-            result = publication.publish(root, "deploy")
-            assert (
-                result["status"] == "CONFLICT"
-                and result["conflicts"][0]["items"][0]["deployed"] == "`aws`"
-            )
-            first = git(root, "rev-parse", "HEAD")
-            (root / "file.txt").write_text("Independent Stack B\n")
-            backend.run_context["states"]["B"] = {
-                "status": "SUCCESS",
-                "observedSynced": True,
-            }
-            backend.run_context["inputDigests"]["B"] = "b-digest"
-            worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-            publication.sync(backend)
-            assert publication.display(backend)["status"] == "CONFLICT"
-            assert git(root, "rev-parse", "HEAD") != first
-            assert (primary / "file.txt").read_text() == "original\n"
-            result = publication.publish(root, "deploy")
-            resolution = tmp_path / "resolution.json"
-            resolution.write_text(
-                json.dumps(
-                    {
-                        "approval": "Fixture Human chooses the AWS observation",
-                        "base": result["base"],
-                        "source": result["source"],
-                        "files": {relative: (root / relative).read_text()},
-                    }
-                )
-            )
-            assert (
-                publication.publish(root, "deploy", resolution)["status"] == "SUCCESS"
-            )
-            assert (
-                source.read_text()
-                == "# model-format: 2\nobserved.row.001-001.value=`aws`\n"
-            )
-            assert (primary / "file.txt").read_text() == "Independent Stack B\n"
-            assert all(
-                s["status"] == "SUCCESS" for s in backend.run_context["states"].values()
-            )
-            assert not wt.changed_paths(root) and not wt.changed_paths(primary)
-
-
-def publish_unstarted_snapshot(settled):
-    with (
-        fixture() as primary,
-        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
-        patch.object(
-            wt.python_env, "runtime", return_value=(sys.executable, dict(os.environ))
-        ),
-        patch.object(publication, "check_scope"),
-        patch.object(wt, "_run_model_guard"),
-        patch.object(publication, "validate_candidate"),
-    ):
-        relative = "model/dev/a/ec2.properties"
-        source = primary / relative
-        source.parent.mkdir(parents=True)
-        source.write_text("# model-format: 2\nobserved.row.001-001.value=`before`\n")
-        name = "tasks/deploy.md"
-        (primary / name).parent.mkdir()
-        (primary / name).write_text(deploy_contract(name, [relative]))
-        git(primary, "add", "-f", name)
-        git(primary, "add", relative)
-        git(primary, "commit", "-qm", "Model fixture")
-        state = wt.create(primary, "deploy")
-        root = Path(state["worktree"])
-        name = state["task_file"]
-        with selected_task(root, name):
-            identity = worktree.bind(
-                root,
-                read_task_snapshot(root, name),
-                {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
-                "dev",
-                ["A", "B", "C"],
-            )
-            states = {
-                "A": {
-                    "status": "SUCCESS",
-                    "observedSynced": True,
-                    "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
-                },
-                "B": {
-                    "status": "SETTLED" if settled else "FAILED",
+@pytest.mark.parametrize("settled", [False, True])
+def check_failed_snapshot_with_unstarted_stack_publishes(settled):
+    with managed_repository() as (primary, backend, relative):
+        for name in ("A", "B"):
+            synchronized_candidate(backend, relative, name)
+            if name == "A":
+                backend.states[name].update(
+                    status="SETTLED" if settled else "FAILED",
                     **({"attemptResult": "UNKNOWN"} if settled else {}),
-                    "observedSynced": True,
-                    "currentStack": {
-                        "StackStatus": "UPDATE_COMPLETE"
-                        if settled
-                        else "UPDATE_ROLLBACK_COMPLETE"
-                    },
-                },
-                "C": {
-                    "status": "NOT_STARTED",
-                    "observedSynced": True,
-                    "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
-                },
-            }
-            backend = SimpleNamespace(
-                root=root,
-                phase="deploy",
-                run_context={
-                    "taskFile": name,
-                    "states": states,
-                    "stepwise": False,
-                    "inputDigests": {},
-                    "stepUnits": [
-                        {"name": "A", "deployOrder": 1},
-                        {"name": "B", "deployOrder": 1},
-                        {"name": "C", "deployOrder": 2},
-                    ],
-                    "deployResult": "UNKNOWN" if settled else "FAIL",
-                    "snapshotValidation": "PASS",
-                },
-            )
-            pin_progress(backend, identity)
-            worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-            (root / relative).write_text(
-                "# model-format: 2\nobserved.row.001-001.value=`aws`\n"
-            )
-            states["C"]["unexecutedReason"] = (
-                "DEPLOY_ENDED_WITHOUT_EXECUTION"
-                if settled
-                else "PREVIOUS_DEPLOY_ORDER_FAILED"
-            )
-            snapshot = read_task_snapshot(root, name, live=True)
-            backend.states = states
-            backend.guard = Mock()
-            backend.save = partial(
-                worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
-            )
-            backend.run_context["checkpointPending"] = {
-                "stacks": [],
-                "before": {relative: "before"},
-                "after": contracts.validation_snapshot(root),
-                "final": {
-                    "taskBefore": snapshot.text,
-                    "taskAfter": set_status(snapshot.text, "completed"),
-                },
-            }
-            backend.save()
-            checkpoints.snapshot_checkpoint(backend, [])
-            publication.publish(root, "deploy")
-            saved = worktree.read_progress(root, wt.load(root, "deploy")[3])[
-                "runContext"
-            ]
-            TestCase().assertEqual(
-                saved["states"]["C"]["unexecutedReason"],
-                states["C"]["unexecutedReason"],
-            )
-            result = publication.finalize(root, "deploy")
-            assert result["verified"] and result["merged"]
-            assert source.read_text().endswith("observed.row.001-001.value=`aws`\n")
-            assert read_task_snapshot(primary, name, live=True).status == "completed"
-            progress = worktree.read_progress(root, result)
-            assert progress["runContext"]["deployResult"] == (
-                "UNKNOWN" if settled else "FAIL"
-            )
-            if settled:
-                assert (
-                    progress["runContext"]["states"]["B"]["attemptResult"] == "UNKNOWN"
                 )
-            assert progress["runContext"]["states"]["C"]["status"] == "NOT_STARTED"
-            old = old_store(root)
-            (old / "seal.key").write_bytes(b"broken")
-            receipt = old / "deploy.json"
-            receipt.write_text("{broken", encoding="utf-8")
-            assert wt.cleanup(primary, "deploy")["cleaned"]
-            assert receipt.read_text(encoding="utf-8") == "{broken"
-
-
-def check_failed_snapshot_with_unstarted_stack_publishes():
-    publish_unstarted_snapshot(False)
-    publish_unstarted_snapshot(True)
+                checkpoints.snapshot_checkpoint(backend, [name])
+                publication.publish(backend.root, "deploy")
+        backend.states["B"].update(
+            status="NOT_STARTED",
+            unexecutedReason="DEPLOY_ENDED_WITHOUT_EXECUTION"
+            if settled
+            else "PREVIOUS_DEPLOY_ORDER_FAILED",
+        )
+        backend.run_context["deployResult"] = "UNKNOWN" if settled else "FAIL"
+        snapshot = read_task_snapshot(backend.root, "tasks/deploy.md", live=True)
+        backend.run_context["checkpointPending"]["final"] = {
+            "taskBefore": snapshot.text,
+            "taskAfter": set_status(snapshot.text, "completed"),
+        }
+        backend.save()
+        checkpoints.snapshot_checkpoint(backend, ["B"])
+        publication.publish(backend.root, "deploy")
+        result = publication.finalize(backend.root, "deploy")
+        saved = worktree.read_progress(backend.root, result)["runContext"]
+        assert saved["deployResult"] == ("UNKNOWN" if settled else "FAIL")
+        assert saved["states"]["B"]["status"] == "NOT_STARTED"
+        if settled:
+            assert saved["states"]["A"]["attemptResult"] == "UNKNOWN"
+        assert (
+            read_task_snapshot(backend.root, "tasks/deploy.md", live=True).status
+            == "completed"
+        )
+        assert wt.cleanup(primary, "deploy")["cleaned"]
 
 
 def run_controller(root, report, aws):
@@ -722,72 +570,8 @@ def interrupt_git(actual, owner, boundary, root, *args, **kwargs):
     return result
 
 
-@pytest.mark.parametrize("boundary", ["commit", "merge"])
-def check_interrupted_publication_retries_and_cleans(monkeypatch, boundary):
-    with (
-        fixture() as primary,
-        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
-        patch.object(
-            wt.python_env, "runtime", return_value=(sys.executable, dict(os.environ))
-        ),
-        patch.object(publication, "check_scope"),
-        patch.object(wt, "_run_model_guard"),
-        patch.object(publication, "validate_candidate"),
-    ):
-        state = worktree.start(primary, "deploy")
-        root = Path(state["worktree"])
-        name = state["task_file"]
-        start(root, name, deploy_contract(name, ["file.txt"]))
-        with selected_task(root, name):
-            identity = worktree.bind(
-                root, read_task_snapshot(root, name), {}, "dev", ["A"]
-            )
-            backend = SimpleNamespace(
-                root=root,
-                phase="deploy",
-                run_context={
-                    "states": {"A": {"status": "SUCCESS", "observedSynced": True}},
-                    "inputDigests": {"A": "hash"},
-                },
-            )
-            pin_progress(backend, identity)
-            worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-            (root / "file.txt").write_text("Task output\n")
-            owner = root if boundary == "commit" else primary
-            with patch.object(
-                wt, "git", partial(interrupt_git, wt.git, owner, boundary)
-            ):
-                with pytest.raises(OSError, match="interrupted"):
-                    publication.publish(root, "deploy")
-            assert publication.publish(root, "deploy")["status"] == "SUCCESS"
-            assert (primary / "file.txt").read_text() == "Task output\n"
-            snapshot = read_task_snapshot(root, name, live=True)
-            backend.states = backend.run_context["states"]
-            backend.states["A"]["currentStack"] = {"StackStatus": "UPDATE_COMPLETE"}
-            backend.guard = Mock()
-            backend.save = partial(
-                worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
-            )
-            snapshot_files = contracts.validation_snapshot(root)
-            backend.run_context["checkpointPending"] = {
-                "stacks": [],
-                "before": snapshot_files,
-                "after": snapshot_files,
-                "final": {
-                    "taskBefore": snapshot.text,
-                    "taskAfter": set_status(snapshot.text, "completed"),
-                },
-            }
-            backend.save()
-            checkpoints.snapshot_checkpoint(backend, [])
-            publication.publish(root, "deploy")
-            publication.finalize(root, "deploy")
-            assert wt.cleanup(primary, "deploy")["cleaned"]
-            assert not root.exists() and not wt.branch_exists(primary, state["branch"])
-
-
 @contextmanager
-def stepwise_repository(tracked_contract=False, untracked_contract=False):
+def managed_repository(tracked_contract=False, untracked_contract=False):
     with (
         fixture() as primary,
         patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
@@ -845,7 +629,6 @@ def stepwise_repository(tracked_contract=False, untracked_contract=False):
                 "taskFile": name,
                 "taskDigest": task.task_digest,
                 "directory": "app",
-                "stepwise": True,
                 "stepUnits": units,
                 "inputDigests": {},
                 "consumedInputs": {},
@@ -943,8 +726,8 @@ def change_publication_candidate(root, tree, base, task):
         "candidate-change",
     ],
 )
-def check_stepwise_checkpoint_publication_isolation(boundary):
-    with stepwise_repository() as (primary, backend, relative):
+def check_managed_checkpoint_publication_isolation(boundary):
+    with managed_repository() as (primary, backend, relative):
         root = backend.root
         synchronized_candidate(backend, relative, "A")
         base = git(primary, "rev-parse", "HEAD")
@@ -1039,8 +822,8 @@ def check_stepwise_checkpoint_publication_isolation(boundary):
     "boundary", [None, "adopt", "before-commit", "commit", "receipt", "intent", "merge"]
 )
 @pytest.mark.parametrize("tracked", [False, True])
-def check_stepwise_final_contract_checkpoint(boundary, tracked):
-    with stepwise_repository(tracked_contract=tracked) as (primary, backend, relative):
+def check_managed_final_contract_checkpoint(boundary, tracked):
+    with managed_repository(tracked_contract=tracked) as (primary, backend, relative):
         root = backend.root
         synchronized_candidate(backend, relative, "A")
         checkpoints.snapshot_checkpoint(backend, ["A"])
@@ -1123,7 +906,7 @@ def interrupt_final_adoption(real, outputs, **kwargs):
     "problem", ["target", "commit", "zero", "coverage", "services"]
 )
 def check_task_completion_rechecks_checkpoint_receipts(problem):
-    with stepwise_repository() as (primary, backend, relative):
+    with managed_repository() as (primary, backend, relative):
         root = backend.root
         for name in ["A", "B"]:
             if name == "B" and problem == "zero":
@@ -1171,7 +954,7 @@ def check_task_completion_rechecks_checkpoint_receipts(problem):
         assert worktree.read_progress(root, state)["runContext"]["states"] == before
 
 
-def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
+def check_managed_success_while_peer_running(tmp_path, monkeypatch):
     report, aws = tmp_path / "report.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", report, "orders", same_group=True)
     primary = Path(ws.load(root, "deploy")[0])
@@ -1319,7 +1102,7 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
 @pytest.mark.parametrize("mode", ["tracked", "ignored", "untracked"])
 def check_final_zero_model_delta_keeps_exact_source_history(mode):
     tracked = mode == "tracked"
-    with stepwise_repository(
+    with managed_repository(
         tracked_contract=tracked, untracked_contract=mode == "untracked"
     ) as (primary, backend, relative):
         for name in ("A", "B"):
@@ -1369,7 +1152,7 @@ def interrupt_untracked_cleanup(real, root, *args, **kwargs):
 
 
 def check_failed_final_validation_keeps_running_task_and_saved_model():
-    with stepwise_repository(tracked_contract=True) as (primary, backend, relative):
+    with managed_repository(tracked_contract=True) as (primary, backend, relative):
         for name in ("A", "B"):
             synchronized_candidate(backend, relative, name)
             if name == "A":
@@ -1444,7 +1227,6 @@ def check_old_worktree_reconciles_released_identity_without_removing_new_request
             "executionEvidence": {"StackId": "old-id"},
         }
         context = {
-            "stepwise": True,
             "stepUnits": [{"name": "A", "deployOrder": 1}],
             "directory": "app",
             "states": {"A": state},
@@ -1519,7 +1301,7 @@ def mutate_final_input(kind, relative, root, tree, base, task):
 
 @pytest.mark.parametrize("kind", ["task", "input", "head", "index", "candidate"])
 def check_final_candidate_external_changes_stop_before_adoption(kind):
-    with stepwise_repository(tracked_contract=True) as (primary, backend, relative):
+    with managed_repository(tracked_contract=True) as (primary, backend, relative):
         root = backend.root
         for name in ("A", "B"):
             synchronized_candidate(backend, relative, name)

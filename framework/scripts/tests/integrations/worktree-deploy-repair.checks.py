@@ -23,7 +23,6 @@ from support.deploy_controller_fixtures import (
     aws_state,
     child_environment,
     clients,
-    drive,
     git,
     invoke,
 )
@@ -108,19 +107,13 @@ def validate_parent(parent):
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
 
-def failed_request(
-    tmp_path: Path, monkeypatch, mode: str
-) -> tuple[Path, Path, Path, dict, str]:
+def failed_request(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dict, str]:
     report, aws = tmp_path / "run.json", tmp_path / "aws.json"
     parent = seed(tmp_path / "project", report, "repair")
     monkeypatch.chdir(parent)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
     aws_state(aws, repair=True)
-    assert (
-        drive_steps(parent, report, aws)
-        if mode == "steps"
-        else drive(parent, report, aws)
-    ) == 2
+    assert (drive_steps(parent, report, aws)) == 2
     saved = json.loads(report.read_text())
     relative = "infra/cloudformation/templates/second.yaml"
     model = f"model/dev/{ACCOUNT}/ec2.properties"
@@ -171,12 +164,11 @@ def failed_request(
     return parent, report, aws, request, relative
 
 
-@pytest.mark.parametrize("mode", ["batch", "steps"])
-def check_external_implement_round_trip(tmp_path, monkeypatch, mode):
-    parent, report, aws, request, relative = failed_request(tmp_path, monkeypatch, mode)
+def check_external_implement_round_trip(tmp_path, monkeypatch):
+    parent, report, aws, request, relative = failed_request(tmp_path, monkeypatch)
     request_path = Path(request["requestPath"])
     request, result_path = managed_delivery(
-        parent, request, relative, "normal", reject_invalid=mode == "batch"
+        parent, request, relative, "normal", reject_invalid=True
     )
     assert git(parent, "rev-parse", "HEAD").strip() == request["commit"]
     assert not result_path.exists() and not request_path.parent.exists()
@@ -185,18 +177,14 @@ def check_external_implement_round_trip(tmp_path, monkeypatch, mode):
             parent, (parent / "tasks/deploy.md").read_text(), {relative}
         ) == {relative}
     # Independent current-input Deploy is a separate invocation, with no result/session entrance.
-    assert (
-        drive_steps(parent, report, aws)
-        if mode == "steps"
-        else drive(parent, report, aws)
-    ) == 0
+    assert (drive_steps(parent, report, aws)) == 0
     assert not report.with_suffix(".operations.json").exists()
     validate_parent(parent)
 
 
 def check_merge_recovery(tmp_path, monkeypatch):
     # The real failed controller supplies the Request; only Git recovery is replayed.
-    parent, _, _, request, relative = failed_request(tmp_path, monkeypatch, "batch")
+    parent, _, _, request, relative = failed_request(tmp_path, monkeypatch)
     before = {
         name: sha(parent / name) for name in request["inputs"] if name != relative
     }

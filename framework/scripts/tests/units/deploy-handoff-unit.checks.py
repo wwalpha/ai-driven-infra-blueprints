@@ -689,7 +689,6 @@ def check_handoff_uses_current_state_without_journal(tmp_path, status):
         patch.object(handoff, "dependency_reader", return_value=reader),
         patch.object(handoff.current_request, "location", return_value=path),
         patch.object(handoff.current_state, "read", return_value=current),
-        patch.object(J, "read", side_effect=AssertionError("old journal consulted")),
     ):
         if status == "UPDATE_COMPLETE":
             handoff.require_settled(tmp_path, request)

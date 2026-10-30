@@ -211,13 +211,6 @@ uncertain Execute; inspect its ChangeSet and token events. Retire a confirmed AW
 request before Model/Git work. No TTL/PID inference or old Task/Outputs/checkpoint proof.
 Corruption affects only that Stack's new mutation; other Stacks and Snapshot saves continue.
 
-The account/Region compatibility lock also excludes old running controllers during
-one-time format conversion. Preserve the raw old journal, migrate only possibly pending
-AWS requests, and write the protocol marker that old controllers reject before mutation.
-Do not use older controller code after cutover. Normal calls inspect the marker and
-selected current requests, never scan or validate all old history. Historical failures,
-completed or sync/Git-waiting records and old Fences are not new request conditions.
-
 ### Managed Deploy snapshot and Git publication
 
 Independent Deploy uses `worktree_task.py deploy-start --task-id <id>`, reusing a

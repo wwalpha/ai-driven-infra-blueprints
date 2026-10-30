@@ -41,7 +41,7 @@ from deploy.timing import Timing
 from deploy.typing import StackUnit
 
 
-def restore(backend: SimpleNamespace, journal: Path, task: TaskSnapshot) -> None:
+def restore(backend: SimpleNamespace, task: TaskSnapshot) -> None:
     """Resume only this Task's local save; shared records contain requests only."""
     lifecycle = worktree.require(backend.root, task)
     if lifecycle is None:
@@ -753,9 +753,9 @@ def run(
             backend.run_context = run_context.new_context(
                 root, task, target, args.environment, directory, units, backend
             )
-            backend.run_context.update(stepwise=True, stepUnits=copy.deepcopy(units))
+            backend.run_context.update(stepUnits=copy.deepcopy(units))
             backend.states = backend.run_context["states"]
-            restore(backend, journal, task)
+            restore(backend, task)
             run = backend.run_context
             backend.save = partial(save, backend)
             backend.guard = partial(

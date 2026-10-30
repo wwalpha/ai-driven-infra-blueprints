@@ -9,7 +9,7 @@ Independent Deploy automatically uses a managed Worktree; the Human need not inv
 python3 -B framework/scripts/worktree_task.py deploy-start --task-id <task-id>
 ```
 
-Use its returned `worktree` root for Task registration, Preparation and every child command, with the existing `run-python.py` wrapper. Reuse the same valid unfinished Task on resume; preserve its Snapshot, Journal and AWS evidence. Ambiguous ownership requires review, never a replacement Task. Read-only diagnostics, offline Preparation and help remain available outside managed Worktrees.
+Use its returned `worktree` root for Task registration, Preparation and every child command, with the existing `run-python.py` wrapper. Reuse the same valid unfinished Task on resume; preserve its Snapshot, progress and current AWS request evidence. Ambiguous ownership requires review, never a replacement Task. Read-only diagnostics, offline Preparation and help remain available outside managed Worktrees.
 
 Read `framework/prompts/codex/04_deploy.md` in full and follow its AI judgment and authority boundaries. Treat invocation input as Human workflow input; stop if the prompt is missing.
 

@@ -29,7 +29,7 @@ import sync_files as _imports_sync_files
 import sync_runtime
 import utils.cloudformation.inputs as _imports_cfn_inputs
 from botocore.exceptions import ClientError
-from deploy import current_request, operation_journal, run_context, steps, worktree
+from deploy import current_request, operation_journal, steps, worktree
 from deploy.controller import main
 from model.core import properties, stack_model
 from model.dependency_index import rebuild as rebuild_index
@@ -757,11 +757,6 @@ def fake_sleep(delays, seconds):
     delays.append(seconds)
 
 
-def save_diagnostics(real_save, report, /, path, backend):
-    real_save(path, backend)
-    report.write_text(json.dumps(backend.run_context), encoding="utf-8")
-
-
 def explained_stop(real, stage, error):
     traceback.print_exception(error, file=sys.stderr)
     return real(stage, error)
@@ -788,8 +783,6 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
         aws_path,
         [],
     )
-    delays = []
-    sleep = partial(fake_sleep, delays)
     with ExitStack() as stack:
         stack.enter_context(
             patch.object(
@@ -808,24 +801,6 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
         stack.enter_context(
             patch.object(
                 steps, "save", partial(save_step_diagnostics, steps.save, state_path)
-            )
-        )
-        stack.enter_context(
-            patch.object(
-                operation_journal,
-                "save",
-                partial(save_diagnostics, operation_journal.save, state_path),
-            )
-        )
-
-        stack.enter_context(
-            patch.object(
-                run_context, "run_deploy", partial(run_context.run_deploy, sleep=sleep)
-            )
-        )
-        stack.enter_context(
-            patch.object(
-                run_context, "run_group", partial(run_context.run_group, sleep=sleep)
             )
         )
         stack.enter_context(

@@ -149,17 +149,6 @@ def run_group(
                 current_request.release(backend, request)
         if any(s.get("pollReadFailures", 0) >= 3 for s in states.values()):
             return "STOPPED"
-        if (
-            any(
-                states[u["name"]]["status"] == "SUCCESS"
-                and not states[u["name"]].get("observedSynced")
-                for u in group
-            )
-            and not single_step
-            and hasattr(backend, "sync_completed")
-        ):
-            if not backend.sync_completed():
-                stopped = True
         running = sum(states[unit["name"]]["status"] == "RUNNING" for unit in group)
         # Start multiple change sets without waiting for one to become CREATE_COMPLETE.
         # Preparation is bounded too; do not speculate across DeployOrder barriers.

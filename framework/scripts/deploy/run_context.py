@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import copy
 import re
 import subprocess
-import time
 from collections.abc import Iterable, Sequence
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,22 +14,12 @@ from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from utils.type_contracts import JsonValue as JsonValue
 
-import deploy.observed as _dependency_deploy_observed
 from deploy import (
-    cli_guidance,
-    generation_resume,
-    git_publication,
-    operation_journal,
     worktree,
 )
-from deploy.scheduler import run_group
 from deploy.typing import (
     DeployRunContext,
-    Save,
-    SchedulerBackend,
-    Sleep,
     StackUnit,
-    States,
     Target,
 )
 
@@ -81,165 +68,6 @@ def active_scope(
         if "- Infrastructure phase: `update`" in text.splitlines()
         else "deploy"
     )
-
-
-def _callback_run_deploy_sync_once(backend, save, run_context, units, /):
-    if getattr(backend, "sync_failed", False):
-        return False
-    unsynced = [
-        u
-        for u in units
-        if run_context["states"][u["name"]]["status"] == "SUCCESS"
-        and not run_context["states"][u["name"]].get("observedSynced")
-    ]
-    if (
-        not unsynced
-        and not run_context.get("pendingGeneration")
-        and not run_context.get("generationError")
-    ):
-        return True
-    started = time.perf_counter()
-    stage = "OBSERVED" if unsynced else "GENERATION"
-    backend._generation_finalized = False
-    try:
-        if unsynced and any(
-            record["generated"]["outputs"] is not None
-            for record in run_context.get("pendingGeneration", {}).values()
-        ):
-            stage = "GENERATION"
-        if hasattr(backend, "guard"):
-            backend.guard()
-        if unsynced and stage == "GENERATION":
-            # Finish an interrupted candidate before another Model transaction changes inputs.
-            generation_resume.run(backend)
-        if unsynced:
-            stage = "OBSERVED"
-            sync_successful(backend, unsynced, run_context["states"])
-            run_context.pop("pendingObserved", None)
-            run_context.pop("observedError", None)
-            run_context.pop("observedRecoveryError", None)
-        if run_context.get("pendingGeneration") or run_context.get("generationError"):
-            stage = "GENERATION"
-            generation_resume.run(backend)
-        return True
-    except Exception as error:
-        backend.sync_failed = True
-        run_context[
-            "generationFailure" if stage == "GENERATION" else "observedFailure"
-        ] = cli_guidance.safe_error(error)
-        if stage == "GENERATION":
-            if backend._generation_finalized and not run_context.get("generationError"):
-                run_context["generationReportError"] = str(error)
-            else:
-                run_context["generationError"] = str(error)
-            return False
-        run_context.setdefault("observedError", str(error))
-        run_context["observedRecoveryError"] = str(error)
-        failure = {
-            "stage": run_context.get("pendingObserved", {}).get("stage", "PLANNING"),
-            "cause": str(error),
-        }
-        failures = run_context.setdefault("observedFailures", [])
-        if not failures or failures[-1] != failure:
-            failures.append(failure)
-        return False
-    finally:
-        run_context["metrics"]["observedSyncSeconds"] += time.perf_counter() - started
-        save()
-        git_publication.sync(backend)
-
-
-# Peers may have completed while an earlier persisted plan was blocked.
-def _callback_run_deploy_sync_completed(run_context, sync_once, /):
-    # Peers may have completed while an earlier persisted plan was blocked.
-    while True:
-        pending = run_context.get("pendingObserved")
-        if not sync_once():
-            return False
-        if not pending:
-            return True
-
-
-def run_deploy(
-    units: Sequence[StackUnit],
-    limit: int,
-    run_context: DeployRunContext,
-    backend: SchedulerBackend,
-    save: Save,
-    sleep: Sleep = time.sleep,
-) -> str:
-    """Observed synchronization is an idempotent, persisted barrier between groups."""
-    backend.sync_failed = False
-    sync_once = _bind_framework_callback(
-        _callback_run_deploy_sync_once, backend, save, run_context, units
-    )
-
-    sync_completed = _bind_framework_callback(
-        _callback_run_deploy_sync_completed, run_context, sync_once
-    )
-
-    backend.sync_completed = sync_completed
-    while True:
-        if not sync_completed():
-            # A restart may contain both unsynced successes and still-running peers.
-            run_group(
-                units,
-                limit,
-                run_context["states"],
-                backend,
-                save,
-                sleep=sleep,
-                drain_only=True,
-            )
-            return "STOPPED"
-        result = run_group(
-            units, limit, run_context["states"], backend, save, sleep=sleep
-        )
-        if result == "GROUP_COMPLETE":
-            completed = sorted(
-                {
-                    int(u["deployOrder"])
-                    for u in units
-                    if all(
-                        run_context["states"][v["name"]]["status"] == "SUCCESS"
-                        for v in units
-                        if v["deployOrder"] == u["deployOrder"]
-                    )
-                }
-            )
-            run_context["metrics"]["deployOrderCount"] = len(completed)
-            continue
-        if result == "STOPPED":
-            # Do not abandon successful peers' observed values after another stack fails.
-            synced = sync_completed()
-            save()
-            failed = [
-                u
-                for u in units
-                if run_context["states"][u["name"]]["status"] == "FAILED"
-            ]
-            if (
-                synced
-                and failed
-                and not any(
-                    s.get("schedulerError") for s in run_context["states"].values()
-                )
-                and hasattr(backend, "repair")
-            ):
-                repaired = all(
-                    [
-                        backend.repair(u, run_context["states"][u["name"]])
-                        for u in failed
-                    ]
-                )
-                save()
-                if repaired:
-                    continue
-        if result == "COMPLETE" and not generation_resume.complete(run_context):
-            run_context["generationError"] = generation_resume.describe(run_context)
-            save()
-            return "STOPPED"
-        return result
 
 
 def current_manifest(
@@ -352,22 +180,4 @@ def new_context(
         },
         metrics={"observedSyncSeconds": 0, "inputLoadSeconds": 0},
     )
-    pending = getattr(backend, "pending_publication", {}).get("pendingGeneration", {})
-    if pending:
-        context["pendingGeneration"] = copy.deepcopy(pending)
-        for record in context["pendingGeneration"].values():
-            if record["generated"]["outputs"] is not None:
-                raise Blocked("settle unfinished generated candidates before a new run")
-            record["identity"]["inputDigest"] = context["inputDigest"]
     return context
-
-
-def _save(backend, journal):
-    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-    operation_journal.save(journal, backend)
-
-
-def sync_successful(
-    backend: SimpleNamespace, units: Sequence[StackUnit], states: States
-) -> dict[Path, str] | None:
-    return _dependency_deploy_observed.sync_successful(backend, units, states)

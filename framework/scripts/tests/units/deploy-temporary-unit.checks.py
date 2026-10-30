@@ -38,31 +38,14 @@ def workspace(tmp_path):
     return root, journal, task
 
 
-def pin_template(journal, path, root):
-    write_sealed(
-        root,
-        journal,
-        {
-            "target": TARGET,
-            "operations": {
-                "App": {
-                    "unit": {"name": "App"},
-                    "inputDigest": "input",
-                    "state": {"status": "RUNNING", "delivery": {"path": str(path)}},
-                }
-            },
-            "publication": {"repository": str(root), "target": TARGET},
-        },
-    )
-
-
 @pytest.mark.parametrize(
     "state",
     [
         "normal",
+        "RUNNING",
+        "READY",
+        "CHANGESET_CREATING",
         "blocked",
-        "journal",
-        "recovered",
         "orphan",
         "other-task",
         "other-root",
@@ -73,8 +56,6 @@ def pin_template(journal, path, root):
         "missing-template",
         "request",
         "unknown-request",
-        "peer-journal",
-        "generation-producer",
         "hardlink",
         "writable",
         "active-handoff",
@@ -104,8 +85,6 @@ def check_owned_directory_cleanup(tmp_path, state):
     directory = temporary.create(journal, owner_root, owner_task, owner_target, ["App"])
     template = directory / "App.json"
     template.write_text("{}", encoding="utf-8")
-    if state in {"journal", "recovered"}:
-        pin_template(journal, template, root)
     if state == "unknown":
         (directory / "Human.txt").write_text("keep", encoding="utf-8")
     elif state == "symlink":
@@ -142,25 +121,6 @@ def check_owned_directory_cleanup(tmp_path, state):
             write_sealed(root, request, {"failureEvidence": str(failure)})
             if state == "unknown-request":
                 request.write_text("unreadable")
-    elif state in {"peer-journal", "generation-producer"}:
-        pin_template(journal, template, root)
-        records = J.read(journal)
-        if state == "peer-journal":
-            peer = records[0]
-            record = {
-                "target": TARGET,
-                "operations": {},
-                "publication": {"repository": str(root), "target": TARGET},
-                "peers": [peer],
-            }
-        else:
-            record = records[0]
-            record["publication"]["generationProducers"] = record.pop("operations")
-            record["operations"] = {}
-            record["publication"]["generationProducers"]["App"]["state"].update(
-                status="SUCCESS", observedSynced=True
-            )
-        write_sealed(root, journal, record)
     elif state == "hardlink":
         (root / "linked").hardlink_to(template)
     elif state == "writable":
@@ -172,10 +132,12 @@ def check_owned_directory_cleanup(tmp_path, state):
         J.locked(journal),
         patch.object(J, "same_repository", return_value=state != "other-root"),
     ):
-        temporary.reclaim(journal, root, TARGET)
+        saved = {"App": {"status": state, "delivery": {"path": str(template)}}}
+        temporary.reclaim(journal, root, TARGET, states=saved)
         retained = state in {
-            "journal",
-            "recovered",
+            "RUNNING",
+            "READY",
+            "CHANGESET_CREATING",
             "other-root",
             "failure",
             "tampered-failure",
@@ -183,8 +145,6 @@ def check_owned_directory_cleanup(tmp_path, state):
             "missing-template",
             "request",
             "unknown-request",
-            "peer-journal",
-            "generation-producer",
             "hardlink",
             "writable",
             "active-handoff",
@@ -194,10 +154,6 @@ def check_owned_directory_cleanup(tmp_path, state):
             "tampered-marker",
         }
         assert directory.exists() == retained
-        if state == "recovered":
-            journal.unlink()
-            temporary.reclaim(journal, root, TARGET)
-            assert not directory.exists()
     assert journal.with_suffix(".lock").is_file()
 
 
@@ -308,7 +264,7 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
         assert "approvedChangeDigest" not in read_sealed(root, failure)["states"]["App"]
         backend.run_context.update(taskFile="tasks/another.md", taskDigest="another")
         second = Path(temporary.handoff.record_failure(backend))
-        temporary.reclaim(journal, root, TARGET)
+        temporary.reclaim(journal, root, TARGET, states={})
         assert (
             failure.read_bytes() == original and second.exists() and template.exists()
         )
@@ -328,7 +284,7 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
             }
             write_sealed(root, request, identity)
             with J.locked(journal):
-                temporary.reclaim(journal, root, TARGET)
+                temporary.reclaim(journal, root, TARGET, states={})
             assert template.exists() and failure.exists()
             write_sealed(
                 root,
@@ -362,7 +318,7 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
                     original_failure = failure.read_bytes()
                     failure.unlink()
                 with J.locked(journal):
-                    temporary.reclaim(journal, root, TARGET)
+                    temporary.reclaim(journal, root, TARGET, states={})
                 assert template.exists()
                 if consume == "unknown-cleanup":
                     receipt.write_bytes(original_receipt)
@@ -371,7 +327,7 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
             temporary.handoff.discard_request(state)
     assert not failure.exists()
     with J.locked(journal):
-        temporary.reclaim(journal, root, TARGET)
+        temporary.reclaim(journal, root, TARGET, states={})
     assert not directory.exists()
 
 

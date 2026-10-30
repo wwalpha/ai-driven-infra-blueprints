@@ -23,6 +23,7 @@ from deploy import run_context
 from deploy.model_cache import RunModels
 from deploy.observed import removed_resources
 from deploy.preparation import candidate
+from deploy.scheduler import run_group
 from model.adapters import observed
 from model.adapters.observed import mappings, preflight, validate_mapping_targets
 from model.format import parse
@@ -1726,20 +1727,13 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
     )
     outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = "key-current"
     TestCase().assertEqual(before, {path: path.read_bytes() for path in before})
-    # Keep the real collector in this scheduler fixture; journal ownership has separate IT.
-    monkeypatch.setattr(run_context, "sync_successful", publish_collected)
-    session = {
-        "states": states(selected),
-        "metrics": {"observedSyncSeconds": 0},
-    }
+    # Explicit advances and collection remain separate at the current controller boundary.
+    session = {"states": states(selected)}
     session["states"]["A"]["stackId"] = "stack-A"
-    assert (
-        run_context.run_deploy(
-            selected, 1, session, backend, lambda: None, sleep=lambda _: None
-        )
-        == "COMPLETE"
-    ), session
-    assert session["metrics"]["deployOrderCount"] == 2 and starts(backend) == ["A", "B"]
+    for unit in selected:
+        run_group(selected, 1, session["states"], backend, sleep=lambda _: None)
+        publish_collected(backend, [unit], session["states"])
+    assert starts(backend) == ["A", "B"]
     failed = Fake()
     for field in (
         "root",
@@ -1757,10 +1751,9 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         "metrics": {"observedSyncSeconds": 0},
     }
     session["states"]["A"]["stackId"] = "stack-A"
-    result = run_context.run_deploy(
-        selected, 1, session, failed, lambda: None, sleep=lambda _: None
-    )
-    TestCase().assertEqual(result, "COMPLETE")
+    for unit in selected:
+        run_group(selected, 1, session["states"], failed, sleep=lambda _: None)
+        publish_collected(failed, [unit], session["states"])
     TestCase().assertEqual(starts(failed), ["A", "B"])
     TestCase().assertEqual(
         session["states"]["A"]["observedCoverage"]["Key"]["status"], "UNCONFIRMED"

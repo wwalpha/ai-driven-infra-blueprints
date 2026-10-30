@@ -1,4 +1,4 @@
-"""Normal Deploy checkpoints; repair handoffs and final Task completion stay separate."""
+"""Explicit Deploy and update checkpoints, including private completed candidates."""
 
 from __future__ import annotations
 
@@ -60,6 +60,14 @@ def validate(backend: SimpleNamespace, *, scope_checked=False, changed=None) -> 
 def checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
     if backend.phase == "deploy":
         return snapshot_checkpoint(backend, names)
+    if backend.phase != "update":
+        raise DeployStepBlocked(
+            "checkpoint requires the current deploy or update phase"
+        )
+    return update_checkpoint(backend, names)
+
+
+def update_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
     root, _, path, state = wt.load(backend.root, backend.root.name)
     target = wt.task_worktree(root, state)
     context = backend.run_context

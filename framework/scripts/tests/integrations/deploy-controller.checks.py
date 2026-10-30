@@ -339,7 +339,6 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
         "states": {"A": state},
         "inputDigests": {},
         "stepUnits": [{"name": "A"}],
-        "stepwise": True,
         "consumedInputs": {},
     }
 

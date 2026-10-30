@@ -338,8 +338,6 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 }
         state["currentStack"] = current_state.observation(stack)
     if not changes:
-        if not getattr(backend, "run_context", {}).get("stepwise"):
-            return {}, [], None
         changes = {
             entry[0]: {} for mapping in mapped.values() for entry in mapping.values()
         }
