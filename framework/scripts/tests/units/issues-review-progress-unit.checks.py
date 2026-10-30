@@ -17,7 +17,7 @@ from issues.artifact import validate_artifact
 from issues.materials import rule_section
 from issues.reader import read_scan_artifact
 from issues.records import identifier
-from issues.review import naming_decision
+from issues.review import naming_decision, review_names
 from issues.review_progress import ReviewController, encoded
 from model.sources import publication_lock
 from support.issues_review_progress_fixtures import cli, controller, finish, submission
@@ -53,14 +53,63 @@ def named_artifact(tmp_path, count=23):
 
 def check_controller_validates_naming_once(tmp_path):
     data = named_artifact(tmp_path, 100)
-    with patch("issues.review.naming_decision", wraps=naming_decision) as decide:
+    for name in data["naming"]["names"]:
+        name.update(
+            resourceType="IAM.Role",
+            property="RoleName",
+            resourceMode="IMPORT",
+            provider_checked=True,
+            value_available=True,
+            value="arbitrary",
+        )
+    stamp_naming_scan(data)
+    assert all(
+        name["decision"]["status"] == "AUTO_PASS" for name in data["naming"]["names"]
+    )
+    with (
+        patch("issues.review.naming_decision", wraps=naming_decision) as decide,
+        patch("issues.artifact.review_names", wraps=review_names) as review_names_call,
+    ):
         review = controller(tmp_path, data)
-    assert decide.call_count == 100
-    assert len(review._base["naming"]) == 100
+        assert decide.call_count == 100
+        assert review_names_call.call_count == 1
+        assert not review._base["naming"]
+        ReviewController(review.root, review.artifact_path, review.path)
+        assert decide.call_count == 200
+        assert review_names_call.call_count == 2
+    data = named_artifact(tmp_path, 1)
     data["naming"]["names"][0]["decision"]["status"] = "AUTO_PASS"
     review.artifact_path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="incomplete Naming Scan"):
         ReviewController(review.root, review.artifact_path, review.path)
+
+
+def check_controller_pending_naming_order(tmp_path):
+    data = named_artifact(tmp_path, 3)
+    names = data["naming"]["names"]
+    for name in names:
+        name.update(
+            resourceType="IAM.Role",
+            property="RoleName",
+            resourceMode="IMPORT",
+            provider_checked=True,
+            value_available=True,
+            value="arbitrary",
+        )
+    names[1]["provider_errors"] = ["synthetic provider constraint"]
+    names[2]["provider_checked"] = False
+    stamp_naming_scan(data)
+    assert [name["decision"]["status"] for name in names] == [
+        "AUTO_PASS",
+        "VIOLATION_CANDIDATE",
+        "REVIEW_REQUIRED",
+    ]
+    expected = [name["id"] for name in review_names(data)]
+    assert (
+        list(controller(tmp_path, data)._base["naming"])
+        == expected
+        == ["name-1", "name-2"]
+    )
 
 
 @pytest.mark.parametrize(
