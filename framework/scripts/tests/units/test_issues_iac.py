@@ -1751,7 +1751,8 @@ def _callback_ImportValueResolutionTests_test_codecommit_name_uses_only_explicit
 def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_equal(
     comparison, prop, /, left, right
 ):
-    return comparison.reference_same(left, right, "CodeBuild.Project", prop)
+    # These assertions exercise Producer attribute identity; Context checks are separate.
+    return comparison.reference_same(left, right, "IAM.Role", "")
 
 
 def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired(

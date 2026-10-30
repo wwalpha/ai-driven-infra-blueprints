@@ -8,6 +8,7 @@ from model.projection import reference_attribute
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
 from utils.reference_contracts import (
+    ATTRIBUTE_SUFFIXES,
     REFERENCE_EQUIVALENT_FORMS,
     REFERENCE_FORMS,
     REFERENCE_PROPERTIES,
@@ -164,13 +165,39 @@ def reference_same(
         return ReferenceDecision(None)
     prop = kind + "." + path
     nested_symbols = expressions.references([left, right])
+    if local_comparison and context is None:
+        normalized = re.sub(r"\[\d+\]", "[]", prop)
+        proven = [
+            ref.receiving_context
+            for ref in expressions.references(left)
+            if getattr(ref, "receiving_property", None) == normalized
+            and hasattr(ref, "receiving_context")
+        ]
+        if proven and all(item == proven[0] for item in proven):
+            context = proven[0]
+    rule = registry.property_rule(kind, path)
     if (
         local_comparison
+        and nested_symbols
+        and rule.whole == "SCALAR"
+        and rule.forms is None
+        and rule.direct_attribute is None
+        and not requires_context(prop, context)
+        and not contract(prop, context)
         and (
-            context is not None
-            or policy_condition(prop)
-            or unproven_document_reference(prop)
+            forms_for(kind, path) == {"Arn"}
+            or path.removesuffix("[]").lower().endswith(("id", "identifier"))
         )
+    ):
+        if evidence is not None and any(
+            isinstance(value, str) for value in (left, right)
+        ):
+            result = evidence(left, right, kind, path)
+            if result.equal is False:
+                return result
+        return ReferenceDecision(None)
+    if (
+        local_comparison
         and nested_symbols
         and (
             not (policy_condition(prop) or unproven_document_reference(prop))
@@ -184,9 +211,24 @@ def reference_same(
                 refkind = resource_type(symbol)
             except (KeyError, ValueError, TypeError):
                 return ReferenceDecision(None)
-            if refkind not in declared or symbol["$attribute"] not in {
-                reference_attribute(refkind, form) for form in declared[refkind]
-            }:
+            allowed = {
+                reference_attribute(refkind, form) for form in declared.get(refkind, ())
+            }
+            for form in declared.get(refkind, ()):
+                suffix = ATTRIBUTE_SUFFIXES.get((refkind, form))
+                if suffix and isinstance(left, Expression):
+                    try:
+                        parts = expressions.parts(left, resource_type)
+                    except (Blocked, ValueError, KeyError, TypeError):
+                        return ReferenceDecision(None)
+                    if (
+                        len(parts) == 2
+                        and isinstance(parts[0], ResourceReference)
+                        and parts[1] == suffix[1]
+                        and parts[0]["$attribute"] == suffix[0]
+                    ):
+                        allowed.add(suffix[0])
+            if refkind not in declared or symbol["$attribute"] not in allowed:
                 return ReferenceDecision(None)
     elif (
         local_comparison
@@ -200,6 +242,60 @@ def reference_same(
             if isinstance(value, ResourceReference)
             and not hasattr(value, "saved_literal")
         ]
+        for value in (left, right):
+            if isinstance(value, Expression):
+                expression_symbols = expressions.references(value)
+                if declared and expression_symbols:
+                    try:
+                        if not any(
+                            resource_type(item) in declared
+                            for item in expression_symbols
+                        ):
+                            return ReferenceDecision(None)
+                    except (KeyError, ValueError, TypeError):
+                        return ReferenceDecision(None)
+                try:
+                    parts = expressions.parts(value)
+                except (Blocked, ValueError, KeyError, TypeError):
+                    continue
+                if len(parts) == 1 and isinstance(parts[0], ResourceReference):
+                    symbols.append(parts[0])
+                elif (
+                    declared
+                    and expression_symbols
+                    and not any(
+                        hasattr(item, "saved_literal") for item in nested_symbols
+                    )
+                ):
+                    projected = project_arn(value) if project_arn is not None else None
+                    if projected is None and len(expression_symbols) == 1:
+                        source = expression_symbols[0]
+                        try:
+                            refkind = resource_type(source)
+                            candidate = ResourceReference(
+                                dict(
+                                    source,
+                                    **{
+                                        "$attribute": reference_attribute(
+                                            refkind, "Arn"
+                                        )
+                                    },
+                                )
+                            )
+                            if (
+                                refkind in declared
+                                and "Arn" in declared[refkind]
+                                and same(
+                                    resolve_literal(value), resolve_literal(candidate)
+                                )
+                                is True
+                            ):
+                                projected = candidate
+                        except (Blocked, ValueError, KeyError, TypeError, OSError):
+                            pass
+                    if projected is None:
+                        return ReferenceDecision(None)
+                    symbols.append(projected)
         for symbol in symbols if declared else ():
             try:
                 refkind = resource_type(symbol)

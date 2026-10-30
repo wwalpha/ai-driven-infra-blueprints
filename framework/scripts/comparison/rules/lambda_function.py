@@ -1,5 +1,11 @@
 """Static Lambda comparison methods; container rules include their recursive contents."""
 
+from dataclasses import replace
+from functools import partial
+
+from utils.reference_contracts import row_contexts
+
+from ..contracts import ResourceContract
 from ..methods import properties
 
 RULES = {
@@ -19,6 +25,9 @@ RULES = {
         """,
     ),
     "Lambda.EventSourceMapping": properties(
+        resource=ResourceContract(
+            contexts=partial(row_contexts, "Lambda.EventSourceMapping")
+        ),
         objects="""
             DestinationConfig
             DestinationConfig.OnFailure
@@ -143,3 +152,9 @@ RULES = {
         """,
     ),
 }
+
+
+_path = "SourceAccessConfigurations[]"
+RULES["Lambda.EventSourceMapping"][_path] = replace(
+    RULES["Lambda.EventSourceMapping"][_path], reference_context=True
+)

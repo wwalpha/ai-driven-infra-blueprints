@@ -327,9 +327,19 @@ REFERENCE_FORMS = {
     "SecretsManager.Secret.KmsKeyId": {"KeyId", "Arn", "AliasName"},
     # aws-resource-glue-job.html; aws-resource-lambda-permission.html
     "Glue.Job.Role": {"RoleName", "Arn"},
+    "Glue.Crawler.Role": {"RoleName", "Arn"},
+    "ECS.Service.Cluster": {"ClusterName", "Arn"},
+    "ECS.Service.Role": {"RoleName", "Arn"},
+    "CodeBuild.Project.EncryptionKey": {"Arn", "AliasName"},
+    "S3.Bucket.ReplicationConfiguration.Rules[].Destination.EncryptionConfiguration.ReplicaKmsKeyID": {
+        "Arn"
+    },
     "Lambda.Permission.FunctionName": {"FunctionName", "Arn"},
+    "Lambda.EventSourceMapping.FunctionName": {"FunctionName", "Arn"},
     # aws-resource-secretsmanager-rotationschedule.html: Ref returns the secret ARN (Id).
     "SecretsManager.RotationSchedule.SecretId": {"Id", "Name"},
+    "SecretsManager.ResourcePolicy.SecretId": {"Id", "Name"},
+    "RDS.DBCluster.PerformanceInsightsKmsKeyId": {"KeyId", "Arn", "AliasName"},
 }
 
 # Explicit receiving-property contracts: target type(s) and the Model link attribute.
@@ -453,6 +463,187 @@ REFERENCE_PROPERTIES = {
 # ARN receiving forms are explicit, not inferred from an Id/Arn suffix.
 IMPORT_PROPERTIES = {
     **REFERENCE_PROPERTIES,
+    "ECS.Service.CapacityProviderStrategy[].CapacityProvider": (
+        "ECS.CapacityProvider",
+        "Name",
+    ),
+    "ECS.Service.TaskDefinition": ("ECS.TaskDefinition", "Arn"),
+    "ECS.Service.Cluster": ("ECS.Cluster", "ClusterName"),
+    "ECS.Service.LoadBalancers[].TargetGroupArn": (
+        "ElasticLoadBalancingV2.TargetGroup",
+        "Arn",
+    ),
+    "EC2.VPCBlockPublicAccessExclusion.VpcId": ("EC2.VPC", "VpcId"),
+    "EC2.VPCBlockPublicAccessExclusion.SubnetId": ("EC2.Subnet", "SubnetId"),
+    "EC2.VPCGatewayAttachment.VpcId": ("EC2.VPC", "VpcId"),
+    "Route53Resolver.ResolverRuleAssociation.VPCId": ("EC2.VPC", "VpcId"),
+    "Route53Resolver.ResolverEndpoint.IpAddresses[].SubnetId": (
+        "EC2.Subnet",
+        "SubnetId",
+    ),
+    "EC2.Instance.NetworkInterfaces[].SubnetId": ("EC2.Subnet", "SubnetId"),
+    "EC2.LaunchTemplate.LaunchTemplateData.NetworkInterfaces[].SubnetId": (
+        "EC2.Subnet",
+        "SubnetId",
+    ),
+    "EC2.NatGateway.SubnetId": ("EC2.Subnet", "SubnetId"),
+    "EC2.SubnetRouteTableAssociation.SubnetId": ("EC2.Subnet", "SubnetId"),
+    "NetworkFirewall.Firewall.SubnetMappings[].SubnetId": ("EC2.Subnet", "SubnetId"),
+    "ElasticLoadBalancingV2.LoadBalancer.SubnetMappings[].SubnetId": (
+        "EC2.Subnet",
+        "SubnetId",
+    ),
+    "MWAA.Environment.ExecutionRoleArn": ("IAM.Role", "Arn"),
+    "MWAA.Environment.SourceBucketArn": ("S3.Bucket", "Arn"),
+    "RDS.DBProxy.Auth[].SecretArn": ("SecretsManager.Secret", "Arn"),
+    "RDS.DBProxy.RoleArn": ("IAM.Role", "Arn"),
+    "Scheduler.Schedule.Target.DeadLetterConfig.Arn": ("SQS.Queue", "Arn"),
+    "ECS.Cluster.Configuration.ExecuteCommandConfiguration.LogConfiguration.S3BucketName": (
+        "S3.Bucket",
+        "BucketName",
+    ),
+    "CloudFront.Distribution.DistributionConfig.Logging.Bucket": (
+        "S3.Bucket",
+        "DomainName",
+    ),
+    "S3.BucketPolicy.Bucket": ("S3.Bucket", "BucketName"),
+    "QuickSight.DataSource.DataSourceParameters.S3Parameters.ManifestFileLocation.Bucket": (
+        "S3.Bucket",
+        "BucketName",
+    ),
+    "ApiGateway.RestApi.BodyS3Location.Bucket": ("S3.Bucket", "BucketName"),
+    "ApiGatewayV2.Api.BodyS3Location.Bucket": ("S3.Bucket", "BucketName"),
+    "CodeCommit.Repository.Code.S3.Bucket": ("S3.Bucket", "BucketName"),
+    "CodePipeline.Pipeline.ArtifactStores[].ArtifactStore.Location": (
+        "S3.Bucket",
+        "BucketName",
+    ),
+    "Config.DeliveryChannel.S3BucketName": ("S3.Bucket", "BucketName"),
+    "DynamoDB.Table.ImportSourceSpecification.S3BucketSource.S3Bucket": (
+        "S3.Bucket",
+        "BucketName",
+    ),
+    "ApiGatewayV2.Integration.ConnectionId": ("ApiGatewayV2.VpcLink", "VpcLinkId"),
+    "AutoScaling.AutoScalingGroup.ServiceLinkedRoleARN": ("IAM.Role", "Arn"),
+    "CodePipeline.Pipeline.Stages[].Actions[].RoleArn": ("IAM.Role", "Arn"),
+    "ECS.Service.DeploymentConfiguration.LifecycleHooks[].RoleArn": ("IAM.Role", "Arn"),
+    "ECS.Service.LoadBalancers[].AdvancedConfiguration.RoleArn": ("IAM.Role", "Arn"),
+    "ECS.Service.Role": ("IAM.Role", "RoleName"),
+    "RDS.DBCluster.AssociatedRoles[].RoleArn": ("IAM.Role", "Arn"),
+    "RDS.DBInstance.AssociatedRoles[].RoleArn": ("IAM.Role", "Arn"),
+    "SSM.MaintenanceWindowTask.ServiceRoleArn": ("IAM.Role", "Arn"),
+    "SageMaker.Domain.DomainSettings.RStudioServerProDomainSettings.DomainExecutionRoleArn": (
+        "IAM.Role",
+        "Arn",
+    ),
+    "AutoScaling.AutoScalingGroup.LifecycleHookSpecificationList[].RoleARN": (
+        "IAM.Role",
+        "Arn",
+    ),
+    "AutoScaling.LifecycleHook.RoleARN": ("IAM.Role", "Arn"),
+    "DataZone.Connection.Props.IamProperties.RoleArn": ("IAM.Role", "Arn"),
+    "EC2.FlowLog.DeliverCrossAccountRole": ("IAM.Role", "Arn"),
+    "EC2.FlowLog.DeliverLogsPermissionArn": ("IAM.Role", "Arn"),
+    "EC2.Route.VpcEndpointId": ("EC2.VPCEndpoint", "Id"),
+    "ECS.ClusterCapacityProviderAssociations.Cluster": ("ECS.Cluster", "ClusterName"),
+    "Glue.Crawler.Targets.JdbcTargets[].ConnectionName": ("Glue.Connection", "Name"),
+    "Glue.Crawler.Targets.S3Targets[].ConnectionName": ("Glue.Connection", "Name"),
+    "LakeFormation.PrincipalPermissions.Resource.Database.Name": (
+        "Glue.Database",
+        "Name",
+    ),
+    "LakeFormation.PrincipalPermissions.Resource.Table.DatabaseName": (
+        "Glue.Database",
+        "Name",
+    ),
+    "LakeFormation.PrincipalPermissions.Resource.TableWithColumns.DatabaseName": (
+        "Glue.Database",
+        "Name",
+    ),
+    "Logs.SubscriptionFilter.RoleArn": ("IAM.Role", "Arn"),
+    "RDS.DBCluster.DBInstanceParameterGroupName": (
+        "RDS.DBParameterGroup",
+        "DBParameterGroupName",
+    ),
+    "RDS.DBCluster.DomainIAMRoleName": ("IAM.Role", "RoleName"),
+    "RDS.DBInstance.DomainIAMRoleName": ("IAM.Role", "RoleName"),
+    "RDS.DBCluster.MonitoringRoleArn": ("IAM.Role", "Arn"),
+    "RDS.DBInstance.MonitoringRoleArn": ("IAM.Role", "Arn"),
+    "S3.Bucket.LoggingConfiguration.DestinationBucketName": ("S3.Bucket", "BucketName"),
+    "SecretsManager.ResourcePolicy.SecretId": ("SecretsManager.Secret", "Id"),
+    "RDS.DBCluster.PerformanceInsightsKmsKeyId": (("KMS.Key", "KMS.Alias"), None),
+    "SecretsManager.RotationSchedule.ExternalSecretRotationRoleArn": (
+        "IAM.Role",
+        "Arn",
+    ),
+    "SecretsManager.RotationSchedule.HostedRotationLambda.MasterSecretArn": (
+        "SecretsManager.Secret",
+        "Arn",
+    ),
+    "SecretsManager.RotationSchedule.HostedRotationLambda.SuperuserSecretArn": (
+        "SecretsManager.Secret",
+        "Arn",
+    ),
+    "Config.DeliveryChannel.SnsTopicARN": ("SNS.Topic", "Arn"),
+    "QuickSight.DataSource.Credentials.SecretArn": ("SecretsManager.Secret", "Arn"),
+    "RDS.DBInstance.DomainAuthSecretArn": ("SecretsManager.Secret", "Arn"),
+    "Glue.Crawler.Targets.S3Targets[].DlqEventQueueArn": ("SQS.Queue", "Arn"),
+    "RDS.DBCluster.DBClusterParameterGroupName": (
+        "RDS.DBClusterParameterGroup",
+        "DBClusterParameterGroupName",
+    ),
+    "RDS.DBInstance.DBParameterGroupName": (
+        "RDS.DBParameterGroup",
+        "DBParameterGroupName",
+    ),
+    "RDS.DBCluster.DBSubnetGroupName": ("RDS.DBSubnetGroup", "DBSubnetGroupName"),
+    "ECS.Service.LoadBalancers[].AdvancedConfiguration.ProductionListenerRule": (
+        ("ElasticLoadBalancingV2.Listener", "ElasticLoadBalancingV2.ListenerRule"),
+        "Arn",
+    ),
+    "ECS.Service.LoadBalancers[].AdvancedConfiguration.TestListenerRule": (
+        ("ElasticLoadBalancingV2.Listener", "ElasticLoadBalancingV2.ListenerRule"),
+        "Arn",
+    ),
+    "ECS.Service.LoadBalancers[].AdvancedConfiguration.AlternateTargetGroupArn": (
+        "ElasticLoadBalancingV2.TargetGroup",
+        "Arn",
+    ),
+    "CloudTrail.Trail.SnsTopicName": ("SNS.Topic", "TopicName"),
+    "SNS.Subscription.TopicArn": ("SNS.Topic", "Arn"),
+    "SNS.Subscription.SubscriptionRoleArn": ("IAM.Role", "Arn"),
+    "Glue.Connection.ConnectionInput.AuthenticationConfiguration.SecretArn": (
+        "SecretsManager.Secret",
+        "Arn",
+    ),
+    "Glue.Database.DatabaseInput.FederatedDatabase.ConnectionName": (
+        "Glue.Connection",
+        "Name",
+    ),
+    "Glue.Crawler.CrawlerSecurityConfiguration": ("Glue.SecurityConfiguration", "Name"),
+    "Glue.Crawler.DatabaseName": ("Glue.Database", "Name"),
+    "Glue.Crawler.Role": ("IAM.Role", "RoleName"),
+    "RDS.DBInstance.DBSubnetGroupName": ("RDS.DBSubnetGroup", "DBSubnetGroupName"),
+    "CodeBuild.Project.EncryptionKey": (("KMS.Key", "KMS.Alias"), None),
+    "S3.Bucket.ReplicationConfiguration.Rules[].Destination.EncryptionConfiguration.ReplicaKmsKeyID": (
+        ("KMS.Key", "KMS.Alias"),
+        None,
+    ),
+    "ApiGatewayV2.Stage.AccessLogSettings.DestinationArn": ("Logs.LogGroup", "Arn"),
+    "S3.Bucket.ReplicationConfiguration.Rules[].Destination.Bucket": (
+        "S3.Bucket",
+        "Arn",
+    ),
+    "SageMaker.Domain.VpcId": ("EC2.VPC", "VpcId"),
+    "NetworkFirewall.Firewall.VpcId": ("EC2.VPC", "VpcId"),
+    "ECS.TaskDefinition.TaskRoleArn": ("IAM.Role", "Arn"),
+    "ECS.TaskDefinition.ExecutionRoleArn": ("IAM.Role", "Arn"),
+    "Route53.HostedZone.QueryLoggingConfig.CloudWatchLogsLogGroupArn": (
+        "Logs.LogGroup",
+        "Arn",
+    ),
+    "Scheduler.Schedule.Target.RoleArn": ("IAM.Role", "Arn"),
+    "S3.Bucket.ReplicationConfiguration.Role": ("IAM.Role", "Arn"),
     "DynamoDB.Table.SSESpecification.KMSMasterKeyId": (("KMS.Key", "KMS.Alias"), None),
     "KMS.Alias.TargetKeyId": (("KMS.Key",), None),
     "CloudTrail.Trail.KMSKeyId": (("KMS.Key", "KMS.Alias"), None),
@@ -492,6 +683,8 @@ IMPORT_PROPERTIES = {
     ),
     "LakeFormation.Resource.ResourceArn": (("Glue.Connection", "S3.Bucket"), "Arn"),
     "LakeFormation.Resource.RoleArn": ("IAM.Role", "Arn"),
+    "Lambda.EventSourceMapping.FunctionName": ("Lambda.Function", "FunctionName"),
+    "Lambda.EventInvokeConfig.FunctionName": ("Lambda.Function", "FunctionName"),
     "Lambda.Function.Role": ("IAM.Role", "Arn"),
     "Lambda.Function.KmsKeyArn": ("KMS.Key", "Arn"),
     "CodeBuild.Project.ServiceRole": ("IAM.Role", "Arn"),
@@ -1136,6 +1329,22 @@ KMS_FORMS = {
     "Logs.LogGroup.KmsKeyId": {"KeyArn", "AliasArn"},
 }
 CONTEXT_PROPERTIES = {
+    "CodeBuild.Project.Source.Location": ("CodeBuild.Project.Source.Type", {}),
+    "CodeBuild.Project.Cache.Location": ("CodeBuild.Project.Cache.Type", {}),
+    "CodeBuild.Project.Artifacts.Location": (
+        "CodeBuild.Project.Artifacts.Type",
+        {"S3": ("S3.Bucket", "BucketName")},
+    ),
+    "Lambda.EventSourceMapping.SourceAccessConfigurations[].URI": (
+        "Lambda.EventSourceMapping.SourceAccessConfigurations[].Type",
+        {
+            "BASIC_AUTH": ("SecretsManager.Secret", "Arn"),
+            "SASL_SCRAM_256_AUTH": ("SecretsManager.Secret", "Arn"),
+            "SASL_SCRAM_512_AUTH": ("SecretsManager.Secret", "Arn"),
+            "CLIENT_CERTIFICATE_TLS_AUTH": ("SecretsManager.Secret", "Arn"),
+            "SERVER_ROOT_CA_CERTIFICATE": ("SecretsManager.Secret", "Arn"),
+        },
+    ),
     "CodeBuild.Project.Environment.EnvironmentVariables[].Value": (
         "CodeBuild.Project.Environment.EnvironmentVariables[].Type",
         {
@@ -1216,6 +1425,12 @@ def row_contexts(kind, rows):
             r"Environment.EnvironmentVariables\[\d*\]\.(Name|Type|Value)", prop
         ):
             put_row(variables, prop, rid if prop.endswith(".Value") else value)
+        if kind == "Lambda.EventSourceMapping" and (
+            access := re.fullmatch(r"(SourceAccessConfigurations\[\d+\])\.Type", prop)
+        ):
+            variables.setdefault("lambda_types", {}).setdefault(access[1], []).append(
+                value
+            )
         if kind == "CloudTrail.Trail" and (
             data := re.fullmatch(r"(.*\.DataResources\[\d+\])\.Type", prop)
         ):
@@ -1228,6 +1443,27 @@ def row_contexts(kind, rows):
             == row["property"].removesuffix("Type") + "Values"
         ):
             contexts[rows[index + 1][0]] = {"Type": value}
+    if kind == "CodeBuild.Project":
+        types = [
+            row["value"].strip("`")
+            for _, row in rows
+            if row["property"] == kind + ".Artifacts.Type"
+        ]
+        if len(types) == 1:
+            for rid, row in rows:
+                if row["property"] == kind + ".Artifacts.Location":
+                    contexts[rid] = {"Type": types[0]}
+    if kind == "Lambda.EventSourceMapping":
+        for path, types in variables.get("lambda_types", {}).items():
+            if len(types) == 1:
+                contexts[path] = {"Type": types[0]}
+        for rid, row in rows:
+            match = re.fullmatch(
+                r"Lambda\.EventSourceMapping\.(SourceAccessConfigurations\[\d+\])\.URI",
+                row["property"],
+            )
+            if match and match[1] in contexts:
+                contexts[rid] = contexts[match[1]]
     for variable in variables.get("Environment", {}).get("EnvironmentVariables", []):
         if "Value" in variable:
             contexts[variable["Value"]] = variable
@@ -1256,8 +1492,18 @@ def reference_error(prop, context=None):
 def reference_context(path, value, context):
     """Bind context to its containing object, never a sibling or a previous traversal."""
     path = re.sub(r"\[\d+\]", "[]", path)
-    if path == "EC2.FlowLog" or path.endswith(
-        (".Actions[]", ".DataResources[]", ".EnvironmentVariables[]")
+    if path in {
+        "EC2.FlowLog",
+        "SourceAccessConfigurations[]",
+        "Artifacts",
+        "CodeBuild.Project.Artifacts",
+    } or path.endswith(
+        (
+            ".Actions[]",
+            ".DataResources[]",
+            ".EnvironmentVariables[]",
+            ".SourceAccessConfigurations[]",
+        )
     ):
         return value
     return context
@@ -1365,10 +1611,13 @@ def policy_condition(prop):
 
 def unproven_document_reference(prop):
     prop = re.sub(r"\[\d+\]", "[]", prop)
-    return (
-        prop == "ECS.TaskDefinition.ContainerDefinitions[].Secrets[].ValueFrom"
-        or prop.startswith("Organizations.Policy.Content.")
-    )
+    return prop in {
+        "ECS.TaskDefinition.ContainerDefinitions[].Secrets[].ValueFrom",
+        "Glue.Crawler.Targets.S3Targets[].Path",
+        "Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.OutputLocation",
+        "ApiGatewayV2.DomainName.MutualTlsAuthentication.TruststoreUri",
+        "DataZone.Connection.Props.S3Properties.S3Uri",
+    } or prop.startswith("Organizations.Policy.Content.")
 
 
 def requires_context(prop, context=None):

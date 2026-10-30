@@ -44,6 +44,15 @@ from utils.iac_values import (
     same,
     unordered_same,
 )
+from utils.reference_contracts import (
+    IMPORT_PROPERTIES,
+    REFERENCE_PROPERTIES,
+    reference_attribute,
+    row_contexts,
+)
+from utils.reference_contracts import (
+    contract as receiving_contract,
+)
 from utils.source_reads import FileReads
 
 if not __debug__:
@@ -7808,3 +7817,677 @@ def test_security_group_vpc_comparison_retains_external_uncertainty():
         {"Fn::ImportValue": "ExternalVpcId"},
     )
     assert [record["category"] for record in records] == ["uncompared"], records
+
+
+@pytest.mark.parametrize(
+    "kind,path,producer,attribute",
+    [
+        ("ApiGatewayV2.VpcLink", "SubnetIds[]", "EC2.Subnet", "SubnetId"),
+        ("EC2.TransitGatewayVpcAttachment", "SubnetIds", "EC2.Subnet", "SubnetId"),
+        (
+            "ECS.CapacityProvider",
+            "ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.Subnets[]",
+            "EC2.Subnet",
+            "SubnetId",
+        ),
+        (
+            "ECS.Service",
+            "NetworkConfiguration.AwsvpcConfiguration.Subnets[]",
+            "EC2.Subnet",
+            "SubnetId",
+        ),
+        ("ElasticLoadBalancingV2.LoadBalancer", "Subnets[]", "EC2.Subnet", "SubnetId"),
+        ("GuardDuty.MalwareProtectionPlan", "Role", "IAM.Role", "Arn"),
+        ("RDS.DBProxy", "VpcSubnetIds[]", "EC2.Subnet", "SubnetId"),
+        ("RDS.DBProxyEndpoint", "VpcSubnetIds[]", "EC2.Subnet", "SubnetId"),
+        ("RDS.DBSubnetGroup", "SubnetIds[]", "EC2.Subnet", "SubnetId"),
+        ("SageMaker.Domain", "SubnetIds[]", "EC2.Subnet", "SubnetId"),
+        (
+            "Scheduler.Schedule",
+            "Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]",
+            "EC2.Subnet",
+            "SubnetId",
+        ),
+        (
+            "SecretsManager.RotationSchedule",
+            "HostedRotationLambda.VpcSubnetIds",
+            "EC2.Subnet",
+            "SubnetId",
+        ),
+    ],
+)
+def test_import_only_receiving_contract_prepares_link(kind, path, producer, attribute):
+    comparison = fixture()
+    resource(comparison, "producer", "001", producer, "Producer", [])
+    symbol = comparison.desired_reference(
+        "producer", "[label](producer.md#producer)", kind, path
+    )
+    assert symbol == ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": attribute}
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("ECS.TaskDefinition", "TaskRoleArn"),
+        ("ECS.TaskDefinition", "ExecutionRoleArn"),
+        ("Route53.HostedZone", "QueryLoggingConfig.CloudWatchLogsLogGroupArn"),
+        ("Scheduler.Schedule", "Target.RoleArn"),
+    ],
+)
+def test_same_wrong_producer_cannot_match(kind, path):
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    assert comparison.reference_decision(symbol, symbol, kind, path).equal is not True
+
+
+@pytest.mark.parametrize(
+    "kind,path,producer,attribute",
+    [
+        (
+            "ApiGatewayV2.Stage",
+            "AccessLogSettings.DestinationArn",
+            "Logs.LogGroup",
+            "Arn",
+        ),
+        (
+            "S3.Bucket",
+            "ReplicationConfiguration.Rules[1].Destination.Bucket",
+            "S3.Bucket",
+            "Arn",
+        ),
+        (
+            "RDS.DBInstance",
+            "DBSubnetGroupName",
+            "RDS.DBSubnetGroup",
+            "DBSubnetGroupName",
+        ),
+        ("Glue.Crawler", "Role", "IAM.Role", "Arn"),
+        ("Glue.Crawler", "Role", "IAM.Role", "RoleName"),
+        ("CodeBuild.Project", "EncryptionKey", "KMS.Key", "Arn"),
+        ("CodeBuild.Project", "EncryptionKey", "KMS.Alias", "AliasName"),
+        (
+            "S3.Bucket",
+            "ReplicationConfiguration.Rules[1].Destination.EncryptionConfiguration.ReplicaKmsKeyID",
+            "KMS.Key",
+            "Arn",
+        ),
+        (
+            "S3.Bucket",
+            "ReplicationConfiguration.Rules[1].Destination.EncryptionConfiguration.ReplicaKmsKeyID",
+            "KMS.Alias",
+            "AliasArn",
+        ),
+        ("SageMaker.Domain", "VpcId", "EC2.VPC", "VpcId"),
+        ("NetworkFirewall.Firewall", "VpcId", "EC2.VPC", "VpcId"),
+        (
+            "ECS.Service",
+            "LoadBalancers[1].TargetGroupArn",
+            "ElasticLoadBalancingV2.TargetGroup",
+            "TargetGroupArn",
+        ),
+        ("EC2.Instance", "NetworkInterfaces[1].SubnetId", "EC2.Subnet", "SubnetId"),
+        (
+            "EC2.LaunchTemplate",
+            "LaunchTemplateData.NetworkInterfaces[1].SubnetId",
+            "EC2.Subnet",
+            "SubnetId",
+        ),
+        ("EC2.NatGateway", "SubnetId", "EC2.Subnet", "SubnetId"),
+        ("EC2.SubnetRouteTableAssociation", "SubnetId", "EC2.Subnet", "SubnetId"),
+        (
+            "NetworkFirewall.Firewall",
+            "SubnetMappings[1].SubnetId",
+            "EC2.Subnet",
+            "SubnetId",
+        ),
+        (
+            "ElasticLoadBalancingV2.LoadBalancer",
+            "SubnetMappings[1].SubnetId",
+            "EC2.Subnet",
+            "SubnetId",
+        ),
+        ("MWAA.Environment", "ExecutionRoleArn", "IAM.Role", "Arn"),
+        ("MWAA.Environment", "SourceBucketArn", "S3.Bucket", "Arn"),
+        ("RDS.DBProxy", "Auth[1].SecretArn", "SecretsManager.Secret", "Id"),
+        ("RDS.DBProxy", "RoleArn", "IAM.Role", "Arn"),
+        ("Scheduler.Schedule", "Target.DeadLetterConfig.Arn", "SQS.Queue", "Arn"),
+        ("S3.Bucket", "ReplicationConfiguration.Role", "IAM.Role", "Arn"),
+        ("ECS.TaskDefinition", "TaskRoleArn", "IAM.Role", "Arn"),
+        ("ECS.TaskDefinition", "ExecutionRoleArn", "IAM.Role", "Arn"),
+        (
+            "Route53.HostedZone",
+            "QueryLoggingConfig.CloudWatchLogsLogGroupArn",
+            "Logs.LogGroup",
+            "Arn",
+        ),
+        ("Scheduler.Schedule", "Target.RoleArn", "IAM.Role", "Arn"),
+    ],
+)
+def test_new_receiving_contracts(kind, path, producer, attribute):
+    comparison = fixture()
+    resource(comparison, "producer", "001", producer, "Producer", [])
+    wrong_kind, wrong_attribute = (
+        ("IAM.Role", "RoleName")
+        if producer == "EC2.Subnet"
+        else ("EC2.Subnet", "SubnetId")
+    )
+    resource(comparison, "wrong", "001", wrong_kind, "Wrong", [])
+    valid = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": attribute}
+    )
+    wrong = ResourceReference({"$resource": ["wrong", "001"], "$attribute": "SubnetId"})
+    assert comparison.desired_reference("producer", valid, kind, path) == valid
+    assert comparison.reference_decision(valid, valid, kind, path).equal is True
+    assert comparison.reference_decision(wrong, wrong, kind, path).equal is not True
+    with pytest.raises(Blocked):
+        comparison.desired_reference("wrong", wrong, kind, path)
+    invalid = ResourceReference(dict(valid, **{"$attribute": "Invalid"}))
+    assert comparison.reference_decision(invalid, invalid, kind, path).equal is not True
+    with pytest.raises(Blocked):
+        comparison.desired_reference("producer", invalid, kind, path)
+
+
+def test_wrong_producer_in_identical_expression_cannot_match():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    expression = Expression("Join", ["", [symbol]])
+    assert (
+        comparison.reference_decision(
+            expression, expression, "ECS.TaskDefinition", "TaskRoleArn"
+        ).equal
+        is not True
+    )
+
+
+@pytest.mark.parametrize(
+    "prop", sorted(set(IMPORT_PROPERTIES) - set(REFERENCE_PROPERTIES))
+)
+def test_import_only_contracts_prepare_explicit_references(prop):
+    kind, path = prop.split(".", 2)[:2], prop.split(".", 2)[2]
+    kind = ".".join(kind)
+    declared = receiving_contract(prop)
+    assert declared
+    for producer, forms in declared.items():
+        for form in forms:
+            comparison = fixture()
+            resource(comparison, "producer", "001", producer, "Producer", [])
+            symbol = ResourceReference(
+                {
+                    "$resource": ["producer", "001"],
+                    "$attribute": reference_attribute(producer, form),
+                }
+            )
+            assert comparison.desired_reference("producer", symbol, kind, path)
+
+
+def test_wrong_producer_in_identical_expression_with_prefix_cannot_match():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    expression = Expression("Join", ["", ["prefix", symbol]])
+    assert (
+        comparison.reference_decision(
+            expression, expression, "ECS.TaskDefinition", "TaskRoleArn"
+        ).equal
+        is not True
+    )
+
+
+def test_wrong_attribute_in_identical_expression_with_prefix_cannot_match():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "IAM.Role", "Producer", [])
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "RoleName"}
+    )
+    expression = Expression("Join", ["", ["prefix", symbol]])
+    assert (
+        comparison.reference_decision(
+            expression, expression, "S3.Bucket", "ReplicationConfiguration.Role"
+        ).equal
+        is not True
+    )
+
+
+def test_replication_role_rejects_role_name():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "IAM.Role", "Producer", [])
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "RoleName"}
+    )
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, "S3.Bucket", "ReplicationConfiguration.Role"
+        ).equal
+        is not True
+    )
+    with pytest.raises(Blocked):
+        comparison.desired_reference(
+            "producer", symbol, "S3.Bucket", "ReplicationConfiguration.Role"
+        )
+
+
+def test_saved_reference_wrong_consumer_cannot_match():
+    comparison = fixture()
+    vpc(comparison)
+    row = consumer(comparison)
+    declaration(comparison, "desired.row.010-001.value", VPC)
+    desired = prepared(comparison, row).require_value()
+    assert (
+        comparison.reference_decision(
+            desired, desired, "ECS.TaskDefinition", "TaskRoleArn"
+        ).equal
+        is not True
+    )
+    expression = Expression("Join", ["", ["prefix", desired]])
+    actual = comparison.evaluate("producer", {"Ref": "Vpc"})
+    for left, right in ((expression, expression), (desired, actual), (desired, VPC)):
+        assert (
+            comparison.reference_decision(
+                left, right, "ECS.TaskDefinition", "TaskRoleArn"
+            ).equal
+            is not True
+        )
+
+
+def test_unregistered_ecs_target_group_rejects_wrong_producer():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, "ECS.Service", "LoadBalancers[].TargetGroupArn"
+        ).equal
+        is not True
+    )
+
+
+def test_unregistered_instance_subnet_rejects_wrong_producer():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, "EC2.Instance", "NetworkInterfaces[].SubnetId"
+        ).equal
+        is not True
+    )
+
+
+def test_unregistered_rds_proxy_secret_rejects_wrong_producer():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, "RDS.DBProxy", "Auth[].SecretArn"
+        ).equal
+        is not True
+    )
+
+
+@pytest.mark.parametrize("prop", sorted(IMPORT_PROPERTIES))
+def test_registered_contract_rejects_same_wrong_producer(prop):
+    declared = receiving_contract(prop)
+    assert declared
+    producer = "S3.Bucket" if "S3.Bucket" not in declared else "IAM.Role"
+    comparison = fixture()
+    resource(comparison, "producer", "001", producer, "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    service, resource_name, path = prop.split(".", 2)
+    expression = Expression("Join", ["", [symbol]])
+    for left, right in (
+        (symbol, symbol),
+        (expression, expression),
+        (symbol, "arn:aws:s3:::fixture"),
+    ):
+        assert (
+            comparison.reference_decision(
+                left, right, service + "." + resource_name, path
+            ).equal
+            is not True
+        )
+
+
+def test_missing_arn_contract_does_not_prove_same_wrong_reference():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    expression = Expression("Join", ["", [symbol]])
+    for left, right in (
+        (symbol, symbol),
+        (symbol, "arn:aws:s3:::example"),
+        (expression, expression),
+    ):
+        assert (
+            comparison.reference_decision(left, right, "Events.Rule", "RoleArn").equal
+            is None
+        )
+
+
+def test_unproven_gateway_contract_cannot_match_wrong_resource():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    assert (
+        comparison.reference_decision(symbol, symbol, "EC2.Route", "GatewayId").equal
+        is not True
+    )
+
+
+def test_cloudtrail_topic_name_rejects_bucket_name():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "BucketName"}
+    )
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, "CloudTrail.Trail", "SnsTopicName"
+        ).equal
+        is not True
+    )
+
+
+def test_federated_catalog_identifier_does_not_assume_connection_identity():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "Glue.Connection", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Name"})
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, "Glue.Catalog", "FederatedCatalog.Identifier"
+        ).equal
+        is None
+    )
+
+
+def test_lambda_source_access_uri_rejects_wrong_producer():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    assert (
+        comparison.reference_decision(
+            symbol,
+            symbol,
+            "Lambda.EventSourceMapping",
+            "SourceAccessConfigurations[].URI",
+            context={"Type": "BASIC_AUTH"},
+        ).equal
+        is not True
+    )
+    assert (
+        comparison.reference_decision(
+            symbol,
+            symbol,
+            "Lambda.EventSourceMapping",
+            "SourceAccessConfigurations[].URI",
+        ).equal
+        is None
+    )
+
+
+def test_lambda_source_access_uri_context_is_bound_to_entry():
+    comparison = fixture()
+    resource(comparison, "secret", "001", "SecretsManager.Secret", "Secret", [])
+    rows = setting(
+        comparison,
+        "Lambda.EventSourceMapping",
+        "SourceAccessConfigurations",
+        [{"Type": "BASIC_AUTH", "URI": "[secret](secret.md#secret)"}],
+        [{"Type": "BASIC_AUTH", "URI": {"Ref": "Secret"}}],
+    )
+    assert [row["category"] for row in rows] == ["matched"], rows
+
+
+def test_lambda_source_access_secret_contract_requires_context():
+    comparison = fixture()
+    resource(comparison, "secret", "001", "SecretsManager.Secret", "Secret", [])
+    symbol = ResourceReference({"$resource": ["secret", "001"], "$attribute": "Id"})
+    kind, path = "Lambda.EventSourceMapping", "SourceAccessConfigurations[].URI"
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, kind, path, context={"Type": "BASIC_AUTH"}
+        ).equal
+        is True
+    )
+    assert comparison.reference_decision(symbol, symbol, kind, path).equal is None
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, kind, path.replace("[]", "[1]")
+        ).equal
+        is None
+    )
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, kind, path, context={"Type": "VPC_SUBNET"}
+        ).equal
+        is None
+    )
+
+
+def test_lambda_source_access_split_rows_bind_only_the_same_index():
+    rows = [
+        (
+            "001-001",
+            {
+                "property": "Lambda.EventSourceMapping.SourceAccessConfigurations[1].Type",
+                "value": "`BASIC_AUTH`",
+            },
+        ),
+        (
+            "001-002",
+            {
+                "property": "Lambda.EventSourceMapping.SourceAccessConfigurations[2].Type",
+                "value": "`VPC_SUBNET`",
+            },
+        ),
+    ]
+    contexts = row_contexts("Lambda.EventSourceMapping", rows)
+    assert contexts["SourceAccessConfigurations[1]"] == {"Type": "BASIC_AUTH"}
+    assert contexts["SourceAccessConfigurations[2]"] == {"Type": "VPC_SUBNET"}
+    rows.append(
+        (
+            "001-003",
+            {
+                "property": "Lambda.EventSourceMapping.SourceAccessConfigurations[1].Type",
+                "value": "`BASIC_AUTH`",
+            },
+        )
+    )
+    assert "SourceAccessConfigurations[1]" not in row_contexts(
+        "Lambda.EventSourceMapping", rows
+    )
+
+
+def test_lambda_source_access_split_model_rows_compare():
+    comparison = fixture()
+    resource(comparison, "secret", "001", "SecretsManager.Secret", "Secret", [])
+    resource(
+        comparison,
+        "consumer",
+        "090",
+        "Lambda.EventSourceMapping",
+        "Receiver",
+        [
+            ("SourceAccessConfigurations[1].Type", "BASIC_AUTH", None),
+            ("SourceAccessConfigurations[1].URI", "[secret](secret.md#secret)", None),
+        ],
+        properties={
+            "SourceAccessConfigurations": [
+                {"Type": "BASIC_AUTH", "URI": {"Ref": "Secret"}}
+            ]
+        },
+    )
+    document = comparison.stack_inputs["producer"][0]
+    definition = document["Resources"]["Receiver"]
+    result = comparison.compare_rows(
+        "consumer",
+        "090",
+        comparison.resources["consumer"]["090"],
+        "producer",
+        "Receiver",
+        ROOT / "synthetic.yaml",
+        definition,
+        document,
+    )
+    assert result.failure is None, result.failure
+    assert [row["category"] for row in result.records] == ["matched"], result.records
+
+
+def test_codebuild_artifact_s3_location_rejects_wrong_producer():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "IAM.Role", "Producer", [])
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "RoleName"}
+    )
+    assert (
+        comparison.reference_decision(
+            symbol,
+            symbol,
+            "CodeBuild.Project",
+            "Artifacts.Location",
+            context={"Type": "S3"},
+        ).equal
+        is not True
+    )
+
+
+def test_codebuild_artifact_s3_location_context():
+    comparison = fixture()
+    resource(comparison, "bucket", "001", "S3.Bucket", "Bucket", [])
+    rows = setting(
+        comparison,
+        "CodeBuild.Project",
+        "Artifacts",
+        {"Type": "S3", "Location": "[bucket](bucket.md#bucket)"},
+        {"Type": "S3", "Location": {"Ref": "Bucket"}},
+    )
+    assert [row["category"] for row in rows] == ["matched"], rows
+    symbol = ResourceReference(
+        {"$resource": ["bucket", "001"], "$attribute": "BucketName"}
+    )
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, "CodeBuild.Project", "Artifacts.Location"
+        ).equal
+        is None
+    )
+
+
+def test_codebuild_source_s3_location_does_not_match_role():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "IAM.Role", "Producer", [])
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "RoleName"}
+    )
+    assert (
+        comparison.reference_decision(
+            symbol,
+            symbol,
+            "CodeBuild.Project",
+            "Source.Location",
+            context={"Type": "S3"},
+        ).equal
+        is not True
+    )
+
+
+def test_codebuild_cache_s3_location_does_not_match_role():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "IAM.Role", "Producer", [])
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "RoleName"}
+    )
+    assert (
+        comparison.reference_decision(
+            symbol,
+            symbol,
+            "CodeBuild.Project",
+            "Cache.Location",
+            context={"Type": "S3"},
+        ).equal
+        is None
+    )
+
+
+def test_glue_crawler_s3_path_does_not_match_role_name():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "IAM.Role", "Producer", [])
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "RoleName"}
+    )
+    assert (
+        comparison.reference_decision(
+            symbol, symbol, "Glue.Crawler", "Targets.S3Targets[].Path"
+        ).equal
+        is not True
+    )
+
+
+def test_unproven_s3_output_location_does_not_match_role():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "IAM.Role", "Producer", [])
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "RoleName"}
+    )
+    assert (
+        comparison.reference_decision(
+            symbol,
+            symbol,
+            "Athena.WorkGroup",
+            "WorkGroupConfiguration.ResultConfiguration.OutputLocation",
+        ).equal
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("EC2.FlowLog", "ResourceId"),
+        ("CodePipeline.Pipeline", "Stages[].Actions[].Configuration.ProjectName"),
+        ("CloudTrail.Trail", "EventSelectors[].DataResources[].Values[]"),
+    ],
+)
+def test_unknown_context_cannot_match_wrong_producer(kind, path):
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "BucketName"}
+    )
+    assert comparison.reference_decision(symbol, symbol, kind, path).equal is not True
+
+
+def test_cloudtrail_object_context_rejects_malformed_desired_expression():
+    comparison = fixture()
+    resource(comparison, "producer", "001", "S3.Bucket", "Producer", [])
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    expression = Expression("Join", ["", [symbol, "/wrong/"]])
+    assert (
+        comparison.reference_decision(
+            expression,
+            expression,
+            "CloudTrail.Trail",
+            "EventSelectors[].DataResources[].Values[]",
+            context={"Type": "AWS::S3::Object"},
+        ).equal
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,path,producer",
+    [("Glue.Crawler", "Role", "IAM.Role"), ("ECS.Service", "Cluster", "ECS.Cluster")],
+)
+def test_new_multiple_attribute_contract_does_not_guess_legacy_link(
+    kind, path, producer
+):
+    comparison = fixture()
+    resource(comparison, "producer", "001", producer, "Producer", [])
+    with pytest.raises(Blocked):
+        comparison.desired_reference(
+            "producer", "[producer](producer.md#producer)", kind, path
+        )

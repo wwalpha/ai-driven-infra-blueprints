@@ -1,6 +1,7 @@
 """Convert Model resource links under explicit receiving-property contracts."""
 
 import re
+from copy import copy
 
 from model.projection import reference_attribute
 from utils.cloudformation.inputs import Blocked
@@ -93,6 +94,16 @@ def desired_reference(
     refservice, identity = symbol["$resource"]
     refkind = resource_type(symbol)
     if (
+        local_comparison
+        and not isinstance(value, ResourceReference)
+        and attribute is None
+        and len(declared.get(refkind, ())) > 1
+        and contract is None
+        and kind + "." + path != "KMS.Alias.TargetKeyId"
+        and kind + "." + path not in CONTEXT_DEFAULT_ON_MISMATCH
+    ):
+        raise Blocked(f"reference attribute selection is unproven: {kind}.{path}")
+    if (
         forms
         and registry.property_rule(kind, path).forms is None
         and symbol["$attribute"]
@@ -120,14 +131,20 @@ def desired_reference(
     symbol = protect_import(
         symbol, kind + "." + path if declared or contract or forms else None
     )
+    if declared and context and requires_context(kind + "." + path, context):
+        symbol = copy(symbol)
+        symbol.receiving_context = dict(context)
+        symbol.receiving_property = kind + "." + path
     suffix = ATTRIBUTE_SUFFIXES.get((refkind, symbol["$attribute"]))
     if suffix:
+        child = copy(symbol)
+        child["$attribute"] = suffix[0]
         return Expression(
             "Join",
             [
                 "",
                 [
-                    ResourceReference(dict(symbol, **{"$attribute": suffix[0]})),
+                    child,
                     suffix[1],
                 ],
             ],

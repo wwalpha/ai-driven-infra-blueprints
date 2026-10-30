@@ -110,3 +110,7 @@ RULES["CodeBuild.Project"]["ServiceRole"] = replace(
     RULES["CodeBuild.Project"]["ServiceRole"],
     direct_attribute=IMPORT_PROPERTIES["CodeBuild.Project.ServiceRole"][1],
 )
+
+RULES["CodeBuild.Project"]["Artifacts"] = replace(
+    RULES["CodeBuild.Project"]["Artifacts"], reference_context=True
+)
