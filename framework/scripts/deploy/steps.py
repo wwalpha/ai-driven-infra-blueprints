@@ -505,7 +505,9 @@ def describe(backend: SimpleNamespace) -> dict:
                 if state.get("checkpointed")
                 else "PENDING",
                 "failure": state.get("failure"),
-                "unexecutedReason": state.get("unexecutedReason"),
+                "unexecutedReason": state.get("unexecutedReason")
+                if state["status"] in {"READY", "NOT_STARTED"}
+                else None,
                 "runtime": state.get("cleanupStatus")
                 or state.get("bootstrap", {}).get("stage"),
             }

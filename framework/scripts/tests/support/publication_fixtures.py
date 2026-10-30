@@ -39,6 +39,7 @@ def publication_repository(revision=git_revision):
             bind=lambda *a, **k: None,
             adopt_successes=lambda *a: None,
             require_complete=lambda *a: None,
+            prepare_complete=lambda *a: None,
             check_pending_progress=lambda *a: None,
         ),
         patch.object(steps, "checkpoint_receipts", return_value={}),

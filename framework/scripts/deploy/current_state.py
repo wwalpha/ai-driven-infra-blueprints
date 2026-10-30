@@ -185,6 +185,7 @@ def record_attempt(state, status):
     if status == "UNCONFIRMED":
         if state.get("failureDetected"):
             state["status"] = "FAILED"
+            state.pop("unexecutedReason", None)
             return
         state.update(
             status="BLOCKED",
@@ -202,3 +203,6 @@ def record_attempt(state, status):
         state["status"] = "RUNNING"
     else:
         raise Blocked("unrecognized stack status: " + status)
+    if state["status"] in {"SUCCESS", "FAILED"}:
+        state.pop("unexecutedReason", None)
+        state.pop("attemptResult", None)

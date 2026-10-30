@@ -157,6 +157,7 @@ def run_group(
             for unit in pending[: max(0, limit - running - preparing)]:
                 state = states[unit["name"]]
                 try:
+                    state.pop("unexecutedReason", None)
                     state.setdefault("preparationId", uuid.uuid4().hex)
                     measured = getattr(backend, "_timed_input_loads", set())
                     started = (
@@ -232,6 +233,7 @@ def run_group(
             for unit in ready[: max(0, limit - running)]:
                 state = states[unit["name"]]
                 try:
+                    state.pop("unexecutedReason", None)
                     # Persist execution intent before AWS mutation, including interruptions.
                     state["status"] = "RUNNING"
                     state["clientToken"] = state.get("clientToken", uuid.uuid4().hex)

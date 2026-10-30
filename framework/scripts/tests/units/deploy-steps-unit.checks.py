@@ -1,6 +1,8 @@
 """Short-operation decisions and complete identifier coverage, without AWS or worktrees."""
 
 import json
+import os
+import subprocess
 import sys
 import tempfile
 from contextlib import nullcontext
@@ -33,6 +35,8 @@ from support.cloudformation_deploy_fixtures import Fake, states, units
 from support.pytest_cli import run
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
+
+prepare_complete = worktree.prepare_complete
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -383,6 +387,131 @@ def save_test_state(case, request, progress, state):
 
 
 class TestCurrentState(TestCase):
+    def test_deploy_modules_import_first_in_fresh_processes(self):
+        for module in (
+            "scheduler",
+            "current_request",
+            "operation_journal",
+            "controller",
+        ):
+            subprocess.run(
+                [sys.executable, "-c", f"import deploy.{module}"],
+                env={
+                    **os.environ,
+                    "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+                },
+                check=True,
+                capture_output=True,
+            )
+
+    def test_confirmed_execution_without_root_event_is_saved_before_release(self):
+        request = {
+            "operation": "execute_change_set",
+            "name": "A",
+            "stackId": "stack",
+            "changeSetId": "change",
+            "token": "own",
+            "settled": True,
+            "result": "SETTLED",
+            "attemptStatus": "UPDATE_COMPLETE",
+        }
+        state = {
+            "status": "RUNNING",
+            "clientToken": "own",
+            "changeSetId": "change",
+            "executionEvidence": {"StackId": "stack"},
+            "attemptResult": "UNKNOWN",
+        }
+        backend = SimpleNamespace(
+            states={"A": state},
+            templates={},
+            aws=Mock(
+                side_effect=[
+                    {
+                        "Stacks": [
+                            {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
+                        ]
+                    },
+                    {"StackEvents": []},
+                ]
+            ),
+        )
+        backend.poll = lambda unit, snapshot: controller.poll(backend, unit, snapshot)
+        saved = []
+        with (
+            patch.object(current_request, "reconcile", return_value=request),
+            patch.object(current_request, "release") as release,
+        ):
+            scheduler.run_group(
+                [{"name": "A", "deployOrder": 1}],
+                1,
+                backend.states,
+                backend,
+                save=lambda: saved.append(dict(state)),
+                single_step=True,
+            )
+            self.assertEqual(saved[-1]["status"], "SUCCESS")
+            self.assertNotIn("attemptResult", saved[-1])
+            release.assert_called_once_with(backend, request)
+
+    def test_restarting_clears_unexecuted_reason(self):
+        scoped = units(10)
+        state = states(scoped)
+        state["A"]["unexecutedReason"] = "DEPLOY_ENDED_WITHOUT_EXECUTION"
+        scheduler.run_group(scoped, 1, state, Fake(), single_step=True)
+        self.assertNotIn("unexecutedReason", state["A"])
+        state["A"]["unexecutedReason"] = "stale"
+        current_state.record_attempt(state["A"], "UPDATE_COMPLETE")
+        self.assertNotIn("unexecutedReason", state["A"])
+
+    def test_change_set_completion_requires_matching_identities(self):
+        record = {
+            "operation": "execute_change_set",
+            "name": "A",
+            "stackId": "stack",
+            "changeSetId": "change",
+            "token": "own",
+        }
+        change = {
+            "ChangeSetId": "change",
+            "StackId": "stack",
+            "ExecutionStatus": "EXECUTE_COMPLETE",
+        }
+        current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
+        aws = Mock(side_effect=[change, {"StackEvents": []}])
+        self.assertTrue(current_request.settled(aws, record, current))
+        self.assertEqual(record["attemptStatus"], "UPDATE_COMPLETE")
+        other_event = {
+            "ResourceType": "AWS::CloudFormation::Stack",
+            "StackId": "stack",
+            "PhysicalResourceId": "stack",
+            "ClientRequestToken": "other",
+            "ResourceStatus": "UPDATE_COMPLETE",
+        }
+        self.assertFalse(
+            current_request.settled(
+                Mock(side_effect=[change, {"StackEvents": [other_event]}]),
+                record.copy(),
+                current,
+            )
+        )
+        self.assertFalse(
+            current_request.settled(Mock(), record, current | {"StackId": "other"})
+        )
+        for wrong in (change | {"ChangeSetId": "other"}, change | {"StackId": "other"}):
+            with self.assertRaises(Blocked):
+                current_request.settled(Mock(return_value=wrong), record, current)
+        self.assertFalse(
+            current_request.owns(
+                {
+                    "clientToken": "other",
+                    "changeSetId": "change",
+                    "executionEvidence": {"StackId": "stack"},
+                },
+                record,
+            )
+        )
+
     def test_explicit_completion_persists_unexecuted_reason(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -429,6 +558,9 @@ class TestCurrentState(TestCase):
             with (
                 patch.object(worktree, "require", return_value=lifecycle),
                 patch.object(worktree, "progress_path", return_value=path),
+                patch.object(
+                    worktree, "prepare_complete", side_effect=prepare_complete
+                ),
             ):
                 worktree.write_sealed(root, path, progress)
                 worktree.prepare_complete(root, task)
@@ -440,6 +572,53 @@ class TestCurrentState(TestCase):
                 self.assertEqual(saved["runContext"]["deployResult"], "FAIL")
                 worktree.prepare_complete(root, task)
                 self.assertEqual(worktree.read_progress(root, lifecycle), saved)
+                with patch.object(
+                    worktree, "require_complete", side_effect=Blocked("validation")
+                ):
+                    with self.assertRaises(Blocked):
+                        worktree.prepare_complete(root, task)
+                resumed = worktree.read_progress(root, lifecycle)["states"]
+                scheduler.run_group(
+                    [{"name": "B", "deployOrder": 2}],
+                    1,
+                    resumed,
+                    Fake(),
+                    single_step=True,
+                )
+                self.assertNotIn("unexecutedReason", resumed["B"])
+
+    def test_settled_execution_is_not_sent_again_before_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "request.json"
+            record = {
+                "name": "A",
+                "operation": "execute_change_set",
+                "stackId": "stack",
+                "changeSetId": "change",
+                "token": "own",
+            }
+            path.write_text(json.dumps(record), encoding="utf-8")
+            path.chmod(0o600)
+            transport = Mock()
+            runtime = SimpleNamespace(target={}, aws=Mock())
+            with (
+                patch.object(current_request, "location", return_value=path),
+                patch.object(
+                    current_state,
+                    "read",
+                    return_value={"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"},
+                ),
+                patch.object(current_request, "settled", return_value=True),
+            ):
+                with self.assertRaises(Blocked):
+                    current_request.send(
+                        runtime,
+                        "execute_change_set",
+                        {"StackName": "A", "ChangeSetName": "change"},
+                        transport,
+                    )
+            transport.assert_not_called()
+            self.assertTrue(path.exists())
 
     def test_missing_changeset_poll_saves_before_release(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1011,7 +1190,9 @@ class TestCurrentState(TestCase):
             ]
         )
         self.assertFalse(
-            current_request.settled(aws, record, {"StackStatus": "UPDATE_COMPLETE"})
+            current_request.settled(
+                aws, record, {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
+            )
         )
         aws = Mock(
             return_value={
@@ -1022,7 +1203,9 @@ class TestCurrentState(TestCase):
         )
         self.assertTrue(
             current_request.settled(
-                aws, record, {"StackStatus": "UPDATE_ROLLBACK_COMPLETE"}
+                aws,
+                record,
+                {"StackId": "stack", "StackStatus": "UPDATE_ROLLBACK_COMPLETE"},
             )
         )
 

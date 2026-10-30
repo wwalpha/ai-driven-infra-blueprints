@@ -731,6 +731,8 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
         state["requestPending"] = False
         if request.get("result") == "FAIL" and current_request.owns(state, request):
             state["failureDetected"] = True
+        if attempt_status is None and current_request.owns(state, request):
+            attempt_status = request.get("attemptStatus")
     if current["StackStatus"] == "UNKNOWN" and attempt_status in {
         None,
         "CREATE_FAILED",

@@ -83,7 +83,13 @@ def root_events(events, token, identity):
 def settled(aws, record, current):
     operation = record["operation"]
     status = current["StackStatus"]
+    execution_complete = False
     if operation == "execute_change_set" and not record.get("stackId"):
+        return False
+    if (
+        operation == "execute_change_set"
+        and current.get("StackId") != record["stackId"]
+    ):
         return False
     if record.get("service") == "secretsmanager":
         metadata = aws(
@@ -128,11 +134,14 @@ def settled(aws, record, current):
                 "DELETE_COMPLETE",
             }
         execution = change_set.get("ExecutionStatus")
+        if current_state.category(current) in {"RUNNING", "UNKNOWN", "REVIEW"}:
+            return False
         if operation == "execute_change_set" and execution in {
             "EXECUTE_FAILED",
             "OBSOLETE",
         }:
             record["result"] = "FAIL"
+            record["attemptStatus"] = "UPDATE_FAILED"
             return True
         if (
             operation == "execute_change_set"
@@ -143,16 +152,20 @@ def settled(aws, record, current):
                 or current_state.identity(current) != record["before"]
             )
         ):
-            record["result"] = "SETTLED"
-            return True
+            execution_complete = True
     if operation == "delete_stack" and status == "ABSENT":
         return True
-    events = current_state.pages(
-        aws,
-        "describe_stack_events",
-        "StackEvents",
-        StackName=record.get("stackId") or record["name"],
-    )
+    try:
+        events = current_state.pages(
+            aws,
+            "describe_stack_events",
+            "StackEvents",
+            StackName=record.get("stackId") or record["name"],
+        )
+    except (OSError, Blocked):
+        if not execution_complete:
+            raise
+        events = []
     matches = root_events(events, record["token"], record.get("stackId"))
     if current_state.category(current) in {"RUNNING", "UNKNOWN", "REVIEW"}:
         return False
@@ -162,8 +175,25 @@ def settled(aws, record, current):
             return False
         if terminal in current_state.SUCCESS | current_state.FAILED:
             record["result"] = "FAIL" if terminal in current_state.FAILED else "SETTLED"
+            record["attemptStatus"] = terminal
             return True
         return False
+    other_root = next(
+        (
+            event
+            for event in events
+            if event.get("ResourceType") == "AWS::CloudFormation::Stack"
+            and event.get("StackId") == record.get("stackId")
+            and event.get("PhysicalResourceId") == record.get("stackId")
+        ),
+        None,
+    )
+    if execution_complete and not (
+        other_root and other_root.get("ClientRequestToken") != record.get("token")
+    ):
+        record["result"] = "FAIL" if status in current_state.FAILED else "SETTLED"
+        record["attemptStatus"] = status
+        return True
     return False
 
 
@@ -189,6 +219,8 @@ def reconcile(backend, unit, state=None):
                     record["settled"] = True
                     if "result" in evidence:
                         record["result"] = evidence["result"]
+                    if "attemptStatus" in evidence:
+                        record["attemptStatus"] = evidence["attemptStatus"]
             state.pop("requestError", None)
             return record
         except AwsError as error:
@@ -257,6 +289,10 @@ def send(
                     raise
                 confirmed = False
             if confirmed:
+                if prior["operation"] == "execute_change_set":
+                    raise Blocked(
+                        "settled execution must be saved before request release"
+                    )
                 path.unlink()
                 prior = None
         created = prior is None
