@@ -98,7 +98,7 @@ def rebuild(root):
     return records
 
 
-def load(root, *, publication=False):
+def load(root):
     root = change_scope.index_root(root)
     shared = sources.session_reads(root)
     with shared.lock if shared is not None else nullcontext():
@@ -106,7 +106,6 @@ def load(root, *, publication=False):
             return shared.dependency_index
         index = _checked_index(
             root,
-            publication,
             sources._invocation_reads(root),
             import_scope.read_context(root),
         )
@@ -119,17 +118,17 @@ def load(root, *, publication=False):
         return index
 
 
-def _checked_index(root, publication, reads, permission):
+def _checked_index(root, reads, permission):
     if not read_only_inputs() or not isinstance(reads, sources.FileReads):
-        return _load(root, publication=publication)
-    key = root, publication, permission
+        return _load(root)
+    key = root, permission
     with reads.lock:
         if key not in reads.indexes:
-            reads.indexes[key] = _load(root, publication=publication)
+            reads.indexes[key] = _load(root)
         return reads.indexes[key]
 
 
-def _load(root, *, publication=False):
+def _load(root):
     path = location(root)
     if not path.is_file():
         shared = sources.session_reads(root)
@@ -145,14 +144,20 @@ def _load(root, *, publication=False):
             f"python framework/scripts/model/cli.py index --repository-root {root}"
         )
     index = read_sealed(root, path)
-    if publication and isinstance(index, dict) and index.get("version") in {1, 2}:
-        # Publication re-discovers old metadata; Deploy never takes this branch.
-        return check_change_inventory(root, set())
     validate(root, index)
     return index
 
 
 def validate(root, index):
+    if isinstance(index, dict) and (
+        type(index.get("version")) is not int or index["version"] != 3
+    ):
+        raise ValueError(
+            f"unsupported Model dependency index version {index.get('version')!r}; "
+            "rebuild offline: python3 -B framework/scripts/run-python.py "
+            "-B framework/scripts/model/cli.py index "
+            f"--repository-root {root}"
+        )
     if (
         not isinstance(index, dict)
         or index.get("version") != 3
@@ -235,30 +240,7 @@ def update(root, changed, *, observed=False):
     if not persistent and (shared is None or shared.dependency_index is None):
         return
     previous = load(root) if shared is not None else read_sealed(root, location(root))
-    migrating = (
-        not observed
-        and isinstance(previous, dict)
-        and previous.get("version") in {1, 2}
-    )
-    if migrating:
-        # Old edges cannot prove absence; refresh metadata inside the existing transaction.
-        with change_scope.change_reads(root, sources.FileReads(), metadata={}):
-            previous = check_change_inventory(root, set())
-    elif observed and isinstance(previous, dict) and previous.get("version") in {1, 2}:
-        # Rollback only refreshes file revisions; old edges stay unusable by Deploy.
-        validate(
-            root,
-            {
-                **previous,
-                "version": 3,
-                "models": {
-                    path: {**entry, "errors": {}}
-                    for path, entry in previous["models"].items()
-                },
-            },
-        )
-    else:
-        validate(root, previous)
+    validate(root, previous)
     index = {
         **previous,
         "files": dict(previous["files"]),
@@ -277,7 +259,7 @@ def update(root, changed, *, observed=False):
             index["files"][relative] = revision(path)
         else:
             index["files"].pop(relative, None)
-    for path in () if observed or migrating else scopes:
+    for path in () if observed else scopes:
         relative = path.relative_to(root).as_posix()
         files = set(index["models"].get(relative, {}).get("files", ()))
         for changed_path in changed:
@@ -298,13 +280,13 @@ def update(root, changed, *, observed=False):
             if files:
                 raise ValueError("deleted Model still has indexed parts: " + relative)
             index["models"].pop(relative, None)
-    if index == previous and not migrating:
+    if index == previous:
         return
     if persistent:
         write_sealed(root, location(root), index)
     shared = sources.session_reads(root)
     if shared is not None:
-        shared.dependency_index = index if index["version"] == 3 else None
+        shared.dependency_index = index
         if not observed:
             shared.index_checks.clear()
 
@@ -406,8 +388,6 @@ def check_change_inventory(root, changed, *, reads=None):
             if location(primary).is_file()
             else {"version": 3, "files": {}, "models": {}}
         )
-        if isinstance(previous, dict) and previous.get("version") in {1, 2}:
-            previous = {"version": 3, "files": {}, "models": {}}
         validate(primary, previous)
         inventory_key = "files", *key[:3]
         if inventory_key not in indexes:
