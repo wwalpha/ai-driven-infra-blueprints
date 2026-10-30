@@ -2,6 +2,7 @@
 """Task selection, declaration checks and publication consistency with synthetic inputs."""
 
 import json
+import shutil
 import sys
 from dataclasses import FrozenInstanceError
 from functools import partial as _bind_framework_callback
@@ -874,82 +875,104 @@ if __name__ == "__main__":
     raise SystemExit(run(__file__))
 
 
-@pytest.fixture
-def approval_task(request):
+@pytest.fixture(scope="module")
+def approval_repository_seed():
     with repository_fixture() as root:
         source = logs_fixture(root)
-        if (
-            getattr(getattr(request.node, "callspec", None), "params", {}).get("state")
-            == "parts"
-        ):
-            part = source.with_suffix("") / "part-001.properties"
-            part.parent.mkdir()
-            part.write_bytes(source.read_bytes())
-            source.write_text(
-                FORMAT
-                + "\n"
-                + INDEX
-                + "\n# part: "
-                + source.stem
-                + "/part-001.properties\n"
-            )
         git(root, "add", "project.json", "model")
         git(root, "commit", "-qm", "existing Model")
-        name = "tasks/model-acceptance.md"
-        relative = source.relative_to(root).as_posix()
-        transitions.start(
-            root,
+        before = {
+            path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+        yield root, source.relative_to(root)
+        assert before == {
+            path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file()
+        }, "approval cases changed the shared Git/Model seed"
+
+
+@pytest.fixture
+def approval_task(request, tmp_path, approval_repository_seed):
+    seed, relative = approval_repository_seed
+    root = Path(shutil.copytree(seed, tmp_path / "repository"))
+    assert not (root / ".git/config").samefile(seed / ".git/config")
+    assert not (root / ".git/index").samefile(seed / ".git/index")
+    source = root / relative
+    if (
+        getattr(getattr(request.node, "callspec", None), "params", {}).get("state")
+        == "parts"
+    ):
+        part = source.with_suffix("") / "part-001.properties"
+        part.parent.mkdir()
+        part.write_bytes(source.read_bytes())
+        source.write_text(
+            FORMAT
+            + "\n"
+            + INDEX
+            + "\n# part: "
+            + source.stem
+            + "/part-001.properties\n"
+        )
+        git(root, "add", "project.json", "model")
+        git(root, "commit", "-qm", "existing Model")
+    name = "tasks/model-acceptance.md"
+    relative = source.relative_to(root).as_posix()
+    transitions.start(
+        root,
+        name,
+        transition_contract(
             name,
-            transition_contract(
-                name,
-                ["file.txt", relative],
-                kind="migration",
-                scope="qa-synthetic/team-a/cloudwatch-logs",
-            ),
-        )
-        (root / "file.txt").write_text("candidate\n")
-        findings = Findings(root)
-        task = TaskValidation(root, findings, contract_file=name)
-        task.check_task_scope()
-        assert not findings.errors
-        scope = {("qa-synthetic", "team-a", "cloudwatch-logs")}
-        findings.evaluate(
-            "model.literal.001-002",
-            scope,
-            lambda: findings.input_check(
-                False,
-                source,
-                "RetentionInDays is not a valid integer",
-                location="desired.row.001-002.value",
-            ),
-            source_path=source,
-        )
-        (failure,) = findings.failures()
-        dependencies = acceptance.unchanged_model_evidence(task, failure)
-        record = dict(
-            failure,
-            task=name,
-            dependencies=dependencies,
-            candidate=acceptance.candidate(task, dependencies),
-            assessment={
-                key: "Reviewed unchanged baseline Model and producer/consumer contracts; unrelated to the file.txt goal"
-                for key in (
-                    "task_relevance",
-                    "before_after",
-                    "producer_consumer",
-                    "regression",
-                    "why_outside_task",
-                    "risk",
-                )
-            },
-            human_approval=dict(
-                decision="exclude_this_task_only",
-                diagnostic_id=failure["diagnostic_id"],
-                reason=failure["reason"],
-                statement=f"Approve exclusion of {failure['diagnostic_id']} for this Task only",
-            ),
-        )
-        yield root, task, record, source
+            ["file.txt", relative],
+            kind="migration",
+            scope="qa-synthetic/team-a/cloudwatch-logs",
+        ),
+    )
+    (root / "file.txt").write_text("candidate\n")
+    findings = Findings(root)
+    task = TaskValidation(root, findings, contract_file=name)
+    task.check_task_scope()
+    assert not findings.errors
+    scope = {("qa-synthetic", "team-a", "cloudwatch-logs")}
+    findings.evaluate(
+        "model.literal.001-002",
+        scope,
+        lambda: findings.input_check(
+            False,
+            source,
+            "RetentionInDays is not a valid integer",
+            location="desired.row.001-002.value",
+        ),
+        source_path=source,
+    )
+    (failure,) = findings.failures()
+    dependencies = acceptance.unchanged_model_evidence(task, failure)
+    record = dict(
+        failure,
+        task=name,
+        dependencies=dependencies,
+        candidate=acceptance.candidate(task, dependencies),
+        assessment={
+            key: "Reviewed unchanged baseline Model and producer/consumer contracts; unrelated to the file.txt goal"
+            for key in (
+                "task_relevance",
+                "before_after",
+                "producer_consumer",
+                "regression",
+                "why_outside_task",
+                "risk",
+            )
+        },
+        human_approval=dict(
+            decision="exclude_this_task_only",
+            diagnostic_id=failure["diagnostic_id"],
+            reason=failure["reason"],
+            statement=f"Approve exclusion of {failure['diagnostic_id']} for this Task only",
+        ),
+    )
+    yield root, task, record, source
 
 
 @pytest.mark.parametrize(
@@ -1133,8 +1156,10 @@ def check_suspended_import_guard_is_read_only():
         assert tasks.status((root / name).read_text()) == "suspend"
 
 
-@pytest.mark.parametrize("integration", [False, True])
-@pytest.mark.parametrize("outcome", ["pass", "fail", "missing"])
+@pytest.mark.parametrize(
+    "outcome,integration",
+    [("pass", False), ("pass", True), ("fail", True), ("missing", True)],
+)
 def check_import_registered_acceptance(outcome, integration):
     with repository_fixture() as root:
         name = "tasks/import.md"
@@ -1157,7 +1182,9 @@ def check_import_registered_acceptance(outcome, integration):
             {"framework.rule-readings": handler} if outcome != "missing" else {}
         )
         with (
-            patch.object(task_runtime._imports_import_guard, "require_import_changes"),
+            patch.object(
+                task_runtime._imports_import_guard, "require_import_changes"
+            ) as guard,
             patch.object(
                 task_runtime.Validator,
                 "run",
@@ -1173,6 +1200,10 @@ def check_import_registered_acceptance(outcome, integration):
             else:
                 with pytest.raises(ValueError, match="Acceptance"):
                     task_runtime.check_import(root, name, integration=integration)
+
+        guard.assert_called_once_with(
+            root, **({"contract_file": name} if integration else {})
+        )
 
 
 @pytest.mark.parametrize("change", ["none", "candidate", "dependency", "human"])
@@ -1211,11 +1242,10 @@ def check_import_rechecks_approved_failures(approval_task, change):
                 task_runtime.check_import(root, name, integration=True)
 
 
-@pytest.mark.parametrize("integration", [False, True])
 @pytest.mark.parametrize(
     "check", ["changed:missing.txt", "exists:missing.txt", "absent:file.txt"]
 )
-def check_import_path_acceptance_is_enforced(check, integration):
+def check_import_path_acceptance_is_enforced(check):
     with repository_fixture() as root:
         name = "tasks/import.md"
         text = transition_contract(
@@ -1233,11 +1263,10 @@ def check_import_path_acceptance_is_enforced(check, integration):
                 ValueError,
                 match="required changed path missing|required path missing|forbidden path exists",
             ):
-                task_runtime.check_import(root, name, integration=integration)
+                task_runtime.check_import(root, name, integration=True)
         assert tasks.status((root / name).read_text()) == "running"
 
 
-@pytest.mark.parametrize("integration", [False, True])
 @pytest.mark.parametrize(
     "path,allowed",
     [
@@ -1251,7 +1280,7 @@ def check_import_path_acceptance_is_enforced(check, integration):
         ("docs/designs/dev/team/vpc-endpoint/policy.json", False),
     ],
 )
-def check_import_fixed_write_scope(path, allowed, integration):
+def check_import_fixed_write_scope(path, allowed):
     with repository_fixture() as root:
         name = "tasks/import.md"
         text = transition_contract(name, [path], kind="design", scope="dev/team/vpc")
@@ -1265,10 +1294,10 @@ def check_import_fixed_write_scope(path, allowed, integration):
         destination.write_text("changed")
         with patch.object(task_runtime._imports_import_guard, "require_import_changes"):
             if allowed:
-                task_runtime.check_import(root, name, integration=integration)
+                task_runtime.check_import(root, name, integration=True)
             else:
                 with pytest.raises(ValueError, match="outside selected"):
-                    task_runtime.check_import(root, name, integration=integration)
+                    task_runtime.check_import(root, name, integration=True)
 
 
 def check_import_rejects_committed_foreign_view():

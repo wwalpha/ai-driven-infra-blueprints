@@ -9,6 +9,11 @@
 
 ## UTの重複実行
 
+`task-contract-unit` は128→115条件に整理する。Importの `integration` は証跡guardへの引数だけを変えるため、
+registered Acceptanceの正常系で両方の呼出引数を明示確認し、同じguardをMockした失敗・Path・Scopeの直積を除く。
+承認関連19条件のGit/Model初期状態は1回だけ構築し、各条件にはGit index/configも独立したコピーを渡す。
+共有seed全ファイルの不変、parts形式の独立commit、実Gitによる変更・依存・承認の再検証は維持する。
+
 `issues_scan-unit` のstage/material障害隔離9条件は、実lint計画・結果集約を通し、lint workerだけを合成成功結果に置き換える。
 lint起動・失敗・復旧は既存 `issues-lint-unit` と専用ITが担当する。障害隔離の各条件と既存の完了確認は維持する。
 
