@@ -36,10 +36,10 @@ from support.pytest_cli import run
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 
-prepare_complete = worktree.prepare_complete
-
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+prepare_complete = worktree.prepare_complete
 
 
 def check_advance_returns_with_running_peers_without_sync():

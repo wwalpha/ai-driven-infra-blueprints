@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import boto3
 import pytest
-from botocore.exceptions import ParamValidationError
+from model.importing.contract_fixtures import InvalidFixture
 from support.check_model_aws_fixtures import (
     PATCHES,
     TARGET,
@@ -32,13 +32,14 @@ def check_schema_rejections(tmp_path):
     client = ctx.client("s3")
     with pytest.raises(KeyError):
         client.nonexistent_api()
-    with pytest.raises(ParamValidationError):
+    with pytest.raises(InvalidFixture, match="Invalid fixture request"):
         client.get_bucket_versioning(Bogus="fixture")
-    with pytest.raises(ParamValidationError):
+    with pytest.raises(InvalidFixture, match="Invalid fixture request"):
         client.get_bucket_versioning(Bucket=123)
     with patch.dict(PATCHES, {("s3", "get_bucket_versioning"): {"Status": 123}}):
-        with pytest.raises(ParamValidationError):
+        with pytest.raises(InvalidFixture, match="Invalid fixture response"):
             client.get_bucket_versioning(Bucket="fixture")
+    ctx = SchemaOffline(tmp_path)
     ctx.verify()
     resource = FakeResource(ctx, "s3", "S3.Bucket")
     assert m.select(ctx.fetch(resource, "base"), "NonexistentField") == m.MISSING
