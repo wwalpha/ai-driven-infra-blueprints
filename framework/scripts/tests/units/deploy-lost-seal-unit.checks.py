@@ -4,6 +4,7 @@ import copy
 import json
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -28,6 +29,20 @@ TARGET = dict(
 )
 
 
+def aws(operation, **kwargs):
+    assert operation == "describe_stacks"
+    name = kwargs["StackName"]
+    return dict(
+        Stacks=[
+            dict(
+                StackName=name,
+                StackId=f"arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{name}/id",
+                StackStatus="UPDATE_COMPLETE",
+            )
+        ]
+    )
+
+
 @pytest.fixture
 def case(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
@@ -45,19 +60,6 @@ def case(tmp_path, monkeypatch):
     evidence.write_text('{"unverified":"preserve bytes"}')
     evidence.chmod(0o600)
     monkeypatch.setattr(J, "location", lambda target: journal)
-
-    def aws(operation, **kwargs):
-        assert operation == "describe_stacks"
-        name = kwargs["StackName"]
-        return dict(
-            Stacks=[
-                dict(
-                    StackName=name,
-                    StackId=f"arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{name}/id",
-                    StackStatus="UPDATE_COMPLETE",
-                )
-            ]
-        )
 
     args = SimpleNamespace(
         action="lost-key-plan",
@@ -138,19 +140,20 @@ def test_changed_or_foreign_evidence_never_releases(case, change):
     assert not allowed
 
 
+def changed_status(aws, status, operation, **kwargs):
+    response = aws(operation, **kwargs)
+    response["Stacks"][0]["StackStatus"] = status
+    return response
+
+
 @pytest.mark.parametrize(
     "status", ["UPDATE_IN_PROGRESS", "UNKNOWN", "ROLLBACK_COMPLETE"]
 )
 def test_unknown_running_failed_aws_blocks_plan(case, status):
     root, _, _, aws, args, _ = case
 
-    def changed(operation, **kwargs):
-        response = aws(operation, **kwargs)
-        response["Stacks"][0]["StackStatus"] = status
-        return response
-
     with pytest.raises(Blocked, match="absent or successful"):
-        L.run(args, root, changed)
+        L.run(args, root, partial(changed_status, aws, status))
 
 
 def test_active_journal_blocks_and_confirmation_cannot_be_automated(case):
@@ -175,6 +178,11 @@ def test_active_journal_blocks_and_confirmation_cannot_be_automated(case):
         L.confirm(value)
 
 
+def change_archive_during_consent(evidence, value):
+    evidence.write_text("changed during consent")
+    return dict(method="interactive-console", challenge=L.challenge(value))
+
+
 def test_archive_change_during_consent_stops_apply(case):
     root, journal, evidence, aws, args, _ = case
     value = L.run(args, root, aws)
@@ -185,12 +193,10 @@ def test_archive_change_during_consent_stops_apply(case):
         None,
     )
 
-    def consent(value):
-        evidence.write_text("changed during consent")
-        return dict(method="interactive-console", challenge=L.challenge(value))
-
     with (
-        patch.object(L, "confirm", side_effect=consent),
+        patch.object(
+            L, "confirm", side_effect=partial(change_archive_during_consent, evidence)
+        ),
         pytest.raises(Blocked, match="changed during"),
     ):
         L.run(args, root, aws)

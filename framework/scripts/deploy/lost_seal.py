@@ -99,6 +99,18 @@ def confirm(value):
     )
 
 
+def current_snapshot(args, root, aws, value):
+    return snapshot(
+        root,
+        args.environment,
+        args.aws_account_id,
+        args.alias,
+        value["stacks"],
+        value["residualRisk"],
+        aws,
+    )
+
+
 def run(args, root, aws):
     _, journal, _ = R.select(root, args.environment, args.aws_account_id, args.alias)
     with J.locked(journal):
@@ -135,21 +147,10 @@ def run(args, root, aws):
         if value.get("kind") != "lost-key":
             raise Blocked("not a lost-key Plan")
 
-        def current():
-            return snapshot(
-                root,
-                args.environment,
-                args.aws_account_id,
-                args.alias,
-                value["stacks"],
-                value["residualRisk"],
-                aws,
-            )
-
-        if value != current():
+        if value != current_snapshot(args, root, aws, value):
             raise Blocked("lost-key Plan target, archives or AWS changed")
         approval = confirm(value)
-        if value != current():
+        if value != current_snapshot(args, root, aws, value):
             raise Blocked("lost-key Plan changed during Human approval")
         folder = R.directory(journal.parent / "lost-key-approvals")
         R.save_once(
