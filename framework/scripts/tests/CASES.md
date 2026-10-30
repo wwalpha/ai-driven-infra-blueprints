@@ -4564,3 +4564,4 @@ Worktree認可UTは実Git/Worktreeを作らず、live HEAD/state/登録の再読
 
 | `issues-review-progress::cli-inspect-revision` | `check_cli_inspect_and_revision_contract` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 1 | CLI inspect and revision success, retry and conflict, plus successful Export | Synthetic Scan / checkpoint / CLI |
 | `issues-review-progress::100-automatic-names` | `check_100_automatic_names_excluded_from_review_payload` | IT | [integrations/issues-review-progress.checks.py](integrations/issues-review-progress.checks.py) | pytest / 1 | 100 AUTO_PASS names excluded from Review and preserved in Snapshot | Synthetic Scan / report publication |
+| `issue-48::legacy-delete` | `check_legacy_delete_operation_rejected_without_raw_changes` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 1 | 旧操作名の契約拒否とModel raw不変 | Synthetic Task/Model |

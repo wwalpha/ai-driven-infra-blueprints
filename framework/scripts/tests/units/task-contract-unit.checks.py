@@ -24,7 +24,7 @@ from generation_inputs import GenerationInputs
 from issues.publication import save_scan
 from model.format import FORMAT, INDEX
 from model.importing import scope as import_scope
-from support.import_model_fixtures import dependency_contract
+from support.import_model_fixtures import dependency_contract, operation_contract
 from support.issues_scan_fixtures import review_for, snapshot_artifact
 from support.model_v2_fixtures import logs_fixture
 from support.pytest_cli import run
@@ -349,6 +349,33 @@ def check_batch_operation_contract():
         )
         is None
     )
+
+
+def check_legacy_delete_operation_rejected_without_raw_changes(tmp_path):
+    name = "tasks/delete.md"
+    raw = logs_fixture(tmp_path)
+    original = raw.read_bytes()
+    text = (
+        operation_contract(
+            "model-delete", source="qa-synthetic/team-a/cloudwatch-logs/001"
+        )
+        + "## Validation scope"
+        + transition_contract(
+            name,
+            [raw.relative_to(tmp_path).as_posix()],
+            kind="design",
+            scope="qa-synthetic/team-a/cloudwatch-logs",
+        ).split("## Validation scope", 1)[1]
+    )
+    tasks.validate_contract(tmp_path, name, text)
+    legacy = text.replace(
+        "- Model operation: `model-delete`", "- Model operation: `import-delete`"
+    )
+    with pytest.raises(ValueError, match="^unknown Model-only operation$"):
+        tasks.model_operation(legacy)
+    with pytest.raises(ValueError, match="^unknown Model-only operation$"):
+        tasks.validate_contract(tmp_path, name, legacy)
+    assert raw.read_bytes() == original
 
 
 def check_normal_final_model_classification():
