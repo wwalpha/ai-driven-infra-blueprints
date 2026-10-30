@@ -149,6 +149,13 @@ def reference_same(
     project_arn=None,
     context=None,
 ):
+    if (
+        local_comparison
+        and context is not None
+        and expressions.references(left)
+        and reference_error(kind + "." + path, context)
+    ):
+        return ReferenceDecision(None)
     if evidence is not None and any(
         isinstance(value, Expression) for value in (left, right)
     ):
@@ -207,10 +214,10 @@ def reference_same(
         local_comparison
         and context is not None
         and symbols
-        and (requires_context(prop, context) or reference_error(prop, context))
+        and requires_context(prop, context)
     ):
         declared = contract(prop, context)
-        if reference_error(prop, context) or not declared:
+        if not declared:
             return decision(None)
         for symbol in symbols:
             refkind = resource_type(symbol)

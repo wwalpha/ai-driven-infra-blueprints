@@ -649,6 +649,8 @@ def test_contextual_secret_comparison(selector, actual, expected, attribute, rev
         del left["Type"], right["Type"]
     if reverse:
         left, right = right, left
+        if selector == "PLAINTEXT":
+            expected = attribute == "Name"
     outcome = compare_values(
         left,
         right,

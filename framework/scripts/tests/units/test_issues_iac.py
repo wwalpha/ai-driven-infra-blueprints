@@ -2002,6 +2002,10 @@ class ImportValueResolutionTests(unittest.TestCase):
                     "Export": {"Name": "key-export"},
                 },
                 "Alias": {"Value": alias_value, "Export": {"Name": "alias-export"}},
+                "Bucket": {
+                    "Value": {"Ref": "Bucket"},
+                    "Export": {"Name": "bucket-export"},
+                },
             }
             comparison.exports = None
             comparison.export_failures = []
@@ -2019,6 +2023,96 @@ class ImportValueResolutionTests(unittest.TestCase):
                 prop,
             )
             with patch("comparison.inputs.catalog_outputs", return_value=set()):
+                bucket = comparison.evaluate("producer", {"Ref": "Bucket"})
+                imported = comparison.evaluate(
+                    "build", {"Fn::ImportValue": "bucket-export"}
+                )
+                for source in (bucket, imported):
+                    for literal, expected in [
+                        ("fixture-bucket", True),
+                        ("other", False),
+                    ]:
+                        with self.subTest(source=source, literal=literal):
+                            result = comparison.reference_decision(
+                                literal,
+                                source,
+                                "CodeBuild.Project",
+                                prop,
+                                context={"Type": "PLAINTEXT"},
+                            )
+                            self.assertEqual(result.equal, expected)
+                            self.assertEqual(
+                                result.diagnostics[0]["evidence_type"],
+                                "local_evaluation",
+                            )
+                            self.assertFalse(
+                                result.diagnostics[0]["current_aws_verified"]
+                            )
+                definitions["Bucket"]["Properties"].clear()
+                result = comparison.reference_decision(
+                    "fixture-bucket",
+                    bucket,
+                    "CodeBuild.Project",
+                    prop,
+                    context={"Type": "PLAINTEXT"},
+                )
+                self.assertIsNone(result.equal)
+                self.assertEqual(
+                    result.diagnostics[0]["local_comparison"], "uncompared"
+                )
+                self.assertTrue(result.diagnostics[0]["reason"])
+                definitions["Bucket"]["Properties"]["BucketName"] = "fixture-bucket"
+                for literal, source, expected in [
+                    ("alias/fixture", {"Ref": "Alias"}, True),
+                    ("other", {"Ref": "Alias"}, False),
+                    ("12345678-1234-1234-1234-123456789012", {"Ref": "Key"}, None),
+                    (
+                        "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+                        {"Fn::GetAtt": ["Key", "Arn"]},
+                        None,
+                    ),
+                ]:
+                    with self.subTest(source=source):
+                        value = comparison.evaluate("producer", source)
+                        result = comparison.reference_decision(
+                            literal,
+                            value,
+                            "CodeBuild.Project",
+                            prop,
+                            context={"Type": "PLAINTEXT"},
+                        )
+                        self.assertIs(result.equal, expected)
+                bucket.saved_literal = "fixture-bucket"
+                self.assertIsNone(
+                    comparison.reference_decision(
+                        bucket,
+                        "fixture-bucket",
+                        "CodeBuild.Project",
+                        prop,
+                        context={"Type": "PLAINTEXT"},
+                    ).equal
+                )
+                nested = Expression("Join", ["", [bucket]])
+                self.assertIsNone(
+                    comparison.reference_decision(
+                        nested,
+                        "fixture-bucket",
+                        "CodeBuild.Project",
+                        prop,
+                        context={"Type": "PLAINTEXT"},
+                    ).equal
+                )
+                del bucket.saved_literal
+                for variable_type in ("SECRETS_MANAGER", "PARAMETER_STORE"):
+                    self.assertIsNone(
+                        comparison.reference_decision(
+                            "fixture-bucket",
+                            bucket,
+                            "CodeBuild.Project",
+                            prop,
+                            context={"Type": variable_type},
+                        ).equal
+                    )
                 for logical in [
                     "Key",
                     "Alias",

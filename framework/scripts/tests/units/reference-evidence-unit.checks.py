@@ -6,6 +6,7 @@ import sys
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -6377,6 +6378,98 @@ def test_iac_reference_display_runner_decisions_unchanged(desired, expected):
         )
 
 
+@pytest.mark.parametrize(
+    "literal,reference,expected",
+    [
+        ("fixture-bucket", {"Ref": "Bucket"}, "matched"),
+        ("other", {"Ref": "Bucket"}, "difference"),
+        ("fixture-bucket", {"Fn::ImportValue": "shared"}, "matched"),
+        ("other", {"Fn::ImportValue": "shared"}, "difference"),
+        ("fixture-bucket", {"Ref": "Unknown"}, "uncompared"),
+        ("fixture-bucket", {"Fn::ImportValue": "missing"}, "uncompared"),
+    ],
+)
+def test_codebuild_plaintext_iac_reference_environment(literal, reference, expected):
+    comparison = fixture()
+    resource(
+        comparison,
+        "s3",
+        "001",
+        "S3.Bucket",
+        "Bucket",
+        [("BucketName", "fixture-bucket", None)],
+        properties={"BucketName": "fixture-bucket"},
+        stack="producer",
+    )
+    comparison.stack_inputs["producer"][0]["Outputs"]["Shared"] = {
+        "Value": {"Ref": "Bucket"},
+        "Export": {"Name": "shared"},
+    }
+    desired = {
+        "EnvironmentVariables": [
+            {"Name": "BUCKET", "Type": "PLAINTEXT", "Value": literal}
+        ]
+    }
+    actual = copy.deepcopy(desired)
+    actual["EnvironmentVariables"][0]["Value"] = reference
+    settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
+    outcome = comparison.compare_setting(
+        "codebuild",
+        "002",
+        "CodeBuild.Project",
+        "Environment",
+        desired,
+        settings,
+        "consumer" if "Fn::ImportValue" in reference else "producer",
+        {"Properties": {"Environment": actual}},
+        ROOT / "synthetic.yaml",
+    )
+    TestCase().assertEqual(
+        [record["category"] for record in outcome.records], [expected]
+    )
+
+
+def test_codebuild_observed_only_and_difference_are_preserved():
+    comparison = fixture()
+    resource(
+        comparison,
+        "kms",
+        "007",
+        "KMS.Key",
+        "Key",
+        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
+    )
+    desired = {
+        "EnvironmentVariables": [
+            {"Name": "KEY", "Type": "PLAINTEXT", "Value": KEY_ID},
+            {"Name": "SETTING", "Type": "PLAINTEXT", "Value": "before"},
+        ]
+    }
+    actual = copy.deepcopy(desired)
+    actual["EnvironmentVariables"][0]["Value"] = {"Fn::GetAtt": ["Key", "KeyId"]}
+    settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
+    args = (
+        "codebuild",
+        "002",
+        "CodeBuild.Project",
+        "Environment",
+        desired,
+        settings,
+        "producer",
+        {"Properties": {"Environment": actual}},
+        ROOT / "synthetic.yaml",
+    )
+    outcome = comparison.compare_setting(*args)
+    (record,) = outcome.records
+    TestCase().assertEqual(record["category"], "uncompared")
+    TestCase().assertTrue(record["reference_diagnostics"][0]["reason"])
+    actual["EnvironmentVariables"][1]["Value"] = "after"
+    outcome = comparison.compare_setting(*args)
+    (record,) = outcome.records
+    TestCase().assertEqual(record["category"], "difference")
+    TestCase().assertTrue(record["reference_diagnostics"][0]["reason"])
+
+
 @pytest.mark.parametrize("observed", [KEY_ID, None])
 def test_codebuild_uncompared_reference_display_real_path(observed):
     comparison = fixture()
@@ -6420,7 +6513,10 @@ def test_codebuild_uncompared_reference_display_real_path(observed):
     assert before.records == after.records
     (record,) = after.records
     assert record["category"] == "uncompared"
-    assert not record["reference_diagnostics"]
+    (diagnostic,) = record["reference_diagnostics"]
+    TestCase().assertEqual(diagnostic["local_comparison"], "uncompared")
+    TestCase().assertTrue(diagnostic["reason"])
+    TestCase().assertFalse(diagnostic["current_aws_verified"])
     (field,) = after.display_differences[identifier(record)]
     assert "EnvironmentVariables[2].Value" in field["path"]
     assert field["model"] == "alias/venusinf-stg-material"
