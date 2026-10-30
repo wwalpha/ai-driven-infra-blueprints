@@ -411,7 +411,7 @@ def run_parallel_repair(suite, tests, output):
     children = []
     success = False
     try:
-        deadline = time.monotonic() + 1800
+        deadline = time.monotonic() + (300 if suite_key == REPAIR_SUITE else 1800)
         for index, case in enumerate(cases):
             if suite_key == CHECKPOINT_SUITE and index >= 2:
                 previous_case, previous, _, _ = children[index - 2]
@@ -422,6 +422,8 @@ def run_parallel_repair(suite, tests, output):
                 if code:
                     raise RuntimeError(f"{previous_case}: process exited {code}")
             receipt = output / f"repair-{index}.json"
+            if suite_key == REPAIR_SUITE:
+                receipt.unlink(missing_ok=True)
             log = (logs / f"case-{index}.log").open("w", encoding="utf-8")
             environment = os.environ.copy()
             private = logs / f"case-{index}"
@@ -469,6 +471,8 @@ def run_parallel_repair(suite, tests, output):
                 raise RuntimeError(f"{case}: process timed out") from error
             if code:
                 raise RuntimeError(f"{case}: process exited {code}")
+        if suite_key == REPAIR_SUITE and time.monotonic() > deadline:
+            raise RuntimeError("repair suite: process timed out")
         receipts = []
         for case, _process, _log, receipt in children:
             try:
