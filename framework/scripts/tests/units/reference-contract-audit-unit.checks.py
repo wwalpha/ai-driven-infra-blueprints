@@ -283,6 +283,12 @@ def test_registered_contract_route(models, prop, producer, attribute):
             "SQS.Queue",
             "Arn",
         ),
+        (
+            "IAM.ManagedPolicy",
+            "PolicyDocument.Statement[].Condition.StringEquals.aws:SourceVpc",
+            "EC2.VPC",
+            "VpcId",
+        ),
     ],
 )
 def test_typed_reference_comparison(models, kind, path, producer, attribute):
@@ -302,36 +308,34 @@ def test_typed_reference_comparison(models, kind, path, producer, attribute):
     missing = ResourceReference({"$resource": ["missing", "001"], "$attribute": "Arn"})
     wrong_attribute = ResourceReference(dict(good, **{"$attribute": "Unknown"}))
     assert contract(kind + "." + path)[producer] == (attribute,)
-    assert inputs.reference_same(good, good, kind, path) is True
-    for left, right in [
+    good_join = Expression("Join", ["", [good]])
+    good_sub = Expression("Sub", ["${Value}", {"Value": good}])
+    bad_join = Expression("Join", ["", [bad]])
+    bad_sub = Expression("Sub", ["${Value}", {"Value": bad}])
+    mixed_join = Expression("Join", ["", [good, bad]])
+    mixed_sub = Expression("Sub", ["${Good}${Bad}", {"Good": good, "Bad": bad}])
+    for value in (good, good_join, good_sub):
+        assert inputs.reference_same(value, value, kind, path) is True
+        assert inputs.reference_decision(value, value, kind, path).equal is True
+    for left, right in (
         (bad, bad),
         (bad, other),
         (missing, missing),
         (wrong_attribute, wrong_attribute),
-    ]:
-        assert inputs.reference_same(left, right, kind, path) is None
-        assert inputs.reference_decision(left, right, kind, path).equal is None
-    for value in (good, bad):
-        for expression in (
-            Expression("Join", ["", [value]]),
-            Expression("Sub", ["${Value}", {"Value": value}]),
-        ):
-            expected = True if value is good else None
-            assert inputs.reference_same(expression, expression, kind, path) is expected
-            assert (
-                inputs.reference_decision(expression, expression, kind, path).equal
-                is expected
-            )
-    assert (
-        inputs.reference_same(
-            Expression("Join", ["", [good, wrong_attribute]]), good, kind, path
-        )
-        is None
-    )
-    invalid = Expression("Join", ["", [good, bad]])
-    different = Expression("Sub", ["${Value}", {"Value": other}])
-    assert inputs.reference_same(invalid, invalid, kind, path) is None
-    assert inputs.reference_same(invalid, different, kind, path) is None
+        (bad_join, bad_join),
+        (bad_sub, bad_sub),
+        (mixed_join, mixed_join),
+        (mixed_sub, mixed_sub),
+        (bad_join, good_join),
+        (bad_sub, good_sub),
+        (mixed_join, good_join),
+        (mixed_sub, good_sub),
+        (mixed_join, Expression("Sub", ["${Value}", {"Value": other}])),
+        (Expression("Join", ["", [good, wrong_attribute]]), good),
+    ):
+        for first, second in ((left, right), (right, left)):
+            assert inputs.reference_same(first, second, kind, path) is None
+            assert inputs.reference_decision(first, second, kind, path).equal is None
 
 
 @pytest.mark.parametrize(
