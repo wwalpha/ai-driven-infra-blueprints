@@ -3,7 +3,7 @@
 import re
 from functools import partial
 
-from utils.cloudformation.inputs import Blocked
+from utils.cloudformation.inputs import Blocked, output_value
 from utils.iac_values import ResourceReference
 from utils.reference_contracts import CONTEXT_PROPERTIES, row_contexts
 
@@ -11,7 +11,25 @@ from ..contracts import ResourceContract
 from ..methods import properties
 
 
-def ref_attribute(vpc, resource_type):
+def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
+    condition_inputs = {
+        key: value
+        for key, value in parameters.items()
+        if value not in ("PENDING_DEPLOY", "UNSET", "TODO", "TBD", "未確定")
+    }
+    vpc = output_value(document, condition_inputs, pseudo, vpc)
+    if isinstance(vpc, dict) and set(vpc) == {"Ref"}:
+        name = vpc["Ref"]
+        definitions = document.get("Parameters", {})
+        if (
+            isinstance(name, str)
+            and isinstance(definitions, dict)
+            and isinstance(definitions.get(name), dict)
+            and definitions[name].get("Type") in {"String", "AWS::EC2::VPC::Id"}
+            and parameters.get(name) == "PENDING_DEPLOY"
+        ):
+            return "GroupId"
+    vpc = evaluate(vpc)
     if isinstance(vpc, ResourceReference):
         confirmed = resource_type(vpc) == "EC2.VPC" and vpc["$attribute"] == "VpcId"
     else:

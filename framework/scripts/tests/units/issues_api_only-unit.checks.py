@@ -77,6 +77,7 @@ def check_api_record_classification():
             ordinary=[],
             judgments=[],
             naming={"names": []},
+            naming_context={},
             **aggregate(records, "dev", "123456789012", ["s3"]),
         )
         assert summary(artifact)["iac_status"] == "partial"

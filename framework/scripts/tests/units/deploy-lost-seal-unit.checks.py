@@ -17,6 +17,9 @@ from deploy import operation_reset as R
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 TARGET = dict(
     awsAccountId="123456789012",
     awsRegion="ap-northeast-1",

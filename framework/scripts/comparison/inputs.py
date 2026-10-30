@@ -485,12 +485,16 @@ class Inputs:
             if self.local_comparison and ref_rule and ref_property:
                 self.symbols[cachekey] = None
                 try:
-                    vpc = self.evaluate(
-                        stack, definition.get("Properties", {}).get(ref_property)
+                    attribute = ref_rule(
+                        definition.get("Properties", {}).get(ref_property),
+                        document,
+                        parameters,
+                        pseudo,
+                        self.resource_type,
+                        partial(self.evaluate, stack),
                     )
                 finally:
                     self.symbols.pop(cachekey, None)
-                attribute = ref_rule(vpc, self.resource_type)
             else:
                 attribute = REF_ATTRIBUTES.get(resource["resourceType"])
             if attribute is None:

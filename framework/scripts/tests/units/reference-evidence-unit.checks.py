@@ -2588,6 +2588,107 @@ def test_flowlog_resource_type_context(prop, context, producer, expected):
 
 
 @pytest.mark.parametrize(
+    "service,producer,attribute,kind,path",
+    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+)
+@pytest.mark.parametrize("vpc", ["PENDING_DEPLOY", VPC])
+def test_security_group_receiver_ref_evidence(
+    service, producer, attribute, kind, path, vpc
+):
+    comparison = fixture()
+    document, parameters, pseudo = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"VpcId": {"Type": "AWS::EC2::VPC::Id"}}
+    parameters["VpcId"] = vpc
+    for identity, logical in (("001", "Producer"), ("002", "OtherProducer")):
+        resource(
+            comparison,
+            service,
+            identity,
+            producer,
+            logical,
+            [],
+            properties={"VpcId": {"Ref": "VpcId"}},
+        )
+    desired = comparison.desired_reference(
+        service, "[label](security-group.md#producer)", kind, path
+    )
+    actual = comparison.evaluate("producer", {"Ref": "Producer"})
+    other = comparison.evaluate("producer", {"Ref": "OtherProducer"})
+    getatt = comparison.evaluate("producer", {"Fn::GetAtt": ["Producer", "GroupId"]})
+    assert comparison.reference_same(desired, actual, kind, path) is True
+    assert comparison.reference_same(desired, other, kind, path) is False
+    assert comparison.reference_same(desired, getatt, kind, path) is True
+    assert parameters["VpcId"] == vpc
+    comparison.symbols.clear()
+    parameters["VpcId"] = "UNSET"
+    with pytest.raises(Blocked):
+        comparison.evaluate("producer", {"Ref": "Producer"})
+
+
+@pytest.mark.parametrize(
+    "value,parameters,conditions,valid",
+    [
+        ({"Ref": "VpcId"}, {"VpcId": "PENDING_DEPLOY"}, {}, True),
+        ({"Ref": "VpcId"}, {"VpcId": VPC}, {}, True),
+        ({"Ref": "Vpc"}, {}, {}, True),
+        (VPC, {}, {}, True),
+        (
+            {"Fn::If": ["Active", {"Ref": "VpcId"}, {"Ref": "AWS::NoValue"}]},
+            {"VpcId": "PENDING_DEPLOY"},
+            {"Active": {"Fn::Equals": [1, 1]}},
+            True,
+        ),
+        (
+            {"Fn::If": ["Active", {"Ref": "VpcId"}, {"Ref": "AWS::NoValue"}]},
+            {"VpcId": "PENDING_DEPLOY"},
+            {"Active": {"Fn::Equals": [1, 2]}},
+            False,
+        ),
+        (
+            {"Fn::If": ["Missing", {"Ref": "VpcId"}, VPC]},
+            {"VpcId": "PENDING_DEPLOY"},
+            {},
+            False,
+        ),
+        (
+            {"Fn::If": ["Active", VPC, VPC]},
+            {"VpcId": "PENDING_DEPLOY"},
+            {"Active": {"Fn::Equals": [{"Ref": "VpcId"}, VPC]}},
+            False,
+        ),
+        ({"Ref": "Undeclared"}, {}, {}, False),
+        ("", {}, {}, False),
+        ("vpc-invalid", {}, {}, False),
+        ("TODO", {}, {}, False),
+        ("TBD", {}, {}, False),
+    ],
+)
+def test_security_group_ref_vpc_evidence(value, parameters, conditions, valid):
+    comparison = fixture()
+    document, inputs, pseudo = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"VpcId": {"Type": "String"}}
+    document["Conditions"] = conditions
+    inputs.update(parameters)
+    resource(comparison, "vpc", "001", "EC2.VPC", "Vpc", [])
+    resource(
+        comparison,
+        "security-group",
+        "001",
+        "EC2.SecurityGroup",
+        "Group",
+        [],
+        properties={"VpcId": value},
+    )
+    if valid:
+        assert (
+            comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
+        )
+    else:
+        with pytest.raises(Blocked):
+            comparison.evaluate("producer", {"Ref": "Group"})
+
+
+@pytest.mark.parametrize(
     "value",
     [
         None,
