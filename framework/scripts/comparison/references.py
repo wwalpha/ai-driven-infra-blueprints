@@ -156,6 +156,7 @@ def reference_same(
     evidence=None,
     project_arn=None,
     context=None,
+    proven_export=False,
 ):
     if (
         local_comparison
@@ -185,18 +186,33 @@ def reference_same(
         and rule.direct_attribute is None
         and not requires_context(prop, context)
         and not contract(prop, context)
-        and (
-            forms_for(kind, path) == {"Arn"}
-            or path.removesuffix("[]").lower().endswith(("id", "identifier"))
-        )
     ):
-        if evidence is not None and any(
-            isinstance(value, str) for value in (left, right)
-        ):
-            result = evidence(left, right, kind, path)
-            if result.equal is False:
-                return result
-        return ReferenceDecision(None)
+        try:
+            route53_export = (
+                proven_export
+                and prop == "Route53.RecordSet.AliasTarget.DNSName"
+                and all(
+                    resource_type(symbol) == "EC2.VPCEndpoint"
+                    and symbol["$attribute"] == "DnsEntries"
+                    for symbol in nested_symbols
+                )
+            )
+        except (Blocked, KeyError, ValueError, TypeError):
+            route53_export = False
+        if not route53_export:
+            if evidence is not None and any(
+                isinstance(value, str) for value in (left, right)
+            ):
+                result = evidence(left, right, kind, path)
+                if result.equal is False or (
+                    result.equal is True
+                    and forms_for(kind, path) != {"Arn"}
+                    and not path.removesuffix("[]")
+                    .lower()
+                    .endswith(("id", "identifier"))
+                ):
+                    return result
+            return ReferenceDecision(None)
     if (
         local_comparison
         and nested_symbols
@@ -237,6 +253,21 @@ def reference_same(
             for symbol in expressions.references(value) if declared else ():
                 try:
                     refkind = resource_type(symbol)
+                    if refkind not in declared:
+                        if rule.forms is not None and refkind in TYPE_FORMS:
+                            return ReferenceDecision(
+                                False,
+                                (
+                                    diagnostic(
+                                        left,
+                                        right,
+                                        kind,
+                                        path,
+                                        "resource_type_mismatch",
+                                    ),
+                                ),
+                            )
+                        return ReferenceDecision(None)
                     if rule.forms is not None and refkind in TYPE_FORMS:
                         if symbol["$attribute"] not in {
                             reference_attribute(refkind, form)
@@ -248,8 +279,6 @@ def reference_same(
                         reference_attribute(refkind, form)
                         for form in declared.get(refkind, ())
                     }
-                    if refkind not in declared:
-                        return ReferenceDecision(None)
                     if symbol["$attribute"] not in allowed and not hasattr(
                         symbol, "saved_literal"
                     ):

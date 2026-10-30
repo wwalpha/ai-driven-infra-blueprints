@@ -3419,6 +3419,16 @@ existing owners because they test independent contracts rather than typed-node d
 | `iac-partial::artifact` | `check_iac_partial_error_artifact` | IT | [integrations/issues_failed_services.checks.py](integrations/issues_failed_services.checks.py#L233) | direct / 1 | 合成Model→比較→集計→artifact→iac-issuesでImage/Type・差分1/未比較1/error1・位置・マスキングを確認 | Frameworkのみ |
 | `iac-partial::error-unknown` | `test_iac_partial_error_and_unknown_condition` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1694) | pytest / 2 | 同時に発生するIaC実errorとCondition未解決を保持し、既知兄弟の一致・不一致を判定 | 共通設定比較 |
 
+## Resource link receiving contract regressions
+
+| Case | Function | Layer | Entry | Runtime | Guarantees | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `reference-link::invalid` | `test_invalid_producer_cannot_match_itself` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 6 | Invalid direct and expression references | Synthetic Models |
+| `reference-link::contracts` | `test_missing_receiving_contracts` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 13 | Existing receiving-contract inventory | Static contracts |
+| `reference-link::kms-producer` | `test_kms_expression_respects_producer_contract` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | KMS Producer restrictions apply to direct and expression references | Synthetic Models |
+| `reference-link::route53-producer` | `test_route53_export_cannot_authorize_wrong_producer` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 2 | Export provenance cannot authorize a wrong DNS Producer or attribute | Synthetic Models |
+| `reference-link::uncontracted` | `test_uncontracted_scalar_reference_is_unproven` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | Uncontracted scalar reference cannot self-prove | Synthetic Models |
+
 ## Common receiving-reference contract audit
 
 `units/reference-contract-audit-unit.checks.py` owns the full current static contract matrix

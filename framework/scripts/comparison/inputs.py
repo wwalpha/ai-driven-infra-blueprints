@@ -1080,6 +1080,7 @@ class Inputs:
             evidence=self.reference_evidence if self.local_comparison else None,
             project_arn=self.project_arn,
             context=context,
+            proven_export=deferred,
         )
         if deferred:
             detail = self.reference_diagnostic(

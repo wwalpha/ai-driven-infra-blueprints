@@ -2185,7 +2185,7 @@ def test_symbolic_setting_classification(fault):
     }
     desired = comparison.evaluate("producer", expression)
     actual = expression
-    expected = "matched"
+    expected = "uncompared"
     if fault == "other-stack":
         resource(
             comparison,

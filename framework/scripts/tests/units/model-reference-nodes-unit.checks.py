@@ -499,7 +499,9 @@ def check_cross_service_comparison(
     if property_name == "PolicyDocument":
         desired = desired["Statement"][0]["Resource"]
     assert isinstance(desired, ResourceReference), desired
-    assert inputs.reference_same(desired, actual, consumer_kind, property_name) is True
+    assert inputs.reference_same(desired, actual, consumer_kind, property_name) is (
+        None if property_name == "Description" else True
+    )
     assert prepared.warnings == []
 
 

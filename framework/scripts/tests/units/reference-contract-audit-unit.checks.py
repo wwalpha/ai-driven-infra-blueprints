@@ -1104,5 +1104,117 @@ def test_source_vpc_import_waits(models, observed, category, phase, receiver_kin
     assert caught.value.iac_cause["phase"] == phase
 
 
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("ECS.TaskDefinition", "TaskRoleArn"),
+        ("ECS.TaskDefinition", "ExecutionRoleArn"),
+        ("Route53.HostedZone", "QueryLoggingConfig.CloudWatchLogsLogGroupArn"),
+        ("Scheduler.Schedule", "Target.RoleArn"),
+        ("ApiGatewayV2.Stage", "AccessLogSettings.DestinationArn"),
+        ("Lambda.Function", "Role"),
+    ],
+)
+def test_invalid_producer_cannot_match_itself(models, kind, path):
+    resource(models, "producer", "S3.Bucket", attribute="Arn")
+    resource(models, "receiver", kind, attribute="Name")
+    inputs = comparison(models, ("producer", "receiver"))
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    for value in (symbol, Expression("Join", ["", [symbol]])):
+        assert inputs.reference_decision(value, value, kind, path).equal is not True
+
+
+@pytest.mark.parametrize(
+    "prop,producer,attribute",
+    [
+        ("S3.Bucket.ReplicationConfiguration.Role", "IAM.Role", "Arn"),
+        (
+            "S3.Bucket.ReplicationConfiguration.Rules[].Destination.Bucket",
+            "S3.Bucket",
+            "Arn",
+        ),
+        (
+            "S3.Bucket.ReplicationConfiguration.Rules[].Destination.EncryptionConfiguration.ReplicaKmsKeyID",
+            "KMS.Key",
+            "Arn",
+        ),
+        ("Glue.Crawler.Role", "IAM.Role", "RoleName"),
+        ("RDS.DBInstance.DBSubnetGroupName", "RDS.DBSubnetGroup", "DBSubnetGroupName"),
+        ("SageMaker.Domain.VpcId", "EC2.VPC", "VpcId"),
+        ("NetworkFirewall.Firewall.VpcId", "EC2.VPC", "VpcId"),
+        ("ECS.TaskDefinition.TaskRoleArn", "IAM.Role", "Arn"),
+        ("ECS.TaskDefinition.ExecutionRoleArn", "IAM.Role", "Arn"),
+        (
+            "Route53.HostedZone.QueryLoggingConfig.CloudWatchLogsLogGroupArn",
+            "Logs.LogGroup",
+            "Arn",
+        ),
+        ("Scheduler.Schedule.Target.RoleArn", "IAM.Role", "Arn"),
+        ("ApiGatewayV2.Stage.AccessLogSettings.DestinationArn", "Logs.LogGroup", "Arn"),
+        ("CodeBuild.Project.EncryptionKey", "KMS.Key", "Arn"),
+    ],
+)
+def test_missing_receiving_contracts(prop, producer, attribute):
+    assert attribute in contract(prop).get(producer, ())
+
+
+def test_uncontracted_scalar_reference_is_unproven(models):
+    resource(models, "producer", "S3.Bucket", attribute="Arn")
+    resource(models, "receiver", "Lambda.Function", attribute="Name")
+    inputs = comparison(models, ("producer", "receiver"))
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    for value in (
+        symbol,
+        Expression("Join", ["", [symbol]]),
+        Expression("Sub", ["${Value}", {"Value": symbol}]),
+        Expression("Select", [0, [symbol]]),
+    ):
+        assert (
+            inputs.reference_decision(
+                value, value, "Lambda.Function", "Description"
+            ).equal
+            is not True
+        )
+
+
+def test_kms_expression_respects_producer_contract(models):
+    resource(models, "producer", "KMS.Key", attribute="Arn")
+    resource(models, "receiver", "Glue.SecurityConfiguration", attribute="Name")
+    inputs = comparison(models, ("producer", "receiver"))
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    path = "EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn"
+    for value in (symbol, Expression("Join", ["", [symbol]])):
+        assert (
+            inputs.reference_decision(
+                value, value, "Glue.SecurityConfiguration", path
+            ).equal
+            is not True
+        )
+
+
+@pytest.mark.parametrize(
+    "producer,attribute", [("S3.Bucket", "Arn"), ("EC2.VPCEndpoint", "VpcEndpointId")]
+)
+def test_route53_export_cannot_authorize_wrong_producer(models, producer, attribute):
+    resource(models, "producer", producer, attribute=attribute)
+    resource(models, "receiver", "Route53.RecordSet", attribute="Name")
+    inputs = comparison(models, ("producer", "receiver"))
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": attribute}
+    )
+    origin = {
+        "export_name": "Dns",
+        "export_stack": "producer",
+        "unproven": "Select bounds are unproven",
+    }
+    value = Expression("Join", ["", [symbol]], export_origins=(origin,))
+    assert (
+        inputs.reference_decision(
+            value, value, "Route53.RecordSet", "AliasTarget.DNSName"
+        ).equal
+        is not True
+    )
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
