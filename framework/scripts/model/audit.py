@@ -19,6 +19,7 @@ import utils.iac_values as _imports_iac_values
 import utils.input_cache as _imports_input_cache
 from aws_mapping_compare import comparison
 from design.catalog import DesignSchemaCatalog
+from design.layout import confirmed_display_name
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import status as status
 from task_contract_core import task_revision as task_revision
@@ -31,6 +32,8 @@ from utils.script_loader import module
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 from model.core import entries
+from model.projection import resource_display_rows
+from model.render import display_name
 from model.sources import load_model, model_paths, publication_lock
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -409,7 +412,36 @@ def generate(root, environment, selector, service):
         )
         for name in sorted(set(mappings) | {"iam", "kms"})
     }
+    selected_model = load_model(path)
+    names = {}
+    selected_values = selected_model.values
+    for number, resource in entries(selected_values, "desired.resource."):
+        rows = resource_display_rows(
+            selected_values, number, resource, ROOT, scope=selected_model.scope
+        )
+        name, _ = display_name(
+            selected_values, number, resource, rows, ROOT, projection=True
+        )
+        if (
+            not name
+            or name in {resource["logicalId"], resource["resourceType"]}
+            or not confirmed_display_name(name)
+        ):
+            candidates = [
+                selected_values.get("observed.row." + rid + ".value")
+                for rid, row in entries(selected_values, "desired.row.")
+                if rid.startswith(number + "-")
+                and row["property"] in outputs.get(resource["resourceType"], [])
+            ]
+            candidates = [
+                m.literal(value)
+                for value in candidates
+                if value and confirmed_display_name(value)
+            ]
+            name = candidates[0] if len(candidates) == 1 else "（名前未設定）"
+        names[resource["logicalId"]] = name
     snapshot = {
+        "names": names,
         "target": target,
         "service": service,
         "modelHash": model_hash,
@@ -432,25 +464,6 @@ def generate(root, environment, selector, service):
     )
     compile(result, f"{service}.py", "exec")
     unsupported = []
-    for _, resource in entries(
-        models["/".join((environment, target["directory"], service))].values,
-        "desired.resource.",
-    ):
-        kind = resource["resourceType"]
-        if kind in outputs:
-            unsupported.extend(
-                (key, "resource identifier; not a desired configuration value")
-                for key in outputs[kind]
-                if any(
-                    row["property"] == key
-                    for _, row in entries(
-                        models[
-                            "/".join((environment, target["directory"], service))
-                        ].values,
-                        "desired.row.",
-                    )
-                )
-            )
     for _, row in entries(
         models["/".join((environment, target["directory"], service))].values,
         "desired.row.",
@@ -459,6 +472,28 @@ def generate(root, environment, selector, service):
         field = mappings[service]["properties"][key]["field"]
         if field["classification"] != "supported":
             unsupported.append((key, field["reason"]))
+    for number, resource in entries(selected_values, "desired.resource."):
+        for prop in outputs.get(resource["resourceType"], []):
+            rows = [
+                (rid, row)
+                for rid, row in entries(selected_values, "desired.row.")
+                if rid.startswith(number + "-") and row["property"] == prop
+            ]
+            if not rows:
+                continue
+            observed = (
+                selected_values.get("observed.row." + rows[0][0] + ".value")
+                if len(rows) == 1
+                else None
+            )
+            if (
+                not observed
+                or not confirmed_display_name(observed)
+                or m.literal(observed).startswith(("[", "{"))
+            ):
+                unsupported.append(
+                    (prop, "observed identifier missing, unresolved or ambiguous")
+                )
     return result, files, sorted(set(unsupported))
 
 

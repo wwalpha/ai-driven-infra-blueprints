@@ -32,15 +32,14 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py aud
 The generator loads the canonical properties snapshot through `model.sources`,
 then embeds desired expectations, reference dependencies,
 validated AWS Mapping, existing comparison/normalization code and selected read-only
-adapters. `observed` only helps identify resources. It validates Python syntax before
+adapters. `observed` identifies resources and supplies confirmed IDENTIFIER_OUTPUT values for audit comparisons. It validates Python syntax before
 atomic publication. It never executes the generated file or contacts AWS. Never
 write Model, observed, design, IaC, a common runner, or cases.yaml; never generate
 other environments/services automatically. Complete classified local validation.
 
 Report the generated path, Model hash, and unsupported Mapping classifications/reasons.
 Permissions Boundary uses a generation-only, SDK-shape-validated projection of the existing IAM get-role/get-user response; the existing AWS comparator is unchanged.
-Identifier-only and unavailable properties remain explicit ERROR checks; returning a
-lookup ID never proves configuration equality. Missing/ambiguous references and
+Confirmed identifier outputs are compared with AWS; missing, ambiguous, unresolved or unavailable identifiers remain explicit ERROR checks. Identifier equality does not prove configuration equality. Missing/ambiguous references and
 unsupported expressions also produce ERROR, never guessed values or silent skips.
 `GetAtt`/`Sub` resource attribute references support only the confirmed `Arn` identity projection; other attributes are explicit ERROR checks.
 The standalone file uses only Python stdlib and AWS CLI; no repository imports are

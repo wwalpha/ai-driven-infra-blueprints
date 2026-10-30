@@ -20,6 +20,7 @@ import subprocess
 import tempfile
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 import support.repository_fixtures as _imports_support_repository_fixtures
@@ -294,6 +295,33 @@ def check():
             assert embedded["load_once"](lock, cache, "audit", load) is value
             assert embedded["load_once"](lock, cache, "audit", load) is value
             load.assert_called_once_with()
+        name_root = root / "name-synthetic"
+        name_root.mkdir()
+        (name_root / "project.json").write_text(
+            (root / "project.json").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        name_data = fixture(
+            {},
+            "vpc",
+            [
+                ("001", "EC2.VPC", "vpc-one", [("Name", "`duplicate`", None)]),
+                ("002", "EC2.VPC", "vpc-two", [("Name", "`duplicate`", None)]),
+                ("003", "EC2.VPC", "vpc-three", [("VpcId", "[VPC](#vpc-three)", None)]),
+                ("004", "EC2.VPC", "vpc-four", [("VpcId", "[VPC](#vpc-four)", None)]),
+            ],
+        )
+        name_data["models"]["dev/cde/vpc"]["observed.row.003-001.value"] = (
+            "`vpc-confirmed`"
+        )
+        write_model(
+            name_root / "model/dev/cde/vpc.properties",
+            name_data["models"]["dev/cde/vpc"],
+        )
+        names = snapshot(generator.generate(name_root, "dev", "cde", "vpc")[0])["names"]
+        TestCase().assertEqual(
+            list(names.values()),
+            ["duplicate", "duplicate", "vpc-confirmed", "（名前未設定）"],
+        )
         # Same account, duplicate Alias/service names and another environment stay distinct.
         crossroot = root / "cross-synthetic"
         crossroot.mkdir()
@@ -472,6 +500,12 @@ def check():
         ],
     )
     vpc["models"]["dev/cde/vpc"]["observed.row.001-004.value"] = "`vpc-observed`"
+    vpc["names"] = {"EC2_VPC_001": "test-vpc"}
+    TestCase().assertEqual(snapshots["vpc"]["names"]["EC2_VPC_001"], "fixture-vpc")
+    TestCase().assertEqual(
+        snapshots["vpc"]["names"]["EC2_Subnet_002"], "fixture-subnet"
+    )
+    TestCase().assertEqual(snapshots["iam"]["names"]["IAM_Role_001"], "fixture-role")
     responses = {
         ("ec2", "describe-vpcs"): {
             "Vpcs": [
@@ -491,22 +525,69 @@ def check():
     status = {r["propertiesKey"]: r["status"] for r in records}
     assert status["EC2.VPC.CidrBlock"] == "match", records
     assert status["EC2.VPC.EnableDnsSupport"] == "difference", records
-    assert status["EC2.VPC.VpcId"] == "identifier", records
+    TestCase().assertEqual(status["EC2.VPC.VpcId"], "match", records)
+    for observed, expected in [
+        ("`vpc-observed`", "match"),
+        ("`vpc-other`", "difference"),
+        (None, "design_unresolved"),
+        ("`PENDING_DEPLOY`", "design_unresolved"),
+    ]:
+        candidate = copy.deepcopy(vpc)
+        if observed is None:
+            candidate["models"]["dev/cde/vpc"].pop("observed.row.001-004.value")
+        else:
+            candidate["models"]["dev/cde/vpc"]["observed.row.001-004.value"] = observed
+        result = rt["audit"](candidate, None, CLI(responses))[2]
+        selected = [item for item in result if item["propertiesKey"] == "EC2.VPC.VpcId"]
+        TestCase().assertEqual(selected[0]["status"], expected, selected)
+    subnet = fixture(
+        snapshots["vpc"],
+        "vpc",
+        [
+            (
+                "002",
+                "EC2.Subnet",
+                "subnet",
+                [
+                    ("Name", "`test-subnet`", None),
+                    ("SubnetId", "[Subnet](#subnet)", None),
+                ],
+            )
+        ],
+    )
+    subnet["models"]["dev/cde/vpc"]["observed.row.002-002.value"] = "`subnet-01`"
+    subnet["names"] = {"EC2_Subnet_002": "test-subnet"}
+    subnet_response = {
+        ("ec2", "describe-subnets"): {
+            "Subnets": [
+                {
+                    "SubnetId": "subnet-01",
+                    "Tags": [{"Key": "Name", "Value": "test-subnet"}],
+                }
+            ]
+        }
+    }
+    subnet_records = rt["audit"](subnet, None, CLI(subnet_response))[2]
+    selected = [
+        item
+        for item in subnet_records
+        if item["propertiesKey"] == "EC2.Subnet.SubnetId"
+    ]
+    TestCase().assertEqual(selected[0]["status"], "match", selected)
+    TestCase().assertEqual(selected[0]["designValue"], "subnet-01")
     stamp = datetime(2026, 10, 15, tzinfo=timezone.utc)
     _state_check_106.text, code = rt["report"](
         vpc, "dev-profile", account, records, stamp
     )
-    assert code == 2 and "[ERROR] EC2_VPC_001.EC2.VPC.VpcId" in _state_check_106.text
-    assert (
-        "aws ec2 describe-vpc-attribute" in _state_check_106.text
-        and "Diff paths: $" in _state_check_106.text
-    )
+    TestCase().assertEqual(code, 1)
+    TestCase().assertIn("[OK] EC2.VPC | test-vpc | VpcId", _state_check_106.text)
+    TestCase().assertNotIn("  API:", _state_check_106.text)
+    TestCase().assertIn("Diff paths: $", _state_check_106.text)
     assert (
         "Model SHA256:" in _state_check_106.text
         and "Executed:" in _state_check_106.text
     )
-    # No lookup-only property can produce an overall configuration PASS.
-    ordinary = [r for r in records if r["status"] != "identifier"]
+    ordinary = copy.deepcopy(records)
     assert rt["report"](vpc, None, account, ordinary, stamp)[1] == 1
     for r in ordinary:
         r["status"] = "match"
@@ -514,6 +595,21 @@ def check():
     _, _, failed = rt["audit"](vpc, None, CLI(responses, fail=("ec2", "describe-vpcs")))
     assert len(failed) == len(records), failed
     assert any(r["status"] == "acquisition_failed" for r in failed)
+    failed_link = copy.deepcopy(vpc)
+    failed_link["models"]["dev/cde/vpc"]["desired.row.001-004.value"] = (
+        "[VPC](#main-vpc)"
+    )
+    failed_records = rt["audit"](
+        failed_link, None, CLI(responses, fail=("ec2", "describe-vpcs"))
+    )[2]
+    failed_id = [
+        item for item in failed_records if item["propertiesKey"] == "EC2.VPC.VpcId"
+    ][0]
+    TestCase().assertEqual(failed_id["status"], "acquisition_failed")
+    TestCase().assertEqual(failed_id["designValue"], "vpc-observed")
+    TestCase().assertEqual(
+        rt["report"](failed_link, None, account, failed_records, stamp)[1], 2
+    )
     # Configured profile conflict and account/authentication errors stop before resource APIs.
     configured = copy.deepcopy(vpc)
     configured["target"]["awsProfile"] = "required"
@@ -729,7 +825,9 @@ def check():
         script.parent.mkdir(parents=True)
         capture = io.StringIO()
         with redirect_stdout(capture):
-            assert rt["main"](["--profile", "dev-profile"], CLI(responses), script) == 2
+            TestCase().assertEqual(
+                rt["main"](["--profile", "dev-profile"], CLI(responses), script), 1
+            )
         logs = list((folder / "tests/results/dev/cde").glob("vpc-*.log"))
         assert (
             len(logs) == 1 and logs[0].read_text(encoding="utf-8") == capture.getvalue()
@@ -777,10 +875,52 @@ def check():
             text=True,
             timeout=30,
         )
-        assert (
-            process.returncode == 2
-            and "[OK] EC2_VPC_001.EC2.VPC.CidrBlock" in process.stdout
-        ), (process.stdout, process.stderr)
+        TestCase().assertEqual(process.returncode, 1, process.stderr)
+        TestCase().assertIn("[OK] EC2.VPC | test-vpc | CidrBlock", process.stdout)
+        for actual_id, dns, expected_code, expected_line in [
+            ("vpc-observed", True, 0, "[OK] EC2.VPC | test-vpc | VpcId"),
+            ("vpc-other", True, 1, "[NG] EC2.VPC | test-vpc | VpcId"),
+        ]:
+            response = copy.deepcopy(responses[("ec2", "describe-vpcs")])
+            response["Vpcs"][0]["VpcId"] = actual_id
+            fake.write_text(
+                "#!"
+                + sys.executable
+                + "\nimport json, sys\nprint(json.dumps("
+                + repr(response)
+                + ' if sys.argv[1:3] == ["ec2", "describe-vpcs"] else '
+                + repr({"EnableDnsSupport": {"Value": dns}})
+                + ' if sys.argv[1] == "ec2" else {"Account":"123456789012", "Arn":"arn:aws:iam::123456789012:user/offline"}))\n',
+                encoding="utf-8",
+            )
+            execution = subprocess.run(
+                [sys.executable, "-I", "-B", str(script)],
+                cwd=folder,
+                env={**os.environ, "PATH": str(folder)},
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            TestCase().assertEqual(
+                execution.returncode, expected_code, execution.stderr
+            )
+            TestCase().assertIn(expected_line, execution.stdout)
+            TestCase().assertTrue(
+                any(
+                    path.read_text(encoding="utf-8") == execution.stdout
+                    for path in logs[0].parent.glob("vpc-*.log")
+                )
+            )
+        fake.write_text(
+            "#!"
+            + sys.executable
+            + "\nimport json, sys\nprint(json.dumps("
+            + repr(responses[("ec2", "describe-vpcs")])
+            + ' if sys.argv[1:3] == ["ec2", "describe-vpcs"] else '
+            + repr(responses[("ec2", "describe-vpc-attribute")])
+            + ' if sys.argv[1] == "ec2" else {"Account":"123456789012", "Arn":"arn:aws:iam::123456789012:user/offline"}))\n',
+            encoding="utf-8",
+        )
         flat = folder / "vpc.py"
         flat.write_text(script.read_text(encoding="utf-8"), encoding="utf-8")
         process = subprocess.run(
@@ -791,10 +931,8 @@ def check():
             text=True,
             timeout=30,
         )
-        assert (
-            process.returncode == 2
-            and "[OK] EC2_VPC_001.EC2.VPC.CidrBlock" in process.stdout
-        ), (process.stdout, process.stderr)
+        TestCase().assertEqual(process.returncode, 1, process.stderr)
+        TestCase().assertIn("[OK] EC2.VPC | test-vpc | CidrBlock", process.stdout)
         assert any(
             path.read_text(encoding="utf-8") == process.stdout
             for path in logs[0].parent.glob("vpc-*.log")

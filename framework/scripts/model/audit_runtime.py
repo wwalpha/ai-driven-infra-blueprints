@@ -182,6 +182,100 @@ def attributes(result):
             yield item
 
 
+def identifier_result(m, ctx, resource, item):
+    if item["propertiesKey"] not in m.catalog_outputs(m.ROOT, resource.kind):
+        return item
+    rows = resource.rows_for(item["propertiesKey"])
+    if len(rows) != 1:
+        return {
+            **item,
+            "status": "design_unresolved"
+            if item["status"] == "identifier"
+            else item["status"],
+            "designValue": None,
+            "reason": "observed identifier is ambiguous"
+            if item["status"] == "identifier"
+            else item.get("reason", item["status"]),
+        }
+    rid, row = rows[0]
+    raw = resource.model.values.get("observed.row." + rid + ".value")
+    if not isinstance(raw, str) or not raw.strip():
+        return {
+            **item,
+            "status": "design_unresolved"
+            if item["status"] == "identifier"
+            else item["status"],
+            "designValue": None,
+            "reason": "observed identifier is missing"
+            if item["status"] == "identifier"
+            else item.get("reason", item["status"]),
+        }
+    value = m.literal(raw)
+    if (
+        not value.strip()
+        or value.strip().upper()
+        in {
+            "UNSET",
+            "PENDING_DEPLOY",
+            "TBD",
+            "TODO",
+            "未確定",
+        }
+        or value.lstrip().startswith(("[", "{"))
+    ):
+        return {
+            **item,
+            "status": "design_unresolved"
+            if item["status"] == "identifier"
+            else item["status"],
+            "designValue": None,
+            "reason": "observed identifier is unresolved or invalid"
+            if item["status"] == "identifier"
+            else item.get("reason", item["status"]),
+        }
+    if item["status"] != "identifier":
+        return {
+            **item,
+            "designValue": "[REDACTED]"
+            if resource.module.sensitive(item["propertiesKey"])
+            else m.redacted(value),
+        }
+    field = ctx.comparison(resource.model.service)[1][item["propertiesKey"]].field
+    try:
+        observed_row = {**row, "value": raw}
+        observed_row.pop("document", None)
+        expected = m.normalize(
+            ctx, resource.parse(observed_row, field.norm), field.norm
+        )
+        actual = m.normalize(ctx, item["awsValue"], field.norm)
+        if (
+            isinstance(expected, (list, dict))
+            or isinstance(actual, (list, dict))
+            or actual is None
+        ):
+            raise ValueError("identifier is not scalar")
+        return {
+            **item,
+            "status": "match"
+            if m.stable(expected) == m.stable(actual)
+            else "difference",
+            "designValue": "[REDACTED]"
+            if resource.module.sensitive(item["propertiesKey"])
+            else m.redacted(expected),
+            "awsValue": "[REDACTED]"
+            if resource.module.sensitive(item["propertiesKey"])
+            else m.redacted(actual),
+            "reason": "value differs",
+        }
+    except (m.AcquisitionError, m.Unresolved, ValueError, TypeError, KeyError):
+        return {
+            **item,
+            "status": "design_unresolved",
+            "designValue": None,
+            "reason": "identifier comparison could not be resolved",
+        }
+
+
 def audit(snapshot, profile=None, cli_runner=None):
     m = engine(snapshot)
     target = dict(snapshot["target"])
@@ -214,19 +308,24 @@ def audit(snapshot, profile=None, cli_runner=None):
         for resource in model.resources:
             for prop in dict.fromkeys(row["property"] for _, row in resource.rows):
                 records.append(
-                    {
-                        "resource": resource.spec["logicalId"],
-                        "propertiesKey": prop,
-                        "status": "acquisition_failed",
-                        "reason": reason,
-                        "designValue": [
-                            row.get("document", row["value"])
-                            for _, row in resource.rows
-                            if row["property"] == prop
-                        ],
-                        "awsValue": None,
-                        "apis": ctx.trace,
-                    }
+                    identifier_result(
+                        m,
+                        ctx,
+                        resource,
+                        {
+                            "resource": resource.spec["logicalId"],
+                            "propertiesKey": prop,
+                            "status": "acquisition_failed",
+                            "reason": reason,
+                            "designValue": [
+                                row.get("document", row["value"])
+                                for _, row in resource.rows
+                                if row["property"] == prop
+                            ],
+                            "awsValue": None,
+                            "apis": ctx.trace,
+                        },
+                    )
                 )
         return m, account, records
     model = ctx.model(
@@ -238,24 +337,32 @@ def audit(snapshot, profile=None, cli_runner=None):
     )
     for resource in model.resources:
         try:
-            records.extend(attributes(m.compare_resource(ctx, resource)))
+            records.extend(
+                identifier_result(m, ctx, resource, item)
+                for item in attributes(m.compare_resource(ctx, resource))
+            )
         except Exception as error:
             # Never turn a new upstream dependency or malformed response into a silent skip.
             for prop in dict.fromkeys(row["property"] for _, row in resource.rows):
                 records.append(
-                    {
-                        "resource": resource.spec["logicalId"],
-                        "propertiesKey": prop,
-                        "status": "design_unresolved",
-                        "reason": "comparison failed: " + type(error).__name__,
-                        "designValue": [
-                            row.get("document", row["value"])
-                            for _, row in resource.rows
-                            if row["property"] == prop
-                        ],
-                        "awsValue": None,
-                        "apis": ctx.trace,
-                    }
+                    identifier_result(
+                        m,
+                        ctx,
+                        resource,
+                        {
+                            "resource": resource.spec["logicalId"],
+                            "propertiesKey": prop,
+                            "status": "design_unresolved",
+                            "reason": "comparison failed: " + type(error).__name__,
+                            "designValue": [
+                                row.get("document", row["value"])
+                                for _, row in resource.rows
+                                if row["property"] == prop
+                            ],
+                            "awsValue": None,
+                            "apis": ctx.trace,
+                        },
+                    )
                 )
     return m, account, records
 
@@ -285,27 +392,14 @@ def report(snapshot, profile, account, records, timestamp):
         state = {"match": "OK", "difference": "NG"}.get(item["status"], "ERROR")
         counts[state] += 1
         prop = item.get("propertiesKey") or "(resource)"
-        line(f"[{state}] {item['resource']}.{prop}")
+        kind = item.get("resourceType") or ".".join(prop.split(".")[:2])
+        name = snapshot.get("names", {}).get(item["resource"], "（名前未設定）")
+        attribute = prop.removeprefix(kind + ".")
+        line(f"[{state}] {kind} | {name} | {attribute}")
         expected = masked(item.get("designValue"), prop)
         actual = masked(item.get("awsValue"), prop)
         line("  Model: " + json.dumps(expected, ensure_ascii=False, sort_keys=True))
         line("  AWS:   " + json.dumps(actual, ensure_ascii=False, sort_keys=True))
-        line(
-            "  API: "
-            + ", ".join(
-                dict.fromkeys(
-                    "aws "
-                    + (
-                        "s3api"
-                        if entry["api"].split(".")[0] == "s3"
-                        else entry["api"].split(".")[0]
-                    )
-                    + " "
-                    + entry["api"].split(".")[1].replace("_", "-")
-                    for entry in item.get("apis", [])
-                )
-            )
-        )
         if state != "OK":
             line(
                 "  Reason: "
