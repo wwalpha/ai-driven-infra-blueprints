@@ -1650,5 +1650,128 @@ def check_ordinary_validator_keeps_full_path(tmp_path):
     assert not result.issues_save
 
 
+def check_parallel_repair_receipts():
+    receipts = [
+        {
+            "version": 1,
+            "suite": run_it.REPAIR_SUITE,
+            "completed": {},
+            "collected": [case],
+            "passed": [case],
+            "metrics": {"subprocess.Popen": 1},
+        }
+        for case in run_it.REPAIR_CASES
+    ]
+    combined = run_it.repair_receipt(receipts)
+    assert combined["collected"] == combined["passed"] == list(run_it.REPAIR_CASES)
+    assert combined["metrics"] == {"subprocess.Popen": 3}
+    cases = run_it.registered_cases(Path(run_it.__file__).parent)
+    selected = {
+        key: value for key, value in cases.items() if key[0] == run_it.REPAIR_SUITE
+    }
+    assert not run_it.reachability(selected, [combined], cases)
+    with pytest.raises(ValueError, match="missing"):
+        run_it.repair_receipt(receipts[:-1])
+    duplicate = [receipts[0], receipts[0], receipts[2]]
+    with pytest.raises(ValueError, match="incorrect"):
+        run_it.repair_receipt(duplicate)
+    invalid = [*receipts[:2], {**receipts[2], "suite": "other"}]
+    with pytest.raises(ValueError, match="suite"):
+        run_it.repair_receipt(invalid)
+
+
+def check_parallel_repair_selection(tmp_path):
+    plugin = run_it.PytestReceipt(tmp_path, "unknown")
+    plugin.rootpath = tmp_path
+    items = [SimpleNamespace(nodeid=case) for case in run_it.REPAIR_CASES]
+    config = SimpleNamespace(hook=SimpleNamespace(pytest_deselected=Mock()))
+    with pytest.raises(ValueError, match="unknown"):
+        plugin.pytest_collection_modifyitems(None, config, items)
+    plugin.case_id = run_it.REPAIR_CASES[1]
+    plugin.pytest_collection_modifyitems(None, config, items)
+    assert [item.nodeid for item in items] == [plugin.case_id]
+    assert len(config.hook.pytest_deselected.call_args.kwargs["items"]) == 2
+    with pytest.raises(ValueError, match="collection mismatch"):
+        plugin.pytest_collection_modifyitems(None, config, items)
+
+
+@pytest.mark.parametrize(
+    "failure", ["spawn", "exit", "interrupt", "timeout", "missing", "corrupt"]
+)
+def check_parallel_repair_failure_cleanup(tmp_path, failure):
+    tests = Path(run_it.__file__).parent
+    suite = tests / run_it.REPAIR_SUITE
+    processes = [Mock(pid=100 + i) for i in range(3)]
+    for process in processes:
+        process.poll.return_value = None
+        process.wait.return_value = 0
+    if failure == "exit":
+        processes[0].wait.side_effect = [1, 1]
+    elif failure == "interrupt":
+        processes[0].wait.side_effect = [KeyboardInterrupt(), 0]
+    elif failure == "timeout":
+        processes[0].wait.side_effect = [subprocess.TimeoutExpired("case", 1), 0]
+    launched = (
+        [processes[0], OSError("spawn failed")] if failure == "spawn" else processes
+    )
+    if failure == "corrupt":
+        (tmp_path / "repair-0.json").write_text("{")
+    expected = (
+        KeyboardInterrupt
+        if failure == "interrupt"
+        else (OSError, RuntimeError, ValueError)
+    )
+    with (
+        patch.object(run_it.subprocess, "Popen", side_effect=launched) as launch,
+        patch.object(run_it.os, "killpg", create=True) as kill,
+        patch.object(run_it.tempfile, "mkdtemp", return_value=str(tmp_path / "logs")),
+    ):
+        (tmp_path / "logs").mkdir()
+        with pytest.raises(expected):
+            run_it.run_parallel_repair(suite, tests, tmp_path)
+        count = 1 if failure == "spawn" else 3
+        assert launch.call_count == (2 if failure == "spawn" else 3)
+        if os.name == "nt":
+            assert all(process.terminate.called for process in processes[:count])
+        else:
+            assert kill.call_count == count
+        assert all(process.wait.called for process in processes[:count])
+        assert all((tmp_path / "logs" / f"case-{i}.log").exists() for i in range(count))
+
+
+def check_parallel_repair_dispatch(tmp_path):
+    tests = tmp_path / "framework/scripts/tests"
+    integrations = tests / "integrations"
+    integrations.mkdir(parents=True)
+    (integrations / "worktree-deploy-repair.checks.py").touch()
+    (integrations / "other.checks.py").touch()
+    output = tmp_path / "receipts"
+    output.mkdir()
+    receipt = {
+        "version": 1,
+        "suite": run_it.REPAIR_SUITE,
+        "completed": {},
+        "collected": list(run_it.REPAIR_CASES),
+        "passed": list(run_it.REPAIR_CASES),
+        "metrics": {},
+    }
+    state = _CallbackState()
+    state.codes = [0, 0, 0]
+    execute = _bind_framework_callback(_callback_check_ci_workflow_execute, state)
+    with (
+        patch.object(run_it, "run_parallel_repair", return_value=receipt) as parallel,
+        patch.object(run_it.subprocess, "run", side_effect=execute) as launch,
+    ):
+        rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
+        assert all(row["code"] == 0 for row in rows)
+        assert len(receipts) == 2 and parallel.call_count == launch.call_count == 1
+        rows, receipts = run_it.execute_suites(
+            tests, output, io.StringIO(), baseline=True
+        )
+        assert all(row["code"] == 0 for row in rows)
+        assert parallel.call_count == 1 and launch.call_count == 3
+        assert all("--baseline" in call.args[0] for call in launch.call_args_list[1:])
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest_run(__file__))

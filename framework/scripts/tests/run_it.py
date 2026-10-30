@@ -7,12 +7,14 @@ import json
 import os
 import re
 import runpy
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 from collections import Counter
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
@@ -30,6 +32,12 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 TESTS = Path(__file__).resolve().parent
+REPAIR_SUITE = "integrations/worktree-deploy-repair.checks.py"
+REPAIR_CASES = (
+    REPAIR_SUITE + "::check_external_implement_round_trip[batch]",
+    REPAIR_SUITE + "::check_external_implement_round_trip[steps]",
+    REPAIR_SUITE + "::check_merge_recovery",
+)
 
 
 def registered_cases(tests):
@@ -169,8 +177,9 @@ def check_assertion_guards(tests):
 
 
 class PytestReceipt:
-    def __init__(self, tests):
+    def __init__(self, tests, case_id=None):
         self.tests = tests
+        self.case_id = case_id
         self.collected = []
         self.passed = []
 
@@ -184,6 +193,19 @@ class PytestReceipt:
             + "::"
             + name
         )
+
+    def pytest_collection_modifyitems(self, session, config, items):
+        if self.case_id is None:
+            return
+        found = [self.key(item.nodeid) for item in items]
+        if len(found) != len(REPAIR_CASES) or set(found) != set(REPAIR_CASES):
+            raise ValueError(f"repair collection mismatch: {found}")
+        if self.case_id not in REPAIR_CASES:
+            raise ValueError(f"unknown repair case: {self.case_id}")
+        selected = [item for item in items if self.key(item.nodeid) == self.case_id]
+        deselected = [item for item in items if self.key(item.nodeid) != self.case_id]
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = selected
 
     def pytest_collection_finish(self, session):
         self.collected.extend(self.key(item.nodeid) for item in session.items)
@@ -211,11 +233,11 @@ def _callback_run_child_measured_pytest(
     return pytest_main(args, plugins=[*(plugins or []), plugin])
 
 
-def run_child(suite, tests, receipt, baseline=False):
+def run_child(suite, tests, receipt, baseline=False, case_id=None):
     """Execute existing entrypoints, including pytest_cli.run and top-level scripts."""
     sys.path[:0] = [str(tests.parent), str(tests)]
     pytest = _imports_pytest
-    plugin = PytestReceipt(tests)
+    plugin = PytestReceipt(tests, case_id)
     pytest_main = pytest.main
     measured_pytest = _bind_framework_callback(
         _callback_run_child_measured_pytest, plugin, pytest_main
@@ -327,6 +349,141 @@ def reachability(cases, receipts, registered=None):
     return errors
 
 
+def repair_receipt(receipts):
+    combined = {
+        "version": 1,
+        "suite": REPAIR_SUITE,
+        "completed": {},
+        "collected": [],
+        "passed": [],
+        "metrics": {},
+    }
+    if len(receipts) != len(REPAIR_CASES):
+        raise ValueError("missing repair case receipt")
+    metrics = Counter()
+    completed = Counter()
+    for case, receipt in zip(REPAIR_CASES, receipts, strict=True):
+        invalid = receipt_errors(receipt, REPAIR_SUITE)
+        if invalid:
+            raise ValueError(f"{case}: {'; '.join(invalid)}")
+        if receipt["collected"] != [case] or receipt["passed"] != [case]:
+            raise ValueError(f"{case}: incorrect collected/passed cases")
+        combined["collected"].extend(receipt["collected"])
+        combined["passed"].extend(receipt["passed"])
+        metrics.update(receipt["metrics"])
+        completed.update(receipt["completed"])
+    combined["metrics"] = dict(metrics)
+    combined["completed"] = dict(completed)
+    return combined
+
+
+def run_parallel_repair(suite, tests, output):
+    ledger = {
+        name: value
+        for (path, name), value in registered_cases(tests).items()
+        if path == REPAIR_SUITE
+    }
+    if ledger != {
+        "check_external_implement_round_trip": ("pytest", 2),
+        "check_merge_recovery": ("pytest", 1),
+    }:
+        raise ValueError(f"repair ledger mismatch: {ledger}")
+    logs = Path(tempfile.mkdtemp(prefix="framework-repair-it-logs-"))
+    children = []
+    success = False
+    try:
+        for index, case in enumerate(REPAIR_CASES):
+            receipt = output / f"repair-{index}.json"
+            log = (logs / f"case-{index}.log").open("w", encoding="utf-8")
+            environment = os.environ.copy()
+            private = logs / f"case-{index}"
+            private.mkdir()
+            environment.update(
+                {
+                    "TMPDIR": str(private),
+                    "TMP": str(private),
+                    "TEMP": str(private),
+                    "BLUEPRINT_VALIDATION_CACHE_DIR": str(private / "cache"),
+                }
+            )
+            command = [
+                sys.executable,
+                "-B",
+                "-X",
+                "utf8",
+                str(Path(__file__).resolve()),
+                "--suite",
+                str(suite),
+                "--tests",
+                str(tests),
+                "--receipt",
+                str(receipt),
+                "--case-id",
+                case,
+            ]
+            try:
+                process = subprocess.Popen(
+                    command,
+                    cwd=tests.parents[2],
+                    env=environment,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=(os.name != "nt"),
+                )
+            except BaseException:
+                log.close()
+                raise
+            children.append((case, process, log, receipt))
+        deadline = time.monotonic() + 1800
+        for case, process, _log, _receipt in children:
+            try:
+                code = process.wait(timeout=max(0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired as error:
+                raise RuntimeError(f"{case}: process timed out") from error
+            if code:
+                raise RuntimeError(f"{case}: process exited {code}")
+        receipts = []
+        for case, _process, _log, receipt in children:
+            try:
+                receipts.append(json.loads(receipt.read_text(encoding="utf-8")))
+            except (OSError, ValueError) as error:
+                raise ValueError(f"{case}: missing/invalid receipt: {error}") from error
+        result = repair_receipt(receipts)
+        success = True
+        return result
+    finally:
+        for _case, process, _log, _receipt in children:
+            if process.poll() is None:
+                if os.name != "nt":
+                    with suppress(ProcessLookupError):
+                        os.killpg(process.pid, signal.SIGTERM)
+                else:
+                    process.terminate()
+        for _case, process, log, _receipt in children:
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                if os.name != "nt":
+                    with suppress(ProcessLookupError):
+                        os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+                process.wait()
+            log.close()
+        for index, (case, _process, _log, _receipt) in enumerate(children):
+            print(f"--- {case} ---", flush=True)
+            print(
+                (logs / f"case-{index}.log").read_text(
+                    encoding="utf-8", errors="replace"
+                ),
+                flush=True,
+            )
+        if success:
+            shutil.rmtree(logs)
+        else:
+            print(f"Repair case logs retained: {logs}", file=sys.stderr, flush=True)
+
+
 def execute_suites(tests, output, summary, baseline=False):
     suites = sorted((tests / "integrations").rglob("*.checks.py"))
     if not suites:
@@ -337,25 +494,32 @@ def execute_suites(tests, output, summary, baseline=False):
         print(f"::group::{suite.name}", flush=True)
         started = time.monotonic()
         receipt = output / (suite.name + ".json")
+        if not baseline and suite.relative_to(tests).as_posix() == REPAIR_SUITE:
+            receipt.unlink(missing_ok=True)
         try:
-            code = subprocess.run(
-                [
-                    sys.executable,
-                    "-B",
-                    "-X",
-                    "utf8",
-                    str(Path(__file__).resolve()),
-                    *(["--baseline"] if baseline else []),
-                    "--suite",
-                    str(suite),
-                    "--tests",
-                    str(tests),
-                    "--receipt",
-                    str(receipt),
-                ],
-                cwd=tests.parents[2],
-            ).returncode
-        except OSError as error:
+            if not baseline and suite.relative_to(tests).as_posix() == REPAIR_SUITE:
+                data = run_parallel_repair(suite, tests, output)
+                receipt.write_text(json.dumps(data), encoding="utf-8")
+                code = 0
+            else:
+                code = subprocess.run(
+                    [
+                        sys.executable,
+                        "-B",
+                        "-X",
+                        "utf8",
+                        str(Path(__file__).resolve()),
+                        *(["--baseline"] if baseline else []),
+                        "--suite",
+                        str(suite),
+                        "--tests",
+                        str(tests),
+                        "--receipt",
+                        str(receipt),
+                    ],
+                    cwd=tests.parents[2],
+                ).returncode
+        except (OSError, ValueError, RuntimeError) as error:
             print(error, file=sys.stderr, flush=True)
             code = 1
         elapsed = time.monotonic() - started
@@ -513,9 +677,17 @@ def main():
     parser.add_argument("--suite", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--tests", type=Path, default=TESTS, help=argparse.SUPPRESS)
     parser.add_argument("--receipt", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--case-id", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.suite:
-        run_child(args.suite, args.tests, args.receipt, args.baseline)
+        if args.case_id and (
+            args.baseline
+            or args.suite.resolve().relative_to(args.tests.resolve()).as_posix()
+            != REPAIR_SUITE
+            or args.case_id not in REPAIR_CASES
+        ):
+            raise ValueError(f"unknown repair case: {args.case_id}")
+        run_child(args.suite, args.tests, args.receipt, args.baseline, args.case_id)
         return 0
     sys.path[:0] = [str(TESTS.parent), str(TESTS)]
     _imports_validation_loop.authorize_full_regression(TESTS.parents[2])

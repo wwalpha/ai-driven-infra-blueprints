@@ -125,6 +125,8 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
+`worktree-deploy-repair.checks.py` の batch、steps、Merge復旧は、各ケースを独立Pythonプロセスで同時実行する。各プロセスは全ケースを収集して固定された3 node IDとの一致を確認し、指定ケースだけを実行する。親は正常終了とケース別Receiptを検証して一つに統合し、既存の台帳到達性検査に渡す。一時領域と検証キャッシュはケースごとに分離し、共有Fixtureは読み取り専用とする。失敗・中断時は残存プロセスを停止してケース別ログを保存する。baselineと他のスイートは従来の実行経路を使う。
+
 登録件数とparameter数は `CASES.md` と実収集から照合する。pytestは既存 `PytestReceipt`、直接実行は正常return後の `@it_case`、module型は末尾の `module_complete(__file__)` で完了を確認する。未登録suite、未実行・未完了ケース、不正receipt、非0終了を失敗とする。件数を合格ノルマにしない。
 
 
