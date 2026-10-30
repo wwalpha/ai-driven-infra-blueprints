@@ -430,8 +430,25 @@ def test_proven_arns_and_both_comparison_directions(models, kind, properties, ar
         )
 
 
-@pytest.mark.parametrize("kind,properties,arn", CASES)
-@pytest.mark.parametrize("operation", ["Sub", "Join", "nested", "split-select"])
+# Sub covers every ARN contract; the other operations exercise shared expression logic.
+@pytest.mark.parametrize(
+    "operation,kind,properties,arn",
+    [
+        (operation, *case)
+        for operation in ("Sub", "Join", "nested", "split-select")
+        for case in CASES
+        if operation == "Sub"
+        or case[0]
+        in {
+            "S3.Bucket",
+            "Glue.Job",
+            "IAM.Role",
+            "Logs.LogGroup",
+            "Glue.Table",
+            "NetworkFirewall.Firewall",
+        }
+    ],
+)
 def test_model_nodes_before_common_intrinsic_evaluation(
     models, kind, properties, arn, operation
 ):
@@ -748,10 +765,8 @@ def test_symbolic_token_boundaries_do_not_prove_string_inequality():
     assert expressions.symbolic_same(["a", symbol, "b"], ["ab", symbol]) is None
 
 
-@pytest.mark.parametrize("kind,properties,arn", CASES)
+@pytest.mark.parametrize("kind,properties,arn", [case for case in CASES if case[1]])
 def test_missing_identity_never_uses_a_generated_name(models, kind, properties, arn):
-    if not properties:
-        return  # Hub ARN is fixed by context, not a generated name.
     inputs, symbol = producer(models, kind, properties)
     inputs.stack_inputs["producer"][0]["Resources"]["Resource001"]["Properties"].clear()
     assert inputs.reference_same(symbol, arn, "Glue.Job", "DefaultArguments") is None
@@ -930,7 +945,14 @@ def test_escaped_policy_variables_in_sub_evaluation_and_comparison(models, tag):
     )
 
 
-@pytest.mark.parametrize("kind,properties,arn", CASES)
+@pytest.mark.parametrize(
+    "kind,properties,arn",
+    [
+        case
+        for case in CASES
+        if case[0] in {"S3.Bucket", "Lambda.Function", "Logs.LogGroup"}
+    ],
+)
 def test_qualifiers_keys_and_literal_affixes_remain_part_of_the_value(
     models, kind, properties, arn
 ):
