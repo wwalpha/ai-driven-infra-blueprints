@@ -18,17 +18,36 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
         if value not in ("PENDING_DEPLOY", "UNSET", "TODO", "TBD", "未確定")
     }
     vpc = output_value(document, condition_inputs, pseudo, vpc)
-    if isinstance(vpc, dict) and set(vpc) == {"Ref"}:
-        name = vpc["Ref"]
+    if isinstance(vpc, dict) and len(vpc) == 1:
         definitions = document.get("Parameters", {})
-        if (
-            isinstance(name, str)
-            and isinstance(definitions, dict)
-            and isinstance(definitions.get(name), dict)
-            and definitions[name].get("Type") in {"String", "AWS::EC2::VPC::Id"}
-            and parameters.get(name) == "PENDING_DEPLOY"
-        ):
-            return "GroupId"
+        if not isinstance(definitions, dict):
+            definitions = {}
+        if "Ref" in vpc:
+            name = vpc["Ref"]
+            if (
+                isinstance(name, str)
+                and isinstance(definitions.get(name), dict)
+                and definitions[name].get("Type") in {"String", "AWS::EC2::VPC::Id"}
+            ):
+                return "GroupId"
+        if "Fn::ImportValue" in vpc:
+            name = vpc["Fn::ImportValue"]
+            if isinstance(name, str) and name:
+                return "GroupId"
+        if "Fn::Sub" in vpc and isinstance(vpc["Fn::Sub"], str):
+            template = vpc["Fn::Sub"]
+            names = re.findall(r"\$\{([A-Za-z][A-Za-z0-9]*)\}", template)
+            shape = re.sub(r"\$\{[A-Za-z][A-Za-z0-9]*\}", "a", template)
+            if (
+                names
+                and re.fullmatch(r"vpc-[0-9a-f]+", shape)
+                and all(
+                    isinstance(definitions.get(name), dict)
+                    and definitions[name].get("Type") in {"String", "AWS::EC2::VPC::Id"}
+                    for name in names
+                )
+            ):
+                return "GroupId"
     vpc = evaluate(vpc)
     if isinstance(vpc, ResourceReference):
         confirmed = resource_type(vpc) == "EC2.VPC" and vpc["$attribute"] == "VpcId"

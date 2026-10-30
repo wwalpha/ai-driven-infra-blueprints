@@ -2621,8 +2621,10 @@ def test_security_group_receiver_ref_evidence(
     assert parameters["VpcId"] == vpc
     comparison.symbols.clear()
     parameters["VpcId"] = "UNSET"
-    with pytest.raises(Blocked):
-        comparison.evaluate("producer", {"Ref": "Producer"})
+    assert (
+        comparison.evaluate("producer", {"Ref": "Producer"})["$attribute"] == "GroupId"
+    )
+    assert parameters["VpcId"] == "UNSET"
 
 
 @pytest.mark.parametrize(
@@ -2631,6 +2633,13 @@ def test_security_group_receiver_ref_evidence(
         ({"Ref": "VpcId"}, {"VpcId": "PENDING_DEPLOY"}, {}, True),
         ({"Ref": "VpcId"}, {"VpcId": VPC}, {}, True),
         ({"Ref": "Vpc"}, {}, {}, True),
+        ({"Fn::GetAtt": ["Vpc", "VpcId"]}, {}, {}, True),
+        ({"Fn::ImportValue": "ExternalVpcId"}, {}, {}, True),
+        ({"Fn::Sub": "vpc-${VpcId}"}, {"VpcId": "PENDING_DEPLOY"}, {}, True),
+        ({"Fn::Sub": "vpc-${Missing}"}, {}, {}, False),
+        ({"Fn::ImportValue": ""}, {}, {}, False),
+        ({"Fn::Join": ["", ["vpc-", {"Ref": "Missing"}]]}, {}, {}, False),
+        ({"Fn::GetAtt": ["Group", "GroupId"]}, {}, {}, False),
         (VPC, {}, {}, True),
         (
             {"Fn::If": ["Active", {"Ref": "VpcId"}, {"Ref": "AWS::NoValue"}]},
@@ -7704,3 +7713,98 @@ def test_typed_same_reference_mixed_statuses():
     fields = result.display_differences[identifier(result.records[0])]
     assert len(fields) == 1 and fields[0]["path"] == "IaC:[1]（比較未確定）"
     resolver.assert_called_once_with(ref)
+
+
+def test_security_group_ref_does_not_resolve_external_vpc():
+    comparison = fixture()
+    external = {"Fn::ImportValue": "ExternalVpcId"}
+    resource(
+        comparison,
+        "security-group",
+        "001",
+        "EC2.SecurityGroup",
+        "Group",
+        [],
+        properties={"VpcId": external},
+    )
+    assert comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
+    with pytest.raises(Blocked) as error:
+        comparison.evaluate("producer", external)
+    assert error.value.iac_cause["kind"] == "import-unresolved"
+
+
+def test_security_group_sub_value_is_independently_unresolved():
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"Suffix": {"Type": "String"}}
+    parameters["Suffix"] = "PENDING_DEPLOY"
+    value = {"Fn::Sub": "vpc-${Suffix}"}
+    resource(
+        comparison,
+        "security-group",
+        "001",
+        "EC2.SecurityGroup",
+        "Group",
+        [],
+        properties={"VpcId": value},
+    )
+    assert comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
+    assert comparison.evaluate("producer", value) == "vpc-PENDING_DEPLOY"
+    assert parameters["Suffix"] == "PENDING_DEPLOY"
+
+
+@pytest.mark.parametrize(
+    "service,producer,attribute,kind,path",
+    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+)
+@pytest.mark.parametrize(
+    "vpc_expression",
+    [{"Fn::ImportValue": "ExternalVpcId"}, {"Fn::Sub": "vpc-${Suffix}"}],
+)
+@pytest.mark.parametrize(
+    "target,expected",
+    [
+        ("Producer", "matched"),
+        ("OtherProducer", "difference"),
+        ("UnknownVpc", "uncompared"),
+    ],
+)
+def test_security_group_receiver_rows_with_external_vpc(
+    service, producer, attribute, kind, path, target, expected, vpc_expression
+):
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"Suffix": {"Type": "String"}}
+    parameters["Suffix"] = "PENDING_DEPLOY"
+    for identity, logical, vpc in (
+        ("001", "Producer", vpc_expression),
+        ("002", "OtherProducer", vpc_expression),
+        ("003", "UnknownVpc", None),
+    ):
+        resource(
+            comparison,
+            service,
+            identity,
+            producer,
+            logical,
+            [],
+            properties={"VpcId": vpc},
+        )
+    records = setting(
+        comparison, kind, path, "[label](security-group.md#producer)", {"Ref": target}
+    )
+    assert [record["category"] for record in records] == [expected], records
+    with pytest.raises(Blocked):
+        comparison.evaluate("producer", {"Fn::ImportValue": "ExternalVpcId"})
+
+
+def test_security_group_vpc_comparison_retains_external_uncertainty():
+    comparison = fixture()
+    records = setting(
+        comparison,
+        "EC2.SecurityGroup",
+        "VpcId",
+        VPC,
+        {"Fn::ImportValue": "ExternalVpcId"},
+    )
+    assert [record["category"] for record in records] == ["uncompared"], records
