@@ -6483,6 +6483,8 @@ def test_iac_reference_display_runner_decisions_unchanged(desired, expected):
     "literal,reference,expected",
     [
         ("fixture-bucket", {"Ref": "Bucket"}, "matched"),
+        ("fixture-bucket", {"Fn::Join": ["", [{"Ref": "Bucket"}]]}, "matched"),
+        ("other", {"Fn::Join": ["", [{"Ref": "Bucket"}]]}, "difference"),
         ("other", {"Ref": "Bucket"}, "difference"),
         ("fixture-bucket", {"Fn::ImportValue": "shared"}, "matched"),
         ("other", {"Fn::ImportValue": "shared"}, "difference"),
@@ -6527,6 +6529,50 @@ def test_codebuild_plaintext_iac_reference_environment(literal, reference, expec
     )
     TestCase().assertEqual(
         [record["category"] for record in outcome.records], [expected]
+    )
+
+
+@pytest.mark.parametrize(
+    "selector, reference",
+    [
+        ("SECRETS_MANAGER", {"Ref": "Bucket"}),
+        ("SECRETS_MANAGER", {"Fn::Join": ["", [{"Ref": "Bucket"}]]}),
+        ("PARAMETER_STORE", {"Fn::Join": ["", [{"Ref": "Bucket"}]]}),
+    ],
+)
+def test_codebuild_wrong_producer_expression(selector, reference):
+    comparison = fixture()
+    resource(
+        comparison,
+        "s3",
+        "001",
+        "S3.Bucket",
+        "Bucket",
+        [("BucketName", "fixture-bucket", None)],
+        properties={"BucketName": "fixture-bucket"},
+        stack="producer",
+    )
+    desired = {
+        "EnvironmentVariables": [
+            {"Name": "VAR", "Type": selector, "Value": "fixture-bucket"}
+        ]
+    }
+    actual = copy.deepcopy(desired)
+    actual["EnvironmentVariables"][0]["Value"] = reference
+    settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
+    result = comparison.compare_setting(
+        "codebuild",
+        "002",
+        "CodeBuild.Project",
+        "Environment",
+        desired,
+        settings,
+        "producer",
+        {"Properties": {"Environment": actual}},
+        ROOT / "synthetic.yaml",
+    )
+    TestCase().assertEqual(
+        [record["category"] for record in result.records], ["uncompared"]
     )
 
 

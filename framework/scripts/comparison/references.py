@@ -156,6 +156,21 @@ def reference_same(
         and reference_error(kind + "." + path, context)
     ):
         return ReferenceDecision(None)
+    prop = kind + "." + path
+    nested_symbols = expressions.references([left, right])
+    if (
+        local_comparison
+        and context is not None
+        and nested_symbols
+        and requires_context(prop, context)
+    ):
+        declared = contract(prop, context)
+        for symbol in nested_symbols:
+            refkind = resource_type(symbol)
+            if refkind not in declared or symbol["$attribute"] not in {
+                reference_attribute(refkind, form) for form in declared[refkind]
+            }:
+                return ReferenceDecision(None)
     if evidence is not None and any(
         isinstance(value, Expression) for value in (left, right)
     ):

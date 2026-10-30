@@ -289,7 +289,10 @@ def _decision(state, whole, left, right, path, lp=None, rp=None):
         outcome = (
             state.reference(left, right, path, context=context)
             if context is not None
-            and any(isinstance(value, ResourceReference) for value in (left, right))
+            and any(
+                isinstance(value, (ResourceReference, Expression))
+                for value in (left, right)
+            )
             else state.reference(left, right, path)
         )
         state.diagnostics.extend(outcome.diagnostics)

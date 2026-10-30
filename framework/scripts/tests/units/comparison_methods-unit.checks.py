@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -563,6 +564,7 @@ def codebuild_reference(
     resource_kind="SecretsManager.Secret",
     *,
     context=None,
+    evidence=None,
 ):
     return reference_same(
         left,
@@ -576,6 +578,7 @@ def codebuild_reference(
         kms_format=lambda value: None,
         diagnostic=lambda *args: {},
         context=context,
+        evidence=evidence,
     )
 
 
@@ -1825,3 +1828,79 @@ def test_unordered_aggregation_keeps_distinct_reference_targets():
         item["reason"] == "recorded_identifier_mismatch" for item in result.diagnostics
     )
     assert all(item["model"] == "候補複数（未確定）" for item in result.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "selector,wrapped,expected",
+    [
+        ("PLAINTEXT", True, True),
+        ("SECRETS_MANAGER", False, None),
+        ("SECRETS_MANAGER", True, None),
+        ("PARAMETER_STORE", True, None),
+    ],
+)
+def test_codebuild_expression_contract_before_evidence(selector, wrapped, expected):
+    symbol = ResourceReference({"$resource": ["s3", "001"], "$attribute": "BucketName"})
+    actual = Expression("Join", ["", [symbol]]) if wrapped else symbol
+    left = {"Type": selector, "Value": "bucket"}
+    right = {"Type": selector, "Value": actual}
+    callback = partial(
+        codebuild_reference,
+        Mock(return_value="bucket"),
+        resource_kind="S3.Bucket",
+        evidence=Mock(return_value=ReferenceDecision(True)),
+    )
+    result = compare_values(
+        left,
+        right,
+        "Environment.EnvironmentVariables[]",
+        rules=registry.rules("CodeBuild.Project"),
+        reference=callback,
+        whole=True,
+    )
+    TestCase().assertIs(result.equal, expected)
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_codebuild_plaintext_model_link_cannot_use_evidence(wrapped):
+    symbol = ResourceReference({"$resource": ["s3", "001"], "$attribute": "BucketName"})
+    model = Expression("Join", ["", [symbol]]) if wrapped else symbol
+    evidence = Mock(return_value=ReferenceDecision(True))
+    result = compare_values(
+        {"Type": "PLAINTEXT", "Value": model},
+        {"Type": "PLAINTEXT", "Value": "bucket"},
+        "Environment.EnvironmentVariables[]",
+        rules=registry.rules("CodeBuild.Project"),
+        reference=partial(
+            codebuild_reference, Mock(), resource_kind="S3.Bucket", evidence=evidence
+        ),
+        whole=True,
+    )
+    TestCase().assertIsNone(result.equal)
+    evidence.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "selector,kind,attribute",
+    [
+        ("SECRETS_MANAGER", "SecretsManager.Secret", "Id"),
+        ("PARAMETER_STORE", "SSM.Parameter", "Name"),
+    ],
+)
+def test_codebuild_valid_expression_keeps_evidence(selector, kind, attribute):
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": attribute}
+    )
+    evidence = Mock(return_value=ReferenceDecision(True))
+    result = compare_values(
+        {"Type": selector, "Value": "value"},
+        {"Type": selector, "Value": Expression("Join", ["", [symbol]])},
+        "Environment.EnvironmentVariables[]",
+        rules=registry.rules("CodeBuild.Project"),
+        reference=partial(
+            codebuild_reference, Mock(), resource_kind=kind, evidence=evidence
+        ),
+        whole=True,
+    )
+    TestCase().assertIs(result.equal, True)
+    evidence.assert_called_once()
