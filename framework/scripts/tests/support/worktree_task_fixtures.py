@@ -57,6 +57,7 @@ def cli(root, command, task_id="example", success=True, approval=None):
     result = subprocess.run(
         [
             sys.executable,
+            "-S",
             "-B",
             "-c",
             "import sys; from unittest.mock import patch; "
