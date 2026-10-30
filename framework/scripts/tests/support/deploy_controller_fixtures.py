@@ -445,8 +445,7 @@ def _callback_clients_request(
                         if change["executed"]
                         and state["stacks"][name]["status"].endswith("_IN_PROGRESS")
                         else "EXECUTE_FAILED"
-                        if change["executed"]
-                        and change.get("failed")
+                        if change["executed"] and change.get("failed")
                         else "EXECUTE_COMPLETE"
                         if change["executed"]
                         else "AVAILABLE"

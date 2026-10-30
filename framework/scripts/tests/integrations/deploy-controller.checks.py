@@ -240,9 +240,7 @@ def check_delivery_failure_stops_execution(tmp_path, monkeypatch):
 def fake_aws(operation, **kwargs):
     if operation == "describe_stacks":
         return {
-            "Stacks": [
-                {"StackId": "stack", "StackStatus": "UPDATE_ROLLBACK_COMPLETE"}
-            ]
+            "Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_ROLLBACK_COMPLETE"}]
         }
     if operation == "describe_change_set":
         return {

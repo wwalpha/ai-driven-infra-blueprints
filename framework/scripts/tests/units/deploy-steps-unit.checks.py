@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import nullcontext
-from functools import partial
+from functools import partial, partialmethod
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -1811,9 +1811,16 @@ def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, lev
         monkeypatch.setattr(
             Path,
             "lstat",
-            partial(wrong_owner, original_lstat=original_lstat, directory=directory),
+            partialmethod(
+                wrong_owner, original_lstat=original_lstat, directory=directory
+            ),
         )
-    with pytest.raises(ValueError):
+    expected = (
+        ("private to the current user" if level < 2 else "unsafe local evidence")
+        if unsafe == "owner"
+        else None
+    )
+    with pytest.raises(ValueError, match=expected):
         worktree.progress_path(root, create=True)
 
 

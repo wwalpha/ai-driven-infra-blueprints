@@ -1555,7 +1555,7 @@ def contract(prop, context=None):
             condition = prefix + ".Statement" + array + ".Condition."
             for value_array in ("", "[]"):
                 for operator in ("ArnEquals", "ArnLike"):
-                    if prop == condition + operator + ".aws" + value_array:
+                    if prop == condition + operator + ".aws:SourceArn" + value_array:
                         return {
                             "S3.Bucket": ("Arn",),
                             "SecretsManager.Secret": ("Arn",),
@@ -1563,11 +1563,16 @@ def contract(prop, context=None):
                 if (
                     prop
                     == condition
-                    + "StringEquals.kms:EncryptionContext:aws:s3"
+                    + "StringEquals.kms:EncryptionContext:aws:s3:arn"
                     + value_array
                 ):
                     return {"S3.Bucket": ("Arn",)}
-                if prop == condition + "StringLike.kms:EncryptionContext" + value_array:
+                if (
+                    prop
+                    == condition
+                    + "StringLike.kms:EncryptionContext:SecretARN"
+                    + value_array
+                ):
                     return {"SecretsManager.Secret": ("Arn",)}
     configuration = configuration_contract(prop, context)
     if configuration is not None:

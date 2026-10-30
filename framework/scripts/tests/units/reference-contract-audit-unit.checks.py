@@ -18,8 +18,8 @@ from model.core import entries
 from model.display import catalog_display_rows, display_rows, reference_rows
 from model.identity import Resolver
 from model.projection import reference_display
-from model.reference_nodes import parse, receiving_property, resolve
-from model.render import generate_markdown
+from model.reference_nodes import nodes, parse, receiving_property, resolve
+from model.render import generate_files, generate_markdown
 from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
@@ -1413,12 +1413,12 @@ def test_route53_query_logging_rejects_log_group_getatt_with_suffix(models):
 @pytest.mark.parametrize(
     "operator,key,producer",
     [
-        ("ArnEquals", "aws", "S3.Bucket"),
-        ("ArnEquals", "aws", "SecretsManager.Secret"),
-        ("ArnLike", "aws", "S3.Bucket"),
-        ("ArnLike", "aws", "SecretsManager.Secret"),
-        ("StringEquals", "kms:EncryptionContext:aws:s3", "S3.Bucket"),
-        ("StringLike", "kms:EncryptionContext", "SecretsManager.Secret"),
+        ("ArnEquals", "aws:SourceArn", "S3.Bucket"),
+        ("ArnEquals", "aws:SourceArn", "SecretsManager.Secret"),
+        ("ArnLike", "aws:SourceArn", "S3.Bucket"),
+        ("ArnLike", "aws:SourceArn", "SecretsManager.Secret"),
+        ("StringEquals", "kms:EncryptionContext:aws:s3:arn", "S3.Bucket"),
+        ("StringLike", "kms:EncryptionContext:SecretARN", "SecretsManager.Secret"),
     ],
 )
 def test_iam_condition_arn_contract_and_comparison(
@@ -1426,8 +1426,24 @@ def test_iam_condition_arn_contract_and_comparison(
 ):
     resource(models, "producer", producer, attribute="Arn")
     resource(models, "receiver", "IAM.Role", attribute="Name")
-    path = prefix + "." + statement + ".Condition." + operator + "." + key + suffix
-    field = "IAM.Role." + path
+    value = reference(producer.replace(".", "_") + "_001", "Arn")
+    condition = {operator: {key: [value] if suffix else value}}
+    statement_value = {"Condition": condition}
+    document = {
+        "Statement": [statement_value] if "[]" in statement else statement_value
+    }
+    root = "IAM.Role.Policies" if "[]" in prefix else "IAM.Role." + prefix
+    payload = [{"PolicyDocument": document}] if "[]" in prefix else document
+    (node,) = nodes(payload)
+    pointer = node.pointer
+    field = receiving_property(root, pointer)
+    path = field.removeprefix("IAM.Role.")
+    expected = (
+        {"S3.Bucket": ("Arn",), "SecretsManager.Secret": ("Arn",)}
+        if operator.startswith("Arn")
+        else {producer: ("Arn",)}
+    )
+    assert contract(field) == expected
     resolver = Resolver(models)
     resolver.validate_attribute(producer, "Arn", field=field)
     inputs = comparison(models, ("producer", "receiver"))
@@ -1443,34 +1459,52 @@ def test_iam_condition_arn_contract_and_comparison(
         with pytest.raises(ValueError):
             resolver.validate_attribute(bad_kind, bad_attribute, field=field)
     assert not contract(field.replace(key, "unknown"))
+    assert not contract(field.replace(key, key.rsplit(":", 1)[0]))
+    assert not contract(field.replace(key, key + ":extra"))
     assert not contract(field.replace(operator, "UnknownOperator"))
 
 
 def test_iam_condition_document_generation(models):
+    key = "aws:SourceArn"
     payload = {
         "Statement": [
-            {"Condition": {"ArnEquals": {"aws": [reference("S3_Bucket_001", "Arn")]}}}
+            {"Condition": {"ArnEquals": {key: [reference("S3_Bucket_001", "Arn")]}}}
         ]
     }
     _, _, scope, values = prepare(
         models, "IAM.Role", "AssumeRolePolicyDocument", payload
     )
+    resource(
+        models,
+        "producer",
+        "S3.Bucket",
+        attribute="BucketName",
+        observed="fixture-bucket",
+    )
     values["desired.row.001-001.property"] = "IAM.Role.RoleName"
     values["desired.row.001-001.value"] = "`fixture`"
+    values["desired.row.001-002.value"] = "[Policy](receiver/policy.json)"
+    values["desired.row.001-002.document"] = json.dumps(payload)
     save(scope, values)
-    markdown = generate_markdown(
-        models / "docs/designs/qa/team/receiver.md", values, models
+    warnings = []
+    path = models / "docs/designs/qa/team/receiver.md"
+    artifacts = generate_files(path, values, models, warnings=warnings)
+    assert not warnings, warnings
+    document = json.loads(artifacts[path.parent / "receiver/policy.json"])
+    assert document["Statement"][0]["Condition"]["ArnEquals"][key] == [
+        "arn:aws:s3:::fixture-bucket"
+    ]
+    field = receiving_property(
+        "IAM.Role.AssumeRolePolicyDocument",
+        "/Statement/0/Condition/ArnEquals/" + key + "/0",
     )
-    assert "ArnEquals" in markdown
-    assert (
-        resolve(
-            parse(payload["Statement"][0]["Condition"]["ArnEquals"]["aws"][0]),
-            scope,
-            Resolver(models),
-            field="IAM.Role.AssumeRolePolicyDocument.Statement[].Condition.ArnEquals.aws[]",
-        )[3]
-        == "Arn"
+    resolved = resolve(
+        parse(payload["Statement"][0]["Condition"]["ArnEquals"][key][0]),
+        scope,
+        Resolver(models),
+        field=field,
     )
+    assert resolved[3] == "Arn"
 
 
 if __name__ == "__main__":

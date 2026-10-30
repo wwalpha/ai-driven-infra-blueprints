@@ -321,7 +321,9 @@ def check_sdk_execution():
     }
     actual = ["ROLLBACK_IN_PROGRESS"]
 
-    _state_check_sdk_execution_65.backend.aws = _bind_framework_callback(execution_poll_aws, event, actual)
+    _state_check_sdk_execution_65.backend.aws = _bind_framework_callback(
+        execution_poll_aws, event, actual
+    )
     state = {
         "status": "RUNNING",
         "clientToken": "current",
