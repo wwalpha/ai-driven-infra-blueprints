@@ -29,9 +29,9 @@ from utils.local_evidence import read_sealed, sealed
 
 from deploy import change_sets, generation_resume, observed, observed_resume, worktree
 from deploy import context as deploy_context
+from deploy.current_state import FAILED, SUCCESS
 from deploy.model_cache import RunModels
 from deploy.recovery import cleanup_unexecuted, require_authorized
-from deploy.scheduler import FAILED, SUCCESS
 
 if os.name == "nt":
     import msvcrt

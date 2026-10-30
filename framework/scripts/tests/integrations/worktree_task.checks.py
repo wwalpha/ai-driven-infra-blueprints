@@ -1195,6 +1195,7 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
 
 def main():
     for check in (
+        check_implement_rewritten_base_and_real_conflict,
         check_sync_base_preserves_candidate,
         check_old_workflow_registry_is_ignored,
         check_success_and_empty,

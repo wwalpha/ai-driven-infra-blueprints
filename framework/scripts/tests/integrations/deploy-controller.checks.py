@@ -8,13 +8,14 @@ import sys
 import tempfile
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 import sync_runtime
-from deploy import contracts, generation_resume
+from deploy import contracts, generation_resume, worktree
 from model.core import properties
 from model.files import read_model
 from support.deploy_controller_fixtures import (
@@ -201,7 +202,8 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     task = TaskValidation(root, findings)
     task.task_type = "infrastructure"
     assert not findings.errors and not findings.warnings
-    complete(root, "tasks/deploy.md")
+    with patch.object(worktree, "require", return_value={}):
+        complete(root, "tasks/deploy.md")
     assert status((root / "tasks/deploy.md").read_text()) == "completed"
     assert inventory.read_text(encoding="utf-8") == original
 

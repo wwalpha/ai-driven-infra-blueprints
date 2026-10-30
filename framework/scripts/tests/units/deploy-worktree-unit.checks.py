@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+import worktree_checkpoint as checkpoints
 import worktree_state as ws
 from deploy import controller, guards, inputs, operation_journal, run_context, worktree
 from deploy import git_publication as publication
@@ -25,6 +26,58 @@ from utils.sealed_evidence import evidence_store as old_store
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+def check_zero_delta_checkpoint_returns_head(tmp_path, monkeypatch):
+    snapshot = object()
+    monkeypatch.setattr(
+        publication.tasks, "read_task_snapshot", lambda *a, **k: snapshot
+    )
+    monkeypatch.setattr(publication.worktree, "require", lambda *a: None)
+    monkeypatch.setattr(publication.wt, "changed_paths", lambda root: set())
+    output = Mock(return_value="existing-head")
+    git = Mock()
+    monkeypatch.setattr(publication.wt, "output", output)
+    monkeypatch.setattr(publication.wt, "git", git)
+    assert (
+        publication.checkpoint(
+            tmp_path, tmp_path / "state", {"task_file": "tasks/deploy.md"}
+        )
+        == "existing-head"
+    )
+    output.assert_called_once_with(tmp_path, "rev-parse", "HEAD")
+    git.assert_not_called()
+
+
+def check_outside_change_blocks_snapshot_checkpoint(tmp_path, monkeypatch):
+    target = tmp_path / "deploy"
+    target.mkdir()
+    readme = target / "README.md"
+    readme.write_text("foreign change\n")
+    before = {"model/a.properties": "old"}
+    after = {"model/a.properties": "new"}
+    state = {"deployCheckpoints": {}}
+    context = {"checkpointPending": {"stacks": ["A"], "before": before, "after": after}}
+    backend = SimpleNamespace(
+        root=target, run_context=context, states={"A": {"observedSynced": True}}
+    )
+    monkeypatch.setattr(
+        checkpoints.wt, "load", lambda *a: (tmp_path, None, tmp_path / "state", state)
+    )
+    monkeypatch.setattr(checkpoints.wt, "lifecycle_lock", lambda *a: nullcontext())
+    monkeypatch.setattr(checkpoints.worktree, "require", lambda *a: None)
+    monkeypatch.setattr(checkpoints.contracts, "validation_snapshot", lambda *a: after)
+    monkeypatch.setattr(
+        checkpoints.wt, "changed_paths", lambda *a: {"model/a.properties", "README.md"}
+    )
+    git = Mock()
+    monkeypatch.setattr(checkpoints.wt, "git", git)
+    with pytest.raises(ValueError, match="outside synchronized Model/views"):
+        checkpoints.snapshot_checkpoint(backend, ["A"])
+    assert readme.read_text() == "foreign change\n"
+    assert state["deployCheckpoints"] == {}
+    assert context["checkpointPending"]["after"] == after
+    git.assert_not_called()
 
 
 def task(root):

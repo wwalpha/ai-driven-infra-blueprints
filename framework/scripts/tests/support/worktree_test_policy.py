@@ -8,6 +8,8 @@ from pathlib import Path
 # Reviewed Worktree responsibilities, not a filename convention. Exact cases are checked.
 WORKTREE_CASES = {
     "units/deploy-worktree-unit.checks.py": (
+        "check_zero_delta_checkpoint_returns_head",
+        "check_outside_change_blocks_snapshot_checkpoint",
         "check_snapshot_ignores_base_history",
         "check_unmanaged_mutation_is_rejected",
         "check_managed_task_authority",
@@ -128,10 +130,9 @@ WORKTREE_CASES = {
     ),
     "integrations/worktree-deploy-checkpoint.checks.py": (
         "check_parallel_checkpoint_and_restart",
-        "check_checkpoint_rejects_foreign_changes_and_preserves_success",
+        "check_success_checkpoint_survives_peer_failure",
         "check_model_publication_interruption",
         "check_generation_wait_and_resume",
-        "check_zero_difference_checkpoint",
     ),
     "integrations/worktree-model-operation.checks.py": (
         "check_one_parent_merge_and_failed_candidate_repair",

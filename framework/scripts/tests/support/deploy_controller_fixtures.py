@@ -826,6 +826,12 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
         )
         stack.enter_context(
             patch(
+                "utils.aws.client.read_api",
+                lambda account, region, operation, send, **kwargs: send(),
+            )
+        )
+        stack.enter_context(
+            patch(
                 "socket.socket.connect", side_effect=AssertionError("network forbidden")
             )
         )

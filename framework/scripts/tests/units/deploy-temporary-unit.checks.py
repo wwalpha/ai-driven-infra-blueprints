@@ -34,7 +34,7 @@ def workspace(tmp_path):
     root.mkdir()
     journal = tmp_path / "journal/journal.json"
     journal.parent.mkdir(mode=0o700)
-    task = SimpleNamespace(name="tasks/deploy.md", task_digest="task")
+    task = SimpleNamespace(name="tasks/deploy.md", task_digest="task", status="running")
     return root, journal, task
 
 

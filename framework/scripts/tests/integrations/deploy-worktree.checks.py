@@ -659,6 +659,8 @@ def check_controller_keeps_aws_success_after_rewrite_and_conflict(
 
 
 def interrupt_git(actual, owner, boundary, root, *args, **kwargs):
+    if root == owner and boundary == "before-commit" and args[0] == "commit":
+        raise OSError("interrupted before Git commit")
     result = actual(root, *args, **kwargs)
     if root == owner and (
         boundary == "commit"
@@ -852,6 +854,7 @@ def change_publication_candidate(root, tree, base, task):
     "boundary",
     [
         None,
+        "before-commit",
         "commit",
         "receipt",
         "intent",
@@ -870,10 +873,10 @@ def check_stepwise_checkpoint_publication_isolation(boundary):
             publication.publish(root, "deploy")
         assert git(primary, "rev-parse", "HEAD") == base
         assert not wt.load(root, "deploy")[3].get("deployCheckpoints")
-        if boundary in {"commit", "receipt"}:
+        if boundary in {"before-commit", "commit", "receipt"}:
             guard = (
-                patch.object(wt, "git", partial(interrupt_git, wt.git, root, "commit"))
-                if boundary == "commit"
+                patch.object(wt, "git", partial(interrupt_git, wt.git, root, boundary))
+                if boundary in {"before-commit", "commit"}
                 else patch.object(
                     wt, "save", partial(interrupt_saved_state, wt.save, "receipt")
                 )
@@ -881,12 +884,19 @@ def check_stepwise_checkpoint_publication_isolation(boundary):
             with guard, pytest.raises(OSError, match="interrupted"):
                 checkpoints.snapshot_checkpoint(backend, ["A"])
             committed = git(root, "rev-parse", "HEAD")
-            if boundary == "commit":
+            if boundary in {"before-commit", "commit"}:
                 with pytest.raises(ValueError, match="checkpoint operation"):
                     publication.publish(root, "deploy")
             else:
                 assert publication.publish(root, "deploy")["status"] == "SUCCESS"
             checkpoints.snapshot_checkpoint(backend, ["A"])
+            if boundary == "before-commit":
+                assert committed == base
+                committed = git(root, "rev-parse", "HEAD")
+                assert (
+                    git(root, "rev-list", "--count", base.strip() + "..HEAD").strip()
+                    == "1"
+                )
             assert git(root, "rev-parse", "HEAD") == committed
         else:
             checkpoints.snapshot_checkpoint(backend, ["A"])

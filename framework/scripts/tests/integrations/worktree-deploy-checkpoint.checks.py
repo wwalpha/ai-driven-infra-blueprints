@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+import task_contract_runtime as transitions
 import worktree_task as wt
 from deploy import generation_resume, worktree
 from support.deploy_controller_fixtures import (
@@ -25,6 +26,7 @@ from support.deploy_controller_fixtures import (
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import seed
 from task_contract_core import selected_task, status
+from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -72,31 +74,9 @@ def finish_peer(aws):
     aws.write_text(json.dumps(provider), encoding="utf-8")
 
 
-def interrupted_git(real, boundary, witnessed, target, *args, **kwargs):
-    if boundary == "before-commit" and args[:1] == ("commit",) and not witnessed:
-        witnessed.append(True)
-        raise InterruptedError("injected before commit")
-    result = real(target, *args, **kwargs)
-    event = (boundary == "commit" and args[:1] == ("commit",)) or (
-        boundary == "merge" and args[:2] == ("merge", "--ff-only")
-    )
-    if event and not witnessed:
-        witnessed.append(True)
-        raise InterruptedError("injected after " + boundary)
-    return result
-
-
-@pytest.mark.parametrize(
-    "boundary", ["normal", "before-commit", "commit", "merge", "receipt", "delivery"]
-)
-def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
+def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
     report, aws = tmp_path / "run.json", tmp_path / "aws.json"
-    target = seed(
-        tmp_path / "project",
-        report,
-        "delivery" if boundary == "delivery" else "orders",
-        same_group=True,
-    )
+    target = seed(tmp_path / "project", report, same_group=True)
     monkeypatch.chdir(target)
     aws_state(aws)
     primary = Path(wt.load(target, "deploy")[3]["primary"])
@@ -109,21 +89,7 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
     before_status = worktree.progress_path(target).read_bytes()
     assert step(target, report, aws, "status") == 0
     assert worktree.progress_path(target).read_bytes() == before_status
-    witnessed = []
-    if boundary not in {"normal", "delivery"}:
-        with (
-            patch.object(wt, "save", partial(interrupted_receipt, wt.save, witnessed))
-            if boundary == "receipt"
-            else patch.object(
-                wt, "git", partial(interrupted_git, wt.git, boundary, witnessed)
-            )
-        ):
-            assert step(target, report, aws, "sync", [FIRST]) == (
-                0 if boundary == "merge" else 2
-            )
-        assert witnessed
-    else:
-        TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 0)
+    assert step(target, report, aws, "sync", [FIRST]) == 0
     after_sync = {p: p.read_bytes() for p in models_before}
     TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 0)
     TestCase().assertTrue(all(p.read_bytes() == raw for p, raw in after_sync.items()))
@@ -145,54 +111,40 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
     assert step(target, report, aws, "status") == 0
     assert not report.with_suffix(".operations.json").exists()
     provider = json.loads(aws.read_text(encoding="utf-8"))
-    assert (
-        len([op for _, op, _ in provider["calls"] if op == "execute_change_set"]) == 2
+    executions = [
+        args["StackName"]
+        for _, op, args in provider["calls"]
+        if op == "execute_change_set"
+    ]
+    assert sorted(executions) == sorted(
+        provider["stacks"][name]["id"] for name in (FIRST, SECOND)
     )
     assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "4"
+    with selected_task(target, "tasks/deploy.md"):
+        transitions.complete(target, "tasks/deploy.md")
+    assert (
+        status((target / "tasks/deploy.md").read_text(encoding="utf-8")) == "completed"
+    )
     assert "`subnet-fixture`" in (
         primary / f"model/dev/{ACCOUNT}/ec2.properties"
     ).read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("bad", ["outside", "base", "failure"])
-def check_checkpoint_rejects_foreign_changes_and_preserves_success(
-    tmp_path, monkeypatch, bad
-):
+def check_success_checkpoint_survives_peer_failure(tmp_path, monkeypatch):
     report, aws = tmp_path / "run.json", tmp_path / "aws.json"
     target = seed(tmp_path / "project", report, same_group=True)
-    if bad == "failure":
-        contract = target / "tasks/deploy.md"
-        contract.write_text(
-            contract.read_text(encoding="utf-8").replace(
-                "- Runtime recovery: `allowed`", "- Runtime recovery: `forbidden`"
-            ),
-            encoding="utf-8",
-        )
+    contract = target / "tasks/deploy.md"
+    contract.write_text(
+        contract.read_text(encoding="utf-8").replace(
+            "- Runtime recovery: `allowed`", "- Runtime recovery: `forbidden`"
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.chdir(target)
     aws_state(aws)
     primary = Path(wt.load(target, "deploy")[3]["primary"])
     first_success(target, report, aws)
     assert step(target, report, aws, "sync", [FIRST]) == 0
-    if bad == "outside":
-        (target / "README.md").write_text("foreign change\n", encoding="utf-8")
-    elif bad == "base":
-        (primary / "README.md").write_text("base advance\n", encoding="utf-8")
-        git(primary, "add", "README.md")
-        git(primary, "commit", "-qm", "other Task")
-    base = git(primary, "rev-parse", "HEAD")
-    if bad == "outside":
-        TestCase().assertEqual(step(target, report, aws, "checkpoint", [FIRST]), 0)
-        TestCase().assertEqual(git(primary, "rev-parse", "HEAD"), base)
-        TestCase().assertEqual((target / "README.md").read_text(), "foreign change\n")
-        return
-    if bad == "base":
-        assert step(target, report, aws, "checkpoint", [FIRST]) == 0
-        assert (primary / "README.md").read_text() == "base advance\n"
-        finish_peer(aws)
-        assert step(target, report, aws, "advance") == 0
-        assert step(target, report, aws, "sync", [SECOND]) == 0
-        assert step(target, report, aws, "checkpoint", [SECOND]) == 0
-        return
     assert step(target, report, aws, "checkpoint", [FIRST]) == 0
     sha = git(primary, "rev-parse", "HEAD")
     provider = json.loads(aws.read_text(encoding="utf-8"))
@@ -203,12 +155,22 @@ def check_checkpoint_rejects_foreign_changes_and_preserves_success(
     assert git(primary, "rev-parse", "HEAD") == sha
     saved = json.loads(report.read_text(encoding="utf-8"))
     assert saved["states"][SECOND]["status"] == "FAILED"
+    assert saved["states"][SECOND]["stackStatus"] == "ROLLBACK_COMPLETE"
+    assert any(
+        event["ResourceStatus"] == "CREATE_FAILED"
+        and event["reasonDigest"] == fingerprint("invalid CidrBlock")
+        for event in saved["states"][SECOND]["failureEvents"]
+    )
     assert saved["states"][FIRST].get("checkpointed")
     TestCase().assertEqual(step(target, report, aws, "sync", [SECOND]), 0)
     saved = json.loads(report.read_text(encoding="utf-8"))
     TestCase().assertEqual(saved["deployResult"], "FAIL")
     TestCase().assertEqual(saved["states"][SECOND]["status"], "FAILED")
+    assert saved["states"][FIRST]["status"] == "SUCCESS"
+    assert saved["states"][FIRST].get("checkpointed")
     TestCase().assertEqual(saved["snapshotValidation"], "PASS")
+    with selected_task(target, "tasks/deploy.md"):
+        transitions.complete(target, "tasks/deploy.md")
     TestCase().assertEqual(
         status((target / "tasks/deploy.md").read_text(encoding="utf-8")), "completed"
     )
@@ -234,17 +196,6 @@ def check_checkpoint_rejects_foreign_changes_and_preserves_success(
         ),
         count,
     )
-
-
-def interrupted_receipt(real, witnessed, path, state):
-    real(path, state)
-    if (
-        state.get("deployCheckpoints")
-        and not state.get("stackCheckpointIntent")
-        and not witnessed
-    ):
-        witnessed.append(True)
-        raise InterruptedError("after durable receipt, before Journal acknowledgement")
 
 
 def check_model_publication_interruption(tmp_path, monkeypatch):
@@ -316,30 +267,6 @@ def check_generation_wait_and_resume(tmp_path, monkeypatch):
     assert step(target, report, aws, "advance") == 0
     assert step(target, report, aws, "sync", [SECOND]) == 0
     assert step(target, report, aws, "checkpoint", [FIRST, SECOND]) == 0
-    assert not report.with_suffix(".operations.json").exists()
-
-
-def check_zero_difference_checkpoint(tmp_path, monkeypatch):
-    report, aws = tmp_path / "run.json", tmp_path / "aws.json"
-    target = seed(tmp_path / "project", report, "matched", same_group=True)
-    monkeypatch.chdir(target)
-    aws_state(aws)
-    primary = Path(wt.load(target, "deploy")[3]["primary"])
-    base = git(primary, "rev-parse", "HEAD")
-    first_success(target, report, aws)
-    assert step(target, report, aws, "sync", [FIRST]) == 0
-    saved = json.loads(report.read_text(encoding="utf-8"))
-    assert saved["states"][FIRST]["observedCoverage"]["Subnet"]["status"] == "MATCHED"
-    assert step(target, report, aws, "checkpoint", [FIRST]) == 0
-    TestCase().assertNotEqual(git(primary, "rev-parse", "HEAD"), base)
-    unchanged = git(primary, "rev-parse", "HEAD")
-    TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 0)
-    TestCase().assertEqual(git(primary, "rev-parse", "HEAD"), unchanged)
-    finish_peer(aws)
-    assert step(target, report, aws, "advance") == 0
-    assert step(target, report, aws, "sync", [SECOND]) == 0
-    assert step(target, report, aws, "checkpoint", [SECOND]) == 0
-    TestCase().assertNotEqual(git(primary, "rev-parse", "HEAD"), base)
     assert not report.with_suffix(".operations.json").exists()
 
 
