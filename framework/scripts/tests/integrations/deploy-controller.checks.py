@@ -237,6 +237,24 @@ def check_delivery_failure_stops_execution(tmp_path, monkeypatch):
     )
 
 
+def fake_aws(operation, **kwargs):
+    if operation == "describe_stacks":
+        return {
+            "Stacks": [
+                {"StackId": "stack", "StackStatus": "UPDATE_ROLLBACK_COMPLETE"}
+            ]
+        }
+    if operation == "describe_change_set":
+        return {
+            "StackId": "stack",
+            "ChangeSetId": "change",
+            "ExecutionStatus": "EXECUTE_COMPLETE",
+        }
+    if operation == "describe_stack_events":
+        return {"StackEvents": []}
+    raise AssertionError(operation)
+
+
 def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypatch):
     report, aws = tmp_path / "run.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", report, "remove")
@@ -311,23 +329,6 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
         "inputDigests": {},
         "stepUnits": [{"name": "A"}],
     }
-
-    def fake_aws(operation, **kwargs):
-        if operation == "describe_stacks":
-            return {
-                "Stacks": [
-                    {"StackId": "stack", "StackStatus": "UPDATE_ROLLBACK_COMPLETE"}
-                ]
-            }
-        if operation == "describe_change_set":
-            return {
-                "StackId": "stack",
-                "ChangeSetId": "change",
-                "ExecutionStatus": "EXECUTE_COMPLETE",
-            }
-        if operation == "describe_stack_events":
-            return {"StackEvents": []}
-        raise AssertionError(operation)
 
     backend = SimpleNamespace(
         root=local,

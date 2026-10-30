@@ -82,6 +82,18 @@ def _callback_check_sdk_execution_poll(_state_check_sdk_execution_65, /, unit, e
     return "CREATE_COMPLETE"
 
 
+def execution_poll_aws(event, actual, operation, **args):
+    if operation == "describe_change_set":
+        raise M.current_request.AwsError(
+            "cloudformation", operation, "ChangeSetNotFound"
+        )
+    return (
+        {"StackEvents": [event]}
+        if operation == "describe_stack_events"
+        else {"Stacks": [{"StackId": "stack-A", "StackStatus": actual[0]}]}
+    )
+
+
 def check_sdk_execution():
     # Case 3: distinct AWS requests with the shared template and separate inputs.
     _state_check_sdk_execution_65 = _CallbackState()
@@ -309,18 +321,7 @@ def check_sdk_execution():
     }
     actual = ["ROLLBACK_IN_PROGRESS"]
 
-    def execution_poll_aws(operation, **args):
-        if operation == "describe_change_set":
-            raise M.current_request.AwsError(
-                "cloudformation", operation, "ChangeSetNotFound"
-            )
-        return (
-            {"StackEvents": [event]}
-            if operation == "describe_stack_events"
-            else {"Stacks": [{"StackId": "stack-A", "StackStatus": actual[0]}]}
-        )
-
-    _state_check_sdk_execution_65.backend.aws = execution_poll_aws
+    _state_check_sdk_execution_65.backend.aws = _bind_framework_callback(execution_poll_aws, event, actual)
     state = {
         "status": "RUNNING",
         "clientToken": "current",
