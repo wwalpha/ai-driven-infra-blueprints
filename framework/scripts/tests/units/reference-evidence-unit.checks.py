@@ -7939,6 +7939,51 @@ def test_security_group_vpc_expression_identity_rows(
 
 
 @pytest.mark.parametrize(
+    "service,producer,attribute,kind,path",
+    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+)
+@pytest.mark.parametrize(
+    "expression,vpc_value",
+    [
+        ({"Ref": "VpcId"}, "UNSET"),
+        ({"Ref": "VpcId"}, "TODO"),
+        ({"Ref": "VpcId"}, "TBD"),
+        ({"Fn::Sub": "${VpcId}"}, "invalid"),
+        ({"Fn::Sub": ["${Id}", {"Id": {"Ref": "Missing"}}]}, "PENDING_DEPLOY"),
+        ({"Fn::Join": ["-", [{"Ref": "VpcId"}]]}, "PENDING_DEPLOY"),
+        ({"Fn::Join": ["", {"Ref": "VpcId"}]}, "PENDING_DEPLOY"),
+        ({"Ref": "Producer"}, "PENDING_DEPLOY"),
+    ],
+)
+def test_security_group_invalid_expression_receiver_rows(
+    service, producer, attribute, kind, path, expression, vpc_value
+):
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"VpcId": {"Type": "String"}}
+    parameters["VpcId"] = vpc_value
+    resource(
+        comparison,
+        service,
+        "001",
+        producer,
+        "Producer",
+        [],
+        properties={"VpcId": expression},
+    )
+    records = setting(
+        comparison,
+        kind,
+        path,
+        "[label](security-group.md#producer)",
+        {"Ref": "Producer"},
+    )
+    assert [record["category"] for record in records] in (["uncompared"], ["error"]), (
+        records
+    )
+
+
+@pytest.mark.parametrize(
     "kind,path,producer,attribute",
     [
         ("ApiGatewayV2.VpcLink", "SubnetIds[]", "EC2.Subnet", "SubnetId"),
