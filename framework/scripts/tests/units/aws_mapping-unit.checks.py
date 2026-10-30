@@ -230,6 +230,15 @@ def check_v3_registry():
     }
     assert sum(map(len, tgw_properties.values())) == 18
     baseline_properties = deepcopy(properties)
+    image_uri = baseline_properties["lambda"]["Lambda.Function"]["Code.ImageUri"]
+    assert image_uri["model"]["include"] is True
+    assert image_uri["aws"] == {
+        "getter": "base",
+        "path": "Code.ImageUri",
+        "normalize": "typed",
+    }
+    image_uri["model"]["include"] = False
+    image_uri["aws"]["getter"] = "sdk-lambda-function"
     dns = baseline_properties["quicksight"]["QuickSight.VPCConnection"]["DnsResolvers"][
         "aws"
     ]
