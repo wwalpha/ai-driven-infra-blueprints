@@ -3,6 +3,8 @@
 import re
 from functools import lru_cache
 
+from design.services.definitions.registry import POLICY_FORMATS
+
 from utils.comparison_rows import put_row
 
 # Returned attributes whose explicit setting has a different property name.
@@ -302,6 +304,7 @@ S3_KMS_MASTER_KEY_ID = (
 # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-ecr-repository-encryptionconfiguration.html
 # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-s3-bucket-serversideencryptionbydefault.html
 REFERENCE_FORMS = {
+    "DynamoDB.Table.SSESpecification.KMSMasterKeyId": {"KeyId", "Arn", "AliasName"},
     "KMS.Alias.TargetKeyId": {"KeyId", "Arn"},
     "CloudTrail.Trail.KMSKeyId": {"KeyId", "Arn", "AliasName"},
     # Framework design/comparison policy: this property requires a key ARN.
@@ -333,6 +336,20 @@ REFERENCE_FORMS = {
 # Sources are the named resource/property pages in the CloudFormation TemplateReference.
 # No identifier suffix or primaryIdentifier determines a receiving property's meaning.
 REFERENCE_PROPERTIES = {
+    "S3.Bucket.NotificationConfiguration.LambdaConfigurations[].Function": (
+        "Lambda.Function",
+        "Arn",
+    ),
+    "S3.Bucket.NotificationConfiguration.QueueConfigurations[].Queue": (
+        "SQS.Queue",
+        "Arn",
+    ),
+    "S3.Bucket.NotificationConfiguration.TopicConfigurations[].Topic": (
+        "SNS.Topic",
+        "Arn",
+    ),
+    "SQS.Queue.RedrivePolicy.deadLetterTargetArn": ("SQS.Queue", "Arn"),
+    "SNS.Subscription.RedrivePolicy.deadLetterTargetArn": ("SQS.Queue", "Arn"),
     "CloudTrail.Trail.S3BucketName": ("S3.Bucket", "BucketName"),
     "CodeBuild.Project.LogsConfig.CloudWatchLogs.GroupName": (
         "Logs.LogGroup",
@@ -351,6 +368,27 @@ REFERENCE_PROPERTIES = {
     "EC2.Instance.IamInstanceProfile": ("IAM.InstanceProfile", "InstanceProfileName"),
     "EC2.Instance.SecurityGroupIds[]": ("EC2.SecurityGroup", "GroupId"),
     "EC2.Instance.SubnetId": ("EC2.Subnet", "SubnetId"),
+    "EC2.SecurityGroup.SecurityGroupIngress[].SourceSecurityGroupId": (
+        "EC2.SecurityGroup",
+        "GroupId",
+    ),
+    "ECS.Service.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]": (
+        "EC2.SecurityGroup",
+        "GroupId",
+    ),
+    "ElasticLoadBalancingV2.LoadBalancer.SecurityGroups[]": (
+        "EC2.SecurityGroup",
+        "GroupId",
+    ),
+    "ElasticLoadBalancingV2.TargetGroup.VpcId": ("EC2.VPC", "VpcId"),
+    "RDS.DBInstance.VPCSecurityGroups[]": ("EC2.SecurityGroup", "GroupId"),
+    "RDS.DBCluster.VpcSecurityGroupIds[]": ("EC2.SecurityGroup", "GroupId"),
+    "RDS.DBProxy.VpcSecurityGroupIds[]": ("EC2.SecurityGroup", "GroupId"),
+    "RDS.DBProxyEndpoint.VpcSecurityGroupIds[]": ("EC2.SecurityGroup", "GroupId"),
+    "ECS.CapacityProvider.ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.SecurityGroups[]": (
+        "EC2.SecurityGroup",
+        "GroupId",
+    ),
     "EC2.SecurityGroup.VpcId": ("EC2.VPC", "VpcId"),
     "EC2.SecurityGroup.SecurityGroupEgress[].DestinationSecurityGroupId": (
         "EC2.SecurityGroup",
@@ -415,6 +453,7 @@ REFERENCE_PROPERTIES = {
 # ARN receiving forms are explicit, not inferred from an Id/Arn suffix.
 IMPORT_PROPERTIES = {
     **REFERENCE_PROPERTIES,
+    "DynamoDB.Table.SSESpecification.KMSMasterKeyId": (("KMS.Key", "KMS.Alias"), None),
     "KMS.Alias.TargetKeyId": (("KMS.Key",), None),
     "CloudTrail.Trail.KMSKeyId": (("KMS.Key", "KMS.Alias"), None),
     "CloudTrail.Trail.CloudWatchLogsRoleArn": ("IAM.Role", "Arn"),
@@ -1247,6 +1286,20 @@ def configuration_contract(prop, context=None):
 
 def contract(prop, context=None):
     prop = re.sub(r"\[[0-9]+\]", "[]", prop)
+    for root, style in POLICY_FORMATS.items():
+        if style not in {"statement", "wrapped-statement"}:
+            continue
+        prefix = root + (".PolicyDocument" if style == "wrapped-statement" else "")
+        if prop in {
+            prefix
+            + ".Statement"
+            + array
+            + ".Condition.StringEquals.aws:SourceVpc"
+            + value_array
+            for array in ("", "[]")
+            for value_array in ("", "[]")
+        }:
+            return {"EC2.VPC": ("VpcId",)}
     configuration = configuration_contract(prop, context)
     if configuration is not None:
         return configuration
@@ -1296,6 +1349,28 @@ def contract(prop, context=None):
     return {kind: attributes for kind, attributes in result.items() if attributes}
 
 
+def policy_condition(prop):
+    prop = re.sub(r"\[\d+\]", "[]", prop)
+    for root, style in POLICY_FORMATS.items():
+        if style not in {"statement", "wrapped-statement"}:
+            continue
+        prefix = root + (".PolicyDocument" if style == "wrapped-statement" else "")
+        if any(
+            prop.startswith(prefix + ".Statement" + array + ".Condition.")
+            for array in ("", "[]")
+        ):
+            return True
+    return False
+
+
+def unproven_document_reference(prop):
+    prop = re.sub(r"\[\d+\]", "[]", prop)
+    return (
+        prop == "ECS.TaskDefinition.ContainerDefinitions[].Secrets[].ValueFrom"
+        or prop.startswith("Organizations.Policy.Content.")
+    )
+
+
 def requires_context(prop, context=None):
     prop = re.sub(r"\[\d+\]", "[]", prop)
     if (
@@ -1304,10 +1379,15 @@ def requires_context(prop, context=None):
     ):
         # PLAINTEXT is rejected by reference_error before reference resolution.
         return False
-    return any(
-        candidate in CONTEXT_PROPERTIES
-        for candidate in (prop, prop + "[]", prop.removesuffix("[]"))
-    ) or prop.startswith(ACTION_CONFIGURATION + ".")
+    return (
+        policy_condition(prop)
+        or unproven_document_reference(prop)
+        or any(
+            candidate in CONTEXT_PROPERTIES
+            for candidate in (prop, prop + "[]", prop.removesuffix("[]"))
+        )
+        or prop.startswith(ACTION_CONFIGURATION + ".")
+    )
 
 
 @lru_cache(maxsize=None)

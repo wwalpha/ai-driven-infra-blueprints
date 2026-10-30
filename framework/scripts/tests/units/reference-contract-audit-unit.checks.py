@@ -10,13 +10,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
+from comparison.deferral import failure_category
 from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex, model_reference_tables
+from design.services.definitions.registry import POLICY_FORMATS
 from model.core import entries
 from model.display import catalog_display_rows, display_rows, reference_rows
 from model.identity import Resolver
 from model.projection import reference_display
-from model.reference_nodes import parse, resolve
+from model.reference_nodes import parse, receiving_property, resolve
 from model.render import generate_markdown
 from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
@@ -868,6 +870,168 @@ def test_inventory_return_and_arn_contracts(kind):
         )
         assert generated == (record["localArn"] == "generated-id")
     assert record["reason"] and record["refStatus"]
+
+
+@pytest.mark.parametrize(
+    "root,style",
+    [
+        (root, style)
+        for root, style in POLICY_FORMATS.items()
+        if style in {"statement", "wrapped-statement"}
+    ],
+)
+@pytest.mark.parametrize("statement", ["Statement", "Statement/0"])
+@pytest.mark.parametrize("value", ["", "/0"])
+def test_source_vpc_policy_contracts(root, style, statement, value):
+    wrapper = "/PolicyDocument" if style == "wrapped-statement" else ""
+    pointer = (
+        wrapper + "/" + statement + "/Condition/StringEquals/aws:SourceVpc" + value
+    )
+    field = receiving_property(root, pointer)
+    assert contract(field) == {"EC2.VPC": ("VpcId",)}
+    assert not contract(field.replace("aws:SourceVpc", "aws:SourceArn"))
+    assert not contract(field.replace("StringEquals", "StringLike"))
+
+
+@pytest.mark.parametrize(
+    "producer,attribute,valid",
+    [
+        ("EC2.VPC", "VpcId", True),
+        ("KMS.Key", "Arn", False),
+        ("EC2.Subnet", "SubnetId", False),
+        ("EC2.VPC", "UnknownAttribute", False),
+    ],
+)
+def test_source_vpc_type_and_comparison(models, producer, attribute, valid):
+    resource(models, "producer", producer, attribute=attribute)
+    resource(models, "receiver", "IAM.ManagedPolicy", attribute="Name")
+    field = "IAM.ManagedPolicy.PolicyDocument.Statement[].Condition.StringEquals.aws:SourceVpc"
+    path = field.removeprefix("IAM.ManagedPolicy.")
+    resolver = Resolver(models)
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": attribute}
+    )
+    inputs = comparison(models, ("producer", "receiver"))
+    if valid:
+        resolver.validate_attribute(producer, attribute, field=field)
+        assert (
+            inputs.desired_reference("receiver", symbol, "IAM.ManagedPolicy", path)
+            == symbol
+        )
+        assert inputs.reference_same(symbol, symbol, "IAM.ManagedPolicy", path) is True
+    else:
+        with pytest.raises(ValueError):
+            resolver.validate_attribute(producer, attribute, field=field)
+        with pytest.raises(Blocked):
+            inputs.desired_reference("receiver", symbol, "IAM.ManagedPolicy", path)
+        assert inputs.reference_same(symbol, symbol, "IAM.ManagedPolicy", path) is None
+
+
+def test_missing_policy_producer_is_uncompared(models):
+    resource(models, "receiver", "IAM.ManagedPolicy", attribute="Name")
+    inputs = comparison(models, ("receiver",))
+    symbol = ResourceReference({"$resource": ["missing", "001"], "$attribute": "VpcId"})
+    path = "PolicyDocument.Statement[].Condition.StringEquals.aws:SourceVpc"
+    assert inputs.reference_same(symbol, symbol, "IAM.ManagedPolicy", path) is None
+
+
+def test_unknown_policy_condition_is_not_matched(models):
+    resource(models, "producer", "EC2.VPC", attribute="VpcId")
+    resource(models, "receiver", "IAM.ManagedPolicy", attribute="Name")
+    inputs = comparison(models, ("producer", "receiver"))
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "VpcId"}
+    )
+    for path in (
+        "PolicyDocument.Statement[].Condition.StringEquals.aws:SourceArn",
+        "PolicyDocument.Statement[].Condition.StringLike.aws:SourceVpc",
+    ):
+        with pytest.raises(Blocked):
+            inputs.desired_reference("receiver", symbol, "IAM.ManagedPolicy", path)
+        assert inputs.reference_same(symbol, symbol, "IAM.ManagedPolicy", path) is None
+
+
+@pytest.mark.parametrize(
+    "observed,category", [("vpc-12345678", "deferred"), ("PENDING_DEPLOY", "excluded")]
+)
+def test_source_vpc_policy_document_import(models, observed, category):
+    scope, source = resource(
+        models, "producer", "EC2.VPC", attribute="VpcId", observed=observed
+    )
+    source["desired.resource.001.resourceMode"] = "IMPORT"
+    save(scope, source)
+    scope, receiver = resource(
+        models, "receiver", "IAM.ManagedPolicy", attribute="Name"
+    )
+    document = {
+        "Statement": [
+            {
+                "Condition": {
+                    "StringEquals": {"aws:SourceVpc": reference("EC2_VPC_001", "VpcId")}
+                }
+            }
+        ]
+    }
+    receiver.update(
+        {
+            "desired.row.001-002.property": "IAM.ManagedPolicy.PolicyDocument",
+            "desired.row.001-002.value": "`" + json.dumps(document) + "`",
+            "desired.row.001-002.comment": "policy",
+        }
+    )
+    save(scope, receiver)
+    inputs = comparison(models, ("producer", "receiver"))
+    row = dict(entries(receiver, "desired.row."))["001-002"]
+    prepared = inputs.prepare_value(
+        "receiver", row, "IAM.ManagedPolicy", row_id="001-002"
+    )
+    assert len(prepared.failures) == 1
+    path, pointer, error = prepared.failures[0]
+    assert path == "PolicyDocument.Statement[].Condition.StringEquals.aws:SourceVpc"
+    assert pointer == "/Statement/0/Condition/StringEquals/aws:SourceVpc"
+    assert failure_category(error) == category
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("ECS.TaskDefinition", "ContainerDefinitions[].Secrets[].ValueFrom"),
+        ("Organizations.Policy", "Content.Service.Resource"),
+    ],
+)
+def test_unproven_documents_are_not_matched(models, kind, path):
+    resource(models, "producer", "SecretsManager.Secret", attribute="Id")
+    resource(models, "receiver", kind, attribute="Name")
+    inputs = comparison(models, ("producer", "receiver"))
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Id"})
+    with pytest.raises(Blocked):
+        inputs.desired_reference("receiver", symbol, kind, path)
+    assert inputs.reference_same(symbol, symbol, kind, path) is None
+
+
+@pytest.mark.parametrize(
+    "observed,category,phase",
+    [
+        ("vpc-12345678", "deferred", "awaiting_handoff"),
+        ("PENDING_DEPLOY", "excluded", "pending_deploy"),
+    ],
+)
+def test_source_vpc_import_waits(models, observed, category, phase):
+    scope, values = resource(
+        models, "producer", "EC2.VPC", attribute="VpcId", observed=observed
+    )
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    save(scope, values)
+    resource(models, "receiver", "IAM.ManagedPolicy", attribute="Name")
+    inputs = comparison(models, ("producer", "receiver"))
+    symbol = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "VpcId"}
+    )
+    path = "PolicyDocument.Statement[].Condition.StringEquals.aws:SourceVpc"
+    with pytest.raises(Blocked) as caught:
+        inputs.desired_reference("receiver", symbol, "IAM.ManagedPolicy", path)
+    assert failure_category(caught.value) == category
+    assert caught.value.iac_cause["phase"] == phase
 
 
 if __name__ == "__main__":

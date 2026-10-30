@@ -64,19 +64,22 @@ def desired_reference(
     expected_kind = None
     contract = REFERENCE_PROPERTIES.get(kind + "." + path)
     if local_comparison:
-        if requires_context(kind + "." + path, context) and declared:
-            (expected_kind,) = declared
-            forms = declared[expected_kind]
-            if not isinstance(value, ResourceReference):
-                if attribute is None or (
-                    attribute not in forms
-                    and kind + "." + path in CONTEXT_DEFAULT_ON_MISMATCH
-                ):
-                    attribute = forms[0]
-                elif attribute not in forms:
-                    raise Blocked(
-                        f"reference attribute is outside property contract: {kind}.{path}"
-                    )
+        if declared:
+            if len(declared) == 1:
+                (expected_kind,) = declared
+                forms = declared[expected_kind]
+                if not isinstance(value, ResourceReference):
+                    if attribute is None and len(forms) == 1:
+                        attribute = forms[0]
+                    elif (
+                        attribute not in forms
+                        and kind + "." + path in CONTEXT_DEFAULT_ON_MISMATCH
+                    ):
+                        attribute = forms[0]
+                    elif attribute is not None and attribute not in forms:
+                        raise Blocked(
+                            f"reference attribute is outside property contract: {kind}.{path}"
+                        )
         elif contract:
             expected_kind, default_attribute = contract
             if attribute is None:

@@ -13,8 +13,10 @@ from utils.reference_contracts import (
     REFERENCE_PROPERTIES,
     VALUE_IDENTITIES,
     contract,
+    policy_condition,
     reference_error,
     requires_context,
+    unproven_document_reference,
 )
 
 from . import expressions, registry
@@ -37,10 +39,14 @@ def reference_forms(kind, path, *, local_comparison, property_schema):
         node = property_schema(kind, path)
     except KeyError:
         node = {}
-    contract = REFERENCE_PROPERTIES.get(key)
+    registered = REFERENCE_PROPERTIES.get(key)
     forms = REFERENCE_FORMS.get(key)
-    if forms is None and contract and contract[1]:
-        forms = {contract[1]}
+    if forms is None and local_comparison and policy_condition(key):
+        declared = contract(key)
+        if declared:
+            forms = {form for attributes in declared.values() for form in attributes}
+    if forms is None and registered and registered[1]:
+        forms = {registered[1]}
     return (
         {"Arn"}
         if node.get("pattern", "").startswith("^arn:")
@@ -160,17 +166,57 @@ def reference_same(
     nested_symbols = expressions.references([left, right])
     if (
         local_comparison
-        and context is not None
+        and (
+            context is not None
+            or policy_condition(prop)
+            or unproven_document_reference(prop)
+        )
         and nested_symbols
+        and (
+            not (policy_condition(prop) or unproven_document_reference(prop))
+            or expressions.references(left)
+        )
         and requires_context(prop, context)
     ):
         declared = contract(prop, context)
         for symbol in nested_symbols:
-            refkind = resource_type(symbol)
+            try:
+                refkind = resource_type(symbol)
+            except (KeyError, ValueError, TypeError):
+                return ReferenceDecision(None)
             if refkind not in declared or symbol["$attribute"] not in {
                 reference_attribute(refkind, form) for form in declared[refkind]
             }:
                 return ReferenceDecision(None)
+    elif (
+        local_comparison
+        and registry.property_rule(kind, path).forms is None
+        and not any(hasattr(value, "saved_literal") for value in (left, right))
+    ):
+        declared = contract(prop, context)
+        symbols = [
+            value
+            for value in (left, right)
+            if isinstance(value, ResourceReference)
+            and not hasattr(value, "saved_literal")
+        ]
+        for symbol in symbols if declared else ():
+            try:
+                refkind = resource_type(symbol)
+            except (KeyError, ValueError, TypeError):
+                return ReferenceDecision(None)
+            if refkind not in declared or symbol["$attribute"] not in {
+                reference_attribute(refkind, form) for form in declared[refkind]
+            }:
+                if evidence is not None and len(symbols) == 1:
+                    result = evidence(left, right, kind, path)
+                    if result.equal is False:
+                        return result
+                return ReferenceDecision(
+                    False
+                    if len(symbols) == 2 and same(left, right) is not True
+                    else None
+                )
     if evidence is not None and any(
         isinstance(value, Expression) for value in (left, right)
     ):
