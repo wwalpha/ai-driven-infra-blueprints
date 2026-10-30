@@ -27,6 +27,7 @@ from deploy import (
     scheduler,
     steps,
     worktree,
+    git_publication as publication,
 )
 from model.core import properties, stack_model, validate_model_keys
 from model.observed import verify_observed_outputs
@@ -1628,6 +1629,121 @@ class TestCurrentState(TestCase):
         backend.run_context["generationError"] = "broken reference"
         self.assertNotEqual(steps.describe(backend)["result"], "COMPLETE")
 
+
+
+def progress_backend(root, context):
+    identity = dict(
+        taskFile="tasks/deploy.md",
+        taskDigest="digest",
+        target={},
+        environment="dev",
+        stacks=["A"],
+        snapshot="fixed",
+    )
+    context.update(
+        {
+            key: identity[key]
+            for key in ("taskFile", "taskDigest", "target", "environment")
+        }
+    )
+    context["repository"] = str(root)
+    return SimpleNamespace(
+        root=root,
+        phase="deploy",
+        run_context=context,
+        progress_identity=identity,
+        progress_root=root.resolve(),
+        progress_directory=context.get("directory"),
+        progress_destination=worktree.progress_path(root, create=True),
+    )
+
+
+
+def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
+    import os
+    import stat
+    from utils import sealed_evidence
+    monkeypatch.setattr(sealed_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
+    old = os.umask(0o022)
+    try:
+        path = worktree.progress_path(tmp_path / "project", create=True)
+        for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
+            assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+        context = {"states": {"A": {"status": "SUCCESS"}}, "inputDigests": {"A": "hash"}}
+        backend = progress_backend(tmp_path / "project", context)
+        with operation_journal.locked(path):
+            worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+        with operation_journal.locked(worktree.progress_path(backend.root, create=True)):
+            assert worktree.read_progress(backend.root, {"deployIdentity": backend.progress_identity})["states"]["A"]["status"] == "SUCCESS"
+    finally:
+        os.umask(old)
+
+
+@pytest.mark.parametrize("unsafe", ["permissions", "owner", "symlink"])
+@pytest.mark.parametrize("level", [0, 1, 2])
+def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, level):
+    from utils import sealed_evidence
+    monkeypatch.setattr(sealed_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
+    root = tmp_path / "project"
+    path = worktree.progress_path(root, create=True)
+    directory = (path.parent.parent.parent, path.parent.parent, path.parent)[level]
+    if unsafe == "permissions":
+        directory.chmod(0o755)
+    elif unsafe == "symlink":
+        moved = directory.with_name(directory.name + "-original")
+        directory.rename(moved)
+        directory.symlink_to(moved, target_is_directory=True)
+    else:
+        original_lstat = Path.lstat
+        def wrong_owner(path):
+            info = original_lstat(path)
+            if path == directory:
+                return SimpleNamespace(st_mode=info.st_mode, st_uid=-1)
+            return info
+        monkeypatch.setattr(Path, "lstat", wrong_owner)
+    with pytest.raises(ValueError):
+        worktree.progress_path(root, create=True)
+
+
+def check_candidate_validation_displays_report_once(tmp_path, monkeypatch, capsys):
+    task = SimpleNamespace(name="tasks/a.md", text="task", scope=set())
+    monkeypatch.setattr(publication.tasks, "selected_task", lambda *a: nullcontext())
+    monkeypatch.setattr(publication.tasks, "task_snapshot", lambda *a: task)
+    monkeypatch.setattr(publication, "require_observation_delta", lambda *a: None)
+    monkeypatch.setattr(publication, "definition_root", lambda root: root)
+    monkeypatch.setattr(publication.wt, "paths", lambda *a: [])
+    validator = Mock()
+    validator.display_report.side_effect = lambda: (print("specific failure\nTask Acceptance: FAIL"), 1)[1]
+    monkeypatch.setattr(publication, "Validator", lambda *a, **k: validator)
+    assert publication.validate_snapshot(tmp_path, tmp_path, "base", "tree", task.name) == 1
+    assert "specific failure" in capsys.readouterr().out
+    validator.run.assert_called_once()
+    validator.display_report.assert_called_once()
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def check_candidate_subprocess_result_and_resolved_root(tmp_path, monkeypatch, returncode):
+    real = tmp_path / "real"
+    real.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    monkeypatch.setattr(publication.tempfile, "TemporaryDirectory", lambda **kwargs: nullcontext(str(alias)))
+    monkeypatch.setattr(publication.wt.python_env, "runtime", lambda root: (sys.executable, {}))
+    def git(root, *args):
+        if args[0] == "clone":
+            Path(args[-1]).mkdir()
+    monkeypatch.setattr(publication.wt, "git", git)
+    result = SimpleNamespace(returncode=returncode, stdout="specific failure\nTask Acceptance: FAIL", stderr="diagnostic stderr")
+    run = Mock(return_value=result)
+    monkeypatch.setattr(publication.subprocess, "run", run)
+    task = SimpleNamespace(name="tasks/a.md", raw=b"task")
+    if returncode:
+        with pytest.raises(Exception, match="(?s)specific failure.*Task Acceptance: FAIL.*diagnostic stderr"):
+            publication.validate_candidate(tmp_path, "tree", "base", task)
+    else:
+        publication.validate_candidate(tmp_path, "tree", "base", task)
+    assert run.call_args.kwargs["cwd"] == (real / "repository").resolve()
+    assert run.call_args.kwargs["capture_output"] is True
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

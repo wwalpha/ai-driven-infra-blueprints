@@ -140,7 +140,7 @@ def private_path(path, *, directory=False, permissions=0o077):
 @contextmanager
 def locked(path):
     path = safe_path(path)
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o700, exist_ok=True)
     private_path(path.parent, directory=True)
     lock = safe_path(path.with_suffix(".lock"))
     flags = os.O_CREAT | os.O_RDWR

@@ -602,7 +602,7 @@ def run(
             redirect_stdout(sys.stderr),
         ):
             resources.enter_context(
-                operation_journal.locked(worktree.progress_path(root))
+                operation_journal.locked(worktree.progress_path(root, create=True))
             )
             backend = backend_type(
                 root,

@@ -1124,7 +1124,7 @@ def check_design_artifacts(
     markdown_design_artifacts,
     root,
 ) -> None:
-    base = root / "docs" / "designs"
+    base = (root / "docs" / "designs").resolve()
     directories = (
         [base]
         if scope is None

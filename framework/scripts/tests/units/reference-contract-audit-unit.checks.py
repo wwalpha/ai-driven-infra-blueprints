@@ -1405,5 +1405,45 @@ def test_route53_query_logging_rejects_log_group_getatt_with_suffix(models):
     )
 
 
+
+@pytest.mark.parametrize("prefix", ["AssumeRolePolicyDocument", "Policies[].PolicyDocument"])
+@pytest.mark.parametrize("statement", ["Statement", "Statement[]"])
+@pytest.mark.parametrize("suffix", ["", "[]"])
+@pytest.mark.parametrize("operator,key,producer", [
+    ("ArnEquals", "aws", "S3.Bucket"),
+    ("ArnEquals", "aws", "SecretsManager.Secret"),
+    ("ArnLike", "aws", "S3.Bucket"),
+    ("ArnLike", "aws", "SecretsManager.Secret"),
+    ("StringEquals", "kms:EncryptionContext:aws:s3", "S3.Bucket"),
+    ("StringLike", "kms:EncryptionContext", "SecretsManager.Secret"),
+])
+def test_iam_condition_arn_contract_and_comparison(models, prefix, statement, suffix, operator, key, producer):
+    resource(models, "producer", producer, attribute="Arn")
+    resource(models, "receiver", "IAM.Role", attribute="Name")
+    path = prefix + "." + statement + ".Condition." + operator + "." + key + suffix
+    field = "IAM.Role." + path
+    resolver = Resolver(models)
+    resolver.validate_attribute(producer, "Arn", field=field)
+    inputs = comparison(models, ("producer", "receiver"))
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": reference_attribute(producer, "Arn")})
+    assert inputs.desired_reference("receiver", symbol, "IAM.Role", path) == symbol
+    assert inputs.reference_same(symbol, symbol, "IAM.Role", path) is True
+    for bad_kind, bad_attribute in (("EC2.VPC", "VpcId"), (producer, "Name")):
+        with pytest.raises(ValueError):
+            resolver.validate_attribute(bad_kind, bad_attribute, field=field)
+    assert not contract(field.replace(key, "unknown"))
+    assert not contract(field.replace(operator, "UnknownOperator"))
+
+
+def test_iam_condition_document_generation(models):
+    payload = {"Statement": [{"Condition": {"ArnEquals": {"aws": [reference("S3_Bucket_001", "Arn")]}}}]}
+    _, _, scope, values = prepare(models, "IAM.Role", "AssumeRolePolicyDocument", payload)
+    values["desired.row.001-001.property"] = "IAM.Role.RoleName"
+    values["desired.row.001-001.value"] = "`fixture`"
+    save(scope, values)
+    markdown = generate_markdown(models / "docs/designs/qa/team/receiver.md", values, models)
+    assert "ArnEquals" in markdown
+    assert resolve(parse(payload["Statement"][0]["Condition"]["ArnEquals"]["aws"][0]), scope, Resolver(models), field="IAM.Role.AssumeRolePolicyDocument.Statement[].Condition.ArnEquals.aws[]")[3] == "Arn"
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

@@ -165,7 +165,7 @@ def validate_candidate(root, tree, base, task):
     with tempfile.TemporaryDirectory(
         prefix="blueprint-deploy-publication-"
     ) as directory:
-        stage = Path(directory) / "repository"
+        stage = (Path(directory) / "repository").resolve()
         wt.git(
             root, "clone", "--quiet", "--shared", "--no-checkout", str(root), str(stage)
         )
@@ -226,7 +226,7 @@ def validate_snapshot(root, stage, base, tree, task_file):
             final_candidate=candidate,
         )
         validator.run()
-        return validator.report()
+        return validator.display_report()
 
 
 def resolved_tree(root, base, source, publication, resolution):
