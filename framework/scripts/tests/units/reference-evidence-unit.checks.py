@@ -7993,7 +7993,8 @@ def test_new_receiving_contracts(kind, path, producer, attribute):
     )
     wrong = ResourceReference({"$resource": ["wrong", "001"], "$attribute": "SubnetId"})
     assert comparison.desired_reference("producer", valid, kind, path) == valid
-    assert comparison.reference_decision(valid, valid, kind, path).equal is True
+    expected = None if kind == "Route53.HostedZone" else True
+    assert comparison.reference_decision(valid, valid, kind, path).equal is expected
     assert comparison.reference_decision(wrong, wrong, kind, path).equal is not True
     with pytest.raises(Blocked):
         comparison.desired_reference("wrong", wrong, kind, path)

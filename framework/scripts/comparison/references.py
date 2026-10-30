@@ -43,7 +43,9 @@ def reference_forms(kind, path, *, local_comparison, property_schema):
         node = {}
     registered = REFERENCE_PROPERTIES.get(key)
     forms = REFERENCE_FORMS.get(key)
-    if forms is None and local_comparison and policy_condition(key):
+    if forms is not None:
+        return forms
+    if local_comparison and policy_condition(key):
         declared = contract(key)
         if declared:
             forms = {form for attributes in declared.values() for form in attributes}
@@ -167,6 +169,20 @@ def reference_same(
         return ReferenceDecision(None)
     prop = kind + "." + path
     nested_symbols = expressions.references([left, right])
+    if (
+        local_comparison
+        and prop == "Route53.HostedZone.QueryLoggingConfig.CloudWatchLogsLogGroupArn"
+    ):
+        # LogGroup GetAtt Arn ends in :*, while Route53 requires the bare log-group ARN.
+        try:
+            if any(
+                resource_type(symbol) == "Logs.LogGroup"
+                and symbol["$attribute"] == "Arn"
+                for symbol in nested_symbols
+            ):
+                return ReferenceDecision(None)
+        except (Blocked, KeyError, ValueError, TypeError):
+            return ReferenceDecision(None)
     if local_comparison and context is None:
         normalized = re.sub(r"\[\d+\]", "[]", prop)
         proven = [

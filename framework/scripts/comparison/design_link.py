@@ -68,6 +68,15 @@ def desired_reference(
         if declared:
             if len(declared) == 1:
                 (expected_kind,) = declared
+            elif not isinstance(value, ResourceReference):
+                candidate = reference(service, value, protect_import=False)
+                candidate_kind = resource_type(candidate)
+                if candidate_kind not in declared:
+                    raise Blocked(
+                        f"reference target is outside receiving property contract: {kind}.{path}"
+                    )
+                expected_kind = candidate_kind
+            if expected_kind:
                 forms = declared[expected_kind]
                 if not isinstance(value, ResourceReference):
                     if attribute is None and len(forms) == 1:

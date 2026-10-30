@@ -328,6 +328,7 @@ REFERENCE_FORMS = {
     # aws-resource-glue-job.html; aws-resource-lambda-permission.html
     "Glue.Job.Role": {"RoleName", "Arn"},
     "Glue.Crawler.Role": {"RoleName", "Arn"},
+    "ECS.TaskDefinition.TaskRoleArn": {"RoleName", "Arn"},
     "ECS.Service.Cluster": {"ClusterName", "Arn"},
     "ECS.Service.Role": {"RoleName", "Arn"},
     "CodeBuild.Project.EncryptionKey": {"Arn", "AliasName"},

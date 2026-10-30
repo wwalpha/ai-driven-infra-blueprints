@@ -226,9 +226,14 @@ def test_registered_contract_route(models, prop, producer, attribute):
         "receiver", symbol, consumer_kind, path, symbol["$attribute"]
     )
     assert actual == symbol
+    expected = (
+        None
+        if prop == "Route53.HostedZone.QueryLoggingConfig.CloudWatchLogsLogGroupArn"
+        else True
+    )
     assert (
         inputs.reference_same(actual, copy.deepcopy(symbol), consumer_kind, path)
-        is True
+        is expected
     )
     typed = inputs.normalize_model_reference(
         "receiver",
@@ -238,15 +243,12 @@ def test_registered_contract_route(models, prop, producer, attribute):
     )
     assert typed == symbol, typed
     inputs.resources["producer"]["002"] = dict(inputs.resources["producer"]["001"])
-    assert (
-        inputs.reference_same(
-            typed,
-            ResourceReference(dict(symbol, **{"$resource": ["producer", "002"]})),
-            consumer_kind,
-            path,
-        )
-        is False
-    )
+    assert inputs.reference_same(
+        typed,
+        ResourceReference(dict(symbol, **{"$resource": ["producer", "002"]})),
+        consumer_kind,
+        path,
+    ) is (False if expected else None)
     with pytest.raises(ValueError):
         resolver.validate_attribute(producer, "UnsupportedAttribute", field=prop)
     wrong = (
@@ -1211,6 +1213,189 @@ def test_route53_export_cannot_authorize_wrong_producer(models, producer, attrib
     assert (
         inputs.reference_decision(
             value, value, "Route53.RecordSet", "AliasTarget.DNSName"
+        ).equal
+        is not True
+    )
+
+
+@pytest.mark.parametrize("producer_kind", ["Glue.Connection", "S3.Bucket"])
+def test_lakeformation_legacy_link_chooses_producer_arn(models, producer_kind):
+    resource(models, "producer", producer_kind, attribute="Name")
+    scope, receiver = resource(
+        models, "receiver", "LakeFormation.Resource", attribute="Name"
+    )
+    receiver.update(
+        {
+            "desired.row.001-002.property": "LakeFormation.Resource.ResourceArn",
+            "desired.row.001-002.value": "[producer](producer.md#saved-001)",
+            "desired.row.001-002.comment": "synthetic",
+        }
+    )
+    save(scope, receiver)
+    inputs = comparison(models, ("producer", "receiver"))
+    row = dict(entries(receiver, "desired.row."))["001-002"]
+    value = inputs.prepare_value(
+        "receiver", row, "LakeFormation.Resource", row_id="001-002"
+    ).require_value()
+    assert value["$attribute"] == reference_attribute(producer_kind, "Arn")
+
+
+def test_invalid_expression_producer_cannot_match(models):
+    resource(models, "producer", "S3.Bucket", attribute="BucketName")
+    inputs = comparison(models, ("producer",))
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    expression = Expression("Join", ["", [symbol]])
+    assert (
+        inputs.reference_decision(
+            expression, expression, "Lambda.Function", "Role"
+        ).equal
+        is not True
+    )
+
+
+LEGACY_CONTRACTS = [
+    "DynamoDB.Table.SSESpecification.KMSMasterKeyId",
+    "KMS.Alias.TargetKeyId",
+    "CloudTrail.Trail.KMSKeyId",
+    "CloudTrail.Trail.CloudWatchLogsRoleArn",
+    "CloudTrail.Trail.CloudWatchLogsLogGroupArn",
+    "Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey",
+    "ECR.Repository.EncryptionConfiguration.KmsKey",
+    "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID",
+    "Config.ConfigurationRecorder.RoleARN",
+    "GuardDuty.MalwareProtectionPlan.Role",
+    "KinesisFirehose.DeliveryStream.DeliveryStreamEncryptionConfigurationInput.KeyARN",
+    "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN",
+    "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN",
+    "KinesisFirehose.DeliveryStream.ExtendedS3DestinationConfiguration.BucketARN",
+    "KinesisFirehose.DeliveryStream.ExtendedS3DestinationConfiguration.RoleARN",
+    "LakeFormation.Resource.ResourceArn",
+    "LakeFormation.Resource.RoleArn",
+    "Lambda.Function.Role",
+    "Lambda.Function.KmsKeyArn",
+    "CodeBuild.Project.ServiceRole",
+    "CodePipeline.Pipeline.RoleArn",
+    "Logs.LogGroup.KmsKeyId",
+    "Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn",
+    "Glue.SecurityConfiguration.EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn",
+    "ApiGatewayV2.VpcLink.SubnetIds[]",
+    "CodeBuild.Project.VpcConfig.Subnets",
+    "EC2.TransitGatewayVpcAttachment.SubnetIds",
+    "EC2.VPCEndpoint.SubnetIds",
+    "ECS.CapacityProvider.ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.Subnets[]",
+    "ECS.Service.NetworkConfiguration.AwsvpcConfiguration.Subnets[]",
+    "ElasticLoadBalancingV2.LoadBalancer.Subnets[]",
+    "Lambda.Function.VpcConfig.SubnetIds",
+    "MWAA.Environment.NetworkConfiguration.SubnetIds",
+    "QuickSight.VPCConnection.SubnetIds",
+    "RDS.DBProxy.VpcSubnetIds[]",
+    "RDS.DBProxyEndpoint.VpcSubnetIds[]",
+    "RDS.DBSubnetGroup.SubnetIds[]",
+    "SageMaker.Domain.SubnetIds[]",
+    "Scheduler.Schedule.Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]",
+    "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds",
+    "CodeBuild.Project.VpcConfig.SecurityGroupIds",
+]
+
+
+@pytest.mark.parametrize("prop", LEGACY_CONTRACTS)
+def test_legacy_contract_preparation(models, prop):
+    declared = contract(prop)
+    producer = next(iter(declared))
+    forms = declared[producer]
+    resource(models, "producer", producer, attribute=forms[0])
+    kind = ".".join(prop.split(".")[:2])
+    scope, receiver = resource(models, "receiver", kind, attribute="Name")
+    receiver.update(
+        {
+            "desired.row.001-002.property": prop,
+            "desired.row.001-002.value": "[producer](producer.md#saved-001)",
+            "desired.row.001-002.comment": "synthetic",
+        }
+    )
+    save(scope, receiver)
+    inputs = comparison(models, ("producer", "receiver"))
+    row = dict(entries(receiver, "desired.row."))["001-002"]
+    prepared = inputs.prepare_value("receiver", row, kind, row_id="001-002")
+    if prepared.error is not None:
+        assert len(forms) > 1 and "selection is unproven" in str(prepared.error)
+        return
+    value = prepared.require_value()
+    if isinstance(value, list):
+        value = value[0]
+    if isinstance(value, Expression):
+        value = value.operands[1][0]
+    assert value["$attribute"] in {
+        reference_attribute(producer, form) for form in forms
+    }
+
+
+@pytest.mark.parametrize("prop", LEGACY_CONTRACTS)
+def test_legacy_contract_rejects_wrong_producer(models, prop):
+    declared = contract(prop)
+    wrong = next(
+        kind for kind in ("S3.Bucket", "IAM.Role", "EC2.VPC") if kind not in declared
+    )
+    resource(models, "producer", wrong, attribute="Name")
+    kind = ".".join(prop.split(".")[:2])
+    scope, receiver = resource(models, "receiver", kind, attribute="Name")
+    receiver.update(
+        {
+            "desired.row.001-002.property": prop,
+            "desired.row.001-002.value": "[producer](producer.md#saved-001)",
+            "desired.row.001-002.comment": "synthetic",
+        }
+    )
+    save(scope, receiver)
+    inputs = comparison(models, ("producer", "receiver"))
+    row = dict(entries(receiver, "desired.row."))["001-002"]
+    with pytest.raises(Blocked):
+        inputs.prepare_value("receiver", row, kind, row_id="001-002").require_value()
+
+
+def test_role_formats_and_expression_producer(models):
+    resource(models, "producer", "IAM.Role", attribute="RoleName")
+    inputs = comparison(models, ("producer",))
+    name = ResourceReference(
+        {"$resource": ["producer", "001"], "$attribute": "RoleName"}
+    )
+    arn = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    for value in (name, Expression("Join", ["", [name]])):
+        assert (
+            inputs.reference_decision(
+                value, value, "ECS.TaskDefinition", "TaskRoleArn"
+            ).equal
+            is True
+        )
+        assert (
+            inputs.reference_decision(
+                value, value, "ECS.TaskDefinition", "ExecutionRoleArn"
+            ).equal
+            is not True
+        )
+        assert (
+            inputs.reference_decision(
+                value, value, "S3.Bucket", "ReplicationConfiguration.Role"
+            ).equal
+            is not True
+        )
+    for value in (arn, Expression("Join", ["", [arn]])):
+        assert (
+            inputs.reference_decision(value, value, "Lambda.Function", "Role").equal
+            is True
+        )
+
+
+def test_route53_query_logging_rejects_log_group_getatt_with_suffix(models):
+    resource(models, "producer", "Logs.LogGroup", attribute="LogGroupName")
+    inputs = comparison(models, ("producer",))
+    symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
+    assert (
+        inputs.reference_decision(
+            symbol,
+            symbol,
+            "Route53.HostedZone",
+            "QueryLoggingConfig.CloudWatchLogsLogGroupArn",
         ).equal
         is not True
     )
