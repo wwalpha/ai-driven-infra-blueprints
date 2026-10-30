@@ -738,6 +738,12 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
                 continue
             target = reference_key(link[0], path, resolver)
             if target in identifiers:
+                own_resource = dict(entries(values, "desired.resource.")).get(
+                    rid.rpartition("-")[0]
+                )
+                if own_resource and own_key(path, own_resource) != target:
+                    changes.setdefault(path, {})
+                    continue
                 changes.setdefault(path, {}).setdefault(
                     f"observed.row.{rid}.value", identifiers[target]
                 )
@@ -765,7 +771,13 @@ def observed_destinations(
                 f"task scope violation: observed reference requires {'/'.join(service)}"
             )
         observed_outputs = _imports_model_observed.observed_outputs
-        projected = observed_outputs(path, {**loaded[path], **updates})
+        candidate = dict(loaded[path])
+        for key, value in updates.items():
+            if value is None:
+                candidate.pop(key, None)
+            else:
+                candidate[key] = value
+        projected = observed_outputs(path, candidate)
         if projected is None:
             raise ValueError(
                 f"properties Model sources missing for observed update: {path}"
@@ -773,7 +785,11 @@ def observed_destinations(
         destinations.update(projected)
         snapshot = load_model(path)
         authority_paths.update(
-            snapshot.locations[key.replace("observed.", "desired.", 1)][0]
+            snapshot.locations[
+                key.replace("observed.", "desired.", 1)
+                if key.startswith("observed.row.")
+                else "desired.stack." + key.split(".")[2] + ".name"
+            ][0]
             for key in updates
         )
     views = set()

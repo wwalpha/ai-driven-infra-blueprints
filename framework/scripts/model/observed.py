@@ -24,12 +24,16 @@ def verify_observed_outputs(previous, outputs):
         before, after = parse(previous[file].decode("utf-8")), parse(text)
         changes = {
             key: after.values.get(key)
-            for key in before.values.keys() | after.values.keys()
+            for key in dict.fromkeys([*after.values, *before.values])
             if before.values.get(key) != after.values.get(key)
             or (key in before.values) != (key in after.values)
         }
         if any(
-            re.fullmatch(r"observed\.row\.[A-Za-z0-9_-]+\.value", key) is None
+            re.fullmatch(
+                r"observed\.(?:row\.[A-Za-z0-9_-]+\.value|stack\.[A-Za-z0-9_-]+\.(?:status|observedAt|reason))",
+                key,
+            )
+            is None
             for key in changes
         ):
             raise ValueError(
@@ -63,6 +67,20 @@ def prepare_observed(snapshot, changes, policy):
     by_file = {}
     for key, value in changes.items():
         match = re.fullmatch(r"observed\.row\.([A-Za-z0-9_-]+)\.value", key)
+        stack = re.fullmatch(
+            r"observed\.stack\.([A-Za-z0-9_-]+)\.(status|observedAt|reason)", key
+        )
+        if stack:
+            desired = f"desired.stack.{stack[1]}.name"
+            if (
+                snapshot.scope.service != "cloudformation-stacks"
+                or desired not in snapshot.authoritative
+            ):
+                raise ValueError("Stack observation has no desired Stack: " + key)
+            if value is not None and not isinstance(value, str):
+                raise ValueError("Stack observation must be a string")
+            by_file.setdefault(snapshot.locations[desired][0], {})[key] = value
+            continue
         if not match or value is not None and not isinstance(value, str):
             raise ValueError(
                 "observation changes require observed.row.<id>.value string fields only"
@@ -126,7 +144,6 @@ def observed_outputs(path, values):
         key: values.get(key)
         for key in snapshot.values.keys() | values.keys()
         if key.startswith("observed.")
-        and key.endswith(".value")
         and (
             snapshot.values.get(key) != values.get(key)
             or (key in snapshot.values) != (key in values)
@@ -136,6 +153,18 @@ def observed_outputs(path, values):
     rows = dict(entries(snapshot.authoritative, "desired.row."))
     for key, value in changes.items():
         match = re.fullmatch(r"observed\.row\.([A-Za-z0-9_-]+)\.value", key)
+        stack = re.fullmatch(
+            r"observed\.stack\.([A-Za-z0-9_-]+)\.(status|observedAt|reason)", key
+        )
+        if stack:
+            desired = f"desired.stack.{stack[1]}.name"
+            if (
+                snapshot.scope.service != "cloudformation-stacks"
+                or desired not in snapshot.authoritative
+            ):
+                raise ValueError("Stack observation has no desired Stack: " + key)
+            by_file.setdefault(snapshot.locations[desired][0], {})[key] = value
+            continue
         if not match or match[1] not in rows:
             raise ValueError("observed writer requires an existing desired Row")
         row = match[1]
@@ -168,7 +197,7 @@ def publish_observed_candidates(root, outputs, inputs=None):
         old, new = snapshot.documents[file].values, parse(text).values
         updates = {
             key: new.get(key)
-            for key in old.keys() | new.keys()
+            for key in dict.fromkeys([*new, *old])
             if old.get(key) != new.get(key) or (key in old) != (key in new)
         }
         changes.setdefault(scope.path, {}).update(updates)

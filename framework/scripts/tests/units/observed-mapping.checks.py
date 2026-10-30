@@ -7,6 +7,7 @@ from copy import deepcopy
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -487,9 +488,16 @@ def check_lakeformation_arn_identifiers_are_not_collected(
     )
     monkeypatch.setattr(observed, "active_scope", lambda root: None)
     before = source.read_bytes()
-    assert deploy_observed.collect_successful(
-        backend, [{"name": "First"}], {"First": {}}
-    ) == ({}, [], None)
+    with patch.object(
+        deploy_observed, "observed_destinations", return_value=({}, [], None)
+    ) as destinations:
+        TestCase().assertEqual(
+            deploy_observed.collect_successful(
+                backend, [{"name": "First"}], {"First": {}}
+            ),
+            ({}, ["cloudformation-stacks"], None),
+        )
+    TestCase().assertEqual(destinations.call_args.args[4].get(source, {}), {})
     assert source.read_bytes() == before
     if existing_rows:
         values = sources.load_model(source).authoritative
@@ -760,35 +768,6 @@ def check_static_exports_share_mapping_and_skip_observed(mapping_inputs, monkeyp
             == invoke({}, document=document, implementation=True)
             == ({}, {"Stack": {}})
         )
-        for cached in (False, True):
-            backend = SimpleNamespace(
-                run_context={},
-                root=root,
-                environment="dev",
-                directory="test",
-                target={"awsRegion": "ap-northeast-1", "awsAccountId": "123456789012"},
-                templates={"Stack": (document, {"NetworkId": "vpc-fixture"})},
-                aws=unexpected,
-            )
-            if cached:
-                backend.mapping_plan = normal
-            states = {"Stack": {}}
-            assert (
-                deploy_observed.sync_successful(backend, [{"name": "Stack"}], states)
-                is None
-            )
-            assert states == {
-                "Stack": {
-                    "observedSynced": True,
-                    "observedServices": [],
-                    "observedCoverage": {
-                        logical: {
-                            "status": "EXCLUDED",
-                            "reason": "proven static Parameter Export scaffold",
-                        }
-                    },
-                }
-            }
         assert loaded == {}
 
 

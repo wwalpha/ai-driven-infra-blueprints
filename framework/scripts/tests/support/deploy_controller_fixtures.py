@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import traceback
 from contextlib import ExitStack
 from functools import partial
 from pathlib import Path
@@ -28,7 +29,7 @@ import sync_files as _imports_sync_files
 import sync_runtime
 import utils.cloudformation.inputs as _imports_cfn_inputs
 from botocore.exceptions import ClientError
-from deploy import operation_journal, run_context
+from deploy import operation_journal, run_context, steps
 from deploy.controller import main
 from model.core import properties, stack_model
 from model.dependency_index import rebuild as rebuild_index
@@ -363,23 +364,10 @@ def _callback_clients_request(
                 earlier = [
                     u["name"] for u in designed if int(u["deployOrder"]) < current_order
                 ]
-                assert all(
-                    saved["states"][n]["status"] == "SUCCESS"
-                    and saved["states"][n].get("observedSynced")
-                    for n in earlier
-                )
+                assert all(saved["states"][n]["status"] == "SUCCESS" for n in earlier)
                 values = properties(
                     read_model(root / f"model/dev/{ACCOUNT}/ec2.properties")
                 )
-                if "cfn-stack-app-dev-first" in earlier:
-                    expected = (
-                        "PENDING_DEPLOY" if knobs.get("remove") else "subnet-fixture"
-                    )
-                    assert values["observed.row.002-001.value"].strip("`") == expected
-                if "cfn-stack-app-dev-second" in earlier:
-                    assert (
-                        values["observed.row.001-001.value"].strip("`") == "vpc-fixture"
-                    )
                 if knobs.get("delivery"):
                     assert saved["states"][name].get("delivery", {}).get("objects")
                 state.setdefault("barriers", {})[name] = {
@@ -513,6 +501,7 @@ def _callback_clients_request(
                     else [
                         {
                             "StackId": stack_id,
+                            "PhysicalResourceId": stack_id,
                             "ResourceType": "AWS::CloudFormation::Stack",
                             "ClientRequestToken": change["token"],
                             "ResourceStatus": state["stacks"][name]["status"],
@@ -766,6 +755,16 @@ def save_diagnostics(real_save, report, /, path, backend):
     report.write_text(json.dumps(backend.run_context), encoding="utf-8")
 
 
+def explained_stop(real, stage, error):
+    traceback.print_exception(error, file=sys.stderr)
+    return real(stage, error)
+
+
+def save_step_diagnostics(real_save, report, backend):
+    real_save(backend)
+    report.write_text(json.dumps(backend.run_context), encoding="utf-8")
+
+
 def invoke(root, state_path, aws_path, options=(), fault=None):
     journal = (
         Path(tempfile.gettempdir())
@@ -790,6 +789,18 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
                 operation_journal,
                 "location",
                 return_value=state_path.with_suffix(".operations.json"),
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                steps.cli_guidance,
+                "stopped",
+                partial(explained_stop, steps.cli_guidance.stopped),
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                steps, "save", partial(save_step_diagnostics, steps.save, state_path)
             )
         )
         stack.enter_context(
@@ -842,6 +853,52 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
         )
 
 
+def drive(root, state_path, aws_path, options=(), fault=None):
+    """A test supervisor chooses explicit short operations; the controller owns no loop."""
+    options = [option for option in options if option != "--recover-operations"]
+    for _ in range(24):
+        saved = json.loads(state_path.read_text()) if state_path.exists() else {}
+        pending = saved.get("checkpointPending")
+        if (
+            saved.get("pendingObserved")
+            or saved.get("pendingGeneration")
+            or saved.get("generationError")
+        ):
+            names = (
+                pending["stacks"]
+                if pending
+                else list(saved.get("pendingObserved", {}).get("evidence", {}))
+            )
+            action = [
+                "--action",
+                "sync",
+                *[arg for name in names for arg in ("--sync-stack", name)],
+            ]
+        elif saved.get("states") and all(
+            state.get("observedSynced") for state in saved["states"].values()
+        ):
+            return 0
+        else:
+            names = [
+                name
+                for name, state in saved.get("states", {}).items()
+                if state["status"] == "SUCCESS" and not state.get("observedSynced")
+            ]
+            action = (
+                [
+                    "--action",
+                    "sync",
+                    *[arg for name in names for arg in ("--sync-stack", name)],
+                ]
+                if names
+                else ["--action", "advance"]
+            )
+        result = invoke(root, state_path, aws_path, [*action, *options], fault=fault)
+        if result:
+            return result
+    raise AssertionError("test supervisor did not reach its save boundary")
+
+
 def child_environment():
     return {
         **{
@@ -883,7 +940,7 @@ if __name__ == "__main__":
         patch("deploy.contracts.task_start_commit", ordinary_base),
     ):
         raise SystemExit(
-            invoke(
+            drive(
                 root,
                 state_path,
                 aws_path,

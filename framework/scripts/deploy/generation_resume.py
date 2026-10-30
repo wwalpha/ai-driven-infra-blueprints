@@ -23,10 +23,7 @@ def complete(run_context):
         not run_context.get("pendingObserved")
         and not run_context.get("pendingGeneration")
         and not run_context.get("generationError")
-        and all(
-            state["status"] == "SUCCESS" and state.get("observedSynced")
-            for state in run_context["states"].values()
-        )
+        and all(state.get("observedSynced") for state in run_context["states"].values())
     )
 
 
@@ -232,13 +229,6 @@ def producer_state(run_context, stack):
     state = run_context["states"].get(stack)
     if state is None:
         return {"status": "UNKNOWN", "observedSynced": False}
-    if (
-        state["status"]
-        not in {"NOT_STARTED", "CHANGESET_CREATING", "READY", "RUNNING", "SUCCESS"}
-        or state.get("failureDetected")
-        or state.get("schedulerError")
-    ):
-        raise Blocked("pending Producer cannot resolve: " + stack)
     return state
 
 

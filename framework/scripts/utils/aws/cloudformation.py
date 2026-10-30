@@ -54,3 +54,7 @@ def execute_change_set(context, **arguments):
 
 def delete_stack(context, **arguments):
     return request(context, "cloudformation", "delete_stack", arguments)
+
+
+def list_change_sets(context, **arguments):
+    return pages(context, "cloudformation", "list_change_sets", "Summaries", arguments)

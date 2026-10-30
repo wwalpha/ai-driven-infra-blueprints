@@ -22,6 +22,7 @@ from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
     child_environment,
+    drive,
     git,
     invoke,
 )
@@ -113,7 +114,7 @@ def failed_request(
     assert (
         drive_steps(parent, report, aws)
         if mode == "steps"
-        else invoke(parent, report, aws)
+        else drive(parent, report, aws)
     ) == 2
     saved = json.loads(report.read_text())
     relative = "infra/cloudformation/templates/second.yaml"
@@ -170,9 +171,11 @@ def check_external_implement_round_trip(tmp_path, monkeypatch, mode):
     assert (
         drive_steps(parent, report, aws)
         if mode == "steps"
-        else invoke(parent, report, aws)
+        else drive(parent, report, aws)
     ) == 0
-    assert not report.with_suffix(".operations.json").exists()
+    assert json.loads(report.with_suffix(".operations.json").read_text()) == {
+        "protocol": "current-request-v2"
+    }
     validate_parent(parent)
 
 

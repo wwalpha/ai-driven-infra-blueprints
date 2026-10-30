@@ -80,7 +80,7 @@ operations and observation writers retain their narrower preservation rules.
 observed.value absence, empty string and PENDING_DEPLOY are distinct. Derive observed
 Derive observed Property/comment from desired at read time; never save them. JSON documents have no derived runtime hash.
 
-General observed saves change only explicitly permitted Rows and preserve all other
+Deploy may additionally patch existing `observed.stack.<id>.status/observedAt/reason`; no execution IDs/history join Model authority. General observed saves change only explicitly permitted Rows and preserve all other
 canonical fields and unrelated raw bytes. They do not bypass IMPORT physical-ID protection.
 Design digest excludes observed but includes display/reference/placementName. Complete
 snapshots additionally include observations, original bytes, file sets, project and actual

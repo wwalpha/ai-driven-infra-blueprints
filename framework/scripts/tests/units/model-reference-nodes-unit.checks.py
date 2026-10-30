@@ -236,9 +236,11 @@ def check_identifier_generation_diagnostics(models, state):
             if w.get("category") == "REFERENCE_UNRESOLVED"
         ]
         assert len(warnings) == len({json.dumps(w, sort_keys=True) for w in warnings})
-        expected = {"pending": "PENDING_DEPLOY", "confirmed": "sg-123"}.get(
-            state, "original"
-        )
+        expected = {
+            "pending": "PENDING_DEPLOY",
+            "confirmed": "sg-123",
+            "unobserved": "UNOBSERVED",
+        }.get(state, "original")
         assert f"[{expected}](security-group.md#" in files[view]
         assert bool(warnings) == (state != "confirmed")
         if warnings:

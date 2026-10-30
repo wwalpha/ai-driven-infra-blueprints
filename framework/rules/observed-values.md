@@ -47,7 +47,7 @@ Confirm Output Value is the target logical resource's Ref (when the catalog's un
 
 ## Collection and propagation
 
-- Patch permitted observed.row.*.value fields first and regenerate Markdown with `framework/scripts/sync-model.py` only after AWS mutation in a successful `infrastructure` task or read-only retrieval of existing resources selected by the human in a `design` task.
+- Patch permitted observed.row.*.value fields first and regenerate Markdown with `framework/scripts/sync-model.py` for current CloudFormation Deploy observations regardless of attempt result; other infrastructure phases retain their success condition or read-only retrieval of existing resources selected by the human in a `design` task.
 - The explicit Model-only `/update` merge/delete branch may transfer already recorded observations or remove only the selected IMPORT observations, under its exact-diff guard; it performs no retrieval.
 - Also treat `Macie.ClassificationJob.jobId` and `QuickSight.Group.PrincipalId` as persistable API catalog `IDENTIFIER_OUTPUT` values. In authorized design retrieval, use `DescribeClassificationJob` or `DescribeGroup` after the required human selection. Do not expand discovery to CFn Outputs or stack resources; do not persist Macie response `jobArn`, statistics, or execution status.
 - Existing-resource retrieval directly reflects differences only for chatbot-selected properties into detailed design desired values and necessary non-ARN generated identifiers into observed values. Do not change unselected properties or resources.
@@ -57,7 +57,7 @@ Retrieve IMPORT settings and update their observed values only via the authorize
 - Terraform obtains necessary non-sensitive identifiers from root module `output`. Read state resource attributes read-only only when target outputs are absent; confirm equality if both are available for the same resource.
 - If necessary IaC outputs are missing, stop without IaC changes in the `deploy` phase. The `implement` or `update` phase adds only necessary outputs, retaining logical resource references in CloudFormation and resource attribute references in Terraform.
 - Map retrieved identifiers to formal catalog `IDENTIFIER_OUTPUT` properties. Stop without guessing unless the mapping is unique.
-- After updating observed rows corresponding to model identifier outputs, update observed values of all model rows referencing the same identifier to the same value. Generation updates Markdown link display text. Do not change reference source `Source / Comment`, link target paths, or anchors.
+- After updating producer identifiers, regenerate affected reference displays. Do not infer an already executed Consumer resource setting from a changed Producer. Preserve its independently observed setting. Generation updates Markdown link display text. Do not change reference source `Source / Comment`, link target paths, or anchors.
 - After updates, regenerate Markdown and use the validator to confirm equality of identifier outputs and all references. Do not save reference-derived generated ARNs in Model authority or `observed.*`, secrets in any output, or old physical IDs as current observations.
 
 Plan all updates and reference propagation and check task scope before writing observed only, then generate/validate per service with existing sync-model. Do not write models if ambiguity exists. On generation failure, retain models as the authority and retry synchronization in the same session.
@@ -77,7 +77,7 @@ Before deletion, `model.adapters.observed.destroy_plan()` resolves explicit mode
 
 ## Compact observation persistence
 
-Store actual `observed.row.*.value` only. Runtime Models restore property/comment from
+Store actual `observed.row.*.value`, plus the minimal current Deploy Stack observation described below. Runtime Models restore property/comment from
 desired metadata and preserve every observed value without desired-value substitution.
 An absent observed.row.<id>.value means unobserved. Distinguish empty string and PENDING_DEPLOY; do not create observation sidecars.
 JSON/read errors, orphan rows and unknown states remain errors. Required observation
@@ -86,16 +86,36 @@ atomic publication/rollback; do not regenerate metadata or empty files during sy
 
 ## Observation publication
 
-Explicit Deploy sync reports coverage for every Stack resource: UPDATED, MATCHED,
-NO_IDENTIFIER, a reasoned EXCLUDED, or UNRESOLVED. Actual values must be confirmed
-for every applicable identifier before observedSynced is set, including zero-diff
-success. Conditions, retained/deleted resources, hidden ARN identifiers, proven static
+Explicit Deploy sync reports every Stack resource: UPDATED, MATCHED, NO_IDENTIFIER,
+reasoned EXCLUDED, or UNCONFIRMED. observedSynced means the current observation has
+been represented, including removal of values that cannot be confirmed; it never
+certifies AWS success. Conditions, retained/deleted resources, hidden ARN identifiers, proven static
 Export scaffolds and integrated children keep their existing selection rules. An
-unmapped selected resource, unavailable identifier or unvisited required row blocks
-completion. Update count alone is never evidence of complete synchronization.
+unmapped selected resource or unvisited required row blocks completion; unavailable
+identifiers remove the old observed value and are reported as unconfirmed. Update count alone is never evidence of complete synchronization.
 
 Observation publication uses the shared Model API with an explicit Row allowlist.
 Preserve non-observed fields, reference metadata, fixed placement and unrelated bytes.
 General synchronization cannot change IMPORT physical identity. Model/display saves are
 separate transactions. Deploy advances only permitted observations after checking the
 complete snapshot; it never rebaselines concurrent design changes.
+
+## Current Deploy Snapshot
+
+Deploy saves the latest scoped AWS status at `observed.stack.<id>.status`, the adopted
+observation time at `.observedAt` and an optional short current reason code at `.reason`.
+ABSENT/UNKNOWN are Model-only states. No history, token or generated ARN is persisted.
+If state, values and confirmation are unchanged, retain the old time.
+
+Confirmed non-ARN identifiers use the existing observed Row. Proven uncreated/deleted
+resources use PENDING_DEPLOY. Unconfirmed identifiers delete that Row value; never store
+the string UNKNOWN or lastKnownValue. Missing Outputs are not absence (use the approved
+primary PhysicalResourceId fallback); failed/incomplete API pages are not a complete
+inventory. An absent Stack does not prove retained resources absent. DELETE_COMPLETE
+history alone does not prove current physical existence.
+
+Unknown identifiers do not reuse saved link labels or cached values as confirmed IDs.
+Structurally valid unresolved references remain distinct from broken targets/types.
+Desired remains unchanged. Source publication is atomic and precedes View generation;
+a View failure retains the saved Model and successful service outputs. Retry local
+generation/validation/Git without repeating AWS or demanding historical success.

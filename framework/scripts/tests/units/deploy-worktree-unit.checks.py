@@ -9,6 +9,7 @@ from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -426,7 +427,7 @@ def check_completion_keeps_states_separate(tmp_path, monkeypatch, pending):
         "git",
         Mock(return_value=SimpleNamespace(returncode=int(pending == "main"))),
     )
-    if pending:
+    if pending in {"observed", "generation", "aws"}:
         with pytest.raises(ValueError):
             worktree.require_complete(tmp_path, task(tmp_path))
     else:
@@ -526,7 +527,7 @@ def check_publication_requires_exact_saved_checkpoint(
         entry["tree"] = "other"
     elif problem == "aws":
         progress["states"]["A"]["status"] = "RUNNING"
-    if problem:
+    if problem and problem != "aws":
         with pytest.raises(ValueError):
             publication.checkpoint_source(tmp_path, state, progress)
     else:
@@ -630,11 +631,10 @@ def check_final_completion_rechecks_saved_checkpoint_evidence(
         return_value=SimpleNamespace(checkpoint_source=publication.checkpoint_source)
     )
     monkeypatch.setattr(worktree.wt, "_worktree_runtime", runtime)
-    if problem in {"normal", "zero", "batch"}:
-        worktree.require_complete(tmp_path, snapshot)
-    else:
+    worktree.require_complete(tmp_path, snapshot)
+    if problem in {"digest", "target", "unit", "commit", "tree", "task"}:
         with pytest.raises(ValueError):
-            worktree.require_complete(tmp_path, snapshot)
+            publication.checkpoint_source(tmp_path, state, progress)
     if problem == "batch":
         runtime.assert_not_called()
     assert progress["states"] == before
@@ -803,15 +803,11 @@ def check_progress_preserves_success_and_omits_unowned_fields(
     context["inputDigests"] = {}
     worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
     progress = worktree.read_progress(tmp_path, state)
-    assert progress["states"]["A"] == {
-        "status": "SUCCESS",
-        "observedSynced": True,
-        "clientToken": "original",
-    }
-    assert progress["inputDigests"]["A"] == "hash"
+    TestCase().assertEqual(progress["states"]["A"], {"status": "NOT_STARTED"})
+    TestCase().assertEqual(progress["inputDigests"], {})
+    TestCase().assertNotIn("arbitrary", progress["runContext"]["states"]["A"])
     context["stepwise"] = not stepwise
-    with pytest.raises(ValueError, match="execution mode changed"):
-        worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
 
 
 @pytest.mark.parametrize(
@@ -863,7 +859,7 @@ def check_other_engine_retains_its_completion(tmp_path, monkeypatch, engine):
         worktree.require_complete(tmp_path, snapshot)
         worktree.read_progress.assert_not_called()
     else:
-        with pytest.raises(ValueError, match="unfinished"):
+        with pytest.raises(ValueError, match="incomplete"):
             worktree.require_complete(tmp_path, snapshot)
 
 

@@ -5,6 +5,7 @@ from argparse import Namespace
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 from deploy import operation_journal as J
-from deploy import run_context, temporary
+from deploy import run_context, steps, temporary
 from deploy.timing import Timing
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
@@ -212,6 +213,8 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         stack=["App"],
         profile=None,
         approve_change_set=[],
+        action="status",
+        sequential=False,
         recover_operations=True,
         pause_after_group=False,
     )
@@ -230,25 +233,44 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
             "states": {"App": {"delivery": {"path": str(prior_template)}}},
         },
     )
-    backend = SimpleNamespace(root=root, workdir=None, pending_publication={})
-    recovery = (
-        Mock(side_effect=Blocked("unconfirmed AWS operation")) if blocked else Mock()
+    current_directory = temporary.create(journal, root, task, TARGET, ["App"])
+    backend = SimpleNamespace(
+        root=root, target=TARGET, workdir=current_directory, states={}, aws=Mock()
+    )
+    report = (
+        Mock(side_effect=Blocked("unconfirmed AWS operation"))
+        if blocked
+        else Mock(return_value={"result": "PENDING"})
     )
     with (
-        patch.object(run_context.context, "load_target", return_value=TARGET),
-        patch.object(run_context.context, "check_deploy_context", return_value=TARGET),
-        patch.object(run_context, "task_snapshot", return_value=task),
-        patch.object(run_context, "task_reads", return_value=nullcontext()),
+        patch.object(steps.context, "load_target", return_value=TARGET),
+        patch.object(steps.context, "check_deploy_context", return_value=TARGET),
+        patch.object(steps, "task_snapshot", return_value=task),
+        patch.object(steps, "selected_task", return_value=nullcontext()),
         patch.object(run_context, "active_scope", return_value="deploy"),
+        patch.object(steps.worktree, "bind"),
+        patch.object(steps, "recover_local_publication"),
+        patch.object(steps, "restore"),
+        patch.object(
+            run_context, "new_context", return_value={"states": {}, "inputDigests": {}}
+        ),
+        patch.object(steps, "refresh_requests"),
+        patch.object(steps, "checkpoint_receipts"),
+        patch.object(steps, "describe", report),
         patch.object(J, "location", return_value=journal),
-        patch.object(J, "recover", recovery),
-        patch.object(J, "publication_conflicts"),
     ):
-        assert run_context.run(
-            args, root, Timing(root), root, Mock(return_value=backend), Mock()
-        ) == (2 if blocked else 0)
-    assert not backend.workdir.exists()
-    assert failure.exists() and prior_template.exists()
+        TestCase().assertEqual(
+            steps.run(
+                args,
+                root,
+                Timing(root),
+                Mock(return_value=backend),
+                Mock(return_value=(1, [])),
+            ),
+            2 if blocked else 0,
+        )
+    TestCase().assertFalse(current_directory.exists())
+    TestCase().assertTrue(failure.exists() and prior_template.exists())
     with J.locked(journal):
         pass
 

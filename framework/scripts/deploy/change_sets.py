@@ -12,7 +12,14 @@ from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
 from utils.json_format import fingerprint
 
 import deploy.failures as _imports_deploy_failures
-from deploy.scheduler import SUCCESS
+from deploy.current_state import (
+    SUCCESS,
+    UPDATEABLE,
+    category,
+    pages,
+    read,
+    same_change_set,
+)
 
 
 def _callback_import_names_condition(conditions, parameters, pseudo, /, name):
@@ -157,9 +164,16 @@ def describe_change_set(aws, unit, state):
 
 def verify_stack_ownership(aws, templates, unit):
     """Inspect the exact designed stack, never enumerate unrelated stacks."""
-    actuals = aws("list_stack_resources", StackName=unit["name"]).get(
-        "StackResourceSummaries", []
-    )
+    actuals = [
+        item
+        for item in pages(
+            aws,
+            "list_stack_resources",
+            "StackResourceSummaries",
+            StackName=unit["name"],
+        )
+        if item.get("ResourceStatus") != "DELETE_COMPLETE"
+    ]
     actual_by_id = {item["LogicalResourceId"]: item for item in actuals}
     if len(actual_by_id) != len(actuals):
         raise Blocked("existing stack has ambiguous resource ownership")
@@ -202,17 +216,12 @@ def begin_prepare(
         boundary = {}
         check_imports(unit, boundary=boundary)
     arguments = template_arguments(unit, state, boundary=boundary)
-    if not state.get("changeSetId"):
-        try:
-            stack = aws("describe_stacks", StackName=unit["name"])["Stacks"][0]
-        except Blocked as error:
-            if "does not exist" not in str(error):
-                raise
-            stack = None
-        if stack and state.get("cleanupStatus") == "DELETE_COMPLETE":
-            raise Blocked(
-                "failed CREATE name was reused after cleanup; never adopt another stack"
-            )
+    resubmit = state.pop("createUnconfirmed", False)
+    if not state.get("changeSetId") or resubmit:
+        current = read(aws, unit["name"])
+        if current["StackStatus"] == "UNKNOWN":
+            raise Blocked("current Stack state is unavailable")
+        stack = None if category(current) == "ABSENT" else current
         if stack and stack["StackStatus"] == "ROLLBACK_COMPLETE":
             if state.get("stackId") and state["stackId"] != stack["StackId"]:
                 raise Blocked("failed CREATE stack identity changed")
@@ -229,10 +238,10 @@ def begin_prepare(
             check_imports(unit, boundary=boundary)
             arguments = template_arguments(unit, state, boundary=boundary)
             stack = None
-        if stack and stack["StackStatus"].endswith("_IN_PROGRESS"):
+        if stack and category(stack) == "RUNNING":
             state.update(stackId=stack["StackId"], externalOperation=True)
             return "RUNNING"  # Observe an already-running AWS operation before preparing new inputs.
-        if stack and stack["StackStatus"] not in SUCCESS | {"UPDATE_ROLLBACK_COMPLETE"}:
+        if stack and stack["StackStatus"] not in UPDATEABLE | {"REVIEW_IN_PROGRESS"}:
             raise Blocked(f"stack not updateable: {stack['StackStatus']}")
         if stack:
             verify_stack_ownership(unit)
@@ -241,17 +250,23 @@ def begin_prepare(
         state.setdefault("successfulPreparationOperations", {})["validate_template"] = (
             state["preparationId"]
         )
-        state["operationType"] = "UPDATE" if stack else "CREATE"
-        state["absentBeforeCreate"] = stack is None
-        state["changeSetId"] = "blueprint-" + uuid.uuid4().hex
-        state["changeSetStarted"] = time.time()
+        if not resubmit:
+            state["operationType"] = (
+                "UPDATE"
+                if stack and stack["StackStatus"] != "REVIEW_IN_PROGRESS"
+                else "CREATE"
+            )
+            state["absentBeforeCreate"] = stack is None
+            state["changeSetId"] = "blueprint-" + uuid.uuid4().hex
+            state["changeSetStarted"] = time.time()
         save()
         started = time.perf_counter()
         response = aws(
             "create_change_set",
             StackName=unit["name"],
             ChangeSetName=state["changeSetId"],
-            ChangeSetType="UPDATE" if stack else "CREATE",
+            ChangeSetType=state["operationType"],
+            ClientToken=state["preparationId"],
             **arguments,
             Parameters=json.loads(parameters.read_text(encoding="utf-8")),
             Capabilities=["CAPABILITY_NAMED_IAM"],
@@ -315,7 +330,7 @@ def verify_no_change_completion(aws, unit, state, change_set):
     if (
         response.get("NextToken") is not None
         or len(stacks) != 1
-        or stacks[0].get("StackStatus") not in SUCCESS
+        or stacks[0].get("StackStatus") not in UPDATEABLE
     ):
         raise Blocked("no-change stack has no terminal success evidence")
     stack = stacks[0]
@@ -326,6 +341,18 @@ def verify_no_change_completion(aws, unit, state, change_set):
 
 def review_prepared(unit, state, approvals, aws, describe_change_set, change_set=None):
     change_set = describe_change_set(unit, state) if change_set is None else change_set
+    if change_set.get("ChangeSetId") and not same_change_set(
+        state.get("changeSetId"), change_set["ChangeSetId"]
+    ):
+        raise Blocked("current ChangeSet identity differs from submitted request")
+    if (
+        state.get("stackId")
+        and change_set.get("StackId")
+        and state["stackId"] != change_set["StackId"]
+    ):
+        raise Blocked("current Stack identity differs from submitted request")
+    if change_set.get("ChangeSetId"):
+        state["changeSetId"] = change_set["ChangeSetId"]
     if change_set["Status"] in {"CREATE_PENDING", "CREATE_IN_PROGRESS"}:
         return "CHANGESET_CREATING"
     state["changeSetWaitSeconds"] = max(

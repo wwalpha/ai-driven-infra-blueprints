@@ -3,6 +3,7 @@
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from utils.iac_values import cfn_resource_identity
@@ -227,6 +228,7 @@ def validate_model_keys(values: dict[str, str]) -> None:
         },
         ("desired", "row"): {"property", "value", "comment", "document", "valueShape"},
         ("observed", "row"): {"value"},
+        ("observed", "stack"): {"status", "observedAt", "reason"},
         ("desired", "note"): {"text"},
         ("display", "resource"): {"comment", "label"},
         ("desired", "stack"): {
@@ -310,6 +312,56 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
             )
         names.add(stack["name"])
         parameters.add(stack["parameters"])
+    for identity, observed in entries(values, "observed.stack."):
+        if identity not in {number for number, _ in stacks}:
+            raise InputValidationError("orphan observed Stack: " + identity)
+        if not {"status", "observedAt"} <= observed.keys():
+            raise InputValidationError(
+                "Stack observation requires status and observedAt"
+            )
+        if observed["status"] not in {
+            "ABSENT",
+            "UNKNOWN",
+            "REVIEW_IN_PROGRESS",
+            "CREATE_IN_PROGRESS",
+            "CREATE_FAILED",
+            "CREATE_COMPLETE",
+            "ROLLBACK_IN_PROGRESS",
+            "ROLLBACK_FAILED",
+            "ROLLBACK_COMPLETE",
+            "DELETE_IN_PROGRESS",
+            "DELETE_FAILED",
+            "DELETE_COMPLETE",
+            "UPDATE_IN_PROGRESS",
+            "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS",
+            "UPDATE_COMPLETE",
+            "UPDATE_FAILED",
+            "UPDATE_ROLLBACK_IN_PROGRESS",
+            "UPDATE_ROLLBACK_FAILED",
+            "UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS",
+            "UPDATE_ROLLBACK_COMPLETE",
+            "IMPORT_IN_PROGRESS",
+            "IMPORT_COMPLETE",
+            "IMPORT_ROLLBACK_IN_PROGRESS",
+            "IMPORT_ROLLBACK_FAILED",
+            "IMPORT_ROLLBACK_COMPLETE",
+        }:
+            raise InputValidationError(
+                "invalid observed Stack status: " + observed["status"]
+            )
+        if not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)",
+            observed["observedAt"],
+        ):
+            raise InputValidationError("invalid Stack observation timestamp")
+        try:
+            datetime.fromisoformat(observed["observedAt"])
+        except ValueError as error:
+            raise InputValidationError("invalid Stack observation timestamp") from error
+        if "reason" in observed and not re.fullmatch(
+            r"[A-Z][A-Z0-9_]{0,79}", observed["reason"]
+        ):
+            raise InputValidationError("invalid Stack observation reason")
     deployment_settings(values)
     unknown = [
         key

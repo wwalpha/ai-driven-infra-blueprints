@@ -31,10 +31,11 @@ import deploy.failures as _imports_deploy_failures
 from deploy import (
     change_sets,
     cli_guidance,
+    current_request,
+    current_state,
     delivery,
     inputs,
     observed,
-    operation_journal,
     secret_bootstrap,
     steps,
     worktree,
@@ -131,6 +132,30 @@ def aws(
     **arguments: AwsValue,
 ) -> AwsResponse:
     try:
+        if service == "cloudformation" and operation in current_request.TOKENS:
+            return current_request.send(runtime, operation, arguments, call)
+        if service == "secretsmanager" and operation in {
+            "put_secret_value",
+            "update_secret_version_stage",
+        }:
+            entries = [
+                state["bootstrap"]
+                for state in runtime.states.values()
+                if state.get("bootstrap", {}).get("secretId")
+                == arguments.get("SecretId")
+            ]
+            if len(entries) != 1:
+                raise Blocked(
+                    "Secret submission needs its current scoped bootstrap owner"
+                )
+            return current_request.send(
+                runtime,
+                operation,
+                arguments,
+                call,
+                service=service,
+                stack_name=entries[0]["owner"]["stack"],
+            )
         return call(runtime, service, operation, arguments)
     except Exception as error:
         error.deploy_service, error.deploy_operation = service, operation
@@ -295,17 +320,7 @@ def exports_for(
         if not required:
             boundary["exports"] = {}
             return boundary["exports"]
-        states = [
-            *runtime.states.values(),
-            *(
-                operation["state"]
-                for record in getattr(runtime, "retained_records", [])
-                for name, operation in record["operations"].items()
-                if operation_journal.aws_unfinished(
-                    runtime.target, name, operation, runtime.aws, boundary=boundary
-                )
-            ),
-        ]
+        states = list(runtime.states.values())
         hints = []
         for state in states:
             saved = state.get("delivery", {}).get("imports", {})
@@ -407,20 +422,12 @@ def template_arguments(
 def check_imports(
     runtime: SimpleNamespace, unit: StackUnit, boundary: DeliveryBoundary | None = None
 ) -> None:
-    if hasattr(runtime, "check_reset_fences"):
-        runtime.check_reset_fences()
     boundary = {} if boundary is None else boundary
     exports = runtime.exports_for([unit], boundary)
     return change_sets.check_imports(
         runtime.target,
         runtime.templates,
-        operation_journal.dependency_states(
-            runtime,
-            unit,
-            imports=boundary["importNames"][unit["name"]],
-            hints=exports,
-            boundary=boundary,
-        ),
+        runtime.states,
         runtime.aws,
         unit,
         exports,
@@ -473,9 +480,7 @@ def review_prepared(
         change_set,
     )
     if result == "SUCCESS":
-        operation_journal.record_no_change(
-            runtime.aws, unit, state, state.pop("noChangeCandidate")
-        )
+        state.pop("noChangeCandidate", None)
     return result
 
 
@@ -676,98 +681,78 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
 
 
 def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
-    if state.get("externalOperation"):
-        stack = runtime.aws("describe_stacks", StackName=state["stackId"])["Stacks"][0]
-        if stack.get("StackId") != state["stackId"]:
-            raise Blocked("already-running AWS Stack identity changed")
-        status = stack["StackStatus"]
-        if status.endswith("_IN_PROGRESS"):
-            return status
-        if status not in {
-            "CREATE_COMPLETE",
-            "UPDATE_COMPLETE",
-            "IMPORT_COMPLETE",
-            "UPDATE_ROLLBACK_COMPLETE",
-        }:
-            raise Blocked("already-running AWS operation requires recovery: " + status)
-        state.clear()
-        state["status"] = "NOT_STARTED"
-        return "RECHECK"
-    failures = _imports_deploy_failures
-    state["pollCount"] = state.get("pollCount", 0) + 1
-    # An old *_COMPLETE is not evidence that the new execution completed.
-    state["pollApiCount"] = state.get("pollApiCount", 0) + 1
-    events = runtime.aws("describe_stack_events", StackName=unit["name"])["StackEvents"]
-    operation = [
-        event
-        for event in events
-        if event.get("ResourceType") == "AWS::CloudFormation::Stack"
-        and event.get("ClientRequestToken") == state.get("clientToken")
-    ]
-    if not operation:
-        state["pollApiCount"] += 1
-        current = runtime.describe_change_set(unit, state)
-        if current.get("ChangeSetId") != state.get("changeSetId") or current.get(
-            "StackId"
-        ) != state.get("stackId"):
-            raise Blocked("uncertain execution ChangeSet/Stack identity changed")
-        state["unconfirmedPolls"] = state.get("unconfirmedPolls", 0) + 1
-        if state["unconfirmedPolls"] >= 3:
-            raise Blocked(
-                "execution submission is unconfirmed; retain original token and inspect AWS"
-            )
-        return "UPDATE_IN_PROGRESS"  # Submission may be pending; never re-execute or release its slot.
-    if operation[0].get("StackId") != state.get("stackId"):
-        raise Blocked("execution token belongs to another Stack identity")
-    state["operationStackId"] = operation[0].get("StackId")
-    document, _ = runtime.templates.get(unit["name"], ({}, {}))
-    state["failureEvents"] = []
-    state["successEvents"] = []
-    for item in events:
-        if item.get("ClientRequestToken") != state.get("clientToken"):
-            continue
-        resource_status = item.get("ResourceStatus", "")
-        if resource_status.endswith("_FAILED") or resource_status == "DELETE_SKIPPED":
-            state["failureEvents"].append(failures.event(item, document))
-        elif resource_status in {
-            "CREATE_COMPLETE",
-            "UPDATE_COMPLETE",
-            "IMPORT_COMPLETE",
-        }:
-            state["successEvents"].append(
-                {
-                    key: value
-                    for key, value in failures.event(item, document).items()
-                    if key not in {"reasonDigest", "ResourceStatusReason"}
-                }
-            )
-    event_status = operation[0]["ResourceStatus"]
-    if "ROLLBACK" in event_status or event_status.endswith("_FAILED"):
-        state["failureDetected"] = True
-    state["pollApiCount"] += 1
-    stack_status = runtime.aws("describe_stacks", StackName=unit["name"])["Stacks"][0][
-        "StackStatus"
-    ]
-    if stack_status.endswith("_IN_PROGRESS"):
-        return stack_status
-    if event_status.endswith("_IN_PROGRESS"):
-        return event_status
-    if stack_status != event_status:
-        raise Blocked(
-            "stack status/event terminal status disagree; retrying observation"
-        )
-    if stack_status in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}:
+    current = current_state.read(runtime.aws, unit["name"])
+    state["currentStack"] = current_state.observation(current)
+    state["stackStatus"] = current["StackStatus"]
+    state["stackId"] = current.get("StackId")
+    attempt_status = None
+    execution_stack = state.get("executionEvidence", {}).get("StackId") or current.get(
+        "StackId"
+    )
+    if state.get("clientToken"):
         try:
-            change_sets.verify_outputs(
-                runtime.aws, unit, state, state.get("expectedOutputs", {})
+            events = current_state.pages(
+                runtime.aws,
+                "describe_stack_events",
+                "StackEvents",
+                StackName=execution_stack or unit["name"],
             )
-        except change_sets.OutputNotReflected:
-            # The AWS operation is terminal; report unapplied Outputs without retaining an execution lock.
-            state.update(
-                status="FAILED", stackStatus=stack_status, failureDetected=True
+            matched = [
+                event
+                for event in events
+                if event.get("ClientRequestToken") == state["clientToken"]
+            ]
+            state["failureEvents"] = [
+                _imports_deploy_failures.event(
+                    event, runtime.templates.get(unit["name"], ({}, {}))[0]
+                )
+                for event in matched
+                if event.get("ResourceStatus", "").endswith("_FAILED")
+                or event.get("ResourceStatus") == "DELETE_SKIPPED"
+            ]
+            stack_events = current_request.root_events(
+                matched, state["clientToken"], execution_stack
             )
-            raise
-    return stack_status
+            if (
+                stack_events
+                and stack_events[0].get("ResourceStatus")
+                in current_state.SUCCESS | current_state.FAILED
+            ):
+                attempt_status = stack_events[0]["ResourceStatus"]
+                if attempt_status in current_state.FAILED:
+                    state["failureDetected"] = True
+        except (OSError, Blocked):
+            pass  # Diagnostics cannot veto an otherwise confirmed current observation.
+    request = current_request.reconcile(runtime, unit, state)
+    if request:
+        if state.get("requestError"):
+            raise Blocked(state["requestError"])
+        return "UPDATE_IN_PROGRESS"
+    if current["StackStatus"] == "UNKNOWN" and attempt_status in {
+        None,
+        "CREATE_FAILED",
+        "UPDATE_FAILED",
+    }:
+        raise Blocked("current Stack state is unavailable: " + unit["name"])
+    if (
+        state.pop("externalOperation", False)
+        and current_state.category(current) != "RUNNING"
+    ):
+        return "RECHECK"
+    if (
+        attempt_status in {"CREATE_FAILED", "UPDATE_FAILED"}
+        and current_state.category(current) == "RUNNING"
+    ):
+        return current["StackStatus"]
+    if attempt_status is not None:
+        return attempt_status
+    if (
+        state.get("executionEvidence")
+        and state.get("clientToken")
+        and current_state.category(current) != "RUNNING"
+    ):
+        return "UNCONFIRMED"
+    return current["StackStatus"]
 
 
 def controller_main(
@@ -805,7 +790,7 @@ def controller_main(
         "--sync-stack",
         action="append",
         default=[],
-        help="explicit successful StackName for sync/checkpoint; repeat for an indivisible candidate",
+        help="explicit StackName for current snapshot sync/checkpoint; repeat for an indivisible candidate",
     )
     parser.add_argument(
         "--approve-change-set",
@@ -826,13 +811,18 @@ def controller_main(
     parser.add_argument(
         "--pause-after-group",
         action="store_true",
-        help="update phase only: explicit producer/consumer IaC handoff",
+        help="update-only compatibility hint; advance already returns after one bounded turn",
     )
     args = parser.parse_args(argv)
     if args.action and (args.recover_operations or args.pause_after_group):
         parser.error("--action cannot be combined with legacy recovery/group execution")
-    if bool(args.sync_stack) != (args.action in {"sync", "checkpoint"}):
-        parser.error("--sync-stack is required only with sync/checkpoint")
+    if (
+        args.sync_stack
+        and args.action not in {"sync", "checkpoint"}
+        or args.action == "sync"
+        and not args.sync_stack
+    ):
+        parser.error("--sync-stack is required for sync and permitted with checkpoint")
     root = (root if root is not None else Path.cwd()).resolve()
     if args.action:
         return steps.run(args, root, timing, create_runtime, load_units)

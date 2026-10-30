@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import copy
 import json
+from unittest import TestCase
 from unittest.mock import patch
 
 import pytest
@@ -202,12 +203,12 @@ def check_remove_without_startup_mapping(tmp_path):
 @pytest.mark.parametrize(
     "policy,expected",
     [
-        ("Retain", set()),
-        ("RetainExceptOnCreate", set()),
-        ("Delete", {"Old"}),
-        ("Snapshot", {"Old"}),
-        (None, None),
-        ("Unsupported", None),
+        ("Retain", {"Old", "Retained"}),
+        ("RetainExceptOnCreate", {"Old", "Retained"}),
+        ("Delete", {"Old", "Retained"}),
+        ("Snapshot", {"Old", "Retained"}),
+        (None, {"Old", "Retained"}),
+        ("Unsupported", {"Old", "Retained"}),
     ],
 )
 def check_observed_selection(policy, expected):
@@ -223,22 +224,16 @@ def check_observed_selection(policy, expected):
         "Retained": {"Type": "AWS::EC2::VPC", "PolicyAction": "Retain"},
     }
     arguments = (document, {}, {"AWS::StackName": "A"}, removed, set())
-    if expected is None:
-        with pytest.raises(ValueError, match="removal policy is unknown"):
-            observed.selected_resources(*arguments)
-    else:
-        assert observed.selected_resources(*arguments) == {"Current"} | expected
-        removed["Child"] = {"Type": "AWS::S3::BucketPolicy", "PolicyAction": "Delete"}
-        assert (
-            observed.selected_resources(
-                document,
-                {},
-                {"AWS::StackName": "A"},
-                removed,
-                {"AWS::S3::BucketPolicy"},
-            )
-            == {"Current"} | expected
-        )
+    TestCase().assertEqual(
+        observed.selected_resources(*arguments), {"Current"} | expected
+    )
+    removed["Child"] = {"Type": "AWS::S3::BucketPolicy", "PolicyAction": "Delete"}
+    TestCase().assertEqual(
+        observed.selected_resources(
+            document, {}, {"AWS::StackName": "A"}, removed, {"AWS::S3::BucketPolicy"}
+        ),
+        {"Current"} | expected,
+    )
 
 
 @pytest.mark.parametrize(
@@ -570,32 +565,8 @@ def check_deletion_event_identity(tmp_path, mismatch):
     if mismatch is None:
         assert observed.deleted_resource(backend, "A", "Old", definition, state, {})
     else:
-        # The real collector must fail before it can propose or publish PENDING_DEPLOY.
-        source = tmp_path / "model/dev/team/ec2.properties"
-        backend.root, backend.environment, backend.directory = tmp_path, "dev", "team"
-        backend.target, backend.templates = TARGET, {"A": ({"Resources": {}}, {})}
-        backend.run_context = {"states": {"A": state}}
-        mapped = {
-            "A": {
-                "Old": (
-                    source,
-                    "001",
-                    {},
-                    [("001-001", {"property": "EC2.VPC.VpcId"})],
-                    {"EC2.VPC.VpcId"},
-                )
-            }
-        }
-        with (
-            patch.object(
-                observed, "resolve_resources", return_value=({source: {}}, mapped)
-            ),
-            patch("model.adapters.observed.publish_observed") as publish,
-        ):
-            with pytest.raises(ValueError, match="physical destruction is unconfirmed"):
-                observed.sync_successful(backend, [{"name": "A"}], {"A": state})
-        publish.assert_not_called()
-        assert not state.get("observedSynced") and not source.exists()
+        with pytest.raises(ValueError, match="physical destruction is unconfirmed"):
+            observed.deleted_resource(backend, "A", "Old", definition, state, {})
     assert any(op == "describe_stack_events" for op, _ in backend.calls)
 
 

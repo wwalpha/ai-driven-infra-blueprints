@@ -28,6 +28,7 @@ WORKTREE_CASES = {
         "check_unfinished_progress_requires_original_journal",
     ),
     "integrations/deploy-worktree.checks.py": (
+        "check_current_request_is_shared_without_history_or_duplicate_execute",
         "check_start_creates_and_reuses_official_worktree",
         "check_git_conflict_checkpoints_peers_and_recovers",
         "check_controller_keeps_aws_success_after_rewrite_and_conflict",

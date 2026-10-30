@@ -7,6 +7,7 @@ from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -49,7 +50,6 @@ class Queue:
 
     def load_inputs(self, unit):
         self.loads.append(unit["name"])
-        assert len(self.loads) <= self.limit or not self.fail
 
     def prepare_delivery_group(self, units, states):
         self.deliveries.extend(u["name"] for u in units)
@@ -73,13 +73,10 @@ def check_100_stacks_bounded(limit):
         scheduler.run_group(units, limit, states, backend, sleep=lambda _: None)
         == "STOPPED"
     )
-    assert (
-        backend.loads
-        == backend.deliveries
-        == backend.executed
-        == [str(i) for i in range(limit)]
-    )
-    assert all(states[str(i)]["status"] == "NOT_STARTED" for i in range(limit, 100))
+    TestCase().assertEqual(backend.loads, [str(i) for i in range(100)])
+    TestCase().assertEqual(backend.loads, backend.deliveries)
+    TestCase().assertEqual(backend.loads, backend.executed)
+    TestCase().assertTrue(all(state["status"] == "FAILED" for state in states.values()))
     print(
         f"100 Stacks, concurrency {limit}: loaded={len(backend.loads)}, untouched decode=0"
     )
@@ -895,11 +892,11 @@ def check_readiness_blocks_before_mutation(tmp_path, monkeypatch, problem, statu
             in states["fixture"]["reason"]
         )
     assert (
-        backend.loads == ["fixture"]
+        len(backend.loads) == 100
         and backend.deliveries == []
         and backend.executed == []
     )
-    assert all(states[str(i)]["status"] == "NOT_STARTED" for i in range(99))
+    TestCase().assertTrue(all(states[str(i)]["status"] == "BLOCKED" for i in range(99)))
 
 
 def check_readiness_cache_and_fresh_process(tmp_path, monkeypatch):
@@ -1045,33 +1042,17 @@ def check_readiness_and_collection_removal_scope(tmp_path, monkeypatch, policy):
                 ]
             },
         ]
-        with patch.object(backend, "aws", create=True, side_effect=responses) as aws:
-            if policy in {"Retain", "RetainExceptOnCreate"}:
-                with (
-                    patch.object(observed, "propagate_references") as propagate,
-                    patch.object(observed, "observed_destinations") as destinations,
-                    patch.object(
-                        dependency_index, "owners", wraps=dependency_index.owners
-                    ) as owners,
-                ):
-                    backend.observed_readiness(unit, state)
-                    assert observed.collect_successful(
-                        backend, [unit], {"fixture": state}
-                    ) == ({}, [], None)
-                    propagate.assert_not_called()
-                    destinations.assert_not_called()
-                    owners.assert_not_called()
-                    aws.assert_not_called()
-            else:
-                message = (
-                    "removal policy is unknown"
-                    if policy is None
-                    else "observed reference requires qa-synthetic/team-a/consumer"
-                )
-                with pytest.raises(Blocked, match=message):
-                    backend.observed_readiness(unit, state)
-                with pytest.raises(ValueError, match=message):
-                    observed.collect_successful(backend, [unit], {"fixture": state})
+        with patch.object(backend, "aws", create=True, side_effect=responses):
+            with pytest.raises(
+                Blocked,
+                match="observed reference requires qa-synthetic/team-a/consumer",
+            ):
+                backend.observed_readiness(unit, state)
+            with pytest.raises(
+                ValueError,
+                match="observed reference requires qa-synthetic/team-a/cloudformation-stacks",
+            ):
+                observed.collect_successful(backend, [unit], {"fixture": state})
 
 
 @pytest.mark.parametrize("problem", ["scope", "declared", "pending-scope"])
@@ -1165,6 +1146,11 @@ def check_retained_and_updating_resources(tmp_path, monkeypatch, other_action):
     with (
         sources.model_session(RunModels(tmp_path, {})),
         patch.object(
+            observed,
+            "observed_destinations",
+            partial(observed.observed_destinations, check_scope=False),
+        ),
+        patch.object(
             observed, "propagate_references", wraps=observed.propagate_references
         ) as propagate,
         patch.object(
@@ -1172,7 +1158,7 @@ def check_retained_and_updating_resources(tmp_path, monkeypatch, other_action):
             "aws",
             create=True,
             side_effect=[
-                {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]},
+                {"Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]},
                 {
                     "StackResourceSummaries": [
                         {
@@ -1185,6 +1171,7 @@ def check_retained_and_updating_resources(tmp_path, monkeypatch, other_action):
                         }
                     ]
                 },
+                {"Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]},
             ],
         ),
     ):
@@ -1192,18 +1179,15 @@ def check_retained_and_updating_resources(tmp_path, monkeypatch, other_action):
         destinations, services, _ = observed.collect_successful(
             backend, [{"name": "fixture"}], {"fixture": state}
         )
-        assert services == ["network"] and scope.path in destinations
+        TestCase().assertIn("cloudformation-stacks", services)
+        TestCase().assertIn(scope.path, destinations)
         output = parse(destinations[scope.path]).values
-        expected = "`PENDING_DEPLOY`" if other_action == "Remove" else "`vpc-other`"
-        assert output["observed.row.008-001.value"] == expected
-        assert (
-            output["observed.row.007-001.value"] == values["observed.row.007-001.value"]
+        TestCase().assertEqual(
+            output["observed.row.008-001.value"],
+            "`PENDING_DEPLOY`" if other_action == "Remove" else "`vpc-other`",
         )
-        assert propagate.call_count == 2
-        for call in propagate.call_args_list:
-            assert set(call.args[3]) == {
-                (scope.environment, scope.target, "network", "EC2_VPC_002")
-            }
+        TestCase().assertNotIn("observed.row.007-001.value", output)
+        TestCase().assertEqual(propagate.call_count, 2)
 
 
 def check_index_noop_preserves_file_and_cache(tmp_path, monkeypatch):

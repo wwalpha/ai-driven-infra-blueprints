@@ -5,6 +5,8 @@ import time
 import task_contract_core as _imports_task_contract
 from utils.cloudformation.inputs import Blocked
 
+from deploy import current_state
+
 
 def require_authorized(root):
     task_snapshot = _imports_task_contract.task_snapshot
@@ -69,6 +71,23 @@ def cleanup_unexecuted(aws, save, wait_cleanup, state):
 def cleanup_failed_create(
     templates, aws, save, wait_cleanup, unit, state, *, empty_only=False
 ):
+    if state.get("cleanupStatus") == "DELETE_INTENT":
+        identity = state.get("cleanupStackId") or state.get("stackId")
+        if not identity:
+            raise Blocked("interrupted cleanup StackId is missing")
+        current = current_state.read(aws, identity)
+        if current_state.category(current) == "ABSENT":
+            state["cleanupStatus"] = "DELETE_COMPLETE"
+            save()
+            return True
+        if current.get("StackId") != identity:
+            raise Blocked("interrupted cleanup Stack identity is unconfirmed")
+        if current["StackStatus"] in {"DELETE_IN_PROGRESS", "DELETE_COMPLETE"}:
+            wait_cleanup(state)
+            return True
+        if current["StackStatus"] != "ROLLBACK_COMPLETE":
+            raise Blocked("interrupted cleanup state unsafe")
+        state.update(stackId=identity, stackStatus=current["StackStatus"])
     if state.get("stackStatus") == "PRE_EXECUTION":
         return
     if state.get("stackStatus") != "ROLLBACK_COMPLETE":
@@ -84,22 +103,6 @@ def cleanup_failed_create(
         and state.get("cleanupStackId") == state["stackId"]
     ):
         return True
-    if state.get("cleanupStatus") == "DELETE_INTENT":
-        try:
-            current = aws("describe_stacks", StackName=state["stackId"])["Stacks"][0]
-        except Blocked as error:
-            if "does not exist" not in str(error):
-                raise
-            state["cleanupStatus"] = "DELETE_COMPLETE"
-            save()
-            return True
-        if current["StackId"] != state["stackId"]:
-            raise Blocked("interrupted cleanup stack identity changed")
-        if current["StackStatus"] in {"DELETE_IN_PROGRESS", "DELETE_COMPLETE"}:
-            wait_cleanup(state)
-            return True
-        if current["StackStatus"] != "ROLLBACK_COMPLETE":
-            raise Blocked("interrupted cleanup state unsafe")
     document = state.get("failureTemplateSafety")
     if document is None:
         document, _ = templates[unit["name"]]
@@ -162,13 +165,11 @@ class RuntimePending(Blocked):
 
 def wait_cleanup(aws, save, state, *, single_step: bool = False):
     for _ in range(120):
-        try:
-            current = aws("describe_stacks", StackName=state["stackId"])["Stacks"][0][
-                "StackStatus"
-            ]
-        except Blocked as error:
-            if "does not exist" not in str(error):
-                raise
+        snapshot = current_state.read(
+            aws, state.get("cleanupStackId") or state["stackId"]
+        )
+        current = snapshot["StackStatus"]
+        if current == "ABSENT":
             current = "DELETE_COMPLETE"
         if current == "DELETE_COMPLETE":
             state["cleanupStatus"] = "DELETE_COMPLETE"

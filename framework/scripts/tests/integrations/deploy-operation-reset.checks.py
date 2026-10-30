@@ -1,343 +1,225 @@
-#!/usr/bin/env python3
-"""Reset evidence crosses processes and Tasks; the real controller owns all AWS decisions."""
+"""Real Reset files, CLI and persistence interruptions; no live AWS calls."""
 
 import json
-import subprocess
 import sys
-import tempfile
 from functools import partial
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+from deploy import current_state
 from deploy import operation_journal as J
 from deploy import operation_reset as R
-from support.deploy_controller_fixtures import (
-    ACCOUNT,
-    aws_state,
-    child_environment,
-    clients,
-    seed,
-)
 from support.pytest_cli import run
-from task_contract_core import start
-from utils.aws.client import connection_context
-from utils.aws.identity import execution_account
-from utils.json_format import fingerprint
+from utils.file_operations import atomic_replace_file
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-
-@pytest.fixture(autouse=True)
-def offline(tmp_path, monkeypatch):
-    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    for name in ("TMPDIR", "TMP", "TEMP"):
-        monkeypatch.setenv(name, str(tmp_path))
+TARGET = {
+    "awsAccountId": "123456789012",
+    "awsRegion": "ap-northeast-1",
+    "iacEngine": "cloudformation",
+}
 
 
-def child(root, report, aws, task="tasks/deploy.md"):
-    helper = (
-        Path(__file__).resolve().parents[1] / "support/deploy_controller_fixtures.py"
+@pytest.fixture
+def workspace(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "project.json").write_text(
+        json.dumps({"targets": [{"environment": "dev", **TARGET}]}), encoding="utf-8"
     )
-    environment = child_environment() | {"BLUEPRINT_TASK_FILE": task}
-    return subprocess.run(
-        [sys.executable, "-B", str(helper), str(root), str(report), str(aws)],
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=90,
-    )
+    directory = tmp_path / "operations"
+    directory.mkdir(mode=0o700)
+    journal = directory / "journal.json"
+    atomic_replace_file(journal, b"{damaged-old-record", mode=0o600)
+    (directory / "resets").mkdir(mode=0o700)
+    fence = directory / "resets" / ("b" * 64)
+    fence.mkdir(parents=True, mode=0o700)
+    atomic_replace_file(fence / "plan.json", b"{damaged-old-fence", mode=0o600)
+    with patch.object(J, "location", return_value=journal):
+        yield root, journal, fence
 
 
-def reset(root, journal, mode):
-    before = journal.read_bytes()
+def human_apply(root, document):
     with (
-        patch.object(J, "location", return_value=journal),
-        patch(
-            "utils.aws.client.client", side_effect=AssertionError("Reset called AWS")
-        ) as aws,
+        patch.object(sys.stdin, "isatty", return_value=True),
+        patch.object(sys.stdout, "isatty", return_value=True),
+        patch("builtins.input", return_value=R.challenge(document)) as consent,
     ):
-        selection = [fingerprint(J.read(journal)[0])] if mode == "record" else []
-        document = R.plan(root, "dev", ACCOUNT, None, mode, selection)
-        with (
-            patch.object(sys.stdin, "isatty", return_value=True),
-            patch.object(sys.stdout, "isatty", return_value=True),
-            patch("builtins.input", return_value=R.challenge(document)),
-        ):
-            result = R.apply(root, "dev", ACCOUNT, None, document["id"])
-        aws.assert_not_called()
-    assert result["result"] == "APPLIED"
+        result = R.apply(root, "dev", TARGET["awsAccountId"], None, document["id"])
+    return result, consent.call_count
+
+
+def interrupt_save(real, boundary, seen, path, content):
+    if path.name == boundary and not seen:
+        seen.append(path)
+        raise InterruptedError("injected persistence interruption")
+    return real(path, content)
+
+
+def interrupt_delete(real, journal, seen, path, content, **kwargs):
+    result = real(path, content, **kwargs)
+    if path == journal and not seen:
+        seen.append(path)
+        atomic_replace_file(journal, b'{"newRequest":"not-approved"}', mode=0o600)
+        raise InterruptedError("injected after deletion")
+    return result
+
+
+def check_one_reset_handles_corrupt_records_and_related_fences(workspace):
+    root, journal, fence = workspace
+    original, old_fence = journal.read_bytes(), (fence / "plan.json").read_bytes()
+    document = R.plan(root, "dev", TARGET["awsAccountId"], None, "all")
+    with patch(
+        "utils.aws.client.client", side_effect=AssertionError("Reset must not call AWS")
+    ):
+        result, count = human_apply(root, document)
+    case = TestCase()
+    case.assertEqual(count, 1)
+    case.assertEqual(result["result"], "APPLIED")
+    case.assertEqual(
+        json.loads(journal.read_text()), {"protocol": "current-request-v2"}
+    )
+    case.assertFalse((fence / "plan.json").exists())
     archive = Path(result["archive"])
-    assert (archive / "original.bin").read_bytes() == before
-    return document
-
-
-def fresh_task(root):
-    name = "tasks/fresh.md"
-    text = (root / "tasks/deploy.md").read_text(encoding="utf-8")
-    start(root, name, text.replace("tasks/deploy.md", name))
-    return name
-
-
-def interrupted(tmp_path):
-    report, aws = tmp_path / "run.json", tmp_path / "aws.json"
-    root = seed(tmp_path / "project", report)
-    aws_state(aws, crash_execute=True)
-    result = child(root, report, aws)
-    assert result.returncode == 73, result.stdout + result.stderr
-    journal = report.with_suffix(".operations.json")
-    records = J.read(journal)
-    original = next(iter(records[0]["operations"].values()))
-    provider = json.loads(aws.read_text(encoding="utf-8"))
-    assert provider["stacks"][original["unit"]["name"]]["status"] == "CREATE_COMPLETE"
-    assert not original["state"].get("observedSynced")
-    return root, report, aws, journal, original
-
-
-def check_record_reset_then_fresh_deploy_from_new_task(tmp_path):
-    root, report, aws, journal, original = interrupted(tmp_path)
-    reset(root, journal, "record")
-    task = fresh_task(root)
-    provider = json.loads(aws.read_text(encoding="utf-8"))
-    provider["knobs"]["reset_updates"] = True
-    aws.write_text(json.dumps(provider), encoding="utf-8")
-    result = child(root, report, aws, task)
-    assert result.returncode == 0, result.stdout + result.stderr
-    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
-    assert (
-        sum(
-            op == "execute_change_set"
-            and args["ChangeSetName"] == original["state"]["changeSetId"]
-            for _, op, args in calls
-        )
-        == 1
+    case.assertEqual((archive / "originals/journal.json").read_bytes(), original)
+    case.assertEqual(
+        (archive / "originals" / "resets" / fence.name / "plan.json").read_bytes(),
+        old_fence,
     )
-    assert any(
-        op == "create_change_set"
-        and args["StackName"] == original["unit"]["name"]
-        and args["ChangeSetType"] == "UPDATE"
-        for _, op, args in calls
-    )
-    assert json.loads(report.read_text(encoding="utf-8"))["taskFile"] == task
-    assert (
-        json.loads(aws.read_text(encoding="utf-8"))["stacks"][original["unit"]["name"]][
-            "status"
-        ]
-        == "UPDATE_COMPLETE"
-    )
-    first_receipts = {
-        path: path.read_bytes()
-        for path in journal.parent.glob("resets/*/verified-*.json")
-    }
-    assert first_receipts
-    again = child(root, report, aws, task)
-    assert again.returncode == 0, again.stdout + again.stderr
-    assert all(path.read_bytes() == raw for path, raw in first_receipts.items())
-    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
-    assert (
-        sum(
-            op == "execute_change_set"
-            and args["ChangeSetName"] == original["state"]["changeSetId"]
-            for _, op, args in calls
-        )
-        == 1
-    )
-
-
-def check_created_stack_before_observed_is_rechecked_after_all_reset(tmp_path):
-    root, report, aws, journal, original = interrupted(tmp_path)
-    document = reset(root, journal, "all")
-    # A separate checkout has its own Model and Task, but shares the account's evidence.
-    fresh = seed(tmp_path / "fresh-project", report)
-    result = child(fresh, report, aws)
-    assert result.returncode == 0, result.stdout + result.stderr
-    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
-    old_execute = next(
-        i for i, (_, op, _) in enumerate(calls) if op == "execute_change_set"
-    )
-    next_create = next(
-        i
-        for i, (_, op, _) in enumerate(calls[old_execute + 1 :], old_execute + 1)
-        if op == "create_change_set"
-    )
-    checked = calls[old_execute + 1 : next_create]
-    assert any(op == "describe_stack_events" for _, op, _ in checked)
-    assert any(op == "describe_stacks" for _, op, _ in checked)
-    assert calls[next_create][2]["ChangeSetType"] == "UPDATE"
-    assert all(
-        state["observedSynced"]
-        for state in json.loads(report.read_text(encoding="utf-8"))["states"].values()
-    )
-    assert (journal.parent / "resets" / document["id"] / "intent.json").exists()
-    assert original["state"]["executionEvidence"]
-
-
-def check_corrupt_all_reset_preserves_evidence_and_new_task_stops_safely(tmp_path):
-    report, aws = tmp_path / "run.json", tmp_path / "aws.json"
-    root = seed(tmp_path / "project", report)
-    aws_state(aws)
-    journal = report.with_suffix(".operations.json")
-    journal.write_bytes(b'{"untrusted": broken')
-    journal.chmod(0o600)
-    document = reset(root, journal, "all")
-    assert document["unknownScope"]
-    task = fresh_task(root)
-    result = child(root, report, aws, task)
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert "unknown AWS execution scope" in result.stdout + result.stderr
-    assert not any(
-        op in {"create_change_set", "execute_change_set", "delete_stack"}
-        for _, op, _ in json.loads(aws.read_text(encoding="utf-8"))["calls"]
-    )
-
-
-def check_reset_with_unconfirmed_execute_stops_new_execution(tmp_path):
-    root, report, aws, journal, original = interrupted(tmp_path)
-    provider = json.loads(aws.read_text(encoding="utf-8"))
-    provider["changes"][original["unit"]["name"]]["token"] = "different-token"
-    aws.write_text(json.dumps(provider), encoding="utf-8")
-    reset(root, journal, "all")
-    task = fresh_task(root)
-    result = child(root, report, aws, task)
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert (
-        "reset fence AWS execution is unfinished or unknown"
-        in result.stdout + result.stderr
-    )
-    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
-    assert sum(op == "execute_change_set" for _, op, _ in calls) == 1
-    assert sum(op == "create_change_set" for _, op, _ in calls) == 1
-
-
-def resolve_fence(root, report, aws_path, journal, reset, names):
-    with (
-        patch.object(J, "location", return_value=journal),
-        patch("utils.aws.client.client", clients(root, report, aws_path)),
-        patch("socket.socket.connect", side_effect=AssertionError("network forbidden")),
+    with patch.object(
+        R, "confirm", side_effect=AssertionError("same approval must be reused")
     ):
-        target = reset["target"]
-        aws = partial(
-            R.read_fence_aws,
-            connection_context(None, target["awsRegion"], execution_account(target)),
+        case.assertEqual(
+            R.apply(root, "dev", TARGET["awsAccountId"], None, document["id"])[
+                "result"
+            ],
+            "ALREADY_APPLIED",
         )
-        document = R.resolution_plan(
-            root,
-            "dev",
-            ACCOUNT,
-            None,
-            reset["id"],
-            names,
-            "Human investigated the listed Stacks and accepts missing-token and duplicate-execution risk for this scope",
-            aws,
-        )
-        with (
-            patch.object(sys.stdin, "isatty", return_value=True),
-            patch.object(sys.stdout, "isatty", return_value=True),
-            patch("builtins.input", return_value=R.resolution_challenge(document)),
+    case.assertEqual(current_state.classify("UPDATE_IN_PROGRESS"), "RUNNING")
+
+
+@pytest.mark.parametrize(
+    "boundary", ["approval.json", "journal.json", "prepared.json", "result.json"]
+)
+def check_reset_resumes_each_persistence_boundary(workspace, boundary):
+    root, journal, _ = workspace
+    document = R.plan(root, "dev", TARGET["awsAccountId"], None, "all")
+    seen = []
+    with patch.object(
+        R, "save_once", partial(interrupt_save, R.save_once, boundary, seen)
+    ):
+        with pytest.raises(InterruptedError):
+            human_apply(root, document)
+    approved = (journal.parent / "resets" / document["id"] / "approval.json").exists()
+    new_request = (
+        b'{"new":"outside-original-approval"}' if boundary == "journal.json" else None
+    )
+    if new_request:
+        atomic_replace_file(journal, new_request, mode=0o600)
+    if approved:
+        if boundary == "prepared.json":
+            project = json.loads((root / "project.json").read_text())
+            project["targets"].append(
+                {
+                    "environment": "qa",
+                    "awsAccountId": "999999999999",
+                    "awsRegion": "ap-northeast-1",
+                    "iacEngine": "cloudformation",
+                }
+            )
+            (root / "project.json").write_text(json.dumps(project), encoding="utf-8")
+        with patch.object(
+            R, "confirm", side_effect=AssertionError("approval repeated")
         ):
-            R.resolution_apply(root, "dev", ACCOUNT, None, document["id"], aws)
-    return document
-
-
-def check_corrupt_reset_human_resolution_then_fresh_process_starts(tmp_path):
-    report, aws = tmp_path / "run.json", tmp_path / "aws.json"
-    root = seed(tmp_path / "project", report)
-    aws_state(aws)
-    journal = report.with_suffix(".operations.json")
-    journal.write_bytes(b"lost original Execute scope")
-    journal.chmod(0o600)
-    document = reset(root, journal, "all")
-    archive = journal.parent / "resets" / document["id"]
-    original = R.fence_inventory(archive)
-    names = ["cfn-stack-app-dev-first", "cfn-stack-app-dev-second"]
-    resolve_fence(root, report, aws, journal, document, names)
-    assert not any(
-        operation == "execute_change_set"
-        for _, operation, _ in json.loads(aws.read_text(encoding="utf-8"))["calls"]
+            result = R.apply(root, "dev", TARGET["awsAccountId"], None, document["id"])
+    else:
+        result, _ = human_apply(root, document)
+    TestCase().assertEqual(result["result"], "APPLIED")
+    TestCase().assertEqual(
+        journal.read_bytes() if new_request else json.loads(journal.read_text()),
+        new_request if new_request else {"protocol": "current-request-v2"},
     )
-    task = fresh_task(root)
-    result = child(root, report, aws, task)
-    assert result.returncode == 0, result.stdout + result.stderr
-    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
-    assert sum(operation == "execute_change_set" for _, operation, _ in calls) == 2
-    assert all(
-        R.digest(R.read_private(archive / path)) == digest
-        for path, digest in original.items()
+
+
+def check_new_request_survives_retry_after_missing_result(workspace):
+    root, journal, _ = workspace
+    document = R.plan(root, "dev", TARGET["awsAccountId"], None, "all")
+    with (
+        patch.object(
+            R,
+            "atomic_replace_file",
+            side_effect=partial(interrupt_delete, R.atomic_replace_file, journal, []),
+        ),
+        pytest.raises(InterruptedError),
+    ):
+        human_apply(root, document)
+    new = journal.read_bytes()
+    with patch.object(R, "confirm", side_effect=AssertionError("approval repeated")):
+        result = R.apply(root, "dev", TARGET["awsAccountId"], None, document["id"])
+    TestCase().assertEqual(result["result"], "APPLIED")
+    TestCase().assertEqual(journal.read_bytes(), new)
+
+
+def check_legacy_fence_cli_uses_the_same_reset(workspace, monkeypatch):
+    root, journal, fence = workspace
+    atomic_replace_file(
+        fence / "plan.json",
+        json.dumps({"payload": {"removedRecords": [{"operations": {"Affected": {}}}]}}),
+        mode=0o600,
     )
-    records = [
-        R.signed_document(journal, path) for path in (archive / "resolutions").iterdir()
-    ]
-    assert records[0]["status"] == "HUMAN_RESOLVED"
-    assert not list(archive.glob("verified-*.json"))
-
-
-def pending_producer(tmp_path, dependent):
-    root, report, aws, journal, original = interrupted(tmp_path)
-    provider = json.loads(aws.read_text(encoding="utf-8"))
-    producer, consumer = original["unit"]["name"], "cfn-stack-app-dev-second"
-    provider["stacks"][producer]["status"] = "CREATE_IN_PROGRESS"
-    provider["knobs"].update(
-        fence_exports={
-            producer: [
-                {"OutputKey": "Id", "OutputValue": "id", "ExportName": "ProducerId"}
+    atomic_replace_file(fence / "original.bin", b"old backup", mode=0o600)
+    affected = journal.parent / "request-affected.json"
+    unrelated = journal.parent / "request-unrelated.json"
+    atomic_replace_file(affected, '{"name":"Affected"}', mode=0o600)
+    atomic_replace_file(unrelated, '{"name":"Unrelated"}', mode=0o600)
+    monkeypatch.chdir(root)
+    TestCase().assertEqual(
+        R.main(
+            [
+                "fence-plan",
+                "--environment",
+                "dev",
+                "--aws-account-id",
+                TARGET["awsAccountId"],
+                "--fence",
+                fence.name,
             ]
-        },
-        fence_imports={"ProducerId": [consumer] if dependent else []},
+        ),
+        0,
     )
-    aws.write_text(json.dumps(provider), encoding="utf-8")
-    document = reset(root, journal, "all")
-    # An independent repository/Task shares the account journal but owns its current inputs.
-    fresh = seed(tmp_path / "fresh-project", report, same_group=True)
-    task = fresh_task(fresh)
-    path = fresh / task
-    text = path.read_text(encoding="utf-8")
-    text = text.replace(
-        "- Deployment scope: `cfn-stack-app-dev-first`, `cfn-stack-app-dev-second`",
-        "- Deployment scope: `cfn-stack-app-dev-second`",
-    )
-    path.write_text(text, encoding="utf-8")
-    # The fixture CLI obtains its invocation scope from this selected contract.
-    (fresh / "tasks/deploy.md").write_text(text, encoding="utf-8")
-    return fresh, report, aws, journal, task, document, producer
-
-
-def check_reset_pending_producer_blocks_dependent_consumer(tmp_path):
-    root, report, aws, journal, task, document, producer = pending_producer(
-        tmp_path, True
-    )
-    result = child(root, report, aws, task)
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert "unfinished Stack dependency conflicts" in result.stdout + result.stderr
-    calls = json.loads(aws.read_text(encoding="utf-8"))["calls"]
-    assert sum(operation == "execute_change_set" for _, operation, _ in calls) == 1
-    assert sum(operation == "create_change_set" for _, operation, _ in calls) == 1
-    assert any(operation == "list_imports" for _, operation, _ in calls)
-    assert (journal.parent / "resets" / document["id"] / "original.bin").exists()
-
-
-def check_reset_pending_producer_allows_proven_independent_stack(tmp_path):
-    root, report, aws, journal, task, document, producer = pending_producer(
-        tmp_path, False
-    )
-    result = child(root, report, aws, task)
-    assert result.returncode == 0, result.stdout + result.stderr
-    provider = json.loads(aws.read_text(encoding="utf-8"))
-    assert provider["stacks"][producer]["status"] == "CREATE_IN_PROGRESS"
-    assert (
-        sum(operation == "execute_change_set" for _, operation, _ in provider["calls"])
-        == 2
-    )
-    assert any(operation == "list_imports" for _, operation, _ in provider["calls"])
-    # It remains PENDING; an independent success cannot approve the old Execute.
-    assert not list(
-        (journal.parent / "resets" / document["id"]).glob("verified-*.json")
-    )
+    plan_file = next((journal.parent / "reset-plans").glob("*.json"))
+    value = R.load_plan(journal, plan_file.stem)
+    with (
+        patch.object(sys.stdin, "isatty", return_value=True),
+        patch.object(sys.stdout, "isatty", return_value=True),
+        patch("builtins.input", return_value=R.challenge(value)),
+    ):
+        TestCase().assertEqual(
+            R.main(
+                [
+                    "fence-apply",
+                    "--environment",
+                    "dev",
+                    "--aws-account-id",
+                    TARGET["awsAccountId"],
+                    "--plan",
+                    value["id"],
+                ]
+            ),
+            0,
+        )
+    TestCase().assertFalse((fence / "plan.json").exists())
+    TestCase().assertTrue(journal.exists())
+    TestCase().assertFalse((fence / "original.bin").exists())
+    TestCase().assertFalse(affected.exists())
+    TestCase().assertTrue(unrelated.exists())
 
 
 if __name__ == "__main__":

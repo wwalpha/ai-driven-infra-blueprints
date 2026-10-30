@@ -49,22 +49,22 @@ CONTROLLER_HELP = """Examples (use the current Task, target and exact Deployment
 
 Existing Task: running infrastructure deploy/update, explicit AWS/Deploy permission,
 matching environment/account/alias and exact StackName scope are required.
-Managed Worktree short operations: advance starts/polls one turn and returns without
-Model writes; status returns AWS/Observed/generation/checkpoint and nextActions without
-publication or Git. The LLM chooses sync timing and explicit successful --sync-stack
-names, then checkpoint after generation. Repeat --sync-stack for a shared candidate.
-Checkpoint validates the candidate and ff-only merges into the registered local base;
-Task stays running. Advanced base/foreign differences stop without automatic rebase.
-Retry the same action after interruption; original tokens, publication and commit
-intents are reconciled. All four barriers are required for COMPLETE. No automatic Reset.
-Omitting --action retains the compatibility batch controller. Do not mix it or legacy
---recover-operations into an unfinished short-operation Journal.
-Status reports the last verified Stack state; advance obtains fresh AWS observations.
-Compatibility batch Deploy inputs must be committed; each batch uses latest inputs.
-Repeat --stack for multiple Stacks; MaxConcurrentStacks is the Model limit within
-one DeployOrder group. --sequential only lowers it to one; no CLI numeric override.
---pause-after-group is update-only. GROUP_COMPLETE is a producer/consumer handoff,
-not overall COMPLETE: review permitted IaC changes and explicitly start a new run.
+Managed Worktree operations use current AWS and fixed authorized inputs.
+advance advances one bounded AWS turn; status reads latest scoped AWS.
+sync --sync-stack saves current facts (success/failure/rollback/partial/unexecuted/
+running/unknown), generates available services, validates and commits/publishes.
+checkpoint resumes local validation/commit/publication; omitted --sync-stack uses the saved candidate scope.
+The LLM chooses sync timing and explicit scope; no background writer or Sub Agents.
+Deploy result, Model save, Snapshot validation and Git publication are independent.
+A consistent failed Snapshot can complete its Task with Deploy FAIL unchanged.
+Intermediate saves keep Task running and fixed IaC/parameters/artifacts unchanged.
+Old Task/Journal/Fence/Output/checkpoint history never gates current-state adoption.
+Current Stack requests retain original IDs/tokens across lost replies and Worktrees;
+a stale COMPLETE alone never settles an uncertain Execute. No automatic Reset.
+Omitting --action advances one turn; --recover-operations inspects current requests.
+Retry saved Git commits with worktree_task.py deploy-publish, without AWS or recollection.
+Same-Order independent peers can continue after a failure; later Order still requires
+prior success. --sequential only lowers the configured MaxConcurrentStacks to one.
 
 Delete/replacement waits for Human approval of the entire current ChangeSet.
 After consent, select the same Task/target/stacks and add, for example:

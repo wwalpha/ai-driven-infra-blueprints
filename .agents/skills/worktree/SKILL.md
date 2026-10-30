@@ -108,7 +108,7 @@ The worktree contains committed base inputs only. Do not silently copy/stash the
 
 ## Independent Deploy lifecycle
 
-`/deploy` automatically uses this lifecycle through `worktree_task.py deploy-start --task-id <id>`; no explicit Human `/worktree` invocation is needed. Creation/setup and exact unfinished-Task reuse remain owned by the existing helper. Follow [Managed Deploy snapshot and Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) for the Deploy-only fixed baseline, per-Stack checkpoints, delta publication, Human conflict review and Git-only `deploy-publish` recovery. These publication commands require the same permission inspection above. After all barriers and scoped validation pass, complete the contract and run ordinary `finalize`; its Deploy branch verifies publication and uses existing guarded cleanup. Other Tasks retain the sequence below.
+`/deploy` automatically uses this lifecycle through `worktree_task.py deploy-start --task-id <id>`; no explicit Human `/worktree` invocation is needed. Creation/setup and exact unfinished-Task reuse remain owned by the existing helper. Follow [Managed Deploy snapshot and Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) for the Deploy-only fixed baseline, per-Stack checkpoints, delta publication, Human conflict review and Git-only `deploy-publish` recovery. These publication commands require the same permission inspection above. After required Snapshot validation and publication, run ordinary `finalize`; the final Deploy candidate already includes its completed contract. Its Deploy branch verifies publication and uses existing guarded cleanup. Other Tasks retain the sequence below.
 
 ## Complete and integrate
 
@@ -185,7 +185,20 @@ Different worktrees still share AWS resources. Cross-worktree AWS mutation locki
 
 ## Normal Deploy Stack checkpoints
 
-`cloudformation-deploy.py --action checkpoint --sync-stack <StackName>` uses `worktree_task.deploy_stack_checkpoint` for the exact synchronized Model/view candidate, complete generation, scoped validation and current AWS success. Independent Deploy records the local source checkpoint separately from [Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication); base advancement or publication conflict retains AWS/Observed success and does not block other independent Stacks. Current-Task `deployCheckpoints` receipts prove local checkpoint completion; the unfinished Journal is acknowledged only after the receipt is durable. Other phases retain their clean-base, ff-only integration guards. No Task completion, cleanup or repair handoff is implied; unknown Task commits and foreign candidate changes still stop safely.
+`cloudformation-deploy.py --action sync --sync-stack <StackName>` saves the adopted
+current Model, generates available Views, validates and uses
+`worktree_task.deploy_stack_checkpoint` plus Git publication in the same operation.
+Success, failure, rollback, unexecuted, running and unknown Stack observations are
+permitted. Receipts prove saved candidates, never AWS SUCCESS. `--action checkpoint`
+is the compatibility resume for an already saved candidate, not a required second stage.
+Snapshot structure/reference/scope/View and actual latest-base validation remain required.
+A failed attempt may finish as completed with Deploy FAIL after its consistent Snapshot
+is committed/merged. Include the final Task status in that same candidate. Active/uncertain
+AWS requests keep Task running; intermediate publication may continue in the same Worktree.
+Fixed IaC/parameters/artifacts remain unchanged across self-authored checkpoint commits.
+Git-only retry of a saved (possibly locally completed) candidate requires no new AWS
+execution or observation. Finalize verifies publication and performs guarded cleanup.
+No old Task/Journal/Fence/Output or all-Stack-success prerequisite is reintroduced.
 
 ## Explicit CloudFormation repair handoff
 

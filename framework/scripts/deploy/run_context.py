@@ -3,38 +3,32 @@
 from __future__ import annotations
 
 import copy
-import json
 import re
 import subprocess
-import sys
 import time
 from argparse import Namespace
 from collections.abc import Callable, Iterable, Sequence
-from contextlib import ExitStack
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
 from model.dependency_index import revision as file_revision
-from model.sources import model_session
 from task_contract_core import TaskSnapshot, task_reads, task_snapshot
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from utils.type_contracts import JsonValue as JsonValue
 
-import deploy.context as context
 import deploy.observed as _dependency_deploy_observed
 from deploy import (
     cli_guidance,
     generation_resume,
     git_publication,
-    handoff,
     operation_journal,
-    operation_reset,
-    temporary,
     worktree,
 )
-from deploy.model_cache import RunModels
+from deploy import (
+    steps as step_ops,
+)
 from deploy.scheduler import run_group
 from deploy.timing import Timing
 from deploy.typing import (
@@ -56,10 +50,13 @@ def active_scope(
     alias: str | None = None,
     *,
     snapshot: TaskSnapshot | None = None,
+    allow_saved: bool = False,
 ) -> str:
     snapshot = snapshot or task_snapshot(root)
     text = snapshot.text
-    if snapshot.status != "running":
+    if snapshot.status != "running" and not (
+        allow_saved and snapshot.status == "completed"
+    ):
         raise Blocked("completed task cannot deploy")
     for line in (
         "- Task type: `infrastructure`",
@@ -315,7 +312,7 @@ def _callback_run_guard(
     args, backend, context, root, selected, run_context, target, /
 ) -> TaskSnapshot:
     with task_reads(root, live=True):
-        snapshot = task_snapshot(root)
+        snapshot = task_snapshot(root, executable=False)
         worktree.require(root, snapshot)
         active_scope(
             root,
@@ -324,6 +321,8 @@ def _callback_run_guard(
             selected["awsAccountId"],
             args.alias,
             snapshot=snapshot,
+            allow_saved=getattr(args, "action", None)
+            in {"sync", "checkpoint", "status"},
         )
         if (
             context.load_target(root, args.environment, args.aws_account_id, args.alias)
@@ -399,216 +398,10 @@ def run(
     ],
     load_units: Callable[[Path, str, str, list[str]], tuple[int, list[StackUnit]]],
 ) -> int:
-    resources = ExitStack()
-    backend = None
-    journal = None
-    stage = "TARGET_SELECTION"
-    try:
-        selected = context.load_target(
-            root, args.environment, args.aws_account_id, args.alias
-        )
-        stage = "TASK_AUTHORITY"
-        initial_task = task_snapshot(root, live=True)
-        with task_reads(root, snapshot=initial_task):
-            phase = active_scope(
-                root,
-                args.stack,
-                args.environment,
-                selected["awsAccountId"],
-                args.alias,
-                snapshot=initial_task,
-            )
-            if args.pause_after_group and phase != "update":
-                raise Blocked("--pause-after-group requires the explicit update phase")
-            worktree.bind(root, initial_task, selected, args.environment, args.stack)
-            stage = "AUTHENTICATION"
-            with timing.phase("authenticationContext"):
-                target = context.check_deploy_context(
-                    root,
-                    args.environment,
-                    args.aws_account_id,
-                    args.alias,
-                    args.profile,
-                )
-            if target["iacEngine"] != "cloudformation":
-                raise Blocked("controller requires CloudFormation target")
-            stage = "RECOVERY"
-            directory = args.alias or args.aws_account_id
-            journal = operation_journal.location(target)
-            resources.enter_context(operation_journal.locked(journal))
-            backend = backend_type(
-                root,
-                args.environment,
-                directory,
-                target,
-                args.profile,
-                args.approve_change_set,
-            )
-            backend.timing, backend.phase = timing, phase
-            if not args.recover_operations:
-                backend.check_reset_fences = _bind_framework_callback(
-                    operation_reset.check_fences, journal, target, args.stack, backend
-                )
-                operation_reset.check_fences(journal, target, args.stack, backend)
-            temporary.reclaim(journal, root, target)
-            backend.workdir = temporary.create(
-                journal, root, initial_task, target, args.stack
-            )
-            # Only unfinished operations are read. Old Session files and registries are not inputs.
-            operation_journal.recover(backend, journal, initial_task, args.stack)
-            operation_journal.publication_conflicts(backend, initial_task)
-            if args.recover_operations and not backend.pending_publication:
-                publication = (
-                    git_publication.retry(root, initial_task)
-                    if phase == "deploy"
-                    else None
-                )
-                progress = (
-                    worktree.read_progress(root, worktree.require(root, initial_task))
-                    if phase == "deploy"
-                    else None
-                )
-                recovered_context = {
-                    "states": progress["states"] if progress else {},
-                    "gitPublication": publication,
-                }
-                print(
-                    json.dumps(
-                        {
-                            "result": "RECOVERED",
-                            **cli_guidance.controller_result(
-                                "RECOVERED", recovered_context, args, root
-                            ),
-                        },
-                        indent=2,
-                    )
-                )
-                return 0
-            run_context = {"modelInputs": {}, **backend.pending_publication}
-            models = getattr(backend, "recovered_models", None)
-            if models is None:
-                models = RunModels(root, run_context)
-            else:
-                run_context["modelInputs"].update(models.run_context["modelInputs"])
-                models.run_context = run_context
-            resources.enter_context(model_session(models))
-            stage = "INPUTS"
-            limit, units = load_units(root, args.environment, directory, args.stack)
-            if args.sequential:
-                limit = 1
-            current = new_context(
-                root,
-                initial_task,
-                target,
-                args.environment,
-                directory,
-                units,
-                backend,
-            )
-            run_context.update(current)
-            backend.run_context = run_context
-            backend.states, backend.units = run_context["states"], units
-            backend.expected_digests = run_context["inputDigests"]
-            backend.save = _bind_framework_callback(_save, backend, journal)
-            backend.claim_inputs = _bind_framework_callback(
-                _callback_claim_inputs, root, run_context, backend, backend.save
-            )
-            backend.guard = _bind_framework_callback(
-                _callback_run_guard,
-                args,
-                backend,
-                context,
-                root,
-                selected,
-                run_context,
-                target,
-            )
-            backend.after_observed = models.apply_observed
-            backend.refresh_validation = _bind_framework_callback(
-                _callback_run_refresh_validation, backend, run_context["inputDigests"]
-            )
-            operation_journal.adopt_recovered(backend)
-            worktree.adopt_successes(backend)
-            if args.recover_operations:
-                if run_context.get("pendingGeneration"):
-                    generation_resume.run(backend)
-                backend.save()
-                print(
-                    json.dumps(
-                        {
-                            "result": "STOPPED"
-                            if run_context.get("pendingGeneration")
-                            else "RECOVERED",
-                            **cli_guidance.controller_result(
-                                "RECOVERED", run_context, args, root
-                            ),
-                        },
-                        indent=2,
-                    )
-                )
-                return 2 if run_context.get("pendingGeneration") else 0
-            operation_journal.adopt_prepared(backend, journal, args.approve_change_set)
-        stage = "CONTROLLER"
-        result = run_deploy(
-            units, limit, run_context, backend, backend.save, args.pause_after_group
-        )
-        backend.save()
-        if result == "COMPLETE" and run_context.get("gitPublication", {}).get(
-            "status"
-        ) in {"PENDING", "CONFLICT"}:
-            result = "PUBLICATION_PENDING"
-        failure = handoff.record_failure(backend) if result == "STOPPED" else None
-        print(
-            json.dumps(
-                {
-                    "result": result,
-                    **cli_guidance.controller_result(
-                        result,
-                        run_context,
-                        args,
-                        root,
-                        repair_failure=failure,
-                        task_text=initial_task.text,
-                    ),
-                    "repairFailure": failure,
-                    "states": {
-                        name: {
-                            key: value
-                            for key, value in state.items()
-                            if key != "approvedChangeDigest"
-                        }
-                        for name, state in backend.states.items()
-                    },
-                    "metrics": run_context["metrics"],
-                },
-                indent=2,
-            )
-        )
-        return 2 if result == "STOPPED" else 0
-    except (
-        OSError,
-        ValueError,
-        KeyError,
-        TypeError,
-        ImportError,
-        RuntimeError,
-        subprocess.SubprocessError,
-    ) as error:
-        print(
-            json.dumps(
-                {"result": "STOPPED", **cli_guidance.stopped(stage, error)}, indent=2
-            )
-        )
-        print(f"CloudFormation controller: BLOCKED: {error}", file=sys.stderr)
-        return 2
-    finally:
-        try:
-            if backend is not None and backend.workdir is not None:
-                temporary.reclaim(journal, root, target)
-        except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
-            print(f"Deploy temporary files retained: {error}", file=sys.stderr)
-        finally:
-            resources.close()
+    args.action = getattr(args, "action", None) or (
+        "status" if args.recover_operations else "advance"
+    )
+    return step_ops.run(args, root, timing, backend_type, load_units)
 
 
 def sync_successful(

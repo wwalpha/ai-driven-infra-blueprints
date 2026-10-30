@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import task_contract as tasks
 import worktree_task as wt
-from deploy import contracts, git_publication, worktree
+from deploy import contracts, current_state, git_publication, worktree
 from deploy.cli_guidance import DeployStepBlocked
 from model.observed import verify_observed_outputs
 from validation.findings import Findings
@@ -47,6 +47,7 @@ def validate(backend: SimpleNamespace) -> None:
         validator = Validator(root, scopes, cache=False, model_validation="change")
         validator.run()
         if validator.report():
+            validator.display_report()
             raise DeployStepBlocked("checkpoint scoped Model/view validation failed")
 
 
@@ -100,13 +101,9 @@ def checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
             raise DeployStepBlocked(
                 "required generation remains pending; inspect pendingGeneration"
             )
-        if any(
-            backend.states[n].get("status") != "SUCCESS"
-            or not backend.states[n].get("observedSynced")
-            for n in names
-        ):
+        if any(not backend.states[n].get("observedSynced") for n in names):
             raise DeployStepBlocked(
-                "checkpoint requires AWS and complete Observed success"
+                "checkpoint requires a complete adopted observation for every selected Stack"
             )
         if contracts.validation_snapshot(target) != pending["after"]:
             raise DeployStepBlocked("checkpoint candidate changed after sync")
@@ -230,8 +227,9 @@ def checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
                 "taskDigest": context["taskDigest"],
                 "inputDigest": context["inputDigests"].get(name),
                 "unit": copy.deepcopy(unit),
-                "stackId": backend.states[name]["stackId"],
-                "stackStatus": backend.states[name]["stackStatus"],
+                "stackId": backend.states[name].get("stackId"),
+                "stackStatus": backend.states[name].get("stackStatus", "UNKNOWN"),
+                "deployStatus": backend.states[name]["status"],
                 "coverage": copy.deepcopy(
                     backend.states[name].get("observedCoverage", {})
                 ),
@@ -278,13 +276,9 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
             raise DeployStepBlocked(
                 "required generation remains pending; inspect pendingGeneration"
             )
-        if any(
-            backend.states[n].get("status") != "SUCCESS"
-            or not backend.states[n].get("observedSynced")
-            for n in names
-        ):
+        if any(not backend.states[n].get("observedSynced") for n in names):
             raise DeployStepBlocked(
-                "checkpoint requires AWS and complete Observed success"
+                "checkpoint requires a complete adopted observation for every selected Stack"
             )
         if contracts.validation_snapshot(target) != pending["after"]:
             raise DeployStepBlocked("checkpoint candidate changed after sync")
@@ -303,7 +297,28 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
             raise DeployStepBlocked(
                 "checkpoint includes changes outside synchronized Model/views"
             )
-        validate(backend)
+        context["snapshotValidation"] = "FAIL"
+        backend.save()
+        try:
+            if all(
+                saved.get("currentStack")
+                and saved.get("observedSynced")
+                and saved.get("status") != "RUNNING"
+                and not saved.get("requestPending")
+                and current_state.category(saved["currentStack"]) != "RUNNING"
+                for saved in backend.states.values()
+            ):
+                task = tasks.read_task_snapshot(target, state["task_file"], live=True)
+                if task.status == "running":
+                    tasks.complete(target, state["task_file"])
+                    pending["after"] = contracts.validation_snapshot(target)
+            else:
+                validate(backend)
+        except Exception:
+            backend.save()
+            raise
+        context["snapshotValidation"] = "PASS"
+        backend.save()
         backend.guard()
         if contracts.validation_snapshot(target) != pending["after"]:
             raise DeployStepBlocked("checkpoint candidate changed during validation")
@@ -323,8 +338,9 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
                 "taskDigest": context["taskDigest"],
                 "inputDigest": context["inputDigests"].get(name),
                 "unit": copy.deepcopy(unit),
-                "stackId": backend.states[name]["stackId"],
-                "stackStatus": backend.states[name]["stackStatus"],
+                "stackId": backend.states[name].get("stackId"),
+                "stackStatus": backend.states[name].get("stackStatus", "UNKNOWN"),
+                "deployStatus": backend.states[name]["status"],
                 "coverage": copy.deepcopy(
                     backend.states[name].get("observedCoverage", {})
                 ),

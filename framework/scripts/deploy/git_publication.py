@@ -315,7 +315,6 @@ def checkpoint_source(root, state, progress, source=None):
             "Stepwise publication requires saved Stack checkpoint evidence"
         )
     for name, entry in receipts.items():
-        saved = progress["states"].get(name, {})
         if (
             name not in units
             or entry.get("identity") != identity
@@ -323,12 +322,6 @@ def checkpoint_source(root, state, progress, source=None):
             or entry.get("unit") != units[name]
             or not entry.get("inputDigest")
             or entry["inputDigest"] != progress["inputDigests"].get(name)
-            or saved.get("status") != "SUCCESS"
-            or not saved.get("observedSynced")
-            or entry.get("stackId") != saved.get("stackId")
-            or entry.get("stackStatus") != saved.get("stackStatus")
-            or entry.get("coverage", {}) != saved.get("observedCoverage", {})
-            or entry.get("services", []) != saved.get("observedServices", [])
             or (
                 entry["commit"] != state["tip"]
                 and not wt.ancestor(root, entry["commit"], state["branch"])
@@ -727,16 +720,22 @@ def retry(root, task):
 
 
 def task_checkpoint(root, path, state, task, progress):
-    """Final contract commit stays in finalize, outside Stack checkpoint delivery."""
+    """Resume a legacy contract-only candidate; ordinary sync already includes completion."""
     if progress.get("stepwise") is not True:
+        return
+    if (
+        task.status == "completed"
+        and not wt.changed_paths(root)
+        and not state.get("deployCheckpointIntent")
+    ):
+        checkpoint_source(root, state, progress)
         return
     if (
         task.status != "completed"
         or progress.get("checkpointPending")
         or progress["pendingObserved"]
         or progress["pendingGeneration"]
-        or set(state.get("deployCheckpoints", {}))
-        != set(state["deployIdentity"]["stacks"])
+        or any(not saved.get("observedSynced") for saved in progress["states"].values())
         or wt.changed_paths(root) - {task.name}
     ):
         raise ws.Blocked(

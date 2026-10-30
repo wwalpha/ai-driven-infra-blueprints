@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -20,10 +21,12 @@ from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
     child_environment,
-    invoke,
     ordinary_base,
     recover_owned_lock,
     seed,
+)
+from support.deploy_controller_fixtures import (
+    drive as invoke,
 )
 from support.pytest_cli import run
 from task_contract import complete
@@ -99,7 +102,9 @@ def assert_single_execution(aws, states):
 def assert_published(root, session, evidence):
     saved = json.loads(session.read_text())
     assert generation_resume.complete(saved)
-    assert not session.with_suffix(".operations.json").exists()
+    assert json.loads(session.with_suffix(".operations.json").read_text()) == {
+        "protocol": "current-request-v2"
+    }
     assert saved["repository"] == str(root) and saved["taskFile"] == "tasks/deploy.md"
     assert all(
         state["status"] == "SUCCESS" and state["observedSynced"]
@@ -183,13 +188,8 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     assert set(puts) == expected and len(puts) == len(expected)
     barrier = provider["barriers"][THIRD]
     assert set(barrier["earlier"]) == {FIRST, SECOND}
-    assert all(
-        s["status"] == "SUCCESS" and s["observedSynced"]
-        for s in barrier["states"].values()
-    )
-    assert barrier["observed"]["observed.row.001-001.value"].strip("`") == "vpc-fixture"
-    assert (
-        barrier["observed"]["observed.row.002-001.value"].strip("`") == "subnet-fixture"
+    TestCase().assertTrue(
+        all(s["status"] == "SUCCESS" for s in barrier["states"].values())
     )
     assert_single_execution(aws, saved["states"])
     assert_published(
@@ -247,9 +247,19 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
     assert saved["states"][FIRST]["observedSynced"]
     assert saved["states"][FIRST]["executionEvidence"] == evidence
     assert "approvedChangeDigest" not in saved["states"][FIRST]
-    assert not report.with_suffix(".operations.json").exists()
+    assert json.loads(report.with_suffix(".operations.json").read_text()) == {
+        "protocol": "current-request-v2"
+    }
     calls = json.loads(aws.read_text())["calls"]
-    assert sum(op == "execute_change_set" for _, op, _ in calls) == 1
+    assert (
+        sum(
+            op == "execute_change_set"
+            and args["StackName"]
+            == saved["states"][FIRST]["executionEvidence"]["StackId"]
+            for _, op, args in calls
+        )
+        == 1
+    )
     values = properties(read_model(root / f"model/dev/{ACCOUNT}/ec2.properties"))
     assert values["observed.row.002-001.value"] == "`PENDING_DEPLOY`"
 
@@ -271,11 +281,13 @@ def check_pending_observed_recovers_before_model_load(tmp_path):
     assert saved["states"][FIRST]["observedSynced"]
     assert saved["states"][FIRST]["executionEvidence"] == evidence
     assert not saved.get("pendingObserved") and not saved.get("pendingGeneration")
-    assert not report.with_suffix(".operations.json").exists()
+    assert json.loads(report.with_suffix(".operations.json").read_text()) == {
+        "protocol": "current-request-v2"
+    }
     assert (
         sum(
-            op == "execute_change_set"
-            for _, op, _ in json.loads(aws.read_text())["calls"]
+            op == "execute_change_set" and args["StackName"] == evidence["StackId"]
+            for _, op, args in json.loads(aws.read_text())["calls"]
         )
         == 1
     )

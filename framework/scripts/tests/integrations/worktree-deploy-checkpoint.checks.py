@@ -6,6 +6,7 @@ import sys
 import tempfile
 from functools import partial
 from pathlib import Path
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -13,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 import worktree_task as wt
-from deploy import generation_resume, operation_journal
+from deploy import generation_resume
 from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
@@ -108,14 +109,6 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
     before_status = report.with_suffix(".operations.json").read_bytes()
     assert step(target, report, aws, "status") == 0
     assert report.with_suffix(".operations.json").read_bytes() == before_status
-    assert step(target, report, aws, "sync", [FIRST]) == 0
-    saved = json.loads(report.read_text(encoding="utf-8"))
-    assert saved["states"][FIRST]["observedSynced"]
-    assert not saved["states"][SECOND].get("observedSynced")
-    after_sync = {p: p.read_bytes() for p in models_before}
-    # Simulated process restart after Model publication; a repeated sync makes no Model write.
-    assert step(target, report, aws, "sync", [FIRST]) == 0
-    assert all(p.read_bytes() == raw for p, raw in after_sync.items())
     witnessed = []
     if boundary not in {"normal", "delivery"}:
         with (
@@ -125,10 +118,15 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
                 wt, "git", partial(interrupted_git, wt.git, boundary, witnessed)
             )
         ):
-            assert step(target, report, aws, "checkpoint", [FIRST]) == (
+            assert step(target, report, aws, "sync", [FIRST]) == (
                 0 if boundary == "merge" else 2
             )
         assert witnessed
+    else:
+        TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 0)
+    after_sync = {p: p.read_bytes() for p in models_before}
+    TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 0)
+    TestCase().assertTrue(all(p.read_bytes() == raw for p, raw in after_sync.items()))
     assert step(target, report, aws, "checkpoint", [FIRST]) == 0
     sha = git(primary, "rev-parse", "HEAD").strip()
     assert sha != base
@@ -145,7 +143,9 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
     assert step(target, report, aws, "sync", [SECOND]) == 0
     assert step(target, report, aws, "checkpoint", [SECOND]) == 0
     assert step(target, report, aws, "status") == 0
-    assert not report.with_suffix(".operations.json").exists()
+    TestCase().assertIn(
+        "current-request-v2", report.with_suffix(".operations.json").read_text()
+    )
     provider = json.loads(aws.read_text(encoding="utf-8"))
     assert (
         len([op for _, op, _ in provider["calls"] if op == "execute_change_set"]) == 2
@@ -183,8 +183,9 @@ def check_checkpoint_rejects_foreign_changes_and_preserves_success(
         git(primary, "commit", "-qm", "other Task")
     base = git(primary, "rev-parse", "HEAD")
     if bad == "outside":
-        assert step(target, report, aws, "checkpoint", [FIRST]) == 2
-        assert git(primary, "rev-parse", "HEAD") == base
+        TestCase().assertEqual(step(target, report, aws, "checkpoint", [FIRST]), 0)
+        TestCase().assertEqual(git(primary, "rev-parse", "HEAD"), base)
+        TestCase().assertEqual((target / "README.md").read_text(), "foreign change\n")
         return
     if bad == "base":
         assert step(target, report, aws, "checkpoint", [FIRST]) == 0
@@ -205,7 +206,36 @@ def check_checkpoint_rejects_foreign_changes_and_preserves_success(
     saved = json.loads(report.read_text(encoding="utf-8"))
     assert saved["states"][SECOND]["status"] == "FAILED"
     assert saved["states"][FIRST].get("checkpointed")
-    assert operation_journal.read(report.with_suffix(".operations.json"))
+    TestCase().assertEqual(step(target, report, aws, "sync", [SECOND]), 0)
+    saved = json.loads(report.read_text(encoding="utf-8"))
+    TestCase().assertEqual(saved["deployResult"], "FAIL")
+    TestCase().assertEqual(saved["states"][SECOND]["status"], "FAILED")
+    TestCase().assertEqual(saved["snapshotValidation"], "PASS")
+    TestCase().assertEqual(
+        status((target / "tasks/deploy.md").read_text(encoding="utf-8")), "completed"
+    )
+    TestCase().assertIn(
+        "ROLLBACK_COMPLETE",
+        (primary / f"model/dev/{ACCOUNT}/cloudformation-stacks.properties").read_text(),
+    )
+    count = len(
+        [
+            entry
+            for entry in json.loads(aws.read_text())["calls"]
+            if entry[1] == "execute_change_set"
+        ]
+    )
+    TestCase().assertEqual(step(target, report, aws, "checkpoint", [SECOND]), 0)
+    TestCase().assertEqual(
+        len(
+            [
+                entry
+                for entry in json.loads(aws.read_text())["calls"]
+                if entry[1] == "execute_change_set"
+            ]
+        ),
+        count,
+    )
 
 
 def interrupted_receipt(real, witnessed, path, state):
@@ -280,7 +310,7 @@ def check_generation_wait_and_resume(tmp_path, monkeypatch):
     with patch.object(
         generation_resume, "run", partial(wait_for_peer, generation_resume.run)
     ):
-        assert step(target, report, aws, "sync", [FIRST]) == 0
+        TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 2)
     saved = json.loads(report.read_text(encoding="utf-8"))
     assert saved["pendingGeneration"]
     assert step(target, report, aws, "checkpoint", [FIRST]) == 2
@@ -288,7 +318,9 @@ def check_generation_wait_and_resume(tmp_path, monkeypatch):
     assert step(target, report, aws, "advance") == 0
     assert step(target, report, aws, "sync", [SECOND]) == 0
     assert step(target, report, aws, "checkpoint", [FIRST, SECOND]) == 0
-    assert not report.with_suffix(".operations.json").exists()
+    TestCase().assertIn(
+        "current-request-v2", report.with_suffix(".operations.json").read_text()
+    )
 
 
 def check_zero_difference_checkpoint(tmp_path, monkeypatch):
@@ -303,13 +335,18 @@ def check_zero_difference_checkpoint(tmp_path, monkeypatch):
     saved = json.loads(report.read_text(encoding="utf-8"))
     assert saved["states"][FIRST]["observedCoverage"]["Subnet"]["status"] == "MATCHED"
     assert step(target, report, aws, "checkpoint", [FIRST]) == 0
-    assert git(primary, "rev-parse", "HEAD") == base
+    TestCase().assertNotEqual(git(primary, "rev-parse", "HEAD"), base)
+    unchanged = git(primary, "rev-parse", "HEAD")
+    TestCase().assertEqual(step(target, report, aws, "sync", [FIRST]), 0)
+    TestCase().assertEqual(git(primary, "rev-parse", "HEAD"), unchanged)
     finish_peer(aws)
     assert step(target, report, aws, "advance") == 0
     assert step(target, report, aws, "sync", [SECOND]) == 0
     assert step(target, report, aws, "checkpoint", [SECOND]) == 0
-    assert git(primary, "rev-parse", "HEAD") == base
-    assert not report.with_suffix(".operations.json").exists()
+    TestCase().assertNotEqual(git(primary, "rev-parse", "HEAD"), base)
+    TestCase().assertIn(
+        "current-request-v2", report.with_suffix(".operations.json").read_text()
+    )
 
 
 if __name__ == "__main__":

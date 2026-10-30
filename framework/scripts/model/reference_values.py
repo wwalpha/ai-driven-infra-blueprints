@@ -221,9 +221,7 @@ class ProducerValues:
             observed
             if observed is not None
             else None
-            if recorded
-            or field in self.pending_fields
-            and generated_attribute(self.schema, field)
+            if recorded or generated_attribute(self.schema, field)
             else desired
         )
         if value is None:

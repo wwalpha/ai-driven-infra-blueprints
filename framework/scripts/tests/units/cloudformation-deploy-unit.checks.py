@@ -5,6 +5,7 @@ import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -198,11 +199,11 @@ def check_scheduler():
     assert [s["status"] for s in _state_check_scheduler_42.state.values()] == [
         "FAILED",
         "SUCCESS",
-        "NOT_STARTED",
+        "SUCCESS",
         "NOT_STARTED",
     ]
     assert (
-        starts(_state_check_scheduler_42.fake) == ["A", "B"]
+        starts(_state_check_scheduler_42.fake) == ["A", "B", "C"]
         and not _state_check_scheduler_42.fake.running
     )
     assert (
@@ -230,9 +231,9 @@ def check_scheduler():
     assert (
         _state_check_scheduler_42.state["B"]["status"] == "SUCCESS"
         and not _state_check_scheduler_42.fake.running
-        and not starts(_state_check_scheduler_42.fake)
+        and starts(_state_check_scheduler_42.fake) == ["C"]
     )
-    # A blocker during B preparation stops queueing and drains A.
+    # A blocker in B leaves independent A and C in the same Order runnable.
     _state_check_scheduler_42.state, _state_check_scheduler_42.fake = (
         states(scoped),
         Fake({"A": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]}, blocked={"B"}),
@@ -244,16 +245,16 @@ def check_scheduler():
         == "STOPPED"
     )
     assert [s["status"] for s in _state_check_scheduler_42.state.values()] == [
-        "READY",
+        "SUCCESS",
         "BLOCKED",
-        "NOT_STARTED",
+        "SUCCESS",
         "NOT_STARTED",
     ]
     assert (
-        starts(_state_check_scheduler_42.fake) == []
+        starts(_state_check_scheduler_42.fake) == ["A", "C"]
         and not _state_check_scheduler_42.fake.running
     )
-    # Read errors stop queueing but do not claim terminal failure.
+    # Transient read errors preserve the active token and can recover.
     _state_check_scheduler_42.state, _state_check_scheduler_42.fake = (
         states(scoped),
         Fake({"A": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]}),
@@ -267,15 +268,15 @@ def check_scheduler():
         finish(
             scoped, 2, _state_check_scheduler_42.state, _state_check_scheduler_42.fake
         )
-        == "STOPPED"
+        == "COMPLETE"
     )
     assert (
-        starts(_state_check_scheduler_42.fake) == ["A", "B"]
+        starts(_state_check_scheduler_42.fake) == ["A", "B", "C", "D"]
         and _state_check_scheduler_42.state["A"]["status"] == "SUCCESS"
     )
 
     # Intent persistence failure cannot reach execute; submission loss drains without retrying.
-    selected = units(10, 10)
+    selected = units(10)
     for _state_check_scheduler_42.boundary in ("intent", "submitted", "response"):
         (
             _state_check_scheduler_42.state,
@@ -301,7 +302,7 @@ def check_scheduler():
             )
             assert (
                 _state_check_scheduler_42.boundary == "submitted"
-                and result == "STOPPED"
+                and result == "GROUP_COMPLETE"
             )
         except OSError:
             assert _state_check_scheduler_42.boundary != "submitted"
@@ -311,19 +312,19 @@ def check_scheduler():
         assert starts(_state_check_scheduler_42.fake) == (
             [] if _state_check_scheduler_42.boundary == "intent" else ["A"]
         )
-        assert _state_check_scheduler_42.state["B"]["status"] == "NOT_STARTED"
         if _state_check_scheduler_42.boundary != "intent":
             token = _state_check_scheduler_42.state["A"]["clientToken"]
-            assert (
-                scheduler.run_group(
-                    selected,
-                    1,
-                    _state_check_scheduler_42.state,
-                    _state_check_scheduler_42.fake,
-                    sleep=lambda _: None,
-                    drain_only=True,
-                )
-                == "STOPPED"
+            assert scheduler.run_group(
+                selected,
+                1,
+                _state_check_scheduler_42.state,
+                _state_check_scheduler_42.fake,
+                sleep=lambda _: None,
+                drain_only=True,
+            ) == (
+                "COMPLETE"
+                if _state_check_scheduler_42.boundary == "submitted"
+                else "STOPPED"
             )
             assert (
                 _state_check_scheduler_42.state["A"]["status"] == "SUCCESS"
@@ -331,6 +332,7 @@ def check_scheduler():
             )
             assert starts(_state_check_scheduler_42.fake) == ["A"]
     # Worker writes are reflected only by the controller, including error snapshots.
+    selected = units(10, 10)
     _state_check_scheduler_42.state = states(selected)
     read = _bind_framework_callback(
         _callback_check_scheduler_read, _state_check_scheduler_42.state
@@ -495,6 +497,12 @@ def check_no_change_invalid_evidence_blocks(stack, saved_id, change_id):
     state, change = no_change_inputs()
     state["stackId"] = saved_id
     change["StackId"] = change_id
+    if stack and stack.get("StackStatus") == "UPDATE_ROLLBACK_COMPLETE":
+        with patch.object(backend, "aws", return_value={"Stacks": [stack]}):
+            TestCase().assertEqual(
+                backend.review_prepared({"name": "A"}, state, change), "SUCCESS"
+            )
+        return
     with patch.object(
         backend, "aws", return_value={"Stacks": [] if stack is None else [stack]}
     ) as aws:

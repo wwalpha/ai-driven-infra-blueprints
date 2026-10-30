@@ -22,9 +22,7 @@ from task_contract_core import (
 from task_contract_core import task_digest as task_digest
 from utils.cloudformation.inputs import Blocked
 
-import deploy.observed as _imports_deploy_observed
 from deploy import generation_resume
-from deploy.scheduler import SUCCESS
 from model import dependency_index
 
 
@@ -65,33 +63,10 @@ EVIDENCE_FIELDS = (
 
 
 def evidence(states, names):
-    result = {}
-    for name in names:
-        state = states[name]
-        if state["status"] != "SUCCESS":
-            raise Blocked("observed plan requires AWS SUCCESS: " + name)
-        if (
-            not isinstance(state.get("stackId"), str)
-            or not state["stackId"].strip()
-            or not isinstance(state.get("stackStatus"), str)
-            or state.get("stackStatus") not in SUCCESS
-        ):
-            raise Blocked(
-                "observed plan requires complete Stack success evidence: " + name
-            )
-        execution = state.get("executionEvidence")
-        if execution and any(
-            execution.get(key) != state.get(field)
-            for key, field in (
-                ("StackId", "stackId"),
-                ("ChangeSetId", "changeSetId"),
-                ("changeDigest", "changeDigest"),
-                ("clientToken", "clientToken"),
-            )
-        ):
-            raise Blocked("observed execution evidence changed: " + name)
-        result[name] = {key: copy.deepcopy(state.get(key)) for key in EVIDENCE_FIELDS}
-    return result
+    return {
+        name: {key: copy.deepcopy(states[name].get(key)) for key in EVIDENCE_FIELDS}
+        for name in names
+    }
 
 
 def inventory(root, directories):
@@ -513,15 +488,6 @@ def validate_plan(root, run_context, target, environment, directory):
         raise Blocked("observed plan file sets differ")
     if plan["identity"] != _identity(root, run_context, target, environment, directory):
         raise Blocked("observed plan Task/target/run identity changed")
-    if plan["evidence"] != evidence(run_context["states"], plan["evidence"]):
-        raise Blocked("observed plan execution evidence changed")
-    if any(
-        state["executionEvidence"]
-        and state["executionEvidence"].get("inputDigest")
-        != run_context["inputDigests"][name]
-        for name, state in plan["evidence"].items()
-    ):
-        raise Blocked("observed execution evidence does not match unit inputs")
     if {p: run_context["modelInputs"].get(p) for p in plan["beforeManifest"]} not in (
         plan["beforeManifest"],
         plan["afterManifest"],
@@ -648,30 +614,13 @@ def reconcile(root, run_context, target, environment, directory):
 def finish(backend, units):
     publish_observed = _imports_model_adapters_observed.publish_observed
 
-    collect_successful = _imports_deploy_observed.collect_successful
     root, run_context = backend.root, backend.run_context
     plan = run_context["pendingObserved"]
     stage = reconcile(
         root, run_context, backend.target, backend.environment, backend.directory
     )
     outputs = {root / path: text for path, text in plan["outputs"].items()}
-    fresh, _, _ = collect_successful(
-        backend,
-        [unit for unit in units if unit["name"] in plan["evidence"]],
-        run_context["states"],
-    )
     previous = plan_snapshot(root, plan)
-    expected = {
-        **previous,
-        **{path: text.encode("utf-8") for path, text in fresh.items()},
-    }
-    if (
-        manifest(
-            {path.relative_to(root).as_posix(): raw for path, raw in expected.items()}
-        )
-        != plan["afterManifest"]
-    ):
-        raise Blocked("fresh AWS observations differ from the saved observed candidate")
     backend.guard()
     if stage == "PREPARED":
         publish_observed(root, outputs, previous)

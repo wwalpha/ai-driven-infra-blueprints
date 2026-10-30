@@ -205,6 +205,10 @@ def observed_value(row_id, row, observed, outputs):
     has_reference = _imports_model_references.has_reference
     LINKS = _imports_model_references.LINKS
     value = row["value"]
+    if observed is None and row["property"] in outputs:
+        link = LINK.fullmatch(value)
+        if link:
+            return f"[UNOBSERVED]({link.group(2)}#{link.group(3)})"
     if observed is not None:
         if link := LINK.fullmatch(value):
             value = (
@@ -358,14 +362,21 @@ def _display_identifier_link(resolver, scope, root, row, warnings, match):
         if len(outputs) != 1 or len(candidates) != 1:
             raise ReferenceResolutionError("identifier output is absent or ambiguous")
         observed = snapshot.authoritative.get(f"observed.row.{candidates[0]}.value")
-        if observed is None:
-            raise ReferenceResolutionError("identifier output is unobserved")
-        if literal(observed) == "PENDING_DEPLOY" and warnings is not None:
+        pending = (
+            literal(observed) == "PENDING_DEPLOY" if observed is not None else False
+        )
+        if (observed is None or pending) and warnings is not None:
             diagnostic = {
                 **ReferenceResolutionError(
-                    "identifier output is pending deployment",
-                    category="REFERENCE_PENDING_DEPLOY",
-                    code="REFERENCE_PENDING_DEPLOY",
+                    "identifier output is pending deployment"
+                    if pending
+                    else "identifier output is unconfirmed",
+                    category="REFERENCE_PENDING_DEPLOY"
+                    if pending
+                    else "REFERENCE_UNRESOLVED",
+                    code="REFERENCE_PENDING_DEPLOY"
+                    if pending
+                    else "reference.unresolved",
                 ).diagnostic,
                 "model": str(scope.path),
                 "property": row["property"],
@@ -373,7 +384,7 @@ def _display_identifier_link(resolver, scope, root, row, warnings, match):
             }
             if diagnostic not in warnings:
                 warnings.append(diagnostic)
-        return f"[{literal(observed)}]({match[2]}#{match[3]})"
+        return f"[{literal(observed) if observed is not None else 'UNOBSERVED'}]({match[2]}#{match[3]})"
     except ReferenceResolutionError as error:
         if warnings is not None:
             diagnostic = {

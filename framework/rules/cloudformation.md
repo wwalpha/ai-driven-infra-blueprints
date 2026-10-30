@@ -53,7 +53,7 @@
 ## AWS execution context
 
 - Preflight and controllers automatically use target `awsProfile` if present. Pass the same `--profile` and target region to direct AWS CLI too (including validate-template, list/get/describe, and observed value retrieval). Reject explicit profiles differing from settings before execution; do not fall back to another profile after authentication failure.
-- Before deploy, match target account/region stacks read-only and confirm designed stack existence, states, parameters, and resource ownership. Distinguish undesigned stacks, same-named stacks differing from design, and designed stacks absent from AWS; do not automatically adopt/change/delete undesigned stacks. Retrieve current stack status from AWS each time; do not save status snapshots in Git.
+- Before deploy, match target account/region stacks read-only and confirm designed stack existence, states, parameters, and resource ownership. Distinguish undesigned stacks, same-named stacks differing from design, and designed stacks absent from AWS; do not automatically adopt/change/delete undesigned stacks. Retrieve current stack status from AWS each time; save the adopted minimal Stack observation through the Model writer.
 - Framework SDK controllers perform authorized operations through `utils/aws/`; use AWS CLI only for explicitly directed CLI operations.
 
 ## Design coverage and CloudFormation support
@@ -77,7 +77,7 @@
 
 `implement` phase:
 
-1. Before implementing existing templates and before finishing generated templates, perform local read-only mapping validation with `python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py observed --environment <environment> --target-directory <target-directory> --stack <StackName>` (repeat `--stack` for each stack). Deployment resolves only resources needed for repair/bootstrap/post-success synchronization. Directly match StackNames/template resource IDs with each resource's `cfn-logicalId`; do not use separate mapping tables. Resource correspondence uses explicit cfn-logicalId and Stack identity. Evaluate Conditions with stack-specific parameters/defaults and account/region/StackName; validate CREATE, formal types, unique mappings, identifier rows, necessary GetAtt Outputs, and duplicate ownership only for active resources. Stop on unresolved, cyclic, or non-boolean Conditions; do not include inactive resources in identifier validation/ownership decisions. Do not automatically add identifier rows; aggregate deficiencies per stack. Absent new templates are not pre-implementation deficiencies; confirm model/placement inputs and always run this common validation after generation.
+1. Before implementing existing templates and before finishing generated templates, perform local read-only mapping validation with `python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py observed --environment <environment> --target-directory <target-directory> --stack <StackName>` (repeat `--stack` for each stack). Deployment resolves only resources needed for repair/bootstrap/current Snapshot synchronization. Directly match StackNames/template resource IDs with each resource's `cfn-logicalId`; do not use separate mapping tables. Resource correspondence uses explicit cfn-logicalId and Stack identity. Evaluate Conditions with stack-specific parameters/defaults and account/region/StackName; validate CREATE, formal types, unique mappings, identifier rows, necessary GetAtt Outputs, and duplicate ownership only for active resources. Stop on unresolved, cyclic, or non-boolean Conditions; do not include inactive resources in identifier validation/ownership decisions. Do not automatically add identifier rows; aggregate deficiencies per stack. Absent new templates are not pre-implementation deficiencies; confirm model/placement inputs and always run this common validation after generation.
 2. Retain local Model/provider-schema and selected template consistency checks. No template lint engine is required.
 3. Do not execute AWS APIs, `aws cloudformation validate-template`, change sets, or deploy/update.
 
@@ -92,11 +92,11 @@
 5. Proceed to execution only if the active prompt authorizes deploy/update, change scope matches it, and delete/replacement is preapproved or approved by the human after change set creation.
 6. Preserve/classify failures under Controlled deploy repair. The supervising LLM uses a separate authorized implement Task for IaC, then integrates its verified result before an independent new Deploy; internal runtime recovery alone may continue without IaC changes.
 
-`framework/scripts/cloudformation-deploy.py` delegates multi-stack queues, order, parallel limits, and failure stops to `deploy/scheduler.py`. The scheduler only calls the injected backend; read workers own snapshots and the controller owns decisions and persistence. `deploy/guards.py` owns immediate mutation checks and timing. `utils/aws/` owns structured SDK operations; `utils/aws/client.py` alone owns Session/client reuse, with no global AWS response cache. Process only Deployment scope StackNames in numeric DeployOrder ascending order and StackName order within groups. Only stacks in the same DeployOrder group may run concurrently; RUNNING count must be at most MaxConcurrentStacks. Reuse free slots for the same group's queue, not fixed batches. Proceed to the next group only after terminal success and observed value reflection of the entire group. Values need not be consecutive. Do not convert DeployOrder to CloudFormation resource `DependsOn` or add dependency fields to stack models.
+`framework/scripts/cloudformation-deploy.py` delegates multi-stack queues, order, parallel limits, and failure stops to `deploy/scheduler.py`. The scheduler only calls the injected backend; read workers own snapshots and the controller owns decisions and persistence. `deploy/guards.py` owns immediate mutation checks and timing. `utils/aws/` owns structured SDK operations; `utils/aws/client.py` alone owns Session/client reuse, with no global AWS response cache. Process only Deployment scope StackNames in numeric DeployOrder ascending order and StackName order within groups. Only stacks in the same DeployOrder group may run concurrently; RUNNING count must be at most MaxConcurrentStacks. Reuse free slots for the same group's queue, not fixed batches. Proceed to the next group only after the required earlier AWS attempts succeed. Observed/Git saving is chosen explicitly and is not an additional Order barrier; actual Consumer input dependencies still apply. Values need not be consecutive. Do not convert DeployOrder to CloudFormation resource `DependsOn` or add dependency fields to stack models.
 
 Immediately before consumer change set creation, interpret `!ImportValue` with the shared CloudFormation decoder, resolve referenced Export names using stack-specific parameters/defaults and account/region, and resolve them through the shared Export resolver. A known Producer is revalidated with scoped `DescribeStacks(StackName=StackId)` Outputs, StackId/status and saved Export value/owner; this path never calls ListExports. Only required names whose Producer remains unknown may share one complete ListExports discovery within that verification boundary; DescribeStacks must then reconfirm each discovered Producer. Missing, ambiguous or changed evidence blocks. Evaluate Conditions; scan only selected `!If` branches and active resources/Outputs. Stop for unresolved, cyclic, or non-boolean conditions; do not require ImportValue in unused branches. Unresolved expressions, absent Exports, and unsuccessful in-scope producers are BLOCKED. Explain incorrect DeployOrder and Import/Export contradictions; do not add out-of-scope producers, change order, or automatically repair IaC/intended design. Consumer-only deploy is permitted if out-of-scope producer Exports already exist. Stop for Transform-dynamically-generated imports that cannot be resolved in advance.
 
-On failure/rollback, blockers, or unapproved delete/replacement, do not start new units; confirm only running stacks through terminal states. Distinguish SUCCESS, FAILED, BLOCKED, and NOT_STARTED per StackName. Status API errors are not terminal failures: stop queues and retry only running stack retrieval. Do not automatically rollback, delete, or redeploy successful stacks. Rollback/delete is permitted only under the failed CREATE cleanup exceptions below.
+A failure/rollback stops dependent later Orders; independent peers at the same Order may continue. Unapproved delete/replacement blocks that Stack. Distinguish SUCCESS, FAILED, BLOCKED, and NOT_STARTED per StackName. Status API errors are not absence or terminal failure; retain that Stack request and continue independent scoped work. Do not automatically rollback, delete, or redeploy successful stacks. Rollback/delete is permitted only under the failed CREATE cleanup exceptions below.
 
 ### Infrastructure update execution
 
@@ -133,7 +133,7 @@ Stop in the following cases.
 
 When the active prompt limits targets, implement phase may process only some templates and deploy phase only some stacks/resources, then finish. Do not automatically proceed to remaining resources, other stacks, or scenario tests.
 
-Follow [observed-values](observed-values.md) for identifier collection/synchronization after success, and [task-contract](task-contract.md) and [loop-engineering](loop-engineering.md) for task finish.
+Follow [observed-values](observed-values.md) for current identifier collection/synchronization regardless of attempt outcome, and [task-contract](task-contract.md) and [loop-engineering](loop-engineering.md) for task finish.
 
 ## S3 deployment artifacts
 
@@ -165,256 +165,139 @@ executorにHeadBucket/Location/Encryption/Policy、ListBucket、GetObject（固�
 
 ### LLM-controlled short operations
 
-Managed Worktree Deploy may use explicit `--action advance|sync|checkpoint|status` on
-`cloudformation-deploy.py`. Preparation starts `advance`. The same current Task, Target
-and full Deployment scope remain mandatory. Advance performs one poll/prepare/execute
-turn with the existing concurrency/order/approval/input guards and returns without a
-completion wait or Model publication. LLM fills available AWS slots first, then selects
-successful `--sync-stack` names when AWS is waiting. Sync rechecks original AWS success,
-confirms every applicable resource identifier and uses existing atomic Observed and
-generation recovery. Status does no mutation, publication or Git operation.
+Use `cloudformation-deploy.py --action status|advance|sync|checkpoint` in the existing
+managed Worktree, with the same current Task, Target and complete Stack scope.
+Only the LLM chooses sync timing and explicit `--sync-stack` names. Do not use Sub Agents,
+a background Model writer, fixed-period sync or Python-driven agent control.
 
-Only the LLM selects sync timing. No agents, Model background workers, fixed-period
-sync or Python-driven LLM control participate. Wait-only generation retains exact
-Producer/Consumer evidence; required unfinished generation blocks checkpoint. LLM may
-sync its Producer and retry an indivisible combined candidate explicitly.
+- `status` reads current AWS and displays current Stack state, this attempt's result,
+  Model save, Snapshot validation and Git publication separately.
+- `advance` reads current AWS first and advances one bounded poll/prepare/execute turn.
+  It keeps DeployOrder and the configured concurrency. A failed Stack does not stop
+  independent peers in the same Order. A later Order requires prior Order success;
+  saving a failure Snapshot never grants that success.
+- `sync` reads the selected current observations, atomically saves permitted Model
+  changes, generates available services, validates the complete candidate and uses
+  existing checkpoint/Git publication. No separate checkpoint command is required.
+- `checkpoint` resumes a saved candidate's validation/commit/publication without a
+  new AWS execution or fresh observation. A saved completed contract may retry Git only.
 
-Normal Stack checkpoint is separate from repair-checkpoint and final finalize. Under
-the Worktree lifecycle lock it validates the exact authorized Model/view candidate and
-checkpoints only that candidate locally. Independent Deploy uses
-[Managed Deploy snapshot and Git publication](#managed-deploy-snapshot-and-git-publication):
-local checkpoint receipts acknowledge synchronization while Git publication may remain
-PENDING/CONFLICT. Base advancement alone never blocks AWS advancement. Other phases
-retain their ordinary clean-base integration guards. Unknown Task commits and foreign
-changes still stop; empty differences create no empty checkpoint commit. Lifecycle
-receipts survive a crash before Journal acknowledgement and last until guarded cleanup.
-The Journal retains pending checkpoint operations, never a completed deployment ledger.
-All AWS/Observed/generation/checkpoint barriers are required for COMPLETE.
-
-Repeat the same action after interruption; never Execute a RUNNING operation again.
-Uncertain submissions retain original IDs/Tokens. Pending publication uses existing
-ownership/CAS/rollback; commit/merge recovery verifies the saved exact intent. Do not
-mix the compatibility batch/recover entrance into an unfinished short-operation run.
-Reset remains exclusively a Human decision under the existing signed Plan/fence rules.
-Existing authorized Secrets bootstrap and failed-CREATE cleanup remain runtime recovery.
-In short operations cleanup performs one original-Stack read and returns pending;
-its existing token, provenance, safety and one-retry guards survive CLI boundaries.
-External Implement handoff remains separate. Only its verified exact child attribution
-can adopt repaired inputs; only that exact child delta may join publication.
-Other unexpected Task commits remain blockers.
+Sync accepts successful, failed, rolled-back, partially applied, unexecuted, running
+and unreadable Stacks. Unexecuted does not mean absent. Consistent observations may
+be saved while another Stack is changing; no target-wide quiescence is required.
+Generation failures retain saved Model authority and successful service outputs;
+stale Views are not claimed current. True structural/reference/scope/View mismatch
+blocks integration, retaining the candidate for local recovery without new AWS work.
 
 ### Compatibility batch execution
 
-`deploy/run_context.py` owns one memory-only DeployRunContext, immutable inputs and scheduler/Observed barriers. `deploy/operation_journal.py` owns only unfinished AWS and publication operations with target/account/Region exclusion. No old Session or Workflow data is read, migrated or mechanically deleted. Current Task, AWS permission, account/Region/profile, Stack ownership and destructive ChangeSet approval remain required.
+Omitting `--action` is a compatibility entrance to `advance`; `--recover-operations`
+is a compatibility entrance to current request/status inspection. Neither restores
+historical success nor makes old publication/Reset/Fence proof a normal prerequisite.
+`--pause-after-group` remains an update-only compatibility hint; every invocation already returns after a bounded turn. Select sync explicitly before the existing producer/consumer input handoff. Claimed inputs remain fixed; a later update invocation may claim its newly implemented, previously unused Consumer inputs. This grants no IaC changes to Deploy.
 
-Each new Task reads current AWS status, creates CREATE/UPDATE ChangeSets from its pinned IaC and handles No Change without Execute. A managed Deploy Task retains its own unchanged successful Stacks under the snapshot rules below; a new Task has no inherited success authority. Already-running AWS operations are observed before preparation; unknown state blocks. Verify every required Output/Export, including Outputs-only changes, using current Stack identity/status, actual OutputKey/OutputValue/ExportName and GetTemplate definition/value digests, without ListExports; missing exports never count as success and never cause Deploy to edit IaC.
+Normal decisions use current scoped DescribeStacks and ChangeSets plus this Task's
+fixed inputs. CREATE_COMPLETE / UPDATE_COMPLETE / IMPORT_COMPLETE are successful
+current states, but do not prove the current Desired is applied. Build/review the
+current ChangeSet. UPDATE_ROLLBACK_COMPLETE permits a subsequent update while
+retaining the failed attempt result. UPDATE_ROLLBACK_FAILED and ROLLBACK_COMPLETE
+retain AWS's actual operation restrictions. REVIEW_IN_PROGRESS is classified with
+current ChangeSet execution, never by suffix alone. Structured absence is ABSENT;
+read/permission/network failures are UNKNOWN, never absence.
 
-Claim only free slots in the current DeployOrder. Share one RunModels cache for Load Once / same-generation Validate Once; verified Observed deltas invalidate reference-dependent checks only as required by the existing cache contract. Freeze Task/target/consumed inputs and detect changed pending input identities at claim. No all-Model startup scan or cross-invocation validation cache is permitted.
+Shared records contain only current unresolved submissions, keyed by execution account,
+Region and StackName: operation, StackId, ChangeSetId, ClientRequestToken (ClientToken
+for CreateChangeSet), submission state and pre-send AWS identity. Persist intent under
+the same Stack lock immediately before submission. Lost replies retain the original
+request/token across Worktrees. A single old UPDATE_COMPLETE does not settle an
+uncertain Execute; inspect its ChangeSet and token events. Retire a confirmed AWS
+request before Model/Git work. No TTL/PID inference or old Task/Outputs/checkpoint proof.
+Corruption affects only that Stack's new mutation; other Stacks and Snapshot saves continue.
 
-Journal records only unfinished ChangeSet/Stack/Token/input identity, submission stage, Secrets initial-value Token/stage and minimal pending Observed/generated publication before/after ownership. It never stores approval Digests, workflow bindings or repair archives. Write intent before mutation. On restart, reconcile exact IDs and AWS events/status; never resend uncertain Execute under a new Token. Recover confirmed AWS success through Observed/atomic publication without Execute. Verify original Model bytes and Task authority before publication; third-party edits block. After confirmed completion delete the Journal. Unexecuted ChangeSets can be revalidated with current inputs; previous Task/approval does not own future Deploy. Current Human approval is required again after interruption. `--recover-operations` settles only unfinished work and never starts new Deploy.
-
-Keep every unprocessed ChangeSet intent during adoption, including interrupted input claims. An unfinished Secrets bootstrap retains only its original owner unit/input digest in addition to the current token/plan; recover failure events and owner success from AWS, then recheck consumer/owner inputs before every mutation. Report terminal Output/Export mismatches as unapplied, discard the completed Execute intent and allow a subsequent independent run. Observed sync always uses the current RunContext's pending publication ownership.
-
-Retain existing publication lock/CAS/rollback transaction, generated-artifact equality and ownership/reference index checks. Journal publication identity contains no historical IaC Manifest. Missing/stale reference metadata stops necessary synchronization and is not rebuilt during Deploy. Wait-only generation may remain queued until its producer is observed; pending output candidates and unknown writes must be recovered before new work.
-
-Recovery uses the current explicitly authorized Stack scope for pending generation dependencies, with unexecuted Stacks marked NOT_STARTED. Rebind only unpublished wait records to the new run identity; never move an unresolved publication candidate into a fresh run. Only the same managed Deploy Task's sealed progress may restore unchanged, Observed-synchronized successes.
-
-Keep controller timing and per-Stack preparation/poll/execution durations within the run. Existing external timing.jsonl records phase, operation/service, success/failure, UTC and duration; never log secrets or API arguments/responses. Metrics are diagnostics and grant no execution authority.
+The account/Region compatibility lock also excludes old running controllers during
+one-time format conversion. Preserve the raw old journal, migrate only possibly pending
+AWS requests, and write the protocol marker that old controllers reject before mutation.
+Do not use older controller code after cutover. Normal calls inspect the marker and
+selected current requests, never scan or validate all old history. Historical failures,
+completed or sync/Git-waiting records and old Fences are not new request conditions.
 
 ### Managed Deploy snapshot and Git publication
 
-For independent Deploy, resolve the Task and Target, then run the official
-`worktree_task.py deploy-start --task-id <id>` before Task registration/Preparation.
-It creates through existing create/setup or reuses that exact unfinished Task's valid
-Worktree. Use the returned root and registered Python for all subsequent commands.
-Ambiguous/missing ownership, stale locks or unexpected HEAD require review; never
-copy dirty primary inputs, recreate a resumed Task, or reset its operation Journal.
-Help, offline Preparation and read-only diagnostics require no managed Worktree.
-The CloudFormation mutation boundary checks managed ownership again before AWS writes.
-Terraform uses the same Skill isolation before its separately authorized saved-plan apply.
-Controller progress/publication below applies to CloudFormation; Terraform retains its
-existing saved-plan/output verification and ordinary Worktree Git integration.
+Independent Deploy uses `worktree_task.py deploy-start --task-id <id>`, reusing a
+suitable valid managed Worktree. Keep lifecycle ownership, current Task authority,
+Target/Account/Region, destructive-change consent and fixed IaC/parameters/artifacts.
+Self-authored Observed/View/contract commits advance HEAD without changing execution
+inputs. Base advancement or rewritten publication history does not replace fixed inputs.
+No historical digest/executionDigest ledger is added. Other Workflow safeguards remain.
 
-Deploy baseline checks pin lifecycle start and the verified Task HEAD, independent of
-the current local base's ancestry or rewritten history. Keep Task/Target/Account/Region/
-Stack authority, IaC identity/hash, immutable Model inputs, current destructive-change
-approval and unfinished-operation/Journal guards. Authorized repair still requires its
-existing one-shot handoff followed by a separate independent Deploy; no implicit input refresh.
-Ordinary Governance, Implement, Import and update baseline/rebase/ff-only safeguards remain.
+Local sealed progress resumes this Task's save/generation/checkpoint. Git receipts prove
+only saved candidates; restoring one never creates AWS SUCCESS. Current observations,
+attempt result, Snapshot validation, commit/merge and Task state remain separate.
+A failure Snapshot can have Deploy FAIL, UPDATE_ROLLBACK_COMPLETE, Snapshot PASS,
+commit/merge complete and Task completed. Desired remains the Human's intended design.
 
-Each successful Stack retains AWS evidence before the existing guarded Observed and
-service generation barriers. The controller saves sealed, Task/Target/snapshot-bound
-progress outside Git and checkpoints exact authorized outputs in its Worktree; successful
-unchanged Stacks may be adopted only within that same Task. Existing scheduler concurrency,
-wait-time synchronization and partial-generation rules still apply. Pending Observed or
-generation work prevents Task completion. The Journal still owns unfinished AWS operations.
+Reuse the existing private candidate against the latest clean local base, scoped
+Model/Task validation, lifecycle lock and ff-only delivery. Validate the actual final
+candidate, including authorized scope, structure/types, references, unknown/pending
+identifiers and corresponding generated Views. No all-Stack success, all physical IDs,
+Desired/Observed equality, individual checkpoints or old Journal/Fence completion is
+required. Do not scan unrelated AWS resources or regenerate unrelated services.
 
-Git publication has its own SUCCESS/PENDING/CONFLICT result and never changes AWS SUCCESS.
-Under the existing lifecycle lock, publish only the delta since the last published Task
-snapshot (initially lifecycle start), using a private merge tree against the latest clean
-local base. Validate the actual candidate with the scoped Model/Task validator before
-ff-only delivery. Preserve independent base edits. Publication commits retain both parents
-for ordinary non-force cleanup; Task history is never rebased onto the publication base.
-Base contention, failed validation or conflict retains Worktree, checkpoint, signed
-progress and Journal ownership while other independent Stacks continue their existing barriers.
+The final snapshot includes Task completed when observations, required generation and
+validation are complete and no AWS request is active/uncertain. Intermediate saves keep
+Task running and the same Worktree can continue AWS work. Failed finalized attempts do
+not remain suspended as old recovery work. AWS failure stays FAIL; validation remains
+PASS/FAIL and unexecuted required checks are never PASS. Other Workflow completion is unchanged.
 
-After a conflict, automatic publication waits for Human judgment. Inspect
-`worktree_task.py deploy-publish --task-id <id>` for current base/source, conflicting
-paths and observed Model keys with snapshot/base/deployed values. Review the affected
-Model items and generated Views, then provide an external UTF-8 JSON file containing
-`approval` (the explicit Human decision), exact `base`/`source` commit IDs and `files`
-(each conflicting relative path mapped to its full resolved UTF-8 text). Run the same
-command with `--publication-resolution <absolute-json-path>` only after that decision.
-Changed identities require renewed review; argument text alone supplies no Human consent.
-No automatic overwrite, conflict resolution, AWS Execute or Journal reset is permitted.
-Git-only recovery does not redeploy successful Stacks. Validate/complete the Task only
-after AWS, Observed, generation and publication succeed; ordinary `finalize` then verifies
-publication and performs existing guarded cleanup. Never clean an unresolved conflict.
+Git publication has independent SUCCESS/PENDING/CONFLICT. Commit success with merge
+failure retains the exact candidate (possibly completed locally). Use only
+`worktree_task.py deploy-publish --task-id <id>` to retry saved commits; no AWS call,
+Observed recollection or working-candidate commit is required. Existing Human conflict
+review remains: inspect files/base/source/impact, provide the approved exact resolution
+through `--publication-resolution <absolute-json-path>`, and validate the resulting
+candidate before delivery. Never automatically overwrite conflicts or force integration.
+After verified publication, ordinary finalize verifies and performs guarded cleanup.
+
+A settled current request may leave its attempt outcome UNKNOWN while the current Snapshot is saved and validated independently. Never persist UNKNOWN as an identifier. Exact root Stack events use the original StackId/token; later Stack replacement, repair or failure cannot rewrite the original attempt result or replace current observation fields.
 
 ### Human-authorized operation journal reset
 
-Only the Human chooses whether to reset, retry Recover, or abandon an operation.
-Recover failure, invalid JSON/signature, unknown AWS state, publication errors and a new
-Task/worktree never authorize automatic reset. The LLM may explain diagnostics and the
-CLI, but must never enter the confirmation, simulate a console, invoke Apply on the
-Human's behalf, or delete/edit reset evidence to bypass a fence. Console simulation in
-tests is confined to synthetic offline fixtures. This retains the Human-consent operating
-boundary: a CLI cannot prove that the person controlling a terminal is human. A signed
-Plan or ordinary command arguments provide no consent by themselves.
+Lost signature keys need no separate exception ledger or release proof. Use the same
+Reset plan/apply with preserved raw originals; the retired lost-key commands are not required.
 
-From the selected repository root, inspect an ALL Plan (no Apply) to discover record
-fingerprints, then optionally create a RECORD Plan:
+Only the Human decides Reset scope and approves it explicitly. Never Reset automatically
+because recovery fails or records are corrupt. The LLM must not enter console consent;
+console simulation is confined to synthetic offline tests. Reset calls no AWS APIs.
 
 ```console
-python3 -B framework/scripts/cloudformation-operation-reset.py plan --environment dev --alias cde --mode all
-python3 -B framework/scripts/cloudformation-operation-reset.py plan --environment dev --alias cde --mode record --record <record-sha256>
-python3 -B framework/scripts/cloudformation-operation-reset.py apply --environment dev --alias cde --plan <plan-sha256>
+python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-operation-reset.py plan --environment dev --alias cde --mode all
+python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-operation-reset.py plan --environment dev --alias cde --mode record --record <record-sha256>
+python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-operation-reset.py apply --environment dev --alias cde --plan <plan-sha256>
 ```
 
-Use `--aws-account-id <account>` instead of `--alias` for a numeric target. Managed
-worktrees use their registered Python through `framework/scripts/run-python.py`.
-Target/Account/Region and the journal location come from independently validated
-`project.json`, never damaged JSON. Reset calls no AWS APIs. Plan takes the ordinary
-account/Region lock, validates signed records when possible and freezes the original
-SHA-256, target configuration, exact selection and local input-template inventory.
-It saves a sealed private Plan outside Git and changes no journal. Its report lists
-owners, Tasks, Stack/ChangeSet IDs, execution-evidence presence, shared publication paths
-and lost recovery scope without printing template or Model contents.
+Plan lists exact recovery records, related old Fences and lost information together.
+ALL supports corrupt JSON/old proof. RECORD selects whole records or exact Fence IDs;
+related files join the same Plan, unrelated records remain. Keep target configuration,
+private ownership, safe paths, exact bytes and current-request locks. No force/bypass.
 
-Apply requires the same target/Plan and an interactive Human-operated console. The
-Human reviews the entire report and types the exact displayed phrase:
-`RESET <execution-account> <region> <ALL-or-RECORD> <full-plan-sha256>`.
-No `--force`, `--yes`, approval argument, saved approval inheritance or automatic Deploy
-is available. Changed journal, configuration, selection or template bytes stop Apply;
-create and review a new Plan rather than applying stale consent.
+One explicit approval covers that Plan's complete action. Persist approval and every
+original before processing records/Fences. The Reset transaction is never a new Fence.
+No RESOLVE step, release proof or additional approval follows. `fence-plan/fence-apply`
+are compatibility entrances to the same Reset. They do not retain old verification rules.
 
-RECORD selects entire signed peer records, including all operations, generation Producer
-proofs and indivisible pending Observed/Generation publication. Stack-only partial
-deletion is unavailable. Other records survive through the existing journal encoder.
-ALL also accepts invalid JSON, signatures or structure; no unverified field identifies
-its owner or narrows scope. Its report explicitly treats other Tasks and the original
-execution scope as unknown. Unsafe ownership, symlinks, hardlinks, permissions and
-redirected paths still block both modes.
+Retry the same Plan after interruption. Reuse its durable approval, finish remaining
+exact targets, and infer completion from processed files if only the result notification
+is missing. Preserve raw corrupt originals. A newly created request or changed file is
+outside the old approval and is never deleted on retry. Backup failure leaves original
+records intact. Keep private originals and approval outside Git for the Reset transaction.
 
-Before its sole atomic journal replacement/removal, Apply saves the complete original,
-SHA-256, approved Plan/target/selection, expected replacement, Human confirmation and all
-existing account/Region `inputs-*` files under private `resets/<plan-sha256>/` beside the
-journal. The sealed `intent.json` is durable before journal mutation and also serves as
-the independent fence; `result.json` records completion. Backup/audit failure leaves the
-journal unchanged. Copies are first staged under private `reset-staging/<plan-sha256>/`;
-the complete verified archive becomes active by one directory rename. An incomplete
-staged copy therefore cannot install a fence. Result-write failure leaves the original and fence intact. Retrying
-the same Plan requires fresh console confirmation and accepts only the exact original
-or intended result with matching archive. Other bytes stop retry. Incomplete, modified
-or unsafe archives stop new Deploy. Temporary reclamation preserves archived input
-references and never removes archives. Preserve this private evidence and its local
-seal before OS temporary-directory cleanup, which is outside Framework retention.
-No automatic archive/fence deletion is provided.
-
-A fresh ordinary Deploy, including another Task or checkout, checks fences under the
-same account/Region lock before recovery/preparation and again at the normal Import
-checks before preparation and Execute. Each archived operation is `PENDING` until
-verified or explicitly Human-resolved. Known original-token success reuses the existing
-polling, exact Stack identity/terminal-state and required Output checks. Before a fresh
-Execute, an immutable signed verification intent and `VERIFIED_COMPLETE` receipt save
-the original operation fingerprint, Execute evidence, StackId, terminal status and
-verified Output requirements. A missing/modified result after intent blocks; it cannot
-be silently reverified. Subsequent Deploys verify that receipt without comparing the old
-CREATE against a later UPDATE status. The ordinary current-Task Stack/ChangeSet/Output
-checks continue unchanged; historical success grants no Execute approval.
-
-Unverified archived operations remain dependency inputs after removal from the ordinary
-journal. The existing Delivery/live Import/Export independence checks run before new
-Execute. A differently named dependent Stack is blocked until completion or explicit
-resolution; a proven independent Stack may proceed. Missing Delivery, incomplete
-inventories, changed identities and unreadable dependency proof never imply independence.
-Executable old ChangeSets and unfinished runtime mutations remain pending.
-
-An unknown-scope ALL Reset remains fenced by default. Human investigation has its own
-Plan/Apply, separate from Reset consent, from the selected repository root:
-
-```console
-python3 -B framework/scripts/cloudformation-operation-reset.py fence-plan --environment dev --alias cde --fence <reset-plan-sha256> --stack <exact-StackName> --risk "<Human investigation, affected scope and residual duplicate-execution risk>"
-python3 -B framework/scripts/cloudformation-operation-reset.py fence-apply --environment dev --alias cde --plan <fence-plan-sha256>
-```
-
-Repeat `--stack` for each explicitly chosen Stack; never infer this list from damaged
-JSON. These two commands authenticate the selected Account/Region using existing
-context checks (`--profile` is optional) and use read-only DescribeStacks/StackEvents.
-The dedicated signed Plan displays Account/Region, Reset ID, exact Stack scope, original
-proof presence, current AWS identity/status, matching original-token event status,
-read errors/unknowns, the Human's risk statement and an explicit duplicate-execution
-warning. No template, Output value or secret contents are displayed. A successful or
-absent current Stack cannot reconstruct lost execution scope or certify the old Execute.
-AWS read failure stays `UNKNOWN`; no machine safety conclusion is recorded.
-
-Fence Apply rechecks target configuration, journal bytes, immutable archive and appended
-evidence inventory, and AWS observations before and after interactive approval. A known
-running AWS operation blocks Apply. The Human must type the separate exact phrase
-`RESOLVE <execution-account> <region> <reset-id> <comma-separated-StackNames> <full-fence-plan-sha256>`.
-There is no `--force`/`--yes`, noninteractive approval, LLM approval or Reset-consent reuse.
-Changes require a new Plan/review. An atomic signed append under the original archive
-records the complete Plan, approval and `HUMAN_RESOLVED`; originals remain immutable.
-This is an explicit Human risk exception, never `VERIFIED_COMPLETE`. For unknown scope,
-only the listed future StackNames are released from that particular Reset fence; all
-other names and all other Reset fences remain effective. For known scope, only the
-listed archived Stack operations are resolved. Damaged historical verification proof
-still blocks. Approval never starts Deploy or approves its current ChangeSet.
-
-`--recover-operations` retains recovery-only behavior and never starts a new Deploy.
-Reset and Fence resolution prove no Observed completion, Model integrity or generation
-completion. Preserve the private archives, appended proofs and local seal before OS
-temporary-directory cleanup; neither operation deletes archives or erases fences.
-
-### Lost reset signature key recovery
-
-When the original local signature key is unavailable, ordinary Reset/Fence operations
-remain blocked. Only an explicit Human decision accepting the loss of historical proof
-may use `cloudformation-operation-reset.py lost-key-plan --environment <env> --alias
-<alias> --stack <exact-name> [--stack <exact-name>] --risk "<Human risk decision>"`.
-The Plan preserves every original reset archive in place and freezes its full byte inventory.
-It treats all historical scope and signatures as untrusted; it never re-signs old evidence.
-The active operation journal must be absent. Selected current Stacks must be absent or
-in a verified successful terminal state; unknown/running/failed states block.
-
-The Human runs `lost-key-apply --environment <env> --alias <alias> --plan <id>` in an
-interactive terminal and types the displayed `ACCEPT-LOST-KEY` challenge. An LLM must
-never type that confirmation or invoke Apply on the Human's behalf. Apply rechecks
-Account/Region, repository, target configuration, every archive byte and current AWS
-states before and after consent. It appends a newly signed risk-exception receipt;
-it does not assert VERIFIED_COMPLETE, remove archives or execute AWS mutations.
-
-Deploy may bypass the historical reset fences only for an exact subset of those future
-StackNames in that repository/environment/target while all frozen archive bytes match.
-Other targets/Stacks remain subject to the existing checks. A modified/missing receipt,
-changed archive or changed target configuration blocks. Current Task, ownership,
-Import/Export, ChangeSet approval, execution and observation checks remain mandatory.
-Old temporary input files remain retained if the original reset seals cannot be verified.
-Preserve original archives, the new receipt and the current signature key together.
+Reset does not stop AWS, certify success/rollback, resolve Model values or publish a
+Task. If AWS is still running, Reset itself completes and normal current-state
+classification continues to report RUNNING. No Reset history gates ordinary Deploy.
 
 ### Deployment execution
 
-Use current Task/target/account/Region/profile/scope/input guards before each mutation, original ChangeSet ID/Stack ID and full content re-fetch immediately before Execute, and one stable persisted Token for uncertain submissions. Human approval applies only to the current complete destructive ChangeSet. Stop new starts on errors, drain peers, synchronize each success and verify Output/Export facts. Retain/DELETE_SKIPPED/unknown destruction and integrated children without identifiers never reset identifiers. Do not change IaC, widen scope or infer missing evidence.
+Use current Task/target/account/Region/profile/scope/input guards before each mutation, original ChangeSet ID/Stack ID and full content re-fetch immediately before Execute, and one stable persisted Token for uncertain submissions. Human approval applies only to the current complete destructive ChangeSet. Hold new starts for actual authority/scope/concurrency violations and drain active requests. A failed Stack leaves independent same-Order peers eligible; later Orders still require their earlier AWS success conditions. The LLM explicitly saves current observations for any outcome and verifies current Output/Export facts. Retain/DELETE_SKIPPED/unknown destruction and integrated children without identifiers never reset identifiers. Do not change IaC, widen scope or infer missing evidence.
 
 ## Explicit Stack destroy
 

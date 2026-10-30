@@ -1070,8 +1070,10 @@ def observed_snapshot(
         for key in old.values.keys() | new.values.keys():
             if key.startswith("observed."):
                 authority.pop(key, None)
-                for field in ("value", "property", "comment"):
-                    values.pop(key.removesuffix("value") + field, None)
+                values.pop(key, None)
+                if key.startswith("observed.row."):
+                    for field in ("property", "comment"):
+                        values.pop(key.removesuffix("value") + field, None)
                 locations.pop(key, None)
         for record in new.records:
             locations[record.key] = (path, record.line)

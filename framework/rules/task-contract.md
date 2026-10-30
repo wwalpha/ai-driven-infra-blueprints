@@ -64,6 +64,7 @@ Select from the Human's requested change using this table before loading a workf
 - Generated views whose publication bytes are unchanged are excluded from publication. Retain technical projection/ownership safety and the single all-target input comparison in Selection and publication; publish only the projected changed bytes.
 - For isolated worktree Git integration only, explicit human approval of concrete validation failures may permit commit/rebase/merge/cleanup through `worktree_task.py finalize --human-approved-validation-failure "<approval and accepted failures>"`. Keep the task `suspend` and its current Suspension reason; do not use `--complete` or claim validation PASS. All requested work/inputs must otherwise be finished; scope errors, Git safety blocks, and AWS permission boundaries remain in force. See [worktree skill](../../.agents/skills/worktree/SKILL.md).
 - Framework-only governance/catalog-maintenance/migration tasks with explicit `framework` Validation scope use the same running-parent final-candidate sequence as Model-only tasks: private commit, latest-local-base rebase, classified validation, then completed and exact-HEAD ff-only merge. Their existing Framework scoped validator requires no Consumer service tuple. Dependency-selected UTs, necessary IT and static checks remain mandatory under Validation policy. Other Task kinds and explicit suspended-failure approval keep their existing completion order.
+- CloudFormation Deploy completion concerns the current result Snapshot: preserve AWS FAIL, validate Model/reference/scope/View and the latest-base candidate, and include completed before the same candidate commit/merge. No additional Human failure approval or force is required. Active/uncertain AWS requests retain tracking; other Workflow completion conditions are unchanged.
 - Complete only after successful final validation under [Validation policy](loop-engineering.md#validation-policy) and all requested work is finished. Use `task_contract.py --task-file tasks/<task-name>.md --complete`; IMPORT completion retains its evidence check. Delete completed contracts when the diff disappears; do not retain task history or evidence.
 - When stopping for a check error, set only this task's Task status to `suspend`, whether the cause is this task, another task, unregistered changes, or the baseline. `## Suspension reason` is mandatory and must name the failed check, target file, concrete error, and any necessary log path outside the repository. Retain only the current stop reason; do not add execution history or evidence. The local loop automatically suspends after all checks finish or child processes stop, including precheck failures. Do not infer which of multiple running tasks to suspend without an explicit selector. Staged validation status changes apply only within the snapshot.
 - When an unresolved error requires stopping outside the local loop, suspend this contract with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<具体的な問題>'`. Preserve other tasks' contracts and uncommitted changes; do not repair unrelated failures within this task. A safely resolved operation error does not itself require stopping or suspension; follow Self recovery below.
@@ -86,7 +87,7 @@ Select from the Human's requested change using this table before loading a workf
   outputs in Validation scope. Read-only reference dependencies do not require whole-service
   quality validation or write authority. Read-only producer discovery never expands Allowed paths, Deployment
   scope or AWS permission. Validate final identities and references; only dedicated operations require preservation outside their declarations.
-  Infrastructure observation writers patch only permitted observed.value in the same
+  Infrastructure observation writers patch only permitted observed Row values and Deploy Stack status/observedAt/reason in the same
   properties. Destroy cannot change desired/display/reference design. Infrastructure
   update keeps Human intended-design inputs immutable; retain generated-view equality
   and unambiguous deployment-target handoff checks.
@@ -96,8 +97,7 @@ Select from the Human's requested change using this table before loading a workf
   AWS acquisition and acquired add/refresh/bind/replace remain exclusive to /import; explicit ordinary IMPORT corrections use the guarded Model edit API.
   Do not proceed to IaC, AWS mutation or scenarios.
 - `infrastructure`: Read the approved design, perform only explicitly authorized IaC,
-  checks and deploy/apply, then synchronize permitted observations/generated views after
-  success. Independent destroy changes only explicit designed Stacks, post-success
+  checks and deploy/apply. CloudFormation Deploy synchronizes current permitted observations/generated views regardless of attempt success; other phases retain their success rules. Independent destroy changes only explicit designed Stacks, post-success
   observations, corresponding generated Markdown/JSON and its Task. IaC, desired/display/
   reference design, scenarios and results must not change. Explicit /destroy scope
   authorizes that action without a second confirmation. Infrastructure update treats

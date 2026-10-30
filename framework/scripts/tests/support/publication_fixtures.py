@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import model.importing.repository as repository
-from deploy import git_publication, worktree
+from deploy import git_publication, steps, worktree
 
 
 def git_revision(root, name):
@@ -37,12 +37,12 @@ def publication_repository(revision=git_revision):
             worktree,
             require=lambda *a, **k: None,
             bind=lambda *a, **k: None,
-            save_progress=lambda *a: None,
             adopt_successes=lambda *a: None,
             require_complete=lambda *a: None,
             check_pending_progress=lambda *a: None,
-            read_progress=lambda *a: None,
         ),
+        patch.object(steps, "checkpoint_receipts", return_value={}),
+        patch.object(steps, "publish_snapshot"),
         patch.object(git_publication, "sync"),
         patch.object(git_publication, "retry", return_value=None),
     ):

@@ -20,7 +20,14 @@ from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
-from deploy import change_sets, context, inputs, operation_journal
+from deploy import (
+    change_sets,
+    context,
+    current_request,
+    current_state,
+    inputs,
+    operation_journal,
+)
 
 
 def repair_lock(root: Path) -> AbstractContextManager[None]:
@@ -317,7 +324,24 @@ def require_settled(
         files.update(
             ref["path"] for field in ("inputRefs", "modelRefs") for ref in entry[field]
         )
-    records = operation_journal.read(operation_journal.location(target)) or []
+    journal_path = operation_journal.location(target)
+    if journal_path.exists() and json.loads(journal_path.read_bytes()) == {
+        "protocol": "current-request-v2"
+    }:
+        reader = dependency_reader(root, request)
+        for name in sorted(stacks):
+            path = current_request.location(target, name)
+            with operation_journal.locked(path):
+                current = current_state.read(reader, name)
+                record = current_request.read(path)
+                if current_state.category(current) in {"RUNNING", "UNKNOWN"}:
+                    raise Blocked("repair target AWS operation is not settled: " + name)
+                if record:
+                    if not current_request.settled(reader, record, current):
+                        raise Blocked("repair target request is not settled: " + name)
+                    path.unlink()
+        return
+    records = operation_journal.read(journal_path) or []
     pending = {}
     reader = None
     for record in records:

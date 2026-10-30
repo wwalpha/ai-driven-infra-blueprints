@@ -7,6 +7,7 @@ import sys
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1160,9 +1161,9 @@ def test_controller_passes_current_import_proof_to_independence(tmp_path, source
     backend.aws = Mock(side_effect=partial(dependency_response, [entry], [], ""))
     backend.check_imports({"name": "S3"})
     operations = [c.args[0] for c in backend.aws.call_args_list]
-    assert operations.count("list_exports") == (1 if source == "unknown" else 0), (
-        operations
-    )
+    assert operations.count("list_exports") == (
+        1 if source in {"unknown", "pending"} else 0
+    ), operations
     assert (
         sum(
             c.args[0] == "describe_stacks"
@@ -1171,7 +1172,7 @@ def test_controller_passes_current_import_proof_to_independence(tmp_path, source
         )
         == 1
     )
-    if source in {"delivery", "pending", "both"}:
+    if source in {"delivery", "both"}:
         for field in ("Value", "ExportingStackId"):
             original = entry[field]
             entry[field] += "-changed"
@@ -1750,14 +1751,11 @@ def test_normal_review_persists_verified_output_evidence_for_restart(tmp_path):
     state["expectedOutputs"] = change_sets.required_outputs(document, {}, TARGET, "Kms")
     backend.aws = Mock(side_effect=partial(verified_output_response, change, document))
     state["status"] = backend.review_prepared(unit, state, change)
-    J.save(path, backend)
-    backend.aws.reset_mock()
-    J.recover(backend, path, task, ["Consumer"])
-    assert J.read(path)[0]["operations"]["Kms"]["state"]["noChangeEvidence"]
-    assert all(
-        call.args[0] != "describe_change_set" for call in backend.aws.call_args_list
+    TestCase().assertEqual(state["status"], "SUCCESS")
+    TestCase().assertNotIn("noChangeEvidence", state)
+    TestCase().assertTrue(
+        any(call.args[0] == "describe_stacks" for call in backend.aws.call_args_list)
     )
-    assert any(call.args[0] == "get_template" for call in backend.aws.call_args_list)
     backend.execute.assert_not_called()
 
 

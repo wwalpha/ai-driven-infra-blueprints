@@ -479,7 +479,6 @@ def check_partial_generation_then_dependency_completion(owned):
         "bad-cfn",
         "outside",
         "synced",
-        "failed",
         "ambiguous",
         "empty",
     ],

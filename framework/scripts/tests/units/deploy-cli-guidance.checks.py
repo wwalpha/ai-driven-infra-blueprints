@@ -9,9 +9,9 @@ import shlex
 import subprocess
 import sys
 from argparse import Namespace
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -264,7 +264,7 @@ def check_pending_failure_uses_type_not_prose():
                 "--recover-operations",
                 "--approve-change-set",
                 "MaxConcurrentStacks",
-                "GROUP_COMPLETE",
+                "Snapshot",
             ],
         ),
         (
@@ -413,47 +413,17 @@ def check_preparation_and_handoff_keep_failure_exit_codes(tmp_path, capsys):
 
 @pytest.mark.parametrize("blocked", [False, True])
 def check_recovery_exit_reports_no_new_deploy(tmp_path, capsys, blocked):
-    target = {
-        "awsAccountId": "123456789012",
-        "awsRegion": "ap-northeast-1",
-        "iacEngine": "cloudformation",
-    }
-    args = Namespace(
-        **vars(ARGS),
-        recover_operations=True,
-        pause_after_group=False,
-        approve_change_set=[],
-    )
-    backend = SimpleNamespace(workdir=None, pending_publication={})
-    with (
-        patch.object(run_context.context, "load_target", return_value=target),
-        patch.object(run_context.context, "check_deploy_context", return_value=target),
-        patch.object(
-            run_context, "task_snapshot", return_value=SimpleNamespace(text="")
-        ),
-        patch.object(run_context, "task_reads", return_value=nullcontext()),
-        patch.object(run_context, "active_scope", return_value="deploy"),
-        patch.object(
-            run_context.operation_journal, "locked", return_value=nullcontext()
-        ),
-        patch.object(run_context.temporary, "reclaim"),
-        patch.object(run_context.temporary, "create"),
-        patch.object(
-            run_context.operation_journal,
-            "recover",
-            side_effect=ValueError("private-secret") if blocked else None,
-        ),
-        patch.object(run_context.operation_journal, "publication_conflicts"),
-        patch.object(run_context, "run_deploy") as deploy,
-    ):
-        assert run_context.run(
-            args, tmp_path, Timing(tmp_path), ROOT, Mock(return_value=backend), Mock()
-        ) == (2 if blocked else 0)
-        deploy.assert_not_called()
-    report = json.loads(capsys.readouterr().out)
-    assert report["result"] == ("STOPPED" if blocked else "RECOVERED")
-    assert report["nextAction"]["command"] is None
-    assert "private-secret" not in json.dumps(report)
+    args = Namespace(**vars(ARGS), recover_operations=True)
+    backend, units = Mock(), Mock()
+    with patch.object(
+        run_context.step_ops, "run", return_value=2 if blocked else 0
+    ) as inspect:
+        TestCase().assertEqual(
+            run_context.run(args, tmp_path, Timing(tmp_path), ROOT, backend, units),
+            2 if blocked else 0,
+        )
+    TestCase().assertEqual(args.action, "status")
+    inspect.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -468,78 +438,21 @@ def check_recovery_exit_reports_no_new_deploy(tmp_path, capsys, blocked):
 def check_controller_final_json_keeps_state_and_exit_code(
     tmp_path, capsys, result, extra, stage
 ):
-    target = {
-        "awsAccountId": "123456789012",
-        "awsRegion": "ap-northeast-1",
-        "iacEngine": "cloudformation",
-    }
-    args = Namespace(
-        **vars(ARGS),
-        recover_operations=False,
-        pause_after_group=False,
-        approve_change_set=[],
-    )
-    backend = SimpleNamespace(workdir=None, pending_publication={})
-    context = {
-        "taskFile": "tasks/current.md",
-        "states": {
-            "a": {
-                "status": "SUCCESS",
-                "observedSynced": True,
-                "approvedChangeDigest": "omit",
-            }
-        },
-        "metrics": {"example": 1},
-        "inputDigests": {},
-        **extra,
-    }
-    with (
-        patch.object(run_context.context, "load_target", return_value=target),
-        patch.object(run_context.context, "check_deploy_context", return_value=target),
-        patch.object(
-            run_context, "task_snapshot", return_value=SimpleNamespace(text="")
-        ),
-        patch.object(run_context, "task_reads", return_value=nullcontext()),
-        patch.object(run_context, "active_scope", return_value="deploy"),
-        patch.object(
-            run_context.operation_journal, "locked", return_value=nullcontext()
-        ),
-        patch.object(run_context.temporary, "reclaim"),
-        patch.object(run_context.temporary, "create"),
-        patch.object(run_context.operation_journal, "recover"),
-        patch.object(run_context.operation_journal, "publication_conflicts"),
-        patch.object(run_context.operation_journal, "save"),
-        patch.object(run_context.operation_journal, "adopt_recovered"),
-        patch.object(run_context.operation_journal, "adopt_prepared"),
-        patch.object(run_context, "RunModels"),
-        patch.object(run_context, "model_session", return_value=nullcontext()),
-        patch.object(run_context, "new_context", return_value=context),
-        patch.object(run_context, "run_deploy", return_value=result),
-        patch.object(
-            run_context.handoff, "record_failure", return_value="/tmp/failure.json"
-        ),
-    ):
-        assert run_context.run(
-            args,
-            tmp_path,
-            Timing(tmp_path),
-            ROOT,
-            Mock(return_value=backend),
-            Mock(return_value=(2, [])),
-        ) == (2 if result == "STOPPED" else 0)
-    report = json.loads(capsys.readouterr().out)
-    assert report["result"] == result and report["stage"] == stage
-    assert report["states"]["a"] == {"status": "SUCCESS", "observedSynced": True}
-    assert report["metrics"] == {"example": 1}
-    assert report["repairFailure"] == (
-        "/tmp/failure.json" if result == "STOPPED" else None
-    )
-    assert "private-secret" not in json.dumps(report)
+    args = Namespace(**vars(ARGS), recover_operations=False)
+    with patch.object(
+        run_context.step_ops, "run", return_value=2 if result == "STOPPED" else 0
+    ) as advance:
+        TestCase().assertEqual(
+            run_context.run(args, tmp_path, Timing(tmp_path), ROOT, Mock(), Mock()),
+            2 if result == "STOPPED" else 0,
+        )
+    TestCase().assertEqual(args.action, "advance")
+    advance.assert_called_once()
 
 
 def check_handled_controller_stop_prints_one_json(tmp_path, capsys):
     with patch.object(
-        controller.run_ops.context,
+        controller.steps.context,
         "load_target",
         side_effect=ValueError("private-secret"),
     ):
@@ -551,7 +464,7 @@ def check_handled_controller_stop_prints_one_json(tmp_path, capsys):
             == 2
         )
     report = json.loads(capsys.readouterr().out)
-    assert report["result"] == "STOPPED" and report["stage"] == "TARGET_SELECTION"
+    assert report["result"] == "STOPPED" and report["stage"] == "STEP"
 
 
 def check_structured_reference_cause_and_handoff_command(tmp_path):

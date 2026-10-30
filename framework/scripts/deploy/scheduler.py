@@ -11,27 +11,14 @@ from functools import partial as _bind_framework_callback
 from typing import TypeVar
 
 from utils.cloudformation.environment import EnvironmentValuePending
-from utils.cloudformation.inputs import Blocked
 from utils.type_contracts import JsonValue as JsonValue
 
-from deploy import failures
+from deploy import current_state, failures
+from deploy.current_state import FAILED as FAILED
+from deploy.current_state import SUCCESS as SUCCESS
 from deploy.typing import Save, SchedulerBackend, Sleep, StackState, StackUnit, States
 
 ReadResult = TypeVar("ReadResult")
-
-SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
-FAILED = {
-    "CREATE_FAILED",
-    "ROLLBACK_COMPLETE",
-    "ROLLBACK_FAILED",
-    "DELETE_COMPLETE",
-    "DELETE_FAILED",
-    "UPDATE_FAILED",
-    "UPDATE_ROLLBACK_COMPLETE",
-    "UPDATE_ROLLBACK_FAILED",
-    "IMPORT_ROLLBACK_COMPLETE",
-    "IMPORT_ROLLBACK_FAILED",
-}
 
 
 def _callback_read_parallel_read(method, states, /, unit):
@@ -67,13 +54,9 @@ def run_group(
     single_step: bool = False,
 ) -> str:
     """Single event loop owns the queue; AWS executions overlap, Python decisions do not."""
-    pending = [
-        unit
-        for unit in units
-        if states[unit["name"]]["status"] != "SUCCESS"
-        or single_step
-        and not states[unit["name"]].get("observedSynced")
-    ]
+    for state in states.values():
+        state.pop("schedulerError", None)
+    pending = [unit for unit in units if states[unit["name"]]["status"] != "SUCCESS"]
     if not pending:
         return (
             "STOPPED"
@@ -95,8 +78,7 @@ def run_group(
             states[unit["name"]].setdefault("schedulerError", violation)
         save()
     stopped = drain_only or any(
-        state["status"] == "FAILED" or state.get("schedulerError")
-        for state in states.values()
+        state.get("schedulerError") for state in states.values()
     )
     input_blocked = set()
     while True:
@@ -119,20 +101,11 @@ def run_group(
                     state["status"] = "NOT_STARTED"
                     save()
                     continue
-                state["stackStatus"] = status
-                if (
-                    state.get("failureDetected")
-                    or "ROLLBACK" in status
-                    or status.endswith("_FAILED")
-                ):
-                    stopped = True
-                if status in SUCCESS:
-                    state["status"] = "SUCCESS"
-                elif status in FAILED:
-                    state["status"] = "FAILED"
-                    stopped = True
-                elif not status.endswith("_IN_PROGRESS"):
-                    raise Blocked(f"unrecognized stack status: {status}")
+                current_state.record_attempt(state, status)
+                if status == "UNCONFIRMED":
+                    input_blocked.add(unit["name"])
+                    save()
+                    continue
                 state.pop("pollError", None)
                 state.pop("pollReadFailures", None)
                 if state["status"] in {"SUCCESS", "FAILED"}:
@@ -144,7 +117,6 @@ def run_group(
                 state["pollError"] = str(error)
                 state["pollReadFailures"] = state.get("pollReadFailures", 0) + 1
                 failures.exception(state, error, "POLL")
-                stopped = True
             save()
         if any(s.get("pollReadFailures", 0) >= 3 for s in states.values()):
             return "STOPPED"
@@ -172,7 +144,9 @@ def run_group(
                 for u in group
                 if states[u["name"]]["status"] in {"NOT_STARTED", "BLOCKED"}
                 and u["name"] not in input_blocked
+                and not states[u["name"]].get("requestError")
             ]
+            pending.sort(key=lambda u: states[u["name"]]["status"] == "BLOCKED")
             for unit in pending[: max(0, limit - running - preparing)]:
                 state = states[unit["name"]]
                 try:
@@ -217,12 +191,9 @@ def run_group(
                     )
                     state["status"] = "BLOCKED"
                     state["reason"] = str(error)
-                    if isinstance(error, EnvironmentValuePending):
-                        input_blocked.add(unit["name"])
-                    else:
-                        stopped = True
-                if state["status"] == "BLOCKED" and unit["name"] not in input_blocked:
-                    stopped = True
+                    input_blocked.add(unit["name"])
+                if state["status"] == "BLOCKED":
+                    input_blocked.add(unit["name"])
                 save()
                 if stopped:
                     break
@@ -247,7 +218,7 @@ def run_group(
                     failures.exception(state, error, "CHANGESET_REVIEW")
                     state["status"], state["reason"] = "BLOCKED", str(error)
                 if state["status"] == "BLOCKED":
-                    stopped = True
+                    input_blocked.add(unit["name"])
                 save()
         if not stopped:
             ready = [u for u in group if states[u["name"]]["status"] == "READY"]
@@ -266,8 +237,8 @@ def run_group(
                     if isinstance(error, EnvironmentValuePending):
                         state["status"] = "BLOCKED"
                         input_blocked.add(unit["name"])
-                    else:
-                        stopped = True
+                    elif state["status"] == "BLOCKED":
+                        input_blocked.add(unit["name"])
                 save()
                 if stopped:
                     break
@@ -279,11 +250,16 @@ def run_group(
             if stopped:
                 return "STOPPED"
             if all(
-                states[unit["name"]]["status"] == "SUCCESS"
+                states[unit["name"]]["status"] in {"SUCCESS", "FAILED"}
                 or unit["name"] in input_blocked
                 for unit in group
             ):
-                return "STOPPED" if input_blocked else "GROUP_COMPLETE"
+                return (
+                    "GROUP_COMPLETE"
+                    if not input_blocked
+                    and all(states[u["name"]]["status"] == "SUCCESS" for u in group)
+                    else "STOPPED"
+                )
         if single_step:
             return "STOPPED" if stopped else "ACTIVE"
         sleep(5)

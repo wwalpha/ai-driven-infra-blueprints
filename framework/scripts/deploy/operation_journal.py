@@ -40,6 +40,9 @@ else:
 
 # No approvals, failure archives, repair histories, workflow bindings or completed records.
 OPERATION_FIELDS = {
+    "failureDetected",
+    "attemptResult",
+    "needsCurrentReview",
     "status",
     "stackId",
     "stackStatus",

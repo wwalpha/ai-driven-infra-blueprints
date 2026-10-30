@@ -1,4 +1,4 @@
-"""Private Deploy input directories, reclaimed only under the account/Region lock."""
+"""Private Deploy inputs; retain current requests and locally owned save/repair evidence."""
 
 import os
 import shutil
@@ -45,17 +45,29 @@ def create(journal, root, task, target, stacks):
     return path
 
 
-def reclaim(journal, root, target):
+def reclaim(journal, root, target, *, states=None):
     """Unknown files survive; no PID inference, global /tmp sweep or lock removal."""
-    records = operation_journal.read(journal) or []
-    needed = references(records)
-    try:
-        needed.update(operation_reset.retained_templates(journal))
-    except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
-        print(
-            f"Deploy temporary files retained: reset evidence: {error}", file=sys.stderr
-        )
-        return
+    if states is not None:
+        needed = {
+            Path(saved["delivery"]["path"])
+            for saved in states.values()
+            if saved.get("status") in {"RUNNING", "READY", "CHANGESET_CREATING"}
+            and saved.get("delivery", {}).get("path")
+        }
+    else:
+        try:
+            records = operation_journal.read(journal) or []
+        except (Blocked, OSError, ValueError, KeyError, TypeError):
+            return
+        needed = references(records)
+        try:
+            needed.update(operation_reset.retained_templates(journal))
+        except (Blocked, OSError, ValueError, KeyError, TypeError) as error:
+            print(
+                f"Deploy temporary files retained: reset evidence: {error}",
+                file=sys.stderr,
+            )
+            return
     for directory in journal.parent.glob("inputs-*"):
         try:
             operation_journal.private_path(directory, directory=True)

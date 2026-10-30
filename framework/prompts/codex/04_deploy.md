@@ -36,25 +36,20 @@ Preparationはoffline。AIが契約候補と出力範囲を確認してから登
 
 ## LLM-controlled Stack checkpoints
 
-同じTask・Target・完全な`--stack`範囲を毎回指定し、次の操作をLLMが順番に選ぶ。
+同じ Task・Target・完全な `--stack` 範囲を使い、LLM が操作を選ぶ。
 
-1. `--action advance`で実行可能なAWS Stackを先に投入する。各呼出しはRUNNINGを1回確認し、同じDeployOrderと並列上限を守って空き枠へ投入して戻る。CloudFormationはCLI終了後もAWS側で進む。
-2. `--action status`でStack別AWS/Observed/生成/checkpointと次の操作を確認する。直ちに投入可能なAWS操作があれば先にadvanceする。
-3. AWS実行中に直ちに行うAWS操作がなければ、成功済み未同期Stackを選び`--action sync --sync-stack <StackName>`を実行する。対象成功の再確認、全リソースの識別子確認、Observedのみの保存、参照伝播と必要な生成はPythonが行う。
-4. 同期・生成完了後、`--action checkpoint --sync-stack <StackName>`で必要な検証と対象差分のローカルcommitを行う。Git反映は[専用の差分publication](../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication)として試み、PENDING/CONFLICTでもAWS成功・ローカルcheckpointを保持する。Taskはrunningを維持する。
-5. checkpoint後はadvanceへ戻る。全StackのAWS成功、Observed全件確認、必要生成・ローカルcheckpoint・Git反映が完了した場合だけDeploy全体を完了とする。
+1. `--action status` は最新 AWS と今回の試行・保存状況を別々に表示する。
+2. `--action advance` は最新状態から限定された AWS 操作を一回進める。固定入力、DeployOrder と並列数、未承認 delete/replacement の承認境界を守る。同 Order の独立 Stack は失敗した peer によって一律停止しない。後 Order の開始には前 Order の成功が必要。
+3. `--action sync --sync-stack <StackName>` は成功・失敗・rollback・部分適用・未実行・実行中・取得不能の現在事実を保存し、生成・必須 Snapshot 検証・commit・Git publication まで行う。LLM が時機と対象を決め、不可分な候補は全対象を繰り返す。別の checkpoint 操作は通常不要。
+4. `--action checkpoint --sync-stack <StackName>` は保存済み候補の検証・commit・統合だけを再開する互換操作。AWS を再実行せず、再観測も要求しない。
 
-Git publicationがPENDINGなら、`gitPublication.checkpoints`の保存済みcommit、`checkpointRequired`、`retryable`と`nextActions`を確認する。再試行可能な場合だけ、提示された既存の`worktree_task.py deploy-publish --task-id <id>`で保存済みcheckpointをGit反映する。この操作はAWS Execute、Observed同期、生成、未確定差分のstage/commitを行わない。未確定Model候補は先に明示sync・生成・検証・checkpointを完了する。未確定checkpointが残る間はGit専用publicationを実行しない。入力・候補・modeの証拠が不足/不一致なら、理由付き要確認として停止する。
+Model は原子的に先に保存する。View 生成失敗でも古い Model に戻さず、生成可能なサービスを保存し、失敗 View と原因を報告する。未確認識別子は observed 値を削除し、古いラベル・cache・実行入力に戻さない。Desired と実行済 Consumer の実設定を推測で変更しない。
 
-CONFLICTでは報告された競合file、base/sourceと影響を提示し、Humanの明示判断を求める。自動解決や未承認の実行可能な解決コマンドを生成しない。保存されたpublication commitがlocal baseに含まれることを確認してから該当Git作業を完了扱いにする。SUCCESSで未反映checkpointがなければ追加のGit再試行を行わない。
+途中 sync 後は同じ running Task/Worktree と固定 IaC・parameters・artifact で継続する。全体の必要生成・Snapshot 検証が済み AWS 要求が確定した最終候補には completed を含め、その同じ候補を検証・commit・merge する。Deploy FAIL は FAIL のまま保存し、Snapshot PASS と Git 完了なら Task を終了できる。AWS 実行中・送信不確定は追跡を残して running を維持する。個別 checkpoint や全 Stack SUCCESS は終了条件ではない。
 
-`--sync-stack`は同期・checkpointだけに指定し、不可分な候補には全対象を繰り返す。Producer依存で生成不能なViewだけを既存待機キューに残す。依存解消後にLLMがsyncを再実行するまでcheckpointしない。更新0件でも全実値確認が必要。desired、IMPORT実体、秘匿ARN規則は維持する。
+Git PENDING/CONFLICT は AWS 結果と独立する。保存済み commit のみを `worktree_task.py deploy-publish --task-id <id>` で再開する。commit 成功・merge 失敗でローカル Task が completed でも、AWS 再実行や元観測のやり直しは不要。競合は file/base/source/影響を示して既存の Human 明示判断を受け、最新統合先を含む候補を検証する。強制統合・自動競合解決はしない。
 
-Sub Agent、PythonによるLLM制御、Model自動更新スケジューラ、背景Model writer、固定間隔自動同期を使わない。保存中は同じWorktreeの入力を編集しない。checkpointの途中に最終finalizeを使わない。
-
-中断時は同じ短時間操作を再実行し、元Stack/ChangeSet/Token、保存publication、commit intentとローカルreceiptを照合する。Journalの未知・破損を理由にResetしない。Task内の第三者差分は停止し、基底側のGit競合はAWSから分離してHuman判断を待つ。強制統合・自動rebase・resetをしない。`--action`省略の従来一括実行と`--recover-operations`は互換入口として残るが、短時間操作の未完了Journalには混用できない。
-
-checkpoint commit前/receipt未確定の中断は既存の`--action checkpoint`から再開する。receipt確定後・main未反映なら保存済みcommitだけをGit publicationする。main反映済みなら既存intentを照合して証拠だけを確定し、二重commitしない。Task最終完了時の契約file commitはStack単位Model checkpointと別の既存finalize処理に残す。
+Sub Agent、Model 背景 writer、固定間隔同期、Python によるエージェント制御は使わない。同じ Worktree の入力を保存中に編集しない。`--action` 省略は advance、`--recover-operations` は現在要求の状態確認への互換入口であり、旧履歴の証明条件を復活させない。
 
 ## Confirm unapproved delete/replacement
 
@@ -64,13 +59,15 @@ checkpoint commit前/receipt未確定の中断は既存の`--action checkpoint`�
 
 ## Unfinished AWS operation recovery
 
-[Independent controller runs](../../rules/cloudformation.md#independent-controller-runs-and-execution-timing)を適用する。送信不明・未完了AWS操作・未確定publicationを通常Deployとして再送しない。`--recover-operations`は現在Taskの権限内で元Stack/ChangeSet/TokenとObserved/publicationを検証・確定し、新規Deployを開始しない。
+通常開始・再開は対象 Stack の最新 AWS 状態を先に取得する。旧 Task、mode、StackStatus、expectedOutputs、Observed、checkpoint/Git、Reset/Fence、特定の修復経路の証明は現在状態の採用・次の試行の条件にしない。UPDATE_COMPLETE だけで今回の Desired 適用済みとは判断せず、固定入力から ChangeSet を判定する。
 
-原因不明・権限/Target不一致・第三者変更・曖昧な識別子では停止する。JournalやLockを手編集・削除して回避しない。PENDING_DEPLOYは依存待ちとして扱い、通常のIaC不具合と断定しない。AWS成功後のObserved/生成失敗では再Executeせず、原因を解決して既存のguard付き復旧を使う。GROUP_COMPLETEは全体完了ではない。updateで許可されたProducer/Consumer変更を確認後、現在入力から独立起動する。
+共有記録は account/Region/StackName ごとの現在の未確定要求だけ。送信直前に同一 Stack ロック下で intent を保存し、応答喪失時は元の StackId・ChangeSetId・token を維持する。直前 Execute が不確定なら、単一の古い COMPLETE 読み取りで新 token の Execute を許可しない。現在 ChangeSet・token event を確認し、AWS 要求が決着したら Model/Git を待たず記録を終了する。破損時は当該 Stack の新しい変更だけを保留し、独立 Stack や Model 保存・Git 統合を止めない。
 
-Exportは共通Resolverで対象名だけを解決する。delivery.imports・現在のOutput契約等でProducerが既知なら、そのStackIdへのDescribeStacksでValue/Owner/Statusを再確認し、ListExportsを呼ばない。未知Producerだけ同一検証境界のListExportsでまとめて発見し、DescribeStacksで再確認する。Delivery/Create/Executeの取得結果を境界間で再利用しない。Output反映はDescribeStacks/GetTemplateで検証し、ListExportsを追加しない。
+REVIEW_IN_PROGRESS は ChangeSet と合わせて判断する。UPDATE_ROLLBACK_COMPLETE は今回失敗と次回更新可否を分ける。ROLLBACK_COMPLETE、rollback failed は AWS 制約に従う。構造化された不存在だけ ABSENT、取得不能は UNKNOWN。Output 欠落、削除履歴、不完全な一覧、保持リソースを不存在と混同しない。
 
-未完了Operationとの依存確認は既存のProducer→Consumer探索を維持し、起点/到達StackのOutputsと保存済み/予定Importを使う。ListImportsは到達StackのExportだけ。Repairの依存確認にも対象Stackを指定したDescribeStacksを許可する。参照APIはAccount/Region/API単位の共有頻度制御・期限・Throttling Retryを使い、変更系の再送設定や設計済み並列度を変更しない。
+Reset は Human の対象指定と一度の明示承認だけで原本保存・選択記録と関連 Fence の処理を完了する。同じ承認済み Plan の中断再開で再承認や RESOLVE を求めず、新要求を削除しない。自動 Reset は禁止。Reset 後に AWS が実行中なら Reset は完了し、通常判定が RUNNING を報告する。
+
+Export は共通 Resolver で必要名だけを解決する。既知 Producer は scoped DescribeStacks、未知だけ必要な ListExports を使う。古い Task の Outputs 一致を現在値保存条件にしない。同期や Git 障害を理由に AWS を再実行しない。
 
 ## External IaC repair handoff
 
@@ -88,4 +85,4 @@ Terraform RulesとHelpに従い、設計済みRoot/workspace/backend/variable in
 
 AWS変更/No Change、Stack別SUCCESS/FAILED/BLOCKED/NOT_STARTED、未反映Output/Export、Observed同期、Markdown/JSON生成、未確定操作を区別する。原因未確定はHuman判断が必要と報告する。
 
-AWS・Observed・生成・Git publicationを別々に報告する。PUBLICATION_PENDINGはAWS失敗ではなくGitのHuman判断/反映待ちであり、成功Stackを再Deployしない。RECOVEREDとGROUP_COMPLETEを新規Deploy全体の完了として報告しない。Task scope/Acceptanceと許可差分を確認し、[Validation policy](../../rules/loop-engineering.md#validation-policy)の最終検証と全保存/反映の成功後にのみTask完了とする。通常Deployはscoped task loopを使う。offline UTから実AWS成功を主張せず、次phase・scenarioを開始しない。
+Deploy 結果、現在 Stack 状態、Model 保存、Snapshot 検証、commit・merge、Task 状態を別々に報告する。PUBLICATION_PENDINGはAWS失敗ではなくGitのHuman判断/反映待ちであり、成功Stackを再Deployしない。RECOVEREDとGROUP_COMPLETEを新規Deploy全体の完了として報告しない。Task scope/Acceptanceと許可差分を確認し、[Validation policy](../../rules/loop-engineering.md#validation-policy)の最終検証と全保存/反映の成功後にのみTask完了とする。通常Deployはscoped task loopを使う。offline UTから実AWS成功を主張せず、次phase・scenarioを開始しない。

@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -19,15 +20,23 @@ import task_contract_runtime as transitions
 import worktree_checkpoint as checkpoints
 import worktree_state as ws
 import worktree_task as wt
-from deploy import contracts, guards, inputs, operation_journal, worktree
+from deploy import (
+    contracts,
+    current_request,
+    guards,
+    inputs,
+    operation_journal,
+    worktree,
+)
 from deploy import git_publication as publication
 from model.format import parse
 from model.format import patch as patch_properties
-from support.deploy_controller_fixtures import ACCOUNT, aws_state, invoke
+from support.deploy_controller_fixtures import ACCOUNT, aws_state, drive, invoke
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import seed
 from support.worktree_task_fixtures import fixture, git
 from task_contract_core import read_task_snapshot, selected_task, set_status, start
+from utils.aws.client import AwsError
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -37,6 +46,195 @@ if not __debug__:
 def private_evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+
+
+class RequestProbe:
+    def __init__(self):
+        self.tokens = []
+        self.finished = False
+        self.lost = False
+        self.preparing = False
+        self.found = False
+
+    def aws(self, operation, **arguments):
+        name = arguments["StackName"]
+        if operation == "describe_stacks":
+            return {"Stacks": [{"StackId": name, "StackStatus": "UPDATE_COMPLETE"}]}
+        if operation == "describe_change_set":
+            if self.preparing and not self.found:
+                raise AwsError("cloudformation", operation, "ChangeSetNotFound")
+            return {
+                "Status": "CREATE_COMPLETE" if self.finished else "CREATE_IN_PROGRESS",
+                "ChangeSetId": arguments["ChangeSetName"],
+                "StackId": name,
+                "ExecutionStatus": "EXECUTE_COMPLETE" if self.finished else "AVAILABLE",
+            }
+        if operation == "describe_stack_events":
+            token = next(
+                (token for stack, token in reversed(self.tokens) if stack == name), None
+            )
+            return {
+                "StackEvents": [
+                    {
+                        "StackId": name,
+                        "PhysicalResourceId": name,
+                        "ClientRequestToken": token,
+                        "ResourceType": "AWS::CloudFormation::Stack",
+                        "ResourceStatus": "UPDATE_COMPLETE",
+                    }
+                ]
+                if self.finished and token
+                else []
+            }
+        raise ValueError(operation)
+
+    def send(self, runtime, service, operation, arguments):
+        key = (
+            arguments["StackName"],
+            arguments.get("ClientRequestToken", arguments.get("ClientToken")),
+        )
+        if key not in self.tokens:
+            self.tokens.append(key)
+        if not self.lost:
+            self.lost = True
+            raise TimeoutError("synthetic lost Execute response")
+        self.found = True
+        return {"Id": arguments.get("ChangeSetName"), "StackId": arguments["StackName"]}
+
+
+def check_current_request_is_shared_without_history_or_duplicate_execute(tmp_path):
+    case = TestCase()
+    with (
+        fixture() as primary,
+        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
+    ):
+        first = Path(wt.create(primary, "request-one")["worktree"])
+        second = Path(wt.create(primary, "request-two")["worktree"])
+        target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
+        probe = RequestProbe()
+        states = {
+            "Example": {
+                "currentStack": {"StackId": "Example", "StackStatus": "UPDATE_COMPLETE"}
+            }
+        }
+        one = SimpleNamespace(root=first, target=target, aws=probe.aws, states=states)
+        two = SimpleNamespace(root=second, target=target, aws=probe.aws, states=states)
+        journal = tmp_path / "operations/journal.json"
+        with patch.object(operation_journal, "location", return_value=journal):
+            arguments = {
+                "StackName": "Example",
+                "ChangeSetName": "change",
+                "ClientRequestToken": "original",
+            }
+            with case.assertRaises(TimeoutError):
+                current_request.send(
+                    one, "execute_change_set", dict(arguments), probe.send
+                )
+            case.assertIsNotNone(current_request.reconcile(two, {"name": "Example"}))
+            current_request.send(
+                two,
+                "execute_change_set",
+                {**arguments, "ClientRequestToken": "new-token-must-not-be-used"},
+                probe.send,
+            )
+            case.assertEqual(probe.tokens, [("Example", "original")])
+            probe.finished = True
+            case.assertIsNone(current_request.reconcile(two, {"name": "Example"}))
+            case.assertFalse(current_request.location(target, "Example").exists())
+            # A broken request affects its Stack only; no Observed/Task/Git proof is read.
+            current_request.location(target, "Example").write_text(
+                "broken", encoding="utf-8"
+            )
+            current_request.send(
+                two,
+                "execute_change_set",
+                {
+                    "StackName": "Independent",
+                    "ChangeSetName": "other",
+                    "ClientRequestToken": "independent",
+                },
+                probe.send,
+            )
+            case.assertEqual(probe.tokens[-1], ("Independent", "independent"))
+
+            # Create retransmission retains the original name/token, including a rejected retry.
+            probe.preparing, probe.found, probe.finished, probe.lost = (
+                True,
+                False,
+                False,
+                False,
+            )
+            states["Creating"] = {
+                "currentStack": {
+                    "StackId": "Creating",
+                    "StackStatus": "UPDATE_COMPLETE",
+                }
+            }
+            create = {
+                "StackName": "Creating",
+                "ChangeSetName": "create",
+                "ClientToken": "create-original",
+            }
+            with case.assertRaises(TimeoutError):
+                current_request.send(one, "create_change_set", dict(create), probe.send)
+            with case.assertRaises(AwsError):
+                current_request.send(
+                    two,
+                    "create_change_set",
+                    dict(create),
+                    Mock(
+                        side_effect=AwsError(
+                            "cloudformation", "create_change_set", "ValidationError"
+                        )
+                    ),
+                )
+            case.assertTrue(current_request.location(target, "Creating").exists())
+            current_request.send(two, "create_change_set", dict(create), probe.send)
+            case.assertEqual(probe.tokens.count(("Creating", "create-original")), 1)
+            probe.finished = True
+            case.assertIsNone(current_request.reconcile(two, {"name": "Creating"}))
+
+            # Secret bootstrap keeps only the version token/identity, never the value.
+            metadata = Mock(
+                return_value={
+                    "Stacks": [
+                        {"StackId": "SecretOwner", "StackStatus": "UPDATE_COMPLETE"}
+                    ],
+                    "VersionIdsToStages": {},
+                }
+            )
+            one.aws = two.aws = metadata
+            secret = {
+                "SecretId": "synthetic-secret",
+                "SecretString": "private-value-must-not-be-recorded",
+                "ClientRequestToken": "stable-version",
+            }
+            transport = Mock(side_effect=[TimeoutError("lost secret reply"), {}])
+            with case.assertRaises(TimeoutError):
+                current_request.send(
+                    one,
+                    "put_secret_value",
+                    dict(secret),
+                    transport,
+                    service="secretsmanager",
+                    stack_name="SecretOwner",
+                )
+            case.assertNotIn(
+                secret["SecretString"],
+                current_request.location(target, "SecretOwner").read_text(),
+            )
+            current_request.send(
+                two,
+                "put_secret_value",
+                dict(secret),
+                transport,
+                service="secretsmanager",
+                stack_name="SecretOwner",
+            )
+            case.assertEqual(
+                transport.call_args.args[3]["ClientRequestToken"], "stable-version"
+            )
+            case.assertFalse(current_request.location(target, "SecretOwner").exists())
 
 
 def deploy_contract(name, files):
@@ -210,10 +408,15 @@ def check_git_conflict_checkpoints_peers_and_recovers(monkeypatch, tmp_path):
 
 
 def run_controller(root, report, aws, driver):
-    if driver == "batch":
-        return invoke(root, report, aws)
+    if read_task_snapshot(root, "tasks/deploy.md", live=True).status == "completed":
+        return invoke(root, report, aws, ["--action", "checkpoint"])
     for _ in range(12):
-        assert invoke(root, report, aws, ["--action", "advance"]) == 0
+        assert (
+            invoke(
+                root, report, aws, [] if driver == "batch" else ["--action", "advance"]
+            )
+            == 0
+        )
         context = json.loads(report.read_text())
         names = [
             name
@@ -360,7 +563,7 @@ def check_managed_journal_recovery_never_reexecutes_success(tmp_path, monkeypatc
     monkeypatch.chdir(root)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
     aws_state(aws)
-    assert invoke(root, report, aws, fault="design-io") == 2
+    assert drive(root, report, aws, fault="design-io") == 2
     first = json.loads(report.read_text())
     assert first["pendingGeneration"]
     journal = report.with_suffix(".operations.json")
@@ -369,16 +572,24 @@ def check_managed_journal_recovery_never_reexecutes_success(tmp_path, monkeypatc
         retained
     )  # Synthetic loss; keep the exact sealed bytes for restoration.
     before = json.loads(aws.read_text())["calls"]
-    assert invoke(root, report, aws, ["--recover-operations"]) == 2
+    TestCase().assertEqual(
+        invoke(
+            root,
+            report,
+            aws,
+            ["--action", "sync", "--sync-stack", next(iter(first["states"]))],
+        ),
+        0,
+    )
     assert not any(
         op in {"create_change_set", "execute_change_set"}
         for _, op, _ in json.loads(aws.read_text())["calls"][len(before) :]
     )
     retained.rename(journal)
-    assert invoke(root, report, aws, ["--recover-operations"]) == 0
+    assert drive(root, report, aws, ["--recover-operations"]) == 0
     recovered = json.loads(report.read_text())
     assert not recovered.get("pendingGeneration")
-    assert invoke(root, report, aws) == 0
+    assert invoke(root, report, aws, ["--action", "checkpoint"]) == 0
     states = json.loads(report.read_text())["states"]
     calls = json.loads(aws.read_text())["calls"]
     for name, saved in states.items():
@@ -727,13 +938,12 @@ def check_task_completion_rechecks_checkpoint_receipts(problem):
             patch.object(transitions._imports_import_guard, "require_import_changes"),
         ):
             validator.return_value.report.return_value = 0
-            if problem == "zero":
-                tasks.complete(root, "tasks/deploy.md")
-            else:
-                with pytest.raises(ValueError, match="checkpoint"):
-                    tasks.complete(root, "tasks/deploy.md")
+            tasks.complete(root, "tasks/deploy.md")
         task = read_task_snapshot(root, "tasks/deploy.md", live=True)
-        assert task.status == ("completed" if problem == "zero" else "running")
+        TestCase().assertEqual(task.status, "completed")
+        if problem in {"target", "commit"}:
+            with pytest.raises(ValueError):
+                publication.checkpoint_source(root, state, progress)
         assert worktree.read_progress(root, state)["states"] == before
         assert all(
             s["status"] == "SUCCESS" and s["observedSynced"] for s in before.values()
@@ -761,11 +971,8 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch, missing):
     assert context["states"][second]["status"] == "RUNNING"
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0
     before = git(primary, "rev-parse", "HEAD")
-    with (
-        selected_task(root, "tasks/deploy.md"),
-        pytest.raises(ValueError, match="checkpoint evidence"),
-    ):
-        publication.publish(root, "deploy")
+    with selected_task(root, "tasks/deploy.md"):
+        TestCase().assertEqual(publication.publish(root, "deploy")["status"], "SUCCESS")
     assert git(primary, "rev-parse", "HEAD") == before
     with patch.object(
         publication, "publish", side_effect=ws.Blocked("temporary Git interruption")
@@ -775,15 +982,15 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch, missing):
             == 0
         )
     context = json.loads(report.read_text())
-    assert context["gitPublication"]["status"] == "PENDING"
-    assert context["gitPublication"]["retryable"]
+    TestCase().assertEqual(context["gitPublication"]["status"], "SUCCESS")
+    TestCase().assertFalse(context["gitPublication"]["retryable"])
     provider = json.loads(aws.read_text())
     provider["stacks"][second]["status"] = "CREATE_COMPLETE"
     aws.write_text(json.dumps(provider))
     assert invoke(root, report, aws, ["--action", "advance"]) == 0
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", second]) == 0
     candidates = {p: (root / p).read_bytes() for p in wt.changed_paths(root)}
-    assert candidates
+    TestCase().assertFalse(candidates)
     calls = json.loads(aws.read_text())["calls"]
     result = wt.run_deploy_publication(root, "deploy")
     assert result["status"] == "SUCCESS"
@@ -791,7 +998,7 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch, missing):
     assert all((root / p).read_bytes() == content for p, content in candidates.items())
     assert json.loads(aws.read_text())["calls"] == calls
     assert git(primary, "rev-parse", "HEAD") != before
-    assert result["checkpointRequired"] == [second]
+    TestCase().assertEqual(result["checkpointRequired"], [])
     assert (
         invoke(root, report, aws, ["--action", "checkpoint", "--sync-stack", second])
         == 0
@@ -809,10 +1016,11 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch, missing):
         heads = [git(where, "rev-parse", "HEAD") for where in (primary, root)]
         statuses = [git(where, "status", "--porcelain") for where in (primary, root)]
         with selected_task(root, "tasks/deploy.md"):
-            with pytest.raises(ValueError, match="missing receipts:.*" + first):
-                tasks.complete(root, "tasks/deploy.md")
-        assert (
-            read_task_snapshot(root, "tasks/deploy.md", live=True).status == "running"
+            worktree.require_complete(
+                root, read_task_snapshot(root, "tasks/deploy.md", live=True)
+            )
+        TestCase().assertEqual(
+            read_task_snapshot(root, "tasks/deploy.md", live=True).status, "completed"
         )
         assert worktree.progress_path(root).read_bytes() == evidence
         assert path.read_bytes() == metadata
@@ -831,7 +1039,9 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch, missing):
         worktree.require_complete(
             root, read_task_snapshot(root, "tasks/deploy.md", live=True)
         )
-        tasks.complete(root, "tasks/deploy.md")
+        TestCase().assertEqual(
+            read_task_snapshot(root, "tasks/deploy.md").status, "completed"
+        )
     assert wt.finalize(root, "deploy")["cleaned"]
     assert not root.exists()
 

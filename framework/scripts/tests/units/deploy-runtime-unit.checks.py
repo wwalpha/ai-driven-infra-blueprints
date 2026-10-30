@@ -6,6 +6,7 @@ import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -300,6 +301,8 @@ def check_sdk_execution():
     # A matching operation token and actual terminal stack status are both required.
     _state_check_sdk_execution_65.backend = Runtime(ROOT, "dev", "123456789012", TARGET)
     event = {
+        "StackId": "stack-A",
+        "PhysicalResourceId": "stack-A",
         "ResourceType": "AWS::CloudFormation::Stack",
         "ClientRequestToken": "current",
         "ResourceStatus": "CREATE_FAILED",
@@ -308,34 +311,30 @@ def check_sdk_execution():
     _state_check_sdk_execution_65.backend.aws = lambda operation, **args: (
         {"StackEvents": [event]}
         if operation == "describe_stack_events"
-        else {"Stacks": [{"StackStatus": actual[0]}]}
+        else {"Stacks": [{"StackId": "stack-A", "StackStatus": actual[0]}]}
     )
     state = {"status": "RUNNING", "clientToken": "current", "changeSetId": "cs-A"}
-    assert (
-        _state_check_sdk_execution_65.backend.poll(unit, state)
-        == "ROLLBACK_IN_PROGRESS"
-        and state["failureDetected"]
-    )
-    actual[0], event["ResourceStatus"] = "ROLLBACK_COMPLETE", "ROLLBACK_COMPLETE"
-    assert (
-        _state_check_sdk_execution_65.backend.poll(unit, state) == "ROLLBACK_COMPLETE"
-    )
-    actual[0], event["ResourceStatus"] = "UPDATE_COMPLETE", "UPDATE_IN_PROGRESS"
-    assert (
-        _state_check_sdk_execution_65.backend.poll(unit, state) == "UPDATE_IN_PROGRESS"
-    )  # Do not mistake old success for new success.
-    _state_check_sdk_execution_65.backend.aws = lambda operation, **args: (
-        {"StackEvents": []}
-        if operation == "describe_stack_events"
-        else {
-            "ExecutionStatus": "EXECUTE_IN_PROGRESS",
-            "ChangeSetId": "cs-A",
-            "StackId": state.get("stackId"),
-        }
-    )
-    assert (
-        _state_check_sdk_execution_65.backend.poll(unit, state) == "UPDATE_IN_PROGRESS"
-    )
+    with patch.object(M.current_request, "reconcile", return_value=None):
+        TestCase().assertEqual(
+            _state_check_sdk_execution_65.backend.poll(unit, state),
+            "ROLLBACK_IN_PROGRESS",
+        )
+        TestCase().assertTrue(state["failureDetected"])
+        actual[0], event["ResourceStatus"] = "ROLLBACK_COMPLETE", "ROLLBACK_COMPLETE"
+        TestCase().assertEqual(
+            _state_check_sdk_execution_65.backend.poll(unit, state), "ROLLBACK_COMPLETE"
+        )
+        actual[0], event["ResourceStatus"] = "UPDATE_COMPLETE", "UPDATE_IN_PROGRESS"
+        TestCase().assertEqual(
+            _state_check_sdk_execution_65.backend.poll(unit, state), "UPDATE_COMPLETE"
+        )
+    with patch.object(
+        M.current_request, "reconcile", return_value={"token": "current"}
+    ):
+        TestCase().assertEqual(
+            _state_check_sdk_execution_65.backend.poll(unit, state),
+            "UPDATE_IN_PROGRESS",
+        )
 
 
 def _check_empty_rollback_recreation_synced(_backend, items, entries):
@@ -393,7 +392,12 @@ class EmptyRollbackAws(StubAws):
             name = target.removeprefix("old-")
             if operation == "describe_stacks":
                 if self.current[name] is None:
-                    raise M.Blocked("stack does not exist")
+                    raise AwsError(
+                        "cloudformation",
+                        operation,
+                        "ValidationError",
+                        stack_absent=True,
+                    )
                 return {
                     "Stacks": [
                         {
@@ -404,7 +408,7 @@ class EmptyRollbackAws(StubAws):
                     ]
                 }
             if operation == "list_stack_resources":
-                assert target == "old-" + name
+                TestCase().assertIn(target, {name, "old-" + name})
                 return {"StackResourceSummaries": self.actuals}
             assert target == "old-" + name
             self.deletes.append(target)
@@ -597,11 +601,12 @@ def check_empty_rollback_recreation(tmp_path):
         scoped[0], state, empty_only=True
     ) and _state_check_empty_rollback_recreation_180.backend.deletes == ["old-A"]
     _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
-    rejects(
-        lambda: _state_check_empty_rollback_recreation_180.backend.begin_prepare(
+    _state_check_empty_rollback_recreation_180.backend.current["A"] = "UPDATE_COMPLETE"
+    TestCase().assertEqual(
+        _state_check_empty_rollback_recreation_180.backend.begin_prepare(
             scoped[0], {"cleanupStatus": "DELETE_COMPLETE", "cleanupStackId": "old-A"}
         ),
-        "name was reused",
+        "CHANGESET_CREATING",
     )
     assert not _state_check_empty_rollback_recreation_180.backend.deletes
     print(
@@ -1650,9 +1655,9 @@ def check_parallel_and_restart():
             )
             == "STOPPED"
         )
-    assert sequential.peak == 1 and starts(sequential) == ["A", "B"]
+    assert sequential.peak == 1 and starts(sequential) == ["A", "B", "C", "D"]
     assert all(
-        saved["states"][u["name"]]["status"] == "NOT_STARTED" for u in scoped[2:]
+        saved["states"][u["name"]]["status"] == "NOT_STARTED" for u in scoped[4:]
     )
     state = states(scoped)
     _state_check_parallel_and_restart_1131.backend = Fake()
@@ -1978,7 +1983,9 @@ def _callback_check_secret_runtime_bootstrap_configure_aws(
         }
     if operation == "list_stack_resources":
         if name == "FutureSecretOwner" and statuses[name] is None:
-            raise M.Blocked("stack does not exist")
+            raise AwsError(
+                "cloudformation", operation, "ValidationError", stack_absent=True
+            )
         return {
             "StackResourceSummaries": (
                 [
@@ -2005,7 +2012,9 @@ def _callback_check_secret_runtime_bootstrap_configure_aws(
         return {"TemplateBody": docs[name]}
     if operation == "describe_stacks":
         if statuses[name] is None:
-            raise M.Blocked("stack does not exist")
+            raise AwsError(
+                "cloudformation", operation, "ValidationError", stack_absent=True
+            )
         return {
             "Stacks": [
                 {
@@ -2051,6 +2060,7 @@ def _callback_check_secret_runtime_bootstrap_configure_aws(
                 "ClientRequestToken": tokens[name],
                 "ResourceStatus": statuses[name],
                 "StackId": stack_ids[name],
+                "PhysicalResourceId": stack_ids[name],
             }
         ]
         if "ROLLBACK" in statuses[name]:
@@ -3072,16 +3082,19 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
                 and s["states"]["A"]["status"] == "RUNNING"
                 for s in snapshots
             )
-        # Resume from the actual saved session preserves the stop even after peers drained.
+        # Recompute the current scope after draining; a past capacity error is not a fence.
         restored = json.loads(path.read_text(encoding="utf-8"))
         with patch.object(M.run_ops, "sync_successful", side_effect=sync):
-            assert (
+            TestCase().assertEqual(
                 M.run_ops.run_deploy(
                     scoped, limit, restored, backend, lambda: None, sleep=lambda _: None
-                )
-                == "STOPPED"
+                ),
+                "STOPPED" if failure else "COMPLETE",
             )
-        assert not starts(backend) and not backend.repair_calls
+        TestCase().assertTrue(starts(backend))
+        TestCase().assertFalse(
+            any(s.get("schedulerError") for s in restored["states"].values())
+        )
     elif not failure and not poll_error:
         assert result == "COMPLETE"
         assert starts(backend) == [u["name"] for u in scoped[-2:]]
@@ -3165,6 +3178,7 @@ class AcceptedExecutionAws(StubAws):
                     {
                         "ResourceType": "AWS::CloudFormation::Stack",
                         "StackId": "stackid-" + name,
+                        "PhysicalResourceId": "stackid-" + name,
                         "ClientRequestToken": self.tokens[name],
                         "ResourceStatus": self.stack_status,
                     }
@@ -3549,8 +3563,12 @@ def check_mutation_and_recovery_with_issues(tmp_path, monkeypatch, capsys):
     backend = M.create_runtime(tmp_path, "dev", "cde", TARGET)
     backend.guard = _bind_framework_callback(task_snapshot, tmp_path)
     with patch.object(cfn, "execute_change_set", return_value={}) as mutation:
-        backend.aws("execute_change_set", ChangeSetName="change")
-        backend.aws("execute_change_set", ChangeSetName="change")
+        M.call(
+            backend, "cloudformation", "execute_change_set", {"ChangeSetName": "change"}
+        )
+        M.call(
+            backend, "cloudformation", "execute_change_set", {"ChangeSetName": "change"}
+        )
         assert mutation.call_count == 2
         assert (
             not capsys.readouterr().err
@@ -3559,7 +3577,12 @@ def check_mutation_and_recovery_with_issues(tmp_path, monkeypatch, capsys):
             backend, "guard", side_effect=ValueError("input snapshot changed")
         ):
             with pytest.raises(ValueError, match="input snapshot changed"):
-                backend.aws("execute_change_set", ChangeSetName="change")
+                M.call(
+                    backend,
+                    "cloudformation",
+                    "execute_change_set",
+                    {"ChangeSetName": "change"},
+                )
         assert mutation.call_count == 2
     state = {"stackStatus": "ROLLBACK_COMPLETE"}
     with patch.object(backend, "cleanup_failed_create", return_value=True) as cleanup:

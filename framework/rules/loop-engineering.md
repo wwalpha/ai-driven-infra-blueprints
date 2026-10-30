@@ -69,7 +69,7 @@ Validation scope; do not add `--all` or `--repository-wide-iac` for bounded chec
 Local regression discovers all UTs; caches, worker counts and validation scope are retained.
 Ordinary Project Tasks treat Framework code and definitions as immutable. Deploy does
 not scan/hash Framework definitions or compare them at start, mutation, Observed
-synchronization, handoff or resume. Task, Model, IaC, ChangeSet, execution evidence and signed journal checks remain required. Task/local
+synchronization, handoff or resume. Task, Model, IaC and current ChangeSet/request checks remain required; historical Journal completion is not a normal Deploy prerequisite. Task/local
 loops do not select UT/IT from Framework Git differences; they validate the Project's
 Validation scope and Task Contract. Framework development uses dedicated UT entrypoints,
 `run_it.py`, Framework IT CI, or explicit Full. CI changed-file selection and its dependency mapping are removed. Explicit Full uses
@@ -386,8 +386,8 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 1. Run deterministic preflight with validated IaC. Preserve failure and AWS execution state under [Controlled deploy repair](cloudformation.md#controlled-deploy-repair). The supervising LLM hands proven IaC causes to a separate authorized implement Task; deploy never edits IaC. Runtime recovery is independent.
 2. Confirm scope with AWS ValidateTemplate and change sets for CloudFormation; validation and saved plans for Terraform.
 3. If no unapproved delete/replacement exists, deploy/apply only targets authorized by the active prompt. If any exists, explain targets, reasons, impacts, and current execution state and wait for human confirmation; after approval, resume in the same task with the same change set or saved plan.
-4. Update model observed values and regenerate Markdown only when successful AWS mutation exists.
-5. Keep AWS, Observed/generation and Git publication separate under [Managed Deploy snapshot](cloudformation.md#managed-deploy-snapshot-and-git-publication). Git conflicts retain AWS success and require Human judgment; resolve/retry only Git publication. Run the scoped local loop, complete after every barrier succeeds, and finalize through that Deploy publication path without proceeding to scenario tests.
+4. For CloudFormation Deploy, save current successful, failed, rolled-back, partial, running, unexecuted or unknown observations through the shared Model writer. Desired stays fixed. Terraform retains its existing success rule.
+5. Keep AWS, Observed/generation and Git publication separate under [Managed Deploy snapshot](cloudformation.md#managed-deploy-snapshot-and-git-publication). Git conflicts retain AWS success and require Human judgment; resolve/retry only Git publication. For CloudFormation, required Snapshot validation and publication finish the Task even when the attempt remains FAIL; active/uncertain AWS requests keep tracking and Task running. Include completed in the final candidate before its validation/commit/merge. Git-only retry may resume a locally completed candidate. Other infrastructure phases retain their checks. Do not proceed to scenario tests.
 
 `update` phase:
 

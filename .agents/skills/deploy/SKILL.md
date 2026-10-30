@@ -17,8 +17,57 @@ Use the existing Python entrypoints' `--help` for execution, registration, appro
 
 Keep current Task/Target authority, immutable inputs, Human approval and AWS/Observed/generation completion distinct. A missing or null nextAction command requires review, never an inferred retry. [Managed Deploy snapshot and Git publication](../../../framework/rules/cloudformation.md#managed-deploy-snapshot-and-git-publication) owns Deploy baseline checks, sealed progress, per-Stack checkpoints and Git-only conflict recovery. Worktree retains lifecycle/setup, repair-child validation and guarded cleanup. Do not expand into other phases or automatically chain unlimited independent Deploy attempts.
 
-For managed CloudFormation Deploy, use `cloudformation-deploy.py --action advance|status|sync|checkpoint` with the same full `--stack` scope. Start/poll AWS with `--action advance`, filling available same-DeployOrder slots first. When AWS is running and no immediate AWS work remains, choose successful unsynchronized Stacks and call `--action sync --sync-stack <StackName>`. After generation and validation, call `--action checkpoint --sync-stack <StackName>`, then return to AWS advancement. Repeat `--sync-stack` only for a shared indivisible candidate. Python never chooses the Model update time, launches agents, or runs a background Model writer. Do not use Sub Agents.
+For managed CloudFormation Deploy, use the same full `--stack` scope with
+`cloudformation-deploy.py --action status|advance|sync|checkpoint`.
 
-`status` publishes nothing. Completion requires every Stack's AWS, Observed, generation, checkpoint and Git publication barriers. When `gitPublication` is PENDING, inspect its saved checkpoint commits, `checkpointRequired`, `retryable` and `nextActions`. A proven retry uses only the existing `worktree_task.py deploy-publish --task-id <id>` command. It delivers saved checkpoint commits without AWS Execute, Model synchronization or committing working candidates. An unconfirmed candidate must first finish its explicit sync/generation/validation/checkpoint operations; do not execute Git-only publication while a checkpoint remains unconfirmed. Unknown mode, inputs or ownership requires review. CONFLICT requires explicit Human judgment of the reported files/base/source and impact; do not automatically resolve it or generate executable resolution commands without approval. Treat Git work as complete only after the recorded publication commit is confirmed on the local base. SUCCESS with no unpublished checkpoint needs no Git retry.
+- `status` obtains current AWS and displays current state, this attempt's result,
+  Model save, Snapshot validation and Git publication independently.
+- `advance` advances one bounded AWS turn using current state, fixed inputs,
+  DeployOrder, configured concurrency and destructive-change approval. Same-Order
+  independent peers may continue after one failure. Later Orders still require success.
+- `sync --sync-stack <name>` saves selected current observations, generates available
+  services, validates the Snapshot and commits/publishes through existing Git helpers.
+  Success, failure, rollback, partial, unexecuted, running and unknown are valid facts.
+  No separate checkpoint stage is normally required. The LLM chooses timing and scope;
+  repeat `--sync-stack` for an indivisible candidate. Python never schedules Model sync.
+- `checkpoint --sync-stack <name>` resumes an already saved candidate's local
+  validation/commit/publication without a fresh observation or AWS execution.
 
-A pending Producer/Consumer keeps generation/checkpoint pending; explicitly retry sync after the Producer is synchronized. Use the same actions after interruption: resume an interrupted local checkpoint with `--action checkpoint`; after its durable receipt exists, use Git-only publication for the saved commit. A merge already included on the local base only needs evidence acknowledgement, never a duplicate commit. Never reset automatically. Do not use final Task finalize for an intermediate checkpoint. The final contract commit remains part of the existing Task finalization lifecycle. Run the existing final Task validation/completion only after all barriers finish. Python never decides when to update the Model, and Sub Agents are not used.
+Normal start/resume reads scoped current AWS before deciding operations. Old Task,
+mode, status, Outputs, synchronization, checkpoint, Git, Reset or Fence evidence never
+qualifies the current state. External repair is adopted without a special repair-path
+proof. A successful current Stack does not prove the fixed Desired is applied: inspect
+its current ChangeSet. UNKNOWN is not absence; REVIEW_IN_PROGRESS requires current
+ChangeSet classification.
+
+Shared current requests prevent duplicate submissions under execution-account/Region/
+StackName locks. Persist intent before sending, retain original Stack/ChangeSet/token
+on a lost response and retire it after AWS settles, before Model/Git. One old COMPLETE
+read is insufficient after uncertain Execute. Corrupt current requests withhold only
+that Stack's new mutation. They never prohibit Model saves or unrelated Stacks.
+
+Sync atomically saves Model authority before generation. Preserve Desired and unknown
+identifier absence; do not reuse old link labels/IDs or infer deployed Consumer settings.
+Keep confirmed sources and successful generated services if another View fails. Actual
+Snapshot inconsistency retains the candidate and fails required validation.
+
+For intermediate sync, Task remains running and the same Worktree/fixed IaC can continue.
+For a settled final snapshot, include completed before the same candidate's validation,
+commit and merge. Deploy FAIL remains FAIL even when Snapshot validation and Git succeed.
+No extra failure approval, force, all-Stack SUCCESS or individual checkpoint requirement.
+Active/uncertain AWS requests retain tracking and prevent Task completion.
+
+Git PENDING/CONFLICT never changes the Deploy result. Use existing
+`worktree_task.py deploy-publish --task-id <id>` for saved commits, including a locally
+completed candidate after commit success/merge failure. It does not execute AWS or
+repeat observations. Existing Human conflict review and actual latest-base validation
+remain required. After verified integration use ordinary finalize/guarded cleanup.
+
+Only the Human chooses and approves Reset. One Plan lists selected records and related
+old Fences with lost information; one explicit approval saves originals and processes
+all selected targets, without a new Fence or separate RESOLVE. Resume the same approved
+Plan after interruption without repeated consent; never delete newly created requests.
+Reset neither stops AWS nor certifies Model/Git or AWS success. Do not Reset automatically.
+No Sub Agents, background writer, general workflow engine or automatic IaC repair.
+
+A settled request with an unconfirmed attempt outcome may report Deploy UNKNOWN; this never becomes a physical identifier or an active-request bypass. Current root Stack events are scoped by StackId and original token, and never replace the independently read current Stack status.
