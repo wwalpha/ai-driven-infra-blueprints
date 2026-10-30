@@ -7830,6 +7830,112 @@ def test_security_group_vpc_comparison_retains_external_uncertainty():
         {"Fn::ImportValue": "ExternalVpcId"},
     )
     assert [record["category"] for record in records] == ["uncompared"], records
+    document, parameters, _ = comparison.stack_inputs["consumer"]
+    document["Parameters"] = {"VpcId": {"Type": "String"}}
+    parameters["VpcId"] = "PENDING_DEPLOY"
+    records = setting(comparison, "EC2.SecurityGroup", "VpcId", VPC, {"Ref": "VpcId"})
+    assert [record["category"] for record in records] == ["uncompared"], records
+
+
+@pytest.mark.parametrize(
+    "service,producer,attribute,kind,path",
+    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+)
+@pytest.mark.parametrize(
+    "expression,active,expected",
+    [
+        ({"Ref": "VpcId"}, "yes", "matched"),
+        ({"Fn::Sub": "${VpcId}"}, "yes", "matched"),
+        ({"Fn::Sub": ["${Id}", {"Id": {"Ref": "VpcId"}}]}, "yes", "matched"),
+        ({"Fn::Join": ["", [{"Ref": "VpcId"}]]}, "yes", "matched"),
+        (
+            {
+                "Fn::Sub": [
+                    "vpc-${Id}",
+                    {"Id": {"Fn::If": ["Active", {"Ref": "Suffix"}, "invalid"]}},
+                ]
+            },
+            "yes",
+            "matched",
+        ),
+        (
+            {
+                "Fn::Sub": [
+                    "vpc-${Id}",
+                    {"Id": {"Fn::If": ["Active", {"Ref": "Suffix"}, "123abc"]}},
+                ]
+            },
+            "PENDING_DEPLOY",
+            "uncompared",
+        ),
+        (
+            {
+                "Fn::Sub": [
+                    "vpc-${Id}",
+                    {"Id": {"Fn::If": ["Active", "invalid", "123abc"]}},
+                ]
+            },
+            "yes",
+            "uncompared",
+        ),
+        (
+            {
+                "Fn::Sub": [
+                    "vpc-${Id}",
+                    {"Id": {"Fn::If": ["Active", {"Ref": "AWS::NoValue"}, "123abc"]}},
+                ]
+            },
+            "yes",
+            "uncompared",
+        ),
+        ({"Fn::Sub": "prefix-${VpcId}"}, "yes", "uncompared"),
+        ({"Fn::Sub": "${Missing}"}, "yes", "uncompared"),
+        ({"Fn::Join": ["", [{"Ref": "VpcId"}, "bad"]]}, "yes", "uncompared"),
+        ("not-a-vpc", "yes", "uncompared"),
+        ({"Ref": "Role"}, "yes", "uncompared"),
+        ({"Fn::ImportValue": "bad-export"}, "yes", "uncompared"),
+        (None, "yes", "uncompared"),
+    ],
+)
+@pytest.mark.parametrize("target", ["Producer", "OtherProducer"])
+def test_security_group_vpc_expression_identity_rows(
+    service, producer, attribute, kind, path, expression, active, expected, target
+):
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {
+        name: {"Type": "String"} for name in ("VpcId", "Suffix", "Mode")
+    }
+    document["Conditions"] = {"Active": {"Fn::Equals": [{"Ref": "Mode"}, "yes"]}}
+    parameters.update(VpcId="PENDING_DEPLOY", Suffix="PENDING_DEPLOY", Mode=active)
+    resource(comparison, "iam", "001", "IAM.Role", "Role", [])
+    comparison.stack_inputs["consumer"][0]["Outputs"]["Bad"] = {
+        "Value": "invalid",
+        "Export": {"Name": "bad-export"},
+    }
+    for identity, logical in (("001", "Producer"), ("002", "OtherProducer")):
+        resource(
+            comparison,
+            service,
+            identity,
+            producer,
+            logical,
+            [],
+            properties={"VpcId": expression},
+        )
+    if expected == "matched":
+        assert (
+            comparison.evaluate("producer", {"Ref": target})["$attribute"] == "GroupId"
+        )
+        if target == "OtherProducer":
+            expected = "difference"
+    else:
+        with pytest.raises(Blocked):
+            comparison.evaluate("producer", {"Ref": target})
+    records = setting(
+        comparison, kind, path, "[label](security-group.md#producer)", {"Ref": target}
+    )
+    assert [record["category"] for record in records] == [expected], records
 
 
 @pytest.mark.parametrize(

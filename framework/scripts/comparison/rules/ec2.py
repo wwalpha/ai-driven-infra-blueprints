@@ -18,6 +18,32 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
         if value not in ("PENDING_DEPLOY", "UNSET", "TODO", "TBD", "未確定")
     }
     vpc = output_value(document, condition_inputs, pseudo, vpc)
+    if isinstance(vpc, dict) and set(vpc) == {"Fn::Sub"}:
+        argument = vpc["Fn::Sub"]
+        if isinstance(argument, str):
+            match = re.fullmatch(r"\$\{([A-Za-z][A-Za-z0-9]*)\}", argument)
+            if match:
+                vpc = {"Ref": match.group(1)}
+        elif isinstance(argument, list) and len(argument) == 2:
+            template, mapping = argument
+            if isinstance(template, str) and isinstance(mapping, dict):
+                match = re.fullmatch(r"\$\{([A-Za-z][A-Za-z0-9]*)\}", template)
+                if match and set(mapping) == {match.group(1)}:
+                    value = mapping[match.group(1)]
+                    if isinstance(value, dict) and set(value) == {"Ref"}:
+                        vpc = value
+    if isinstance(vpc, dict) and set(vpc) == {"Fn::Join"}:
+        argument = vpc["Fn::Join"]
+        if (
+            isinstance(argument, list)
+            and len(argument) == 2
+            and argument[0] == ""
+            and isinstance(argument[1], list)
+            and len(argument[1]) == 1
+            and isinstance(argument[1][0], dict)
+            and set(argument[1][0]) == {"Ref"}
+        ):
+            vpc = argument[1][0]
     if isinstance(vpc, dict) and len(vpc) == 1:
         definitions = document.get("Parameters", {})
         if not isinstance(definitions, dict):
@@ -63,11 +89,20 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
                     return "GroupId"
                 raise
         elif "Fn::Sub" in vpc:
-            result = evaluate(vpc)
             argument = vpc["Fn::Sub"]
-            if isinstance(argument, list):
-                for value in argument[1].values():
+            if (
+                isinstance(argument, list)
+                and len(argument) == 2
+                and isinstance(argument[1], dict)
+            ):
+                mapping = {
+                    key: output_value(document, condition_inputs, pseudo, value)
+                    for key, value in argument[1].items()
+                }
+                for value in mapping.values():
                     evaluate(value)
+                vpc = {"Fn::Sub": [argument[0], mapping]}
+            result = evaluate(vpc)
             substitutions = {
                 key: "a" if value == "PENDING_DEPLOY" else value
                 for key, value in parameters.items()
@@ -75,7 +110,12 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
                 and definitions[key].get("Type") in {"String", "AWS::EC2::VPC::Id"}
             }
             if isinstance(result, str) and "PENDING_DEPLOY" in result:
-                result = resolve_value(vpc, substitutions, pseudo)
+                result = resolve_value(
+                    vpc,
+                    substitutions,
+                    pseudo,
+                    conditions=document.get("Conditions", {}),
+                )
             vpc = result
         else:
             vpc = evaluate(vpc)
