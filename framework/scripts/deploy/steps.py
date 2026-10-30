@@ -199,6 +199,15 @@ def refresh_requests(backend):
             continue
         if request and request.get("settled"):
             if (
+                request.get("operation") == "execute_change_set"
+                and request.get("token") == state.get("clientToken")
+                and not current_request.owns(state, request)
+            ):
+                state.update(
+                    requestPending=True, requestError="current request identity differs"
+                )
+                continue
+            if (
                 current_request.owns(state, request)
                 and request.get("operation") == "execute_change_set"
             ):
@@ -212,6 +221,16 @@ def refresh_requests(backend):
                     RuntimeError,
                 ) as error:
                     state.update(requestPending=True, requestError=str(error))
+                    continue
+                if status not in {
+                    "ATTEMPT_SUCCESS",
+                    "ATTEMPT_FAIL",
+                    "ATTEMPT_SETTLED",
+                } | (current_state.SUCCESS | current_state.FAILED) - {
+                    "CREATE_FAILED",
+                    "UPDATE_FAILED",
+                }:
+                    state["requestPending"] = True
                     continue
                 current_state.record_attempt(state, status)
                 state.pop("settledRequest", None)
@@ -251,7 +270,9 @@ def refresh_requests(backend):
             else:
                 state["status"] = "RUNNING"
         elif (
-            state["status"] == "RUNNING" or state.get("attemptResult") == "UNKNOWN"
+            state["status"] == "RUNNING"
+            or state.get("attemptResult") == "UNKNOWN"
+            and state["status"] != "SETTLED"
         ) and (
             state.get("clientToken")
             or current_state.category(state["currentStack"]) != "RUNNING"

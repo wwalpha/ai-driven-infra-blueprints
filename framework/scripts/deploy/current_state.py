@@ -188,6 +188,12 @@ def record_attempt(state, status):
         state.pop("unexecutedReason", None)
         state.pop("attemptResult", None)
         return
+    if status == "ATTEMPT_SETTLED":
+        state.update(status="SETTLED", attemptResult="UNKNOWN")
+        state.pop("failureDetected", None)
+        state.pop("unexecutedReason", None)
+        state.pop("reason", None)
+        return
     if status == "UNCONFIRMED":
         state.update(
             status="BLOCKED",

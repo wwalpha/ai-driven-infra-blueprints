@@ -722,6 +722,11 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
             stack_events = current_request.root_events(
                 matched, state["clientToken"], execution_stack
             )
+            if stack_events and stack_events[0].get("ResourceStatus") in {
+                "CREATE_FAILED",
+                "UPDATE_FAILED",
+            }:
+                state["failureDetected"] = True
             if stack_events and stack_events[0].get("ResourceStatus") in (
                 current_state.SUCCESS | current_state.FAILED
             ) - {"CREATE_FAILED", "UPDATE_FAILED"}:
@@ -734,6 +739,8 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     if request and state.get("requestError"):
         raise Blocked(state["requestError"])
     if request and not request.get("settled"):
+        return "UPDATE_IN_PROGRESS"
+    if request and not current_request.owns(state, request):
         return "UPDATE_IN_PROGRESS"
     if request and current_request.owns(state, request):
         state["settledRequest"] = request
@@ -763,6 +770,8 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
             return "ATTEMPT_FAIL"
         if attempt_status is None:
             attempt_status = request.get("attemptStatus")
+        if request.get("result") == "SETTLED" and attempt_status is None:
+            return "ATTEMPT_SETTLED"
     if (
         current["StackStatus"] == "UNKNOWN"
         and state.get("clientToken")

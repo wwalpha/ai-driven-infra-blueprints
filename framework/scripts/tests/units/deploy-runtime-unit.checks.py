@@ -308,11 +308,19 @@ def check_sdk_execution():
         "ResourceStatus": "CREATE_FAILED",
     }
     actual = ["ROLLBACK_IN_PROGRESS"]
-    _state_check_sdk_execution_65.backend.aws = lambda operation, **args: (
-        {"StackEvents": [event]}
-        if operation == "describe_stack_events"
-        else {"Stacks": [{"StackId": "stack-A", "StackStatus": actual[0]}]}
-    )
+
+    def execution_poll_aws(operation, **args):
+        if operation == "describe_change_set":
+            raise M.current_request.AwsError(
+                "cloudformation", operation, "ChangeSetNotFound"
+            )
+        return (
+            {"StackEvents": [event]}
+            if operation == "describe_stack_events"
+            else {"Stacks": [{"StackId": "stack-A", "StackStatus": actual[0]}]}
+        )
+
+    _state_check_sdk_execution_65.backend.aws = execution_poll_aws
     state = {
         "status": "RUNNING",
         "clientToken": "current",
@@ -327,7 +335,7 @@ def check_sdk_execution():
         TestCase().assertTrue(state["failureDetected"])
         actual[0], event["ResourceStatus"] = "ROLLBACK_COMPLETE", "ROLLBACK_COMPLETE"
         TestCase().assertEqual(
-            _state_check_sdk_execution_65.backend.poll(unit, state), "ROLLBACK_COMPLETE"
+            _state_check_sdk_execution_65.backend.poll(unit, state), "ATTEMPT_FAIL"
         )
         actual[0], event["ResourceStatus"] = "UPDATE_COMPLETE", "UPDATE_IN_PROGRESS"
         TestCase().assertEqual(

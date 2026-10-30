@@ -222,7 +222,7 @@ def adopt_successes(backend):
 
 def attempts_finished(states, result):
     return bool(states) and all(
-        saved.get("status") in {"SUCCESS", "FAILED"}
+        saved.get("status") in {"SUCCESS", "FAILED", "SETTLED"}
         or saved.get("status") in {"READY", "NOT_STARTED"}
         and saved.get("unexecutedReason")
         in {
@@ -257,6 +257,7 @@ def prepare_complete(root, task):
             or not item.get("currentStack")
             or item.get("requestPending")
             or item.get("attemptResult") == "UNKNOWN"
+            and item.get("status") != "SETTLED"
             or item.get("status") in {"RUNNING", "CHANGESET_CREATING", "BLOCKED"}
             or item.get("currentStack", {}).get("StackStatus", "UNKNOWN")
             in {"UNKNOWN", "REVIEW_IN_PROGRESS"}

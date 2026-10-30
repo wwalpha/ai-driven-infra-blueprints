@@ -6,7 +6,9 @@ import json
 import subprocess
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -15,7 +17,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 import sync_runtime
-from deploy import contracts, generation_resume, worktree
+from deploy import (
+    contracts,
+    controller,
+    current_request,
+    generation_resume,
+    operation_journal,
+    steps,
+    worktree,
+)
 from model.core import properties
 from model.files import read_model
 from support.deploy_controller_fixtures import (
@@ -261,6 +271,102 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
     )
     values = properties(read_model(root / f"model/dev/{ACCOUNT}/ec2.properties"))
     assert values["observed.row.002-001.value"] == "`PENDING_DEPLOY`"
+
+    # Save real Task progress before release, then resume after an interrupted release.
+    local = tmp_path / "settlement"
+    local.mkdir(mode=0o700)
+    request = local / "request.json"
+    record = {
+        "operation": "execute_change_set",
+        "name": "A",
+        "stackId": "stack",
+        "changeSetId": "change",
+        "token": "original",
+        "submission": "SENT",
+    }
+    request.write_text(json.dumps(record), encoding="utf-8")
+    request.chmod(0o600)
+    state = {
+        "status": "RUNNING",
+        "clientToken": "original",
+        "changeSetId": "change",
+        "executionEvidence": {
+            "StackId": "stack",
+            "ChangeSetId": "change",
+            "clientToken": "original",
+        },
+    }
+    identity = {
+        "taskFile": "tasks/deploy.md",
+        "taskDigest": "digest",
+        "target": {},
+        "environment": "dev",
+        "stacks": ["A"],
+    }
+    context = {
+        **identity,
+        "repository": str(local),
+        "directory": "team",
+        "states": {"A": state},
+        "inputDigests": {},
+        "stepUnits": [{"name": "A"}],
+    }
+
+    def fake_aws(operation, **kwargs):
+        if operation == "describe_stacks":
+            return {
+                "Stacks": [
+                    {"StackId": "stack", "StackStatus": "UPDATE_ROLLBACK_COMPLETE"}
+                ]
+            }
+        if operation == "describe_change_set":
+            return {
+                "StackId": "stack",
+                "ChangeSetId": "change",
+                "ExecutionStatus": "EXECUTE_COMPLETE",
+            }
+        if operation == "describe_stack_events":
+            return {"StackEvents": []}
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(
+        root=local,
+        phase="deploy",
+        target={},
+        environment="dev",
+        templates={},
+        states=context["states"],
+        units=context["stepUnits"],
+        run_context=context,
+        progress_identity=identity,
+        progress_root=local.resolve(),
+        progress_directory="team",
+        progress_destination=worktree.progress_path(local, create=True),
+        aws=fake_aws,
+    )
+    backend.save = partial(
+        worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
+    )
+    backend.poll = partial(controller.poll, backend)
+    with patch.object(current_request, "location", return_value=request):
+        with patch.object(
+            current_request, "release", side_effect=RuntimeError("interrupted")
+        ):
+            with pytest.raises(RuntimeError, match="interrupted"):
+                steps.refresh_requests(backend)
+        saved = worktree.read_progress(local, {"deployIdentity": identity})
+        assert saved["states"]["A"]["status"] == "SETTLED" and request.exists()
+        assert saved["states"]["A"]["attemptResult"] == "UNKNOWN"
+        backend.states = saved["states"]
+        backend.run_context["states"] = backend.states
+        steps.refresh_requests(backend)
+        assert not request.exists()
+        assert (
+            worktree.read_progress(local, {"deployIdentity": identity})["states"]["A"][
+                "status"
+            ]
+            == "SETTLED"
+        )
 
 
 def check_pending_observed_recovers_before_model_load(tmp_path):

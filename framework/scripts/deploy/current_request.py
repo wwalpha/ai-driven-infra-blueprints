@@ -138,11 +138,17 @@ def settled(aws, record, current):
                 "DELETE_COMPLETE",
             }
         execution = change_set.get("ExecutionStatus")
-        if execution == "EXECUTE_COMPLETE":
-            record["result"] = "SUCCESS"
-            return True
-        if execution in {"EXECUTE_FAILED", "OBSOLETE"}:
-            record["result"] = "FAIL"
+        if execution in {"EXECUTE_COMPLETE", "EXECUTE_FAILED", "OBSOLETE"}:
+            if record.get("submission") in {"SENDING", "UNCERTAIN"}:
+                events = current_state.pages(
+                    aws,
+                    "describe_stack_events",
+                    "StackEvents",
+                    StackName=record["stackId"],
+                )
+                if not root_events(events, record["token"], record["stackId"]):
+                    return False
+            record["result"] = "SETTLED" if execution == "EXECUTE_COMPLETE" else "FAIL"
             return True
     if operation == "delete_stack" and status == "ABSENT":
         return True

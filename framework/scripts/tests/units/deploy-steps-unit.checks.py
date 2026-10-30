@@ -552,7 +552,7 @@ class TestCurrentState(TestCase):
         current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
         aws = Mock(side_effect=[change, {"StackEvents": []}])
         self.assertTrue(current_request.settled(aws, record, current))
-        self.assertEqual(record["result"], "SUCCESS")
+        self.assertEqual(record["result"], "SETTLED")
         other_event = {
             "ResourceType": "AWS::CloudFormation::Stack",
             "StackId": "stack",
@@ -585,6 +585,95 @@ class TestCurrentState(TestCase):
                 record,
             )
         )
+
+    def test_uncertain_submission_and_identity_mismatches_keep_request(self):
+        record = {
+            "operation": "execute_change_set",
+            "name": "A",
+            "stackId": "stack",
+            "changeSetId": "change",
+            "token": "own",
+            "submission": "SENDING",
+        }
+        change = {
+            "ChangeSetId": "change",
+            "StackId": "stack",
+            "ExecutionStatus": "EXECUTE_COMPLETE",
+        }
+        current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
+        later = {
+            "ResourceType": "AWS::CloudFormation::Stack",
+            "StackId": "stack",
+            "PhysicalResourceId": "stack",
+            "ClientRequestToken": "other",
+            "ResourceStatus": "UPDATE_COMPLETE",
+        }
+        aws = Mock(side_effect=[change, {"StackEvents": [later]}])
+        self.assertFalse(current_request.settled(aws, record, current))
+        later["ClientRequestToken"] = "own"
+        aws = Mock(side_effect=[change, {"StackEvents": [later]}])
+        self.assertTrue(current_request.settled(aws, record, current))
+        self.assertEqual(record["result"], "SETTLED")
+        for key, wrong in [
+            ("StackId", "other"),
+            ("ChangeSetId", "other"),
+            ("clientToken", "other"),
+        ]:
+            state = {
+                "status": "RUNNING",
+                "clientToken": "own",
+                "changeSetId": "change",
+                "executionEvidence": {
+                    "StackId": "stack",
+                    "ChangeSetId": "change",
+                    "clientToken": "own",
+                },
+            }
+            state["executionEvidence"][key] = wrong
+            backend = SimpleNamespace(
+                states={"A": state},
+                units=[{"name": "A"}],
+                aws=partial(
+                    recovery_test_aws,
+                    current="UPDATE_COMPLETE",
+                    execution="EXECUTE_COMPLETE",
+                ),
+                target={},
+                save=Mock(),
+            )
+            backend.poll = partial(controller.poll, backend)
+            with (
+                patch.object(
+                    current_request,
+                    "reconcile",
+                    return_value=record | {"settled": True},
+                ),
+                patch.object(current_request, "release") as release,
+            ):
+                steps.refresh_requests(backend)
+            self.assertTrue(state["requestPending"])
+            release.assert_not_called()
+            backend.save.assert_not_called()
+
+    def test_settled_unknown_is_terminal_without_reexecution(self):
+        state = {
+            "status": "SETTLED",
+            "attemptResult": "UNKNOWN",
+            "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+        }
+        backend = Fake()
+        backend.execute = Mock(side_effect=AssertionError("duplicate execution"))
+        outcome = scheduler.run_group(
+            [{"name": "A", "deployOrder": 1}],
+            1,
+            {"A": state},
+            backend,
+            sleep=Mock(side_effect=AssertionError("unexpected wait")),
+        )
+        self.assertEqual(outcome, "STOPPED")
+        backend.execute.assert_not_called()
+        self.assertTrue(worktree.attempts_finished({"A": state}, "UNKNOWN"))
+        self.assertEqual(state["attemptResult"], "UNKNOWN")
 
     def test_explicit_completion_persists_unexecuted_reason(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1349,7 +1438,8 @@ class TestCurrentState(TestCase):
         self,
     ):
         for execution, current, expected in [
-            ("EXECUTE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE", "SUCCESS"),
+            ("EXECUTE_COMPLETE", "UPDATE_COMPLETE", "SETTLED"),
+            ("EXECUTE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE", "SETTLED"),
             ("EXECUTE_FAILED", "UPDATE_COMPLETE", "FAILED"),
             ("AVAILABLE", "UPDATE_COMPLETE", "BLOCKED"),
         ]:
@@ -1431,7 +1521,8 @@ class TestCurrentState(TestCase):
             with patch.object(current_request, "location", return_value=path):
                 steps.refresh_requests(backend)
             saved = worktree.read_sealed(path.parent, progress)
-            self.assertEqual(saved["status"], "SUCCESS")
+            self.assertEqual(saved["status"], "SETTLED")
+            self.assertEqual(saved["attemptResult"], "UNKNOWN")
             self.assertEqual(
                 saved["currentStack"]["StackStatus"], "UPDATE_ROLLBACK_COMPLETE"
             )

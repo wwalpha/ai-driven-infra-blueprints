@@ -259,7 +259,7 @@ def run_group(
             if stopped:
                 return "STOPPED"
             if all(
-                states[unit["name"]]["status"] in {"SUCCESS", "FAILED"}
+                states[unit["name"]]["status"] in {"SUCCESS", "FAILED", "SETTLED"}
                 or unit["name"] in input_blocked
                 for unit in group
             ):
