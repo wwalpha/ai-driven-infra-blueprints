@@ -606,6 +606,7 @@ class Inputs:
                 "export": name,
                 "relationship": "import",
                 "consumer_stack": stack,
+                "matches": len(candidates),
             }
             raise blocked
         producer, value = candidates[0]
@@ -925,7 +926,11 @@ class Inputs:
     def evaluate_for_comparison(self, stack, value):
         if not self.local_comparison:
             return self.evaluate(stack, value)
-        return self.evaluate(stack, value, frozenset({("comparison-select",)}))
+        return self.evaluate(
+            stack,
+            value,
+            frozenset({("comparison-select",), ("comparison-unresolved",)}),
+        )
 
     def reference_forms(self, kind, path):
         key = self.local_comparison, kind, path

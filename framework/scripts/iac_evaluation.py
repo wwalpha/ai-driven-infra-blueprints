@@ -159,6 +159,22 @@ class Evaluation:
 
     def evaluate(self, stack, value, seen=frozenset()):
         document, parameters, pseudo = self.stack_inputs[stack]
+        unresolved = {"PENDING_DEPLOY", "UNSET", "TODO", "TBD", "未確定"}
+        condition_parameters = (
+            {
+                key: item
+                for key, item in parameters.items()
+                if not (isinstance(item, str) and item in unresolved)
+            }
+            if ("comparison-unresolved",) in seen
+            else parameters
+        )
+        if (
+            ("comparison-unresolved",) in seen
+            and isinstance(value, str)
+            and value in unresolved
+        ):
+            raise Blocked("comparison input is unresolved")
         if isinstance(value, list):
             return [
                 item
@@ -187,6 +203,14 @@ class Evaluation:
             raise ValueError("intrinsic must contain exactly one function")
         if len(value) == 1:
             key, arg = next(iter(value.items()))
+            if (
+                ("comparison-unresolved",) in seen
+                and key == "Ref"
+                and isinstance(arg, str)
+                and isinstance(parameters.get(arg), str)
+                and parameters[arg] in unresolved
+            ):
+                raise Blocked("comparison input is unresolved")
             error = intrinsic_shape_error(key, arg)
             if error:
                 raise ValueError(f"invalid {key}: {error}")
@@ -208,7 +232,7 @@ class Evaluation:
                     raise ValueError("invalid Fn::If")
                 condition = resolve_value(
                     {"Condition": arg[0]},
-                    parameters,
+                    condition_parameters,
                     pseudo,
                     conditions=document.get("Conditions", {}),
                 )
@@ -365,7 +389,7 @@ class Evaluation:
                         for k, v in parameters.items()
                     }
                     if key == "Fn::Sub"
-                    else parameters,
+                    else condition_parameters,
                     pseudo,
                     conditions=document.get("Conditions", {}),
                 )

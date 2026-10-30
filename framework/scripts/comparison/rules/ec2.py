@@ -32,37 +32,49 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
             ):
                 return "GroupId"
         if "Fn::ImportValue" in vpc:
+            argument = vpc["Fn::ImportValue"]
+            name = evaluate(argument)
+            declared = {
+                key: value
+                for key, value in condition_inputs.items()
+                if key in definitions
+            }
+            if (
+                not isinstance(name, str)
+                or not name
+                or name in {"PENDING_DEPLOY", "UNSET", "TODO", "TBD", "未確定"}
+                or resolve_value(
+                    argument,
+                    declared,
+                    pseudo,
+                    conditions=document.get("Conditions", {}),
+                )
+                != name
+            ):
+                raise Blocked("ImportValue name is unresolved")
             try:
                 vpc = evaluate(vpc)
             except Blocked as error:
-                name = vpc["Fn::ImportValue"]
+                cause = getattr(error, "iac_cause", {})
                 if (
-                    isinstance(name, str)
-                    and name
-                    and str(error).startswith(
-                        "ImportValue handoff matches=0 or same-stack export:"
-                    )
+                    cause.get("kind") == "import-unresolved"
+                    and cause.get("matches") == 0
                 ):
                     return "GroupId"
                 raise
-        elif "Fn::Sub" in vpc and isinstance(vpc["Fn::Sub"], str):
-            template = vpc["Fn::Sub"]
-            names = re.findall(r"\$\{([A-Za-z][A-Za-z0-9]*)\}", template)
+        elif "Fn::Sub" in vpc:
             result = evaluate(vpc)
-            if (
-                names
-                and any(parameters.get(name) == "PENDING_DEPLOY" for name in names)
-                and all(
-                    isinstance(definitions.get(name), dict)
-                    and definitions[name].get("Type") in {"String", "AWS::EC2::VPC::Id"}
-                    and name in parameters
-                    for name in names
-                )
-            ):
-                substitutions = {
-                    key: "a" if value == "PENDING_DEPLOY" else value
-                    for key, value in parameters.items()
-                }
+            argument = vpc["Fn::Sub"]
+            if isinstance(argument, list):
+                for value in argument[1].values():
+                    evaluate(value)
+            substitutions = {
+                key: "a" if value == "PENDING_DEPLOY" else value
+                for key, value in parameters.items()
+                if isinstance(definitions.get(key), dict)
+                and definitions[key].get("Type") in {"String", "AWS::EC2::VPC::Id"}
+            }
+            if isinstance(result, str) and "PENDING_DEPLOY" in result:
                 result = resolve_value(vpc, substitutions, pseudo)
             vpc = result
         else:

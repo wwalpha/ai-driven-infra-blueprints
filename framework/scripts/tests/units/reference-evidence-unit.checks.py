@@ -7773,7 +7773,13 @@ def test_security_group_sub_value_is_independently_unresolved():
 )
 @pytest.mark.parametrize(
     "vpc_expression",
-    [{"Fn::ImportValue": "ExternalVpcId"}, {"Fn::Sub": "vpc-${Suffix}"}],
+    [
+        {"Fn::ImportValue": "ExternalVpcId"},
+        {"Fn::ImportValue": {"Fn::Sub": "External${Stage}"}},
+        {"Fn::Sub": "vpc-${Suffix}"},
+        {"Fn::Sub": ["vpc-${Id}", {"Id": {"Ref": "Suffix"}}]},
+        {"Fn::Sub": ["vpc-${Id}", {"Id": "ZZZZ"}]},
+    ],
 )
 @pytest.mark.parametrize(
     "target,expected",
@@ -7788,8 +7794,10 @@ def test_security_group_receiver_rows_with_external_vpc(
 ):
     comparison = fixture()
     document, parameters, _ = comparison.stack_inputs["producer"]
-    document["Parameters"] = {"Suffix": {"Type": "String"}}
-    parameters["Suffix"] = "PENDING_DEPLOY"
+    document["Parameters"] = {"Suffix": {"Type": "String"}, "Stage": {"Type": "String"}}
+    parameters.update(Suffix="PENDING_DEPLOY", Stage="VpcId")
+    if vpc_expression == {"Fn::Sub": ["vpc-${Id}", {"Id": "ZZZZ"}]}:
+        expected = "uncompared"
     for identity, logical, vpc in (
         ("001", "Producer", vpc_expression),
         ("002", "OtherProducer", vpc_expression),
@@ -8567,3 +8575,222 @@ def test_security_group_invalid_evidence_receiver_rows(
         {"Ref": "Producer"},
     )
     assert [record["category"] for record in records] == ["uncompared"], records
+
+
+@pytest.mark.parametrize("mapping", [False, True])
+@pytest.mark.parametrize(
+    "suffix,valid",
+    [("PENDING_DEPLOY", True), ("123abc", True), ("ZZZZ", False), ("UNSET", False)],
+)
+def test_sg_sub_equivalent_forms(mapping, suffix, valid):
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"Suffix": {"Type": "String"}}
+    parameters["Suffix"] = suffix
+    expression = {
+        "Fn::Sub": ["vpc-${Id}", {"Id": {"Ref": "Suffix"}}]
+        if mapping
+        else "vpc-${Suffix}"
+    }
+    resource(
+        comparison,
+        "security-group",
+        "001",
+        "EC2.SecurityGroup",
+        "Group",
+        [],
+        properties={"VpcId": expression},
+    )
+    if valid:
+        assert (
+            comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
+        )
+    else:
+        with pytest.raises(Blocked):
+            comparison.evaluate("producer", {"Ref": "Group"})
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        {"Fn::Sub": ["vpc-${Id}", {"Id": {"Ref": "Missing"}}]},
+        {"Fn::Sub": ["vpc-${Id}", {"Id": {"Ref": "Role"}}]},
+        {"Fn::Sub": ["vpc-${Missing}", {}]},
+        {"Fn::Sub": ["vpc-123abc", {"Unused": {"Ref": "Missing"}}]},
+        {"Fn::Sub": ["vpc-${Id}", "invalid"]},
+    ],
+)
+def test_sg_sub_invalid_map(expression):
+    comparison = fixture()
+    resource(comparison, "iam", "001", "IAM.Role", "Role", [])
+    resource(
+        comparison,
+        "security-group",
+        "001",
+        "EC2.SecurityGroup",
+        "Group",
+        [],
+        properties={"VpcId": expression},
+    )
+    with pytest.raises((Blocked, ValueError)):
+        comparison.evaluate("producer", {"Ref": "Group"})
+
+
+@pytest.mark.parametrize("dynamic", [False, True])
+@pytest.mark.parametrize(
+    "export,valid",
+    [
+        (None, True),
+        ({"Ref": "Vpc"}, True),
+        ({"Ref": "Role"}, False),
+        ("invalid", False),
+    ],
+)
+def test_sg_import_equivalent_forms(dynamic, export, valid):
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"Stage": {"Type": "String"}}
+    parameters["Stage"] = "VpcId"
+    resource(comparison, "vpc", "001", "EC2.VPC", "Vpc", [], stack="consumer")
+    resource(comparison, "iam", "001", "IAM.Role", "Role", [], stack="consumer")
+    if export is not None:
+        comparison.stack_inputs["consumer"][0]["Outputs"]["Shared"] = {
+            "Value": export,
+            "Export": {"Name": "ExternalVpcId"},
+        }
+    name = {"Fn::Sub": "External${Stage}"} if dynamic else "ExternalVpcId"
+    resource(
+        comparison,
+        "security-group",
+        "001",
+        "EC2.SecurityGroup",
+        "Group",
+        [],
+        properties={"VpcId": {"Fn::ImportValue": name}},
+    )
+    if valid:
+        assert (
+            comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
+        )
+    else:
+        with pytest.raises(Blocked):
+            comparison.evaluate("producer", {"Ref": "Group"})
+
+
+@pytest.mark.parametrize("fault", ["pending", "same", "duplicate", "incomplete"])
+def test_sg_import_ambiguous_is_blocked(fault):
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"Stage": {"Type": "String"}}
+    parameters["Stage"] = "PENDING_DEPLOY" if fault == "pending" else "VpcId"
+    output = {"Value": "vpc-123abc", "Export": {"Name": "ExternalVpcId"}}
+    if fault in {"same", "duplicate"}:
+        document["Outputs"]["Shared"] = output
+    if fault == "duplicate":
+        comparison.stack_inputs["consumer"][0]["Outputs"]["Shared"] = output
+    if fault == "incomplete":
+        comparison.stack_inputs["consumer"][0]["Transform"] = "unknown"
+    resource(
+        comparison,
+        "security-group",
+        "001",
+        "EC2.SecurityGroup",
+        "Group",
+        [],
+        properties={"VpcId": {"Fn::ImportValue": {"Fn::Sub": "External${Stage}"}}},
+    )
+    with pytest.raises(Blocked):
+        comparison.evaluate("producer", {"Ref": "Group"})
+
+
+def test_sg_sub_pending_does_not_hide_invalid_known_value():
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {
+        "Pending": {"Type": "String"},
+        "Known": {"Type": "String"},
+    }
+    parameters.update(Pending="PENDING_DEPLOY", Known="ZZZZ")
+    expression = {
+        "Fn::Sub": ["vpc-${A}${B}", {"A": {"Ref": "Pending"}, "B": {"Ref": "Known"}}]
+    }
+    resource(
+        comparison,
+        "security-group",
+        "001",
+        "EC2.SecurityGroup",
+        "Group",
+        [],
+        properties={"VpcId": expression},
+    )
+    with pytest.raises(Blocked):
+        comparison.evaluate("producer", {"Ref": "Group"})
+
+
+def test_security_group_vpc_comparison_retains_sub_map_uncertainty():
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"Suffix": {"Type": "String"}}
+    parameters["Suffix"] = "PENDING_DEPLOY"
+    records = setting(
+        comparison,
+        "EC2.SecurityGroup",
+        "VpcId",
+        VPC,
+        {"Fn::Sub": ["vpc-${Id}", {"Id": {"Ref": "Suffix"}}]},
+    )
+    assert [record["category"] for record in records] == ["uncompared"], records
+
+
+@pytest.mark.parametrize(
+    "kind,path,desired,prefix",
+    [
+        ("EC2.Subnet", "VpcId", "vpc-123abc", "vpc-"),
+        ("Lambda.Function", "Code.S3Bucket", "bucket-123abc", "bucket-"),
+    ],
+)
+@pytest.mark.parametrize("form", ["ref", "sub", "map", "join", "if", "import"])
+def test_unresolved_expression_is_uncompared_for_other_resources(
+    kind, path, desired, prefix, form
+):
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"Value": {"Type": "String"}}
+    document["Conditions"] = {"Active": {"Fn::Equals": ["yes", "yes"]}}
+    parameters["Value"] = "PENDING_DEPLOY"
+    expression = {
+        "ref": {"Ref": "Value"},
+        "sub": {"Fn::Sub": prefix + "${Value}"},
+        "map": {"Fn::Sub": [prefix + "${Id}", {"Id": {"Ref": "Value"}}]},
+        "join": {"Fn::Join": ["", [prefix, {"Ref": "Value"}]]},
+        "if": {"Fn::If": ["Active", {"Ref": "Value"}, desired]},
+        "import": {"Fn::ImportValue": {"Fn::Sub": "External${Value}"}},
+    }[form]
+    records = setting(comparison, kind, path, desired, expression)
+    assert [record["category"] for record in records] == ["uncompared"], records
+
+
+@pytest.mark.parametrize("condition", ["active", "unresolved"])
+def test_unresolved_condition_and_unselected_branch(condition):
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"Value": {"Type": "String"}}
+    parameters["Value"] = "PENDING_DEPLOY"
+    document["Conditions"] = {
+        "Choose": {
+            "Fn::Equals": ["yes", "yes"]
+            if condition == "active"
+            else [{"Ref": "Value"}, "yes"]
+        }
+    }
+    expression = {
+        "Fn::If": [
+            "Choose",
+            "vpc-123abc",
+            "vpc-456def" if condition == "unresolved" else {"Ref": "Value"},
+        ]
+    }
+    records = setting(comparison, "EC2.Subnet", "VpcId", "vpc-123abc", expression)
+    assert [record["category"] for record in records] == (
+        ["matched"] if condition == "active" else ["uncompared"]
+    ), records
