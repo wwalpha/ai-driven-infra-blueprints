@@ -150,7 +150,8 @@ def naming_rules(text: str) -> Iterator[tuple[str, str, str, str]]:
 
 
 @memoized
-def parsed_naming_rules(text):
+def parsed_naming_rules(text: str) -> tuple[tuple[str, str, str, str], ...]:
+    """Parse a naming rule text once per input context."""
     return tuple(naming_rules(text))
 
 
