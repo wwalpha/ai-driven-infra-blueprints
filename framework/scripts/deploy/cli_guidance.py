@@ -73,8 +73,11 @@ This illustrative ID is not an approval. Use only the actual returned ID; repeat
 for each approved ChangeSet. Runtime rechecks ID, Stack, full content and input
 fingerprints, CREATE_COMPLETE/AVAILABLE. Interrupted or changed approval is invalid.
 
---action status inspects current requests without executing, saving or publishing.
-Use explicit sync and checkpoint operations for saving and publication.
+--action status inspects and reconciles existing requests without starting a new AWS Execute.
+It may recover and save previously persisted unfinished work, including pending Observed
+values, generated artifacts and progress. It never implicitly starts a new Deploy
+or automatically grants Human approval. Use explicit sync and checkpoint for their
+respective current-snapshot and Git publication operations.
 Do not run normal Deploy while submission/publication is unconfirmed. Authentication,
 Task/target/input mismatches and unresolved dependencies stop new starts; peers drain.
 PENDING_DEPLOY is a dependency wait, not proof of an IaC defect. AWS success,
