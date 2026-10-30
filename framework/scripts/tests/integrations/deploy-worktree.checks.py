@@ -555,16 +555,11 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
     publish_unstarted_snapshot(True)
 
 
-def run_controller(root, report, aws, driver):
+def run_controller(root, report, aws):
     if read_task_snapshot(root, "tasks/deploy.md", live=True).status == "completed":
         return invoke(root, report, aws, ["--action", "checkpoint"])
     for _ in range(12):
-        assert (
-            invoke(
-                root, report, aws, [] if driver == "batch" else ["--action", "advance"]
-            )
-            == 0
-        )
+        assert invoke(root, report, aws, ["--action", "advance"]) == 0
         context = json.loads(report.read_text())
         names = [
             name
@@ -618,9 +613,8 @@ def run_controller(root, report, aws, driver):
     raise AssertionError("short operations did not complete local checkpoints")
 
 
-@pytest.mark.parametrize("driver", ["batch", "steps"])
 def check_controller_keeps_aws_success_after_rewrite_and_conflict(
-    tmp_path, monkeypatch, driver
+    tmp_path, monkeypatch
 ):
     report, aws = tmp_path / "report.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", report, "orders")
@@ -639,7 +633,7 @@ def check_controller_keeps_aws_success_after_rewrite_and_conflict(
     monkeypatch.chdir(root)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
     aws_state(aws)
-    assert run_controller(root, report, aws, driver) == 0
+    assert run_controller(root, report, aws) == 0
     context = json.loads(report.read_text())
     assert all(
         s["status"] == "SUCCESS" and s.get("observedSynced")
@@ -649,7 +643,7 @@ def check_controller_keeps_aws_success_after_rewrite_and_conflict(
         "gitPublication"
     )
     before = json.loads(aws.read_text())["calls"]
-    assert run_controller(root, report, aws, driver) == 0
+    assert run_controller(root, report, aws) == 0
     resumed = json.loads(report.read_text())
     assert resumed["gitPublication"]["status"] == "CONFLICT"
     assert all(s["status"] == "SUCCESS" for s in resumed["states"].values())
@@ -683,7 +677,7 @@ def check_controller_keeps_aws_success_after_rewrite_and_conflict(
             root,
             report,
             aws,
-            ["--recover-operations"] if driver == "batch" else ["--action", "status"],
+            ["--action", "status"],
         )
         == 0
     )

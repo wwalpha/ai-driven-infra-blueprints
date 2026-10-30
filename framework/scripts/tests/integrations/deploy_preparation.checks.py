@@ -131,7 +131,10 @@ def check_preparation():
             for p in model_parts(entrance)
         )
         assert all(name in plan["controllerArgv"] for name in STACKS)
-        assert "--action" not in plan["controllerArgv"]
+        assert (
+            plan["controllerArgv"][plan["controllerArgv"].index("--action") + 1]
+            == "advance"
+        )
         (root / "AGENTS.md").write_text("changed instructions", encoding="utf-8")
         assert invoke(["--repository-root", str(root), "--register", str(path)]) == 0
         registered = contracts(root)["tasks/deploy-offline.md"]

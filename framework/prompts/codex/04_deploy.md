@@ -49,7 +49,7 @@ Model は原子的に先に保存する。View 生成失敗でも古い Model �
 
 Git PENDING/CONFLICT は AWS 結果と独立する。保存済み commit のみを `worktree_task.py deploy-publish --task-id <id>` で再開する。commit 成功・merge 失敗でローカル Task が completed でも、AWS 再実行や元観測のやり直しは不要。競合は file/base/source/影響を示して既存の Human 明示判断を受け、最新統合先を含む候補を検証する。強制統合・自動競合解決はしない。
 
-Sub Agent、Model 背景 writer、固定間隔同期、Python によるエージェント制御は使わない。同じ Worktree の入力を保存中に編集しない。`--action` 省略は advance、`--recover-operations` は現在要求の状態確認への互換入口であり、旧履歴の証明条件を復活させない。
+Sub Agent、Model 背景 writer、固定間隔同期、Python によるエージェント制御は使わない。同じ Worktree の入力を保存中に編集しない。`--action` を明示し、状態確認には `status`、保存・公開には `sync` / `checkpoint` を選ぶ。
 
 ## Confirm unapproved delete/replacement
 
@@ -85,4 +85,4 @@ Terraform RulesとHelpに従い、設計済みRoot/workspace/backend/variable in
 
 AWS変更/No Change、Stack別SUCCESS/FAILED/BLOCKED/NOT_STARTED、未反映Output/Export、Observed同期、Markdown/JSON生成、未確定操作を区別する。原因未確定はHuman判断が必要と報告する。
 
-Deploy 結果、現在 Stack 状態、Model 保存、Snapshot 検証、commit・merge、Task 状態を別々に報告する。PUBLICATION_PENDINGはAWS失敗ではなくGitのHuman判断/反映待ちであり、成功Stackを再Deployしない。RECOVEREDとGROUP_COMPLETEを新規Deploy全体の完了として報告しない。Task scope/Acceptanceと許可差分を確認し、[Validation policy](../../rules/loop-engineering.md#validation-policy)の最終検証と全保存/反映の成功後にのみTask完了とする。通常Deployはscoped task loopを使う。offline UTから実AWS成功を主張せず、次phase・scenarioを開始しない。
+Deploy 結果、現在 Stack 状態、Model 保存、Snapshot 検証、commit・merge、Task 状態を別々に報告する。PUBLICATION_PENDINGはAWS失敗ではなくGitのHuman判断/反映待ちであり、成功Stackを再Deployしない。AWS完了だけでTask全体の完了を報告しない。Task scope/Acceptanceと許可差分を確認し、[Validation policy](../../rules/loop-engineering.md#validation-policy)の最終検証と全保存/反映の成功後にのみTask完了とする。通常Deployはscoped task loopを使う。offline UTから実AWS成功を主張せず、次phase・scenarioを開始しない。

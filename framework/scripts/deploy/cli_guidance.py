@@ -43,9 +43,9 @@ CONTROLLER_HELP = """Examples (use the current Task, target and exact Deployment
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action advance
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action sync --sync-stack app-network
   env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action checkpoint --sync-stack app-network
-  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --profile app-dev
-  env BLUEPRINT_TASK_FILE=tasks/update-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --sequential --pause-after-group
-  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --recover-operations
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --action advance --profile app-dev
+  env BLUEPRINT_TASK_FILE=tasks/update-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --stack app-worker --sequential --action advance
+  env BLUEPRINT_TASK_FILE=tasks/deploy-app.md python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py --environment dev --alias app --stack app-network --action status
 
 Existing Task: running infrastructure deploy/update, explicit AWS/Deploy permission,
 matching environment/account/alias and exact StackName scope are required.
@@ -61,7 +61,7 @@ Intermediate saves keep Task running and fixed IaC/parameters/artifacts unchange
 Old Task/Journal/Fence/Output/checkpoint history never gates current-state adoption.
 Current Stack requests retain original IDs/tokens across lost replies and Worktrees;
 a stale COMPLETE alone never settles an uncertain Execute. No automatic Reset.
-Omitting --action advances one turn; --recover-operations inspects current requests.
+Choose an explicit --action for every invocation.
 Retry saved Git commits with worktree_task.py deploy-publish, without AWS or recollection.
 Same-Order independent peers can continue after a failure; later Order still requires
 prior success. --sequential only lowers the configured MaxConcurrentStacks to one.
@@ -73,8 +73,8 @@ This illustrative ID is not an approval. Use only the actual returned ID; repeat
 for each approved ChangeSet. Runtime rechecks ID, Stack, full content and input
 fingerprints, CREATE_COMPLETE/AVAILABLE. Interrupted or changed approval is invalid.
 
---recover-operations only settles original unfinished AWS/Observed/publication work;
-it never starts a new Deploy or resends an uncertain Execute with a new token.
+--action status inspects current requests without executing, saving or publishing.
+Use explicit sync and checkpoint operations for saving and publication.
 Do not run normal Deploy while submission/publication is unconfirmed. Authentication,
 Task/target/input mismatches and unresolved dependencies stop new starts; peers drain.
 PENDING_DEPLOY is a dependency wait, not proof of an IaC defect. AWS success,
@@ -82,7 +82,6 @@ Observed sync and Markdown/JSON generation are separate; all are needed for COMP
 Failure JSON adds stage/cause/nextAction; unknown or unapproved actions have no command.
 For a proven IaC defect with current external repair authority, inspect current
 safe evidence and use deploy_handoff.py --help. repairFailure alone is insufficient.
-Recovery success reports RECOVERED, not completion of a new deployment.
 """
 
 HANDOFF_HELP = """Examples (paths must identify current evidence and reviewed diagnosis):
@@ -457,7 +456,7 @@ def recovery_command(args, root, task_file):
         argv += ["--profile", args.profile]
     if args.sequential:
         argv.append("--sequential")
-    argv.append("--recover-operations")
+    argv.extend(["--action", "status"])
     return python_command(root, "cloudformation-deploy.py", argv, task_file=task_file)
 
 
@@ -557,12 +556,6 @@ def controller_result(
             "DEPENDENCY_WAIT",
             "PENDING_DEPLOY requires producer evidence; it is not proof of an IaC defect.",
         )
-    elif result == "GROUP_COMPLETE":
-        stage, kind, reason = (
-            "GROUP_COMPLETE",
-            "UPDATE_HANDOFF",
-            "Only the current group completed. Review authorized producer/consumer IaC changes and current scope before an independent run.",
-        )
     elif result == "PUBLICATION_PENDING":
         stage, kind, reason = (
             "GIT_PUBLICATION",
@@ -574,12 +567,6 @@ def controller_result(
             "COMPLETE",
             "VERIFY_TASK",
             "Controller AWS, Observed and generation barriers completed; perform the Task's required final validation.",
-        )
-    elif result == "RECOVERED":
-        stage, kind, reason = (
-            "RECOVERY",
-            "REVIEW_CURRENT_INPUTS",
-            "Original unfinished operations settled; no new deployment was performed. Review current inputs before a separate Deploy.",
         )
     elif (
         repair_failure

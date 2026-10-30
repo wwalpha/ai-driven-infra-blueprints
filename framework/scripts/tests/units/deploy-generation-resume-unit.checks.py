@@ -827,11 +827,8 @@ def check_unclassified_retry_rechecks_errors_before_returning_to_pending(
         ] == ("REFERENCE_PENDING_DEPLOY")
 
 
-@pytest.mark.parametrize("pause", [False, True])
 @pytest.mark.parametrize("pending", [False, True])
-def check_all_successful_stacks_cannot_complete_with_generation_error(
-    owned, pause, pending
-):
+def check_all_successful_stacks_cannot_complete_with_generation_error(owned, pending):
     backend, _, _ = owned
     for state in backend.run_context["states"].values():
         state.update(status="SUCCESS", observedSynced=True)
@@ -848,7 +845,6 @@ def check_all_successful_stacks_cannot_complete_with_generation_error(
                 backend.run_context,
                 backend,
                 backend.save,
-                pause_after_group=pause,
                 sleep=lambda _: None,
             )
             == "STOPPED"
@@ -881,8 +877,7 @@ def check_success_has_no_pending_or_errors(owned):
     assert "generationError" not in runtime.run_context
 
 
-@pytest.mark.parametrize("pause", [False, True])
-def check_order_10_to_60_and_complete(owned, pause):
+def check_order_10_to_60_and_complete(owned):
     backend, views, _ = owned
     units = backend.units[:2]
     backend.units = units
@@ -915,7 +910,6 @@ def check_order_10_to_60_and_complete(owned, pause):
                 runtime.run_context,
                 runtime,
                 runtime.save,
-                pause_after_group=pause,
                 sleep=lambda _: None,
             )
             == "COMPLETE"
@@ -924,8 +918,7 @@ def check_order_10_to_60_and_complete(owned, pause):
     assert M.complete(runtime.run_context)
 
 
-@pytest.mark.parametrize("pause", [False, True])
-def check_final_gate_and_workflow(owned, pause):
+def check_final_gate_and_workflow(owned):
     backend, views, _ = owned
     for state in backend.run_context["states"].values():
         state.update(status="SUCCESS", observedSynced=True)
@@ -937,7 +930,6 @@ def check_final_gate_and_workflow(owned, pause):
                 backend.run_context,
                 backend,
                 backend.save,
-                pause_after_group=pause,
                 sleep=lambda _: None,
             )
             == "STOPPED"

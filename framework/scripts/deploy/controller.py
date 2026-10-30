@@ -47,7 +47,6 @@ from deploy import (
     worktree,
 )
 from deploy import recovery as repair_ops
-from deploy import run_context as run_ops
 from deploy.guards import call, secret_value_missing
 from deploy.inputs import load_units
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
@@ -972,6 +971,7 @@ def controller_main(
     parser.add_argument(
         "--action",
         choices=("advance", "sync", "checkpoint", "status"),
+        required=True,
         help="short LLM-controlled operation; advance never publishes Model changes",
     )
     parser.add_argument(
@@ -987,23 +987,11 @@ def controller_main(
         help="actual current ChangeSet ID explicitly approved by the Human; repeat per approved ID",
     )
     parser.add_argument(
-        "--recover-operations",
-        action="store_true",
-        help="settle unfinished AWS/publication operations only; never start deployment",
-    )
-    parser.add_argument(
         "--sequential",
         action="store_true",
         help="limit this run to one stack at a time without changing the design",
     )
-    parser.add_argument(
-        "--pause-after-group",
-        action="store_true",
-        help="update-only compatibility hint; advance already returns after one bounded turn",
-    )
     args = parser.parse_args(argv)
-    if args.action and (args.recover_operations or args.pause_after_group):
-        parser.error("--action cannot be combined with legacy recovery/group execution")
     if (
         args.sync_stack
         and args.action not in {"sync", "checkpoint"}
@@ -1012,11 +1000,7 @@ def controller_main(
     ):
         parser.error("--sync-stack is required for sync and permitted with checkpoint")
     root = (root if root is not None else Path.cwd()).resolve()
-    if args.action:
-        return steps.run(args, root, timing, create_runtime, load_units)
-    return run_ops.run(
-        args, root, timing, Path(__file__).parent.parent, create_runtime, load_units
-    )
+    return steps.run(args, root, timing, create_runtime, load_units)
 
 
 def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:

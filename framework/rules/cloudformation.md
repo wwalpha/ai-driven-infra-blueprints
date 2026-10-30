@@ -189,12 +189,9 @@ Generation failures retain saved Model authority and successful service outputs;
 stale Views are not claimed current. True structural/reference/scope/View mismatch
 blocks integration, retaining the candidate for local recovery without new AWS work.
 
-### Compatibility batch execution
+### Explicit operations
 
-Omitting `--action` is a compatibility entrance to `advance`; `--recover-operations`
-is a compatibility entrance to current request/status inspection. Neither restores
-historical success nor makes old publication/Reset/Fence proof a normal prerequisite.
-`--pause-after-group` remains an update-only compatibility hint; every invocation already returns after a bounded turn. Select sync explicitly before the existing producer/consumer input handoff. Claimed inputs remain fixed; a later update invocation may claim its newly implemented, previously unused Consumer inputs. This grants no IaC changes to Deploy.
+Specify `--action` for each invocation. Use `advance` for a bounded turn and `status` to inspect current requests without saving or publication. Select `sync` and `checkpoint` explicitly for Model saving and Git publication. Select sync before the producer/consumer input handoff. Claimed inputs remain fixed; a later update invocation may claim its newly implemented, previously unused Consumer inputs. This grants no IaC changes to Deploy.
 
 Normal decisions use current scoped DescribeStacks and ChangeSets plus this Task's
 fixed inputs. CREATE_COMPLETE / UPDATE_COMPLETE / IMPORT_COMPLETE are successful
@@ -282,8 +279,7 @@ private ownership, safe paths, exact bytes and current-request locks. No force/b
 
 One explicit approval covers that Plan's complete action. Persist approval and every
 original before processing records/Fences. The Reset transaction is never a new Fence.
-No RESOLVE step, release proof or additional approval follows. `fence-plan/fence-apply`
-are compatibility entrances to the same Reset. They do not retain old verification rules.
+No RESOLVE step, release proof or additional approval follows.
 
 Retry the same Plan after interruption. Reuse its durable approval, finish remaining
 exact targets, and infer completion from processed files if only the result notification

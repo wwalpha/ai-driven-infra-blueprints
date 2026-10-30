@@ -215,8 +215,6 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         approve_change_set=[],
         action="status",
         sequential=False,
-        recover_operations=True,
-        pause_after_group=False,
     )
     prior_directory = temporary.create(journal, root, task, TARGET, ["App"])
     prior_template = prior_directory / "App.json"

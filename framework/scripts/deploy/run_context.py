@@ -6,8 +6,7 @@ import copy
 import re
 import subprocess
 import time
-from argparse import Namespace
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,11 +25,7 @@ from deploy import (
     operation_journal,
     worktree,
 )
-from deploy import (
-    steps as step_ops,
-)
 from deploy.scheduler import run_group
-from deploy.timing import Timing
 from deploy.typing import (
     DeployRunContext,
     Save,
@@ -171,7 +166,6 @@ def run_deploy(
     run_context: DeployRunContext,
     backend: SchedulerBackend,
     save: Save,
-    pause_after_group: bool = False,
     sleep: Sleep = time.sleep,
 ) -> str:
     """Observed synchronization is an idempotent, persisted barrier between groups."""
@@ -214,21 +208,6 @@ def run_deploy(
                 }
             )
             run_context["metrics"]["deployOrderCount"] = len(completed)
-            # Sync even the final group before returning COMPLETE.
-            if pause_after_group:
-                if not sync_completed():
-                    return "STOPPED"
-                if generation_resume.complete(run_context):
-                    return "COMPLETE"
-                if all(
-                    s["status"] == "SUCCESS" for s in run_context["states"].values()
-                ):
-                    run_context["generationError"] = generation_resume.describe(
-                        run_context
-                    )
-                    save()
-                    return "STOPPED"
-                return "GROUP_COMPLETE"
             continue
         if result == "STOPPED":
             # Do not abandon successful peers' observed values after another stack fails.
@@ -386,22 +365,6 @@ def new_context(
 def _save(backend, journal):
     worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
     operation_journal.save(journal, backend)
-
-
-def run(
-    args: Namespace,
-    root: Path,
-    timing: Timing,
-    script_directory: Path,
-    backend_type: Callable[
-        [Path, str, str, Target, str | None, Iterable[str]], SimpleNamespace
-    ],
-    load_units: Callable[[Path, str, str, list[str]], tuple[int, list[StackUnit]]],
-) -> int:
-    args.action = getattr(args, "action", None) or (
-        "status" if args.recover_operations else "advance"
-    )
-    return step_ops.run(args, root, timing, backend_type, load_units)
 
 
 def sync_successful(

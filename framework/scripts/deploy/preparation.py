@@ -253,10 +253,11 @@ def prepare(root, args, run, timing):
         "--environment",
         args.environment,
         *selector,
+        "--action",
+        "advance",
     ]
     if (root / ".git").exists() and worktree_python.runtime(root) is not None:
         worktree_state.managed_task_state(root, args.task_file)
-        command += ["--action", "advance"]
     for unit in units:
         command += ["--stack", unit["name"]]
     command += ["--timing-log", str(timing.path)]

@@ -410,17 +410,11 @@ def retained_templates(journal):
     }
 
 
-def check_fences(journal, target, scope, backend):
-    """Compatibility entrance; historical Fences never gate current-state Deploy."""
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Reset selected recovery records and related Fences once; never changes AWS."
     )
-    parser.add_argument(
-        "action", choices=("plan", "apply", "fence-plan", "fence-apply")
-    )
+    parser.add_argument("action", choices=("plan", "apply"))
     parser.add_argument("--environment", required=True)
     selector = parser.add_mutually_exclusive_group(required=True)
     selector.add_argument("--aws-account-id")
@@ -428,31 +422,21 @@ def main(argv=None):
     parser.add_argument("--mode", choices=("record", "all"))
     parser.add_argument("--record", action="append", default=[])
     parser.add_argument(
-        "--fence", help="legacy Fence ID; processed by the same one-step Reset"
-    )
-    parser.add_argument(
-        "--stack", action="append", default=[], help="compatibility display scope"
-    )
-    parser.add_argument("--risk", help="compatibility Human risk description")
-    parser.add_argument("--profile", help="unused: Reset makes no AWS calls")
-    parser.add_argument(
         "--plan", help="exact approved Reset Plan ID, also used for interrupted retries"
     )
     args = parser.parse_args(argv)
     try:
-        if args.action in {"plan", "fence-plan"}:
+        if args.action == "plan":
             if args.plan:
                 raise Blocked("plan accepts no --plan")
-            mode = "record" if args.fence else args.mode
-            selection = [args.fence] if args.fence else args.record
             result = report(
                 plan(
                     Path.cwd(),
                     args.environment,
                     args.aws_account_id,
                     args.alias,
-                    mode,
-                    selection,
+                    args.mode,
+                    args.record,
                 )
             )
         else:

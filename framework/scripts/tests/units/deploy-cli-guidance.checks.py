@@ -11,8 +11,7 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import TestCase
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -20,8 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import deploy_handoff
 import pytest
 from deploy import cli_guidance as G
-from deploy import controller, failures, preparation, run_context
-from deploy.timing import Timing
+from deploy import controller, failures, preparation
 from model.core import ReferenceResolutionError
 from utils.aws.identity import IdentityError
 from utils.cloudformation.environment import EnvironmentValuePending
@@ -44,8 +42,6 @@ ARGS = Namespace(
     ("result", "context", "kind", "stage"),
     [
         ("COMPLETE", {}, "VERIFY_TASK", "COMPLETE"),
-        ("GROUP_COMPLETE", {}, "UPDATE_HANDOFF", "GROUP_COMPLETE"),
-        ("RECOVERED", {}, "REVIEW_CURRENT_INPUTS", "RECOVERY"),
         (
             "STOPPED",
             {
@@ -209,8 +205,13 @@ def check_unknown_execution_only_proposes_original_recovery(tmp_path, state):
     assert str(ROOT / "framework/scripts/run-python.py") in argv
     assert shlex.split(command.split(" && ", 1)[0]) == ["cd", str(root)]
     assert argv[argv.index("--profile") + 1] == "app dev"
-    assert argv.count("--stack") == 2 and argv[-1] == "--recover-operations"
+    assert argv.count("--stack") == 2 and argv[-2:] == ["--action", "status"]
     assert "--approve-change-set" not in argv and "--resume" not in argv
+    with patch.object(controller.steps, "run", return_value=0) as run:
+        assert (
+            controller.controller_main(argv[argv.index("--environment") :], root) == 0
+        )
+    assert run.call_args.args[0].action == "status"
     context.pop("taskFile")
     assert (
         G.controller_result("STOPPED", context, ARGS, root)["nextAction"]["command"]
@@ -260,8 +261,7 @@ def check_pending_failure_uses_type_not_prose():
             "cloudformation-deploy.py",
             "deploy/controller.py",
             [
-                "--pause-after-group",
-                "--recover-operations",
+                "--action",
                 "--approve-change-set",
                 "MaxConcurrentStacks",
                 "Snapshot",
@@ -411,43 +411,12 @@ def check_preparation_and_handoff_keep_failure_exit_codes(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["nextAction"]["command"] is None
 
 
-@pytest.mark.parametrize("blocked", [False, True])
-def check_recovery_exit_reports_no_new_deploy(tmp_path, capsys, blocked):
-    args = Namespace(**vars(ARGS), recover_operations=True)
-    backend, units = Mock(), Mock()
-    with patch.object(
-        run_context.step_ops, "run", return_value=2 if blocked else 0
-    ) as inspect:
-        TestCase().assertEqual(
-            run_context.run(args, tmp_path, Timing(tmp_path), ROOT, backend, units),
-            2 if blocked else 0,
+def check_action_is_required(tmp_path):
+    with pytest.raises(SystemExit) as error:
+        controller.controller_main(
+            ["--environment", "dev", "--alias", "app", "--stack", "app"], tmp_path
         )
-    TestCase().assertEqual(args.action, "status")
-    inspect.assert_called_once()
-
-
-@pytest.mark.parametrize(
-    ("result", "extra", "stage"),
-    [
-        ("COMPLETE", {}, "COMPLETE"),
-        ("GROUP_COMPLETE", {}, "GROUP_COMPLETE"),
-        ("STOPPED", {"observedError": "private-secret"}, "OBSERVED"),
-        ("STOPPED", {"generationError": "private-secret"}, "GENERATION"),
-    ],
-)
-def check_controller_final_json_keeps_state_and_exit_code(
-    tmp_path, capsys, result, extra, stage
-):
-    args = Namespace(**vars(ARGS), recover_operations=False)
-    with patch.object(
-        run_context.step_ops, "run", return_value=2 if result == "STOPPED" else 0
-    ) as advance:
-        TestCase().assertEqual(
-            run_context.run(args, tmp_path, Timing(tmp_path), ROOT, Mock(), Mock()),
-            2 if result == "STOPPED" else 0,
-        )
-    TestCase().assertEqual(args.action, "advance")
-    advance.assert_called_once()
+    assert error.value.code == 2
 
 
 def check_handled_controller_stop_prints_one_json(tmp_path, capsys):
@@ -458,7 +427,16 @@ def check_handled_controller_stop_prints_one_json(tmp_path, capsys):
     ):
         assert (
             controller.main(
-                ["--environment", "dev", "--alias", "app", "--stack", "app"],
+                [
+                    "--environment",
+                    "dev",
+                    "--alias",
+                    "app",
+                    "--stack",
+                    "app",
+                    "--action",
+                    "advance",
+                ],
                 root=tmp_path,
             )
             == 2

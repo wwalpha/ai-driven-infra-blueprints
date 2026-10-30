@@ -295,7 +295,6 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "list-exports",
         "ExportingStackId",
         "NOT_STARTED",
-        "--pause-after-group",
         "do not run it in ordinary CloudFormation update",
     ):
         assert token in dependency, token
@@ -304,7 +303,7 @@ def _callback_check_update_flow_prompt_validate(prompt):
     assert len(cfn_commands) == 1 and cfn_commands[0][1].endswith(
         "/cloudformation-deploy.py"
     )
-    for option in ("--environment", "--alias", "--stack", "--profile"):
+    for option in ("--environment", "--alias", "--stack", "--profile", "--action"):
         assert option in cfn_commands[0], option
     for token in (
         "responsible for final preflight",
@@ -357,9 +356,7 @@ def _callback_check_update_flow_prompt_validate(prompt):
     assert all(
         "must not rerun" in line for line in cfn_post.splitlines() if "--write" in line
     )
-    assert (
-        "--recover-operations" in cfn_post and "same controller session" not in cfn_post
-    )
+    assert "--action status" in cfn_post and "same controller session" not in cfn_post
     tf_post = engine(post, "Terraform")
     for token in (
         "Terraform output",

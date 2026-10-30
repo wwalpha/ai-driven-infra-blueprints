@@ -357,11 +357,6 @@ def retry_terminal_attempts(backend, previous_terminal):
         backend.run_context.pop("deployResult", None)
 
 
-def verify_success(backend: SimpleNamespace, units: list[StackUnit]) -> None:
-    """Compatibility name: snapshot collection is independent of attempt success."""
-    current_state.refresh(backend, units)
-
-
 def sync(backend: SimpleNamespace, names: list[str]) -> None:
     context = backend.run_context
     units = [u for u in backend.units if u["name"] in names]
@@ -602,8 +597,6 @@ def run(
             snapshot=task,
             allow_saved=args.action in {"status", "checkpoint", "sync"},
         )
-        if args.pause_after_group and phase != "update":
-            raise Blocked("--pause-after-group is an update-only compatibility hint")
         progress_identity = worktree.bind(
             root, task, selected, args.environment, args.stack
         )

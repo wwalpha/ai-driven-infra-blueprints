@@ -56,9 +56,6 @@ class TestResetConsent(TestCase):
         ):
             R.confirm(self.plan)
 
-    def test_fence_compatibility_has_no_historical_gate(self):
-        R.check_fences(Path("/unreadable"), {}, ["One"], None)
-
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

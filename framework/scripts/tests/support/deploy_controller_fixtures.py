@@ -868,7 +868,6 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
 
 def drive(root, state_path, aws_path, options=(), fault=None):
     """A test supervisor chooses explicit short operations; the controller owns no loop."""
-    options = [option for option in options if option != "--recover-operations"]
     for _ in range(24):
         saved = json.loads(state_path.read_text()) if state_path.exists() else {}
         pending = saved.get("checkpointPending")

@@ -268,7 +268,7 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
     interrupted = json.loads(report.read_text())
     evidence = interrupted["states"][FIRST]["executionEvidence"]
     recover_owned_lock(root, child)
-    recovered = child_run(root, report, aws, ["--recover-operations"])
+    recovered = child_run(root, report, aws)
     assert recovered.returncode == 0, recovered.stdout + recovered.stderr
     saved = json.loads(report.read_text())
     assert saved["states"][FIRST]["observedSynced"]
@@ -379,7 +379,7 @@ def check_pending_observed_recovers_before_model_load(tmp_path):
     assert plan["stage"] == "PREPARED" and len(plan["outputs"]) >= 2
     evidence = interrupted["states"][FIRST]["executionEvidence"]
     recover_owned_lock(root, child)
-    recovered = child_run(root, report, aws, ["--recover-operations"])
+    recovered = child_run(root, report, aws)
     assert recovered.returncode == 0, recovered.stdout + recovered.stderr
     saved = json.loads(report.read_text())
     assert saved["states"][FIRST]["observedSynced"]

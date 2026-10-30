@@ -210,7 +210,7 @@ def check_new_request_survives_retry_after_missing_result(workspace):
     TestCase().assertEqual(journal.read_bytes(), new)
 
 
-def check_legacy_fence_cli_uses_the_same_reset(workspace, monkeypatch):
+def check_selected_fence_record_reset_preserves_unrelated(workspace, monkeypatch):
     root, journal, fence = workspace
     atomic_replace_file(
         fence / "plan.json",
@@ -226,12 +226,14 @@ def check_legacy_fence_cli_uses_the_same_reset(workspace, monkeypatch):
     TestCase().assertEqual(
         R.main(
             [
-                "fence-plan",
+                "plan",
+                "--mode",
+                "record",
                 "--environment",
                 "dev",
                 "--aws-account-id",
                 TARGET["awsAccountId"],
-                "--fence",
+                "--record",
                 fence.name,
             ]
         ),
@@ -247,7 +249,7 @@ def check_legacy_fence_cli_uses_the_same_reset(workspace, monkeypatch):
         TestCase().assertEqual(
             R.main(
                 [
-                    "fence-apply",
+                    "apply",
                     "--environment",
                     "dev",
                     "--aws-account-id",
