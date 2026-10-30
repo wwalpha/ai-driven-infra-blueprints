@@ -37,9 +37,13 @@ ROOT = Path(__file__).resolve().parents[4]
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    monkeypatch.setattr(
-        socket.socket, "connect", Mock(side_effect=AssertionError("network forbidden"))
-    )
+    connect = Mock(side_effect=AssertionError("network forbidden"))
+    external_cli = Mock(side_effect=AssertionError("external CLI forbidden"))
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(cli.comparator().Context, "cli", external_cli)
+    yield
+    connect.assert_not_called()
+    external_cli.assert_not_called()
 
 
 @pytest.mark.parametrize("kind", sorted(ADAPTER_INVENTORIES))
@@ -350,25 +354,25 @@ def test_shared_sdk_fixture_records_partial_evidence_without_verification():
 
 
 @pytest.mark.parametrize(
-    ("service", "kind", "getter", "count"),
+    ("service", "kind", "counts"),
     [
-        ("cloudtrail", "CloudTrail.Trail", "base", 8),
-        ("cloudtrail", "CloudTrail.Trail", "status", 1),
-        ("cloudtrail", "CloudTrail.Trail", "selectors", 4),
-        ("glue", "Glue.Job", "base", 18),
-        ("glue", "Glue.SecurityConfiguration", "base", 5),
+        ("cloudtrail", "CloudTrail.Trail", {"base": 8, "status": 1, "selectors": 4}),
+        ("glue", "Glue.Job", {"base": 18}),
+        ("glue", "Glue.SecurityConfiguration", {"base": 5}),
     ],
 )
-def test_direct_service_contracts(service, kind, getter, count):
+def test_direct_service_contracts(service, kind, counts):
     mapping = runtime_registry(ROOT, service)
-    result = adapter_contracts.run(ROOT, mapping, kind)[getter]
-    assert result["status"] == "verified"
-    assert len(result["properties"]) == count
-    assert result["fixtureOperation"]
-    assert all(
-        {"normal", "missing-selector", "access-denied"} <= set(item["branches"])
-        for item in result["properties"].values()
-    )
+    results = adapter_contracts.run(ROOT, mapping, kind)
+    for getter, count in counts.items():
+        result = results[getter]
+        assert result["status"] == "verified"
+        assert len(result["properties"]) == count
+        assert result["fixtureOperation"]
+        assert all(
+            {"normal", "missing-selector", "access-denied"} <= set(item["branches"])
+            for item in result["properties"].values()
+        )
 
 
 def test_pipeline_preserves_sensitive_contracts():
@@ -390,22 +394,21 @@ def test_pipeline_preserves_sensitive_contracts():
     )
 
 
-@pytest.mark.parametrize("getter", ["base", "rotation", "policy"])
-def test_kms_key_identity_branches(getter):
-    result = adapter_contracts.run(ROOT, runtime_registry(ROOT, "kms"), "KMS.Key")[
-        getter
-    ]
-    assert result["status"] == "verified"
-    assert all(
-        {
-            "alias-selector",
-            "missing-selector",
-            "conflicting-aliases",
-            "multiple-aliases-one-key",
-        }
-        <= set(item["branches"])
-        for item in result["properties"].values()
-    )
+def test_kms_key_identity_branches():
+    results = adapter_contracts.run(ROOT, runtime_registry(ROOT, "kms"), "KMS.Key")
+    for getter in ("base", "rotation", "policy"):
+        result = results[getter]
+        assert result["status"] == "verified"
+        assert all(
+            {
+                "alias-selector",
+                "missing-selector",
+                "conflicting-aliases",
+                "multiple-aliases-one-key",
+            }
+            <= set(item["branches"])
+            for item in result["properties"].values()
+        )
 
 
 def test_kms_alias_membership_branches():
@@ -604,20 +607,17 @@ def test_iam_managed_policy_getters_cover_ambiguity_and_detail():
     )
 
 
-@pytest.mark.parametrize(
-    "getter", ["encryption", "lifecycle", "ownership", "public", "versioning"]
-)
-def test_s3_configuration_getters_respect_absence_and_failures(getter):
-    result = adapter_contracts.run(ROOT, runtime_registry(ROOT, "s3"), "S3.Bucket")[
-        getter
-    ]
-    assert result["status"] == "verified", result
-    for evidence in result["properties"].values():
-        assert {"normal", "missing-selector", "access-denied"} <= set(
-            evidence["branches"]
-        )
-        if getter != "versioning":
-            assert "optional-configuration-absent" in evidence["branches"]
+def test_s3_configuration_getters_respect_absence_and_failures():
+    results = adapter_contracts.run(ROOT, runtime_registry(ROOT, "s3"), "S3.Bucket")
+    for getter in ("encryption", "lifecycle", "ownership", "public", "versioning"):
+        result = results[getter]
+        assert result["status"] == "verified", result
+        for evidence in result["properties"].values():
+            assert {"normal", "missing-selector", "access-denied"} <= set(
+                evidence["branches"]
+            )
+            if getter != "versioning":
+                assert "optional-configuration-absent" in evidence["branches"]
 
 
 def test_s3_bucket_policy_uses_acquired_bucket_selector():
@@ -833,7 +833,9 @@ def test_lambda_optional_code_source_capture(code):
                 },
                 "Concurrency": {"ReservedConcurrentExecutions": 5},
                 "Code": code,
-            }
+            },
+            "recursion": {},
+            "provider-lambda-function": {},
         },
     }
     properties = cli.normalize_records(ctx, "lambda", [record])[0]["properties"]
@@ -913,7 +915,9 @@ def test_lambda_code_source_classification(package, code, expected):
             "base": {
                 "Configuration": {"FunctionName": "fixture", "PackageType": package},
                 "Code": code,
-            }
+            },
+            "recursion": {},
+            "provider-lambda-function": {},
         },
     }
     result = cli.normalize_records(ctx, "lambda", [record])[0]
@@ -952,7 +956,9 @@ def test_lambda_missing_source_requires_identity_and_propagates_denial(monkeypat
             "base": {
                 "Configuration": {"FunctionName": "fixture", "PackageType": "Zip"},
                 "Code": {},
-            }
+            },
+            "recursion": {},
+            "provider-lambda-function": {},
         },
     }
     props = cli.normalize_records(ctx, "lambda", [record])[0]["properties"]

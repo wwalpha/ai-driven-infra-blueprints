@@ -15,7 +15,11 @@ from botocore.validate import ParamValidator
 from utils.aws_sdk import aws_runtime
 
 from model.importing import cli, inventory, limitations
-from model.importing.contract_fixtures import InvalidFixture, SchemaOffline
+from model.importing.contract_fixtures import (
+    InvalidFixture,
+    SchemaOffline,
+    service_model,
+)
 from model.importing.discovery import ADAPTER_INVENTORIES, resolve
 
 ACCOUNT = "123456789012"
@@ -350,7 +354,6 @@ class FakeCalls:
         self.ctx = ctx
         self.payload = payload
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
-        self.sdk = aws_runtime().sdk_session()
         self.error: Exception | None = None
 
     def request(self, api: str, operation: str, inputs: dict[str, Any]) -> None:
@@ -358,7 +361,7 @@ class FakeCalls:
             ("list_", "get_", "describe_", "batch_get_")
         ):
             raise ValueError("Operation is outside the read-only allowlist")
-        model = self.sdk.get_service_model(api)
+        model = service_model(api)
         name = aws_runtime().operation_name(model, operation)
         if name is None:
             raise ValueError("Unknown SDK operation")
@@ -401,7 +404,7 @@ class FakeCalls:
     def response(
         self, api: str, operation: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        model = self.sdk.get_service_model(api)
+        model = service_model(api)
         name = aws_runtime().operation_name(model, operation)
         shape = model.operation_model(name).output_shape
         if shape is None and payload:

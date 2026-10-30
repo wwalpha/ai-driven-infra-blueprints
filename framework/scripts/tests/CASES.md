@@ -4519,3 +4519,13 @@ Worktree認可UTは実Git/Worktreeを作らず、live HEAD/state/登録の再読
 | `deploy-current::failure-snapshot` | `check_failed_snapshot_with_unstarted_stack_publishes` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | Publish failed and unstarted Stack observations with completed Task | Synthetic observations and real Git; validation mocked |
 | `deploy-current::reset-isolated` | `check_reset_once_ignores_legacy_storage` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 3 | One approval ignores old storage | Offline files |
 | `deploy-current::reset-empty` | `check_empty_reset_completes_once` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 1 | Empty current reset completes once | Offline files |
+
+## Offline Import adapter contracts
+
+`units/import-adapter-contracts-unit.checks.py` は76ケース。全ResourceTypeのMapping/SDK入出力shape、selector、失敗分岐、機微情報・未観測値を検証する。SDK定義は既存の不変schema共有helperを使い、各FakeCallsのpayload・呼出履歴・エラー・取得Contextは独立する。全ケースでsocket接続と外部AWS CLI呼出がないことを検証し、Lambdaのrecursion/provider応答も合成getterとして明示する。
+
+| Case ID | Function | Layer | Suite | Execution / Count | Coverage | Origin |
+| --- | --- | --- | --- | --- | --- | --- |
+| `import-adapter::direct-services` | `test_direct_service_contracts` | UT | [units/import-adapter-contracts-unit.checks.py](units/import-adapter-contracts-unit.checks.py) | pytest / 3 | CloudTrailは全3 getterを一度の実行で確認。Glue Job/SecurityConfigurationも全Property件数・失敗分岐を維持 | Offline synthetic SDK contracts |
+| `import-adapter::kms-key` | `test_kms_key_identity_branches` | UT | [units/import-adapter-contracts-unit.checks.py](units/import-adapter-contracts-unit.checks.py) | pytest / 1 | base/rotation/policyの全getterでalias selector・欠落・衝突・同一keyの複数aliasを確認 | Offline synthetic SDK contracts |
+| `import-adapter::s3-configurations` | `test_s3_configuration_getters_respect_absence_and_failures` | UT | [units/import-adapter-contracts-unit.checks.py](units/import-adapter-contracts-unit.checks.py) | pytest / 1 | encryption/lifecycle/ownership/public/versioningの全getterで通常・selector欠落・AccessDenied、適用getterで未設定を確認 | Offline synthetic SDK contracts |
