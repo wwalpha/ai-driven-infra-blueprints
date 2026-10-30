@@ -22,7 +22,11 @@ def sensitive(prop):
 
 
 def fetch(ctx, r, getter):
-    name = r.value("BucketName")
+    name = (
+        r.value("Bucket", "name")
+        if r.kind == "S3.BucketPolicy"
+        else r.value("BucketName")
+    )
     if getter == "base":
         bucket = one(
             [

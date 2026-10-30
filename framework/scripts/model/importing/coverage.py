@@ -900,7 +900,13 @@ def text_report(result: Diagnostic) -> str:
     lines = ["Import Coverage (offline; runtimeVerified=false)"]
     lines.extend(f"{key}: {value}" for key, value in result["summary"].items())
     for item in result["resources"]:
-        if item["staticStatus"] in {"ready", "not_modelled"}:
+        broken_contracts = [
+            (getter, key, evidence)
+            for getter, contract in item["adapterContracts"].items()
+            for key, evidence in contract["properties"].items()
+            if evidence["status"] == "broken"
+        ]
+        if item["staticStatus"] in {"ready", "not_modelled"} and not broken_contracts:
             continue
         lines.append(item["resourceType"] + " [" + item["staticStatus"] + "]")
         for layer in ("discovery", "identity"):
@@ -912,6 +918,10 @@ def text_report(result: Diagnostic) -> str:
                 lines.append(
                     f"  {prop['property']}: {prop['status']} / {prop['reasonCode']}: {prop['reason']}"
                 )
+        for getter, key, evidence in broken_contracts:
+            lines.append(
+                f"  {key}: adapter contract broken / {getter}: {evidence['reason']}"
+            )
     lines.extend(result["limitations"])
     return "\n".join(lines)
 
@@ -940,5 +950,10 @@ def main(argv: list[str] | None = None) -> int:
         else text_report(result)
     )
     return int(
-        args.strict and any(r["staticStatus"] == "broken" for r in result["resources"])
+        args.strict
+        and any(
+            r["staticStatus"] == "broken"
+            or any(c["status"] == "broken" for c in r["adapterContracts"].values())
+            for r in result["resources"]
+        )
     )

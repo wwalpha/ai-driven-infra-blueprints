@@ -32,7 +32,20 @@ def fetch(ctx, r, getter):
                 {"Name": "service-name", "Values": [r.value("ServiceName")]},
             ]
         }
-    return one(
+    record = one(
         ctx.pages("ec2", "describe_vpc_endpoints", **inputs).get("VpcEndpoints", []),
         "ec2.describe_vpc_endpoints",
     )
+    options = record.get("DnsOptions", {})
+    value = options.get("PrivateDnsOnlyForInboundResolverEndpoint")
+    if type(value) is bool:
+        record = dict(
+            record,
+            DnsOptions=dict(
+                options,
+                PrivateDnsOnlyForInboundResolverEndpoint="OnlyInboundResolver"
+                if value
+                else "AllResolvers",
+            ),
+        )
+    return record

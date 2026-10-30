@@ -282,6 +282,14 @@ def property_schema(prop):
     )
 
 
+def normalize_import_value(ctx, value, norm):
+    return (
+        comparator().normalize(ctx, value, norm)
+        if norm in {"boolean", "number"}
+        else value
+    )
+
+
 def normalize_records(ctx, service, records):
     return [
         inventory_for(ctx).normalize(service, record, _normalize_records)
@@ -490,6 +498,7 @@ def _normalize_records(ctx, service, records):
                         "reason": "AWS optional value not retrieved",
                     }
                     continue
+                value = normalize_import_value(ctx, value, field.norm)
                 shape = "projection" if array_paths(prop) else "leaf"
                 property_kind = ".".join(prop.split(".")[:2])
                 field_path = schema_property(property_kind, prop)

@@ -27,6 +27,15 @@ def typed_equal(left, right):
     )
 
 
+def identity_value(prop, value):
+    if isinstance(value, str):
+        if prop == "Route53.RecordSet.Name":
+            return value.rstrip(".").lower()
+        if prop == "Route53.RecordSet.HostedZoneId":
+            return value.removeprefix("/hostedzone/")
+    return value
+
+
 def typed_row(row, raw, schema):
     return typed_value(row, raw, schema)
 
@@ -114,11 +123,7 @@ def selection_records(
                     )
                 if value is None or value == "" or value in ("PENDING_DEPLOY", "UNSET"):
                     break
-                if kind == "Route53.RecordSet" and isinstance(value, str):
-                    if prop.endswith(".Name"):
-                        value = value.rstrip(".").lower()
-                    elif prop.endswith(".HostedZoneId"):
-                        value = value.removeprefix("/hostedzone/")
+                value = identity_value(prop, value)
                 components.append({"property": prop, "value": value})
             if components and len(components) == len(component_properties[kind]):
                 owners.setdefault(
@@ -420,8 +425,13 @@ def pending_items(selection, selected, values, property_schema):
             if capture["status"] == "missing" and not represented:
                 continue
             if capture["status"] == "captured" and typed_equal(
-                property_values(values, rid, prop, property_schema(prop), rows=rows),
-                capture["value"],
+                identity_value(
+                    prop,
+                    property_values(
+                        values, rid, prop, property_schema(prop), rows=rows
+                    ),
+                ),
+                identity_value(prop, capture["value"]),
             ):
                 continue
             pending.append(
@@ -647,10 +657,13 @@ def verify_values(
         for component in identities:
             prop = component["property"]
             if prop and not typed_equal(
-                property_values(
-                    after.values, rid, prop, property_schema(prop), rows=new_index
+                identity_value(
+                    prop,
+                    property_values(
+                        after.values, rid, prop, property_schema(prop), rows=new_index
+                    ),
                 ),
-                component["value"],
+                identity_value(prop, component["value"]),
             ):
                 raise ValueError(
                     "IMPORT candidate must retain its acquired physical identity"

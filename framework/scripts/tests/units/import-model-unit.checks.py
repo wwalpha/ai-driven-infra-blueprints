@@ -3943,3 +3943,8 @@ def test_route53_identity_matching_respects_zone_and_set_identifier():
     matching.clear()
     selection_records(empty, [captured], old, old, schema_for, matching=matching)
     assert matching["route"]["status"] == "unresolved"
+    captured["identityComponents"][-1]["value"] = None
+    matching.clear()
+    selection_records(empty, [captured], old, old, schema_for, matching=matching)
+    assert matching["route"]["status"] == "unresolved"
+    assert matching["route"]["existingResources"] == []

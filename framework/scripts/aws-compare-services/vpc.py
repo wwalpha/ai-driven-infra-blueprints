@@ -71,6 +71,7 @@ def fetch(ctx, r, getter):
             inputs["Filters"].append(
                 {"Name": "resource-id", "Values": [r.value("ResourceId", "id")]}
             )
+            inputs["Filter"] = inputs.pop("Filters")
         elif r.kind != "EC2.VPC" and r.rows_for("VpcId"):
             inputs["Filters"].append(
                 {"Name": "vpc-id", "Values": [r.value("VpcId", "id")]}

@@ -771,10 +771,52 @@ def check_route53_acquired_identity_evidence(tmp_path):
     root.mkdir()
     project_fixture(root)
     path = root / "model/dev" / ACCOUNT / "route53.properties"
-    write_model(
-        path, service_values("route53", ["Route53.HostedZone", "Route53.RecordSet"])
+    values = service_values("route53", ["Route53.HostedZone", "Route53.RecordSet"])
+    values.update(
+        resource_values(
+            "001",
+            "Route53.RecordSet",
+            "route53-record",
+            "IMPORT",
+            [
+                ("HostedZoneId", "`/hostedzone/Z1`"),
+                ("Name", "`example.com.`"),
+                ("Type", "`A`"),
+            ],
+        )
     )
+    write_model(path, values)
     checkpoint(root)
+    listed = [
+        f"- `{path.relative_to(root).as_posix()}`",
+        f"- `docs/designs/dev/{ACCOUNT}/route53.md`",
+        "- `tasks/import-fixture.md`",
+    ]
+    start(
+        root,
+        "tasks/import-fixture.md",
+        "\n".join(
+            [
+                "## Task contract",
+                "- Task type: `design`",
+                "- Task status: `running`",
+                "- Workflow: `import`",
+                f"- IMPORT target: `dev/{ACCOUNT}/route53`",
+                "## Goal",
+                "Bind the selected record",
+                "## Required changes",
+                "- [R1] Bind record",
+                "## Acceptance checks",
+                f"- [R1] `exists:docs/designs/dev/{ACCOUNT}/route53.md`",
+                "## Validation scope",
+                f"- `dev/{ACCOUNT}/route53`",
+                "## Modified files",
+                *listed,
+                "## Allowed paths",
+                *listed,
+            ]
+        ),
+    )
     cli = Route53Cli(
         {
             "Route53.HostedZone": [
@@ -782,9 +824,15 @@ def check_route53_acquired_identity_evidence(tmp_path):
             ]
         }
     )
-    before = source_files(root)
+    before = load_model(path)
     acquired = m.acquire(
-        root, "dev", "route53", ACCOUNT, True, cli, resource_types=["Route53.RecordSet"]
+        root,
+        "dev",
+        "route53",
+        ACCOUNT,
+        False,
+        cli,
+        resource_types=["Route53.RecordSet"],
     )
     assert acquired["status"] == "acquired", acquired
     assert len(acquired["records"]) == 2
@@ -795,15 +843,45 @@ def check_route53_acquired_identity_evidence(tmp_path):
         for item in components
     )
     sealed = import_guard.read_acquisition(
-        root, Path(acquired["evidence"]), ("dev", ACCOUNT, "route53"), True
+        root, Path(acquired["evidence"]), ("dev", ACCOUNT, "route53"), False
     )
     assert [record["identityComponents"] for record in sealed["records"]] == components
-    stage(root, acquired, {}, excluded=exclusions(acquired, []))
-    review_fixture(root, acquired, dry_run=True)
-    result = m.publish_acquisition(
-        root, "dev", "route53", acquired["evidence"], ACCOUNT, True
+    record = next(
+        r for r in acquired["records"] if r["identityComponents"][-1]["value"] == "blue"
     )
-    assert result["status"] == "dry-run" and source_files(root) == before
+    selected = [
+        {
+            "record": record["record"],
+            "resource": "001",
+            "action": "bind",
+            "reason": "Human identifies the existing record",
+            "basis": [],
+            "before": {
+                "identity": None,
+                "model": document_sha256(operation_values(before.authoritative, "001")),
+            },
+        }
+    ]
+    values["desired.row.001-004.property"] = "Route53.RecordSet.SetIdentifier"
+    values["desired.row.001-004.value"] = "`blue`"
+    values["desired.row.001-004.comment"] = "合成テストの取得設定"
+    values["desired.row.001-005.property"] = "Route53.RecordSet.TTL"
+    values["desired.row.001-005.value"] = "`60`"
+    values["desired.row.001-005.comment"] = "合成テストの取得設定"
+    values["desired.row.001-006.property"] = "Route53.RecordSet.ResourceRecords"
+    values["desired.row.001-006.value"] = m.model_literal(["192.0.2.1"])
+    values["desired.row.001-006.comment"] = "合成テストの取得設定"
+    stage(
+        root,
+        acquired,
+        {path.relative_to(root).as_posix(): serialize(values)},
+        selected,
+        exclusions(acquired, selected),
+    )
+    result = publish_fixture(root, acquired, "route53")
+    assert result["status"] == "complete", result
+    assert load_model(path).authoritative["desired.row.001-004.value"] == "`blue`"
+    assert import_guard.read_proof(root)["complete"] is True
 
 
 def _callback_check_reference_publication_counted(
