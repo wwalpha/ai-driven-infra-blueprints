@@ -138,10 +138,7 @@ def check_incomplete_naming_cli_preserves_files(tmp_path):
             common + args, capture_output=True, text=True, encoding="utf-8", check=False
         )
         assert result.returncode == 2
-        assert (
-            "incomplete Naming Scan" in result.stderr
-            and "rescan and Review" in result.stderr
-        )
+        assert "Scan artifact: invalid structure or integrity" in result.stderr
         assert {path: path.read_bytes() for path in files} == before
     data["naming"]["names"] = []
     assert validate_artifact(data) == []
@@ -896,6 +893,33 @@ def check_invalid_scan_reports_explicit_error(tmp_path, value):
     result = cli(review, "init")
     assert result.returncode == 2 and "Local issues: ERROR:" in result.stderr
     assert "Traceback" not in result.stderr and not review.path.exists()
+
+
+def check_cli_inspect_and_revision_contract(tmp_path):
+    review = revision_controller(tmp_path)
+    inspected = cli(review, "inspect", "--section", "naming", "--id", "name-0")
+    assert inspected.returncode == 0, inspected.stderr
+    previous = json.loads(inspected.stdout)
+    request = revision_for(review, "naming", "name-0")
+    assert previous == review.inspect("naming", "name-0")
+    path = tmp_path / "revision.json"
+    path.write_text(encoded(request), encoding="utf-8")
+    revised = cli(review, "revise", "--revision", str(path))
+    assert revised.returncode == 0, revised.stderr
+    before = review.path.read_bytes()
+    assert cli(review, "revise", "--revision", str(path)).returncode == 0
+    assert review.path.read_bytes() == before
+    request["result"]["reason"] = "Conflicting writer"
+    path.write_text(encoded(request), encoding="utf-8")
+    assert cli(review, "revise", "--revision", str(path)).returncode == 2
+    assert review.path.read_bytes() == before
+    assert (
+        cli(review, "inspect", "--section", "naming", "--id", "missing").returncode == 2
+    )
+    finish(review)
+    assert (
+        cli(review, "export", "--review", str(tmp_path / "review.json")).returncode == 0
+    )
 
 
 def check_process_lock_serializes_checkpoint_updates(tmp_path):

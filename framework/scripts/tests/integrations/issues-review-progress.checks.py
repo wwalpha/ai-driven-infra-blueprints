@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from unittest import TestCase
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -175,8 +177,8 @@ def check_process_exit_resume_from_checkpoint_and_save(tmp_path):
         ordinary=[dict(id="current", service="s3", message="Current issue")],
     )
     review = controller(tmp_path, data)
-    assert cli(review, "init").returncode == 0
-    batch = json.loads(cli(review, "next").stdout)
+    review.initialize()
+    batch = review.next_batch()
     payload = tmp_path / "submission.json"
     payload.write_text(json.dumps(submission(batch)), encoding="utf-8")
     interrupted = subprocess.run(
@@ -196,17 +198,16 @@ def check_process_exit_resume_from_checkpoint_and_save(tmp_path):
         check=False,
     )
     assert interrupted.returncode == 17, interrupted.stderr
-    status = json.loads(cli(review, "status").stdout)
+    reloaded = cli(review, "status")
+    assert reloaded.returncode == 0, reloaded.stderr
+    status = json.loads(reloaded.stdout)
     assert status["sections"]["naming_context"]["reviewed"] == 1
     assert status["next_section"] == "diagnostics" and not status["complete"]
-    while not status["complete"]:
-        batch = json.loads(cli(review, "next").stdout)
-        payload.write_text(json.dumps(submission(batch)), encoding="utf-8")
-        accepted = cli(review, "submit", "--submission", str(payload))
-        assert accepted.returncode == 0, accepted.stderr
-        status = json.loads(accepted.stdout)
+    resumed = ReviewController(review.root, review.artifact_path, review.path)
+    assert resumed.status() == status
+    finish(resumed)
     output = tmp_path / "review.json"
-    assert cli(review, "export", "--review", str(output)).returncode == 0
+    resumed.export(output)
     with task(review.root, data["services"]):
         result = subprocess.run(
             [
@@ -238,6 +239,11 @@ def check_process_exit_resume_from_checkpoint_and_save(tmp_path):
     assert "Current issue" in (review.root / saved["saved"][0]).read_text(
         encoding="utf-8"
     )
+    exported = json.loads(output.read_text(encoding="utf-8"))
+    assert exported == review_for(data)
+    assert tuple(
+        (review.root / path).read_text(encoding="utf-8") for path in saved["saved"]
+    ) == render_snapshot(review.root, review_snapshot(data, exported))
 
 
 def check_process_revision_resume_export_and_save(tmp_path: Path) -> None:
@@ -254,9 +260,7 @@ def check_process_revision_resume_export_and_save(tmp_path: Path) -> None:
     output = tmp_path / "review.json"
     review.export(output)
     old_export = output.read_bytes()
-    inspected = cli(review, "inspect", "--section", "judgments", "--id", "owner")
-    assert inspected.returncode == 0, inspected.stderr
-    previous = json.loads(inspected.stdout)
+    previous = review.inspect("judgments", "owner")
     assert previous["result_digest"] == fingerprint(previous["result"])
     result = dict(
         previous["result"],
@@ -289,21 +293,23 @@ def check_process_revision_resume_export_and_save(tmp_path: Path) -> None:
         check=False,
     )
     assert interrupted.returncode == 17, interrupted.stderr
+    inspected = cli(review, "inspect", "--section", "judgments", "--id", "owner")
+    assert inspected.returncode == 0, inspected.stderr
+    assert json.loads(inspected.stdout)["result"] == result
+    resumed = ReviewController(review.root, review.artifact_path, review.path)
     before = review.path.read_bytes()
-    retry = cli(review, "revise", "--revision", str(path))
-    assert retry.returncode == 0, retry.stderr
+    status = resumed.revise(revision)
     assert review.path.read_bytes() == before
-    status = json.loads(cli(review, "status").stdout)
     assert status["sections"]["diagnostics"]["reviewed"] == 1
     assert status["sections"]["judgments"]["reviewed"] == 1
     assert status["next_section"] == "additions" and not status["exportable"]
-    assert cli(review, "export", "--review", str(output)).returncode == 2
+    with pytest.raises(ValueError, match="incomplete"):
+        resumed.export(output)
     assert output.read_bytes() == old_export
-    batch = json.loads(cli(review, "next").stdout)
+    batch = resumed.next_batch()
     assert batch["expected_ids"] == ["final"]
-    path.write_text(json.dumps(submission(batch)), encoding="utf-8")
-    assert cli(review, "submit", "--submission", str(path)).returncode == 0
-    assert cli(review, "export", "--review", str(output)).returncode == 0
+    resumed.submit(submission(batch))
+    resumed.export(output)
     exported = json.loads(output.read_text(encoding="utf-8"))
     assert len(exported) == 9 and output.read_bytes() != old_export
     assert exported["diagnostic_decisions"] == [
@@ -441,6 +447,56 @@ def check_scan_automatic_pass_resume_review_export_save(tmp_path):
     snapshot = json.loads(review_snapshot(data, exported).data)
     assert set(snapshot["automatically_reviewed_names"]) == {n["id"] for n in automatic}
     assert len(snapshot["naming"]["names"]) == len(data["naming"]["names"])
+
+
+def check_100_automatic_names_excluded_from_review_payload(tmp_path):
+    root = tmp_path / "repository"
+    fixture(root, services=["cloudwatch-logs"])
+    data = scan(
+        root,
+        "dev",
+        "123456789012",
+        ["cloudformation-stacks", "cloudwatch-logs"],
+        jobs=1,
+    )
+    source = next(
+        n for n in data["naming"]["names"] if n["service"] == "cloudwatch-logs"
+    )
+    data["naming"]["names"] = []
+    for i in range(100):
+        name = dict(
+            source,
+            id=f"log-{i}",
+            resource=f"{i:04d}",
+            value=f"/aws-glue/jobs/security-{i}-role/ExecutionRole-{i}/"
+            + ("error" if i % 2 else "output"),
+        )
+        name["decision"] = naming_decision(data, name)
+        data["naming"]["names"].append(name)
+    assert all(n["decision"]["status"] == "AUTO_PASS" for n in data["naming"]["names"])
+    stamp_naming_scan(data)
+    assert review_names(data) == []
+    review = controller(tmp_path, data)
+    review.initialize()
+    naming_batches = 0
+    while not review.status()["complete"]:
+        batch = review.next_batch()
+        naming_batches += batch["section"] == "naming"
+        review.submit(submission(batch))
+    assert naming_batches == 0
+    assert review.status()["automatically_reviewed_names"] == 100
+    exported, _ = publish(review, tmp_path)
+    assert exported["reviewed_names"] == []
+    snapshot = json.loads(review_snapshot(data, exported).data)
+    ids = [name["id"] for name in data["naming"]["names"]]
+    assert snapshot["naming"]["names"] == data["naming"]["names"]
+    assert len(ids) == len(set(ids)) == 100
+    assert len(snapshot["automatically_reviewed_names"]) == 100
+    assert set(snapshot["automatically_reviewed_names"]) == set(ids)
+    assert not snapshot["ordinary"]
+    assert not any(
+        name["decision"]["violations"] for name in snapshot["naming"]["names"]
+    )
 
 
 if __name__ == "__main__":
