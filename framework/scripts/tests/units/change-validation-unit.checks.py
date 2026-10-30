@@ -2484,3 +2484,161 @@ def check_full_and_change_receive_same_reference_context(
         scoped = documents.call_args.kwargs["context"]
     if full != scoped or scoped.get(expected[0]) != expected[1]:
         pytest.fail(f"Full and Change contexts differ: {full}, {scoped}")
+
+
+@pytest.mark.parametrize("broken", [False, True])
+def check_pipeline_name_change_skips_action_context(project_workspace, broken):
+    setup(project_workspace, ["codepipeline"], [])
+    fields = [
+        ("Name", "old-pipeline"),
+        ("Stages[].Name", "source"),
+        ("Stages[].Actions[].Name", "first"),
+        ("Stages[].Actions[].ActionTypeId.Category", "Source"),
+        ("Stages[].Actions[].ActionTypeId.Owner", "AWS"),
+        ("Stages[].Actions[].ActionTypeId.Provider", "S3"),
+        ("Stages[].Actions[].ActionTypeId.Version", "1"),
+        ("Stages[].Actions[].Configuration", '`{"S3Bucket":"bucket"}`'),
+    ]
+    if broken:
+        fields.extend([("RoleArn", "role"), ("Stages[].Name", "another")])
+    before = resource("001", "CodePipeline.Pipeline", "pipeline", fields)
+    after = dict(before, **{"desired.row.001-001.value": "new-pipeline"})
+    projection = change_plan._model_validation_projection
+    with patch.object(
+        projection, "configuration_contexts", wraps=projection.configuration_contexts
+    ) as contexts:
+        selected = change_plan.compare(
+            snapshot(project_workspace, before, "codepipeline"),
+            snapshot(project_workspace, after, "codepipeline"),
+        )
+        contexts.assert_not_called()
+    findings = _model_validation_change_inputs.check_change_inputs(
+        snapshot(project_workspace, after, "codepipeline").scope.path,
+        after,
+        project_workspace,
+        selected,
+    )
+    if findings.errors:
+        pytest.fail(str(findings.errors))
+
+
+@pytest.mark.parametrize("field", ["Category", "Owner", "Provider", "Version"])
+def check_pipeline_action_type_change_selects_only_its_configuration(
+    project_workspace, field
+):
+    setup(project_workspace, ["codepipeline"], [])
+    fields = [("Stages[].Name", "stage")]
+    for name, provider in [("first", "S3"), ("second", "CodeBuild")]:
+        fields.extend(
+            [
+                ("Stages[].Actions[].Name", name),
+                ("Stages[].Actions[].ActionTypeId.Category", "Source"),
+                ("Stages[].Actions[].ActionTypeId.Owner", "AWS"),
+                ("Stages[].Actions[].ActionTypeId.Provider", provider),
+                ("Stages[].Actions[].ActionTypeId.Version", "1"),
+                (
+                    "Stages[].Actions[].Configuration",
+                    "`invalid json`" if name == "second" else '`{"S3Bucket":"bucket"}`',
+                ),
+            ]
+        )
+    before = resource("001", "CodePipeline.Pipeline", "pipeline", fields)
+    index = {"Category": 3, "Owner": 4, "Provider": 5, "Version": 6}[field]
+    after = dict(before, **{f"desired.row.001-{index:03}.value": "changed"})
+    projection = change_plan._model_validation_projection
+    with patch.object(
+        projection, "configuration_contexts", wraps=projection.configuration_contexts
+    ) as contexts:
+        selected = change_plan.compare(
+            snapshot(project_workspace, before, "codepipeline"),
+            snapshot(project_workspace, after, "codepipeline"),
+        )
+        if contexts.call_count != 2:
+            pytest.fail(f"expected two context constructions: {contexts.call_count}")
+    if (
+        "001-007" not in selected.rows
+        or "001-013" in selected.rows
+        or "desired.row.001-007.value" not in selected.reference_keys
+    ):
+        pytest.fail(
+            f"incorrect dependent selection: {selected.rows}, {selected.reference_keys}"
+        )
+
+
+@pytest.mark.parametrize("edit", ["configuration", "action_attribute", "comment"])
+def check_pipeline_independent_change_skips_context(project_workspace, edit):
+    setup(project_workspace, ["codepipeline"], [])
+    fields = [
+        ("Stages[].Name", "stage"),
+        ("Stages[].Actions[].Name", "action"),
+        ("Stages[].Actions[].ActionTypeId.Provider", "S3"),
+        ("Stages[].Actions[].Configuration", '`{"S3Bucket":"bucket"}`'),
+    ]
+    before = resource("001", "CodePipeline.Pipeline", "pipeline", fields)
+    key = {
+        "configuration": "desired.row.001-004.value",
+        "action_attribute": "desired.row.001-002.value",
+        "comment": "desired.row.001-004.comment",
+    }[edit]
+    after = dict(before, **{key: "changed"})
+    projection = change_plan._model_validation_projection
+    with patch.object(
+        projection, "configuration_contexts", wraps=projection.configuration_contexts
+    ) as contexts:
+        selected = change_plan.compare(
+            snapshot(project_workspace, before, "codepipeline"),
+            snapshot(project_workspace, after, "codepipeline"),
+        )
+        contexts.assert_not_called()
+    if (
+        edit == "configuration"
+        and "desired.row.001-004.value" not in selected.reference_keys
+    ):
+        pytest.fail(f"changed Configuration not selected: {selected.reference_keys}")
+
+
+@pytest.mark.parametrize(
+    "operation", ["add_action", "delete_action", "add_stage", "delete_stage", "reorder"]
+)
+def check_pipeline_structure_change_rebuilds_context(project_workspace, operation):
+    setup(project_workspace, ["codepipeline"], [])
+    first = [
+        ("Stages[].Actions[].Name", "first"),
+        ("Stages[].Actions[].ActionTypeId.Provider", "S3"),
+        ("Stages[].Actions[].Configuration", "first"),
+    ]
+    second = [
+        ("Stages[].Actions[].Name", "second"),
+        ("Stages[].Actions[].ActionTypeId.Provider", "CodeBuild"),
+        ("Stages[].Actions[].Configuration", "second"),
+    ]
+    stage = [("Stages[].Name", "stage")]
+    old_fields, new_fields = {
+        "add_action": (stage + first, stage + first + second),
+        "delete_action": (stage + first + second, stage + first),
+        "add_stage": (
+            stage + first,
+            stage + first + [("Stages[].Name", "other")] + second,
+        ),
+        "delete_stage": (
+            stage + first + [("Stages[].Name", "other")] + second,
+            stage + first,
+        ),
+        "reorder": (stage + first + second, stage + second + first),
+    }[operation]
+    before = resource("001", "CodePipeline.Pipeline", "pipeline", old_fields)
+    after = resource("001", "CodePipeline.Pipeline", "pipeline", new_fields)
+    projection = change_plan._model_validation_projection
+    with patch.object(
+        projection, "configuration_contexts", wraps=projection.configuration_contexts
+    ) as contexts:
+        selected = change_plan.compare(
+            snapshot(project_workspace, before, "codepipeline"),
+            snapshot(project_workspace, after, "codepipeline"),
+        )
+        if contexts.call_count != 2:
+            pytest.fail(f"expected two context constructions: {contexts.call_count}")
+    if operation == "reorder" and not {"001-004", "001-007"} <= selected.rows:
+        pytest.fail(f"reordered configurations not selected: {selected.rows}")
+    if operation.startswith("add") and not selected.reference_keys:
+        pytest.fail(f"added configuration not selected: {selected.reference_keys}")

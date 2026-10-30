@@ -83,6 +83,21 @@ def property_rows(values, number):
 
 def context_changes(old, new, old_number, number, kind, root):
     previous, current = property_rows(old, old_number), property_rows(new, number)
+    pipeline_changed = kind == "CodePipeline.Pipeline" and [
+        (
+            row.get("property"),
+            row.get("value") if ".ActionTypeId." in row.get("property", "") else None,
+        )
+        for _, row in previous.values()
+        if row.get("property", "").startswith(kind + ".Stages[].")
+    ] != [
+        (
+            row.get("property"),
+            row.get("value") if ".ActionTypeId." in row.get("property", "") else None,
+        )
+        for _, row in current.values()
+        if row.get("property", "").startswith(kind + ".Stages[].")
+    ]
     mapping = environment_values.mapping_for(root, kind)
     old_context = {
         **row_contexts(
@@ -130,10 +145,18 @@ def context_changes(old, new, old_number, number, kind, root):
             _model_validation_projection.configuration_contexts(
                 values, old_number if values is old else number, root
             )
-            if kind == "CodePipeline.Pipeline"
+            if pipeline_changed
             else None
         )
         for rid, row in indexed.values():
+            if (
+                kind == "CodePipeline.Pipeline"
+                and not pipeline_changed
+                and row.get("property", "").startswith(
+                    "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
+                )
+            ):
+                continue
             if "value" in row and (
                 requires_context(row["property"])
                 or row["property"] in CONFIGURATION_PROPERTIES
