@@ -4270,6 +4270,8 @@ Progress mechanics reuse existing Naming/Human/diagnostic validators; business I
 
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
+| `issues-review-progress::incomplete-naming` | `check_incomplete_naming_scan_rejected` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 12 | Missing/all/partial or invalid decision, target and context mismatches, duplicate ID, empty names | Synthetic Scan |
+| `issues-review-progress::incomplete-naming-cli` | `check_incomplete_naming_cli_preserves_files` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 1 | Review/Detail/Save reject incomplete Scan without changing state, reports or Human file | Offline CLI |
 | `issues-review-progress::inventory_context_order_and_fetch_is_not_review` | `check_inventory_context_order_and_fetch_is_not_review` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 1 | inventory context order and fetch is not review | Synthetic Scan / external checkpoint / existing Save |
 | `issues-review-progress::batch_size_bytes_and_oversize_item` | `check_batch_size_bytes_and_oversize_item` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 1 | batch size bytes and oversize item | Synthetic Scan / external checkpoint / existing Save |
 | `issues-review-progress::invalid_batch_is_atomic_and_retryable` | `check_invalid_batch_is_atomic_and_retryable` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 11 | invalid batch is atomic and retryable | Synthetic Scan / external checkpoint / existing Save |
@@ -4559,8 +4561,6 @@ Worktree認可UTは実Git/Worktreeを作らず、live HEAD/state/登録の再読
 | `check_index_rejects_unproven_metadata` | `units/reference-metadata-unit.checks.py` | 旧版と不正metadataをloadとinventoryで拒否 |
 | `check_index_transaction_rollback_and_recovery` | `units/deploy-lazy-inputs.checks.py` | v3 publication失敗時のrollbackと復旧 |
 
-| `issues-review-progress::incomplete-naming` | `check_incomplete_naming_scan_rejected` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 12 | Missing/all/partial or invalid decision, target and context mismatches, duplicate ID, empty names | Synthetic Scan |
-| `issues-review-progress::incomplete-naming-cli` | `check_incomplete_naming_cli_preserves_files` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 1 | Review/Detail/Save reject incomplete Scan without changing state, reports or Human file | Offline CLI |
 
 | `issues-review-progress::cli-inspect-revision` | `check_cli_inspect_and_revision_contract` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 1 | CLI inspect and revision success, retry and conflict, plus successful Export | Synthetic Scan / checkpoint / CLI |
 | `issues-review-progress::100-automatic-names` | `check_100_automatic_names_excluded_from_review_payload` | IT | [integrations/issues-review-progress.checks.py](integrations/issues-review-progress.checks.py) | pytest / 1 | 100 AUTO_PASS names excluded from Review and preserved in Snapshot | Synthetic Scan / report publication |

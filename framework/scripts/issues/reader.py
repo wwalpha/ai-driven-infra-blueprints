@@ -7,6 +7,7 @@ from pathlib import Path
 from utils.json_format import strict_json
 
 from .artifact import validate_artifact
+from .review import IncompleteNamingScan
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,10 @@ def read_scan_artifact(path: Path) -> LoadedScan:
         _field(issue, "members", list, "iac_issues")
     try:
         validate_artifact(artifact)
+    except IncompleteNamingScan:
+        raise IncompleteNamingScan(
+            "incomplete Naming Scan; explicit rescan and Review required"
+        ) from None
     except (
         ValueError,
         KeyError,

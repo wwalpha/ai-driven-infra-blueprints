@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 from issues.artifact import validate_artifact
 from issues.materials import rule_section
+from issues.reader import read_scan_artifact
 from issues.records import identifier
 from issues.review_progress import ReviewController, encoded
 from model.sources import publication_lock
@@ -98,6 +99,13 @@ def check_incomplete_naming_scan_rejected(tmp_path, fault):
         names.append(deepcopy(names[0]))
     with pytest.raises(ValueError, match="incomplete Naming Scan.*rescan and Review"):
         validate_artifact(data)
+    if fault not in {"context_missing", "naming_missing"}:
+        path = tmp_path / "scan.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        with pytest.raises(
+            ValueError, match="incomplete Naming Scan.*rescan and Review"
+        ):
+            read_scan_artifact(path)
 
 
 def check_incomplete_naming_cli_preserves_files(tmp_path):
@@ -138,10 +146,15 @@ def check_incomplete_naming_cli_preserves_files(tmp_path):
             common + args, capture_output=True, text=True, encoding="utf-8", check=False
         )
         assert result.returncode == 2
-        assert "Scan artifact: invalid structure or integrity" in result.stderr
+        assert (
+            "incomplete Naming Scan; explicit rescan and Review required"
+            in result.stderr
+        )
         assert {path: path.read_bytes() for path in files} == before
     data["naming"]["names"] = []
     assert validate_artifact(data) == []
+    review.artifact_path.write_text(json.dumps(data), encoding="utf-8")
+    assert read_scan_artifact(review.artifact_path).artifact == data
 
 
 def naming_controller(tmp_path, count=23):

@@ -515,6 +515,10 @@ def naming_decision(artifact, name, rule_index=None):
     )
 
 
+class IncompleteNamingScan(ValueError):
+    """The Scan must be repeated and reviewed before it can be used."""
+
+
 def review_names(artifact, rule_index=None):
     """Never trust an asserted AUTO_PASS; recompute from the immutable Scan evidence."""
     rule_index = rule_index or NamingRuleIndex(artifact["naming_context"])
@@ -527,27 +531,27 @@ def review_names(artifact, rule_index=None):
         or target.get("alias", target.get("awsAccountId")) != artifact.get("target")
         or "suffix" not in target
     ):
-        raise ValueError(
+        raise IncompleteNamingScan(
             "incomplete Naming Scan target context; explicit rescan and Review required"
         )
     for name in artifact["naming"]["names"]:
         key = required_text(name, "id")
         if key in seen:
-            raise ValueError(
+            raise IncompleteNamingScan(
                 "incomplete Naming Scan: duplicate naming ID; explicit rescan and Review required"
             )
         seen.add(key)
         if name.get("naming_context_id") != artifact["naming_context_id"]:
-            raise ValueError(
+            raise IncompleteNamingScan(
                 "incomplete Naming Scan: Naming item context ID mismatch; explicit rescan and Review required"
             )
         if not isinstance(name.get("decision"), dict):
-            raise ValueError(
+            raise IncompleteNamingScan(
                 "incomplete Naming Scan: invalid or missing decision; explicit rescan and Review required"
             )
         decision = naming_decision(artifact, name, rule_index)
         if name["decision"] != decision:
-            raise ValueError(
+            raise IncompleteNamingScan(
                 "incomplete Naming Scan: Naming decision does not match Scan evidence; explicit rescan and Review required"
             )
         if decision["status"] != "AUTO_PASS":

@@ -10,7 +10,7 @@ import issues.aggregate as _imports_issues_aggregate
 
 from .aggregate import IAC_CATEGORIES, pending_deploy_count
 from .records import brief, identifier
-from .review import review_names
+from .review import IncompleteNamingScan, review_names
 
 CHANNELS = ("warnings", "information", "unverified", "processing_errors")
 
@@ -294,13 +294,13 @@ def validate_artifact(artifact, *, rule_index=None):
     if not isinstance(artifact.get("naming_context"), dict) or identifier(
         artifact["naming_context"]
     ) != artifact.get("naming_context_id"):
-        raise ValueError(
+        raise IncompleteNamingScan(
             "incomplete Naming Scan: invalid naming_context_id; explicit rescan and Review required"
         )
     if not isinstance(artifact.get("naming"), dict) or not isinstance(
         artifact["naming"].get("names"), list
     ):
-        raise ValueError(
+        raise IncompleteNamingScan(
             "incomplete Naming Scan: missing names; explicit rescan and Review required"
         )
     pending_names = review_names(artifact, rule_index)
