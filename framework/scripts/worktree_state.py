@@ -143,6 +143,9 @@ def task_start_commit(root, task_file):
         "--verify",
         state.get("validation_base", state["start"]) + "^{commit}",
     )
+    text = (root / task_file).read_text(encoding="utf-8")
+    if "- Infrastructure phase: `implement`" in text.splitlines():
+        return start
     if git(root, "merge-base", "--is-ancestor", start, "HEAD", check=False).returncode:
         raise Blocked("task lifecycle start is not an ancestor of HEAD")
     base = output(

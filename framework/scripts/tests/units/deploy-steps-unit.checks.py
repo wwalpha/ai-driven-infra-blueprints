@@ -1,7 +1,10 @@
 """Short-operation decisions and complete identifier coverage, without AWS or worktrees."""
 
+import json
 import sys
+import tempfile
 from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -21,6 +24,7 @@ from deploy import (
     recovery,
     scheduler,
     steps,
+    worktree,
 )
 from model.core import stack_model, validate_model_keys
 from model.observed import verify_observed_outputs
@@ -85,6 +89,7 @@ def check_checkpoint_pending_is_unfinished_even_after_observed():
     states = {"A": {"status": "SUCCESS", "observedSynced": True, "checkpointed": True}}
     backend = SimpleNamespace(
         phase="deploy",
+        task_status="completed",
         states=states,
         run_context={
             "states": states,
@@ -106,10 +111,10 @@ def check_intermediate_sync_does_not_finish_unattempted_deploy(status):
         states=state,
         run_context={"states": state, "snapshotValidation": "PASS"},
     )
-    assert steps.describe(backend)["result"] != "COMPLETE"
+    TestCase().assertNotEqual(steps.describe(backend)["result"], "COMPLETE")
 
 
-def check_failed_attempt_can_finish_with_unstarted_stack():
+def check_failed_attempt_cannot_finish_with_unstarted_stack():
     states = {
         name: {"status": status, "observedSynced": True, "checkpointed": True}
         for name, status in [("A", "SUCCESS"), ("B", "FAILED"), ("C", "NOT_STARTED")]
@@ -122,7 +127,7 @@ def check_failed_attempt_can_finish_with_unstarted_stack():
             "snapshotValidation": "PASS",
         },
     )
-    assert steps.describe(backend)["result"] == "COMPLETE"
+    TestCase().assertNotEqual(steps.describe(backend)["result"], "COMPLETE")
 
 
 @pytest.mark.parametrize("status", ["PENDING", "CONFLICT", "SUCCESS"])
@@ -143,6 +148,7 @@ def check_git_next_actions_are_exposed_until_publication_succeeds(status):
     actions = [] if status == "SUCCESS" else [action]
     backend = SimpleNamespace(
         phase="deploy",
+        task_status="completed",
         states=states,
         run_context={
             "states": states,
@@ -363,7 +369,311 @@ def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
         )
 
 
+def missing_changeset_aws(event, operation, **arguments):
+    if operation == "describe_stacks":
+        return {"Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]}
+    if operation == "describe_change_set":
+        raise AwsError("cloudformation", operation, "ChangeSetNotFound")
+    return {"StackEvents": [event]}
+
+
+def save_test_state(case, request, progress, state):
+    case.assertTrue(request.exists())
+    worktree.write_sealed(progress.parent, progress, state)
+
+
 class TestCurrentState(TestCase):
+    def test_explicit_completion_persists_unexecuted_reason(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            path = root / "progress.json"
+            identity = {"stacks": ["A", "B"]}
+            lifecycle = {
+                "deployIdentity": identity,
+                "tip": "checkpoint",
+                "deployPublication": {
+                    "status": "SUCCESS",
+                    "publishedSource": "checkpoint",
+                },
+            }
+            states = {
+                "A": {
+                    "status": "FAILED",
+                    "observedSynced": True,
+                    "currentStack": {"StackStatus": "UPDATE_ROLLBACK_COMPLETE"},
+                },
+                "B": {
+                    "status": "NOT_STARTED",
+                    "observedSynced": True,
+                    "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+                },
+            }
+            progress = {
+                "identity": identity,
+                "states": states,
+                "stepUnits": [
+                    {"name": "A", "deployOrder": 1},
+                    {"name": "B", "deployOrder": 2},
+                ],
+                "pendingObserved": False,
+                "pendingGeneration": False,
+                "runContext": {
+                    "snapshotValidation": "PASS",
+                    "deployResult": "FAIL",
+                    "states": states,
+                },
+            }
+            task = SimpleNamespace(
+                text="## Task contract\n- Task type: `infrastructure`\n- Infrastructure phase: `deploy`\n"
+            )
+            with (
+                patch.object(worktree, "require", return_value=lifecycle),
+                patch.object(worktree, "progress_path", return_value=path),
+            ):
+                worktree.write_sealed(root, path, progress)
+                worktree.prepare_complete(root, task)
+                saved = worktree.read_progress(root, lifecycle)
+                self.assertEqual(
+                    saved["states"]["B"]["unexecutedReason"],
+                    "PREVIOUS_DEPLOY_ORDER_FAILED",
+                )
+                self.assertEqual(saved["runContext"]["deployResult"], "FAIL")
+                worktree.prepare_complete(root, task)
+                self.assertEqual(worktree.read_progress(root, lifecycle), saved)
+
+    def test_missing_changeset_poll_saves_before_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / "request.json"
+            record = {
+                "name": "A",
+                "operation": "execute_change_set",
+                "stackId": "stack",
+                "changeSetId": "change",
+                "token": "original",
+            }
+            path.write_text(json.dumps(record), encoding="utf-8")
+            path.chmod(0o600)
+            event = {
+                "StackId": "stack",
+                "PhysicalResourceId": "stack",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "ClientRequestToken": "original",
+                "ResourceStatus": "UPDATE_COMPLETE",
+            }
+            state = {
+                "status": "RUNNING",
+                "clientToken": "original",
+                "changeSetId": "change",
+                "executionEvidence": {"StackId": "stack"},
+            }
+            backend = SimpleNamespace(
+                target={},
+                states={"A": state},
+                units=[{"name": "A"}],
+                aws=partial(missing_changeset_aws, event),
+                templates={},
+            )
+            backend.poll = partial(controller.poll, backend)
+            progress = path.parent / "progress.json"
+            backend.save = Mock(
+                side_effect=partial(save_test_state, self, path, progress, state)
+            )
+            with patch.object(current_request, "location", return_value=path):
+                worker_state = dict(state)
+                self.assertEqual(
+                    controller.poll(backend, {"name": "A"}, worker_state),
+                    "UPDATE_COMPLETE",
+                )
+                self.assertEqual(json.loads(path.read_text()), record)
+                steps.refresh_requests(backend)
+            self.assertEqual(state["status"], "SUCCESS")
+            self.assertEqual(
+                worktree.read_sealed(path.parent, progress)["status"], "SUCCESS"
+            )
+            self.assertFalse(path.exists())
+            backend.save.assert_called_once()
+
+    def test_release_preserves_newer_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / "request.json"
+            old = {
+                "name": "A",
+                "operation": "execute_change_set",
+                "stackId": "stack",
+                "changeSetId": "old",
+                "token": "old",
+            }
+            new = old | {"changeSetId": "new", "token": "new"}
+            path.write_text(json.dumps(new), encoding="utf-8")
+            path.chmod(0o600)
+            with patch.object(current_request, "location", return_value=path):
+                current_request.release(SimpleNamespace(target={}), old)
+            self.assertEqual(json.loads(path.read_text()), new)
+
+    def test_request_ownership_checks_original_stack(self):
+        record = {
+            "operation": "execute_change_set",
+            "token": "token",
+            "changeSetId": "change",
+            "stackId": "stack",
+        }
+        state = {
+            "clientToken": "token",
+            "changeSetId": "change",
+            "executionEvidence": {"StackId": "other"},
+        }
+        self.assertFalse(current_request.owns(state, record))
+        state["executionEvidence"]["StackId"] = "stack"
+        self.assertTrue(current_request.owns(state, record))
+        self.assertTrue(current_request.owns(state, record | {"stackId": None}))
+        state["executionEvidence"] = {}
+        self.assertFalse(current_request.owns(state, record | {"stackId": None}))
+
+    def test_released_request_recovers_from_saved_token(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / "request.json"
+            event = {
+                "StackId": "stack",
+                "PhysicalResourceId": "stack",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "ClientRequestToken": "original",
+                "ResourceStatus": "UPDATE_COMPLETE",
+            }
+            state = {
+                "status": "RUNNING",
+                "clientToken": "original",
+                "changeSetId": "deleted",
+                "executionEvidence": {"StackId": "stack"},
+            }
+            aws = Mock(side_effect=partial(missing_changeset_aws, event))
+            backend = SimpleNamespace(
+                target={},
+                states={"A": state},
+                units=[{"name": "A"}],
+                aws=aws,
+                templates={},
+                save=Mock(),
+            )
+            backend.poll = partial(controller.poll, backend)
+            with patch.object(current_request, "location", return_value=path):
+                steps.refresh_requests(backend)
+            self.assertEqual(state["status"], "SUCCESS")
+            backend.save.assert_called_once()
+            self.assertNotIn(
+                "describe_change_set", [call.args[0] for call in aws.call_args_list]
+            )
+
+    def test_interruption_before_save_or_release_recovers(self):
+        for boundary in ("save", "release"):
+            with (
+                self.subTest(boundary=boundary),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory).resolve()
+                path, progress = root / "request.json", root / "progress.json"
+                record = {
+                    "name": "A",
+                    "operation": "execute_change_set",
+                    "stackId": "stack",
+                    "changeSetId": "change",
+                    "token": "original",
+                }
+                path.write_text(json.dumps(record), encoding="utf-8")
+                path.chmod(0o600)
+                event = {
+                    "StackId": "stack",
+                    "PhysicalResourceId": "stack",
+                    "ResourceType": "AWS::CloudFormation::Stack",
+                    "ClientRequestToken": "original",
+                    "ResourceStatus": "UPDATE_COMPLETE",
+                }
+                original = {
+                    "status": "RUNNING",
+                    "clientToken": "original",
+                    "changeSetId": "change",
+                    "executionEvidence": {"StackId": "stack"},
+                }
+                state = dict(original)
+                aws = Mock(side_effect=partial(missing_changeset_aws, event))
+                backend = SimpleNamespace(
+                    target={},
+                    states={"A": state},
+                    units=[{"name": "A"}],
+                    aws=aws,
+                    templates={},
+                )
+                backend.poll = partial(controller.poll, backend)
+                backend.save = Mock(
+                    side_effect=OSError("interrupted")
+                    if boundary == "save"
+                    else partial(worktree.write_sealed, root, progress, state)
+                )
+                release = current_request.release
+                with (
+                    patch.object(current_request, "location", return_value=path),
+                    patch.object(
+                        current_request,
+                        "release",
+                        side_effect=OSError("interrupted")
+                        if boundary == "release"
+                        else None,
+                        wraps=release,
+                    ),
+                ):
+                    with self.assertRaises(OSError):
+                        steps.refresh_requests(backend)
+                    self.assertTrue(path.exists())
+                state = (
+                    worktree.read_sealed(root, progress)
+                    if progress.exists()
+                    else dict(original)
+                )
+                backend.states = {"A": state}
+                backend.save = Mock(
+                    side_effect=partial(worktree.write_sealed, root, progress, state)
+                )
+                with patch.object(current_request, "location", return_value=path):
+                    steps.refresh_requests(backend)
+                self.assertEqual(state["status"], "SUCCESS")
+                self.assertFalse(path.exists())
+                self.assertNotIn(
+                    "execute_change_set", [call.args[0] for call in aws.call_args_list]
+                )
+
+    def test_unknown_attempt_does_not_restart(self):
+        scoped = [{"name": "A", "deployOrder": 10}]
+        state = {"A": {"status": "BLOCKED", "attemptResult": "UNKNOWN"}}
+        backend = Fake()
+        backend.prepare = Mock()
+        backend.execute = Mock()
+        scheduler.run_group(scoped, 1, state, backend, single_step=True)
+        steps.retry_terminal_attempts(
+            SimpleNamespace(states=state, units=scoped), {"A"}
+        )
+        self.assertEqual(state["A"]["attemptResult"], "UNKNOWN")
+        backend.prepare.assert_not_called()
+        backend.execute.assert_not_called()
+
+    def test_request_read_failure_does_not_stop_other_stack(self):
+        states = {"A": {"status": "RUNNING"}, "B": {"status": "SUCCESS"}}
+        backend = SimpleNamespace(
+            units=[{"name": "A"}, {"name": "B"}],
+            states=states,
+            aws=Mock(
+                return_value={
+                    "Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]
+                }
+            ),
+        )
+        with patch.object(
+            current_request, "reconcile", side_effect=[Blocked("busy"), None]
+        ):
+            steps.refresh_requests(backend)
+        self.assertTrue(states["A"]["requestPending"])
+        self.assertEqual(states["A"]["requestError"], "busy")
+        self.assertEqual(states["B"]["status"], "SUCCESS")
+        self.assertEqual(states["B"]["currentStack"]["StackStatus"], "UPDATE_COMPLETE")
+
     def test_next_order_requires_aws_success_without_observed_or_git(self):
         scoped = units(10, 20)
         state = states(scoped)
@@ -558,6 +868,7 @@ class TestCurrentState(TestCase):
         record = {
             "operation": "execute_change_set",
             "name": "A",
+            "stackId": "stack",
             "token": "submitted",
             "changeSetId": "change",
             "result": "FAIL",
@@ -568,7 +879,11 @@ class TestCurrentState(TestCase):
                 "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
             }
             if own:
-                state.update(clientToken="submitted", changeSetId="change")
+                state.update(
+                    clientToken="submitted",
+                    changeSetId="change",
+                    executionEvidence={"StackId": "stack"},
+                )
             backend = SimpleNamespace(target={}, states={"A": state}, aws=Mock())
             with (
                 self.subTest(own=own),
@@ -577,8 +892,10 @@ class TestCurrentState(TestCase):
                 patch.object(current_request, "read", return_value=record),
                 patch.object(current_request, "settled", return_value=True),
             ):
-                self.assertIsNone(current_request.reconcile(backend, {"name": "A"}))
-                self.assertEqual(state.get("failureDetected", False), own)
+                found = current_request.reconcile(backend, {"name": "A"})
+                self.assertTrue(found["settled"])
+                self.assertEqual(current_request.owns(state, found), own)
+                self.assertFalse(state.get("failureDetected", False))
 
     def test_nested_stack_event_does_not_settle_the_root_request(self):
         record = {
@@ -949,6 +1266,7 @@ class TestCurrentState(TestCase):
         }
         backend = SimpleNamespace(
             states=states,
+            task_status="completed",
             run_context={
                 "states": states,
                 "deployResult": "FAIL",

@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import io
 import venv
 from contextlib import redirect_stderr
+from unittest import TestCase
 
 import import_guard as _imports_import_guard
 import import_guard as guard
@@ -75,6 +76,59 @@ from model import prepare_edit, publish_edit
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+@it_case
+def check_implement_rewritten_base_and_real_conflict():
+    case = TestCase()
+    for conflict, rewritten in ((False, False), (False, True), (True, True)):
+        with case.subTest(conflict=conflict, rewritten=rewritten), fixture() as root:
+            (root / "old-main.txt").write_text("old history\n", encoding="utf-8")
+            git(root, "add", "old-main.txt")
+            git(root, "commit", "-qm", "old unrelated change")
+            target, state = start(root)
+            contract_path = target / state["task_file"]
+            text = contract_path.read_text(encoding="utf-8")
+            text = (
+                text.replace("`governance`", "`infrastructure`")
+                .replace(
+                    "- Task status:",
+                    "- Infrastructure phase: `implement`\n- Task status:",
+                )
+                .replace("`framework`", "`dev/team/iam`")
+            )
+            contract_path.write_text(text, encoding="utf-8")
+            (target / "file.txt").write_text("task change\n", encoding="utf-8")
+            if rewritten:
+                git(root, "rm", "old-main.txt")
+                if conflict:
+                    (root / "file.txt").write_text(
+                        "new base change\n", encoding="utf-8"
+                    )
+                    git(root, "add", "file.txt")
+                tree = git(root, "write-tree")
+                new_base = git(root, "commit-tree", tree, "-m", "rewritten base")
+                git(root, "update-ref", "refs/heads/main", new_base)
+            else:
+                new_base = git(root, "rev-parse", "HEAD")
+            case.assertEqual(
+                wt.task_start_commit(target, state["task_file"]), state["start"]
+            )
+            _, _, state_path, state = wt.load(root, "example")
+            if conflict:
+                with case.assertRaisesRegex(wt.Blocked, "rebase failed"):
+                    wt._prepare_commit(root, state_path, state, target, None)
+                case.assertEqual((target / "file.txt").read_text(), "task change\n")
+                case.assertEqual((root / "file.txt").read_text(), "new base change\n")
+            else:
+                latest = wt._prepare_commit(root, state_path, state, target, None)
+                case.assertEqual(latest, new_base)
+                git(root, "merge", "--ff-only", state["branch"])
+                case.assertEqual((root / "file.txt").read_text(), "task change\n")
+                case.assertEqual((root / "old-main.txt").exists(), not rewritten)
+                case.assertEqual(
+                    git(root, "rev-list", "--count", new_base + "..HEAD"), "1"
+                )
 
 
 def _check_import_completion_and_approved_integration():

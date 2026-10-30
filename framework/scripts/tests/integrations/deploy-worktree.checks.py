@@ -147,7 +147,9 @@ def check_current_request_is_shared_without_history_or_duplicate_execute(
             case.assertEqual(probe.tokens, [("Example", "original")])
             assert (journal.read_bytes() if journal.exists() else None) == legacy
             probe.finished = True
-            case.assertIsNone(current_request.reconcile(two, {"name": "Example"}))
+            settled = current_request.reconcile(two, {"name": "Example"})
+            case.assertTrue(settled["settled"])
+            current_request.release(two, settled)
             case.assertFalse(current_request.location(target, "Example").exists())
             # A broken request affects its Stack only; no Observed/Task/Git proof is read.
             current_request.location(target, "Example").write_text(
@@ -200,7 +202,9 @@ def check_current_request_is_shared_without_history_or_duplicate_execute(
             current_request.send(two, "create_change_set", dict(create), probe.send)
             case.assertEqual(probe.tokens.count(("Creating", "create-original")), 1)
             probe.finished = True
-            case.assertIsNone(current_request.reconcile(two, {"name": "Creating"}))
+            settled = current_request.reconcile(two, {"name": "Creating"})
+            case.assertTrue(settled["settled"])
+            current_request.release(two, settled)
 
             # Secret bootstrap keeps only the version token/identity, never the value.
             metadata = Mock(
@@ -441,12 +445,28 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
         name = state["task_file"]
         with selected_task(root, name):
             worktree.bind(
-                root, read_task_snapshot(root, name), {}, "dev", ["A", "B", "C"]
+                root,
+                read_task_snapshot(root, name),
+                {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+                "dev",
+                ["A", "B", "C"],
             )
             states = {
-                "A": {"status": "SUCCESS", "observedSynced": True},
-                "B": {"status": "FAILED", "observedSynced": True},
-                "C": {"status": "NOT_STARTED", "observedSynced": True},
+                "A": {
+                    "status": "SUCCESS",
+                    "observedSynced": True,
+                    "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+                },
+                "B": {
+                    "status": "FAILED",
+                    "observedSynced": True,
+                    "currentStack": {"StackStatus": "UPDATE_ROLLBACK_COMPLETE"},
+                },
+                "C": {
+                    "status": "NOT_STARTED",
+                    "observedSynced": True,
+                    "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
+                },
             }
             backend = SimpleNamespace(
                 root=root,
@@ -456,6 +476,11 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
                     "states": states,
                     "stepwise": False,
                     "inputDigests": {},
+                    "stepUnits": [
+                        {"name": "A", "deployOrder": 1},
+                        {"name": "B", "deployOrder": 1},
+                        {"name": "C", "deployOrder": 2},
+                    ],
                     "deployResult": "FAIL",
                     "snapshotValidation": "PASS",
                 },
@@ -464,9 +489,21 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
             (root / relative).write_text(
                 "# model-format: 2\nobserved.row.001-001.value=`aws`\n"
             )
-            snapshot = read_task_snapshot(root, name, live=True)
-            snapshot.path.write_text(
-                set_status(snapshot.text, "completed"), encoding="utf-8"
+            publication.publish(root, "deploy")
+            TestCase().assertEqual(
+                read_task_snapshot(root, name, live=True).status, "running"
+            )
+            with (
+                patch.object(transitions, "Validator") as validator,
+                patch.object(
+                    transitions._imports_import_guard, "require_import_changes"
+                ),
+            ):
+                validator.return_value.report.return_value = 0
+                transitions.complete(root, name)
+            saved = worktree.read_progress(root, wt.load(root, "deploy")[3])
+            TestCase().assertEqual(
+                saved["states"]["C"]["unexecutedReason"], "PREVIOUS_DEPLOY_ORDER_FAILED"
             )
             result = publication.finalize(root, "deploy")
             assert result["verified"] and result["merged"]
@@ -717,7 +754,13 @@ def stepwise_repository(tracked_contract=False):
             start(root, name, contract)
         with selected_task(root, name):
             task = read_task_snapshot(root, name, live=True)
-            worktree.bind(root, task, {}, "dev", ["A", "B"])
+            worktree.bind(
+                root,
+                task,
+                {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+                "dev",
+                ["A", "B"],
+            )
             context = {
                 "taskFile": name,
                 "taskDigest": task.task_digest,
@@ -773,7 +816,11 @@ def synchronized_candidate(backend, relative, name):
         ),
         encoding="utf-8",
     )
-    backend.states[name].update(status="SUCCESS", observedSynced=True)
+    backend.states[name].update(
+        status="SUCCESS",
+        observedSynced=True,
+        currentStack={"StackStatus": "UPDATE_COMPLETE"},
+    )
     context["checkpointPending"] = {
         "stacks": [name],
         "before": before,
@@ -932,7 +979,11 @@ def check_task_completion_rechecks_checkpoint_receipts(problem):
         for name in ["A", "B"]:
             if name == "B" and problem == "zero":
                 snapshot = contracts.validation_snapshot(root)
-                backend.states[name].update(status="SUCCESS", observedSynced=True)
+                backend.states[name].update(
+                    status="SUCCESS",
+                    observedSynced=True,
+                    currentStack={"StackStatus": "UPDATE_COMPLETE"},
+                )
                 backend.run_context["checkpointPending"] = {
                     "stacks": [name],
                     "before": snapshot,
@@ -968,6 +1019,10 @@ def check_task_completion_rechecks_checkpoint_receipts(problem):
             patch.object(transitions._imports_import_guard, "require_import_changes"),
         ):
             validator.return_value.report.return_value = 0
+            if problem in {"target", "commit"}:
+                with TestCase().assertRaises(ValueError):
+                    tasks.complete(root, "tasks/deploy.md")
+                return
             tasks.complete(root, "tasks/deploy.md")
         task = read_task_snapshot(root, "tasks/deploy.md", live=True)
         TestCase().assertEqual(task.status, "completed")
@@ -1032,6 +1087,11 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
         invoke(root, report, aws, ["--action", "checkpoint", "--sync-stack", second])
         == 0
     )
+    with selected_task(root, "tasks/deploy.md"):
+        TestCase().assertEqual(
+            read_task_snapshot(root, "tasks/deploy.md", live=True).status, "running"
+        )
+        transitions.complete(root, "tasks/deploy.md")
     _, _, path, lifecycle = wt.load(root, "deploy")
     original = path.read_bytes()
     evidence = worktree.progress_path(root).read_bytes()

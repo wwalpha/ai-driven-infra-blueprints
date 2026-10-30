@@ -90,6 +90,7 @@ WORKTREE_CASES = {
         "check_integration_detects_undeclared_paths",
     ),
     "integrations/worktree_task.checks.py": (
+        "check_implement_rewritten_base_and_real_conflict",
         "check_sync_base_preserves_candidate",
         "check_old_workflow_registry_is_ignored",
         "check_success_and_empty",

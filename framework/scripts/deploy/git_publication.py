@@ -720,7 +720,7 @@ def retry(root, task):
 
 
 def task_checkpoint(root, path, state, task, progress):
-    """Resume a legacy contract-only candidate; ordinary sync already includes completion."""
+    """Publish the explicitly completed Task after its saved Stack checkpoints."""
     if progress.get("stepwise") is not True:
         return
     if (

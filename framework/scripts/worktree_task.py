@@ -570,7 +570,10 @@ def _prepare_commit(root, path, state, target, approval):
         target, state, changed, contract, parsed_operation, scope_paths=model_changes
     )
     base_worktree(root, state)
-    if not ancestor(root, state["start"], state["base"]):
+    implement = "- Infrastructure phase: `implement`" in tasks.section(
+        contract, "## Task contract"
+    )
+    if not implement and not ancestor(root, state["start"], state["base"]):
         raise Blocked("base history was rewritten; task retained for review")
     if (not operation or approval) and (
         "- Workflow: `import`" in tasks.section(contract, "## Task contract")
@@ -651,7 +654,7 @@ def _prepare_commit(root, path, state, target, approval):
     base = base_worktree(root, state)
     latest = output(root, "rev-parse", f"refs/heads/{state['base']}")
     # Do not replay unexpected history if the base was rewritten after creation.
-    if not ancestor(root, state["start"], state["base"]):
+    if not implement and not ancestor(root, state["start"], state["base"]):
         raise Blocked("base history was rewritten; task retained for review")
     result = git(
         target,
@@ -659,7 +662,12 @@ def _prepare_commit(root, path, state, target, approval):
         "rebase.updateRefs=false",
         "rebase",
         "--no-autostash",
-        latest,
+        *(
+            ["--onto", latest, state.get("validation_base", state["start"])]
+            if implement
+            else []
+        ),
+        *([] if implement else [latest]),
         check=False,
     )
     if result.returncode:
@@ -669,6 +677,8 @@ def _prepare_commit(root, path, state, target, approval):
             + result.stderr.strip()
         )
     state["tip"] = output(target, "rev-parse", "HEAD")
+    if implement:
+        state["validation_base"] = latest
     if state["commit"]:
         state["commit"] = state["tip"]
     save(path, state)

@@ -200,13 +200,76 @@ def adopt_successes(backend):
 
 
 def attempts_finished(states, result):
-    statuses = {saved.get("status") for saved in states.values()}
-    return bool(states) and (
-        statuses <= {"SUCCESS", "FAILED"}
-        or result == "FAIL"
-        and "FAILED" in statuses
-        and statuses <= {"SUCCESS", "FAILED", "NOT_STARTED", "READY"}
+    return bool(states) and all(
+        saved.get("status") in {"SUCCESS", "FAILED"}
+        or saved.get("status") in {"READY", "NOT_STARTED"}
+        and saved.get("unexecutedReason")
+        in {
+            "PREVIOUS_DEPLOY_ORDER_FAILED",
+            "CURRENT_EXECUTION_CONSTRAINT",
+            "DEPLOY_ENDED_WITHOUT_EXECUTION",
+        }
+        for saved in states.values()
     )
+
+
+def prepare_complete(root, task):
+    if not is_deploy(task.text):
+        return
+    state = require(root, task)
+    if not state.get("deployIdentity"):
+        return
+    progress = read_progress(root, state)
+    if not progress:
+        raise ws.Blocked("Deploy progress is missing")
+    context = progress.get("runContext", {})
+    states = progress["states"]
+    if (
+        progress.get("checkpointPending")
+        or progress.get("pendingObserved")
+        or progress.get("pendingGeneration")
+        or context.get("snapshotValidation") != "PASS"
+        or state.get("deployPublication", {}).get("status") != "SUCCESS"
+        or state.get("deployPublication", {}).get("publishedSource") != state.get("tip")
+        or any(
+            not item.get("observedSynced")
+            or not item.get("currentStack")
+            or item.get("requestPending")
+            or item.get("attemptResult") == "UNKNOWN"
+            or item.get("status") in {"RUNNING", "CHANGESET_CREATING", "BLOCKED"}
+            or item.get("currentStack", {}).get("StackStatus", "UNKNOWN")
+            in {"UNKNOWN", "REVIEW_IN_PROGRESS"}
+            or item.get("currentStack", {})
+            .get("StackStatus", "UNKNOWN")
+            .endswith("_IN_PROGRESS")
+            for item in states.values()
+        )
+    ):
+        raise ws.Blocked("Deploy snapshot, publication or AWS request is incomplete")
+    if any(item.get("status") in {"READY", "NOT_STARTED"} for item in states.values()):
+        if not any(item.get("status") == "FAILED" for item in states.values()):
+            raise ws.Blocked(
+                "unexecuted Stacks require a failed Deploy before completion"
+            )
+        units = {unit["name"]: unit for unit in progress.get("stepUnits", [])}
+        failed_orders = [
+            int(units[name]["deployOrder"])
+            for name, item in states.items()
+            if item.get("status") == "FAILED" and name in units
+        ]
+        for name, item in states.items():
+            if item.get("status") in {"READY", "NOT_STARTED"}:
+                order = int(units[name]["deployOrder"])
+                item["unexecutedReason"] = (
+                    "PREVIOUS_DEPLOY_ORDER_FAILED"
+                    if any(value < order for value in failed_orders)
+                    else "CURRENT_EXECUTION_CONSTRAINT"
+                    if item.get("failure") or item.get("schedulerError")
+                    else "DEPLOY_ENDED_WITHOUT_EXECUTION"
+                )
+        context["states"] = copy.deepcopy(states)
+        write_sealed(root, progress_path(root, create=True), progress)
+    require_complete(root, task)
 
 
 def require_complete(root, task):

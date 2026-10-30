@@ -192,7 +192,42 @@ def refresh_requests(backend):
     current_state.refresh(backend, backend.units)
     for unit in backend.units:
         state = backend.states[unit["name"]]
-        request = current_request.reconcile(backend, unit)
+        try:
+            request = current_request.reconcile(backend, unit)
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+            state.update(requestPending=True, requestError=str(error))
+            continue
+        if request and request.get("settled"):
+            if (
+                current_request.owns(state, request)
+                and request.get("operation") == "execute_change_set"
+            ):
+                try:
+                    status = backend.poll(unit, state)
+                except (
+                    OSError,
+                    ValueError,
+                    KeyError,
+                    TypeError,
+                    RuntimeError,
+                ) as error:
+                    state.update(requestPending=True, requestError=str(error))
+                    continue
+                current_state.record_attempt(state, status)
+                state.pop("settledRequest", None)
+            elif state.get("externalOperation"):
+                current = state["currentStack"]
+                state.clear()
+                state.update(
+                    status="NOT_STARTED",
+                    currentStack=current,
+                    stackId=current.get("StackId"),
+                    stackStatus=current["StackStatus"],
+                )
+            state["requestPending"] = False
+            backend.save()
+            current_request.release(backend, request)
+            continue
         state["requestPending"] = bool(request)
         if state.get("cleanupStatus") == "DELETE_INTENT":
             state["status"] = "NOT_STARTED"
@@ -230,28 +265,19 @@ def refresh_requests(backend):
                 )
             else:
                 try:
-                    change = backend.aws(
-                        "describe_change_set",
-                        StackName=unit["name"],
-                        ChangeSetName=state["changeSetId"],
-                    )
-                    if not current_state.same_change_set(
-                        state["changeSetId"], change.get("ChangeSetId")
-                    ):
-                        raise Blocked("current ChangeSet identity is unconfirmed")
-                    execution = change.get("ExecutionStatus")
-                    if execution == "AVAILABLE":
-                        state["status"] = "CHANGESET_CREATING"
-                    elif execution in {
-                        "EXECUTE_COMPLETE",
-                        "EXECUTE_FAILED",
-                        "OBSOLETE",
-                    }:
-                        status = backend.poll(unit, state)
-                        current_state.record_attempt(state, status)
-                    else:
-                        raise Blocked("current Execute result is unconfirmed")
-                except (OSError, ValueError, KeyError, TypeError, Blocked) as error:
+                    status = backend.poll(unit, state)
+                    current_state.record_attempt(state, status)
+                    backend.save()
+                    settled = state.pop("settledRequest", None)
+                    if settled:
+                        current_request.release(backend, settled)
+                except (
+                    OSError,
+                    ValueError,
+                    KeyError,
+                    TypeError,
+                    RuntimeError,
+                ) as error:
                     state["requestError"] = str(error)
 
         elif current_state.category(state["currentStack"]) == "RUNNING":
@@ -262,11 +288,16 @@ def retry_terminal_attempts(backend, previous_terminal):
     retried = False
     for name in previous_terminal:
         state = backend.states[name]
-        if state.get("requestPending") or state.get("bootstrap", {}).get("stage") in {
-            "BOOTSTRAP_INTENT",
-            "VALUE_CHECKED_MISSING",
-            "PUT_SUBMITTED",
-        }:
+        if (
+            state.get("attemptResult") == "UNKNOWN"
+            or state.get("requestPending")
+            or state.get("bootstrap", {}).get("stage")
+            in {
+                "BOOTSTRAP_INTENT",
+                "VALUE_CHECKED_MISSING",
+                "PUT_SUBMITTED",
+            }
+        ):
             continue
         unit = next(
             (u for u in getattr(backend, "units", []) if u["name"] == name), None
@@ -274,7 +305,8 @@ def retry_terminal_attempts(backend, previous_terminal):
         if unit and any(
             other["name"] != name
             and other["deployOrder"] == unit["deployOrder"]
-            and backend.states[other["name"]]["status"] == "NOT_STARTED"
+            and backend.states[other["name"]]["status"]
+            in {"NOT_STARTED", "READY", "CHANGESET_CREATING"}
             for other in backend.units
         ):
             continue
@@ -381,7 +413,8 @@ def describe(backend: SimpleNamespace) -> dict:
                     "finish the pending Stack checkpoint before Git publication"
                 )
     complete = (
-        generation_resume.complete(context)
+        getattr(backend, "task_status", "running") == "completed"
+        and generation_resume.complete(context)
         and worktree.attempts_finished(states, context.get("deployResult"))
         and all(s.get("observedSynced") for s in states.values())
         and context.get("snapshotValidation") == "PASS"
@@ -472,6 +505,7 @@ def describe(backend: SimpleNamespace) -> dict:
                 if state.get("checkpointed")
                 else "PENDING",
                 "failure": state.get("failure"),
+                "unexecutedReason": state.get("unexecutedReason"),
                 "runtime": state.get("cleanupStatus")
                 or state.get("bootstrap", {}).get("stage"),
             }
@@ -577,6 +611,7 @@ def run(
                 backend.aws = partial(current_state.unavailable, authentication_error)
             backend.requested_stacks = args.stack
             backend.action = args.action
+            backend.task_status = task.status
             recover_local_publication(backend, task)
             limit, units = load_units(root, args.environment, directory, args.stack)
             if args.sequential:

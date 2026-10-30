@@ -1,9 +1,12 @@
 """Validation-backed Task transitions, separate from the standard-library facade."""
 
 import argparse as argparse
+from contextlib import ExitStack
 from functools import wraps as wraps
 
 import import_guard as _imports_import_guard
+from deploy import current_request as deploy_current_request
+from deploy import git_publication as deploy_git_publication
 from deploy import worktree as deploy_worktree
 from model.importing.scope import (
     read_consumers,
@@ -186,10 +189,31 @@ def refresh(root, name, resuming=False):
 
 def complete(root, name):
     snapshot = task_snapshot(root, name, executable=False, live=True)
+    with ExitStack() as locks:
+        if deploy_worktree.is_deploy(snapshot.text):
+            lifecycle = deploy_worktree.require(root, snapshot)
+            identity = lifecycle.get("deployIdentity")
+            if identity:
+                for stack in sorted(identity["stacks"]):
+                    path = deploy_current_request.location(identity["target"], stack)
+                    locks.enter_context(deploy_current_request.journal.locked(path))
+                    if deploy_current_request.read(path):
+                        raise ValueError(
+                            "Deploy has an unresolved current AWS request: " + stack
+                        )
+                progress = deploy_worktree.read_progress(root, lifecycle)
+                if progress and progress.get("stepwise"):
+                    deploy_git_publication.checkpoint_source(root, lifecycle, progress)
+        return complete_selected(root, name)
+
+
+def complete_selected(root, name):
+    snapshot = task_snapshot(root, name, executable=False, live=True)
     text = snapshot.text
     with task_reads(root, snapshot=snapshot):
         if status(text) != "running":
             raise ValueError("only a running task can complete")
+        deploy_worktree.prepare_complete(root, snapshot)
         deploy_worktree.require_complete(root, snapshot)
         if "- Workflow: `import`" in section(text, "## Task contract"):
             check_import(root, name)

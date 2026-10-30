@@ -54,6 +54,14 @@ def owns(state, record):
     return bool(
         record.get("token")
         and state.get(token) == record["token"]
+        and (
+            operation != "execute_change_set"
+            or state.get("executionEvidence", {}).get("StackId")
+            and (
+                not record.get("stackId")
+                or state["executionEvidence"]["StackId"] == record["stackId"]
+            )
+        )
         and current_state.same_change_set(
             state.get("changeSetId"), record.get("changeSetId")
         )
@@ -75,6 +83,8 @@ def root_events(events, token, identity):
 def settled(aws, record, current):
     operation = record["operation"]
     status = current["StackStatus"]
+    if operation == "execute_change_set" and not record.get("stackId"):
+        return False
     if record.get("service") == "secretsmanager":
         metadata = aws(
             "describe_secret", SecretId=record["resourceId"], service="secretsmanager"
@@ -143,12 +153,8 @@ def settled(aws, record, current):
         "StackEvents",
         StackName=record.get("stackId") or record["name"],
     )
-    matches = root_events(
-        events, record["token"], record.get("stackId") or current.get("StackId")
-    )
+    matches = root_events(events, record["token"], record.get("stackId"))
     if current_state.category(current) in {"RUNNING", "UNKNOWN", "REVIEW"}:
-        return False
-    if record.get("stackId") and current.get("StackId") != record["stackId"]:
         return False
     if matches:
         terminal = matches[0].get("ResourceStatus")
@@ -171,11 +177,18 @@ def reconcile(backend, unit, state=None):
             record = read(path)
             if record and record.get("name") != name:
                 raise Blocked("current request belongs to another Stack")
-            if record and settled(backend.aws, record, state["currentStack"]):
-                if record.get("result") == "FAIL" and owns(state, record):
-                    state["failureDetected"] = True
-                path.unlink()
-                record = None
+            if record:
+                evidence = dict(record)
+                if (
+                    record["operation"] == "execute_change_set"
+                    and not record.get("stackId")
+                    and owns(state, record)
+                ):
+                    evidence["stackId"] = state["executionEvidence"]["StackId"]
+                if settled(backend.aws, evidence, state["currentStack"]):
+                    record["settled"] = True
+                    if "result" in evidence:
+                        record["result"] = evidence["result"]
             state.pop("requestError", None)
             return record
         except AwsError as error:
@@ -192,6 +205,15 @@ def reconcile(backend, unit, state=None):
         except (OSError, ValueError, KeyError, TypeError, Blocked) as error:
             state["requestError"] = str(error)
             return {"uncertain": True}
+
+
+def release(backend, record):
+    path = location(backend.target, record["name"])
+    with journal.locked(path):
+        current = read(path)
+        keys = ("name", "operation", "stackId", "changeSetId", "token")
+        if current and all(current.get(key) == record.get(key) for key in keys):
+            path.unlink()
 
 
 def send(
@@ -278,7 +300,13 @@ def send(
                 "service": service,
                 "resourceId": arguments.get("SecretId"),
                 "name": name,
-                "stackId": current.get("StackId"),
+                "stackId": current.get("StackId")
+                or (
+                    arguments.get("StackName")
+                    if operation == "execute_change_set"
+                    and ":stack/" in arguments.get("StackName", "")
+                    else None
+                ),
                 "changeSetId": arguments.get("ChangeSetName"),
                 "token": token,
                 "submission": "SENDING",

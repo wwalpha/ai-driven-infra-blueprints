@@ -313,7 +313,12 @@ def check_sdk_execution():
         if operation == "describe_stack_events"
         else {"Stacks": [{"StackId": "stack-A", "StackStatus": actual[0]}]}
     )
-    state = {"status": "RUNNING", "clientToken": "current", "changeSetId": "cs-A"}
+    state = {
+        "status": "RUNNING",
+        "clientToken": "current",
+        "changeSetId": "cs-A",
+        "executionEvidence": {"StackId": "stack-A"},
+    }
     with patch.object(M.current_request, "reconcile", return_value=None):
         TestCase().assertEqual(
             _state_check_sdk_execution_65.backend.poll(unit, state),
@@ -326,7 +331,7 @@ def check_sdk_execution():
         )
         actual[0], event["ResourceStatus"] = "UPDATE_COMPLETE", "UPDATE_IN_PROGRESS"
         TestCase().assertEqual(
-            _state_check_sdk_execution_65.backend.poll(unit, state), "UPDATE_COMPLETE"
+            _state_check_sdk_execution_65.backend.poll(unit, state), "UNCONFIRMED"
         )
     with patch.object(
         M.current_request, "reconcile", return_value={"token": "current"}

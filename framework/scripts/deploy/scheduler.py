@@ -13,7 +13,7 @@ from typing import TypeVar
 from utils.cloudformation.environment import EnvironmentValuePending
 from utils.type_contracts import JsonValue as JsonValue
 
-from deploy import current_state, failures
+from deploy import current_request, current_state, failures
 from deploy.current_state import FAILED as FAILED
 from deploy.current_state import SUCCESS as SUCCESS
 from deploy.typing import Save, SchedulerBackend, Sleep, StackState, StackUnit, States
@@ -93,19 +93,22 @@ def run_group(
         ):
             state = states[unit["name"]]
             state.update(snapshot)
+            accepted = False
             try:
                 if error:
                     raise error
                 if status == "RECHECK":
+                    request = state.get("settledRequest")
                     state.clear()
                     state["status"] = "NOT_STARTED"
                     save()
+                    if request:
+                        current_request.release(backend, request)
                     continue
                 current_state.record_attempt(state, status)
+                accepted = True
                 if status == "UNCONFIRMED":
                     input_blocked.add(unit["name"])
-                    save()
-                    continue
                 state.pop("pollError", None)
                 state.pop("pollReadFailures", None)
                 if state["status"] in {"SUCCESS", "FAILED"}:
@@ -118,6 +121,9 @@ def run_group(
                 state["pollReadFailures"] = state.get("pollReadFailures", 0) + 1
                 failures.exception(state, error, "POLL")
             save()
+            request = state.pop("settledRequest", None)
+            if request and accepted:
+                current_request.release(backend, request)
         if any(s.get("pollReadFailures", 0) >= 3 for s in states.values()):
             return "STOPPED"
         if (
@@ -145,6 +151,7 @@ def run_group(
                 if states[u["name"]]["status"] in {"NOT_STARTED", "BLOCKED"}
                 and u["name"] not in input_blocked
                 and not states[u["name"]].get("requestError")
+                and states[u["name"]].get("attemptResult") != "UNKNOWN"
             ]
             pending.sort(key=lambda u: states[u["name"]]["status"] == "BLOCKED")
             for unit in pending[: max(0, limit - running - preparing)]:

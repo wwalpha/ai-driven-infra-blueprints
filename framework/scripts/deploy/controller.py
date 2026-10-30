@@ -686,9 +686,7 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     state["stackStatus"] = current["StackStatus"]
     state["stackId"] = current.get("StackId")
     attempt_status = None
-    execution_stack = state.get("executionEvidence", {}).get("StackId") or current.get(
-        "StackId"
-    )
+    execution_stack = state.get("executionEvidence", {}).get("StackId")
     if state.get("clientToken"):
         try:
             events = current_state.pages(
@@ -727,7 +725,12 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     if request:
         if state.get("requestError"):
             raise Blocked(state["requestError"])
-        return "UPDATE_IN_PROGRESS"
+        if not request.get("settled"):
+            return "UPDATE_IN_PROGRESS"
+        state["settledRequest"] = request
+        state["requestPending"] = False
+        if request.get("result") == "FAIL" and current_request.owns(state, request):
+            state["failureDetected"] = True
     if current["StackStatus"] == "UNKNOWN" and attempt_status in {
         None,
         "CREATE_FAILED",
@@ -746,11 +749,7 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
         return current["StackStatus"]
     if attempt_status is not None:
         return attempt_status
-    if (
-        state.get("executionEvidence")
-        and state.get("clientToken")
-        and current_state.category(current) != "RUNNING"
-    ):
+    if state.get("clientToken") and current_state.category(current) != "RUNNING":
         return "UNCONFIRMED"
     return current["StackStatus"]
 

@@ -42,6 +42,7 @@ else:
 OPERATION_FIELDS = {
     "failureDetected",
     "attemptResult",
+    "unexecutedReason",
     "needsCurrentReview",
     "status",
     "stackId",

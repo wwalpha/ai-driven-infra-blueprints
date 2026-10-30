@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import task_contract as tasks
 import worktree_task as wt
-from deploy import contracts, current_state, git_publication, worktree
+from deploy import contracts, git_publication, worktree
 from deploy.cli_guidance import DeployStepBlocked
 from model.observed import verify_observed_outputs
 from validation.findings import Findings
@@ -300,20 +300,7 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
         context["snapshotValidation"] = "FAIL"
         backend.save()
         try:
-            if all(
-                saved.get("currentStack")
-                and saved.get("observedSynced")
-                and saved.get("status") != "RUNNING"
-                and not saved.get("requestPending")
-                and current_state.category(saved["currentStack"]) != "RUNNING"
-                for saved in backend.states.values()
-            ):
-                task = tasks.read_task_snapshot(target, state["task_file"], live=True)
-                if task.status == "running":
-                    tasks.complete(target, state["task_file"])
-                    pending["after"] = contracts.validation_snapshot(target)
-            else:
-                validate(backend)
+            validate(backend)
         except Exception:
             backend.save()
             raise
