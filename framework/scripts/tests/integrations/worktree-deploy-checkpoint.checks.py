@@ -43,13 +43,18 @@ def private_runtime(tmp_path, monkeypatch):
         monkeypatch.setenv(name, str(tmp_path))
 
 
-def step(target, report, aws, action, names=()):
+def step(target, report, aws, action, names=(), final=False):
     with selected_task(target, "tasks/deploy.md"):
         return invoke(
             target,
             report,
             aws,
-            ["--action", action, *[arg for n in names for arg in ("--sync-stack", n)]],
+            [
+                "--action",
+                action,
+                *[arg for n in names for arg in ("--sync-stack", n)],
+                *(["--final"] if final else []),
+            ],
         )
 
 
@@ -120,6 +125,7 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch):
         provider["stacks"][name]["id"] for name in (FIRST, SECOND)
     )
     assert git(primary, "rev-list", "--count", base + "..HEAD").strip() == "4"
+    assert step(target, report, aws, "sync", final=True) == 0
     with selected_task(target, "tasks/deploy.md"):
         transitions.complete(target, "tasks/deploy.md")
     assert (
@@ -169,6 +175,7 @@ def check_success_checkpoint_survives_peer_failure(tmp_path, monkeypatch):
     assert saved["states"][FIRST]["status"] == "SUCCESS"
     assert saved["states"][FIRST].get("checkpointed")
     TestCase().assertEqual(saved["snapshotValidation"], "PASS")
+    assert step(target, report, aws, "sync", final=True) == 0
     with selected_task(target, "tasks/deploy.md"):
         transitions.complete(target, "tasks/deploy.md")
     TestCase().assertEqual(

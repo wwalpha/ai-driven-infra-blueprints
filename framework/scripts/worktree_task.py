@@ -365,6 +365,39 @@ def cleanup_progress(
     }
 
 
+def deploy_cleanup_task(target, state):
+    """Only the published final receipt may restore/remove its own untracked contract."""
+    if not state.get("deployIdentity"):
+        return None
+    publication = state.get("deployPublication", {})
+    final = publication.get("finalCandidate")
+    name = state["task_file"]
+    if not final or name in paths(target, "ls-files", "--cached", "-z", "--", name):
+        return None
+    before, after = final.get("taskBefore", ""), final.get("taskAfter", "")
+    if (
+        publication.get("status") != "SUCCESS"
+        or publication.get("publishedSource") != state["tip"]
+        or publication.get("commit") != state["merged"]
+        or final.get("source") != state["tip"]
+        or final.get("tree") != output(target, "rev-parse", state["tip"] + "^{tree}")
+        or tasks.status(before) != "running"
+        or tasks.status(after) != "completed"
+        or tasks.set_status(before, "completed") != after
+        or tasks.task_digest(after) != state["deployIdentity"]["taskDigest"]
+    ):
+        raise Blocked(
+            "untracked Deploy Task differs from its published final candidate"
+        )
+    path = tasks.safe_path(target, name)
+    if not path.exists():
+        tasks.atomic_files({path: after}, staging_directory=target)
+        tasks.invalidate_task_reads(target)
+    if path.read_bytes() != after.encode("utf-8"):
+        raise Blocked("untracked Deploy Task changed before cleanup")
+    return path
+
+
 def cleanup_state(root, path, state):
     phase = "verify_merge"
     try:
@@ -381,12 +414,17 @@ def cleanup_state(root, path, state):
         entries = [
             e for e in worktrees(root) if Path(e["worktree"]).resolve() == target
         ]
+        untracked_task = None
         if target.exists():
             target = task_worktree(root, state)
-            integration_task(target, state)
             if output(target, "rev-parse", "HEAD") != state["tip"]:
                 raise Blocked("task HEAD changed since merge; cleanup refused")
-            if changed_paths(target):
+            untracked_task = deploy_cleanup_task(target, state)
+            integration_task(target, state)
+            changed = changed_paths(target)
+            if untracked_task is not None:
+                changed.discard(state["task_file"])
+            if changed:
                 raise Blocked("task worktree is dirty; cleanup refused")
             # Preserve user artifacts before removing the owned environment or checkout.
             ignored = paths(
@@ -419,6 +457,12 @@ def cleanup_state(root, path, state):
             raise Blocked("registered worktree branch is missing; cleanup refused")
         if target.exists() or entries:
             phase = "remove_worktree"
+            if (
+                target.exists()
+                and untracked_task is not None
+                and state["task_file"] in changed_paths(target)
+            ):
+                deploy_cleanup_task(target, state).unlink()
             git(root, "worktree", "remove", str(target))
         phase = "remove_branch"
         if branch_exists(root, state["branch"]):

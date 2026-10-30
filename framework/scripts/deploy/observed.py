@@ -28,7 +28,9 @@ def removed_resources(units, states):
     result = {}
     for unit in units:
         state = states[unit["name"]]
-        evidence = state.get("executionEvidence")
+        evidence = state.get("executionEvidence") or state.get("endedRequest", {}).get(
+            "executionEvidence"
+        )
         changes = (
             evidence.get("resources", []) if evidence else state.get("changes", [])
         )
@@ -382,9 +384,18 @@ def deleted_resource(runtime, name, logical, removal, state, actuals):
     """A Remove is intent. Only execution-bound physical destruction resets an identifier."""
     if not removal_candidate(name, logical, removal):
         return False
-    evidence = state.get("executionEvidence", {})
+    evidence = state.get("executionEvidence") or state.get("endedRequest", {}).get(
+        "executionEvidence", {}
+    )
+    original = state.get("endedRequest", {}).get("request", {})
     if any(
-        evidence.get(key) != state.get(field)
+        evidence.get(key)
+        != state.get(
+            field,
+            original.get(
+                {"changeSetId": "changeSetId", "clientToken": "token"}.get(field, field)
+            ),
+        )
         for key, field in (
             ("StackId", "stackId"),
             ("ChangeSetId", "changeSetId"),

@@ -33,6 +33,12 @@ WORKTREE_CASES = {
         "check_reuse_keeps_exact_identity",
         "check_other_engine_retains_its_completion",
         "check_unfinished_progress_requires_original_journal",
+        "check_progress_has_one_mutable_context_and_preserves_recovery",
+        "check_corrupt_progress_is_never_empty_success",
+        "check_git_display_uses_latest_lifecycle_without_progress_copy",
+        "check_missing_progress_with_saved_checkpoint_is_not_a_fresh_run",
+        "check_final_source_uses_fixed_inputs_without_intermediate_receipts",
+        "check_untracked_cleanup_uses_only_published_exact_task",
     ),
     "integrations/deploy-worktree.checks.py": (
         "check_current_request_is_shared_without_history_or_duplicate_execute",
@@ -45,6 +51,10 @@ WORKTREE_CASES = {
         "check_stepwise_final_contract_checkpoint",
         "check_task_completion_rechecks_checkpoint_receipts",
         "check_stepwise_success_while_peer_running",
+        "check_final_zero_model_delta_keeps_exact_source_history",
+        "check_failed_final_validation_keeps_running_task_and_saved_model",
+        "check_old_worktree_reconciles_released_identity_without_removing_new_request",
+        "check_final_candidate_external_changes_stop_before_adoption",
     ),
     "units/worktree-guard-unit.checks.py": (
         "check_registered_guard_process",

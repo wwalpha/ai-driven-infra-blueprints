@@ -137,8 +137,14 @@ def run_group(
                 state["pollError"] = str(error)
                 state["pollReadFailures"] = state.get("pollReadFailures", 0) + 1
                 failures.exception(state, error, "POLL")
+            request = state.get("settledRequest")
+            if request and accepted:
+                if status in {"ATTEMPT_SUCCESS", "ATTEMPT_FAIL"}:
+                    request["result"] = (
+                        "SUCCESS" if status == "ATTEMPT_SUCCESS" else "FAIL"
+                    )
+                current_request.end_tracking(state, request)
             save()
-            request = state.pop("settledRequest", None)
             if request and accepted:
                 current_request.release(backend, request)
         if any(s.get("pollReadFailures", 0) >= 3 for s in states.values()):
@@ -168,7 +174,11 @@ def run_group(
                 if states[u["name"]]["status"] in {"NOT_STARTED", "BLOCKED"}
                 and u["name"] not in input_blocked
                 and not states[u["name"]].get("requestError")
-                and states[u["name"]].get("attemptResult") != "UNKNOWN"
+                and (
+                    states[u["name"]].get("attemptResult") != "UNKNOWN"
+                    or states[u["name"]].get("endedRequest")
+                )
+                and not states[u["name"]].get("requestPending")
             ]
             pending.sort(key=lambda u: states[u["name"]]["status"] == "BLOCKED")
             for unit in pending[: max(0, limit - running - preparing)]:

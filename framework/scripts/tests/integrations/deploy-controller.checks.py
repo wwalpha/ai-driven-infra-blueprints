@@ -104,7 +104,11 @@ def assert_single_execution(aws, states):
         assert (
             sum(
                 op == "execute_change_set"
-                and args["StackName"] == state["executionEvidence"]["StackId"]
+                and args["StackName"]
+                == state.get(
+                    "executionEvidence",
+                    state.get("endedRequest", {}).get("executionEvidence"),
+                )["StackId"]
                 for _, op, args in calls
             )
             == 1
@@ -121,7 +125,11 @@ def assert_published(root, session, evidence):
         for state in saved["states"].values()
     )
     assert {
-        name: saved["states"][name]["executionEvidence"] for name in evidence
+        name: saved["states"][name].get(
+            "executionEvidence",
+            saved["states"][name].get("endedRequest", {}).get("executionEvidence"),
+        )
+        for name in evidence
     } == evidence
     ec2 = properties(read_model(root / f"model/dev/{ACCOUNT}/ec2.properties"))
     assert ec2["observed.row.001-001.value"].strip("`") == "vpc-fixture"
@@ -205,7 +213,12 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     assert_published(
         root,
         session,
-        {name: s["executionEvidence"] for name, s in saved["states"].items()},
+        {
+            name: s.get(
+                "executionEvidence", s.get("endedRequest", {}).get("executionEvidence")
+            )
+            for name, s in saved["states"].items()
+        },
     )
 
     findings = Findings(root)
@@ -272,7 +285,7 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
     assert recovered.returncode == 0, recovered.stdout + recovered.stderr
     saved = json.loads(report.read_text())
     assert saved["states"][FIRST]["observedSynced"]
-    assert saved["states"][FIRST]["executionEvidence"] == evidence
+    assert saved["states"][FIRST]["endedRequest"]["executionEvidence"] == evidence
     assert "approvedChangeDigest" not in saved["states"][FIRST]
     TestCase().assertFalse(unresolved_requests(report, saved["states"]))
     calls = json.loads(aws.read_text())["calls"]
@@ -280,7 +293,7 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
         sum(
             op == "execute_change_set"
             and args["StackName"]
-            == saved["states"][FIRST]["executionEvidence"]["StackId"]
+            == saved["states"][FIRST]["endedRequest"]["executionEvidence"]["StackId"]
             for _, op, args in calls
         )
         == 1
@@ -326,6 +339,8 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
         "states": {"A": state},
         "inputDigests": {},
         "stepUnits": [{"name": "A"}],
+        "stepwise": True,
+        "consumedInputs": {},
     }
 
     backend = SimpleNamespace(
@@ -354,16 +369,19 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
             with pytest.raises(RuntimeError, match="interrupted"):
                 steps.refresh_requests(backend)
         saved = worktree.read_progress(local, {"deployIdentity": identity})
-        assert saved["states"]["A"]["status"] == "SETTLED" and request.exists()
-        assert saved["states"]["A"]["attemptResult"] == "UNKNOWN"
+        assert (
+            saved["runContext"]["states"]["A"]["status"] == "SETTLED"
+            and request.exists()
+        )
+        assert saved["runContext"]["states"]["A"]["attemptResult"] == "UNKNOWN"
         backend.states = saved["states"]
         backend.run_context["states"] = backend.states
         steps.refresh_requests(backend)
         assert not request.exists()
         assert (
-            worktree.read_progress(local, {"deployIdentity": identity})["states"]["A"][
-                "status"
-            ]
+            worktree.read_progress(local, {"deployIdentity": identity})["runContext"][
+                "states"
+            ]["A"]["status"]
             == "SETTLED"
         )
 
@@ -383,7 +401,7 @@ def check_pending_observed_recovers_before_model_load(tmp_path):
     assert recovered.returncode == 0, recovered.stdout + recovered.stderr
     saved = json.loads(report.read_text())
     assert saved["states"][FIRST]["observedSynced"]
-    assert saved["states"][FIRST]["executionEvidence"] == evidence
+    assert saved["states"][FIRST]["endedRequest"]["executionEvidence"] == evidence
     assert not saved.get("pendingObserved") and not saved.get("pendingGeneration")
     TestCase().assertFalse(unresolved_requests(report, saved["states"]))
     assert (

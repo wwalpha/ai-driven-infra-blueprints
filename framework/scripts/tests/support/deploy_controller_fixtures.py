@@ -852,7 +852,7 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
             assert fault in {"design-io", "model-partial"}
             stack.enter_context(patch.object(Path, "write_text", write))
         selection = [arg for name in stack_names(root) for arg in ("--stack", name)]
-        return main(
+        result = main(
             [
                 "--environment",
                 "dev",
@@ -864,6 +864,13 @@ def invoke(root, state_path, aws_path, options=(), fault=None):
                 *options,
             ]
         )
+        if state_path.exists():
+            report = json.loads(state_path.read_text(encoding="utf-8"))
+            report["gitPublication"] = steps.git_publication.retained(
+                root, "deploy", None
+            )
+            state_path.write_text(json.dumps(report), encoding="utf-8")
+        return result
 
 
 def drive(root, state_path, aws_path, options=(), fault=None):

@@ -16,7 +16,7 @@ AGENTSのセクション読込規則に従い、各段階の操作前に原本�
 - CloudFormation AWS実行前: [Common rules](../../rules/cloudformation.md#common-rules)、[AWS execution context](../../rules/cloudformation.md#aws-execution-context)、[Resource mode boundary](../../rules/cloudformation.md#resource-mode-boundary)、[Deployment validation and execution](../../rules/cloudformation.md#deployment-validation-and-execution)、[LLM-controlled short operations](../../rules/cloudformation.md#llm-controlled-short-operations)、[Managed Deploy snapshot and Git publication](../../rules/cloudformation.md#managed-deploy-snapshot-and-git-publication)、[Model authority](../../rules/model-information.md#model-authority)、[Resource management mode](../../rules/model-information.md#resource-management-mode)、[CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy)、[Policy account selection](../../rules/detailed-design.md#policy-account-selection)、[CloudFormation Stack detailed design](../../rules/detailed-design.md#cloudformation-stack-detailed-design)、[Properties format](../../rules/model-information.md#properties-format)。
 - Observed・生成前: [Identifier lifecycle](../../rules/observed-values.md#identifier-lifecycle)、[Collection and propagation](../../rules/observed-values.md#collection-and-propagation)、[Observation publication](../../rules/observed-values.md#observation-publication)、[Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation)。必要なservice Modelと参照Producerのみ確認し、権限を推測で拡張しない。
 - 完了前: [Validation policy](../../rules/loop-engineering.md#validation-policy)、[Validation scope](../../rules/loop-engineering.md#validation-scope)、[Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)。
-- 該当時は操作前に[Delete and replacement confirmation](../../rules/cloudformation.md#delete-and-replacement-confirmation)、[S3 deployment artifacts](../../rules/cloudformation.md#s3-deployment-artifacts)、[Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair)、[Independent controller runs and execution timing](../../rules/cloudformation.md#independent-controller-runs-and-execution-timing)、Human要求の[operation journal reset](../../rules/cloudformation.md#human-authorized-operation-journal-reset)を読む。
+- 該当時は操作前に[Delete and replacement confirmation](../../rules/cloudformation.md#delete-and-replacement-confirmation)、[S3 deployment artifacts](../../rules/cloudformation.md#s3-deployment-artifacts)、[Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair)、[Independent controller runs and execution timing](../../rules/cloudformation.md#independent-controller-runs-and-execution-timing)を読む。
 - Terraformは[Terraform Rules](../../rules/terraform.md)、[Properties format](../../rules/model-information.md#properties-format)、[Local loop](../../rules/loop-engineering.md#local-loop)と上記共通のTask・Model・Observed・完了条件を読む。
 
 ## CLI entrypoints
@@ -59,13 +59,12 @@ Sub Agent、Model 背景 writer、固定間隔同期、Python によるエージ
 
 ## Unfinished AWS operation recovery
 
-通常開始・再開は対象 Stack の最新 AWS 状態を先に取得する。旧 Task、mode、StackStatus、expectedOutputs、Observed、checkpoint/Git、Reset/Fence、特定の修復経路の証明は現在状態の採用・次の試行の条件にしない。UPDATE_COMPLETE だけで今回の Desired 適用済みとは判断せず、固定入力から ChangeSet を判定する。
+通常開始・再開は対象 Stack の最新 AWS 状態を先に取得する。旧 Task、mode、StackStatus、expectedOutputs、Observed、checkpoint/Git、特定の修復経路の証明は現在状態の採用・次の試行の条件にしない。UPDATE_COMPLETE だけで今回の Desired 適用済みとは判断せず、固定入力から ChangeSet を判定する。
 
 共有記録は account/Region/StackName ごとの現在の未確定要求だけ。送信直前に同一 Stack ロック下で intent を保存し、応答喪失時は元の StackId・ChangeSetId・token を維持する。直前 Execute が不確定なら、単一の古い COMPLETE 読み取りで新 token の Execute を許可しない。現在 ChangeSet・token event を確認し、AWS 要求が決着したら Model/Git を待たず記録を終了する。破損時は当該 Stack の新しい変更だけを保留し、独立 Stack や Model 保存・Git 統合を止めない。
 
 REVIEW_IN_PROGRESS は ChangeSet と合わせて判断する。UPDATE_ROLLBACK_COMPLETE は今回失敗と次回更新可否を分ける。ROLLBACK_COMPLETE、rollback failed は AWS 制約に従う。構造化された不存在だけ ABSENT、取得不能は UNKNOWN。Output 欠落、削除履歴、不完全な一覧、保持リソースを不存在と混同しない。
 
-Reset は Human の対象指定と一度の明示承認だけで原本保存・選択記録と関連 Fence の処理を完了する。同じ承認済み Plan の中断再開で再承認や RESOLVE を求めず、新要求を削除しない。自動 Reset は禁止。Reset 後に AWS が実行中なら Reset は完了し、通常判定が RUNNING を報告する。
 
 Export は共通 Resolver で必要名だけを解決する。既知 Producer は scoped DescribeStacks、未知だけ必要な ListExports を使う。古い Task の Outputs 一致を現在値保存条件にしない。同期や Git 障害を理由に AWS を再実行しない。
 
@@ -86,3 +85,15 @@ Terraform RulesとHelpに従い、設計済みRoot/workspace/backend/variable in
 AWS変更/No Change、Stack別SUCCESS/FAILED/BLOCKED/NOT_STARTED、未反映Output/Export、Observed同期、Markdown/JSON生成、未確定操作を区別する。原因未確定はHuman判断が必要と報告する。
 
 Deploy 結果、現在 Stack 状態、Model 保存、Snapshot 検証、commit・merge、Task 状態を別々に報告する。PUBLICATION_PENDINGはAWS失敗ではなくGitのHuman判断/反映待ちであり、成功Stackを再Deployしない。AWS完了だけでTask全体の完了を報告しない。Task scope/Acceptanceと許可差分を確認し、[Validation policy](../../rules/loop-engineering.md#validation-policy)の最終検証と全保存/反映の成功後にのみTask完了とする。通常Deployはscoped task loopを使う。offline UTから実AWS成功を主張せず、次phase・scenarioを開始しない。
+
+## 最終保存
+
+LLMがTask終了を決めたときだけ、managed CloudFormationの `--action sync --final` を使う。
+完全な `--stack` はTask Scopeのまま、 `--sync-stack` は今回観測・保存する対象だけを指定する。
+必要観測が保存済みなら省略できる。通常syncはrunningを維持する。
+completed契約をModel/Viewと同じprivate候補で検証し、PASS後にだけlive Taskへ採用する。
+FAILではrunningと保存済みModel・生成成功物を保持する。失敗・未実行理由・UNKNOWN結果は成功へ変えない。
+保存途中は `--action checkpoint` で同じ最終意図を再開し、commit後のGit失敗は
+`worktree_task.py deploy-publish` でGitだけを再開する。finalizeは最終候補と公開を確認してcleanupする。
+旧要求の追跡終了は正しい対象identityのAWS証拠によって判断し、progress保存後に同じ要求だけを解放する。
+状態ファイルの手動削除、Reset、UNKNOWNだけを理由にした旧要求の復活を通常手順にしない。

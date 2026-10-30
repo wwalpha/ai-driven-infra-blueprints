@@ -34,7 +34,7 @@ For managed CloudFormation Deploy, use the same full `--stack` scope with
   validation/commit/publication without a fresh observation or AWS execution.
 
 Normal start/resume reads scoped current AWS before deciding operations. Old Task,
-mode, status, Outputs, synchronization, checkpoint, Git, Reset or Fence evidence never
+mode, status, Outputs, synchronization, checkpoint or Git evidence never
 qualifies the current state. External repair is adopted without a special repair-path
 proof. A successful current Stack does not prove the fixed Desired is applied: inspect
 its current ChangeSet. UNKNOWN is not absence; REVIEW_IN_PROGRESS requires current
@@ -52,8 +52,10 @@ Keep confirmed sources and successful generated services if another View fails. 
 Snapshot inconsistency retains the candidate and fails required validation.
 
 For intermediate sync, Task remains running and the same Worktree/fixed IaC can continue.
-For a settled final snapshot, include completed before the same candidate's validation,
-commit and merge. Deploy FAIL remains FAIL even when Snapshot validation and Git succeed.
+For a settled final snapshot, select `sync --final` explicitly. Include completed in
+the private validation candidate; adopt it only after PASS, then commit/publish that
+same Model/View/Task candidate. Omit --sync-stack when all needed observations are
+already saved. `checkpoint` resumes the saved final intent without another --final. Deploy FAIL remains FAIL even when Snapshot validation and Git succeed.
 No extra failure approval, force, all-Stack SUCCESS or individual checkpoint requirement.
 Active/uncertain AWS requests retain tracking and prevent Task completion.
 
@@ -63,11 +65,6 @@ completed candidate after commit success/merge failure. It does not execute AWS 
 repeat observations. Existing Human conflict review and actual latest-base validation
 remain required. After verified integration use ordinary finalize/guarded cleanup.
 
-Only the Human chooses and approves Reset. One Plan lists selected records and related
-old Fences with lost information; one explicit approval saves originals and processes
-all selected targets, without a new Fence or separate RESOLVE. Resume the same approved
-Plan after interruption without repeated consent; never delete newly created requests.
-Reset neither stops AWS nor certifies Model/Git or AWS success. Do not Reset automatically.
 No Sub Agents, background writer, general workflow engine or automatic IaC repair.
 
 A settled request with an unconfirmed attempt outcome may report Deploy UNKNOWN; this never becomes a physical identifier or an active-request bypass. Current root Stack events are scoped by StackId and original token, and never replace the independently read current Stack status.

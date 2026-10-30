@@ -560,6 +560,7 @@ def current_satisfied(runtime: SimpleNamespace, unit: StackUnit) -> None:
     )
     checked = {name: copy.deepcopy(state)}
     checked[name].pop("executionEvidence", None)
+    checked[name].pop("endedRequest", None)
     checked[name].pop("changes", None)
     observed.collect_successful(runtime, [unit], checked)
     if any(
@@ -880,31 +881,23 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     if request and state.get("requestError"):
         raise Blocked(state["requestError"])
     if request and not request.get("settled"):
-        return "UPDATE_IN_PROGRESS"
+        state["requestPending"] = True
+        return (
+            "UNCONFIRMED"
+            if current_state.category(current) != "RUNNING"
+            else current["StackStatus"]
+        )
     if request and not current_request.owns(state, request):
         return "UPDATE_IN_PROGRESS"
     if request and current_request.owns(state, request):
         state["settledRequest"] = request
         state["requestPending"] = False
-    elif (
-        not request
-        and state.get("clientToken")
-        and state.get("changeSetId")
-        and execution_stack
-    ):
-        request = {
-            "operation": "execute_change_set",
-            "name": unit["name"],
-            "stackId": execution_stack,
-            "changeSetId": state["changeSetId"],
-            "token": state["clientToken"],
-        }
-        try:
-            if not current_request.settled(runtime.aws, request, current):
-                request = None
-        except (OSError, Blocked):
-            return "UNCONFIRMED"
     if request and current_request.owns(state, request):
+        if request.get("trackingReason") in {
+            "ORIGINAL_STACK_DELETED",
+            "ORIGINAL_STACK_REPLACED",
+        }:
+            return "ATTEMPT_SETTLED"
         if request.get("result") == "SUCCESS":
             return "ATTEMPT_SUCCESS"
         if request.get("result") == "FAIL":
@@ -936,7 +929,20 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     ):
         return current["StackStatus"]
     if attempt_status is not None:
-        return attempt_status
+        return (
+            "ATTEMPT_FAIL"
+            if attempt_status in current_state.FAILED
+            else "ATTEMPT_SUCCESS"
+        )
+    if (
+        state.get("attemptResult") == "UNKNOWN"
+        and not state.get("endedRequest")
+        and not state.get("clientToken")
+    ):
+        state["requestError"] = (
+            "original execution identity is incomplete; current Stack status cannot prove its outcome"
+        )
+        return "UNCONFIRMED"
     if state.get("clientToken") and current_state.category(current) != "RUNNING":
         return "UNCONFIRMED"
     return current["StackStatus"]
@@ -975,6 +981,11 @@ def controller_main(
         help="short LLM-controlled operation; advance never publishes Model changes",
     )
     parser.add_argument(
+        "--final",
+        action="store_true",
+        help="explicit final sync including completed Task in the validated candidate",
+    )
+    parser.add_argument(
         "--sync-stack",
         action="append",
         default=[],
@@ -997,8 +1008,11 @@ def controller_main(
         and args.action not in {"sync", "checkpoint"}
         or args.action == "sync"
         and not args.sync_stack
+        and not args.final
     ):
         parser.error("--sync-stack is required for sync and permitted with checkpoint")
+    if args.final and args.action != "sync":
+        parser.error("--final is accepted only with --action sync")
     root = (root if root is not None else Path.cwd()).resolve()
     return steps.run(args, root, timing, create_runtime, load_units)
 

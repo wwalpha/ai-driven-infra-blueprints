@@ -22,10 +22,12 @@ import worktree_state as ws
 import worktree_task as wt
 from deploy import (
     contracts,
+    controller,
     current_request,
     guards,
     inputs,
     operation_journal,
+    steps,
     worktree,
 )
 from deploy import git_publication as publication
@@ -49,6 +51,10 @@ def pin_progress(backend, identity):
     backend.progress_directory = backend.run_context.get("directory")
     backend.progress_destination = worktree.progress_path(backend.root, create=True)
     backend.run_context["repository"] = str(backend.root)
+    backend.run_context.setdefault("stepwise", False)
+    backend.run_context.setdefault("consumedInputs", {})
+    backend.run_context.setdefault("stepUnits", [])
+    backend.target = identity["target"]
     backend.run_context.update(
         {
             key: identity[key]
@@ -152,12 +158,13 @@ def check_current_request_is_shared_without_history_or_duplicate_execute(
                     one, "execute_change_set", dict(arguments), probe.send
                 )
             case.assertIsNotNone(current_request.reconcile(two, {"name": "Example"}))
-            current_request.send(
-                two,
-                "execute_change_set",
-                {**arguments, "ClientRequestToken": "new-token-must-not-be-used"},
-                probe.send,
-            )
+            with pytest.raises(ValueError, match="unconfirmed"):
+                current_request.send(
+                    two,
+                    "execute_change_set",
+                    {**arguments, "ClientRequestToken": "new-token-must-not-be-used"},
+                    probe.send,
+                )
             case.assertEqual(probe.tokens, [("Example", "original")])
             assert (journal.read_bytes() if journal.exists() else None) == legacy
             probe.finished = True
@@ -407,7 +414,7 @@ def check_git_conflict_checkpoints_peers_and_recovers(monkeypatch, tmp_path):
             backend.run_context["inputDigests"]["B"] = "b-digest"
             worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
             publication.sync(backend)
-            assert backend.run_context["gitPublication"]["status"] == "CONFLICT"
+            assert publication.display(backend)["status"] == "CONFLICT"
             assert git(root, "rev-parse", "HEAD") != first
             assert (primary / "file.txt").read_text() == "original\n"
             result = publication.publish(root, "deploy")
@@ -512,24 +519,35 @@ def publish_unstarted_snapshot(settled):
             (root / relative).write_text(
                 "# model-format: 2\nobserved.row.001-001.value=`aws`\n"
             )
-            publication.publish(root, "deploy")
-            TestCase().assertEqual(
-                read_task_snapshot(root, name, live=True).status, "running"
-            )
-            with (
-                patch.object(transitions, "Validator") as validator,
-                patch.object(
-                    transitions._imports_import_guard, "require_import_changes"
-                ),
-            ):
-                validator.return_value.report.return_value = 0
-                transitions.complete(root, name)
-            saved = worktree.read_progress(root, wt.load(root, "deploy")[3])
-            TestCase().assertEqual(
-                saved["states"]["C"]["unexecutedReason"],
+            states["C"]["unexecutedReason"] = (
                 "DEPLOY_ENDED_WITHOUT_EXECUTION"
                 if settled
-                else "PREVIOUS_DEPLOY_ORDER_FAILED",
+                else "PREVIOUS_DEPLOY_ORDER_FAILED"
+            )
+            snapshot = read_task_snapshot(root, name, live=True)
+            backend.states = states
+            backend.guard = Mock()
+            backend.save = partial(
+                worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
+            )
+            backend.run_context["checkpointPending"] = {
+                "stacks": [],
+                "before": {relative: "before"},
+                "after": contracts.validation_snapshot(root),
+                "final": {
+                    "taskBefore": snapshot.text,
+                    "taskAfter": set_status(snapshot.text, "completed"),
+                },
+            }
+            backend.save()
+            checkpoints.snapshot_checkpoint(backend, [])
+            publication.publish(root, "deploy")
+            saved = worktree.read_progress(root, wt.load(root, "deploy")[3])[
+                "runContext"
+            ]
+            TestCase().assertEqual(
+                saved["states"]["C"]["unexecutedReason"],
+                states["C"]["unexecutedReason"],
             )
             result = publication.finalize(root, "deploy")
             assert result["verified"] and result["merged"]
@@ -540,8 +558,10 @@ def publish_unstarted_snapshot(settled):
                 "UNKNOWN" if settled else "FAIL"
             )
             if settled:
-                assert progress["states"]["B"]["attemptResult"] == "UNKNOWN"
-            assert progress["states"]["C"]["status"] == "NOT_STARTED"
+                assert (
+                    progress["runContext"]["states"]["B"]["attemptResult"] == "UNKNOWN"
+                )
+            assert progress["runContext"]["states"]["C"]["status"] == "NOT_STARTED"
             old = old_store(root)
             (old / "seal.key").write_bytes(b"broken")
             receipt = old / "deploy.json"
@@ -670,7 +690,8 @@ def check_controller_keeps_aws_success_after_rewrite_and_conflict(
             )
         )
         assert publication.publish(root, "deploy", resolution)["status"] == "SUCCESS"
-        worktree.require_complete(root, read_task_snapshot(root, "tasks/deploy.md"))
+        with pytest.raises(ValueError, match="final candidate"):
+            worktree.require_complete(root, read_task_snapshot(root, "tasks/deploy.md"))
     assert json.loads(aws.read_text())["calls"] == before
     assert (
         invoke(
@@ -741,14 +762,32 @@ def check_interrupted_publication_retries_and_cleans(monkeypatch, boundary):
             assert publication.publish(root, "deploy")["status"] == "SUCCESS"
             assert (primary / "file.txt").read_text() == "Task output\n"
             snapshot = read_task_snapshot(root, name, live=True)
-            snapshot.path.write_text(set_status(snapshot.text, "completed"))
+            backend.states = backend.run_context["states"]
+            backend.states["A"]["currentStack"] = {"StackStatus": "UPDATE_COMPLETE"}
+            backend.guard = Mock()
+            backend.save = partial(
+                worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
+            )
+            snapshot_files = contracts.validation_snapshot(root)
+            backend.run_context["checkpointPending"] = {
+                "stacks": [],
+                "before": snapshot_files,
+                "after": snapshot_files,
+                "final": {
+                    "taskBefore": snapshot.text,
+                    "taskAfter": set_status(snapshot.text, "completed"),
+                },
+            }
+            backend.save()
+            checkpoints.snapshot_checkpoint(backend, [])
+            publication.publish(root, "deploy")
             publication.finalize(root, "deploy")
             assert wt.cleanup(primary, "deploy")["cleaned"]
             assert not root.exists() and not wt.branch_exists(primary, state["branch"])
 
 
 @contextmanager
-def stepwise_repository(tracked_contract=False):
+def stepwise_repository(tracked_contract=False, untracked_contract=False):
     with (
         fixture() as primary,
         patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
@@ -760,6 +799,13 @@ def stepwise_repository(tracked_contract=False):
         patch.object(publication, "validate_candidate"),
         patch.object(checkpoints, "validate"),
     ):
+        if untracked_contract:
+            ignore = primary / ".gitignore"
+            ignore.write_text(
+                ignore.read_text(encoding="utf-8").replace("tasks/**\n", ""),
+                encoding="utf-8",
+            )
+            git(primary, "add", ".gitignore")
         relative = "model/dev/app/ec2.properties"
         text = (
             "# model-format: 2\nobserved.a.value=`before`\nobserved.b.value=`before`\n"
@@ -946,7 +992,7 @@ def check_stepwise_checkpoint_publication_isolation(boundary):
             assert git(root, "rev-parse", "HEAD") == saved
             return
         publication.sync(backend)
-        assert backend.run_context["gitPublication"]["status"] == "SUCCESS"
+        assert publication.display(backend)["status"] == "SUCCESS"
         # B edits the same Model file; A's Git retry must preserve B's staged candidate.
         synchronized_candidate(backend, relative, "B")
         if boundary in {"pendingObserved", "pendingGeneration"}:
@@ -989,28 +1035,88 @@ def check_stepwise_checkpoint_publication_isolation(boundary):
         assert (primary / relative).read_bytes() == candidate
 
 
-@pytest.mark.parametrize("boundary", [None, "commit"])
-def check_stepwise_final_contract_checkpoint(boundary):
-    with stepwise_repository(tracked_contract=True) as (primary, backend, relative):
+@pytest.mark.parametrize(
+    "boundary", [None, "adopt", "before-commit", "commit", "receipt", "intent", "merge"]
+)
+@pytest.mark.parametrize("tracked", [False, True])
+def check_stepwise_final_contract_checkpoint(boundary, tracked):
+    with stepwise_repository(tracked_contract=tracked) as (primary, backend, relative):
         root = backend.root
-        for name in ["A", "B"]:
-            synchronized_candidate(backend, relative, name)
-            checkpoints.snapshot_checkpoint(backend, [name])
-            publication.publish(root, "deploy")
+        synchronized_candidate(backend, relative, "A")
+        checkpoints.snapshot_checkpoint(backend, ["A"])
+        publication.publish(root, "deploy")
+        synchronized_candidate(backend, relative, "B")
+        pending = backend.run_context["checkpointPending"]
         snapshot = read_task_snapshot(root, "tasks/deploy.md", live=True)
-        snapshot.path.write_text(
-            set_status(snapshot.text, "completed"), encoding="utf-8"
+        pending["final"] = {
+            "taskBefore": snapshot.text,
+            "taskAfter": set_status(snapshot.text, "completed"),
+        }
+        backend.save()
+        parent = git(root, "rev-parse", "HEAD")
+        writes = partial(interrupt_final_adoption, checkpoints.tasks.atomic_files)
+        if boundary in {"adopt", "before-commit", "commit", "receipt"}:
+            guard = (
+                patch.object(checkpoints.tasks, "atomic_files", writes)
+                if boundary == "adopt"
+                else patch.object(wt, "save", partial(interrupt_final_receipt, wt.save))
+                if boundary == "receipt"
+                else patch.object(
+                    wt, "git", partial(interrupt_git, wt.git, root, boundary)
+                )
+            )
+            with guard, pytest.raises(OSError, match="interrupted"):
+                checkpoints.snapshot_checkpoint(backend, ["B"])
+            # Real reload uses only saved progress; no new final flag or observation.
+            backend.run_context = worktree.read_progress(
+                root, wt.load(root, "deploy")[3]
+            )["runContext"]
+            backend.states = backend.run_context["states"]
+        checkpoints.snapshot_checkpoint(backend, ["B"])
+        source = git(root, "rev-parse", "HEAD").strip()
+        assert (
+            git(root, "rev-list", "--count", parent.strip() + "..HEAD").strip() == "1"
         )
-        if boundary:
-            with (
-                patch.object(wt, "git", partial(interrupt_git, wt.git, root, boundary)),
-                pytest.raises(OSError, match="interrupted"),
-            ):
-                publication.finalize(root, "deploy")
+        paths = set(
+            git(
+                root, "diff-tree", "--no-commit-id", "--name-only", "-r", source
+            ).splitlines()
+        )
+        assert relative in paths and ((snapshot.name in paths) == tracked)
+        if tracked:
+            assert "- Task status: `completed`" in git(
+                root, "show", source + ":" + snapshot.name
+            )
+        else:
+            assert not git(root, "ls-files", snapshot.name)
+        if boundary in {"intent", "merge"}:
+            guard = (
+                patch.object(
+                    wt, "save", partial(interrupt_saved_state, wt.save, "intent")
+                )
+                if boundary == "intent"
+                else patch.object(
+                    wt, "git", partial(interrupt_git, wt.git, primary, "merge")
+                )
+            )
+            with guard, pytest.raises(OSError, match="interrupted"):
+                publication.publish(root, "deploy")
+        assert publication.publish(root, "deploy")["status"] == "SUCCESS"
         result = publication.finalize(root, "deploy")
-        assert result["verified"]
-        assert "- Task status: `completed`" in (primary / snapshot.name).read_text()
+        assert result["verified"] and git(root, "rev-parse", "HEAD").strip() == source
         assert wt.cleanup(primary, "deploy")["cleaned"]
+
+
+def interrupt_final_receipt(real, path, state):
+    real(path, state)
+    if state.get("deployPublication", {}).get("finalCandidate"):
+        raise OSError("interrupted after final receipt")
+
+
+def interrupt_final_adoption(real, outputs, **kwargs):
+    real(outputs, **kwargs)
+    if any(str(path).endswith("tasks/deploy.md") for path in outputs):
+        raise OSError("interrupted after final Task adoption")
 
 
 @pytest.mark.parametrize(
@@ -1056,26 +1162,13 @@ def check_task_completion_rechecks_checkpoint_receipts(problem):
             )
         wt.save(path, state)
         progress = worktree.read_progress(root, state)
-        before = json.loads(json.dumps(progress["states"]))
-        with (
-            patch.object(transitions, "Validator") as validator,
-            patch.object(transitions._imports_import_guard, "require_import_changes"),
-        ):
-            validator.return_value.report.return_value = 0
-            if problem in {"target", "commit"}:
-                with TestCase().assertRaises(ValueError):
-                    tasks.complete(root, "tasks/deploy.md")
-                return
+        before = json.loads(json.dumps(progress["runContext"]["states"]))
+        with pytest.raises(ValueError, match="final candidate"):
             tasks.complete(root, "tasks/deploy.md")
-        task = read_task_snapshot(root, "tasks/deploy.md", live=True)
-        TestCase().assertEqual(task.status, "completed")
-        if problem in {"target", "commit"}:
-            with pytest.raises(ValueError):
-                publication.checkpoint_source(root, state, progress)
-        assert worktree.read_progress(root, state)["states"] == before
-        assert all(
-            s["status"] == "SUCCESS" and s["observedSynced"] for s in before.values()
+        assert (
+            read_task_snapshot(root, "tasks/deploy.md", live=True).status == "running"
         )
+        assert worktree.read_progress(root, state)["runContext"]["states"] == before
 
 
 def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
@@ -1140,6 +1233,7 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
         TestCase().assertEqual(
             read_task_snapshot(root, "tasks/deploy.md", live=True).status, "running"
         )
+        assert invoke(root, report, aws, ["--action", "sync", "--final"]) == 0
         transitions.complete(root, "tasks/deploy.md")
     _, _, path, lifecycle = wt.load(root, "deploy")
     original = path.read_bytes()
@@ -1196,7 +1290,7 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
             TestCase().assertTrue(
                 all(
                     saved["status"] == "SUCCESS" and saved["observedSynced"]
-                    for saved in worktree.read_progress(root, altered)[
+                    for saved in worktree.read_progress(root, altered)["runContext"][
                         "states"
                     ].values()
                 ),
@@ -1220,6 +1314,242 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
         TestCase().assertFalse(path.exists(), "normal: lifecycle cleanup")
     except Exception as exc:
         raise AssertionError(f"receipt case normal failed: {exc}") from exc
+
+
+@pytest.mark.parametrize("mode", ["tracked", "ignored", "untracked"])
+def check_final_zero_model_delta_keeps_exact_source_history(mode):
+    tracked = mode == "tracked"
+    with stepwise_repository(
+        tracked_contract=tracked, untracked_contract=mode == "untracked"
+    ) as (primary, backend, relative):
+        for name in ("A", "B"):
+            synchronized_candidate(backend, relative, name)
+            checkpoints.snapshot_checkpoint(backend, [name])
+            publication.publish(backend.root, "deploy")
+        root = backend.root
+        parent = git(root, "rev-parse", "HEAD").strip()
+        task = read_task_snapshot(root, "tasks/deploy.md", live=True)
+        snapshot = contracts.validation_snapshot(root)
+        backend.run_context["checkpointPending"] = {
+            "stacks": [],
+            "before": snapshot,
+            "after": snapshot,
+            "final": {
+                "taskBefore": task.text,
+                "taskAfter": set_status(task.text, "completed"),
+            },
+        }
+        backend.save()
+        checkpoints.snapshot_checkpoint(backend, [])
+        source = git(root, "rev-parse", "HEAD").strip()
+        assert (source != parent) == tracked
+        if tracked:
+            assert set(
+                git(
+                    root, "diff-tree", "--no-commit-id", "--name-only", "-r", source
+                ).splitlines()
+            ) == {task.name}
+        assert publication.publish(root, "deploy")["status"] == "SUCCESS"
+        publication.finalize(root, "deploy")
+        assert git(root, "rev-parse", "HEAD").strip() == source
+        if mode == "untracked":
+            with (
+                patch.object(wt, "git", partial(interrupt_untracked_cleanup, wt.git)),
+                pytest.raises(OSError, match="interrupted"),
+            ):
+                wt.cleanup(primary, "deploy")
+            assert root.exists() and not (root / task.name).exists()
+        assert wt.cleanup(primary, "deploy")["cleaned"]
+
+
+def interrupt_untracked_cleanup(real, root, *args, **kwargs):
+    if args[:2] == ("worktree", "remove"):
+        raise OSError("interrupted after untracked Task removal")
+    return real(root, *args, **kwargs)
+
+
+def check_failed_final_validation_keeps_running_task_and_saved_model():
+    with stepwise_repository(tracked_contract=True) as (primary, backend, relative):
+        for name in ("A", "B"):
+            synchronized_candidate(backend, relative, name)
+            if name == "A":
+                checkpoints.snapshot_checkpoint(backend, [name])
+                publication.publish(backend.root, "deploy")
+        root = backend.root
+        task = read_task_snapshot(root, "tasks/deploy.md", live=True)
+        pending = backend.run_context["checkpointPending"]
+        pending["final"] = {
+            "taskBefore": task.text,
+            "taskAfter": set_status(task.text, "completed"),
+        }
+        backend.save()
+        saved = (root / relative).read_bytes()
+        heads = [git(where, "rev-parse", "HEAD") for where in (primary, root)]
+        with (
+            patch.object(
+                publication,
+                "validate_candidate",
+                side_effect=ValueError("Acceptance FAIL"),
+            ),
+            pytest.raises(ValueError, match="Acceptance FAIL"),
+        ):
+            checkpoints.snapshot_checkpoint(backend, ["B"])
+        assert read_task_snapshot(root, task.name, live=True).status == "running"
+        assert (root / relative).read_bytes() == saved
+        assert [git(where, "rev-parse", "HEAD") for where in (primary, root)] == heads
+        retained = worktree.read_progress(root, wt.load(root, "deploy")[3])[
+            "runContext"
+        ]
+        assert (
+            retained["snapshotValidation"] == "FAIL"
+            and retained["checkpointPending"]["final"]["taskAfter"]
+            == pending["final"]["taskAfter"]
+        )
+
+
+@pytest.mark.parametrize("replacement_request", [False, True])
+def check_old_worktree_reconciles_released_identity_without_removing_new_request(
+    tmp_path, replacement_request
+):
+    # Two local progress stores share only the current request, never each other's files.
+    target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
+    roots = [tmp_path / "original", tmp_path / "peer"]
+    for root in roots:
+        root.mkdir()
+    request = tmp_path / "request.json"
+    original = {
+        "operation": "execute_change_set",
+        "name": "A",
+        "service": "cloudformation",
+        "resourceId": None,
+        "stackId": "old-id",
+        "changeSetId": "old-change",
+        "token": "old-token",
+    }
+    request.write_text(json.dumps(original), encoding="utf-8")
+    request.chmod(0o600)
+    backends = []
+    for root in roots:
+        identity = {
+            "taskFile": "tasks/deploy.md",
+            "taskDigest": "fixed",
+            "target": target,
+            "environment": "dev",
+            "stacks": ["A"],
+        }
+        state = {
+            "status": "RUNNING",
+            "clientToken": "old-token",
+            "changeSetId": "old-change",
+            "executionEvidence": {"StackId": "old-id"},
+        }
+        context = {
+            "stepwise": True,
+            "stepUnits": [{"name": "A", "deployOrder": 1}],
+            "directory": "app",
+            "states": {"A": state},
+            "inputDigests": {"A": "fixed"},
+        }
+        backend = SimpleNamespace(
+            root=root,
+            phase="deploy",
+            target=target,
+            units=context["stepUnits"],
+            states=context["states"],
+            run_context=context,
+            templates={},
+            aws=Mock(
+                return_value={
+                    "Stacks": [{"StackId": "new-id", "StackStatus": "UPDATE_COMPLETE"}]
+                }
+            ),
+        )
+        pin_progress(backend, identity)
+        backend.save = partial(
+            worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
+        )
+        backend.poll = partial(controller.poll, backend)
+        backend.save()
+        backends.append(backend)
+    with patch.object(current_request, "location", return_value=request):
+        steps.refresh_requests(backends[1])
+        assert not request.exists()
+        if replacement_request:
+            new = original | {
+                "stackId": "new-id",
+                "changeSetId": "new-change",
+                "token": "new-token",
+            }
+            request.write_text(json.dumps(new), encoding="utf-8")
+            request.chmod(0o600)
+        steps.refresh_requests(backends[0])
+        saved = worktree.read_progress(
+            roots[0], {"deployIdentity": backends[0].progress_identity}
+        )["runContext"]["states"]["A"]
+        assert saved["attemptResult"] == saved["endedRequest"]["result"] == "UNKNOWN"
+        assert not {"clientToken", "changeSetId", "executionEvidence"} & saved.keys()
+        assert saved["requestPending"] == replacement_request
+        if replacement_request:
+            assert json.loads(request.read_text(encoding="utf-8")) == new
+        else:
+            assert not request.exists()
+
+
+def mutate_final_input(kind, relative, root, tree, base, task):
+    if kind == "task":
+        destination = root / task.name
+        destination.write_text(
+            destination.read_text(encoding="utf-8") + "\nchanged authority\n",
+            encoding="utf-8",
+        )
+    elif kind == "input":
+        destination = root / "infra/cloudformation/parameters/dev/app/B.json"
+        destination.write_text("changed fixed parameters", encoding="utf-8")
+    elif kind == "head":
+        git(root, "commit", "--allow-empty", "-qm", "external HEAD change")
+    elif kind == "index":
+        git(root, "add", relative)
+    else:
+        destination = root / relative
+        destination.write_text(
+            destination.read_text(encoding="utf-8") + "# external Model candidate\n",
+            encoding="utf-8",
+        )
+
+
+@pytest.mark.parametrize("kind", ["task", "input", "head", "index", "candidate"])
+def check_final_candidate_external_changes_stop_before_adoption(kind):
+    with stepwise_repository(tracked_contract=True) as (primary, backend, relative):
+        root = backend.root
+        for name in ("A", "B"):
+            synchronized_candidate(backend, relative, name)
+            if name == "A":
+                checkpoints.snapshot_checkpoint(backend, [name])
+                publication.publish(root, "deploy")
+        task = read_task_snapshot(root, "tasks/deploy.md", live=True)
+        backend.run_context["checkpointPending"]["final"] = {
+            "taskBefore": task.text,
+            "taskAfter": set_status(task.text, "completed"),
+        }
+        backend.save()
+        main = git(primary, "rev-parse", "HEAD")
+        with (
+            patch.object(
+                publication,
+                "validate_candidate",
+                partial(mutate_final_input, kind, relative),
+            ),
+            pytest.raises(ValueError, match="changed during validation"),
+        ):
+            checkpoints.snapshot_checkpoint(backend, ["B"])
+        assert read_task_snapshot(root, task.name, live=True).status == "running"
+        assert git(primary, "rev-parse", "HEAD") == main
+        assert (
+            worktree.read_progress(root, wt.load(root, "deploy")[3])["runContext"][
+                "checkpointPending"
+            ]["final"].get("validated")
+            is None
+        )
 
 
 if __name__ == "__main__":

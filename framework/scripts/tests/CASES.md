@@ -4393,7 +4393,7 @@ Task/approval/recovery cases retain their existing responsibilities.
 | `deploy-steps::advance` | `check_advance_returns_with_running_peers_without_sync` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | One turn, parallel peers, explicit sync and DeployOrder barrier | Fake backend, no Worktree |
 | `deploy-steps::execute-once` | `check_advance_retains_original_execute_after_interruption` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Original execution token and no duplicate Execute | Fake backend |
 | `deploy-steps::unfinished` | `check_checkpoint_pending_is_unfinished_even_after_observed` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Pending checkpoint is unfinished; completed state is removed | Synthetic states |
-| `deploy-steps::no-reset` | `check_corrupt_journal_is_never_reset` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Corrupt evidence retained without Reset | Private temporary journal |
+| `deploy-steps::legacy-retention` | `check_restore_ignores_legacy_journal_without_removing_it` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Legacy bytes retained without reading historical state | Private temporary journal |
 | `deploy-steps::coverage` | `check_every_identifier_is_confirmed` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 8 | Updated/matched, zero diff, missing state/ID and UNKNOWN literal deletion | Synthetic Model mapping and AWS replies |
 | `stack-checkpoint::restart` | `check_parallel_checkpoint_and_restart` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 1 | Parallel AWS, Model sync, Git publication, idempotent checkpoint and final completion | Managed Worktree lifecycle and Fake AWS |
 | `stack-checkpoint::guards` | `check_success_checkpoint_survives_peer_failure` | IT | [integrations/worktree-deploy-checkpoint.checks.py](integrations/worktree-deploy-checkpoint.checks.py) | pytest / 1 | Successful peer checkpoint survives failed Stack and FAIL completion | Real Git, scoped publication and Fake AWS |
@@ -4405,9 +4405,8 @@ Task/approval/recovery cases retain their existing responsibilities.
 
 | `deploy-steps::unknown-poll` | `check_unknown_poll_stops_without_resubmit` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Unknown AWS state stops with original token and no new Execute | Fake backend |
 
-## Human-authorized Deploy Operation Journal reset
+## Managed Deploy Worktree recovery
 
-Reset tests use synthetic private records and a simulated Human console. Reset makes no AWS API calls.
 
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -4444,7 +4443,7 @@ Reset tests use synthetic private records and a simulated Human console. Reset m
 | `deploy-publication::guidance` | `check_publication_guidance_only_offers_proven_git_retry` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 6 | PENDING retry, unconfirmed checkpoint, CONFLICT approval, SUCCESS, unknown mode and invalid intent | Synthetic state / no Git fixture |
 | `deploy-publication::step-actions` | `check_git_next_actions_are_exposed_until_publication_succeeds` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 3 | Expose Git recovery/Human review actions and retain all completion barriers | Synthetic states |
 | `deploy-publication::isolation` | `check_stepwise_checkpoint_publication_isolation` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 9 | Pre-checkpoint refusal; staged peer/Observed/generation isolation; before/after commit, receipt/intent/merge interruption and candidate race | Isolated real Git / scoped validator stubs |
-| `deploy-publication::final-contract` | `check_stepwise_final_contract_checkpoint` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 2 | Final tracked contract commit stays in finalize and survives commit interruption | Isolated real Git / scoped validator stubs |
+| `deploy-publication::final-contract` | `check_stepwise_final_contract_checkpoint` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 14 | Final tracked/ignored Task and Model share one validated source tree; adoption/commit/receipt/publication interruptions resume without extra commits | Isolated real Git / scoped validator stubs |
 | `deploy-publication::running-peer` | `check_stepwise_success_while_peer_running` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | A SUCCESS/B RUNNING; sync/checkpoint; normal, one missing and all missing receipts preserve completion and AWS/progress/publication/Git; finalize/cleanup | Fake AWS / real Model, validators and isolated Git |
 | `deploy-completion::evidence` | `check_final_completion_rechecks_saved_checkpoint_evidence` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 19 | Snapshot completion is independent of individual receipts; Git candidate identity/input/tree checks remain separate across missing/old receipts, zero delta and saved candidates | Synthetic evidence; AWS success unchanged |
 | `deploy-completion::transition` | `check_task_completion_rechecks_checkpoint_receipts` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 5 | Task completion uses Snapshot integrity; Git-only receipt checks reject foreign Target/unknown commit and accept zero delta without AWS replay | Isolated real Git; unrelated quality validator stubbed |
@@ -4463,17 +4462,10 @@ Reset tests use synthetic private records and a simulated Human console. Reset m
 | `deploy-preparation::legacy` | `check_legacy_plan_rejected_before_changes` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 2 | 旧形式の登録・起動前拒否 | Added |
 | `deploy-preparation::broken-link` | `check_broken_rule_reference_rejected` | UT | [units/deploy-required-readings.checks.py](units/deploy-required-readings.checks.py) | pytest / 2 | 不在リンクとanchorの静的検出 | Added |
 
-## Current Deploy observations and one-step Reset
+## Current Deploy observations
 
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| `deploy-current::reset-consent` | `TestResetConsent::test_report_lists_lost_information_and_no_aws_claim` | UT | [units/deploy-operation-reset-unit.checks.py](units/deploy-operation-reset-unit.checks.py) | pytest / 1 | Current facts, exact consent, resumable saves and no duplicate mutation | Synthetic offline files / fake AWS / real Git only where required |
-| `deploy-current::reset-consent-exact` | `TestResetConsent::test_consent_is_exact_and_not_a_force_option` | UT | [units/deploy-operation-reset-unit.checks.py](units/deploy-operation-reset-unit.checks.py) | pytest / 1 | Current facts, exact consent, resumable saves and no duplicate mutation | Synthetic offline files / fake AWS / real Git only where required |
-| `deploy-current::reset-no-bypass` | `TestResetConsent::test_noninteractive_or_wrong_consent_is_rejected` | UT | [units/deploy-operation-reset-unit.checks.py](units/deploy-operation-reset-unit.checks.py) | pytest / 1 | Current facts, exact consent, resumable saves and no duplicate mutation | Synthetic offline files / fake AWS / real Git only where required |
-| `deploy-current::reset-all` | `check_one_reset_handles_corrupt_records_and_related_fences` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 1 | Current facts, exact consent, resumable saves and no duplicate mutation | Synthetic offline files / fake AWS / real Git only where required |
-| `deploy-current::reset-resume` | `check_reset_resumes_each_persistence_boundary` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 4 | Current facts, exact consent, resumable saves and no duplicate mutation | Synthetic offline files / fake AWS / real Git only where required |
-| `deploy-current::reset-new-request` | `check_new_request_survives_retry_after_missing_result` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 1 | Current facts, exact consent, resumable saves and no duplicate mutation | Synthetic offline files / fake AWS / real Git only where required |
-| `deploy-current::reset-selected-fence` | `check_selected_fence_record_reset_preserves_unrelated` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 1 | Selected fence reset removes only related records and preserves unrelated requests | Synthetic offline files / fake AWS / real Git only where required |
 | `deploy-current::current-request-cross-worktree` | `check_current_request_is_shared_without_history_or_duplicate_execute` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 3 | Current facts, exact consent, resumable saves and no duplicate mutation | Synthetic offline files / fake AWS / real Git only where required |
 
 | `deploy-current::test_status_classes_are_distinct` | `TestCurrentState::test_status_classes_are_distinct` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Current AWS categories, request uncertainty and snapshot/result separation | Pure classified replies and Model values |
@@ -4540,8 +4532,6 @@ Worktree認可UTは実Git/Worktreeを作らず、live HEAD/state/登録の再読
 | `deploy-current::failed-unstarted` | `check_failed_attempt_can_finish_with_unstarted_stack` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Failed result permits unstarted later stack | Pure states |
 | `deploy-current::missing-changeset-event` | `TestCurrentState::test_missing_change_set_requires_terminal_original_root_event` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Retire request only with matching root event | Fake AWS |
 | `deploy-current::failure-snapshot` | `check_failed_snapshot_with_unstarted_stack_publishes` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | Publish failed and unstarted Stack observations with completed Task | Synthetic observations and real Git; validation mocked |
-| `deploy-current::reset-isolated` | `check_reset_once_ignores_legacy_storage` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 3 | One approval ignores old storage | Offline files |
-| `deploy-current::reset-empty` | `check_empty_reset_completes_once` | IT | [integrations/deploy-operation-reset.checks.py](integrations/deploy-operation-reset.checks.py) | pytest / 1 | Empty current reset completes once | Offline files |
 
 ## Offline Import adapter contracts
 
@@ -4566,3 +4556,38 @@ Worktree認可UTは実Git/Worktreeを作らず、live HEAD/state/登録の再読
 | `issues-review-progress::100-automatic-names` | `check_100_automatic_names_excluded_from_review_payload` | IT | [integrations/issues-review-progress.checks.py](integrations/issues-review-progress.checks.py) | pytest / 1 | 100 AUTO_PASS names excluded from Review and preserved in Snapshot | Synthetic Scan / report publication |
 | `issue-48::legacy-delete` | `check_legacy_delete_operation_rejected_without_raw_changes` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 1 | 旧操作名の契約拒否とModel raw不変 | Synthetic Task/Model |
 | `issues-review-progress::controller-validates-naming-once` | `check_controller_validates_naming_once` | UT | [units/issues-review-progress-unit.checks.py](units/issues-review-progress-unit.checks.py) | pytest / 1 | One Naming decision per item and changed Scan rejection | Synthetic Scan / external checkpoint |
+
+## Deploy final sync and single progress authority
+
+Reset CLI、本体および専用UT/ITを削除。混在節のWorktree/Git復旧ケースは維持した。
+旧独立completeの未実行理由自動保存は、明示final syncの理由保存とprivate completed候補の検証へ移した。
+以下のITは公式CIで実行する。ローカルはUT・構文/import・収集/登録整合とFramework scope検証のみ。
+
+| Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `deploy-final::zero-model` | `check_final_zero_model_delta_keeps_exact_source_history` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 3 | Tracked Task-only commit; ignored/untracked Task without force-add or empty commit; finalize creates no source commit; untracked cleanup resumes after interruption | Real isolated Git |
+| `deploy-final::validation-fail` | `check_failed_final_validation_keeps_running_task_and_saved_model` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 1 | Private validation FAIL retains running Task, Model bytes, HEADs and exact final intent | Real isolated Git / injected validation FAIL |
+| `deploy-final::peer-release` | `check_old_worktree_reconciles_released_identity_without_removing_new_request` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 2 | Peer release and replacement shared request; original local progress keeps UNKNOWN, detaches old identity and preserves the new request | Independent sealed stores / fake AWS |
+| `deploy-final::progress` | `check_progress_has_one_mutable_context_and_preserves_recovery` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | identity/runContext only, full recovery dictionaries and final intent; no Git display copy | Local sealed file |
+| `deploy-final::corrupt-progress` | `check_corrupt_progress_is_never_empty_success` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 7 | Missing recovery context or invalid candidate type fails closed | Local sealed file |
+| `deploy-final::fresh-git-display` | `check_git_display_uses_latest_lifecycle_without_progress_copy` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | Display follows current lifecycle after Git-only retry | Synthetic lifecycle |
+| `deploy-final::deleted-original` | `check_deleted_original_stack_ends_tracking_without_success` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 3 | Pin deletion confirmation to original StackId; retain unconfirmed outcome | Fake AWS |
+| `deploy-final::target-identity` | `check_recreated_stack_does_not_mix_request_targets` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 3 | Execute, StackName Create and Secret version have distinct effect boundaries | Fake AWS |
+| `deploy-final::read-error` | `check_original_stack_read_error_never_means_deleted` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 2 | IAM/network failures never prove original Stack deletion | Fake AWS |
+| `deploy-final::fresh-attempt` | `check_ended_unknown_detaches_submission_and_allows_fresh_preparation` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Old UNKNOWN remains in ended evidence; new preparation has no old send identity | Pure state |
+| `deploy-final::flag-rejection` | `check_final_cli_rejected_before_action` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 3 | --final rejected outside sync before execution | CLI parser |
+| `deploy-final::no-reobserve` | `check_final_cli_accepts_saved_observations_without_sync_stack` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Explicit final with complete --stack and no --sync-stack | CLI parser |
+
+| `deploy-final::external-change` | `check_final_candidate_external_changes_stop_before_adoption` | IT | [integrations/deploy-worktree.checks.py](integrations/deploy-worktree.checks.py) | pytest / 5 | Task/input/HEAD/index/Model change during private validation prevents completed adoption and final publication | Isolated real Git / injected race |
+
+| `deploy-final::missing-progress` | `check_missing_progress_with_saved_checkpoint_is_not_a_fresh_run` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | A missing sealed save with lifecycle checkpoint evidence never starts fresh | Local files |
+| `deploy-final::missing-execution` | `check_missing_execution_identity_cannot_adopt_current_success` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | A current COMPLETE cannot resolve an old UNKNOWN without its execution identity | Fake AWS |
+| `deploy-final::selected-refresh` | `check_refresh_only_reads_selected_sync_stacks_once` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Sync refreshes selected Stack only once and keeps saved peers | Fake AWS |
+
+| `deploy-final::final-input-proof` | `check_final_source_uses_fixed_inputs_without_intermediate_receipts` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 1 | Final source checks complete fixed inputs and Task bytes without requiring intermediate receipts | Synthetic source and input hashes |
+
+| `deploy-final::task-acceptance` | `check_final_acceptance_includes_earlier_task_checkpoints` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Completed candidate Acceptance includes earlier Task checkpoints while Model validation retains latest-base comparison | Synthetic final candidate |
+
+| `deploy-final::create-recovery` | `check_unconfirmed_create_preserves_original_recovery_identity` | UT | [units/deploy-steps-unit.checks.py](units/deploy-steps-unit.checks.py) | pytest / 1 | Missing CreateChangeSet triggers same-input/name/token recovery without releasing the request | Local request file / fake AWS |
+
+| `deploy-final::untracked-cleanup` | `check_untracked_cleanup_uses_only_published_exact_task` | UT | [units/deploy-worktree-unit.checks.py](units/deploy-worktree-unit.checks.py) | pytest / 8 | Cleanup uses only exact published completed Task bytes, restores an interrupted own removal, rejects foreign edits/identity/tree and preserves tracked contracts | Local file / synthetic lifecycle |

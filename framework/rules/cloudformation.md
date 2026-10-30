@@ -257,40 +257,6 @@ After verified publication, ordinary finalize verifies and performs guarded clea
 
 A settled current request may leave its attempt outcome UNKNOWN while the current Snapshot is saved and validated independently. Never persist UNKNOWN as an identifier. Exact root Stack events use the original StackId/token; later Stack replacement, repair or failure cannot rewrite the original attempt result or replace current observation fields.
 
-### Human-authorized operation journal reset
-
-Lost signature keys need no separate exception ledger or release proof. Use the same
-Reset plan/apply with preserved raw originals; the retired lost-key commands are not required.
-
-Only the Human decides Reset scope and approves it explicitly. Never Reset automatically
-because recovery fails or records are corrupt. The LLM must not enter console consent;
-console simulation is confined to synthetic offline tests. Reset calls no AWS APIs.
-
-```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-operation-reset.py plan --environment dev --alias cde --mode all
-python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-operation-reset.py plan --environment dev --alias cde --mode record --record <record-sha256>
-python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-operation-reset.py apply --environment dev --alias cde --plan <plan-sha256>
-```
-
-Plan lists exact recovery records, related old Fences and lost information together.
-ALL supports corrupt JSON/old proof. RECORD selects whole records or exact Fence IDs;
-related files join the same Plan, unrelated records remain. Keep target configuration,
-private ownership, safe paths, exact bytes and current-request locks. No force/bypass.
-
-One explicit approval covers that Plan's complete action. Persist approval and every
-original before processing records/Fences. The Reset transaction is never a new Fence.
-No RESOLVE step, release proof or additional approval follows.
-
-Retry the same Plan after interruption. Reuse its durable approval, finish remaining
-exact targets, and infer completion from processed files if only the result notification
-is missing. Preserve raw corrupt originals. A newly created request or changed file is
-outside the old approval and is never deleted on retry. Backup failure leaves original
-records intact. Keep private originals and approval outside Git for the Reset transaction.
-
-Reset does not stop AWS, certify success/rollback, resolve Model values or publish a
-Task. If AWS is still running, Reset itself completes and normal current-state
-classification continues to report RUNNING. No Reset history gates ordinary Deploy.
-
 ### Deployment execution
 
 Use current Task/target/account/Region/profile/scope/input guards before each mutation, original ChangeSet ID/Stack ID and full content re-fetch immediately before Execute, and one stable persisted Token for uncertain submissions. Human approval applies only to the current complete destructive ChangeSet. Hold new starts for actual authority/scope/concurrency violations and drain active requests. A failed Stack leaves independent same-Order peers eligible; later Orders still require their earlier AWS success conditions. The LLM explicitly saves current observations for any outcome and verifies current Output/Export facts. Retain/DELETE_SKIPPED/unknown destruction and integrated children without identifiers never reset identifiers. Do not change IaC, widen scope or infer missing evidence.
@@ -316,3 +282,34 @@ Deploy delivery, Create and Execute use independent verification boundaries; acq
 DescribeStacks/DescribeStackEvents/GetTemplate/ListExports are limited to 5 req/s and ListImports to 1 req/s per execution Account/Region/API across all Threads and profiles in the process. The common SDK read controller accounts for every page and retry, retries only Throttling with exponential backoff and jitter, and shares the operation deadline. Controlled read SDK clients use one transport attempt; mutation SDK clients use standard retries with up to two total attempts. The slot remains held through transport completion to prevent delayed requests bunching together. Other processes are outside this budget.
 
 Destroy preflight validates scoped StackIds/Outputs and records exportNames; dependency snapshots use those names/owners, never ListExports. Resume compares saved Export ownership/names with fresh scoped Outputs before targeted ListImports. Unknown or changed evidence stops deletion; order, approval and out-of-scope importer guards remain required. Destroy SDK reads use the same in-process Account/Region/API budgets and common retry control. DescribeStackEvents requests each page with a shared deadline until the root DELETE_IN_PROGRESS event or the end, rejecting invalid continuation tokens.
+
+### Explicit final sync candidate
+
+Use managed CloudFormation `--action sync --final` only when the LLM ends the Task.
+The full `--stack` selection still matches Task scope; `--sync-stack` selects only
+observations needed now and may be omitted when all required observations are saved.
+Ordinary sync retains running. Final sync records exact running/completed Task bytes
+in checkpointPending, validates completed privately with Model/View, then adopts only
+the verified status transition and commits that same source tree. Tracked contracts
+join that commit; ignored/untracked contracts are never force-added, but their exact
+bytes remain candidate and completion evidence. No empty commit or history rewrite.
+Validation failure retains running Task, saved Model and successfully generated Views.
+Checkpoint resumes its saved final intent without another --final; never change the
+saved scope or intent. Finalize checks the final receipt and publication before cleanup;
+it creates neither a separate Task candidate nor an additional source commit.
+Cleanup may remove its own non-ignored untracked contract only after matching the
+published final receipt exactly; an interrupted removal restores those same saved
+bytes on cleanup retry. Other untracked/ignored files and foreign edits remain blockers.
+
+Progress persists identity plus one runContext, including full observation/generation
+candidates, fixed input evidence, generationError and checkpoint intent. Lifecycle
+Deploy publication is the only saved Git state; display always derives it freshly.
+Request reconciliation uses the same identity proof in send/poll/reconcile. A pinned
+StackId confirmed deleted or replaced can retire tracking while preserving UNKNOWN.
+A single same-ID COMPLETE, AVAILABLE or ChangeSetNotFound alone cannot release an
+uncertain Execute. StackName-bound Create and SecretId/version-token-bound Secrets
+requests retain their own recovery rules. Persist current observation, outcome and
+detached original identity before releasing only that request under the Stack lock.
+Missing/different shared records never prove old completion. Corrupt/unreadable evidence
+blocks the affected Stack until trustworthy identity evidence can be checked; no
+manual status deletion, Reset, force release, TTL or PID inference is part of Deploy.

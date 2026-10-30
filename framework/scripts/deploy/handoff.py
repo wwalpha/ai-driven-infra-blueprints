@@ -324,7 +324,7 @@ def require_settled(
         context = progress.get("runContext", {})
         observed = context.get("pendingObserved") or {}
         generation = context.get("pendingGeneration") or {}
-        if observed or generation:
+        if observed or generation or context.get("generationError"):
             files = set(changed) | set(request["allowedPaths"])
             for entry in request["diagnosis"].values():
                 files.update(

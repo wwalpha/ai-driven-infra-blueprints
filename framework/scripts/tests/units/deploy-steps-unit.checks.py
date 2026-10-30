@@ -153,7 +153,8 @@ def check_advance_retains_original_execute_after_interruption():
     assert len([e for e in backend.events if e[0] == "start"]) == 2
 
 
-def check_checkpoint_pending_is_unfinished_even_after_observed():
+def check_checkpoint_pending_is_unfinished_even_after_observed(monkeypatch):
+    monkeypatch.setattr(publication, "display", lambda backend: {"status": "CONFLICT"})
     assert not operation_journal.unfinished(
         {"status": "NOT_STARTED", "checkpointRequired": True}
     )
@@ -171,12 +172,13 @@ def check_checkpoint_pending_is_unfinished_even_after_observed():
         run_context={
             "states": states,
             "snapshotValidation": "PASS",
+            "taskFile": "tasks/deploy.md",
             "gitPublication": {"status": "CONFLICT"},
         },
     )
     report = steps.describe(backend)
     assert report["result"] == "PUBLICATION_PENDING"
-    assert report["states"]["A"]["aws"] == "SUCCESS"
+    assert report["states"]["A"]["attempt"] == "SUCCESS"
     assert report["gitPublication"]["status"] == "CONFLICT"
 
 
@@ -214,7 +216,12 @@ def check_failed_attempt_cannot_finish_with_unstarted_stack():
 
 
 @pytest.mark.parametrize("status", ["PENDING", "CONFLICT", "SUCCESS"])
-def check_git_next_actions_are_exposed_until_publication_succeeds(status):
+def check_git_next_actions_are_exposed_until_publication_succeeds(status, monkeypatch):
+    monkeypatch.setattr(
+        publication,
+        "display",
+        lambda backend: copy.deepcopy(backend.run_context["gitPublication"]),
+    )
     states = {"A": {"status": "SUCCESS", "observedSynced": True, "checkpointed": True}}
     action = (
         {
@@ -236,6 +243,7 @@ def check_git_next_actions_are_exposed_until_publication_succeeds(status):
         run_context={
             "states": states,
             "snapshotValidation": "PASS",
+            "taskFile": "tasks/deploy.md",
             "gitPublication": {"status": status, "nextActions": actions},
         },
     )
@@ -243,7 +251,9 @@ def check_git_next_actions_are_exposed_until_publication_succeeds(status):
     assert report["result"] == (
         "COMPLETE" if status == "SUCCESS" else "PUBLICATION_PENDING"
     )
-    assert report["nextActions"] == actions
+    assert report["nextActions"] == (
+        [{"action": "finalize", "taskId": "deploy"}] if status == "SUCCESS" else actions
+    )
     backend.run_context["checkpointPending"] = {"stacks": ["A"], "after": {}}
     pending_report = steps.describe(backend)
     assert pending_report["result"] != "COMPLETE"
@@ -284,7 +294,7 @@ def check_unknown_poll_stops_without_resubmit():
     assert len([e for e in backend.events if e[0] == "start"]) == 1
 
 
-def check_corrupt_journal_is_never_reset(tmp_path):
+def check_restore_ignores_legacy_journal_without_removing_it(tmp_path):
     journal = tmp_path / "journal.json"
     journal.write_text("broken", encoding="utf-8")
     journal.chmod(0o600)
@@ -500,7 +510,8 @@ class TestCurrentState(TestCase):
             "changeSetId": "change",
             "token": "own",
             "settled": True,
-            "result": "SETTLED",
+            "trackingReason": "CHANGESET_EXECUTION_ENDED",
+            "result": "SUCCESS",
             "attemptStatus": "UPDATE_COMPLETE",
         }
         state = {
@@ -1053,91 +1064,16 @@ class TestCurrentState(TestCase):
         self.assertTrue(worktree.attempts_finished({"A": state}, "UNKNOWN"))
         self.assertEqual(state["attemptResult"], "UNKNOWN")
 
-    def test_explicit_completion_persists_unexecuted_reason(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory).resolve()
-            path = root / "progress.json"
-            identity = {"stacks": ["A", "B"]}
-            lifecycle = {
-                "deployIdentity": identity,
-                "tip": "checkpoint",
-                "deployPublication": {
-                    "status": "SUCCESS",
-                    "publishedSource": "checkpoint",
-                },
-            }
-            states = {
-                "A": {
-                    "status": "FAILED",
-                    "observedSynced": True,
-                    "currentStack": {"StackStatus": "UPDATE_ROLLBACK_COMPLETE"},
-                },
-                "B": {
-                    "status": "NOT_STARTED",
-                    "observedSynced": True,
-                    "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
-                },
-            }
-            progress = {
-                "identity": identity,
-                "states": states,
-                "stepUnits": [
-                    {"name": "A", "deployOrder": 1},
-                    {"name": "B", "deployOrder": 2},
-                ],
-                "pendingObserved": False,
-                "pendingGeneration": False,
-                "runContext": {
-                    "snapshotValidation": "PASS",
-                    "deployResult": "FAIL",
-                    "states": states,
-                },
-            }
-            task = SimpleNamespace(
-                text="## Task contract\n- Task type: `infrastructure`\n- Infrastructure phase: `deploy`\n"
-            )
-            with (
-                patch.object(worktree, "require", return_value=lifecycle),
-                patch.object(worktree, "progress_path", return_value=path),
-                patch.object(
-                    worktree, "prepare_complete", side_effect=prepare_complete
-                ),
-            ):
-                worktree.write_sealed(root, path, progress)
-                worktree.prepare_complete(root, task)
-                saved = worktree.read_progress(root, lifecycle)
-                self.assertEqual(
-                    saved["states"]["B"]["unexecutedReason"],
-                    "PREVIOUS_DEPLOY_ORDER_FAILED",
-                )
-                self.assertEqual(saved["runContext"]["deployResult"], "FAIL")
-                saved["states"]["A"].update(status="SETTLED", attemptResult="UNKNOWN")
-                saved["states"]["B"].pop("unexecutedReason", None)
-                worktree.write_sealed(root, path, saved)
-                worktree.prepare_complete(root, task)
-                settled = worktree.read_progress(root, lifecycle)
-                self.assertEqual(settled["states"]["A"]["attemptResult"], "UNKNOWN")
-                self.assertEqual(
-                    settled["states"]["B"]["unexecutedReason"],
-                    "DEPLOY_ENDED_WITHOUT_EXECUTION",
-                )
-                worktree.write_sealed(root, path, settled)
-                worktree.prepare_complete(root, task)
-                self.assertEqual(worktree.read_progress(root, lifecycle), settled)
-                with patch.object(
-                    worktree, "require_complete", side_effect=Blocked("validation")
-                ):
-                    with self.assertRaises(Blocked):
-                        worktree.prepare_complete(root, task)
-                resumed = worktree.read_progress(root, lifecycle)["states"]
-                scheduler.run_group(
-                    [{"name": "B", "deployOrder": 2}],
-                    1,
-                    resumed,
-                    Fake(),
-                    single_step=True,
-                )
-                self.assertNotIn("unexecutedReason", resumed["B"])
+    def test_explicit_completion_requires_the_saved_final_candidate(self):
+        task = SimpleNamespace(
+            text="## Task contract\n- Task type: `infrastructure`\n- Infrastructure phase: `deploy`\n"
+        )
+        with patch.object(
+            worktree, "require_complete", side_effect=Blocked("use sync --final")
+        ) as required:
+            with self.assertRaisesRegex(Blocked, "sync --final"):
+                prepare_complete(Path("/synthetic"), task)
+            required.assert_called_once()
 
     def test_settled_execution_is_not_sent_again_before_save(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1870,7 +1806,10 @@ class TestCurrentState(TestCase):
                     "execute_change_set",
                     [call.args[0] for call in reader.call_args_list],
                 )
-                backend.save.assert_called_once()
+                if expected == "SETTLED":
+                    backend.save.assert_called_once()
+                else:
+                    self.assertTrue(state["requestPending"])
 
     def test_completed_shared_request_is_saved_before_release_with_later_event(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -2118,6 +2057,7 @@ class TestCurrentState(TestCase):
             run_context={
                 "states": states,
                 "deployResult": "FAIL",
+                "taskFile": "tasks/deploy.md",
                 "snapshotValidation": "PASS",
             },
         )
@@ -2144,6 +2084,9 @@ def progress_backend(root, context):
         }
     )
     context["repository"] = str(root)
+    context.setdefault("stepwise", True)
+    context.setdefault("consumedInputs", {})
+    context.setdefault("stepUnits", [{"name": "A"}])
     return SimpleNamespace(
         root=root,
         phase="deploy",
@@ -2175,7 +2118,7 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
             assert (
                 worktree.read_progress(
                     backend.root, {"deployIdentity": backend.progress_identity}
-                )["states"]["A"]["status"]
+                )["runContext"]["states"]["A"]["status"]
                 == "SUCCESS"
             )
     finally:
@@ -2214,12 +2157,14 @@ def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, lev
 
 
 def check_candidate_validation_displays_report_once(tmp_path, monkeypatch, capsys):
-    task = SimpleNamespace(name="tasks/a.md", text="task", scope=set())
+    task = SimpleNamespace(
+        name="tasks/a.md", text="task", scope=set(), status="running"
+    )
     monkeypatch.setattr(publication.tasks, "selected_task", lambda *a: nullcontext())
-    monkeypatch.setattr(publication.tasks, "task_snapshot", lambda *a: task)
+    monkeypatch.setattr(publication.tasks, "task_snapshot", lambda *a, **k: task)
     monkeypatch.setattr(publication, "require_observation_delta", lambda *a: None)
     monkeypatch.setattr(publication, "definition_root", lambda root: root)
-    monkeypatch.setattr(publication.wt, "paths", lambda *a: [])
+    monkeypatch.setattr(publication.wt, "paths", lambda *a: set())
     validator = Mock()
     validator.display_report.side_effect = lambda: (
         print("specific failure\nTask Acceptance: FAIL"),
@@ -2270,6 +2215,256 @@ def check_candidate_subprocess_result_and_resolved_root(
         publication.validate_candidate(tmp_path, "tree", "base", task)
     assert run.call_args.kwargs["cwd"] == (real / "repository").resolve()
     assert run.call_args.kwargs["capture_output"] is True
+
+
+@pytest.mark.parametrize(
+    "operation", ["execute_change_set", "delete_stack", "continue_update_rollback"]
+)
+def check_deleted_original_stack_ends_tracking_without_success(operation):
+    record = {
+        "operation": operation,
+        "name": "A",
+        "stackId": "old-id",
+        "changeSetId": "old-change",
+        "token": "original",
+    }
+    aws = Mock(
+        side_effect=AwsError(
+            "cloudformation", "describe_stacks", "ValidationError", stack_absent=True
+        )
+    )
+    assert current_request.settled(aws, record, {"StackStatus": "ABSENT"})
+    aws.assert_called_once_with("describe_stacks", StackName="old-id")
+    assert record["result"] == "SETTLED"
+    assert record["trackingReason"] == "ORIGINAL_STACK_DELETED"
+
+
+@pytest.mark.parametrize(
+    "operation", ["execute_change_set", "create_change_set", "put_secret_value"]
+)
+def check_recreated_stack_does_not_mix_request_targets(operation):
+    record = {
+        "operation": operation,
+        "name": "A",
+        "stackId": "old-id",
+        "changeSetId": "old-change",
+        "token": "original",
+        "resourceId": "secret",
+    }
+    if operation == "put_secret_value":
+        record["service"] = "secretsmanager"
+        aws = Mock(return_value={"VersionIdsToStages": {"other": ["AWSCURRENT"]}})
+    else:
+        aws = Mock(
+            side_effect=AwsError(
+                "cloudformation", "describe_change_set", "ChangeSetNotFound"
+            )
+        )
+    confirmed = current_request.settled(
+        aws, record, {"StackId": "new-id", "StackStatus": "UPDATE_COMPLETE"}
+    )
+    assert confirmed == (operation == "execute_change_set")
+    if confirmed:
+        assert record["result"] == "SETTLED"
+        aws.assert_not_called()
+
+
+@pytest.mark.parametrize("error", ["AccessDenied", "EndpointConnectionError"])
+def check_original_stack_read_error_never_means_deleted(error):
+    record = {
+        "operation": "execute_change_set",
+        "name": "A",
+        "stackId": "old-id",
+        "changeSetId": "change",
+        "token": "original",
+    }
+    aws = Mock(side_effect=AwsError("cloudformation", "describe_stacks", error))
+    assert not current_request.settled(aws, record, {"StackStatus": "ABSENT"})
+    assert "trackingReason" not in record
+
+
+def check_ended_unknown_detaches_submission_and_allows_fresh_preparation():
+    record = {
+        "operation": "execute_change_set",
+        "name": "A",
+        "stackId": "old-id",
+        "changeSetId": "old-change",
+        "token": "original",
+        "settled": True,
+        "trackingReason": "ORIGINAL_STACK_REPLACED",
+        "result": "SETTLED",
+    }
+    state = {
+        "status": "RUNNING",
+        "clientToken": "original",
+        "changeSetId": "old-change",
+        "executionEvidence": {"StackId": "old-id"},
+        "currentStack": {"StackId": "new-id", "StackStatus": "UPDATE_COMPLETE"},
+    }
+    current_request.end_tracking(state, record)
+    assert state["attemptResult"] == state["endedRequest"]["result"] == "UNKNOWN"
+    assert (
+        not {"clientToken", "changeSetId", "executionEvidence", "preparationId"}
+        & state.keys()
+    )
+    backend = SimpleNamespace(states={"A": state}, run_context={})
+    steps.retry_terminal_attempts(backend, {"A"})
+    assert state["status"] == "NOT_STARTED"
+    assert state["endedRequest"]["result"] == "UNKNOWN"
+    assert not state.get("clientToken")
+
+
+@pytest.mark.parametrize("action", ["advance", "checkpoint", "status"])
+def check_final_cli_rejected_before_action(action):
+    with patch.object(steps, "run") as run_step, pytest.raises(SystemExit):
+        controller.controller_main(
+            [
+                "--environment",
+                "dev",
+                "--alias",
+                "app",
+                "--stack",
+                "A",
+                "--action",
+                action,
+                "--final",
+            ]
+        )
+    run_step.assert_not_called()
+
+
+def check_final_cli_accepts_saved_observations_without_sync_stack():
+    with patch.object(steps, "run", return_value=0) as run_step:
+        assert (
+            controller.controller_main(
+                [
+                    "--environment",
+                    "dev",
+                    "--alias",
+                    "app",
+                    "--stack",
+                    "A",
+                    "--action",
+                    "sync",
+                    "--final",
+                ]
+            )
+            == 0
+        )
+    assert run_step.call_args.args[0].final
+    assert run_step.call_args.args[0].sync_stack == []
+
+
+def check_missing_execution_identity_cannot_adopt_current_success():
+    backend = SimpleNamespace(
+        aws=Mock(
+            return_value={
+                "Stacks": [{"StackId": "current", "StackStatus": "UPDATE_COMPLETE"}]
+            }
+        ),
+        states={},
+    )
+    state = {"status": "BLOCKED", "attemptResult": "UNKNOWN"}
+    with patch.object(current_request, "reconcile", return_value=None):
+        assert controller.poll(backend, {"name": "A"}, state) == "UNCONFIRMED"
+    assert (
+        state["attemptResult"] == "UNKNOWN"
+        and "identity is incomplete" in state["requestError"]
+    )
+
+
+def check_refresh_only_reads_selected_sync_stacks_once():
+    backend = SimpleNamespace(
+        units=[{"name": "A"}, {"name": "B"}],
+        states={
+            "A": {"status": "NOT_STARTED"},
+            "B": {"status": "SUCCESS", "observedSynced": True},
+        },
+        aws=Mock(
+            return_value={
+                "Stacks": [{"StackId": "a", "StackStatus": "UPDATE_COMPLETE"}]
+            }
+        ),
+    )
+    with patch.object(current_request, "reconcile", return_value=None):
+        steps.refresh_requests(backend, [backend.units[0]])
+    backend.aws.assert_called_once_with("describe_stacks", StackName="A")
+    assert backend.states["B"] == {"status": "SUCCESS", "observedSynced": True}
+
+
+def check_final_acceptance_includes_earlier_task_checkpoints(tmp_path, monkeypatch):
+    task = SimpleNamespace(
+        name="tasks/a.md", text="completed Task", scope=set(), status="completed"
+    )
+    monkeypatch.setattr(publication.tasks, "selected_task", lambda *a: nullcontext())
+    monkeypatch.setattr(publication.tasks, "task_snapshot", lambda *a, **k: task)
+    monkeypatch.setattr(publication, "require_observation_delta", lambda *a: None)
+    monkeypatch.setattr(publication, "definition_root", lambda root: root)
+    monkeypatch.setattr(
+        publication.ws, "deploy_start_commit", Mock(return_value="fixed-start")
+    )
+    paths = Mock(
+        side_effect=[{"tasks/a.md"}, {"model/earlier.properties", "tasks/a.md"}]
+    )
+    monkeypatch.setattr(publication.wt, "paths", paths)
+    validator = Mock()
+    validator.display_report.return_value = 0
+    factory = Mock(return_value=validator)
+    monkeypatch.setattr(publication, "Validator", factory)
+    assert (
+        publication.validate_snapshot(
+            tmp_path, tmp_path / "private", "latest-base", "final-tree", task.name
+        )
+        == 0
+    )
+    candidate = factory.call_args.kwargs["final_candidate"]
+    assert candidate.changed_paths == frozenset(
+        {"tasks/a.md", "model/earlier.properties"}
+    )
+    assert (
+        candidate.base_commit == "latest-base"
+        and candidate.deploy_source_root == tmp_path
+    )
+    assert paths.call_args_list[1].args[0] == tmp_path
+    assert paths.call_args_list[1].args[-1] == "HEAD"
+
+
+def check_unconfirmed_create_preserves_original_recovery_identity(tmp_path):
+    request = tmp_path / "request.json"
+    record = {
+        "operation": "create_change_set",
+        "name": "A",
+        "stackId": None,
+        "changeSetId": "original-change",
+        "token": "original-token",
+    }
+    request.write_text(json.dumps(record), encoding="utf-8")
+    request.chmod(0o600)
+    state = {
+        "status": "CHANGESET_CREATING",
+        "preparationId": "original-token",
+        "changeSetId": "original-change",
+        "currentStack": {"StackStatus": "ABSENT"},
+    }
+    backend = SimpleNamespace(
+        target={},
+        states={"A": state},
+        aws=Mock(
+            side_effect=AwsError(
+                "cloudformation", "describe_change_set", "ChangeSetNotFound"
+            )
+        ),
+    )
+    with patch.object(current_request, "location", return_value=request):
+        found = current_request.reconcile(backend, {"name": "A"})
+    assert state["createUnconfirmed"] and found["createUnconfirmed"]
+    assert (
+        found["token"] == "original-token" and found["changeSetId"] == "original-change"
+    )
+    assert (
+        not found.get("settled")
+        and json.loads(request.read_text(encoding="utf-8")) == record
+    )
 
 
 if __name__ == "__main__":

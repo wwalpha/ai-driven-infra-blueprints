@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import worktree_task as wt
 from model.sources import model_session
-from task_contract_core import TaskSnapshot, selected_task, task_snapshot
+from task_contract_core import TaskSnapshot, selected_task, set_status, task_snapshot
 from utils.aws.client import AwsError
 
 from deploy import (
@@ -177,10 +177,6 @@ def checkpoint_receipts(backend: SimpleNamespace) -> dict:
         return {}
     _, _, _, state = wt.load(backend.root, backend.root.name)
     receipts = state.get("deployCheckpoints", {})
-    if backend.phase == "deploy":
-        backend.run_context["gitPublication"] = git_publication.describe(
-            backend.root, state, worktree.read_progress(backend.root, state)
-        )
     return receipts
 
 
@@ -188,9 +184,10 @@ def save(backend):
     worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
 
 
-def refresh_requests(backend):
-    current_state.refresh(backend, backend.units)
-    for unit in backend.units:
+def refresh_requests(backend, units=None):
+    units = backend.units if units is None else units
+    current_state.refresh(backend, units)
+    for unit in units:
         state = backend.states[unit["name"]]
         try:
             request = current_request.reconcile(backend, unit)
@@ -209,31 +206,15 @@ def refresh_requests(backend):
                 continue
             if (
                 current_request.owns(state, request)
-                and request.get("operation") == "execute_change_set"
+                and request["operation"] == "execute_change_set"
+                and request.get("trackingReason")
+                not in {"ORIGINAL_STACK_DELETED", "ORIGINAL_STACK_REPLACED"}
             ):
-                try:
-                    status = backend.poll(unit, state)
-                except (
-                    OSError,
-                    ValueError,
-                    KeyError,
-                    TypeError,
-                    RuntimeError,
-                ) as error:
-                    state.update(requestPending=True, requestError=str(error))
-                    continue
-                if status not in {
-                    "ATTEMPT_SUCCESS",
-                    "ATTEMPT_FAIL",
-                    "ATTEMPT_SETTLED",
-                } | (current_state.SUCCESS | current_state.FAILED) - {
-                    "CREATE_FAILED",
-                    "UPDATE_FAILED",
-                }:
-                    state["requestPending"] = True
-                    continue
-                current_state.record_attempt(state, status)
-                state.pop("settledRequest", None)
+                status = backend.poll(unit, state)
+                if status in {"ATTEMPT_SUCCESS", "ATTEMPT_FAIL"}:
+                    request["result"] = (
+                        "SUCCESS" if status == "ATTEMPT_SUCCESS" else "FAIL"
+                    )
             elif state.get("externalOperation"):
                 current = state["currentStack"]
                 state.clear()
@@ -243,7 +224,7 @@ def refresh_requests(backend):
                     stackId=current.get("StackId"),
                     stackStatus=current["StackStatus"],
                 )
-            state["requestPending"] = False
+            current_request.end_tracking(state, request)
             backend.save()
             current_request.release(backend, request)
             continue
@@ -269,7 +250,11 @@ def refresh_requests(backend):
                     else "CHANGESET_CREATING"
                 )
             else:
-                state["status"] = "RUNNING"
+                state["status"] = (
+                    "RUNNING"
+                    if current_state.category(state["currentStack"]) == "RUNNING"
+                    else "BLOCKED"
+                )
         elif (
             state["status"] == "RUNNING"
             or state.get("attemptResult") == "UNKNOWN"
@@ -291,8 +276,10 @@ def refresh_requests(backend):
                 try:
                     status = backend.poll(unit, state)
                     current_state.record_attempt(state, status)
+                    settled = state.get("settledRequest")
+                    if settled:
+                        current_request.end_tracking(state, settled)
                     backend.save()
-                    settled = state.pop("settledRequest", None)
                     if settled:
                         current_request.release(backend, settled)
                 except (
@@ -317,7 +304,9 @@ def retry_terminal_attempts(backend, previous_terminal):
         state = backend.states[name]
         if (
             state.get("attemptResult") == "UNKNOWN"
+            and not state.get("endedRequest")
             or state.get("requestPending")
+            or state.get("requestError")
             or state.get("bootstrap", {}).get("stage")
             in {
                 "BOOTSTRAP_INTENT",
@@ -347,6 +336,7 @@ def retry_terminal_attempts(backend, previous_terminal):
                 "cleanupStackId",
                 "emptyStackRecreated",
                 "bootstrapAttempted",
+                "endedRequest",
             )
             if key in state
         }
@@ -357,26 +347,57 @@ def retry_terminal_attempts(backend, previous_terminal):
         backend.run_context.pop("deployResult", None)
 
 
-def sync(backend: SimpleNamespace, names: list[str]) -> None:
+def sync(backend: SimpleNamespace, names: list[str], *, final=False) -> None:
     context = backend.run_context
     units = [u for u in backend.units if u["name"] in names]
-    if not names or len(names) != len(set(names)) or len(units) != len(names):
+    if (
+        (not names and not final)
+        or len(names) != len(set(names))
+        or len(units) != len(names)
+    ):
         raise Blocked("sync needs distinct --sync-stack names within Deployment scope")
     backend.guard()
+    task = task_snapshot(backend.root, executable=False, live=True)
+    if final and (
+        backend.phase != "deploy" or not worktree.require(backend.root, task)
+    ):
+        raise Blocked("--final requires managed CloudFormation Deploy sync")
+    if final:
+        missing = [
+            name
+            for name, state in backend.states.items()
+            if not state.get("observedSynced") and name not in names
+        ]
+        if missing:
+            raise Blocked(
+                "final sync needs --sync-stack for current observations: "
+                + ", ".join(missing)
+            )
     context["snapshotValidation"] = "NOT_RUN"
     for unit in units:
         if unit["name"] not in context["inputDigests"]:
             backend.claim_inputs(unit)
     pending = context.get("checkpointPending")
     if pending is None:
-        if wt.changed_paths(backend.root):
+        if git_publication.output_changes(backend.root, {"task_file": task.name}):
             raise Blocked("sync requires clean inputs or its own retained publication")
         pending = {
             "stacks": [],
             "before": contracts.validation_snapshot(backend.root),
             "after": None,
         }
+        if final:
+            pending["final"] = {
+                "taskBefore": task.text,
+                "taskAfter": set_status(task.text, "completed"),
+            }
         context["checkpointPending"] = pending
+        for unit in units:
+            backend.states[unit["name"]].pop("observedSynced", None)
+    elif bool(pending.get("final")) != final or set(names) != set(pending["stacks"]):
+        raise Blocked(
+            "resume the saved checkpoint without changing its final intent or Stack scope"
+        )
     elif pending.get("after") is not None:
         if contracts.validation_snapshot(backend.root) != pending["after"]:
             raise Blocked("synchronized candidate changed before next sync")
@@ -399,12 +420,21 @@ def sync(backend: SimpleNamespace, names: list[str]) -> None:
     if not context.get("pendingObserved"):
         for unit in units:
             backend.states[unit["name"]].pop("checkpointed", None)
-    observed.sync_successful(backend, units, backend.states)
+    if units:
+        observed.sync_successful(backend, units, backend.states)
     if resumed_observation:
         # Finish the retained candidate first, then collect the facts chosen for this sync.
         observed.sync_successful(backend, units, backend.states)
     if context.get("pendingGeneration"):
         generation_resume.run(backend)
+    elif context.get("generationError"):
+        raise Blocked("generationError has no recoverable generation candidate")
+    if final:
+        worktree.end_unexecuted(context)
+        blockers = worktree.final_blockers(context)
+        if blockers:
+            backend.save()
+            raise Blocked("final sync requires: " + json.dumps(blockers))
     pending["after"] = contracts.validation_snapshot(backend.root)
     backend.guard()
     backend.save()
@@ -416,11 +446,69 @@ def publish_snapshot(backend, names):
     git_publication.sync(backend)
 
 
+def next_actions(backend, complete, can_advance, publication):
+    """Derive executable routes from the saved candidate, never change its intent."""
+    context, states = backend.run_context, backend.states
+    pending = context.get("checkpointPending")
+    git_actions = (publication or {}).get("nextActions", [])
+    if pending:
+        if context.get("generationError") and not context.get("pendingGeneration"):
+            actions = [{"action": "review", "reason": context["generationError"]}]
+        elif (
+            context.get("pendingObserved")
+            or context.get("pendingGeneration")
+            or pending.get("after") is not None
+        ):
+            actions = [{"action": "checkpoint", "stacks": pending["stacks"]}]
+        else:
+            actions = [
+                {
+                    "action": "sync",
+                    "stacks": pending["stacks"],
+                    "final": bool(pending.get("final")),
+                }
+            ]
+        return actions + git_actions
+    if complete:
+        return (
+            [{"action": "finalize", "taskId": Path(context["taskFile"]).stem}]
+            if (publication or {}).get("status") == "SUCCESS"
+            else git_actions
+        )
+    if getattr(backend, "task_status", "running") == "completed":
+        return [
+            {
+                "action": "review",
+                "reason": "locally completed candidate is incomplete; inspect saved checkpoint evidence",
+            }
+        ] + git_actions
+    actions = [{"action": "advance"}] if can_advance else []
+    actions += [
+        {"action": "sync", "stacks": [name]}
+        for name, state in states.items()
+        if not state.get("observedSynced")
+    ]
+    preview = {**context, "states": copy.deepcopy(states)}
+    if context.get("stepUnits"):
+        worktree.end_unexecuted(preview)
+    if not worktree.final_blockers(preview):
+        actions.append({"action": "sync", "final": True, "stacks": []})
+    if not actions and not git_actions:
+        actions.append(
+            {
+                "action": "review",
+                "reason": context.get("generationError")
+                or "current request, AWS observation or attempt evidence is unconfirmed",
+            }
+        )
+    return actions + git_actions
+
+
 def describe(backend: SimpleNamespace) -> dict:
     context = backend.run_context
     states = backend.states
     pending = context.get("checkpointPending")
-    publication = copy.deepcopy(context.get("gitPublication"))
+    publication = git_publication.display(backend)
     if publication is not None:
         publication["checkpointRequired"] = pending["stacks"] if pending else []
         if pending:
@@ -450,7 +538,7 @@ def describe(backend: SimpleNamespace) -> dict:
     )
     publication_pending = (
         getattr(backend, "phase", None) == "deploy"
-        and context.get("gitPublication", {}).get("status") != "SUCCESS"
+        and (publication or {}).get("status") != "SUCCESS"
     )
     uncertain = any(
         s.get("pollReadFailures") or s.get("schedulerError") for s in states.values()
@@ -494,6 +582,8 @@ def describe(backend: SimpleNamespace) -> dict:
         )
         and not can_advance
         else "PENDING",
+        "task": getattr(backend, "task_status", "running"),
+        "finalBlockers": worktree.final_blockers(context),
         "deployResult": context.get(
             "deployResult",
             "FAIL"
@@ -515,14 +605,21 @@ def describe(backend: SimpleNamespace) -> dict:
         "repairFailure": context.get("currentFailure"),
         "states": {
             name: {
-                "aws": state["status"],
+                "aws": current_state.category(state.get("currentStack", {})),
+                "attempt": state["status"],
+                "attemptResult": state.get("attemptResult"),
+                "endedRequest": state.get("endedRequest"),
+                "requestPending": state.get("requestPending", False),
+                "requestError": state.get("requestError"),
                 "stackId": state.get("stackId"),
                 "stackStatus": state.get("stackStatus"),
                 "changeSetId": state.get("changeSetId"),
                 "changes": state.get("changes", []),
                 "observed": "COMPLETE" if state.get("observedSynced") else "PENDING",
                 "coverage": state.get("observedCoverage", {}),
-                "generation": "COMPLETE"
+                "generation": "PENDING"
+                if context.get("generationError")
+                else "COMPLETE"
                 if state.get("checkpointed")
                 else "NOT_STARTED"
                 if not state.get("observedSynced")
@@ -551,27 +648,7 @@ def describe(backend: SimpleNamespace) -> dict:
             }
             for view, r in context.get("pendingGeneration", {}).items()
         },
-        "nextActions": ([] if complete or not can_advance else [{"action": "advance"}])
-        + [
-            {"action": "sync", "stacks": [name]}
-            for name, state in states.items()
-            if not state.get("observedSynced")
-        ]
-        + (
-            [{"action": "sync", "stacks": pending["stacks"]}]
-            if pending and context.get("pendingGeneration")
-            else []
-        )
-        + (
-            [{"action": "checkpoint", "stacks": pending["stacks"]}]
-            if pending
-            and pending.get("after") is not None
-            and not context.get("pendingGeneration")
-            and not context.get("pendingObserved")
-            and not context.get("generationError")
-            else []
-        )
-        + [action for action in (publication or {}).get("nextActions", [])],
+        "nextActions": next_actions(backend, complete, can_advance, publication),
     }
 
 
@@ -585,6 +662,16 @@ def run(
     backend = None
     try:
         task = task_snapshot(root, executable=False, live=True)
+        if task.status == "completed" and args.action == "advance":
+            lifecycle = worktree.require(root, task)
+            progress = worktree.read_progress(root, lifecycle) if lifecycle else None
+            if progress and progress["runContext"].get("checkpointPending"):
+                raise Blocked(
+                    "locally completed candidate still needs --action checkpoint; advance is unavailable"
+                )
+            raise Blocked(
+                "completed Deploy cannot advance; use deploy-publish for saved Git work or finalize after publication"
+            )
         selected = context.load_target(
             root, args.environment, args.aws_account_id, args.alias
         )
@@ -597,6 +684,16 @@ def run(
             snapshot=task,
             allow_saved=args.action in {"status", "checkpoint", "sync"},
         )
+        if getattr(args, "final", False) and (
+            args.action != "sync"
+            or phase != "deploy"
+            or selected["iacEngine"] != "cloudformation"
+        ):
+            raise Blocked(
+                "--final requires managed CloudFormation Deploy --action sync"
+            )
+        if getattr(args, "final", False):
+            worktree.require(root, task)
         progress_identity = worktree.bind(
             root, task, selected, args.environment, args.stack
         )
@@ -647,7 +744,8 @@ def run(
             backend.requested_stacks = args.stack
             backend.action = args.action
             backend.task_status = task.status
-            recover_local_publication(backend, task)
+            if task.status != "completed":
+                recover_local_publication(backend, task)
             limit, units = load_units(root, args.environment, directory, args.stack)
             if args.sequential:
                 limit = 1
@@ -687,9 +785,13 @@ def run(
                 if state["status"] == "FAILED"
                 or state.get("attemptResult") == "UNKNOWN"
             }
-            if args.action != "checkpoint":
-                current_state.refresh(backend, units)
-                refresh_requests(backend)
+            if args.action != "checkpoint" and task.status != "completed":
+                refresh_requests(
+                    backend,
+                    [unit for unit in units if unit["name"] in args.sync_stack]
+                    if args.action == "sync"
+                    else units,
+                )
                 if args.action == "advance":
                     previous_terminal.update(
                         name
@@ -699,6 +801,8 @@ def run(
                     )
                     retry_terminal_attempts(backend, previous_terminal)
             checkpoint_receipts(backend)
+            if args.action == "advance" and run.get("checkpointPending"):
+                raise Blocked("resume the saved checkpoint before advance")
             if args.action == "advance":
                 backend.guard()
                 backend.workdir = temporary.create(
@@ -740,14 +844,32 @@ def run(
                     resources.enter_context(model_session(models))
                     backend.after_observed = models.apply_observed
                     if args.action == "sync":
-                        sync(backend, args.sync_stack)
+                        sync(
+                            backend,
+                            args.sync_stack,
+                            final=getattr(args, "final", False),
+                        )
                     elif run.get("checkpointPending"):
+                        if run.get("pendingGeneration"):
+                            generation_resume.run(backend)
+                        if run["checkpointPending"].get("final"):
+                            worktree.end_unexecuted(run)
+                        if run["checkpointPending"].get(
+                            "after"
+                        ) is None and not run.get("pendingObserved"):
+                            run["checkpointPending"]["after"] = (
+                                contracts.validation_snapshot(root)
+                            )
+                            backend.save()
                         publish_snapshot(
                             backend,
                             args.sync_stack or run["checkpointPending"]["stacks"],
                         )
                     else:
                         git_publication.sync(backend)
+            backend.task_status = task_snapshot(
+                root, executable=False, live=True
+            ).status
             result = describe(backend)
         print(json.dumps(result, indent=2))
         return 2 if result["result"] == "STOPPED" and args.action == "advance" else 0

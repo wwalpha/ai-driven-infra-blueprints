@@ -53,14 +53,16 @@ Managed Worktree operations use current AWS and fixed authorized inputs.
 advance advances one bounded AWS turn; status reads latest scoped AWS.
 sync --sync-stack saves current facts (success/failure/rollback/partial/unexecuted/
 running/unknown), generates available services, validates and commits/publishes.
-checkpoint resumes local validation/commit/publication; omitted --sync-stack uses the saved candidate scope.
+sync --final validates completed Task privately with the final Model/View candidate.
+Omit --sync-stack when all needed observations are already saved.
+checkpoint resumes the saved final intent and local validation/commit/publication; omitted --sync-stack uses the saved candidate scope.
 The LLM chooses sync timing and explicit scope; no background writer or Sub Agents.
 Deploy result, Model save, Snapshot validation and Git publication are independent.
 A consistent failed Snapshot can complete its Task with Deploy FAIL unchanged.
 Intermediate saves keep Task running and fixed IaC/parameters/artifacts unchanged.
 Old Task/Journal/Fence/Output/checkpoint history never gates current-state adoption.
 Current Stack requests retain original IDs/tokens across lost replies and Worktrees;
-a stale COMPLETE alone never settles an uncertain Execute. No automatic Reset.
+a stale COMPLETE alone never settles an uncertain Execute. Retire only requests with proven identity-specific completion or loss of effect.
 Choose an explicit --action for every invocation.
 Retry saved Git commits with worktree_task.py deploy-publish, without AWS or recollection.
 Same-Order independent peers can continue after a failure; later Order still requires
@@ -78,7 +80,7 @@ It may recover and save previously persisted unfinished work, including pending 
 values, generated artifacts and progress. It never implicitly starts a new Deploy
 or automatically grants Human approval. Use explicit sync and checkpoint for their
 respective current-snapshot and Git publication operations.
-Do not run normal Deploy while submission/publication is unconfirmed. Authentication,
+Unconfirmed submissions block the affected Stack; Git publication is independent. Authentication,
 Task/target/input mismatches and unresolved dependencies stop new starts; peers drain.
 PENDING_DEPLOY is a dependency wait, not proof of an IaC defect. AWS success,
 Observed sync and Markdown/JSON generation are separate; all are needed for COMPLETE.
@@ -464,12 +466,19 @@ def recovery_command(args, root, task_file):
 
 
 def controller_result(
-    result, run_context, args, root, *, repair_failure=None, task_text=""
+    result,
+    run_context,
+    args,
+    root,
+    *,
+    repair_failure=None,
+    task_text="",
+    publication=None,
 ):
     states = run_context.get("states", {})
     failures = [s.get("failure", {}) for s in states.values() if s.get("failure")]
     diagnostics = {
-        "gitPublication": run_context.get("gitPublication"),
+        "gitPublication": publication,
         "stackFailures": {
             name: s["failure"] for name, s in states.items() if s.get("failure")
         },
@@ -629,7 +638,7 @@ def controller_result(
         else "SUCCESS"
         if states and all(s.get("observedSynced") for s in states.values())
         else "PENDING",
-        "gitPublication": run_context.get("gitPublication"),
+        "gitPublication": publication,
     }
 
 

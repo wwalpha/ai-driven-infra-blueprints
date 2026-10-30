@@ -1,5 +1,6 @@
 """Only unresolved AWS submissions are shared across Tasks and Worktrees."""
 
+import copy
 import json
 import uuid
 
@@ -26,14 +27,30 @@ def location(target, name):
 
 
 def read(path):
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return None
     journal.private_path(path)
     record = json.loads(path.read_text(encoding="utf-8"))
     if (
         not isinstance(record, dict)
         or record.get("operation") not in TOKENS
-        or not record.get("token")
+        or not isinstance(record.get("token"), str)
+        or not record["token"]
+        or not isinstance(record.get("name"), str)
+        or not record["name"]
+        or record.get("stackId") is not None
+        and not isinstance(record["stackId"], str)
+        or record.get("service", "cloudformation")
+        not in {"cloudformation", "secretsmanager"}
+        or (
+            record.get("operation")
+            in {"put_secret_value", "update_secret_version_stage"}
+        )
+        != (record.get("service") == "secretsmanager")
+        or record.get("operation") in {"create_change_set", "execute_change_set"}
+        and not isinstance(record.get("changeSetId"), str)
+        or record.get("service") == "secretsmanager"
+        and not isinstance(record.get("resourceId"), str)
     ):
         raise Blocked("current Stack request is unreadable: " + str(path))
     return record
@@ -91,88 +108,183 @@ def root_events(events, token, identity):
 
 
 def settled(aws, record, current):
+    """Prove completion or loss of effect on the current target, never infer success."""
     operation = record["operation"]
-    status = current["StackStatus"]
-    if operation == "execute_change_set" and (
-        not record.get("stackId")
-        or status
-        not in (current_state.SUCCESS | current_state.FAILED | {"ABSENT"})
-        - {"CREATE_FAILED", "UPDATE_FAILED"}
-    ):
-        return False
     if record.get("service") == "secretsmanager":
         metadata = aws(
             "describe_secret", SecretId=record["resourceId"], service="secretsmanager"
         )
-        stages = metadata.get("VersionIdsToStages", {}).get(record["token"])
-        # Bootstrap never removes another version's current label, so external repair supersedes it.
-        return stages is not None and (
+        versions = metadata.get("VersionIdsToStages")
+        if not isinstance(versions, dict) or any(
+            not isinstance(labels, list) for labels in versions.values()
+        ):
+            raise Blocked("Secret version evidence is incomplete")
+        labels = versions.get(record["token"])
+        confirmed = labels is not None and (
             operation == "put_secret_value"
-            or any(
-                "AWSCURRENT" in labels
-                for labels in metadata.get("VersionIdsToStages", {}).values()
-            )
+            or "AWSCURRENT" in labels
+            or any("AWSCURRENT" in stages for stages in versions.values())
         )
+        if confirmed:
+            record["trackingReason"] = "SECRET_VERSION_CONFIRMED"
+        return confirmed
+    pinned = operation in {
+        "execute_change_set",
+        "delete_stack",
+        "continue_update_rollback",
+    }
+    identity = record.get("stackId")
+    if pinned and identity:
+        if (
+            current.get("StackId")
+            and current["StackId"] != identity
+            and current_state.category(current) != "UNKNOWN"
+        ):
+            record.update(result="SETTLED", trackingReason="ORIGINAL_STACK_REPLACED")
+            return True
+        if current["StackStatus"] in {"ABSENT", "DELETE_COMPLETE"}:
+            original = current_state.read(aws, identity)
+            if original.get("StackId") not in {None, identity}:
+                raise Blocked("original StackId observation differs")
+            if original["StackStatus"] in {"ABSENT", "DELETE_COMPLETE"}:
+                record.update(
+                    result="SETTLED",
+                    trackingReason="ORIGINAL_STACK_DELETED",
+                    originalStack=current_state.observation(original),
+                )
+                return True
+            return False
+        if current_state.category(current) in {"UNKNOWN", "RUNNING"}:
+            return False
+    if operation == "execute_change_set" and current["StackStatus"] not in (
+        current_state.SUCCESS | current_state.FAILED
+    ) - {"CREATE_FAILED", "UPDATE_FAILED"}:
+        return False
     if operation in {"create_change_set", "execute_change_set"}:
         try:
             change_set = aws(
                 "describe_change_set",
-                StackName=record["name"],
+                StackName=record["name"]
+                if operation == "create_change_set"
+                else identity or record["name"],
                 ChangeSetName=record["changeSetId"],
             )
-        except AwsError:
-            if operation != "execute_change_set":
+        except AwsError as error:
+            if error.code != "ChangeSetNotFound":
                 raise
             change_set = None
-        if change_set is None:
-            # The original token and Stack events can still identify the execution.
-            change_set = {}
-        else:
-            identity = change_set.get("ChangeSetId", "")
-            same_change = current_state.same_change_set(record["changeSetId"], identity)
+        if change_set is not None:
             if (
-                not same_change
-                or record.get("stackId")
-                and change_set.get("StackId") != record["stackId"]
+                not current_state.same_change_set(
+                    record["changeSetId"], change_set.get("ChangeSetId")
+                )
+                or identity
+                and change_set.get("StackId") != identity
             ):
                 raise Blocked("current request ChangeSet/Stack identity differs")
+            if operation == "create_change_set":
+                confirmed = change_set.get("Status") in {
+                    "CREATE_COMPLETE",
+                    "FAILED",
+                    "DELETE_COMPLETE",
+                }
+                if confirmed:
+                    record["trackingReason"] = "CHANGESET_CREATION_ENDED"
+                return confirmed
+            execution = change_set.get("ExecutionStatus")
+            if identity and execution in {
+                "EXECUTE_COMPLETE",
+                "EXECUTE_FAILED",
+                "OBSOLETE",
+            }:
+                record.update(
+                    result="SETTLED", trackingReason="CHANGESET_EXECUTION_ENDED"
+                )
+                return True
         if operation == "create_change_set":
-            return change_set.get("Status") in {
-                "CREATE_COMPLETE",
-                "FAILED",
-                "DELETE_COMPLETE",
-            }
-        execution = change_set.get("ExecutionStatus")
-        if execution in {"EXECUTE_IN_PROGRESS", "AVAILABLE", "UNAVAILABLE"}:
-            return False
-        if execution in {"EXECUTE_COMPLETE", "EXECUTE_FAILED", "OBSOLETE"}:
-            record["result"] = "SETTLED"
-            return True
-    if operation == "delete_stack" and status == "ABSENT":
-        return True
-    events = current_state.pages(
-        aws,
-        "describe_stack_events",
-        "StackEvents",
-        StackName=record.get("stackId") or record["name"],
-    )
-    if operation != "execute_change_set" and current_state.category(current) in {
+            record["createUnconfirmed"] = True
+            return False  # Recover only the original StackName/input/ChangeSet/token request.
+    if not identity or current_state.category(current) in {
         "RUNNING",
         "UNKNOWN",
         "REVIEW",
     }:
         return False
-    matches = root_events(events, record["token"], record.get("stackId"))
+    events = current_state.pages(
+        aws, "describe_stack_events", "StackEvents", StackName=identity
+    )
+    matches = root_events(events, record["token"], identity)
     if matches:
         terminal = matches[0].get("ResourceStatus")
-        if terminal in {"CREATE_FAILED", "UPDATE_FAILED"}:
-            return False
-        if terminal in current_state.SUCCESS | current_state.FAILED:
-            record["result"] = "FAIL" if terminal in current_state.FAILED else "SUCCESS"
-            record["attemptStatus"] = terminal
+        if terminal in (current_state.SUCCESS | current_state.FAILED) - {
+            "CREATE_FAILED",
+            "UPDATE_FAILED",
+        }:
+            record.update(
+                result="FAIL" if terminal in current_state.FAILED else "SUCCESS",
+                attemptStatus=terminal,
+                trackingReason="TOKEN_ROOT_EVENT",
+            )
             return True
-        return False
     return False
+
+
+def saved_request(name, state):
+    evidence = state.get("executionEvidence", {})
+    if (
+        state.get("clientToken")
+        and state.get("changeSetId")
+        and evidence.get("StackId")
+    ):
+        return {
+            "operation": "execute_change_set",
+            "service": "cloudformation",
+            "resourceId": None,
+            "name": name,
+            "stackId": evidence["StackId"],
+            "changeSetId": state["changeSetId"],
+            "token": state["clientToken"],
+        }
+    return None
+
+
+def end_tracking(state, record):
+    """The caller saves this evidence before releasing only the matching shared request."""
+    if not record.get("settled") or not record.get("trackingReason"):
+        raise Blocked("request tracking has no completion evidence")
+    owned = owns(state, record)
+    if owned and record["operation"] == "execute_change_set":
+        result = record.get("result", "SETTLED")
+        current_state.record_attempt(
+            state,
+            {"SUCCESS": "ATTEMPT_SUCCESS", "FAIL": "ATTEMPT_FAIL"}.get(
+                result, "ATTEMPT_SETTLED"
+            ),
+        )
+        state["endedRequest"] = {
+            "request": copy.deepcopy(record),
+            "executionEvidence": copy.deepcopy(state.get("executionEvidence", {})),
+            "result": state.get(
+                "attemptResult", "SUCCESS" if state["status"] == "SUCCESS" else "FAIL"
+            ),
+        }
+        for key in (
+            "clientToken",
+            "changeSetId",
+            "preparationId",
+            "executionEvidence",
+            "settledRequest",
+            "executionStarted",
+        ):
+            state.pop(key, None)
+    else:
+        if not state.get("endedRequest"):
+            state["endedRequest"] = {
+                "request": copy.deepcopy(record),
+                "result": "UNKNOWN",
+            }
+    state["requestPending"] = bool(record.get("otherPending"))
+    state.pop("requestError", None)
 
 
 def reconcile(backend, unit, state=None):
@@ -183,9 +295,23 @@ def reconcile(backend, unit, state=None):
         record = None
         try:
             record = read(path)
+            if record:
+                record.pop("settled", None)
             if record and record.get("name") != name:
                 raise Blocked("current request belongs to another Stack")
+            original = saved_request(name, state)
+            if original and (not record or not owns(state, record)):
+                if settled(backend.aws, original, state["currentStack"]):
+                    original.update(settled=True, otherPending=bool(record))
+                    state.pop("requestError", None)
+                    return original
+                if record:
+                    raise Blocked(
+                        "original execution is unconfirmed and another current request exists"
+                    )
+                record = original
             if record:
+                shared = dict(record)
                 evidence = dict(record)
                 if (
                     record["operation"] == "execute_change_set"
@@ -193,12 +319,14 @@ def reconcile(backend, unit, state=None):
                     and owns(state, record)
                 ):
                     evidence["stackId"] = state["executionEvidence"]["StackId"]
-                if settled(backend.aws, evidence, state["currentStack"]):
+                confirmed = settled(backend.aws, evidence, state["currentStack"])
+                record = evidence
+                if confirmed:
                     record["settled"] = True
-                    if "result" in evidence:
-                        record["result"] = evidence["result"]
-                    if "attemptStatus" in evidence:
-                        record["attemptStatus"] = evidence["attemptStatus"]
+                    if evidence.get("stackId") != shared.get("stackId"):
+                        record["releaseIdentity"] = shared
+            if record and record.get("createUnconfirmed"):
+                state["createUnconfirmed"] = True
             state.pop("requestError", None)
             return record
         except AwsError as error:
@@ -221,8 +349,21 @@ def release(backend, record):
     path = location(backend.target, record["name"])
     with journal.locked(path):
         current = read(path)
-        keys = ("name", "operation", "stackId", "changeSetId", "token")
-        if current and all(current.get(key) == record.get(key) for key in keys):
+        keys = (
+            "name",
+            "operation",
+            "service",
+            "resourceId",
+            "stackId",
+            "changeSetId",
+            "token",
+        )
+        identity = record.get("releaseIdentity", record)
+        if current and all(
+            current.get(key, "cloudformation" if key == "service" else None)
+            == identity.get(key, "cloudformation" if key == "service" else None)
+            for key in keys
+        ):
             path.unlink()
 
 
@@ -267,14 +408,25 @@ def send(
                     raise
                 confirmed = False
             if confirmed:
-                if prior["operation"] == "execute_change_set":
+                prior["settled"] = True
+                if name not in runtime.states:
                     raise Blocked(
-                        "settled execution must be saved before request release"
+                        "settled request needs durable progress before release"
                     )
+                end_tracking(runtime.states[name], prior)
+                runtime.save()
                 path.unlink()
                 prior = None
+                if operation == "execute_change_set":
+                    raise Blocked(
+                        "execution tracking ended; prepare a fresh current ChangeSet before executing"
+                    )
         created = prior is None
         if prior:
+            if operation == "execute_change_set":
+                raise Blocked(
+                    "original Execute is still unconfirmed; reconcile its identity before a new execution"
+                )
             same = (
                 operation == prior["operation"]
                 or service == "secretsmanager"

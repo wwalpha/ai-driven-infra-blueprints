@@ -349,7 +349,7 @@ def check_sdk_execution():
     ):
         TestCase().assertEqual(
             _state_check_sdk_execution_65.backend.poll(unit, state),
-            "UPDATE_IN_PROGRESS",
+            "UNCONFIRMED",
         )
 
 
@@ -3251,7 +3251,7 @@ def check_execute_timeout_keeps_evidence(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8"))["states"] == restored
     assert (
         restored["A"]["status"] == "SUCCESS"
-        and restored["A"]["executionEvidence"] == evidence
+        and restored["A"]["endedRequest"]["executionEvidence"] == evidence
     )
     assert sum(op == "create_change_set" for op, _ in backend.calls) == 1
     assert sum(op == "execute_change_set" for op, _ in backend.calls) == 1
@@ -3270,7 +3270,7 @@ def check_guard_failure_drains_accepted_peer():
     )
     assert (
         saved["A"]["status"] == "SUCCESS"
-        and saved["A"]["executionEvidence"]["clientToken"]
+        and saved["A"]["endedRequest"]["executionEvidence"]["clientToken"]
     )
     assert (
         saved["B"]["status"] == "BLOCKED" and "inputs changed" in saved["B"]["reason"]

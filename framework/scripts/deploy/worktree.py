@@ -125,44 +125,84 @@ def save_progress(backend, fields):
     else:
         identity = progress_state(backend)["deployIdentity"]
         path = progress_path(backend.root, create=True)
-    progress = {
-        "identity": identity,
-        "stepwise": bool(context.get("stepwise")),
-        "directory": context.get("directory"),
-        "stepUnits": copy.deepcopy(context.get("stepUnits", [])),
-        "checkpointPending": {"stacks": list(context["checkpointPending"]["stacks"])}
-        if context.get("checkpointPending")
-        else None,
-        "states": {
-            name: {
-                key: copy.deepcopy(value)
-                for key, value in saved.items()
-                if key in fields
-                or key
-                in {"checkpointed", "currentStack", "requestPending", "requestError"}
+    saved = copy.deepcopy(context)
+    saved.pop("gitPublication", None)
+    saved["states"] = {
+        name: {
+            key: copy.deepcopy(value)
+            for key, value in entry.items()
+            if key in fields
+            or key
+            in {
+                "checkpointed",
+                "currentStack",
+                "requestPending",
+                "requestError",
+                "endedRequest",
+                "reason",
+                "createUnconfirmed",
             }
-            for name, saved in context["states"].items()
-        },
-        "inputDigests": copy.deepcopy(context["inputDigests"]),
-        "pendingObserved": bool(context.get("pendingObserved")),
-        "pendingGeneration": bool(
-            context.get("pendingGeneration") or context.get("generationError")
-        ),
+        }
+        for name, entry in context["states"].items()
     }
-    progress["runContext"] = {
-        **copy.deepcopy(context),
-        "states": copy.deepcopy(progress["states"]),
-    }
+    progress = {"identity": identity, "runContext": saved}
     write_sealed(backend.root, path, progress)
 
 
 def read_progress(root, state):
     path = progress_path(root)
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
+        if (
+            state.get("deployCheckpoints")
+            or state.get("deployCheckpointIntent")
+            or state.get("deployPublication")
+        ):
+            raise ws.Blocked(
+                "saved Deploy progress is missing; retain checkpoint and request evidence"
+            )
         return None
     progress = read_sealed(root, path)
-    if progress["identity"] != state.get("deployIdentity"):
+    if not isinstance(progress, dict) or progress.get("identity") != state.get(
+        "deployIdentity"
+    ):
         raise ws.Blocked("Deploy progress belongs to another Task/Target/snapshot")
+    context = progress.get("runContext")
+    if (
+        not isinstance(context, dict)
+        or not isinstance(context.get("states"), dict)
+        or set(context["states"]) != set(progress["identity"]["stacks"])
+        or any(
+            not isinstance(item, dict) or not item.get("status")
+            for item in context["states"].values()
+        )
+        or any(
+            context.get(key) != progress["identity"].get(key)
+            for key in ("taskFile", "taskDigest", "target", "environment")
+        )
+        or context.get("stepwise") is True
+        and not isinstance(context.get("consumedInputs"), dict)
+        or not isinstance(context.get("inputDigests"), dict)
+        or not isinstance(context.get("stepUnits"), list)
+        or type(context.get("stepwise")) is not bool
+        or any(
+            key in context and not isinstance(context[key], dict)
+            for key in ("pendingObserved", "pendingGeneration", "checkpointPending")
+        )
+    ):
+        raise ws.Blocked("Deploy progress recovery context is incomplete or corrupt")
+    pending = context.get("checkpointPending")
+    if "checkpointPending" in context and (
+        not isinstance(pending.get("stacks"), list)
+        or not isinstance(pending.get("before"), dict)
+        or "after" not in pending
+        or pending["after"] is not None
+        and not isinstance(pending["after"], dict)
+        or "final" in pending
+        and not isinstance(pending["final"], dict)
+    ):
+        raise ws.Blocked(
+            "Deploy progress checkpoint candidate is incomplete or corrupt"
+        )
     return progress
 
 
@@ -173,7 +213,11 @@ def check_pending_progress(backend, records, unfinished):
     progress = read_progress(backend.root, state)
     if progress is None:
         return
-    pending = {name for name, saved in progress["states"].items() if unfinished(saved)}
+    pending = {
+        name
+        for name, saved in progress["runContext"]["states"].items()
+        if unfinished(saved)
+    }
     owned = [
         record
         for record in records
@@ -184,7 +228,10 @@ def check_pending_progress(backend, records, unfinished):
     recorded = {name for record in owned for name in record["operations"]}
     if (
         pending - recorded
-        or (progress["pendingObserved"] or progress["pendingGeneration"])
+        or (
+            progress["runContext"].get("pendingObserved")
+            or progress["runContext"].get("pendingGeneration")
+        )
         and not any(
             record["publication"].get("pendingObserved")
             or record["publication"].get("pendingGeneration")
@@ -203,16 +250,15 @@ def adopt_successes(backend):
     progress = read_progress(backend.root, state)
     if progress is None:
         return
-    backend.run_context["gitPublication"] = copy.deepcopy(
-        state.get("deployPublication", {"status": "PENDING"})
-    )
     for unit in backend.units:
         name = unit["name"]
-        saved = progress["states"].get(name, {})
+        saved = progress["runContext"]["states"].get(name, {})
         if saved.get("status") != "SUCCESS" or not saved.get("observedSynced"):
             continue
         backend.claim_inputs(unit)
-        if backend.input_digest(unit, fresh=True) != progress["inputDigests"].get(name):
+        if backend.input_digest(unit, fresh=True) != progress["runContext"][
+            "inputDigests"
+        ].get(name):
             # Only a separately authorized repair may introduce a fresh Deploy input.
             if not state.get("iacRepair", {}).get("commit"):
                 raise ws.Blocked("successful Stack snapshot input changed: " + name)
@@ -234,59 +280,61 @@ def attempts_finished(states, result):
     )
 
 
-def prepare_complete(root, task):
-    if not is_deploy(task.text):
-        return
-    state = require(root, task)
-    if not state.get("deployIdentity"):
-        return
-    progress = read_progress(root, state)
-    if not progress:
-        raise ws.Blocked("Deploy progress is missing")
-    context = progress.get("runContext", {})
-    states = progress["states"]
-    if (
-        progress.get("checkpointPending")
-        or progress.get("pendingObserved")
-        or progress.get("pendingGeneration")
-        or context.get("snapshotValidation") != "PASS"
-        or state.get("deployPublication", {}).get("status") != "SUCCESS"
-        or state.get("deployPublication", {}).get("publishedSource") != state.get("tip")
-        or any(
-            not item.get("observedSynced")
-            or not item.get("currentStack")
-            or item.get("requestPending")
-            or item.get("attemptResult") == "UNKNOWN"
-            and item.get("status") != "SETTLED"
-            or item.get("status") in {"RUNNING", "CHANGESET_CREATING", "BLOCKED"}
-            or item.get("currentStack", {}).get("StackStatus", "UNKNOWN")
-            in {"UNKNOWN", "REVIEW_IN_PROGRESS"}
-            or item.get("currentStack", {})
-            .get("StackStatus", "UNKNOWN")
-            .endswith("_IN_PROGRESS")
-            for item in states.values()
+def end_unexecuted(context):
+    units = {unit["name"]: unit for unit in context["stepUnits"]}
+    failed_orders = [
+        int(units[name]["deployOrder"])
+        for name, item in context["states"].items()
+        if item["status"] == "FAILED" and name in units
+    ]
+    for name, item in context["states"].items():
+        if (
+            item["status"] in {"READY", "NOT_STARTED", "BLOCKED", "CHANGESET_CREATING"}
+            and not item.get("clientToken")
+            and not item.get("requestPending")
+            and not item.get("requestError")
+        ):
+            order = int(units[name]["deployOrder"])
+            item.update(
+                status="NOT_STARTED",
+                unexecutedReason="PREVIOUS_DEPLOY_ORDER_FAILED"
+                if any(value < order for value in failed_orders)
+                else "CURRENT_EXECUTION_CONSTRAINT"
+                if item.get("failure") or item.get("schedulerError")
+                else "DEPLOY_ENDED_WITHOUT_EXECUTION",
+            )
+
+
+def final_blockers(context):
+    """Candidate prerequisites do not depend on Git publication or Task status."""
+    blockers = []
+    for key in ("pendingObserved", "pendingGeneration", "generationError"):
+        if context.get(key):
+            blockers.append({"reason": key})
+    states = context["states"]
+    for name, item in states.items():
+        if not item.get("observedSynced") or not item.get("currentStack"):
+            blockers.append({"stack": name, "reason": "current observation needs sync"})
+        if item.get("requestPending") or item.get("requestError"):
+            blockers.append({"stack": name, "reason": "current request is unresolved"})
+        if current_category(item) in {"RUNNING", "UNKNOWN"}:
+            blockers.append(
+                {"stack": name, "reason": "current AWS is running or unreadable"}
+            )
+    if not attempts_finished(states, context.get("deployResult")):
+        blockers.append(
+            {"reason": "attempts or explicit unexecuted reasons are incomplete"}
         )
-    ):
-        raise ws.Blocked("Deploy snapshot, publication or AWS request is incomplete")
-    if any(item.get("status") in {"READY", "NOT_STARTED"} for item in states.values()):
-        units = {unit["name"]: unit for unit in progress.get("stepUnits", [])}
-        failed_orders = [
-            int(units[name]["deployOrder"])
-            for name, item in states.items()
-            if item.get("status") == "FAILED" and name in units
-        ]
-        for name, item in states.items():
-            if item.get("status") in {"READY", "NOT_STARTED"}:
-                order = int(units[name]["deployOrder"])
-                item["unexecutedReason"] = (
-                    "PREVIOUS_DEPLOY_ORDER_FAILED"
-                    if any(value < order for value in failed_orders)
-                    else "CURRENT_EXECUTION_CONSTRAINT"
-                    if item.get("failure") or item.get("schedulerError")
-                    else "DEPLOY_ENDED_WITHOUT_EXECUTION"
-                )
-        context["states"] = copy.deepcopy(states)
-        write_sealed(root, progress_path(root, create=True), progress)
+    return blockers
+
+
+def current_category(item):
+    return wt.module("deploy/current_state.py", "deploy.current_state").category(
+        item.get("currentStack", {})
+    )
+
+
+def prepare_complete(root, task):
     require_complete(root, task)
 
 
@@ -303,25 +351,25 @@ def require_complete(root, task):
             and load_target_directory(root, *next(iter(targets)))["iacEngine"]
             == "terraform"
         ):
-            return  # Terraform retains its existing saved-plan/output verification workflow.
+            return
+        raise ws.Blocked("managed Deploy has no fixed identity")
     progress = read_progress(root, state)
+    final = state.get("deployPublication", {}).get("finalCandidate")
     if (
         progress is None
-        or set(progress["states"]) != set(state["deployIdentity"]["stacks"])
-        or progress["pendingObserved"]
-        or progress["pendingGeneration"]
-        or not attempts_finished(
-            progress["states"], progress.get("runContext", {}).get("deployResult")
-        )
-        or any(
-            not saved.get("observedSynced")
-            or saved.get("status") == "RUNNING"
-            or saved.get("requestPending")
-            or saved.get("currentStack", {}).get("classification") == "RUNNING"
-            for saved in progress["states"].values()
-        )
+        or final_blockers(progress["runContext"])
+        or progress["runContext"].get("checkpointPending")
+        or progress["runContext"].get("snapshotValidation") != "PASS"
+        or not final
+        or final.get("taskAfter") != task.text
+        or final.get("source") != state["tip"]
+        or final.get("tree") != wt.output(root, "rev-parse", state["tip"] + "^{tree}")
+        or final.get("taskAfter")
+        != tasks.set_status(final.get("taskBefore", ""), "completed")
     ):
-        raise ws.Blocked("Deploy snapshot is incomplete or AWS request is still active")
+        raise ws.Blocked(
+            "Deploy final candidate is incomplete; use sync --final or resume the saved checkpoint"
+        )
 
 
 def discard_progress(state):
@@ -331,8 +379,10 @@ def discard_progress(state):
         progress = read_sealed(root, path)
         if (
             progress["identity"] != state["deployIdentity"]
-            or progress["pendingObserved"]
-            or progress["pendingGeneration"]
+            or progress["runContext"].get("pendingObserved")
+            or progress["runContext"].get("pendingGeneration")
+            or progress["runContext"].get("generationError")
+            or progress["runContext"].get("checkpointPending")
         ):
             raise ws.Blocked(
                 "Deploy progress changed or is incomplete; retain cleanup state"
