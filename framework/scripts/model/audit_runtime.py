@@ -182,6 +182,18 @@ def attributes(result):
             yield item
 
 
+def observed_identifier(raw, literal, confirmed_display_name, confirmed):
+    if not isinstance(raw, str) or not confirmed_display_name(raw):
+        return None
+    value = literal(raw).strip()
+    if value.startswith(("[", "{")):
+        return None
+    try:
+        return value if confirmed(value) else None
+    except ValueError:
+        return None
+
+
 def identifier_result(m, ctx, resource, item):
     if item["propertiesKey"] not in m.catalog_outputs(m.ROOT, resource.kind):
         return item
@@ -210,19 +222,8 @@ def identifier_result(m, ctx, resource, item):
             if item["status"] == "identifier"
             else item.get("reason", item["status"]),
         }
-    value = m.literal(raw)
-    if (
-        not value.strip()
-        or value.strip().upper()
-        in {
-            "UNSET",
-            "PENDING_DEPLOY",
-            "TBD",
-            "TODO",
-            "未確定",
-        }
-        or value.lstrip().startswith(("[", "{"))
-    ):
+    value = observed_identifier(raw, m.literal, m.confirmed_display_name, m.confirmed)
+    if value is None:
         return {
             **item,
             "status": "design_unresolved"
@@ -254,18 +255,17 @@ def identifier_result(m, ctx, resource, item):
             or actual is None
         ):
             raise ValueError("identifier is not scalar")
+        matches = m.stable(expected) == m.stable(actual)
         return {
             **item,
-            "status": "match"
-            if m.stable(expected) == m.stable(actual)
-            else "difference",
+            "status": "match" if matches else "difference",
             "designValue": "[REDACTED]"
             if resource.module.sensitive(item["propertiesKey"])
             else m.redacted(expected),
             "awsValue": "[REDACTED]"
             if resource.module.sensitive(item["propertiesKey"])
             else m.redacted(actual),
-            "reason": "value differs",
+            "reason": "" if matches else "value differs",
         }
     except (m.AcquisitionError, m.Unresolved, ValueError, TypeError, KeyError):
         return {

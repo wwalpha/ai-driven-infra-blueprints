@@ -6,6 +6,7 @@ import ast
 import hashlib
 import json
 import re
+from collections import Counter
 from dataclasses import asdict, replace
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -31,8 +32,10 @@ from utils.script_loader import module
 
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
+from model.audit_runtime import observed_identifier
 from model.core import entries
 from model.projection import resource_display_rows
+from model.reference_values import confirmed
 from model.render import display_name
 from model.sources import load_model, model_paths, publication_lock
 
@@ -208,6 +211,14 @@ def dependencies(root, target, selected):
     return result
 
 
+def disambiguate_names(names, kinds, identities):
+    counts = Counter((kinds[logical], name) for logical, name in names.items())
+    for logical, name in names.items():
+        identity = identities[logical]
+        if counts[kinds[logical], name] > 1 and identity and identity != name:
+            names[logical] = f"{name} ({identity})"
+
+
 @input_scope
 def generate(root, environment, selector, service):
     m = module("model/adapters/aws.py", "model.adapters.aws")
@@ -344,13 +355,22 @@ def generate(root, environment, selector, service):
     engine += definitions(scripts / "utils/lazy_definitions.py", ["load_once"])
     engine += definitions(
         scripts / "utils/json_format.py",
-        ["unique_object", "invalid_constant", "_number", "strict_json", "policy_json"],
+        [
+            "AwsDocumentError",
+            "validate_aws_document",
+            "unique_object",
+            "invalid_constant",
+            "_number",
+            "strict_json",
+            "policy_json",
+        ],
     )
     engine += definitions(scripts / "utils/iac_values.py", ["cfn_resource_identity"])
     engine += definitions(
         scripts / "model/core.py",
         [
             "ReferenceDiagnosticError",
+            "ModelNeedsFixError",
             "ReferenceResolutionError",
             "resource_link",
             "SnapshotValues",
@@ -359,6 +379,8 @@ def generate(root, environment, selector, service):
             "literal",
         ],
     )
+    engine += definitions(scripts / "design/layout.py", ["confirmed_display_name"])
+    engine += definitions(scripts / "model/reference_values.py", ["confirmed"])
     engine += definitions(
         scripts / "utils/comparison_rows.py",
         ["Unresolved", "segment", "indexed_array", "select", "project", "put_row"],
@@ -414,7 +436,13 @@ def generate(root, environment, selector, service):
     }
     selected_model = load_model(path)
     names = {}
+    identities = {}
+    kinds = {}
     selected_values = selected_model.values
+    logical_ids = {
+        resource["logicalId"]
+        for _, resource in entries(selected_values, "desired.resource.")
+    }
     for number, resource in entries(selected_values, "desired.resource."):
         rows = resource_display_rows(
             selected_values, number, resource, ROOT, scope=selected_model.scope
@@ -422,24 +450,33 @@ def generate(root, environment, selector, service):
         name, _ = display_name(
             selected_values, number, resource, rows, ROOT, projection=True
         )
+        candidates = [
+            observed_identifier(
+                selected_values.get("observed.row." + rid + ".value"),
+                m.literal,
+                confirmed_display_name,
+                confirmed,
+            )
+            for rid, row in entries(selected_values, "desired.row.")
+            if rid.startswith(number + "-")
+            and row["property"] in outputs.get(resource["resourceType"], [])
+        ]
+        candidates = [
+            value for value in candidates if value and value not in logical_ids
+        ]
+        identity = candidates[0] if len(candidates) == 1 else None
         if (
             not name
-            or name in {resource["logicalId"], resource["resourceType"]}
+            or name in logical_ids
+            or name == resource["resourceType"]
             or not confirmed_display_name(name)
         ):
-            candidates = [
-                selected_values.get("observed.row." + rid + ".value")
-                for rid, row in entries(selected_values, "desired.row.")
-                if rid.startswith(number + "-")
-                and row["property"] in outputs.get(resource["resourceType"], [])
-            ]
-            candidates = [
-                m.literal(value)
-                for value in candidates
-                if value and confirmed_display_name(value)
-            ]
-            name = candidates[0] if len(candidates) == 1 else "（名前未設定）"
-        names[resource["logicalId"]] = name
+            name = identity or "（名前未設定）"
+        logical = resource["logicalId"]
+        names[logical] = name
+        kinds[logical] = resource["resourceType"]
+        identities[logical] = identity
+    disambiguate_names(names, kinds, identities)
     snapshot = {
         "names": names,
         "target": target,
@@ -487,9 +524,10 @@ def generate(root, environment, selector, service):
                 else None
             )
             if (
-                not observed
-                or not confirmed_display_name(observed)
-                or m.literal(observed).startswith(("[", "{"))
+                observed_identifier(
+                    observed, m.literal, confirmed_display_name, confirmed
+                )
+                is None
             ):
                 unsupported.append(
                     (prop, "observed identifier missing, unresolved or ambiguous")

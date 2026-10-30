@@ -304,12 +304,24 @@ def check():
             {},
             "vpc",
             [
-                ("001", "EC2.VPC", "vpc-one", [("Name", "`duplicate`", None)]),
-                ("002", "EC2.VPC", "vpc-two", [("Name", "`duplicate`", None)]),
+                (
+                    "001",
+                    "EC2.VPC",
+                    "vpc-one",
+                    [("Name", "`duplicate`", None), ("VpcId", "[VPC](#vpc-one)", None)],
+                ),
+                (
+                    "002",
+                    "EC2.VPC",
+                    "vpc-two",
+                    [("Name", "`duplicate`", None), ("VpcId", "[VPC](#vpc-two)", None)],
+                ),
                 ("003", "EC2.VPC", "vpc-three", [("VpcId", "[VPC](#vpc-three)", None)]),
                 ("004", "EC2.VPC", "vpc-four", [("VpcId", "[VPC](#vpc-four)", None)]),
             ],
         )
+        name_data["models"]["dev/cde/vpc"]["observed.row.001-002.value"] = "`vpc-a`"
+        name_data["models"]["dev/cde/vpc"]["observed.row.002-002.value"] = "`vpc-b`"
         name_data["models"]["dev/cde/vpc"]["observed.row.003-001.value"] = (
             "`vpc-confirmed`"
         )
@@ -320,8 +332,34 @@ def check():
         names = snapshot(generator.generate(name_root, "dev", "cde", "vpc")[0])["names"]
         TestCase().assertEqual(
             list(names.values()),
-            ["duplicate", "duplicate", "vpc-confirmed", "（名前未設定）"],
+            [
+                "duplicate (vpc-a)",
+                "duplicate (vpc-b)",
+                "vpc-confirmed",
+                "（名前未設定）",
+            ],
         )
+        for value in ("UNSET", "PENDING_DEPLOY", "PENDING", "TODO", "N/A", "UNUSED"):
+            name_data["models"]["dev/cde/vpc"]["observed.row.001-002.value"] = (
+                f"`{value}`"
+            )
+            value_root = root / ("unconfirmed-" + value.replace("/", "-"))
+            value_root.mkdir()
+            (value_root / "project.json").write_text(
+                (root / "project.json").read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            write_model(
+                value_root / "model/dev/cde/vpc.properties",
+                name_data["models"]["dev/cde/vpc"],
+            )
+            _, _, unsupported = generator.generate(value_root, "dev", "cde", "vpc")
+            TestCase().assertIn(
+                (
+                    "EC2.VPC.VpcId",
+                    "observed identifier missing, unresolved or ambiguous",
+                ),
+                unsupported,
+            )
         # Same account, duplicate Alias/service names and another environment stay distinct.
         crossroot = root / "cross-synthetic"
         crossroot.mkdir()
@@ -531,6 +569,10 @@ def check():
         ("`vpc-other`", "difference"),
         (None, "design_unresolved"),
         ("`PENDING_DEPLOY`", "design_unresolved"),
+        ("`PENDING`", "design_unresolved"),
+        ("`TODO`", "design_unresolved"),
+        ("`N/A`", "design_unresolved"),
+        ("`UNUSED`", "design_unresolved"),
     ]:
         candidate = copy.deepcopy(vpc)
         if observed is None:
@@ -911,6 +953,35 @@ def check():
                     for path in logs[0].parent.glob("vpc-*.log")
                 )
             )
+        unresolved = copy.deepcopy(vpc)
+        unresolved["models"]["dev/cde/vpc"]["observed.row.001-004.value"] = "`TODO`"
+        unresolved_snapshot = repr(
+            json.dumps(
+                unresolved,
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        script.write_text(source.replace(old, unresolved_snapshot, 1), encoding="utf-8")
+        execution = subprocess.run(
+            [sys.executable, "-I", "-B", str(script)],
+            cwd=folder,
+            env={**os.environ, "PATH": str(folder)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        TestCase().assertEqual(execution.returncode, 2, execution.stderr)
+        TestCase().assertIn("[ERROR] EC2.VPC | test-vpc | VpcId", execution.stdout)
+        TestCase().assertTrue(
+            any(
+                path.read_text(encoding="utf-8") == execution.stdout
+                for path in logs[0].parent.glob("vpc-*.log")
+            )
+        )
+        script.write_text(source.replace(old, replacement, 1), encoding="utf-8")
         fake.write_text(
             "#!"
             + sys.executable

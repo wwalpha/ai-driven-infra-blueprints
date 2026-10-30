@@ -10,7 +10,10 @@ from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from design.layout import confirmed_display_name
+from model.audit import disambiguate_names
 from model.projection import resource_display_rows
+from model.reference_values import confirmed
 from model.render import display_name
 
 from model import audit_runtime as audit
@@ -25,6 +28,8 @@ class IdentifierTests(unittest.TestCase):
             ROOT=Path("/snapshot"),
             catalog_outputs=lambda root, kind: [kind + ".VpcId"],
             literal=lambda raw: raw.strip("`"),
+            confirmed_display_name=confirmed_display_name,
+            confirmed=confirmed,
             normalize=lambda ctx, value, norm: int(value)
             if norm == "number"
             else value,
@@ -65,14 +70,22 @@ class IdentifierTests(unittest.TestCase):
     def test_match_and_difference(self):
         self.assertEqual(self.result()["status"], "match")
         self.assertEqual(self.result()["designValue"], "vpc-123")
+        self.assertFalse(self.result().get("reason"))
         self.item["awsValue"] = "vpc-456"
         self.assertEqual(self.result()["status"], "difference")
+        self.assertEqual(self.result()["reason"], "value differs")
 
     def test_missing_pending_ambiguous_and_invalid(self):
         for value in (
             None,
             "`PENDING_DEPLOY`",
             "`UNSET`",
+            "`PENDING`",
+            "`TODO`",
+            "`N/A`",
+            "`UNUSED`",
+            "`unresolved`",
+            "`${Thing}`",
             "[VPC](#vpc)",
             '`["vpc-1","vpc-2"]`',
         ):
@@ -138,6 +151,27 @@ class IdentifierTests(unittest.TestCase):
 
 
 class DisplayTests(unittest.TestCase):
+    def test_duplicate_names_use_confirmed_identity(self):
+        names = {
+            "Internal_1": "duplicate",
+            "Internal_2": "duplicate",
+            "Internal_3": "unique",
+            "Internal_4": "duplicate",
+        }
+        kinds = {key: "EC2.VPC" for key in names}
+        identities = {
+            "Internal_1": "vpc-a",
+            "Internal_2": "vpc-b",
+            "Internal_3": "vpc-c",
+            "Internal_4": None,
+        }
+        disambiguate_names(names, kinds, identities)
+        self.assertEqual(
+            list(names.values()),
+            ["duplicate (vpc-a)", "duplicate (vpc-b)", "unique", "duplicate"],
+        )
+        self.assertNotIn("Internal_", " ".join(names.values()))
+
     def test_formal_names(self):
         root = Path(__file__).resolve().parents[4]
         for kind, fields, expected in [
