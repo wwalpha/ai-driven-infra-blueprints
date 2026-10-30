@@ -6,7 +6,7 @@ import copy
 import json
 from types import SimpleNamespace
 
-import task_contract as tasks
+import task_contract_core as tasks
 import worktree_task as wt
 from deploy import contracts, git_publication, worktree
 from deploy.cli_guidance import DeployStepBlocked

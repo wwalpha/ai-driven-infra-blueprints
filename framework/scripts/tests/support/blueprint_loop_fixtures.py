@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-import task_contract as tasks
+import task_contract_core as tasks
 from design.policy_tables import rendered_design
 from model.files import read_model
 from model.render import markdown_for

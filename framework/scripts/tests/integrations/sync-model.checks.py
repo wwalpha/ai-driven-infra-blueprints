@@ -31,7 +31,8 @@ import sync_files as _imports_sync_files
 import sync_progress as progress
 import sync_runtime
 import sync_views
-import task_contract as tasks
+import task_contract_core as tasks
+import task_contract_runtime as task_runtime
 from design.document import DesignIndex
 from model.files import load_model, read_model
 from support.model_reference_fixtures import reference, resource, save
@@ -48,6 +49,7 @@ from utils.script_loader import module
 from validation import change as change_validation
 from validation import cloudformation, design_links, design_tables
 from validation import design as design_checks
+from validation import runner as validation_runner
 
 from model import dependency_index
 
@@ -259,7 +261,7 @@ def check_stage_cloudformation_definitions(generated_policy, tmp_path):
         template = root / "infra/cloudformation/templates/iam.yaml"
         template.parent.mkdir(parents=True, exist_ok=True)
         template.write_text("Resources: {}\n")
-        iac_validator = load("validate-blueprint").Validator(
+        iac_validator = validation_runner.Validator(
             root, scope, iac_paths={template, parameter}
         )
         iac_validator.check_project_topology()
@@ -1146,7 +1148,7 @@ def check_two_consumer_cli(generated_policy):
             "## Allowed paths\n- `model/stg/123456789012/iam.properties`\n",
         )
     )
-    tasks.refresh(root, name)
+    task_runtime.refresh(root, name)
     for selected_env in ("dev", "stg"):
         source = root / "model" / selected_env / "123456789012/iam.properties"
         source.write_text(
@@ -1366,7 +1368,7 @@ def check_internal_sync_real_diagnostics(internal_sync_project, capsys):
     code, text = runner.run(args, repository_root=root)
     assert code == 1 and "generated Markdown is stale or missing" in text
     assert "docs/designs/dev/team/config.md" in text
-    validator = load("validate-blueprint").Validator(root, scope)
+    validator = validation_runner.Validator(root, scope)
     validator.check_generated_service_models()
     assert any(
         "generated Markdown is stale or missing" in error
@@ -1458,7 +1460,7 @@ def check_integrated_validator(generated_policy, initial):
     values["desired.note.001.text"] = "統合した生成と検証を確認する。"
     write_model(model, values)
     source_bytes = {path: path.read_bytes() for path in load_model(model).files}
-    validator_module = load("validate-blueprint")
+    validator_module = validation_runner
     _state_check_integrated_validator_1251.published = False
     read_bytes, transaction = Path.read_bytes, sync_runtime._publish_transaction
     read = _bind_framework_callback(
@@ -1549,7 +1551,7 @@ def check_integrated_validator_publication_failure(generated_policy):
         )
     )
     originals = {p: p.read_bytes() for p in (design, artifact)}
-    validator_module = load("validate-blueprint")
+    validator_module = validation_runner
     fail_write = _bind_framework_callback(
         _callback_check_integrated_validator_fail_write, design, Path.write_text
     )

@@ -41,8 +41,8 @@ from support.deploy_controller_fixtures import (
     drive as invoke,
 )
 from support.pytest_cli import run
-from task_contract import complete
 from task_contract_core import selected_task, status
+from task_contract_runtime import complete
 from validation.findings import Findings
 from validation.task import TaskValidation
 

@@ -2021,6 +2021,10 @@ Model操作の値・承認・保存判定は既存UTへ集約する。Worktree�
 
 Athena ResultConfiguration EncryptionConfiguration.KmsKey regression in `integrations/issues_failed_services.checks.py::main_checks` uses synthetic Model loading, Key Arn selection, GetAtt/ImportValue, same/different keys, rejected KeyId/AliasName/AliasArn literals on either/both sides, rejected Alias Model references reported as uncompared on the authored leaf, and unresolved form/identity cases. The KMS matrix expects Alias reference construction to fail for KeyArn-only receiving contracts. Other KMS contracts retain their existing expectations.
 
+## Issue #53: Python API retirement
+
+The CLI, Task transition, Import receipt, proof-copy and cleanup cases exercise current behavior directly through their owning modules. No case was identified as solely asserting the retired exports or forwarding functions; consequently no case ID or parameter count was removed. The legacy-receipt rejection cases remain security checks.
+
 ## Atomic Model operation contracts and API boundaries
 
 - `units/task-contract-unit.checks.py::check_batch_operation_contract`: five pairs,
@@ -2033,8 +2037,8 @@ Athena ResultConfiguration EncryptionConfiguration.KmsKey regression in `integra
   one-use/no-op/fresh context behavior, concurrent input change and path/syntax rejection.
 - Existing operation preservation/rejection cases retain their assertions; verification
   now lives in `model.operations`. Existing loop scheduler tests
-  import validation.loop and exercise the compatibility CLI separately. Validator shared
-  fixture imports validation.runner; no test cases were deleted for module movement.
+  import validation.loop and exercise the official CLI separately. Validator shared
+  fixture imports validation.runner; the functional checks remain after module movement.
 - Production source helpers now live at `framework/scripts/model/sources.py`; the existing
   fixture stays `framework/scripts/tests/support/model_sources.py`. Shared dependency
   changes conservatively select all UTs through the existing mapping fallback.

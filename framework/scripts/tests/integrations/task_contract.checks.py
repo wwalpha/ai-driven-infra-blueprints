@@ -15,7 +15,7 @@ from threading import Event
 from unittest.mock import patch
 
 import pytest
-import task_contract as tasks
+import task_contract_core as tasks
 import task_contract_runtime as task_runtime
 from issues.publication import save_scan
 from support.issues_scan_fixtures import review_for, snapshot_artifact
@@ -67,9 +67,9 @@ def check_atomic_contract_reads(tmp_path, transition):
         if transition != "start":
             tasks.start(root, owner, contract(owner, ["shared.md"]))
             tasks.start(root, name, contract(name, ["shared.md"]))
-            tasks.complete(root, owner)
+            task_runtime.complete(root, owner)
         if transition == "complete":
-            tasks.refresh(root, name)
+            task_runtime.refresh(root, name)
         if transition == "resume":
             tasks.suspend(root, name, "fixture stop")
         before = tasks.contracts(root)
@@ -93,10 +93,10 @@ def check_atomic_contract_reads(tmp_path, transition):
         )
         operations = {
             "start": lambda: tasks.start(root, name, contract(name, ["shared.md"])),
-            "refresh": lambda: tasks.refresh(root, name),
-            "complete": lambda: tasks.complete(root, name),
+            "refresh": lambda: task_runtime.refresh(root, name),
+            "complete": lambda: task_runtime.complete(root, name),
             "suspend": lambda: tasks.suspend(root, name, "fixture stop"),
-            "resume": lambda: tasks.resume(root, name),
+            "resume": lambda: task_runtime.resume(root, name),
         }
         with (
             patch.object(task_runtime, "check_resume_scope"),
@@ -161,7 +161,7 @@ def check_self_recovery_resume():
         with pytest.raises(ValueError, match="outside task scope"):
             # This independent out-of-scope change belongs to another task.
             (root / "other.txt").write_text("preserve")
-            tasks.resume(root, name)
+            task_runtime.resume(root, name)
         assert (root / name).read_bytes() == suspended
         assert (root / "other.txt").read_text() == "preserve"
         assert (root / other).read_bytes() == other_contract

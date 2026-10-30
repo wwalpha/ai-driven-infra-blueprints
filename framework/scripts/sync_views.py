@@ -1,11 +1,11 @@
 """Validate a fixed Markdown snapshot with the existing scoped validator."""
 
-import importlib.util
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
+import validation.runner
 import validation_scope as _imports_validation_scope
 from aws_mapping_display import _validation_projection_scope
 from design.document import DesignIndex
@@ -30,15 +30,10 @@ def saved_design_validation(root, entry):
 
 def view_validator(stage: Path, root: Path, definitions_root=None):
     definitions_root = definitions_root or definition_root(root)
-    spec = importlib.util.spec_from_file_location(
-        "blueprint_view_validator", Path(__file__).with_name("validate-blueprint.py")
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    validator = module.Validator(
+    validator = validation.runner.Validator(
         stage, definitions_root=definitions_root, model_validation="change"
     )
-    validator.schema_catalog = module.DesignSchemaCatalog(definitions_root)
+    validator.schema_catalog = validation.runner.DesignSchemaCatalog(definitions_root)
     return validator
 
 

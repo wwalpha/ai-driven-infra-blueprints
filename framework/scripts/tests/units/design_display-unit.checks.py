@@ -46,10 +46,10 @@ from support.model_reference_fixtures import (
 )
 from support.model_sources import catalog_display
 from support.pytest_cli import run
-from support.validator import load
 from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context
 from validation import design, design_links, design_tables
+from validation import runner as validation_runner
 from validation.diagnostics import (
     ArtifactReferences,
     Diagnostic,
@@ -1508,9 +1508,7 @@ def test_markdown_projection_schema(
     row = f"desired.row.001-{len(rows):03d}.valueShape"
     values[row] = shape
     markdown = generate_markdown(path, values, FRAMEWORK)
-    validator = load("validate-blueprint").Validator(
-        tmp_path, definitions_root=FRAMEWORK
-    )
+    validator = validation_runner.Validator(tmp_path, definitions_root=FRAMEWORK)
     validator.design_sources = {path: values}
     validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
     with (
@@ -1557,9 +1555,7 @@ def test_markdown_ambiguous_shape_is_not_silently_validated(tmp_path):
     )
     values["desired.row.001-004.valueShape"] = "projection"
     markdown = generate_markdown(path, values, FRAMEWORK)
-    validator = load("validate-blueprint").Validator(
-        tmp_path, definitions_root=FRAMEWORK
-    )
+    validator = validation_runner.Validator(tmp_path, definitions_root=FRAMEWORK)
     validator.design_sources = {path: values}
     validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
     with (

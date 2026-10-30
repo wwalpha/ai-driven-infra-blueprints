@@ -12,7 +12,7 @@ from model.validations.naming import NamingRuleIndex
 from task_contract_core import task_read_scope
 from utils.input_cache import input_scope
 from utils.reference_contracts import reference_error
-from utils.script_loader import module
+from validation import runner as validator_module
 from validation.diagnostics import Diagnostic
 from validation.findings import Findings, check_metadata, finish_result
 
@@ -43,7 +43,6 @@ def mechanical(
 ):
     """Run service diagnostics without PASS caches, contract/deploy or full-loop checks."""
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-    validator_module = module("validate-blueprint.py", "issues_validator")
     validator = validator_module.Validator(
         root,
         scope,
@@ -390,11 +389,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         )
     except Exception as error:
         if not validators:
-            validators.append(
-                module("validate-blueprint.py", "issues_validator").Validator(
-                    root, scope
-                )
-            )
+            validators.append(validator_module.Validator(root, scope))
         validator = validators[0]
         validator.findings.processing_failure("mechanical", scope, error)
         errors, diagnostics = validator.errors, ""

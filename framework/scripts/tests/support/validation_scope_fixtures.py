@@ -23,6 +23,7 @@ from design.layout_schema import resource_anchor
 from model.files import read_model
 from support.model_sources import write_model
 from support.validator import load
+from validation import runner as validation_runner
 from validation_cache import PassCache
 from validation_scope import active_scope, scoped_files
 
@@ -31,7 +32,7 @@ if not __debug__:
 
 ROOT = Path(__file__).resolve().parents[4]
 
-VALIDATOR = load("validate-blueprint")
+VALIDATOR = validation_runner
 
 SYNC = load("sync-model")
 

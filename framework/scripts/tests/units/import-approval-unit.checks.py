@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 import import_guard
 import model.format as _imports_model_format
+import model.importing.evidence as import_evidence
 import pytest
 from model.format import serialize
 from model.importing import approval, evidence
@@ -332,7 +333,7 @@ def check_local_claim_cannot_replace_review_binding(tmp_path, claim):
     (tmp_path / "approval.json").write_text(json.dumps(claim))
     before = {p: p.read_bytes() for p in tmp_path.iterdir()}
     with pytest.raises(ValueError, match="Review binding"):
-        import_guard.record_import(tmp_path, {}, evidence, {}, review_binding=claim)
+        import_evidence.record_import(tmp_path, {}, evidence, {}, review_binding=claim)
     assert {p: p.read_bytes() for p in tmp_path.iterdir()} == before
 
 
@@ -354,7 +355,7 @@ def check_alternate_source_guard_rejects_legacy_receipt(tmp_path):
             return_value={"model/dev/cde/vpc.properties"},
         ),
         patch.object(
-            import_guard,
+            import_evidence,
             "read_proof",
             side_effect=ValueError("IMPORT change has no verified /import evidence"),
         ) as receipt,

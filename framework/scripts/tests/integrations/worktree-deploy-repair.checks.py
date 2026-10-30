@@ -28,8 +28,8 @@ from support.deploy_controller_fixtures import (
     invoke,
 )
 from support.worktree_deploy_fixtures import seed
-from task_contract import complete, resume
 from task_contract_core import selected_task, start, suspend
+from task_contract_runtime import complete, resume
 from utils.local_evidence import evidence_store, write_sealed
 
 if not __debug__:

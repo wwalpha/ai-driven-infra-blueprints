@@ -34,6 +34,7 @@ from model.display import display_rows, row_table
 from support.model_sources import write_model
 from support.pytest_cli import run
 from support.validator import load
+from validation import runner as validation_runner
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -43,7 +44,7 @@ pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 
-VALIDATOR = load("validate-blueprint")
+VALIDATOR = validation_runner
 
 KMS = """# KMS 詳細設計
 

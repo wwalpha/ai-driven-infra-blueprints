@@ -17,7 +17,6 @@ from unittest.mock import Mock, patch
 
 import model.sources as _imports_model_sources
 import pytest
-import task_contract as transitions
 import task_contract_core as tasks
 import task_contract_runtime as task_runtime
 import utils.input_cache as _imports_input_cache
@@ -509,19 +508,19 @@ def check_completed_legacy_and_paths(tmp_path):
         root = tmp_path
         old = "tasks/old.md"
         new = "tasks/new.md"
-        transitions.start(root, old, transition_contract(old, ["README.md", "old.md"]))
+        tasks.start(root, old, transition_contract(old, ["README.md", "old.md"]))
         (root / old).write_text(
             transition_contract(old, ["README.md", "old.md"], state="completed")
         )
-        transitions.start(root, new, transition_contract(new, ["README.md"]))
-        assert transitions.task_path(root) == root / new
+        tasks.start(root, new, transition_contract(new, ["README.md"]))
+        assert tasks.task_path(root) == root / new
         _ = {old, new, "README.md", "old.md", "tasks/removed.md"}
         for name in (old, new):
             (root / name).unlink()
-        assert transitions.task_path(root, required=False) is None
-        assert transitions.task_revision(root) == (None, None)
-        blocked(lambda: transitions.task_path(root), "selected task contract required")
-        blocked(lambda: transitions.status("## Task contract\n"), "Task status")
+        assert tasks.task_path(root, required=False) is None
+        assert tasks.task_revision(root) == (None, None)
+        blocked(lambda: tasks.task_path(root), "selected task contract required")
+        blocked(lambda: tasks.status("## Task contract\n"), "Task status")
         for value in (
             "../escape",
             "/tmp/escape",
@@ -534,30 +533,30 @@ def check_completed_legacy_and_paths(tmp_path):
             ".",
         ):
             blocked(
-                lambda value=value: transitions.start(
+                lambda value=value: tasks.start(
                     root, new, transition_contract(new, [value])
                 ),
                 "exact repository-relative path",
             )
         (root / "linked").symlink_to(root / "elsewhere")
         blocked(
-            lambda: transitions.start(
+            lambda: tasks.start(
                 root, new, transition_contract(new, ["linked/file.md"])
             ),
             "symlinks",
         )
         blocked(
-            lambda: transitions.start(root, new, transition_contract(new, [old])),
+            lambda: tasks.start(root, new, transition_contract(new, [old])),
             "another contract",
         )
         blocked(
-            lambda: transitions.start(
+            lambda: tasks.start(
                 root, new, transition_contract(new, ["file.md", "file.md"])
             ),
             "duplicate paths",
         )
         blocked(
-            lambda: transitions.start(
+            lambda: tasks.start(
                 root, new, transition_contract(new, ["file.md"], state="paused")
             ),
             "Task status",
@@ -571,91 +570,87 @@ def check_suspend_and_resume(tmp_path):
     ):
         root = tmp_path
         first, second = "tasks/first.md", "tasks/second.md"
-        transitions.start(
-            root, first, transition_contract(first, ["shared.md", "own.md"])
-        )
-        blocked(lambda: transitions.suspend(root, first, " "), "concrete reason")
-        assert transitions.suspend(
+        tasks.start(root, first, transition_contract(first, ["shared.md", "own.md"]))
+        blocked(lambda: tasks.suspend(root, first, " "), "concrete reason")
+        assert tasks.suspend(
             root, first, "other task: schema failure in model/dev/cde/ec2.properties"
         )
         saved = (root / first).read_bytes()
-        assert transitions.status(saved.decode()) == "suspend"
+        assert tasks.status(saved.decode()) == "suspend"
         assert "schema failure in model/dev/cde/ec2.properties" in saved.decode()
-        assert transitions.task_path(root, required=False) is None
+        assert tasks.task_path(root, required=False) is None
         assert active_scope(root) == set()
-        with patch.dict(os.environ, {transitions.SELECTOR: first}):
-            blocked(lambda: transitions.task_path(root), "suspend task cannot execute")
-        assert transitions.contract_path(root, first) == root / first
+        with patch.dict(os.environ, {tasks.SELECTOR: first}):
+            blocked(lambda: tasks.task_path(root), "suspend task cannot execute")
+        assert tasks.contract_path(root, first) == root / first
         assert active_scope(root, contract_file=first) == set()
         blocked(
             lambda: active_scope(root, task_file=first), "suspend task cannot execute"
         )
         blocked(
-            lambda: transitions.task_revision(root, first),
+            lambda: tasks.task_revision(root, first),
             "suspend task cannot execute",
         )
         blocked(
-            lambda: transitions.contract_path(root, "../first.md"),
+            lambda: tasks.contract_path(root, "../first.md"),
             "invalid task selector",
         )
-        blocked(lambda: transitions.contract_path(root, "tasks/missing.md"), "missing")
+        blocked(lambda: tasks.contract_path(root, "tasks/missing.md"), "missing")
         saved = (root / first).read_bytes()
         (root / "shared.md").symlink_to(root / "elsewhere")
-        blocked(lambda: transitions.contract_path(root, first), "symlinks")
+        blocked(lambda: tasks.contract_path(root, first), "symlinks")
         (root / "shared.md").unlink()
         (root / first).write_text(
             saved.decode().replace("## Modified files", "## Missing files")
         )
-        blocked(
-            lambda: transitions.contract_path(root, first), "missing or duplicate paths"
-        )
+        blocked(lambda: tasks.contract_path(root, first), "missing or duplicate paths")
         (root / first).write_bytes(saved)
-        transitions.start(root, second, transition_contract(second, ["shared.md"]))
-        assert transitions.task_path(root) == root / second
-        transitions.resume(root, first)
+        tasks.start(root, second, transition_contract(second, ["shared.md"]))
+        assert tasks.task_path(root) == root / second
+        task_runtime.resume(root, first)
         assert "## Suspension reason" not in (root / first).read_text()
-        with patch.dict(os.environ, {transitions.SELECTOR: first}):
-            transitions.task_path(root)
-        transitions.suspend(root, first, "own check failed")
+        with patch.dict(os.environ, {tasks.SELECTOR: first}):
+            tasks.task_path(root)
+        tasks.suspend(root, first, "own check failed")
         saved = (root / first).read_bytes()
         other = (root / second).read_bytes()
-        assert not transitions.suspend(root, first, "overwrite")
+        assert not tasks.suspend(root, first, "overwrite")
         assert (root / first).read_bytes() == saved and (
             root / second
         ).read_bytes() == other
-        transitions.suspend(
-            root, second, "own acceptance check failed: changed:shared.md"
-        )
-        transitions.resume(root, first)
-        assert transitions.status((root / first).read_text()) == "running"
+        tasks.suspend(root, second, "own acceptance check failed: changed:shared.md")
+        task_runtime.resume(root, first)
+        assert tasks.status((root / first).read_text()) == "running"
         assert "## Suspension reason" not in (root / first).read_text()
-        transitions.resume(root, second)
+        task_runtime.resume(root, second)
         # Invalid other contracts cannot prevent suspension of the explicitly selected task.
         (root / second).write_text("invalid contract")
-        assert transitions.suspend(root, first, "invalid contract: tasks/second.md")
+        assert tasks.suspend(root, first, "invalid contract: tasks/second.md")
         blocked(
-            lambda: transitions.status(
+            lambda: tasks.status(
                 transition_contract(first, ["shared.md"], state="suspend")
             ),
             "Suspension reason",
         )
         # A reason is diagnostic text, even if an error contains Markdown headings.
         (root / second).unlink()
-        transitions.resume(root, first)
-        transitions.suspend(root, first, "error\n## Modified files\n- `unexpected.md`")
-        assert transitions.paths_in(
-            (root / first).read_text(), "## Modified files"
-        ) == {first, "shared.md", "own.md"}
+        task_runtime.resume(root, first)
+        tasks.suspend(root, first, "error\n## Modified files\n- `unexpected.md`")
+        assert tasks.paths_in((root / first).read_text(), "## Modified files") == {
+            first,
+            "shared.md",
+            "own.md",
+        }
 
 
 def check_admission_selection(tmp_path, monkeypatch):
-    monkeypatch.delenv(transitions.SELECTOR, raising=False)
+    monkeypatch.delenv(tasks.SELECTOR, raising=False)
     first, second = "tasks/first.md", "tasks/second.md"
-    transitions.start(tmp_path, first, transition_contract(first, ["new/file.md"]))
-    assert transitions.task_path(tmp_path) == tmp_path / first
+    tasks.start(tmp_path, first, transition_contract(first, ["new/file.md"]))
+    assert tasks.task_path(tmp_path) == tmp_path / first
     assert active_scope(tmp_path) == set()
     before = (tmp_path / first).read_bytes()
-    transitions.start(
+    tasks.start(
         tmp_path,
         second,
         transition_contract(
@@ -663,20 +658,18 @@ def check_admission_selection(tmp_path, monkeypatch):
         ),
     )
     assert (tmp_path / first).read_bytes() == before
-    blocked(lambda: transitions.task_path(tmp_path), "multiple running tasks")
-    monkeypatch.setenv(transitions.SELECTOR, second)
+    blocked(lambda: tasks.task_path(tmp_path), "multiple running tasks")
+    monkeypatch.setenv(tasks.SELECTOR, second)
     assert active_scope(tmp_path) == {("dev", "cde", "ec2")}
-    blocked(lambda: transitions.task_path(tmp_path, "tasks/missing.md"), "missing")
-    blocked(
-        lambda: transitions.task_path(tmp_path, "../first.md"), "invalid task selector"
-    )
+    blocked(lambda: tasks.task_path(tmp_path, "tasks/missing.md"), "missing")
+    blocked(lambda: tasks.task_path(tmp_path, "../first.md"), "invalid task selector")
     before = (tmp_path / second).read_bytes()
-    transitions.refresh(tmp_path, second)
+    task_runtime.refresh(tmp_path, second)
     assert (tmp_path / second).read_bytes() == before
     with patch.object(task_runtime, "Validator") as validator:
         validator.return_value.report.return_value = 0
-        transitions.complete(tmp_path, first)
-        transitions.complete(tmp_path, second)
+        task_runtime.complete(tmp_path, first)
+        task_runtime.complete(tmp_path, second)
 
 
 def _callback_check_report_commit_independence_git(tmp_path, /, *args):
@@ -791,7 +784,7 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
         "model.importing.repository.task_start_commit",
         side_effect=AssertionError("report completion used a baseline"),
     ):
-        transitions.complete(tmp_path, name)
+        task_runtime.complete(tmp_path, name)
     assert tasks.status((tmp_path / name).read_text()) == "completed"
 
 
@@ -806,9 +799,9 @@ def check_suspended_scope_preflight(tmp_path, monkeypatch, state):
     git("add", ".")
     git("commit", "--quiet", "-m", "initial")
     name, other = "tasks/self.md", "tasks/other.md"
-    transitions.start(tmp_path, name, transition_contract(name, ["owned.txt"]))
-    transitions.start(tmp_path, other, transition_contract(other, ["other.txt"]))
-    transitions.suspend(tmp_path, name, "scope: outside.txt")
+    tasks.start(tmp_path, name, transition_contract(name, ["owned.txt"]))
+    tasks.start(tmp_path, other, transition_contract(other, ["other.txt"]))
+    tasks.suspend(tmp_path, name, "scope: outside.txt")
     before = (tmp_path / name).read_bytes()
     other_before = (tmp_path / other).read_bytes()
     path = tmp_path / ("untracked.txt" if state == "untracked" else "outside.txt")
@@ -819,9 +812,9 @@ def check_suspended_scope_preflight(tmp_path, monkeypatch, state):
             "original"
         )  # Worktree restoration alone leaves the index dirty.
     with pytest.raises(ValueError, match="outside task scope"):
-        transitions.check_resume_scope(tmp_path, name)
+        task_runtime.check_resume_scope(tmp_path, name)
     with pytest.raises(ValueError, match="outside task scope"):
-        transitions.resume(tmp_path, name)
+        task_runtime.resume(tmp_path, name)
     assert (tmp_path / name).read_bytes() == before
     assert (tmp_path / other).read_bytes() == other_before
     assert path.read_text() == (
@@ -834,10 +827,10 @@ def check_suspended_scope_preflight(tmp_path, monkeypatch, state):
         path.unlink()
     else:
         path.write_text("original")
-    transitions.check_resume_scope(tmp_path, name)
+    task_runtime.check_resume_scope(tmp_path, name)
     assert (tmp_path / name).read_bytes() == before
     with monkeypatch.context() as context:
-        context.setenv(transitions.SELECTOR, name)
+        context.setenv(tasks.SELECTOR, name)
         with pytest.raises(ValueError, match="suspend task cannot execute"):
             TaskValidation(tmp_path, Findings(tmp_path)).check_task_scope()
     (tmp_path / name).write_text(
@@ -845,28 +838,28 @@ def check_suspended_scope_preflight(tmp_path, monkeypatch, state):
     )
     (tmp_path / "extra.txt").write_text("undeclared")
     with pytest.raises(ValueError, match="not in Modified files"):
-        transitions.check_resume_scope(tmp_path, name)
+        task_runtime.check_resume_scope(tmp_path, name)
     (tmp_path / "extra.txt").unlink()
     (tmp_path / name).write_text(
         before.decode().replace("- [R1] `changed:owned.txt`", "")
     )
     with pytest.raises(ValueError, match="no Acceptance check"):
-        transitions.check_resume_scope(tmp_path, name)
-    assert transitions.status((tmp_path / name).read_text()) == "suspend"
+        task_runtime.check_resume_scope(tmp_path, name)
+    assert tasks.status((tmp_path / name).read_text()) == "suspend"
 
 
 def check_suspended_report_scope_exception(tmp_path):
     name = "tasks/report.md"
     report = "issues/dev/cde/issues.md"
-    transitions.start(
+    tasks.start(
         tmp_path,
         name,
         transition_contract(name, [report], kind="migration", scope="dev/cde/s3"),
     )
-    transitions.suspend(tmp_path, name, "report check")
+    tasks.suspend(tmp_path, name, "report check")
     (tmp_path / "other.txt").write_text("other task")
     before = (tmp_path / name).read_bytes()
-    transitions.check_resume_scope(tmp_path, name)
+    task_runtime.check_resume_scope(tmp_path, name)
     assert (tmp_path / name).read_bytes() == before
     assert (tmp_path / "other.txt").read_text() == "other task"
 
@@ -920,7 +913,7 @@ def approval_task(request, tmp_path, approval_repository_seed):
         git(root, "commit", "-qm", "existing Model")
     name = "tasks/model-acceptance.md"
     relative = source.relative_to(root).as_posix()
-    transitions.start(
+    tasks.start(
         root,
         name,
         transition_contract(
@@ -1070,7 +1063,7 @@ def check_completion_requires_acceptance(approval_task):
         validator.return_value.report.return_value = 1
         validator.return_value.findings.failures.return_value = task.findings.failures()
         with pytest.raises(ValueError, match="Task Acceptance FAIL"):
-            transitions.complete(root, task.contract_file)
+            task_runtime.complete(root, task.contract_file)
     assert tasks.status((root / task.contract_file).read_text()) == "running"
 
 
@@ -1084,7 +1077,7 @@ def check_import_completion_skips_common_validator():
             "## Task contract\n",
             "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
         )
-        transitions.start(root, name, text)
+        tasks.start(root, name, text)
         (root / "file.txt").write_text("changed", encoding="utf-8")
         with (
             patch.object(task_runtime._imports_import_guard, "require_import_changes"),
@@ -1094,7 +1087,7 @@ def check_import_completion_skips_common_validator():
                 side_effect=AssertionError("common Validator invoked"),
             ),
         ):
-            transitions.complete(root, name)
+            task_runtime.complete(root, name)
         assert tasks.status((root / name).read_text(encoding="utf-8")) == "completed"
 
 
@@ -1113,13 +1106,13 @@ def check_import_completion_rejects_invalid_task(case):
         )
         if case == "scope":
             text = text.replace("- `dev/team/vpc`", "- `dev/team/vpc-endpoint`")
-        transitions.start(root, name, text)
+        tasks.start(root, name, text)
         if case != "acceptance":
             (root / "file.txt").write_text("changed", encoding="utf-8")
         if case == "outside":
             (root / "outside.txt").write_text("outside", encoding="utf-8")
         if case == "suspend":
-            transitions.suspend(root, name, "synthetic failure")
+            tasks.suspend(root, name, "synthetic failure")
         failure = ValueError("missing sealed evidence") if case == "missing" else None
         with patch.object(
             task_runtime._imports_import_guard,
@@ -1127,7 +1120,7 @@ def check_import_completion_rejects_invalid_task(case):
             side_effect=failure,
         ):
             with pytest.raises(ValueError):
-                transitions.complete(root, name)
+                task_runtime.complete(root, name)
         assert tasks.status((root / name).read_text()) == (
             "suspend" if case == "suspend" else "running"
         )
@@ -1143,9 +1136,9 @@ def check_suspended_import_guard_is_read_only():
             "## Task contract\n",
             "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
         )
-        transitions.start(root, name, text)
+        tasks.start(root, name, text)
         (root / "file.txt").write_text("changed", encoding="utf-8")
-        transitions.suspend(root, name, "synthetic failure")
+        tasks.suspend(root, name, "synthetic failure")
         with patch.object(
             task_runtime._imports_import_guard, "require_import_changes"
         ) as guard:
@@ -1171,7 +1164,7 @@ def check_import_registered_acceptance(outcome, integration):
             "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
         )
         text = text.replace("`changed:file.txt`", "`check:framework.rule-readings`")
-        transitions.start(root, name, text)
+        tasks.start(root, name, text)
         (root / "file.txt").write_text("changed")
         handler = Mock(
             return_value={"status": "FAIL", "reason": "failed"}
@@ -1256,7 +1249,7 @@ def check_import_path_acceptance_is_enforced(check):
             "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
         )
         text = text.replace("changed:file.txt", check)
-        transitions.start(root, name, text)
+        tasks.start(root, name, text)
         (root / "file.txt").write_text("changed")
         with patch.object(task_runtime._imports_import_guard, "require_import_changes"):
             with pytest.raises(
@@ -1288,7 +1281,7 @@ def check_import_fixed_write_scope(path, allowed):
             "## Task contract\n",
             "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
         )
-        transitions.start(root, name, text)
+        tasks.start(root, name, text)
         destination = root / path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("changed")
@@ -1309,7 +1302,7 @@ def check_import_rejects_committed_foreign_view():
             "## Task contract\n",
             "## Task contract\n- Workflow: `import`\n- IMPORT target: `dev/team/vpc`\n",
         )
-        transitions.start(root, name, text)
+        tasks.start(root, name, text)
         baseline = git(root, "rev-parse", "HEAD")
         destination = root / path
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1481,7 +1474,7 @@ def check_registration_valid_declarations(tmp_path, kind, phase):
     tasks.start(tmp_path, name, text)
     assert (tmp_path / name).read_text(encoding="utf-8") == text
     assert not (tmp_path / "owned.txt").exists()  # Acceptance execution is deferred.
-    transitions.refresh(tmp_path, name)
+    task_runtime.refresh(tmp_path, name)
 
 
 @pytest.mark.parametrize("state", ["running", "suspend", "completed"])
@@ -1499,11 +1492,11 @@ def check_registration_preserves_legacy_diagnosis(tmp_path, state):
         assert tasks.task_snapshot(root, name, executable=False).status == state
         assert tasks.contracts(root)[name] == text
         with pytest.raises(ValueError):
-            transitions.refresh(root, name)
+            task_runtime.refresh(root, name)
         assert path.read_text(encoding="utf-8") == text
         if state == "suspend":
             with pytest.raises(ValueError, match="no Acceptance check"):
-                transitions.check_resume_scope(root, name)
+                task_runtime.check_resume_scope(root, name)
             with pytest.raises(ValueError, match="no Acceptance check"):
-                transitions.resume(root, name)
+                task_runtime.resume(root, name)
             assert path.read_text(encoding="utf-8") == text

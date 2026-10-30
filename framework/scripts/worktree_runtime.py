@@ -13,7 +13,7 @@ import deploy.contracts as _imports_deploy_contracts
 import deploy.handoff as _imports_deploy_handoff
 import model.core as _imports_model_core
 import model.sources as _imports_model_sources
-import task_contract as tasks
+import task_contract_core as tasks
 import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.json_format as _imports_utils_json_format
 import validation.findings as _imports_validation_findings

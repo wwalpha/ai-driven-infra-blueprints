@@ -28,6 +28,7 @@ from model.format import INDEX as INDEX_HEADER
 from model.render import markdown_for
 from support.model_sources import write_model
 from support.validator import load
+from validation import runner as validation_runner
 from validation_scope import scoped_files
 
 if not __debug__:
@@ -37,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 SYNC = load("sync-model")
 
-VALIDATOR = load("validate-blueprint")
+VALIDATOR = validation_runner
 
 DEPLOY = load("cloudformation-deploy")
 

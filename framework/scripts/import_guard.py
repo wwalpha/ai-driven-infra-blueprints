@@ -8,9 +8,7 @@ import tempfile
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
-import model.adapters.task as _compat_model_adapters_task
 import model.core as _imports_model_core
-import model.importing.evidence as _compat_model_importing_evidence
 import model.importing.evidence as _dependency_model_importing_evidence
 import model.importing.repository as _imports_model_importing_repository
 import model.operations as _imports_model_operations
@@ -19,7 +17,6 @@ import task_contract_core as _imports_task_contract
 import utils.sealed_evidence as _sealed_evidence
 import validation_scope as _imports_validation_scope
 from model.change_scope import index_stage
-from model.configuration import resource_configuration
 from sync_files import save_files
 from task_contract_core import (
     contract_path,
@@ -326,9 +323,11 @@ def require_import_changes(
         if not sources and generation:
             return
         proof = (
-            read_proof(root, contract_file=contract_file)
+            _dependency_model_importing_evidence.read_proof(
+                root, contract_file=contract_file
+            )
             if contract_file is not None
-            else read_proof(root)
+            else _dependency_model_importing_evidence.read_proof(root)
         )
         expected = proof["sources"]
         if sources - expected.keys():
@@ -406,62 +405,4 @@ def managed_source_write(root: Path, task_file: str) -> bool:
         text
         and model_operation(text) is not None
         and task_start_commit(root, task_file) is not None
-    )
-
-
-resource_config = resource_configuration
-
-
-def source_write_context(root, task_file):
-    return _compat_model_adapters_task.source_write_context(root, task_file)
-
-
-def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, source_sets):
-    return _compat_model_importing_evidence.acquired(
-        root,
-        identity,
-        ctx,
-        records,
-        sources,
-        consumers,
-        dry_run,
-        source_sets=source_sets,
-    )
-
-
-def acquisition_complete(value):
-    return _compat_model_importing_evidence.acquisition_complete(value)
-
-
-def copy_import_proof(root, snapshot):
-    return _compat_model_importing_evidence.copy_import_proof(root, snapshot)
-
-
-def discard_acquisition(root, file):
-    return _compat_model_importing_evidence.discard_acquisition(root, file)
-
-
-def discard_import_proof(root, task_name):
-    return _compat_model_importing_evidence.discard_import_proof(root, task_name)
-
-
-def finish_import(root, model=None, markdown=None):
-    return _compat_model_importing_evidence.finish_import(root, model, markdown)
-
-
-def read_acquisition(root, file, identity, dry_run):
-    return _compat_model_importing_evidence.read_acquisition(
-        root, file, identity, dry_run
-    )
-
-
-def record_import(root, output, evidence, plan, complete=True, *, review_binding=None):
-    return _compat_model_importing_evidence.record_import(
-        root, output, evidence, plan, complete, review_binding=review_binding
-    )
-
-
-def read_proof(root, *, contract_file=None):
-    return _dependency_model_importing_evidence.read_proof(
-        root, contract_file=contract_file
     )

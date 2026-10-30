@@ -20,7 +20,8 @@ from design.layout import expanded_display_rows
 from design.layout_schema import ALIGNMENT, HEADER
 from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
 from generation_inputs import GenerationInputs
-from import_guard import require_import_changes, resource_config
+from import_guard import require_import_changes
+from model.configuration import resource_configuration
 from model.core import entries as entries
 from model.core import literal, resource_row_index
 from model.display import display_rows
@@ -36,7 +37,6 @@ from model.operations import (
     ConfigurationIndex,
     _observed_index,
     preserve_fixed_fields,
-    resource_configuration,
 )
 from model.projection import identifier_outputs
 from model.references import declarations, incoming
@@ -785,7 +785,10 @@ def check_import_reference_observation_sync_remains_guarded(tmp_path):
     resolver.warnings.clear()
     resolver.verify_resource(updated, "001", require_links=False, observed_only=True)
     assert not resolver.warnings
-    old, new = resource_config(source, "001"), resource_config(updated, "001")
+    old, new = (
+        resource_configuration(source, "001"),
+        resource_configuration(updated, "001"),
+    )
     assert old["rows"] == new["rows"] and old["resource"] == new["resource"]
     assert document_sha256(old) != document_sha256(new)
     (tmp_path / ".git").mkdir()

@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-import task_contract as tasks
+import task_contract_runtime as tasks
 import task_contract_runtime as transitions
 import worktree_checkpoint as checkpoints
 import worktree_state as ws

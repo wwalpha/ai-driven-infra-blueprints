@@ -15,12 +15,13 @@ from unittest.mock import patch
 
 import import_guard
 import model.dependency_index as dependency_index
+import model.importing.evidence as import_evidence
 import model.sources
 import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
 import sync_files
 import sync_runtime
-import task_contract
+import task_contract_runtime as task_contract
 from model.core import entries
 from model.format import parse, serialize
 from model.identity import COUNTERS, allocate
@@ -297,7 +298,7 @@ def check_optional_profile(tmp_path):
         resource_types=["Logs.LogGroup"],
     )
     assert acquired["connection"]["awsProfile"] is None
-    import_guard.discard_acquisition(root, acquired["evidence"])
+    import_evidence.discard_acquisition(root, acquired["evidence"])
 
 
 def check_explicit_no_profile(tmp_path):
@@ -330,7 +331,7 @@ def check_source_race(tmp_path):
     with pytest.raises(ValueError, match="sources changed"):
         publish_fixture(root, acquired)
     assert snapshot(root) == before
-    import_guard.discard_acquisition(root, acquired["evidence"])
+    import_evidence.discard_acquisition(root, acquired["evidence"])
 
 
 def check_shared_property_and_bindings(tmp_path):
@@ -374,7 +375,7 @@ def check_foreign_source_writes_rejected(tmp_path):
     ):
         publish_fixture(root, acquired)
     assert snapshot(root) == before
-    import_guard.discard_acquisition(root, acquired["evidence"])
+    import_evidence.discard_acquisition(root, acquired["evidence"])
 
 
 def check_repeat_without_reformat(tmp_path):
@@ -465,7 +466,7 @@ def check_consumer_set_race(tmp_path):
     ):
         publish_fixture(root, acquired)
     assert snapshot(root) == before
-    import_guard.discard_acquisition(root, acquired["evidence"])
+    import_evidence.discard_acquisition(root, acquired["evidence"])
 
 
 def _callback_check_source_transaction_rollback_fail_after_first(
@@ -635,7 +636,7 @@ def check_evidence_and_display_recovery(tmp_path):
         )
     assert (
         source_files(root) == before
-        and import_guard.read_proof(root)["markdown"] == "generated"
+        and import_evidence.read_proof(root)["markdown"] == "generated"
     )
     assert not (root / ".blueprint").exists()
 
@@ -667,10 +668,10 @@ def check_partial_acquisition_cannot_complete(tmp_path):
     assert (
         acquired["inventory"]["Config.DeliveryChannel"]["status"] == "permission_denied"
     )
-    sealed = import_guard.read_acquisition(
+    sealed = import_evidence.read_acquisition(
         root, Path(acquired["evidence"]), ("dev", TARGET, "config"), False
     )
-    assert sealed["version"] == 3 and not import_guard.acquisition_complete(sealed)
+    assert sealed["version"] == 3 and not import_evidence.acquisition_complete(sealed)
     stage(root, acquired, {}, excluded=exclusions(acquired, []))
     count = len(original.calls)
     with patch.object(
@@ -680,7 +681,7 @@ def check_partial_acquisition_cannot_complete(tmp_path):
     assert result["status"] == "incomplete" and len(original.calls) == count
     assert (
         source_files(root) == before
-        and import_guard.read_proof(root)["complete"] is False
+        and import_evidence.read_proof(root)["complete"] is False
     )
 
 
@@ -842,7 +843,7 @@ def check_route53_acquired_identity_evidence(tmp_path):
         item[0]["value"] == "Z1" and item[1]["value"] == "example.com"
         for item in components
     )
-    sealed = import_guard.read_acquisition(
+    sealed = import_evidence.read_acquisition(
         root, Path(acquired["evidence"]), ("dev", ACCOUNT, "route53"), False
     )
     assert [record["identityComponents"] for record in sealed["records"]] == components
@@ -881,7 +882,7 @@ def check_route53_acquired_identity_evidence(tmp_path):
     result = publish_fixture(root, acquired, "route53")
     assert result["status"] == "complete", result
     assert load_model(path).authoritative["desired.row.001-004.value"] == "`blue`"
-    assert import_guard.read_proof(root)["complete"] is True
+    assert import_evidence.read_proof(root)["complete"] is True
 
 
 def _callback_check_reference_publication_counted(
@@ -1254,7 +1255,7 @@ def check_mixed_add_refresh_single_publication(tmp_path, fail):
                 publish_fixture(root, acquired)
             assert source_files(root) == before
             assert not import_guard.proof_path(root).exists()
-            import_guard.discard_acquisition(root, acquired["evidence"])
+            import_evidence.discard_acquisition(root, acquired["evidence"])
         else:
             result = publish_fixture(root, acquired)
             assert {item["resource"] for item in result["changes"]} == {"001", "003"}
@@ -1669,12 +1670,12 @@ def check_limited_acquisition_preserves_values_and_completes(tmp_path):
     reviewed = review_fixture(root, acquired, service)
     binding = import_approval.review_binding(
         reviewed["review"],
-        import_guard.read_acquisition(
+        import_evidence.read_acquisition(
             root, Path(acquired["evidence"]), ("dev", ACCOUNT, service), False
         ),
     )
     count = len(cli.calls)
-    sealed = import_guard.read_acquisition(
+    sealed = import_evidence.read_acquisition(
         root, Path(acquired["evidence"]), ("dev", ACCOUNT, service), False
     )
     (Path(acquired["evidence"]).parent / "checkpoint.json").write_text(
@@ -1685,7 +1686,7 @@ def check_limited_acquisition_preserves_values_and_completes(tmp_path):
     # The fixture represents consent to this unchanged Review; Python checks integrity only.
     result = m.publish_acquisition(root, "dev", service, acquired["evidence"], ACCOUNT)
     assert result["status"] == "complete" and len(cli.calls) == count
-    proof = import_guard.read_proof(root)
+    proof = import_evidence.read_proof(root)
     assert proof["complete"] and proof["completion"] == {
         "acquisition": True,
         "properties": True,

@@ -21,6 +21,7 @@ from unittest.mock import patch
 import import_guard
 import model.dependency_index as dependency_index
 import model.format as _imports_model_format
+import model.importing.evidence as import_evidence
 import model.sources as _imports_model_sources
 import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
@@ -85,8 +86,8 @@ from support.import_model_fixtures import (
 )
 from support.model_sources import write_model
 from support.model_v2_fixtures import value_snapshot as Expansion
-from task_contract import complete
 from task_contract_core import model_operation, model_refactor, selected_task
+from task_contract_runtime import complete
 from utils import sealed_evidence
 from utils.input_cache import input_context
 from utils.json_format import document_sha256
@@ -1393,10 +1394,10 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
         file.unlink()
     if failure != "none":
         with pytest.raises(ValueError, match="no verified"):
-            import_guard.read_proof(root)
+            import_evidence.read_proof(root)
     else:
-        assert import_guard.read_proof(root) == proof
-        import_guard.discard_import_proof(root, "tasks/example.md")
+        assert import_evidence.read_proof(root) == proof
+        import_evidence.discard_import_proof(root, "tasks/example.md")
         assert not file.exists()
     assert not (root / ".blueprint").exists()
 
@@ -1427,7 +1428,7 @@ def check_acquired_plan_completion(tmp_path, monkeypatch, failure):
         lambda *a, **k: SimpleNamespace(path=tmp_path / name, text=text),
     )
     monkeypatch.setattr(_imports_task_contract, "validate_contract", lambda *a: None)
-    monkeypatch.setattr(import_guard, "read_proof", lambda *a, **k: proof)
+    monkeypatch.setattr(import_evidence, "read_proof", lambda *a, **k: proof)
     expected = {
         "incomplete": "incomplete",
         "unplanned": "no acquired change plan",
@@ -1469,20 +1470,20 @@ def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
     }
     review_proof_fixture(root, proof)
     sealed_evidence.write_sealed(root, import_guard.proof_path(root), proof)
-    import_guard.copy_import_proof(root, snapshot)
+    import_evidence.copy_import_proof(root, snapshot)
     with pytest.raises(ValueError, match="no verified"):
-        import_guard.read_proof(snapshot)
+        import_evidence.read_proof(snapshot)
     assert (
         import_guard.proof_path(root).read_bytes()
         != import_guard.proof_path(snapshot).read_bytes()
     )
-    import_guard.discard_import_proof(snapshot, "tasks/example.md")
+    import_evidence.discard_import_proof(snapshot, "tasks/example.md")
     assert (
         not import_guard.proof_path(snapshot).exists()
-        and import_guard.read_proof(root) == proof
+        and import_evidence.read_proof(root) == proof
     )
     assert not (root / ".blueprint").exists() and not (snapshot / ".blueprint").exists()
-    import_guard.discard_import_proof(root, "tasks/example.md")
+    import_evidence.discard_import_proof(root, "tasks/example.md")
 
 
 def generic_context(service="datazone", resources=None, **kwargs):
@@ -1751,11 +1752,11 @@ def check_inventory_status_and_partial_retention():
         "referenceMeaningVersion": 1,
         "inventory": inventory_for(ctx).statuses,
     }
-    assert not import_guard.acquisition_complete(evidence)
+    assert not import_evidence.acquisition_complete(evidence)
     empty, _ = generic_context()
     assert m.inventory(empty, "datazone", ["DataZone.Domain"]) == []
     assert inventory_for(empty).statuses["DataZone.Domain"]["status"] == "empty"
-    assert import_guard.acquisition_complete(
+    assert import_evidence.acquisition_complete(
         {
             "version": 3,
             "modelFormat": 2,
@@ -1791,7 +1792,7 @@ def check_inventory_status_and_partial_retention():
             "status": "failed",
             "reason": "InvalidInventoryResponse",
         }
-        assert not import_guard.acquisition_complete(
+        assert not import_evidence.acquisition_complete(
             {"version": 3, **FORMAT_FIELDS, "inventory": inventory_for(ctx).statuses}
         )
 
@@ -2217,12 +2218,12 @@ def check_unknown_acquired_identity_rejected():
     with pytest.raises(ValueError, match="identity is unknown"):
         selection_records(selection(), [captured], {}, resource(), schema_for)
     with pytest.raises(ValueError, match="inventory status"):
-        import_guard.acquisition_complete(
+        import_evidence.acquisition_complete(
             {"version": 3, **FORMAT_FIELDS, "inventory": {}}
         )
     for version in (1, 2, 99):
         with pytest.raises(ValueError, match="format is incompatible"):
-            import_guard.acquisition_complete({"version": version})
+            import_evidence.acquisition_complete({"version": version})
 
 
 def check_batch_model_operation(tmp_path):

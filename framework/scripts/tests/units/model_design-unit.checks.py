@@ -74,6 +74,7 @@ from support.model_sources import write_model
 from support.rotation_schedule_fixtures import fixture as rotation_fixture
 from utils.iac_values import cfn_resource_identity
 from utils.json_format import policy_json, validate_aws_document
+from validation import runner as validation_runner
 from validation.design_links import check_design_links as validate_design_links
 from validation.diagnostics import InputValidationError
 from validation.findings import Findings
@@ -2251,7 +2252,7 @@ def check_required_property_parents(tmp_path, missing):
             *row_table(rows),
         ]
     )
-    validator = load("validate-blueprint").Validator(tmp_path, definitions_root=ROOT)
+    validator = validation_runner.Validator(tmp_path, definitions_root=ROOT)
     validator.design_sources = {path: values}
     validator.schema_catalog = DesignSchemaCatalog(ROOT)
     with (
@@ -2331,7 +2332,7 @@ def check_candidate_design_diagnostics(tmp_path):
     ), findings.errors
     path.parent.mkdir(parents=True)
     path.write_text(document, encoding="utf-8")
-    validator = load("validate-blueprint").Validator(tmp_path, definitions_root=ROOT)
+    validator = validation_runner.Validator(tmp_path, definitions_root=ROOT)
     validator.design_sources = {path: values}
     validator.schema_catalog = DesignSchemaCatalog(ROOT)
     with (

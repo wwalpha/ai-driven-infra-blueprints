@@ -20,6 +20,7 @@ import import_guard as guard
 import pytest
 import pytest as _imports_pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
+import task_contract_runtime
 import validation.loop as _imports_validation_loop
 from import_guard import require_import_changes
 from model.adapters.task import edit_write_context
@@ -231,7 +232,7 @@ def _check_import_completion_and_approved_integration():
                     with pytest.raises(
                         ValueError, match="differs from acquired change plan"
                     ):
-                        tasks.complete(target, name)
+                        task_contract_runtime.complete(target, name)
                     path.write_bytes(candidate)
                 else:
                     consumer_path = target / "model/dev/cde/vpc-endpoint.properties"
@@ -240,7 +241,7 @@ def _check_import_completion_and_approved_integration():
                     with pytest.raises(
                         ValueError, match="outside task scope|Modified files"
                     ):
-                        tasks.complete(target, name)
+                        task_contract_runtime.complete(target, name)
                     consumer_path.write_bytes(consumer_before)
                 if suspended:
                     tasks.suspend(target, name, "Synthetic validation failure")
@@ -249,7 +250,7 @@ def _check_import_completion_and_approved_integration():
                         wt.finalize(root, "example")
                     assert tasks.status(contract.read_text()) == "suspend"
                 else:
-                    tasks.complete(target, name)
+                    task_contract_runtime.complete(target, name)
                     approval = None
                 with patch.object(
                     wt.python_env,
@@ -953,7 +954,7 @@ def _check_normal_model_final_candidate():
                     tasks.suspend(
                         target, state["task_file"], "reviewed integration interruption"
                     )
-                    tasks.resume(target, state["task_file"])
+                    task_contract_runtime.resume(target, state["task_file"])
                     resumed = wt.prepare_integration(root, "example")
                     assert resumed.candidate_head == candidate.candidate_head
                     assert resumed.base_commit == candidate.base_commit
@@ -1333,7 +1334,7 @@ def check_model_operation_integration():
                 )
             text += "\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n"
             (target / state["task_file"]).write_text(text)
-            tasks.refresh(target, state["task_file"])
+            task_contract_runtime.refresh(target, state["task_file"])
             for name in sources:
                 shutil.copyfile(candidate / name, target / name)
             with (
@@ -1407,7 +1408,7 @@ def check_model_refactor_integration():
             )
         text += "\n## Validation scope\n- `dev/cde/service-a`\n- `dev/cde/service-b`\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n"
         (target / state["task_file"]).write_text(text)
-        tasks.refresh(target, state["task_file"])
+        task_contract_runtime.refresh(target, state["task_file"])
         with (
             mapping_alias(SCRIPT.parents[2], target),
             tasks.selected_task(target, state["task_file"]),

@@ -31,6 +31,7 @@ from design.policy_tables import (
 from support.pytest_cli import run
 from support.validator import load
 from utils.input_cache import input_scope
+from validation import runner as validation_runner
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -40,7 +41,7 @@ pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 SCRIPTS = Path(__file__).resolve().parents[2]
 
-VALIDATOR = load("validate-blueprint")
+VALIDATOR = validation_runner
 
 
 __all__ = [

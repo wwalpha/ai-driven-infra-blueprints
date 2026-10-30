@@ -38,8 +38,9 @@ from support.design_document_fixtures import (
 )
 from support.rotation_schedule_fixtures import fixture as rotation_fixture
 from support.security_group_tables_fixtures import GENERATED_MODEL
-from support.validator import diagnostics, load
+from support.validator import diagnostics
 from utils.aws_mappings import mapping_alias
+from validation import runner as validation_runner
 from validation.findings import Findings
 
 if not __debug__:
@@ -318,7 +319,7 @@ def check_snapshot():
     aws_mapping_display.MODEL_ONLY | {"S3.Bucket.SourceKeyId"},
 )
 def check_links():
-    module = load("validate-blueprint")
+    module = validation_runner
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         source, target, text, ref = reference_fixture(root)

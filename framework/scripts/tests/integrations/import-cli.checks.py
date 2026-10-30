@@ -11,6 +11,7 @@ import subprocess
 from contextlib import contextmanager
 
 import import_guard
+import model.importing.evidence as import_evidence
 import pytest
 from support.import_model_fixtures import fixture as import_fixture
 from support.import_model_fixtures import (
@@ -111,7 +112,7 @@ def check_cross_process_evidence(tmp_path):
     )
     report = json.loads(result.stdout)
     assert report["model"] == "reflected" and report["markdown"] == "generated"
-    assert import_guard.read_proof(root)["complete"]
+    assert import_evidence.read_proof(root)["complete"]
     # The ignored completion receipt contains hashes, not captured configuration values.
     assert '"retentionInDays"' not in import_guard.proof_path(root).read_text(
         encoding="utf-8"

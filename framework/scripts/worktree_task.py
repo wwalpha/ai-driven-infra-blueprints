@@ -14,7 +14,7 @@ from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
-import task_contract as tasks
+import task_contract_core as tasks
 import worktree_python as python_env
 import worktree_state
 from utils.file_operations import sha
@@ -468,7 +468,7 @@ def _run_model_guard(target, task_file, approved=False, *, sources=None):
         "-B",
         "-c",
         f"import sys, json; from pathlib import Path; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
-        "import task_contract as tasks; from import_guard import require_import_changes; "
+        "import task_contract_core as tasks; from import_guard import require_import_changes; "
         "root = Path.cwd()\n"
         "options = {}\n"
         'if sys.argv[2] == "approved": options["contract_file"] = sys.argv[1]\n'

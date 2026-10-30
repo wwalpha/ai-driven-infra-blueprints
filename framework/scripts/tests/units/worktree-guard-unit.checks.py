@@ -59,7 +59,7 @@ def check_registered_guard_process(tmp_path, capsys, approved, outcome):
     (tmp_path / task).write_text(contract("selected", ["file.txt"]))
     guard_source = """import sys, os
 from pathlib import Path
-import task_contract as tasks
+import task_contract_core as tasks
 def require_import_changes(root, **kwargs):
     assert root == Path.cwd()
     assert tasks.contract_path(root).relative_to(root).as_posix() == sys.argv[1]

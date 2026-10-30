@@ -18,7 +18,6 @@ from support.model_design_fixtures import (
     ROOT,
     SYNC,
     json,
-    load,
     load_model,
     main,
     markdown_for,
@@ -39,6 +38,7 @@ from support.model_design_fixtures import pytestmark as pytestmark
 from support.validator import diagnostics
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.iac_values import cfn_resource_identity
+from validation import runner as validation_runner
 
 from model import dependency_index
 
@@ -113,7 +113,7 @@ def check_route53_endpoint_dns_roundtrip(root, project):
         route[f"observed.row.001-002.{field}"] = value
     path = directory / "route53.md"
     valid = roundtrip(path, route, root)
-    validator_module = load("validate-blueprint")
+    validator_module = validation_runner
     outputs = validator_module.Validator(ROOT).catalog_design_properties()[2]
     errors = _bind_framework_callback(
         _callback_check_route53_endpoint_dns_roundtrip_errors,

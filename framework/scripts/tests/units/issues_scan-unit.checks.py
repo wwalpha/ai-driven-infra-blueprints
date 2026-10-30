@@ -896,9 +896,9 @@ def check_mechanical_accepts_contract_catalog_changes(tmp_path):
     with (
         _exports_support_issues_scan_fixtures.task(tmp_path, ["s3"]),
         patch.object(
-            scan_runner,
-            "module",
-            return_value=SimpleNamespace(Validator=Mock(return_value=validator)),
+            scan_runner.validator_module,
+            "Validator",
+            return_value=validator,
         ),
         patch.multiple(
             validator,

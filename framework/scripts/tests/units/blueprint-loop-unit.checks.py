@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import import_guard
+import model.importing.evidence as import_evidence
 import run_it
 import support.model_design_fixtures as _imports_support_model_design_fixtures
 import utils.aws_mappings as _imports_utils_aws_mappings
@@ -58,6 +59,7 @@ def check_utf8_restart():
     for code in (0, 2, 7, 130):
         namespace = {
             **MODULE.__dict__,
+            "_loop": MODULE,
             "sys": SimpleNamespace(
                 flags=SimpleNamespace(utf8_mode=0),
                 platform="win32",
@@ -1343,7 +1345,7 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
     assert not sealed_evidence.evidence_store(snapshot, create=False).exists()
     assert import_guard.proof_path(root).read_bytes() == saved
     assert not (root / ".blueprint").exists() and not (snapshot / ".blueprint").exists()
-    import_guard.discard_import_proof(root, selected)
+    import_evidence.discard_import_proof(root, selected)
 
 
 @pytest.mark.parametrize("change", ["head", "index", "lock", "windows"])

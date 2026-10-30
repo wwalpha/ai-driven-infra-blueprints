@@ -20,13 +20,14 @@ from design.services.ec2.security_groups import (
 )
 from support.model_sources import write_model
 from support.validator import load
+from validation import runner as validation_runner
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 
-VALIDATOR = load("validate-blueprint")
+VALIDATOR = validation_runner
 
 DESIGN = """# Security Group 詳細設計
 

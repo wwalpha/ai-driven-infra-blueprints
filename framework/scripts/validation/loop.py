@@ -21,7 +21,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
-import import_guard as _imports_import_guard
+import model.importing.evidence as _imports_model_importing_evidence
 import task_contract_core as _imports_task_contract
 import validation.runner as _imports_validation_runner
 from regression_guard import authorize_full_regression
@@ -488,7 +488,7 @@ def staged_snapshot(root, args, directory, environment):
     import_task = "- Workflow: `import`" in captured.text
     try:
         if import_task:
-            copy_import_proof = _imports_import_guard.copy_import_proof
+            copy_import_proof = _imports_model_importing_evidence.copy_import_proof
             copy_import_proof(root, snapshot)
         metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
         (directory / "snapshot.json").write_text(
@@ -579,7 +579,9 @@ def staged_snapshot(root, args, directory, environment):
         return result
     finally:
         if import_task:
-            discard_import_proof = _imports_import_guard.discard_import_proof
+            discard_import_proof = (
+                _imports_model_importing_evidence.discard_import_proof
+            )
             discard_import_proof(snapshot, captured.name)
             store = evidence_store(snapshot)
             # This freshly created snapshot owns its seal; source evidence is retained.

@@ -33,7 +33,6 @@ from model.identity import COUNTERS
 from model.sources import runtime_values
 from support.issues_scan_fixtures import task as issue_task
 from support.pytest_cli import run
-from support.validator import load
 from sync_files import changed_files, markdown_newlines
 from task_contract_core import selected_task
 from utils.aws_mappings import definition_root, mapping_alias
@@ -46,6 +45,7 @@ from utils.input_cache import (
     recording_inputs,
 )
 from utils.script_loader import module
+from validation import runner as validation_runner
 from validation.findings import CheckResult, Findings
 from validation.task import TaskValidation
 from validation_cache import PassCache
@@ -758,7 +758,7 @@ def check_issue_validation_ignores_contract_catalog_changes(tmp_path):
         report = tmp_path / "issues/dev/123456789012/issues.md"
         report.parent.mkdir(parents=True)
         report.write_text("未解決issueなし")
-        validator = load("validate-blueprint").Validator(tmp_path, set(), cache=True)
+        validator = validation_runner.Validator(tmp_path, set(), cache=True)
         methods = (
             "check_structure",
             "check_project_topology",
@@ -785,7 +785,7 @@ def check_issue_validation_ignores_contract_catalog_changes(tmp_path):
 
 @pytest.mark.parametrize("scope,contract_scope", [(set(), None), (None, set())])
 def check_framework_write_does_not_discover(tmp_path, scope, contract_scope):
-    module = load("validate-blueprint")
+    module = validation_runner
     with (
         patch.object(Path, "rglob", side_effect=AssertionError("Model discovery")),
         patch.object(
@@ -872,7 +872,7 @@ def check_integrated_generation_with_issues(
                 "status": "FAIL",
                 "retainedView": str(rejected),
             }
-        validator = load("validate-blueprint").Validator(
+        validator = validation_runner.Validator(
             tmp_path, scope, write=True, model_validation=model_validation
         )
         validator.change_plan = SimpleNamespace(views=scope)
@@ -1647,7 +1647,7 @@ def check_definition_read_errors(tmp_path, definition):
     fail = _bind_framework_callback(_definition_read_failure, source, Path.read_text)
     with input_context(fresh=True), patch.object(Path, "read_text", fail):
         if definition == "layout":
-            validator = load("validate-blueprint").Validator(
+            validator = validation_runner.Validator(
                 tmp_path, definitions_root=definitions
             )
             validator.check_resource_layout()
@@ -1709,9 +1709,7 @@ def check_missing_validation_inputs(tmp_path, missing):
             encoding="utf-8",
         )
     original = source.read_bytes() if source.exists() else None
-    validator = load("validate-blueprint").Validator(
-        tmp_path, {("dev", "123456789012", "iam")}
-    )
+    validator = validation_runner.Validator(tmp_path, {("dev", "123456789012", "iam")})
     validator.check_project_topology()
     validator.check_validation_scope()
     expected = (
