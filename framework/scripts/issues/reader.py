@@ -91,10 +91,19 @@ def read_scan_artifact(path: Path) -> LoadedScan:
         _field(issue, "members", list, "iac_issues")
     try:
         validate_artifact(artifact)
-    except IncompleteNamingScan:
-        raise IncompleteNamingScan(
-            "incomplete Naming Scan; explicit rescan and Review required"
-        ) from None
+    except IncompleteNamingScan as error:
+        message = str(error)
+        if message in {
+            "incomplete Naming Scan: invalid naming_context_id; explicit rescan and Review required",
+            "incomplete Naming Scan: missing names; explicit rescan and Review required",
+            "incomplete Naming Scan target context; explicit rescan and Review required",
+            "incomplete Naming Scan: duplicate naming ID; explicit rescan and Review required",
+            "incomplete Naming Scan: Naming item context ID mismatch; explicit rescan and Review required",
+            "incomplete Naming Scan: invalid or missing decision; explicit rescan and Review required",
+            "incomplete Naming Scan: Naming decision does not match Scan evidence; explicit rescan and Review required",
+        }:
+            raise IncompleteNamingScan(message) from None
+        raise ValueError("Scan artifact: invalid structure or integrity") from None
     except (
         ValueError,
         KeyError,

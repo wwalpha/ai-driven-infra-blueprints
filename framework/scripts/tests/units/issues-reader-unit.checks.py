@@ -12,8 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 from issues.cli import main
 from issues.reader import read_review_json, read_scan_artifact
+from issues.review import IncompleteNamingScan
 from issues.review_progress import ReviewController
-from support.issues_scan_fixtures import snapshot_artifact
+from support.issues_scan_fixtures import snapshot_artifact, stamp_naming_scan
 from support.pytest_cli import run
 
 if not __debug__:
@@ -122,6 +123,154 @@ def test_invalid_scan_all_cli_entrypoints_preserve_files(tmp_path, monkeypatch, 
         assert "secret-marker" not in captured.out + captured.err
         assert "Traceback" not in captured.err
         assert state.read_text(encoding="utf-8") == "checkpoint"
+        assert list(root.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "fault,diagnostic",
+    [
+        ("context", "invalid naming_context_id"),
+        ("missing", "invalid or missing decision"),
+        ("type", "invalid or missing decision"),
+        ("item", "Naming item context ID mismatch"),
+        ("evidence", "Naming decision does not match Scan evidence"),
+    ],
+)
+def test_naming_diagnostics_all_cli_entrypoints_preserve_files(
+    tmp_path, monkeypatch, capsys, fault, diagnostic
+):
+    root = tmp_path / "repository"
+    root.mkdir()
+    data = snapshot_artifact(root)
+    data["naming"]["names"] = [
+        dict(
+            id="name-1",
+            service="s3",
+            resource="1",
+            resourceType="S3.Bucket",
+            property="S3.Bucket.BucketName",
+            value="`bucket`",
+            resourceMode="CREATE",
+        )
+    ]
+    stamp_naming_scan(data)
+    name = data["naming"]["names"][0]
+    if fault == "context":
+        data["naming_context_id"] = "secret-marker"
+    elif fault == "missing":
+        del name["decision"]
+    elif fault == "type":
+        name["decision"] = "secret-marker"
+    elif fault == "item":
+        name["naming_context_id"] = "secret-marker"
+    else:
+        name["decision"]["status"] = "secret-marker"
+    artifact = tmp_path / "scan.json"
+    artifact.write_text(json.dumps(data), encoding="utf-8")
+    state = tmp_path / "checkpoint.json"
+    review = tmp_path / "review.json"
+    review.write_text("{}", encoding="utf-8")
+    files = [state, root / "issues.md", root / "iac-issues.md", root / "task.md"]
+    for path in files:
+        path.write_text("original", encoding="utf-8")
+    before = {path: path.read_bytes() for path in files}
+    for args in (
+        ["detail", "--artifact", str(artifact), "--section", "naming"],
+        ["save", "--artifact", str(artifact), "--review", str(review)],
+        ["review", "status", "--artifact", str(artifact), "--state", str(state)],
+    ):
+        monkeypatch.setattr(
+            "sys.argv", ["issues_scan.py", "--repository-root", str(root), *args]
+        )
+        assert main() == 2
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
+        assert "incomplete Naming Scan" in output
+        assert diagnostic in output
+        assert "rescan and Review" in output
+        assert "secret-marker" not in output
+        assert "Traceback" not in output
+        assert {path: path.read_bytes() for path in files} == before
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("secret-marker"),
+        IncompleteNamingScan(
+            "incomplete Naming Scan: secret-marker; explicit rescan and Review required"
+        ),
+    ],
+)
+def test_unknown_validation_exception_is_sanitized(tmp_path, monkeypatch, error):
+    data = snapshot_artifact(tmp_path / "repository")
+    path = tmp_path / "scan.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(
+        "issues.reader.validate_artifact", lambda artifact: (_ for _ in ()).throw(error)
+    )
+    with pytest.raises(
+        ValueError, match="^Scan artifact: invalid structure or integrity$"
+    ):
+        read_scan_artifact(path)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "duplicate",
+        "nan",
+        "infinity",
+        "overflow",
+        "nonobject",
+        "version",
+        "missing",
+        "nested",
+    ],
+)
+def test_invalid_inputs_do_not_leak_at_any_entrypoint(
+    tmp_path, monkeypatch, capsys, fault
+):
+    root = tmp_path / "repository"
+    root.mkdir()
+    data = snapshot_artifact(root)
+    data["secret-marker-key"] = "secret-marker-value"
+    if fault == "version":
+        data["version"] = "secret-marker-value"
+    elif fault == "missing":
+        del data["record_meta"]
+    elif fault == "nested":
+        data["overview"]["records"] = {"secret-marker-key": "secret-marker-value"}
+    raw = json.dumps(data)
+    if fault == "duplicate":
+        raw = '{"secret-marker-key":1,"secret-marker-key":2}'
+    elif fault in {"nan", "infinity", "overflow"}:
+        raw = (
+            '{"secret-marker-key":'
+            + {"nan": "NaN", "infinity": "Infinity", "overflow": "1e999"}[fault]
+            + "}"
+        )
+    elif fault == "nonobject":
+        raw = '["secret-marker-value"]'
+    artifact = tmp_path / "scan.json"
+    artifact.write_text(raw, encoding="utf-8")
+    state = tmp_path / "state.json"
+    state.write_text("original", encoding="utf-8")
+    review = tmp_path / "review.json"
+    review.write_text("{}", encoding="utf-8")
+    for args in (
+        ["detail", "--artifact", str(artifact), "--section", "naming"],
+        ["save", "--artifact", str(artifact), "--review", str(review)],
+        ["review", "status", "--artifact", str(artifact), "--state", str(state)],
+    ):
+        monkeypatch.setattr(
+            "sys.argv", ["issues_scan.py", "--repository-root", str(root), *args]
+        )
+        assert main() == 2
+        captured = capsys.readouterr()
+        assert "secret-marker" not in captured.out + captured.err
+        assert "Traceback" not in captured.out + captured.err
+        assert state.read_text(encoding="utf-8") == "original"
         assert list(root.iterdir()) == []
 
 

@@ -147,7 +147,7 @@ def check_incomplete_naming_cli_preserves_files(tmp_path):
         )
         assert result.returncode == 2
         assert (
-            "incomplete Naming Scan; explicit rescan and Review required"
+            "incomplete Naming Scan: invalid or missing decision; explicit rescan and Review required"
             in result.stderr
         )
         assert {path: path.read_bytes() for path in files} == before
