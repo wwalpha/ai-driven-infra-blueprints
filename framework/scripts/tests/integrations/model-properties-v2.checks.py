@@ -327,7 +327,7 @@ def check_managed_properties_save(monkeypatch, failure):
 - Task type: `design`
 - Task status: `running`
 - Workflow: `update`
-- Model operation: `import-delete`
+- Model operation: `model-delete`
 - AWS API execution: `forbidden`
 - deploy/apply: `forbidden`
 ## Model delete sources

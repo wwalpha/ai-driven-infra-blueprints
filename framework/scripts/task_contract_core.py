@@ -645,8 +645,6 @@ def model_operation(text: str) -> ModelOperation | None:
     ):
         raise ValueError("Model-only operations forbid AWS and deploy/apply")
     action = field("Model operation")
-    if action == "import-delete":
-        action = "model-delete"
     if action not in {"import-merge", "model-delete", "import-retarget"}:
         raise ValueError("unknown Model-only operation")
     deleting = action == "model-delete"

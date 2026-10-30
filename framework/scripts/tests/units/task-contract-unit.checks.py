@@ -315,9 +315,9 @@ def check_batch_operation_contract():
     )
     assert operation.references[0].pointer == "/Statement/0/Resource"
     with pytest.raises(FrozenInstanceError):
-        operation.action = "import-delete"
+        operation.action = "model-delete"
     deletion = (
-        base.replace("import-merge", "import-delete")
+        base.replace("import-merge", "model-delete")
         + "## Model delete sources\n- `"
         + pairs[0]["source"]
         + "`\n"

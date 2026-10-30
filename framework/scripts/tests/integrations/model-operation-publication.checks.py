@@ -81,14 +81,26 @@ def _callback_check_model_only_publication_save(
 
 @pytest.mark.parametrize(
     "failure",
-    ["none", "rollback", "race", "wrong-target", "ordinary", "ordinary-delete"],
+    [
+        "none",
+        "rollback",
+        "race",
+        "wrong-target",
+        "ordinary",
+        "ordinary-delete",
+        "canonical-delete",
+    ],
 )
 def check_model_only_publication(tmp_path, monkeypatch, failure):
     operation_candidate = _imports_support_import_model_fixtures.operation_candidate
     operation_contract = _imports_support_import_model_fixtures.operation_contract
     operation_fixture = _imports_support_import_model_fixtures.operation_fixture
 
-    action = "import-delete" if failure == "ordinary-delete" else "import-merge"
+    action = (
+        "model-delete"
+        if failure in {"ordinary-delete", "canonical-delete"}
+        else "import-merge"
+    )
     with fixture() as root:
         operation_fixture(root)
         sources = operation_candidate(root, tmp_path / "edited", action)
@@ -100,6 +112,8 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
             if failure == "wrong-target"
             else "stg/cde/vpc/001"
         )
+        if failure == "canonical-delete":
+            contract = operation_contract(action)
         if failure in {"ordinary", "ordinary-delete"}:
             contract = (
                 "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
@@ -137,7 +151,12 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
                 path,
                 snapshot,
             )
-            if failure not in {"none", "ordinary", "ordinary-delete"}:
+            if failure not in {
+                "none",
+                "ordinary",
+                "ordinary-delete",
+                "canonical-delete",
+            }:
                 with pytest.raises((ValueError, OSError)):
                     save()
                 if failure == "race":
@@ -151,13 +170,13 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
             else:
                 assert set(save()) == set(output)
                 expected_id = "vpc-source"
-                if action == "import-delete":
+                if action == "model-delete":
                     expected_id = "vpc-stg"
                 assert (
                     load_model(path).authoritative["observed.row.001-001.value"]
                     == expected_id
                 )
-                if failure == "none":
+                if failure in {"none", "canonical-delete"}:
                     verify_model_operation(
                         root, target, model_operation(contract), sources
                     )

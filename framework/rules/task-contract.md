@@ -116,7 +116,7 @@ Select from the Human's requested change using this table before loading a workf
 
 The parent uses Task type design, Workflow update, Model operation import-merge or
 model-delete, running status during editing, and forbidden AWS API execution/deploy/apply.
-The legacy import-delete name is normalized to model-delete during contract parsing.
+Only the canonical operation names import-merge, model-delete, and import-retarget are accepted; unsupported names are rejected.
 Deletion permits explicit CREATE, implicit CREATE, and IMPORT Resources; it does not
 authorize AWS deletion, deploy, apply, or IaC changes. Merge sources remain IMPORT.
 Within merge/delete, transfer/retarget/delete are internal leaves, not new Task types.

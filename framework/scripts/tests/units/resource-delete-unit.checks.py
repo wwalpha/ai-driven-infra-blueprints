@@ -20,7 +20,6 @@ from support.import_model_fixtures import (
     dependency_contract,
     dependency_fixture,
     dependency_refactor,
-    operation_contract,
     reference_fields,
     resource_values,
 )
@@ -126,10 +125,9 @@ def check_contract_rejects_unscoped_deletion(bad):
 
 
 def check_deletion_and_detach_normalization():
-    old = tasks.model_operation(operation_contract("import-delete"))
-    new = tasks.model_operation(contract(["stg/cde/vpc/009"]))
-    assert old == new and old.action == "model-delete"
-    assert old.delete_sources == ("stg/cde/vpc/009",)
+    operation = tasks.model_operation(contract(["stg/cde/vpc/009"]))
+    assert operation.action == "model-delete"
+    assert operation.delete_sources == ("stg/cde/vpc/009",)
     text = dependency_contract().replace(
         "## Model dependency detach",
         "- Model operation: `model-delete`\n## Model delete sources\n- `stg/cde/service-a/001`\n## Model dependency detach",

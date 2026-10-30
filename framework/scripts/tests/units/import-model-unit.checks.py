@@ -1045,7 +1045,7 @@ def check_foreign_candidate_scope(tmp_path, relative):
         candidate_sources(root, directory, before)
 
 
-@pytest.mark.parametrize("action", ["import-merge", "import-delete"])
+@pytest.mark.parametrize("action", ["import-merge", "model-delete"])
 def check_model_operation_preserves_consumers(tmp_path, action):
     before, after = tmp_path / "before", tmp_path / "after"
     operation_fixture(before)
@@ -1158,7 +1158,7 @@ def check_model_operation_contract_scope(tmp_path, change):
         action = (
             "import-merge"
             if change in {"create-source", "create-destination"}
-            else "import-delete"
+            else "model-delete"
         )
         sources = operation_candidate(before, after, action)
         with pytest.raises(ValueError):
@@ -2237,7 +2237,7 @@ def check_batch_model_operation(tmp_path):
         verify_model_operation(before, after, model_operation(contract), sources)
 
 
-@pytest.mark.parametrize("action", ["import-merge", "import-delete"])
+@pytest.mark.parametrize("action", ["import-merge", "model-delete"])
 def check_intermediate_source_context(tmp_path, monkeypatch, action):
     start = _imports_task_contract.start
     operation_fixture(tmp_path)
@@ -2257,7 +2257,7 @@ def check_intermediate_source_context(tmp_path, monkeypatch, action):
         + "\n"
     )
     start(tmp_path, name, text)
-    if action == "import-delete":
+    if action == "model-delete":
         issues = tmp_path / "issues/stg/cde/issues.md"
         issues.parent.mkdir(parents=True)
         issues.write_text("### vpc\n1. 削除前の既存Issue\n", encoding="utf-8")
@@ -2695,7 +2695,7 @@ def check_stack_reference_usage(tmp_path, broken):
         before,
         after,
         model_operation(
-            operation_contract("import-delete", source="stg/cde/service-a/003")
+            operation_contract("model-delete", source="stg/cde/service-a/003")
         ),
         {file.relative_to(after).as_posix()},
     )
@@ -2844,7 +2844,7 @@ def check_value_preserving_detach_and_single_deletions(tmp_path):
             },
         )
         operation = model_operation(
-            operation_contract("import-delete", source="stg/cde/" + service + "/" + rid)
+            operation_contract("model-delete", source="stg/cde/" + service + "/" + rid)
         )
         verify_model_operation(
             previous, candidate, operation, {file.relative_to(candidate).as_posix()}
@@ -2968,7 +2968,7 @@ def check_issues_never_waive_delete_reference_safety(tmp_path, broken_type):
     dependency_fixture(tmp_path)
     name = "tasks/deletion.md"
     text = (
-        operation_contract("import-delete", source="stg/cde/service-a/001")
+        operation_contract("model-delete", source="stg/cde/service-a/001")
         + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
         + "## Validation scope\n- `stg/cde/service-a`\n"
     )
@@ -3051,7 +3051,7 @@ def check_reference_structural_and_remaining_delete(tmp_path):
         before,
         after,
         model_operation(
-            operation_contract("import-delete", source="stg/cde/service-a/001")
+            operation_contract("model-delete", source="stg/cde/service-a/001")
         ),
         {candidate.relative_to(after).as_posix()},
     )
