@@ -1186,7 +1186,7 @@ def check_retained_and_updating_resources(tmp_path, monkeypatch, other_action):
             output["observed.row.008-001.value"],
             "`PENDING_DEPLOY`" if other_action == "Remove" else "`vpc-other`",
         )
-        TestCase().assertNotIn("observed.row.007-001.value", output)
+        TestCase().assertEqual(output["observed.row.007-001.value"], "vpc-original")
         TestCase().assertEqual(propagate.call_count, 2)
 
 

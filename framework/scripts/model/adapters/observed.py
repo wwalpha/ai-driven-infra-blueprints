@@ -646,7 +646,9 @@ def resolve_resources(
     )
 
 
-def propagate_references(root, loaded, changes, identifiers, by_identifier=None):
+def propagate_references(
+    root, loaded, changes, identifiers, by_identifier=None, *, reset_references=()
+):
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
@@ -741,7 +743,11 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
                 own_resource = dict(entries(values, "desired.resource.")).get(
                     rid.rpartition("-")[0]
                 )
-                if own_resource and own_key(path, own_resource) != target:
+                if (
+                    target not in reset_references
+                    and own_resource
+                    and own_key(path, own_resource) != target
+                ):
                     changes.setdefault(path, {})
                     continue
                 changes.setdefault(path, {}).setdefault(
@@ -922,7 +928,9 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
             ambiguous("identifier Resource owned by multiple stacks")
         all_anchors.update(anchors[name])
     references = {}
-    propagate_references(root, loaded, {}, all_anchors, references)
+    propagate_references(
+        root, loaded, {}, all_anchors, references, reset_references=all_anchors
+    )
     for name in stack_names:
         services.update(
             tuple(Path(owner["model"]).relative_to("model").with_suffix("").parts)

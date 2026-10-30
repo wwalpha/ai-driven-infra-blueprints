@@ -24,6 +24,7 @@ from support.deploy_controller_fixtures import (
     ordinary_base,
     recover_owned_lock,
     seed,
+    unresolved_requests,
 )
 from support.deploy_controller_fixtures import (
     drive as invoke,
@@ -102,9 +103,7 @@ def assert_single_execution(aws, states):
 def assert_published(root, session, evidence):
     saved = json.loads(session.read_text())
     assert generation_resume.complete(saved)
-    assert json.loads(session.with_suffix(".operations.json").read_text()) == {
-        "protocol": "current-request-v2"
-    }
+    TestCase().assertFalse(unresolved_requests(session, saved["states"]))
     assert saved["repository"] == str(root) and saved["taskFile"] == "tasks/deploy.md"
     assert all(
         state["status"] == "SUCCESS" and state["observedSynced"]
@@ -247,9 +246,7 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
     assert saved["states"][FIRST]["observedSynced"]
     assert saved["states"][FIRST]["executionEvidence"] == evidence
     assert "approvedChangeDigest" not in saved["states"][FIRST]
-    assert json.loads(report.with_suffix(".operations.json").read_text()) == {
-        "protocol": "current-request-v2"
-    }
+    TestCase().assertFalse(unresolved_requests(report, saved["states"]))
     calls = json.loads(aws.read_text())["calls"]
     assert (
         sum(
@@ -281,9 +278,7 @@ def check_pending_observed_recovers_before_model_load(tmp_path):
     assert saved["states"][FIRST]["observedSynced"]
     assert saved["states"][FIRST]["executionEvidence"] == evidence
     assert not saved.get("pendingObserved") and not saved.get("pendingGeneration")
-    assert json.loads(report.with_suffix(".operations.json").read_text()) == {
-        "protocol": "current-request-v2"
-    }
+    TestCase().assertFalse(unresolved_requests(report, saved["states"]))
     assert (
         sum(
             op == "execute_change_set" and args["StackName"] == evidence["StackId"]

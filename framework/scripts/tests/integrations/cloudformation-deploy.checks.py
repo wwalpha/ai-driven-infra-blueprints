@@ -7,6 +7,7 @@ from functools import partial as _bind_framework_callback
 from inspect import unwrap
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
+from unittest import TestCase
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -17,6 +18,7 @@ import model.files as model_files
 import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
+from deploy import observed as deploy_observed
 from deploy.model_cache import RunModels
 from deploy.observed import removed_resources
 from deploy.preparation import candidate
@@ -207,6 +209,7 @@ def observed_collector_seed(root):
         stack_values.update(
             {f"desired.stack.{number:03d}." + key: value for key, value in unit.items()}
         )
+        stack_values[f"display.stack.{number:03d}.comment"] = "合成Stack"
     write_model(source.with_name("cloudformation-stacks.properties"), stack_values)
     save_model()
     unrelated = root / "model/prod/999999999999/broken.properties"
@@ -256,6 +259,7 @@ def _callback_check_observed_collector_aws(
         return {
             "Stacks": [
                 {
+                    "StackId": "stack-A",
                     "StackStatus": "CREATE_COMPLETE",
                     "Outputs": [{"OutputKey": "VpcIdentity", "OutputValue": output[0]}],
                 }
@@ -269,6 +273,7 @@ def _callback_check_observed_collector_aws(
             {
                 "LogicalResourceId": "VpcTestDev",
                 "ResourceType": "AWS::EC2::VPC",
+                "ResourceStatus": "CREATE_COMPLETE",
                 "PhysicalResourceId": physical[0],
             }
         ]
@@ -344,8 +349,12 @@ def check_observed_collector(observed_collector_root):
     values["desired.row.002-003.value"] = subnet_identifier
     write_model(source, values)
     output[0] = "vpc-different"
-    rejects(lambda: publish_collected(backend, [unit], states([unit])), "disagree")
-    assert snapshot_model(source) == before
+    uncertain = states([unit])
+    deploy_observed.collect_successful(backend, [unit], uncertain)
+    TestCase().assertEqual(
+        uncertain["A"]["observedCoverage"]["VpcTestDev"]["status"], "UNCONFIRMED"
+    )
+    TestCase().assertEqual(snapshot_model(source), before)
     output[0] = physical[0]
     # Shared template identities cannot be assigned to one model row by guessing.
     duplicate = copy.deepcopy(document)
@@ -383,7 +392,7 @@ def check_observed_collector(observed_collector_root):
         publish_collected(backend, [unit], saved)
     observed = properties(read_model(source))
     assert observed["observed.row.001-002.value"] == "`" + physical[0] + "`"
-    assert observed["observed.row.002-002.value"] == physical[0]
+    TestCase().assertEqual(observed["observed.row.002-002.value"], "PENDING_DEPLOY")
     assert observed["observed.row.002-003.value"] == "`PENDING_DEPLOY`"
     assert {k: v for k, v in observed.items() if not k.startswith("observed.")} == {
         k: v for k, v in values.items() if not k.startswith("observed.")
@@ -394,15 +403,17 @@ def check_observed_collector(observed_collector_root):
     physical[0] = "vpc-1234567890abcdef0"
     with redirect_stdout(io.StringIO()):
         publish_collected(backend, [unit], saved)
-    assert properties(read_model(source))["observed.row.002-002.value"] == physical[0]
+    TestCase().assertEqual(
+        properties(read_model(source))["observed.row.002-002.value"], "PENDING_DEPLOY"
+    )
     assert "arn:aws" not in read_model(source)
     physical[0] = "arn:aws:ec2:ap-northeast-1:123456789012:vpc/secret"
     before = snapshot_model(source)
-    rejects(
-        lambda: publish_collected(backend, [unit], saved),
-        "non-ARN identifier unavailable",
+    deploy_observed.collect_successful(backend, [unit], saved)
+    TestCase().assertEqual(
+        saved["A"]["observedCoverage"]["VpcTestDev"]["status"], "UNCONFIRMED"
     )
-    assert snapshot_model(source) == before
+    TestCase().assertEqual(snapshot_model(source), before)
     # Bounded template parts remain stable while only observed authority changes.
     physical[0] = "vpc-abcdef01234567890"
     indexed_values = properties(read_model(source)) | {
@@ -433,7 +444,9 @@ def check_observed_collector(observed_collector_root):
             for key in changes
         )
         assert file.read_bytes() == patch_properties(part_document, changes).encode()
-    assert properties(read_model(source))["observed.row.002-002.value"] == physical[0]
+    TestCase().assertEqual(
+        properties(read_model(source))["observed.row.002-002.value"], "PENDING_DEPLOY"
+    )
 
     # Approved physical deletion resets the formal row and every reference; retention blocks.
     document["Resources"] = {}
@@ -495,7 +508,9 @@ def _check_shared_stack_mapping_deletion_aws(operation, **args):
             ]
         }
     if operation == "describe_stacks":
-        return {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]}
+        return {
+            "Stacks": [{"StackId": "stack-removed", "StackStatus": "UPDATE_COMPLETE"}]
+        }
     return {"StackResourceSummaries": []}
 
 
@@ -508,6 +523,7 @@ def _callback_check_shared_stack_mapping_aws(expected, /, operation, **args):
         return {
             "Stacks": [
                 {
+                    "StackId": name,
                     "StackStatus": "CREATE_COMPLETE",
                     "Outputs": [{"OutputKey": "VpcId", "OutputValue": expected[name]}],
                 }
@@ -519,6 +535,7 @@ def _callback_check_shared_stack_mapping_aws(expected, /, operation, **args):
             {
                 "LogicalResourceId": "DepartmentVpc",
                 "ResourceType": "AWS::EC2::VPC",
+                "ResourceStatus": "CREATE_COMPLETE",
                 "PhysicalResourceId": expected[name],
             }
         ]
@@ -1261,6 +1278,10 @@ def check_integrated_child_mapping(project_workspace):
     task = root / "tasks/example.md"
     task.parent.mkdir()
     task_text = "## Task contract\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n- `dev/123456789012/s3`\n- `dev/123456789012/ec2`\n- `dev/123456789012/codecommit`\n## Allowed paths\n- `tasks/example.md`\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
+    task_text = task_text.replace(
+        "## Allowed paths",
+        "- `dev/123456789012/cloudformation-stacks`\n## Allowed paths",
+    )
     task.write_text(task_text)
     resources, documents = {}, {}
     unit = {
@@ -1323,7 +1344,8 @@ def check_integrated_child_mapping(project_workspace):
     resources["Repository"] = {"Type": "AWS::CodeCommit::Repository"}
     write_model(
         model / "cloudformation-stacks.properties",
-        {f"desired.stack.001.{key}": value for key, value in unit.items()},
+        {f"desired.stack.001.{key}": value for key, value in unit.items()}
+        | {"display.stack.001.comment": "合成Stack"},
     )
     document = {
         "Conditions": {"Enabled": True, "Disabled": False},
@@ -1414,7 +1436,16 @@ def check_integrated_child_mapping(project_workspace):
     )
     rejects(mapping, "task scope violation")
     task.write_text(task_text)
-    before = {path: path.read_bytes() for path in model.rglob("*.properties")}
+    task.write_text(
+        observation_contract(
+            root, ("s3", "ec2", "codecommit", "cloudformation-stacks")
+        ).replace("tasks/observation-fixture.md", "tasks/example.md")
+    )
+    before = {
+        path: path.read_bytes()
+        for path in model.rglob("*.properties")
+        if path.stem != "cloudformation-stacks"
+    }
     # Empty identifier sets must not collect child physical IDs or reset the parent's ID.
     children = {key: mapped[key] for key in [*child_ids, "Repository"]}
     backend = SimpleNamespace(
@@ -1572,6 +1603,8 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         for i, unit in enumerate(selected, 1)
         for field, value in unit.items()
     }
+    for number in range(1, len(selected) + 1):
+        stacks[f"display.stack.{number:03d}.comment"] = "合成Stack"
     for path, values in (
         (model / "secretsmanager.properties", secrets),
         (model / "kms.properties", key),
@@ -1612,6 +1645,7 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         {
             "LogicalResourceId": logical,
             "ResourceType": resource["Type"],
+            "ResourceStatus": "CREATE_COMPLETE",
             "PhysicalResourceId": "key-current" if logical == "Key" else arn,
         }
         for logical, resource in document["Resources"].items()
@@ -1639,7 +1673,11 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         publish_collected(backend, selected, saved)
         assert all(state["observedSynced"] for state in saved.values())
     current = properties(read_model(model / "secretsmanager.properties"))
-    assert current["observed.row.001-002.value"] == "key-current"
+    TestCase().assertNotIn("observed.row.001-002.value", current)
+    TestCase().assertEqual(
+        properties(read_model(model / "kms.properties"))["observed.row.001-001.value"],
+        "`key-current`",
+    )
     assert (
         current["desired.row.002-003.value"]
         == secrets["desired.resource.002.parentReference"]
@@ -1658,28 +1696,35 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         for path in parent.rglob("*")
         if path.is_file()
     )
-    # Actual type, required normal Outputs and physical IDs stay strict, before writes.
+    # Current observations distinguish fallback from unconfirmed identifiers.
     before = {path: path.read_bytes() for path in model.rglob("*.properties")}
-    actual[1]["ResourceType"] = "AWS::SecretsManager::Secret"
-    rejects(
-        lambda: publish_collected(backend, selected, states(selected)),
-        "actual resource missing/type mismatch",
+    actual[2]["ResourceType"] = "AWS::S3::Bucket"
+    uncertain = states(selected)
+    deploy_observed.collect_successful(backend, selected, uncertain)
+    TestCase().assertEqual(
+        uncertain["A"]["observedCoverage"]["Key"]["status"], "UNCONFIRMED"
     )
-    actual[1]["ResourceType"] = document["Resources"]["Secret1Rotation"]["Type"]
+    actual[2]["ResourceType"] = document["Resources"]["Key"]["Type"]
     missing = outputs.pop(0)
-    rejects(
-        lambda: publish_collected(backend, selected, states(selected)),
-        "required Output absent",
+    fallback = states(selected)
+    deploy_observed.collect_successful(backend, selected, fallback)
+    TestCase().assertEqual(
+        fallback["A"]["observedCoverage"]["Key"]["status"], "MATCHED"
     )
     outputs.insert(0, {**missing, "OutputValue": "wrong-key"})
-    rejects(lambda: publish_collected(backend, selected, states(selected)), "disagree")
+    uncertain = states(selected)
+    deploy_observed.collect_successful(backend, selected, uncertain)
+    TestCase().assertEqual(
+        uncertain["A"]["observedCoverage"]["Key"]["status"], "UNCONFIRMED"
+    )
     outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = arn
-    rejects(
-        lambda: publish_collected(backend, selected, states(selected)),
-        "non-ARN identifier unavailable",
+    uncertain = states(selected)
+    deploy_observed.collect_successful(backend, selected, uncertain)
+    TestCase().assertEqual(
+        uncertain["A"]["observedCoverage"]["Key"]["status"], "UNCONFIRMED"
     )
     outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = "key-current"
-    assert before == {path: path.read_bytes() for path in before}
+    TestCase().assertEqual(before, {path: path.read_bytes() for path in before})
     # Keep the real collector in this scheduler fixture; journal ownership has separate IT.
     monkeypatch.setattr(M.run_ops, "sync_successful", publish_collected)
     session = {
@@ -1711,14 +1756,17 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         "metrics": {"observedSyncSeconds": 0},
     }
     session["states"]["A"]["stackId"] = "stack-A"
-    assert (
-        M.run_ops.run_deploy(
-            selected, 1, session, failed, lambda: None, sleep=lambda _: None
-        )
-        == "STOPPED"
+    result = M.run_ops.run_deploy(
+        selected, 1, session, failed, lambda: None, sleep=lambda _: None
     )
-    assert starts(failed) == ["A"] and session["states"]["B"]["status"] == "NOT_STARTED"
-    assert "disagree" in session["observedError"]
+    TestCase().assertEqual(result, "COMPLETE")
+    TestCase().assertEqual(starts(failed), ["A", "B"])
+    TestCase().assertEqual(
+        session["states"]["A"]["observedCoverage"]["Key"]["status"], "UNCONFIRMED"
+    )
+    TestCase().assertNotIn(
+        "observed.row.001-001.value", properties(read_model(model / "kms.properties"))
+    )
     print(
         "Secrets Manager ARN identifiers: PASS (no required ARN Outputs/storage/propagation, logical parent, JSON, KMS guards, DeployOrder barrier)"
     )

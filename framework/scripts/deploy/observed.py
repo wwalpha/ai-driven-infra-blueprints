@@ -263,6 +263,17 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     )
                 except Blocked:
                     absent = False
+            if (
+                logical in removed.get(name, {})
+                and not absent
+                and (
+                    not actual
+                    or actual.get("ResourceStatus")
+                    in {"DELETE_COMPLETE", "DELETE_SKIPPED"}
+                )
+            ):
+                coverage[logical] = {"status": "UNCONFIRMED"}
+                continue
             for rid, row in rows:
                 prop = row["property"]
                 if prop not in selected_outputs:
@@ -363,7 +374,12 @@ def collect_successful(backend, units, states, *, generated_views=None):
         }
         if not changes:
             return {}, [], None
-    propagate_references(root, loaded, changes, identifiers)
+    deleted_identifiers = {
+        key for key, value in identifiers.items() if value == "PENDING_DEPLOY"
+    }
+    propagate_references(
+        root, loaded, changes, identifiers, reset_references=deleted_identifiers
+    )
     destinations, views, sync = observed_destinations(
         root, environment, directory, loaded, changes
     )
