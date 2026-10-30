@@ -12,6 +12,7 @@ from utils.reference_contracts import (
     REFERENCE_EQUIVALENT_FORMS,
     REFERENCE_FORMS,
     REFERENCE_PROPERTIES,
+    TYPE_FORMS,
     VALUE_IDENTITIES,
     contract,
     policy_condition,
@@ -230,89 +231,41 @@ def reference_same(
                         allowed.add(suffix[0])
             if refkind not in declared or symbol["$attribute"] not in allowed:
                 return ReferenceDecision(None)
-    elif (
-        local_comparison
-        and registry.property_rule(kind, path).forms is None
-        and not any(hasattr(value, "saved_literal") for value in (left, right))
-    ):
+    elif local_comparison:
         declared = contract(prop, context)
-        symbols = [
-            value
-            for value in (left, right)
-            if isinstance(value, ResourceReference)
-            and not hasattr(value, "saved_literal")
-        ]
         for value in (left, right):
-            if isinstance(value, Expression):
-                expression_symbols = expressions.references(value)
-                if declared and expression_symbols:
-                    try:
-                        if not any(
-                            resource_type(item) in declared
-                            for item in expression_symbols
+            for symbol in expressions.references(value) if declared else ():
+                try:
+                    refkind = resource_type(symbol)
+                    if rule.forms is not None and refkind in TYPE_FORMS:
+                        if symbol["$attribute"] not in {
+                            reference_attribute(refkind, form)
+                            for form in TYPE_FORMS[refkind]
+                        }:
+                            return ReferenceDecision(None)
+                        continue
+                    allowed = {
+                        reference_attribute(refkind, form)
+                        for form in declared.get(refkind, ())
+                    }
+                    if refkind not in declared:
+                        return ReferenceDecision(None)
+                    if symbol["$attribute"] not in allowed and not hasattr(
+                        symbol, "saved_literal"
+                    ):
+                        projected = (
+                            project_arn(value)
+                            if isinstance(value, Expression) and project_arn is not None
+                            else None
+                        )
+                        if (
+                            projected is None
+                            or projected["$resource"] != symbol["$resource"]
+                            or projected["$attribute"] not in allowed
                         ):
                             return ReferenceDecision(None)
-                    except (KeyError, ValueError, TypeError):
-                        return ReferenceDecision(None)
-                try:
-                    parts = expressions.parts(value)
-                except (Blocked, ValueError, KeyError, TypeError):
-                    continue
-                if len(parts) == 1 and isinstance(parts[0], ResourceReference):
-                    symbols.append(parts[0])
-                elif (
-                    declared
-                    and expression_symbols
-                    and not any(
-                        hasattr(item, "saved_literal") for item in nested_symbols
-                    )
-                ):
-                    projected = project_arn(value) if project_arn is not None else None
-                    if projected is None and len(expression_symbols) == 1:
-                        source = expression_symbols[0]
-                        try:
-                            refkind = resource_type(source)
-                            candidate = ResourceReference(
-                                dict(
-                                    source,
-                                    **{
-                                        "$attribute": reference_attribute(
-                                            refkind, "Arn"
-                                        )
-                                    },
-                                )
-                            )
-                            if (
-                                refkind in declared
-                                and "Arn" in declared[refkind]
-                                and same(
-                                    resolve_literal(value), resolve_literal(candidate)
-                                )
-                                is True
-                            ):
-                                projected = candidate
-                        except (Blocked, ValueError, KeyError, TypeError, OSError):
-                            pass
-                    if projected is None:
-                        return ReferenceDecision(None)
-                    symbols.append(projected)
-        for symbol in symbols if declared else ():
-            try:
-                refkind = resource_type(symbol)
-            except (KeyError, ValueError, TypeError):
-                return ReferenceDecision(None)
-            if refkind not in declared or symbol["$attribute"] not in {
-                reference_attribute(refkind, form) for form in declared[refkind]
-            }:
-                if evidence is not None and len(symbols) == 1:
-                    result = evidence(left, right, kind, path)
-                    if result.equal is False:
-                        return result
-                return ReferenceDecision(
-                    False
-                    if len(symbols) == 2 and same(left, right) is not True
-                    else None
-                )
+                except (Blocked, KeyError, ValueError, TypeError):
+                    return ReferenceDecision(None)
     if evidence is not None and any(
         isinstance(value, Expression) for value in (left, right)
     ):

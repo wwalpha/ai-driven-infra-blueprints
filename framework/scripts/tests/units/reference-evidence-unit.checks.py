@@ -850,7 +850,7 @@ def test_declared_reference_negative_cases(change):
         actual = ResourceReference({"$resource": ["vpc", "001"], "$attribute": "Arn"})
         assert (
             comparison.reference_decision(desired, actual, "EC2.Subnet", "VpcId").equal
-            is False
+            is None
         )
 
 
@@ -4921,7 +4921,7 @@ def test_sqs_queue_url_is_not_getatt_arn():
         comparison.reference_decision(
             QUEUE_ARN, arn, "SQS.QueuePolicy", "Queues[]"
         ).equal
-        is False
+        is None
     )
     with pytest.raises(Blocked):
         comparison.reference_literal(ref)

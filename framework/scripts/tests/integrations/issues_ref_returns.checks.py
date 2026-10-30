@@ -114,11 +114,14 @@ def main_checks():
                 )
                 assert same(other, exported)
                 assert not same(desired, exported)
+                expected_comparison = (
+                    False if kind == "Glue.SecurityConfiguration" else None
+                )
                 assert (
                     comparison.reference_same(
                         desired, exported, "Glue.Job", "SecurityConfiguration"
                     )
-                    is False
+                    is expected_comparison
                 )
                 # Provider primary identifiers cannot redefine the documented Ref return.
                 comparison.catalog.schema(kind)["primaryIdentifier"] = [

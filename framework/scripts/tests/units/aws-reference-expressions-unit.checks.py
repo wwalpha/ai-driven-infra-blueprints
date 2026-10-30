@@ -814,7 +814,7 @@ def test_lakeformation_connection_arn_and_formal_returns(models):
     assert name["$attribute"] == "Name"
     assert (
         inputs.reference_same(symbol, name, "LakeFormation.Resource", "ResourceArn")
-        is False
+        is None
     )
     expression = inputs.evaluate(
         "producer",
@@ -826,7 +826,7 @@ def test_lakeformation_connection_arn_and_formal_returns(models):
         inputs.reference_same(
             symbol, expression, "LakeFormation.Resource", "ResourceArn"
         )
-        is True
+        is None
     )
 
 

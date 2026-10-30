@@ -256,11 +256,80 @@ def test_registered_contract_route(models, prop, producer, attribute):
     )
     with pytest.raises(ValueError):
         resolver.validate_attribute(wrong, "Arn", field=prop)
+    inputs.resources["wrong"] = {"001": {"resourceType": wrong}}
+    invalid = ResourceReference({"$resource": ["wrong", "001"], "$attribute": "Arn"})
+    assert inputs.reference_same(invalid, invalid, consumer_kind, path) is None
     inputs.resources["producer"]["001"]["resourceMode"] = "IMPORT"
     with pytest.raises(Blocked):
         inputs.desired_reference(
             "receiver", symbol, consumer_kind, path, symbol["$attribute"]
         )
+
+
+@pytest.mark.parametrize(
+    "kind,path,producer,attribute",
+    [
+        (
+            "ECS.Service",
+            "NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]",
+            "EC2.SecurityGroup",
+            "GroupId",
+        ),
+        (
+            "S3.Bucket",
+            "NotificationConfiguration.QueueConfigurations[].Queue",
+            "SQS.Queue",
+            "Arn",
+        ),
+    ],
+)
+def test_typed_reference_comparison(models, kind, path, producer, attribute):
+    resource(models, "good", producer, attribute=attribute)
+    resource(models, "bad", "KMS.Key", attribute="Arn")
+    resource(models, "other", "KMS.Key", attribute="Arn")
+    resource(models, "receiver", kind, attribute="Name")
+    inputs = comparison(models, ("good", "bad", "other", "receiver"))
+    good = ResourceReference(
+        {
+            "$resource": ["good", "001"],
+            "$attribute": reference_attribute(producer, attribute),
+        }
+    )
+    bad = ResourceReference({"$resource": ["bad", "001"], "$attribute": "Arn"})
+    other = ResourceReference({"$resource": ["other", "001"], "$attribute": "Arn"})
+    missing = ResourceReference({"$resource": ["missing", "001"], "$attribute": "Arn"})
+    wrong_attribute = ResourceReference(dict(good, **{"$attribute": "Unknown"}))
+    assert contract(kind + "." + path)[producer] == (attribute,)
+    assert inputs.reference_same(good, good, kind, path) is True
+    for left, right in [
+        (bad, bad),
+        (bad, other),
+        (missing, missing),
+        (wrong_attribute, wrong_attribute),
+    ]:
+        assert inputs.reference_same(left, right, kind, path) is None
+        assert inputs.reference_decision(left, right, kind, path).equal is None
+    for value in (good, bad):
+        for expression in (
+            Expression("Join", ["", [value]]),
+            Expression("Sub", ["${Value}", {"Value": value}]),
+        ):
+            expected = True if value is good else None
+            assert inputs.reference_same(expression, expression, kind, path) is expected
+            assert (
+                inputs.reference_decision(expression, expression, kind, path).equal
+                is expected
+            )
+    assert (
+        inputs.reference_same(
+            Expression("Join", ["", [good, wrong_attribute]]), good, kind, path
+        )
+        is None
+    )
+    invalid = Expression("Join", ["", [good, bad]])
+    different = Expression("Sub", ["${Value}", {"Value": other}])
+    assert inputs.reference_same(invalid, invalid, kind, path) is None
+    assert inputs.reference_same(invalid, different, kind, path) is None
 
 
 @pytest.mark.parametrize(
@@ -954,15 +1023,14 @@ def test_unknown_policy_condition_is_not_matched(models):
 @pytest.mark.parametrize(
     "observed,category", [("vpc-12345678", "deferred"), ("PENDING_DEPLOY", "excluded")]
 )
-def test_source_vpc_policy_document_import(models, observed, category):
+@pytest.mark.parametrize("receiver_kind", ["IAM.ManagedPolicy", "EC2.VPCEndpoint"])
+def test_source_vpc_policy_document_import(models, observed, category, receiver_kind):
     scope, source = resource(
         models, "producer", "EC2.VPC", attribute="VpcId", observed=observed
     )
     source["desired.resource.001.resourceMode"] = "IMPORT"
     save(scope, source)
-    scope, receiver = resource(
-        models, "receiver", "IAM.ManagedPolicy", attribute="Name"
-    )
+    scope, receiver = resource(models, "receiver", receiver_kind, attribute="Name")
     document = {
         "Statement": [
             {
@@ -974,7 +1042,7 @@ def test_source_vpc_policy_document_import(models, observed, category):
     }
     receiver.update(
         {
-            "desired.row.001-002.property": "IAM.ManagedPolicy.PolicyDocument",
+            "desired.row.001-002.property": receiver_kind + ".PolicyDocument",
             "desired.row.001-002.value": "`" + json.dumps(document) + "`",
             "desired.row.001-002.comment": "policy",
         }
@@ -982,14 +1050,15 @@ def test_source_vpc_policy_document_import(models, observed, category):
     save(scope, receiver)
     inputs = comparison(models, ("producer", "receiver"))
     row = dict(entries(receiver, "desired.row."))["001-002"]
-    prepared = inputs.prepare_value(
-        "receiver", row, "IAM.ManagedPolicy", row_id="001-002"
-    )
+    prepared = inputs.prepare_value("receiver", row, receiver_kind, row_id="001-002")
     assert len(prepared.failures) == 1
     path, pointer, error = prepared.failures[0]
     assert path == "PolicyDocument.Statement[].Condition.StringEquals.aws:SourceVpc"
     assert pointer == "/Statement/0/Condition/StringEquals/aws:SourceVpc"
     assert failure_category(error) == category
+    assert error.iac_cause["phase"] == (
+        "awaiting_handoff" if category == "deferred" else "pending_deploy"
+    )
 
 
 @pytest.mark.parametrize(
@@ -1016,20 +1085,21 @@ def test_unproven_documents_are_not_matched(models, kind, path):
         ("PENDING_DEPLOY", "excluded", "pending_deploy"),
     ],
 )
-def test_source_vpc_import_waits(models, observed, category, phase):
+@pytest.mark.parametrize("receiver_kind", ["IAM.ManagedPolicy", "EC2.VPCEndpoint"])
+def test_source_vpc_import_waits(models, observed, category, phase, receiver_kind):
     scope, values = resource(
         models, "producer", "EC2.VPC", attribute="VpcId", observed=observed
     )
     values["desired.resource.001.resourceMode"] = "IMPORT"
     save(scope, values)
-    resource(models, "receiver", "IAM.ManagedPolicy", attribute="Name")
+    resource(models, "receiver", receiver_kind, attribute="Name")
     inputs = comparison(models, ("producer", "receiver"))
     symbol = ResourceReference(
         {"$resource": ["producer", "001"], "$attribute": "VpcId"}
     )
     path = "PolicyDocument.Statement[].Condition.StringEquals.aws:SourceVpc"
     with pytest.raises(Blocked) as caught:
-        inputs.desired_reference("receiver", symbol, "IAM.ManagedPolicy", path)
+        inputs.desired_reference("receiver", symbol, receiver_kind, path)
     assert failure_category(caught.value) == category
     assert caught.value.iac_cause["phase"] == phase
 
