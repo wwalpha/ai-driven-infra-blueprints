@@ -301,13 +301,24 @@ def check_iac_matrix(project_workspace):
         scope.root, "fixture", "team", ["s3"], catalog=DesignSchemaCatalog(FRAMEWORK)
     )
     results = comparison.run()
+    encryption = [item for item in results if item["property"] == PROP]
+    assert len(encryption) == 1 and encryption[0]["category"] == "uncompared", results
+
+    bucket[ROW] = json.dumps(
+        {"$modelRef": {"logicalId": "KMS_Alias_001", "attribute": "AliasName"}}
+    )
+    write_model(scope.path, bucket)
+    comparison = Comparison(
+        scope.root, "fixture", "team", ["s3"], catalog=DesignSchemaCatalog(FRAMEWORK)
+    )
+    results = comparison.run()
     encryption = [
         item for item in results if item["property"] == "S3.Bucket.BucketEncryption"
     ]
     assert len(encryption) == 1 and encryption[0]["category"] == "matched", results
-    plain = comparison.prepare_value(
-        "s3", {"property": PROP, "value": KEY_LINK}, "S3.Bucket"
-    ).require_value()
+    plain = comparison.desired_reference(
+        "s3", KEY_LINK, "S3.Bucket", PROP.removeprefix("S3.Bucket."), attribute="KeyId"
+    )
     assert plain["$attribute"] == "KeyId"
     assert (
         comparison.reference_same(
@@ -318,9 +329,13 @@ def check_iac_matrix(project_workspace):
         )
         is True
     )
-    alias = comparison.prepare_value(
-        "s3", {"property": PROP, "value": ALIAS_LINK}, "S3.Bucket"
-    ).require_value()
+    alias = comparison.desired_reference(
+        "s3",
+        ALIAS_LINK,
+        "S3.Bucket",
+        PROP.removeprefix("S3.Bucket."),
+        attribute="AliasName",
+    )
     assert (
         comparison.reference_same(
             alias,

@@ -2630,9 +2630,8 @@ def test_security_group_receiver_ref_evidence(
     assert parameters["VpcId"] == vpc
     comparison.symbols.clear()
     parameters["VpcId"] = "UNSET"
-    assert (
-        comparison.evaluate("producer", {"Ref": "Producer"})["$attribute"] == "GroupId"
-    )
+    with pytest.raises(Blocked):
+        comparison.evaluate("producer", {"Ref": "Producer"})
     assert parameters["VpcId"] == "UNSET"
 
 
@@ -2641,6 +2640,12 @@ def test_security_group_receiver_ref_evidence(
     [
         ({"Ref": "VpcId"}, {"VpcId": "PENDING_DEPLOY"}, {}, True),
         ({"Ref": "VpcId"}, {"VpcId": VPC}, {}, True),
+        *[
+            ({"Ref": "VpcId"}, {"VpcId": value}, {}, False)
+            for value in ("UNSET", "TODO", "TBD", "not-a-vpc")
+        ],
+        ({"Fn::Sub": "vpc-${VpcId}"}, {"VpcId": "01234567"}, {}, True),
+        ({"Fn::Sub": "vpc-${VpcId}"}, {"VpcId": "ZZZZZZZZ"}, {}, False),
         ({"Ref": "Vpc"}, {}, {}, True),
         ({"Fn::GetAtt": ["Vpc", "VpcId"]}, {}, {}, True),
         ({"Fn::ImportValue": "ExternalVpcId"}, {}, {}, True),
@@ -8491,3 +8496,74 @@ def test_new_multiple_attribute_contract_does_not_guess_legacy_link(
         comparison.desired_reference(
             "producer", "[producer](producer.md#producer)", kind, path
         )
+
+
+@pytest.mark.parametrize(
+    "export_value,valid",
+    [({"Ref": "Vpc"}, True), ({"Ref": "Role"}, False), ("not-a-vpc", False)],
+)
+def test_security_group_import_vpc_evidence(export_value, valid):
+    comparison = fixture()
+    resource(comparison, "vpc", "001", "EC2.VPC", "Vpc", [], stack="consumer")
+    resource(comparison, "iam", "001", "IAM.Role", "Role", [], stack="consumer")
+    comparison.stack_inputs["consumer"][0]["Outputs"]["Shared"] = {
+        "Value": export_value,
+        "Export": {"Name": "shared"},
+    }
+    resource(
+        comparison,
+        "security-group",
+        "001",
+        "EC2.SecurityGroup",
+        "Group",
+        [],
+        properties={"VpcId": {"Fn::ImportValue": "shared"}},
+    )
+    if valid:
+        assert (
+            comparison.evaluate("producer", {"Ref": "Group"})["$attribute"] == "GroupId"
+        )
+    else:
+        with pytest.raises(Blocked):
+            comparison.evaluate("producer", {"Ref": "Group"})
+
+
+@pytest.mark.parametrize(
+    "service,producer,attribute,kind,path",
+    [receiver for receiver in RECEIVERS if receiver[1] == "EC2.SecurityGroup"],
+)
+@pytest.mark.parametrize("case", ["invalid-ref", "invalid-sub", "invalid-import"])
+def test_security_group_invalid_evidence_receiver_rows(
+    service, producer, attribute, kind, path, case
+):
+    comparison = fixture()
+    document, parameters, _ = comparison.stack_inputs["producer"]
+    document["Parameters"] = {"VpcId": {"Type": "String"}, "Suffix": {"Type": "String"}}
+    parameters.update(VpcId="UNSET", Suffix="ZZZZZZZZ")
+    resource(comparison, "iam", "001", "IAM.Role", "Role", [], stack="consumer")
+    comparison.stack_inputs["consumer"][0]["Outputs"]["Shared"] = {
+        "Value": {"Ref": "Role"},
+        "Export": {"Name": "shared"},
+    }
+    expression = {
+        "invalid-ref": {"Ref": "VpcId"},
+        "invalid-sub": {"Fn::Sub": "vpc-${Suffix}"},
+        "invalid-import": {"Fn::ImportValue": "shared"},
+    }[case]
+    resource(
+        comparison,
+        service,
+        "001",
+        producer,
+        "Producer",
+        [],
+        properties={"VpcId": expression},
+    )
+    records = setting(
+        comparison,
+        kind,
+        path,
+        "[label](security-group.md#producer)",
+        {"Ref": "Producer"},
+    )
+    assert [record["category"] for record in records] == ["uncompared"], records

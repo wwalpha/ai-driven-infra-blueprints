@@ -353,7 +353,8 @@ def main():
             changes,
             {key: "new-function"},
         )
-        assert changes[other.path]["observed.row.003-001.value"] == "new-function"
+        assert changes[other.path] == {}
+        assert "observed.row.003-001.value" not in other_values
         assert scope.path.read_bytes() == before
         ImportResolver = _imports_model_importing_references.Resolver
         matching = ImportResolver(root, "dev", "cde")

@@ -3,7 +3,7 @@
 import re
 from functools import partial
 
-from utils.cloudformation.inputs import Blocked, output_value
+from utils.cloudformation.inputs import Blocked, output_value, resolve_value
 from utils.iac_values import ResourceReference
 from utils.reference_contracts import CONTEXT_PROPERTIES, row_contexts
 
@@ -26,29 +26,49 @@ def ref_attribute(vpc, document, parameters, pseudo, resource_type, evaluate):
             name = vpc["Ref"]
             if (
                 isinstance(name, str)
+                and parameters.get(name) == "PENDING_DEPLOY"
                 and isinstance(definitions.get(name), dict)
                 and definitions[name].get("Type") in {"String", "AWS::EC2::VPC::Id"}
             ):
                 return "GroupId"
         if "Fn::ImportValue" in vpc:
-            name = vpc["Fn::ImportValue"]
-            if isinstance(name, str) and name:
-                return "GroupId"
-        if "Fn::Sub" in vpc and isinstance(vpc["Fn::Sub"], str):
+            try:
+                vpc = evaluate(vpc)
+            except Blocked as error:
+                name = vpc["Fn::ImportValue"]
+                if (
+                    isinstance(name, str)
+                    and name
+                    and str(error).startswith(
+                        "ImportValue handoff matches=0 or same-stack export:"
+                    )
+                ):
+                    return "GroupId"
+                raise
+        elif "Fn::Sub" in vpc and isinstance(vpc["Fn::Sub"], str):
             template = vpc["Fn::Sub"]
             names = re.findall(r"\$\{([A-Za-z][A-Za-z0-9]*)\}", template)
-            shape = re.sub(r"\$\{[A-Za-z][A-Za-z0-9]*\}", "a", template)
+            result = evaluate(vpc)
             if (
                 names
-                and re.fullmatch(r"vpc-[0-9a-f]+", shape)
+                and any(parameters.get(name) == "PENDING_DEPLOY" for name in names)
                 and all(
                     isinstance(definitions.get(name), dict)
                     and definitions[name].get("Type") in {"String", "AWS::EC2::VPC::Id"}
+                    and name in parameters
                     for name in names
                 )
             ):
-                return "GroupId"
-    vpc = evaluate(vpc)
+                substitutions = {
+                    key: "a" if value == "PENDING_DEPLOY" else value
+                    for key, value in parameters.items()
+                }
+                result = resolve_value(vpc, substitutions, pseudo)
+            vpc = result
+        else:
+            vpc = evaluate(vpc)
+    else:
+        vpc = evaluate(vpc)
     if isinstance(vpc, ResourceReference):
         confirmed = resource_type(vpc) == "EC2.VPC" and vpc["$attribute"] == "VpcId"
     else:
