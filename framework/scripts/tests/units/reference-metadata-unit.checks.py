@@ -156,9 +156,8 @@ def check_index_rejects_unproven_metadata(project_workspace, old_version):
     with pytest.raises(ValueError, match="dependency index"):
         dependency_index.load(root)
     with change_reads(root, sources.FileReads(), metadata={}):
-        refreshed = dependency_index.check_change_inventory(root, set())
-    assert refreshed["version"] == 3
-    assert refreshed["models"][path.relative_to(root).as_posix()]["errors"] == {}
+        with pytest.raises(ValueError, match="dependency index"):
+            dependency_index.check_change_inventory(root, set())
 
 
 if __name__ == "__main__":

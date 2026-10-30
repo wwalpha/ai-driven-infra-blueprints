@@ -2122,32 +2122,36 @@ def check_broken_unrelated_model_save(project_workspace, defect, index_state):
             "check_model_inputs",
             side_effect=AssertionError("Full called"),
         ) as full:
-            plan = prepare_edit(
-                path,
-                {
-                    path: serialize(
-                        dict(before, **{"desired.row.001-001.value": "changed-name"})
+            if index_state in {"old-format", "old-format-rollback", "old-v2"}:
+                with pytest.raises(ValueError, match="dependency index"):
+                    prepare_edit(
+                        path,
+                        {
+                            path: serialize(
+                                dict(
+                                    before,
+                                    **{"desired.row.001-001.value": "changed-name"},
+                                )
+                            )
+                        },
+                        context,
                     )
-                },
-                context,
-            )
-            if index_state == "old-format-rollback":
-                with (
-                    patch(
-                        "model.operations._verify_published_inputs",
-                        side_effect=ValueError("rollback probe"),
-                    ),
-                    pytest.raises(ValueError, match="rollback probe"),
-                ):
-                    publish_edit(plan, context)
-                assert path.read_text(encoding="utf-8") == serialize(before)
             else:
+                plan = prepare_edit(
+                    path,
+                    {
+                        path: serialize(
+                            dict(
+                                before, **{"desired.row.001-001.value": "changed-name"}
+                            )
+                        )
+                    },
+                    context,
+                )
                 assert publish_edit(plan, context) == (path,)
             full.assert_not_called()
     assert peer.read_bytes() == original
-    if index_state in {"old-format", "old-v2"}:
-        assert dependency_index.load(root)["version"] == 3
-    elif index_state == "old-format-rollback":
+    if index_state in {"old-format", "old-format-rollback", "old-v2"}:
         with pytest.raises(ValueError, match="dependency index"):
             dependency_index.load(root)
 

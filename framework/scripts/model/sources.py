@@ -326,7 +326,7 @@ def _publish_transaction(
     index = module("model/dependency_index.py", "model.dependency_index")
     shared = session_reads(root)
     if model_changes and index.location(root).is_file():
-        index.load(root, publication=not observed)
+        index.load(root)
         record["dependencyIndex"] = base64.b64encode(
             index.location(root).read_bytes()
         ).decode("ascii")

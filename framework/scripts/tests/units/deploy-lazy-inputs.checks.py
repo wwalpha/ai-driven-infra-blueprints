@@ -665,6 +665,56 @@ def check_index_corruption_and_related_model(
             sources.load_model(scope.path)
 
 
+@pytest.mark.parametrize("version", [1, 2, 4, None, "3", 3.0, True])
+def check_invalid_index_versions_rejected_without_side_effects(
+    tmp_path, monkeypatch, version
+):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, _ = deploy_properties_fixture(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    path = dependency_index.location(tmp_path)
+    index = dependency_index.load(tmp_path)
+    relative = scope.path.relative_to(tmp_path).as_posix()
+    original_links = list(index["models"][relative]["links"])
+    index["models"][relative]["links"] = ["old/untrusted/edge"]
+    if version is None:
+        del index["version"]
+    else:
+        index["version"] = version
+    dependency_index.write_sealed(tmp_path, path, index)
+    original_model, original_index = scope.path.read_bytes(), path.read_bytes()
+    cache = RunModels(tmp_path, {})
+    with (
+        sources.model_session(cache),
+        input_context(fresh=True, read_only=True),
+    ):
+        for operation in ("load", "normal", "observed", "inventory", "publication"):
+            with pytest.raises(
+                ValueError, match="run-python.py.*cli.py index --repository-root"
+            ):
+                if operation == "load":
+                    dependency_index.load(tmp_path)
+                elif operation == "inventory":
+                    dependency_index.check_change_inventory(tmp_path, set())
+                elif operation == "publication":
+                    with sources.publication_lock(tmp_path) as journal:
+                        sources._publish_transaction(
+                            tmp_path, {scope.path: "changed"}, (), journal
+                        )
+                else:
+                    dependency_index.update(
+                        tmp_path, {scope.path}, observed=operation == "observed"
+                    )
+            TestCase().assertIsNone(cache.dependency_index)
+            TestCase().assertEqual(sources._invocation_reads(tmp_path).indexes, {})
+            TestCase().assertEqual(scope.path.read_bytes(), original_model)
+            TestCase().assertEqual(path.read_bytes(), original_index)
+    dependency_index.rebuild(tmp_path)
+    rebuilt = dependency_index.load(tmp_path)
+    TestCase().assertEqual(rebuilt["version"], 3)
+    TestCase().assertEqual(rebuilt["models"][relative]["links"], original_links)
+
+
 def check_index_service_part_add_retarget_delete(tmp_path, monkeypatch):
     monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
     scope, _ = deploy_properties_fixture(tmp_path)

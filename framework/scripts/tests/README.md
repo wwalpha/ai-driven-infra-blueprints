@@ -391,3 +391,5 @@ only in template context. Existing sync-model IT owns pending JSON publication, 
 write failures and full rollback; the node round-trip IT owns artifact-backed rendering.
 Run related UTs, scoped validation and repository-wide Ruff locally; long/full IT and live AWS
 remain separate checks.
+
+Dependency index tests require sealed v3 with an integer version. Legacy or invalid versions are rejected for publication, updates, inventory and Deploy; missing-index bootstrap remains separate. The offline `model/cli.py index --repository-root <root>` rebuild derives v3 from Model sources without trusting old edges. See [CASES.md](CASES.md#dependency-index-v3-only-issue-49).

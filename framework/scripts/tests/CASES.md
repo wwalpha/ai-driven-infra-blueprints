@@ -4544,3 +4544,11 @@ Worktree認可UTは実Git/Worktreeを作らず、live HEAD/state/登録の再読
 | `import-adapter::direct-services` | `test_direct_service_contracts` | UT | [units/import-adapter-contracts-unit.checks.py](units/import-adapter-contracts-unit.checks.py) | pytest / 3 | CloudTrailは全3 getterを一度の実行で確認。Glue Job/SecurityConfigurationも全Property件数・失敗分岐を維持 | Offline synthetic SDK contracts |
 | `import-adapter::kms-key` | `test_kms_key_identity_branches` | UT | [units/import-adapter-contracts-unit.checks.py](units/import-adapter-contracts-unit.checks.py) | pytest / 1 | base/rotation/policyの全getterでalias selector・欠落・衝突・同一keyの複数aliasを確認 | Offline synthetic SDK contracts |
 | `import-adapter::s3-configurations` | `test_s3_configuration_getters_respect_absence_and_failures` | UT | [units/import-adapter-contracts-unit.checks.py](units/import-adapter-contracts-unit.checks.py) | pytest / 1 | encryption/lifecycle/ownership/public/versioningの全getterで通常・selector欠落・AccessDenied、適用getterで未設定を確認 | Offline synthetic SDK contracts |
+
+## Dependency index v3 only (Issue #49)
+
+| ケース | 対象 | 確認内容 |
+| --- | --- | --- |
+| `check_invalid_index_versions_rejected_without_side_effects` | `units/deploy-lazy-inputs.checks.py` | v1/v2/未知・欠落・不正型をload、通常/observed update、inventory、publicationで拒否し、Model・index・cacheを保持。明示rebuildは旧edgeを使わない |
+| `check_index_rejects_unproven_metadata` | `units/reference-metadata-unit.checks.py` | 旧版と不正metadataをloadとinventoryで拒否 |
+| `check_index_transaction_rollback_and_recovery` | `units/deploy-lazy-inputs.checks.py` | v3 publication失敗時のrollbackと復旧 |
