@@ -2,6 +2,7 @@
 
 import json
 import sys
+import tempfile
 from functools import partial
 from pathlib import Path
 from unittest import TestCase
@@ -16,6 +17,7 @@ from deploy import operation_journal as J
 from deploy import operation_reset as R
 from support.pytest_cli import run
 from utils.file_operations import atomic_replace_file
+from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -44,6 +46,47 @@ def workspace(tmp_path):
     atomic_replace_file(fence / "plan.json", b"{damaged-old-fence", mode=0o600)
     with patch.object(J, "location", return_value=journal):
         yield root, journal, fence
+
+
+@pytest.mark.parametrize("legacy", [None, b"{}", b"{broken"])
+def check_reset_once_ignores_legacy_storage(tmp_path, monkeypatch, legacy):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "project.json").write_text(
+        json.dumps({"targets": [{"environment": "dev", **TARGET}]}), encoding="utf-8"
+    )
+    old = tmp_path / (
+        "blueprint-cfn-operations-"
+        + fingerprint([TARGET["awsAccountId"], TARGET["awsRegion"]])
+    )
+    if legacy is not None:
+        old.mkdir(mode=0o700)
+        atomic_replace_file(old / "journal.json", legacy, mode=0o600)
+    journal = J.location(TARGET)
+    journal.parent.mkdir(mode=0o700)
+    current = journal.parent / "request-current.json"
+    atomic_replace_file(current, b"{}", mode=0o600)
+    document = R.plan(root, "dev", TARGET["awsAccountId"], None, "all")
+    result, count = human_apply(root, document)
+    assert result["result"] == "APPLIED" and count == 1
+    assert not current.exists()
+    if legacy is not None:
+        assert (old / "journal.json").read_bytes() == legacy
+    else:
+        assert not old.exists()
+
+
+def check_empty_reset_completes_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "project.json").write_text(
+        json.dumps({"targets": [{"environment": "dev", **TARGET}]}), encoding="utf-8"
+    )
+    document = R.plan(root, "dev", TARGET["awsAccountId"], None, "all")
+    result, count = human_apply(root, document)
+    assert not document["files"] and result["result"] == "APPLIED" and count == 1
 
 
 def human_apply(root, document):

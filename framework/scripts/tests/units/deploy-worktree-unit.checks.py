@@ -21,6 +21,7 @@ from deploy import controller, guards, inputs, operation_journal, run_context, w
 from deploy import git_publication as publication
 from support.pytest_cli import run
 from task_contract_core import task_digest
+from utils.sealed_evidence import evidence_store as old_store
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -901,6 +902,31 @@ def check_unfinished_progress_requires_original_journal(
         worktree.check_pending_progress(
             backend, [record] if present else [], operation_journal.unfinished
         )
+
+
+@pytest.mark.parametrize("legacy", [None, "{}", "{broken"])
+@pytest.mark.parametrize("key", [False, True])
+def check_progress_ignores_legacy_files_without_key(tmp_path, monkeypatch, legacy, key):
+    old = old_store(tmp_path)
+    if key:
+        (old / "seal.key").write_bytes(b"broken")
+    if legacy is not None:
+        (old / "deploy-progress.json").write_text(legacy, encoding="utf-8")
+    state = {"deployIdentity": {"taskFile": "tasks/deploy.md", "snapshot": "fixed"}}
+    monkeypatch.setattr(worktree, "require", Mock(return_value=state))
+    context = {
+        "states": {"A": {"status": "SUCCESS", "observedSynced": True}},
+        "inputDigests": {"A": "hash"},
+    }
+    backend = SimpleNamespace(root=tmp_path, phase="deploy", run_context=context)
+    assert worktree.read_progress(tmp_path, state) is None
+    worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    assert worktree.read_progress(tmp_path, state)["states"]["A"]["status"] == "SUCCESS"
+    assert (
+        (old / "seal.key").read_bytes() == b"broken"
+        if key
+        else not (old / "seal.key").exists()
+    )
 
 
 if __name__ == "__main__":

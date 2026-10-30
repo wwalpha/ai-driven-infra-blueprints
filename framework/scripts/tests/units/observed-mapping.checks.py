@@ -20,7 +20,7 @@ from model.core import entries as entries
 from model.display import display_rows
 from model.projection import resource_rows
 from support.model_sources import allocate_fixture, write_model
-from utils.sealed_evidence import read_sealed, write_sealed
+from utils.local_evidence import read_sealed, write_sealed
 
 from model import dependency_index, sources
 

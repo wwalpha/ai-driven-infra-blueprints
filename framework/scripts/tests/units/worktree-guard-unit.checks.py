@@ -15,7 +15,7 @@ import builtins
 import json
 import os
 import subprocess
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import worktree_state
@@ -812,6 +812,7 @@ def check_metadata_symlinks(tmp_path, relative):
     "pending",
     [
         "generation-only",
+        "producer",
         "pendingObserved",
         "success",
         "observedError",
@@ -821,56 +822,59 @@ def check_metadata_symlinks(tmp_path, relative):
 )
 def check_checkpoint_observed_barrier(tmp_path, pending):
     handoff = wt._worktree_runtime().deploy_handoff
-    journal = handoff.operation_journal
-    same = pending == "generation-only"
-    identities = [
-        str(tmp_path / ".git"),
-        str(tmp_path / (".git" if same else "other.git")),
-    ]
-    with patch.object(
-        journal.worktree_state,
-        "output",
-        side_effect=OSError("missing checkout") if pending == "success" else identities,
-    ):
-        assert journal.same_repository(tmp_path, tmp_path / "previous") == same
-    target = {"awsAccountId": "account", "awsRegion": "region"}
     request = {
-        "target": target,
+        "target": {"awsAccountId": "account", "awsRegion": "region"},
         "diagnosis": {"Peer": {"inputRefs": [], "modelRefs": []}},
         "allowedPaths": [],
     }
-    publication = {
-        "repository": str(tmp_path),
-        "pendingGeneration": {
+    context = {}
+    if pending == "generation-only":
+        context["pendingGeneration"] = {
             "view": {
-                "generated": {
-                    "outputs": None,
-                    "originals": {"docs/designs/peer.md": None},
-                },
+                "generated": {"originals": {"docs/designs/peer.md": None}},
                 "producers": [],
             }
-        },
-    }
-    state = {"status": "SUCCESS", "observedSynced": True}
-    if pending in {"pendingObserved", "observedError"}:
-        publication["pendingObserved"] = {"stage": "PREPARED", "evidence": {"Peer": {}}}
-    elif pending == "success":
-        state["observedSynced"] = False
-    elif pending in {"running", "pollError"}:
-        state["status"] = "RUNNING"
-    record = {
-        "target": target,
-        "publication": publication,
-        "operations": {"Peer": {"state": state}},
-    }
+        }
+    elif pending == "producer":
+        context["generationProducers"] = {"Peer": {}}
+        context["pendingGeneration"] = {
+            "view": {
+                "generated": {"originals": {"docs/designs/peer.md": None}},
+                "producers": [],
+            }
+        }
+    elif pending in {"pendingObserved", "observedError"}:
+        context["pendingObserved"] = {
+            "beforeManifest": {"model/peer.properties": "hash"},
+            "evidence": {"Peer": {}},
+        }
+    stack_status = (
+        "UPDATE_IN_PROGRESS"
+        if pending in {"running", "pollError"}
+        else "UPDATE_COMPLETE"
+    )
     with (
-        patch.object(journal, "read", return_value=[record]),
-        patch.object(handoff, "dependency_reader", return_value=lambda *a, **kw: None),
+        patch.object(
+            handoff.worktree,
+            "progress_path",
+            return_value=SimpleNamespace(exists=lambda: True),
+        ),
+        patch.object(handoff.worktree, "require", return_value={}),
+        patch.object(
+            handoff.worktree, "read_progress", return_value={"runContext": context}
+        ),
+        patch.object(handoff, "dependency_reader", return_value=Mock()),
+        patch.object(
+            handoff.current_request, "location", return_value=tmp_path / "request.json"
+        ),
+        patch.object(
+            handoff.current_state, "read", return_value={"StackStatus": stack_status}
+        ),
     ):
-        if pending == "generation-only":
+        if pending in {"generation-only", "success"}:
             handoff.require_settled(tmp_path, request)
         else:
-            with pytest.raises(handoff.Blocked, match="unfinished"):
+            with pytest.raises(handoff.Blocked):
                 handoff.require_settled(tmp_path, request)
 
 
@@ -906,7 +910,6 @@ def check_checkpoint_uses_scoped_barrier_under_ordered_locks(tmp_path, case):
             }
         },
     }
-    records = [{"target": target, "publication": publication, "operations": {}}]
     state = {"task_file": "tasks/deploy.md"}
     task = SimpleNamespace(
         text="## Task contract\n- Task status: `running`", task_digest="digest"
@@ -929,7 +932,25 @@ def check_checkpoint_uses_scoped_barrier_under_ordered_locks(tmp_path, case):
             runtime._imports_deploy_contracts, "task_digest", return_value="digest"
         ),
         patch.object(journal, "location", return_value=journal_path),
-        patch.object(journal, "read", return_value=records),
+        patch.object(
+            handoff.worktree,
+            "progress_path",
+            return_value=SimpleNamespace(exists=lambda: True),
+        ),
+        patch.object(handoff.worktree, "require", return_value={}),
+        patch.object(
+            handoff.worktree,
+            "read_progress",
+            return_value={
+                "runContext": publication if case == "publication-overlap" else {}
+            },
+        ),
+        patch.object(handoff, "dependency_reader", return_value=Mock()),
+        patch.object(
+            handoff.current_state,
+            "read",
+            return_value={"StackStatus": "UPDATE_COMPLETE"},
+        ),
         patch.object(
             wt,
             "changed_paths",

@@ -22,6 +22,7 @@ from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
     child_environment,
+    clients,
     drive,
     git,
     invoke,
@@ -29,7 +30,7 @@ from support.deploy_controller_fixtures import (
 from support.worktree_deploy_fixtures import seed
 from task_contract import complete, resume
 from task_contract_core import selected_task, start, suspend
-from utils.sealed_evidence import evidence_store, write_sealed
+from utils.local_evidence import evidence_store, write_sealed
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -142,7 +143,17 @@ def failed_request(
             ],
         }
     }
-    request = handoff.issue_request(parent, Path(failure), diagnosis, [relative])
+    fake = clients(parent, report, aws)(None, "cloudformation")
+
+    def reader(operation, **kwargs):
+        return getattr(fake, operation)(**kwargs)
+
+    journal = report.with_suffix(".operations.json")
+    with (
+        patch.object(handoff, "dependency_reader", return_value=reader),
+        patch.object(handoff.operation_journal, "location", return_value=journal),
+    ):
+        request = handoff.issue_request(parent, Path(failure), diagnosis, [relative])
     request_path = (
         evidence_store(parent)
         / ("deploy-repair-" + request["requestId"])
@@ -150,7 +161,11 @@ def failed_request(
     )
     request_path.parent.mkdir()
     write_sealed(parent, request_path, request)
-    request = wt.deploy_checkpoint(parent, "deploy", request_path)
+    with (
+        patch.object(handoff, "dependency_reader", return_value=reader),
+        patch.object(handoff.operation_journal, "location", return_value=journal),
+    ):
+        request = wt.deploy_checkpoint(parent, "deploy", request_path)
     return parent, report, aws, request, relative
 
 
@@ -173,9 +188,7 @@ def check_external_implement_round_trip(tmp_path, monkeypatch, mode):
         if mode == "steps"
         else drive(parent, report, aws)
     ) == 0
-    assert json.loads(report.with_suffix(".operations.json").read_text()) == {
-        "protocol": "current-request-v2"
-    }
+    assert not report.with_suffix(".operations.json").exists()
     validate_parent(parent)
 
 

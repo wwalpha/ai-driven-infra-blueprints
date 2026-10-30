@@ -35,6 +35,7 @@ from support.model_v2_fixtures import deploy_properties_fixture
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
 from utils.input_cache import input_context
+from utils.sealed_evidence import evidence_store as old_store
 from validation.findings import Findings
 
 from model import dependency_index
@@ -820,7 +821,6 @@ def readiness_fixture(root):
 @pytest.mark.parametrize(
     "problem",
     [
-        "missing",
         "signature",
         "unknown",
         "duplicate",
@@ -1222,6 +1222,27 @@ def check_index_noop_preserves_file_and_cache(tmp_path, monkeypatch):
             assert cache.dependency_index["files"][
                 scope.path.relative_to(tmp_path).as_posix()
             ] == dependency_index.revision(scope.path)
+
+
+def check_deploy_builds_missing_index_without_old_seal(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, _ = readiness_fixture(tmp_path)
+    old = old_store(tmp_path)
+    (old / "seal.key").write_bytes(b"broken")
+    (old / "model-dependencies.json").write_text("{broken", encoding="utf-8")
+    with sources.model_session(RunModels(tmp_path, {})):
+        index = dependency_index.load(tmp_path)
+        relative = scope.path.relative_to(tmp_path).as_posix()
+        assert relative in index["models"]
+        scope.path.write_text(
+            scope.path.read_text(encoding="utf-8") + "# observed\n", encoding="utf-8"
+        )
+        dependency_index.update(tmp_path, {scope.path}, observed=True)
+        assert dependency_index.load(tmp_path)["files"][
+            relative
+        ] == dependency_index.revision(scope.path)
+        assert not dependency_index.location(tmp_path).exists()
+    assert (old / "seal.key").read_bytes() == b"broken"
 
 
 if __name__ == "__main__":

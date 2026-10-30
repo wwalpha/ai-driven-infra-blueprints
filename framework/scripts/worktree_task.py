@@ -425,7 +425,8 @@ def cleanup_state(root, path, state):
             # -d checks against HEAD when no upstream exists. Use the verified base worktree.
             git(base_worktree(root, state), "branch", "-d", state["branch"])
         phase = "remove_import_proof"
-        discard_import_proof(target, state["task_file"])
+        if not state.get("deployIdentity"):
+            discard_import_proof(target, state["task_file"])
         phase = "remove_repair_proof"
         if state.get("deployRepair"):
             _worktree_runtime().deploy_handoff.discard_request(state)

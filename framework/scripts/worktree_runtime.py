@@ -23,7 +23,7 @@ import validation_scope as _imports_validation_scope
 import worktree_python as python_env
 import worktree_task as wt
 from deploy.git_publication import checkpoint_source as checkpoint_source
-from utils.sealed_evidence import read_sealed, write_sealed
+from utils.local_evidence import read_sealed, write_sealed
 
 deploy_handoff = _imports_deploy_handoff
 

@@ -17,7 +17,7 @@ from deploy import run_context, steps, temporary
 from deploy.timing import Timing
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
-from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
+from utils.local_evidence import evidence_store, read_sealed, write_sealed
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

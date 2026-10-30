@@ -15,8 +15,8 @@ from pathlib import Path
 from utils.cloudformation.inputs import Blocked
 from utils.file_operations import atomic_replace_file
 from utils.json_format import fingerprint
+from utils.local_evidence import read_sealed, sealed
 from utils.project_targets import load_target
-from utils.sealed_evidence import read_sealed, sealed
 from utils.type_contracts import JsonObject
 
 from deploy import operation_journal as J
@@ -210,8 +210,6 @@ def snapshot(root, environment, account, alias, mode, selected):
         for item in summaries:
             item["selected"] = item["id"] in chosen
         files = selected_files
-    if not files:
-        raise Blocked("no selected recovery records or Fences")
     for relative, raw in files.items():
         if relative != journal.name:
             summaries.append(

@@ -89,19 +89,28 @@ def settled(aws, record, current):
             )
         )
     if operation in {"create_change_set", "execute_change_set"}:
-        change_set = aws(
-            "describe_change_set",
-            StackName=record["name"],
-            ChangeSetName=record["changeSetId"],
-        )
-        identity = change_set.get("ChangeSetId", "")
-        same_change = current_state.same_change_set(record["changeSetId"], identity)
-        if (
-            not same_change
-            or record.get("stackId")
-            and change_set.get("StackId") != record["stackId"]
-        ):
-            raise Blocked("current request ChangeSet/Stack identity differs")
+        try:
+            change_set = aws(
+                "describe_change_set",
+                StackName=record["name"],
+                ChangeSetName=record["changeSetId"],
+            )
+        except AwsError as error:
+            if operation != "execute_change_set" or error.code != "ChangeSetNotFound":
+                raise
+            change_set = None
+        if change_set is None:
+            # The original token and Stack events can still identify the execution.
+            change_set = {}
+        else:
+            identity = change_set.get("ChangeSetId", "")
+            same_change = current_state.same_change_set(record["changeSetId"], identity)
+            if (
+                not same_change
+                or record.get("stackId")
+                and change_set.get("StackId") != record["stackId"]
+            ):
+                raise Blocked("current request ChangeSet/Stack identity differs")
         if operation == "create_change_set":
             return change_set.get("Status") in {
                 "CREATE_COMPLETE",
@@ -137,6 +146,10 @@ def settled(aws, record, current):
     matches = root_events(
         events, record["token"], record.get("stackId") or current.get("StackId")
     )
+    if current_state.category(current) in {"RUNNING", "UNKNOWN", "REVIEW"}:
+        return False
+    if record.get("stackId") and current.get("StackId") != record["stackId"]:
+        return False
     if matches:
         terminal = matches[0].get("ResourceStatus")
         if terminal in {"CREATE_FAILED", "UPDATE_FAILED"} and status != terminal:
@@ -300,99 +313,3 @@ def send(
             )
         atomic_replace_file(path, json.dumps(prior), fsync=True, mode=0o600)
         return response
-
-
-def cutover(backend, path):
-    """One-time legacy conversion under the old controller lock; keep raw originals."""
-    if not path.exists():
-        atomic_replace_file(
-            path, json.dumps({"protocol": "current-request-v2"}), fsync=True, mode=0o600
-        )
-        return
-    journal.private_path(path)
-    raw = path.read_bytes()
-    try:
-        document = json.loads(raw)
-    except (ValueError, UnicodeError):
-        document = {}
-    if document == {"protocol": "current-request-v2"}:
-        return
-    backup = path.with_name("legacy-" + fingerprint(raw.hex()) + ".bin")
-    if backup.exists():
-        journal.private_path(backup)
-        if backup.read_bytes() != raw:
-            raise Blocked("legacy original backup changed")
-    atomic_replace_file(backup, raw, fsync=True, mode=0o600)
-    payload = document.get("payload", {}) if isinstance(document, dict) else {}
-    payload = payload if isinstance(payload, dict) else {}
-    peers = payload.get("peers", [])
-    for record in [payload, *(peers if isinstance(peers, list) else [])]:
-        if not isinstance(record, dict) or not isinstance(
-            record.get("operations", {}), dict
-        ):
-            continue
-        for name, operation in record.get("operations", {}).items():
-            if not isinstance(operation, dict) or not isinstance(
-                operation.get("state", {}), dict
-            ):
-                continue
-            state = operation.get("state", {})
-            bootstrap = state.get("bootstrap", {})
-            if (
-                isinstance(bootstrap, dict)
-                and bootstrap.get("stage") == "PUT_SUBMITTED"
-                and isinstance(bootstrap.get("owner"), dict)
-            ):
-                owner = bootstrap["owner"].get("stack")
-                if isinstance(owner, str) and owner:
-                    destination = location(backend.target, owner)
-                    if not destination.exists():
-                        atomic_replace_file(
-                            destination,
-                            json.dumps(
-                                {
-                                    "operation": "update_secret_version_stage",
-                                    "service": "secretsmanager",
-                                    "resourceId": bootstrap.get("secretId"),
-                                    "name": owner,
-                                    "stackId": bootstrap["owner"].get("stackId"),
-                                    "changeSetId": None,
-                                    "token": bootstrap.get("clientRequestToken", ""),
-                                    "submission": "UNCERTAIN",
-                                    "before": {},
-                                }
-                            ),
-                            fsync=True,
-                            mode=0o600,
-                        )
-
-            kind = (
-                "delete_stack"
-                if state.get("cleanupStatus") == "DELETE_INTENT"
-                else "execute_change_set"
-                if state.get("status") == "RUNNING"
-                else "create_change_set"
-                if state.get("status") == "CHANGESET_CREATING"
-                else None
-            )
-            if kind is None:
-                continue
-            destination = location(backend.target, name)
-            if destination.exists():
-                continue
-            request = {
-                "operation": kind,
-                "name": name,
-                "stackId": state.get("stackId"),
-                "changeSetId": state.get("changeSetId"),
-                "token": state.get("clientToken") or state.get("preparationId") or "",
-                "submission": "UNCERTAIN",
-                "before": {},
-            }
-            atomic_replace_file(
-                destination, json.dumps(request), fsync=True, mode=0o600
-            )
-    # Older controllers reject this format before mutation; no parallel protocol remains.
-    atomic_replace_file(
-        path, json.dumps({"protocol": "current-request-v2"}), fsync=True, mode=0o600
-    )

@@ -9,7 +9,7 @@ from pathlib import Path
 import worktree_task
 from deploy import cli_guidance, handoff
 from task_contract_core import task_snapshot
-from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
+from utils.local_evidence import evidence_store, read_sealed, write_sealed
 
 
 def main(argv=None):

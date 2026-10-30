@@ -3,7 +3,7 @@
 from contextlib import nullcontext
 
 from utils.input_cache import read_only_inputs
-from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
+from utils.local_evidence import evidence_store, read_sealed, write_sealed
 
 import model.change_scope as change_scope
 import model.importing.scope as import_scope
@@ -132,6 +132,14 @@ def _checked_index(root, publication, reads, permission):
 def _load(root, *, publication=False):
     path = location(root)
     if not path.is_file():
+        shared = sources.session_reads(root)
+        if shared is not None and hasattr(shared, "run_context"):
+            before = inventory(root)
+            index = check_change_inventory(root, set())
+            if inventory(root) != before:
+                raise ValueError("Model dependency index inputs changed during build")
+            validate(root, index)
+            return index
         raise ValueError(
             "Model dependency index missing; run offline before Deploy: "
             f"python framework/scripts/model/cli.py index --repository-root {root}"
@@ -222,9 +230,10 @@ def verify_snapshot(index, snapshot, revisions):
 
 def update(root, changed, *, observed=False):
     """Called inside the Model transaction; an absent index stays absent until bootstrap."""
-    if not location(root).is_file():
-        return
     shared = sources.session_reads(root)
+    persistent = location(root).is_file()
+    if not persistent and (shared is None or shared.dependency_index is None):
+        return
     previous = load(root) if shared is not None else read_sealed(root, location(root))
     migrating = (
         not observed
@@ -291,7 +300,8 @@ def update(root, changed, *, observed=False):
             index["models"].pop(relative, None)
     if index == previous and not migrating:
         return
-    write_sealed(root, location(root), index)
+    if persistent:
+        write_sealed(root, location(root), index)
     shared = sources.session_reads(root)
     if shared is not None:
         shared.dependency_index = index if index["version"] == 3 else None

@@ -382,6 +382,7 @@ def describe(backend: SimpleNamespace) -> dict:
                 )
     complete = (
         generation_resume.complete(context)
+        and worktree.attempts_finished(states, context.get("deployResult"))
         and all(s.get("observedSynced") for s in states.values())
         and context.get("snapshotValidation") == "PASS"
         and not pending
@@ -618,9 +619,6 @@ def run(
             }
             if args.action != "checkpoint":
                 current_state.refresh(backend, units)
-                if args.action == "advance":
-                    with operation_journal.locked(journal):
-                        current_request.cutover(backend, journal)
                 refresh_requests(backend)
                 if args.action == "advance":
                     previous_terminal.update(

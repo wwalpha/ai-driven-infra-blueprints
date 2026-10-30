@@ -23,7 +23,7 @@ from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 from utils.file_operations import sha
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
-from utils.sealed_evidence import evidence_store, write_sealed
+from utils.local_evidence import evidence_store, write_sealed
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -308,7 +308,7 @@ def check_one_shot_request_requires_current_authority(tmp_path, defect):
     allowed = ["infra/unrelated.yaml"] if defect == "path" else [relative]
     with (
         patch.object(handoff, "task_snapshot", return_value=task),
-        patch.object(handoff.operation_journal, "read", return_value=None),
+        patch.object(handoff, "require_settled"),
     ):
         if defect == "none":
             request = handoff.issue_request(root, path, diagnosis, allowed)
@@ -675,238 +675,27 @@ def check_failure_discard_cli_uses_explicit_mode_only(tmp_path):
             deploy_handoff.main([*arguments, *options])
 
 
-STACK_ID = "arn:aws:cloudformation:region:123456789012:stack/{}/token"
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        "independent",
-        "independent-many",
-        "same",
-        "inbound",
-        "outbound",
-        "transitive",
-        "unknown",
-        "publication",
-        "disjoint-publication",
-        "waiting-publication",
-        "producer",
-        "unknown-publication",
-        "aws-error",
-        "unknown-owner",
-        "observed-overlap",
-        "observed-disjoint",
-    ],
-)
-def check_handoff_scopes_current_failure_and_preserves_journal(tmp_path, case):
-    root = tmp_path / "repo"
-    root.mkdir()
-    template = root / "infra/cloudformation/templates/s3.yaml"
-    parameters = root / "infra/cloudformation/parameters/dev/team/s3.json"
-    model = root / "model/dev/team/s3.properties"
-    for path, text in (
-        (template, "Resources: {}"),
-        (parameters, "[]"),
-        (model, "desired.row.001-001.value=approved"),
-    ):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
-    relative = template.relative_to(root).as_posix()
-    model_path = model.relative_to(root).as_posix()
-    target = {"awsAccountId": "123456789012", "awsRegion": "region"}
-    task = SimpleNamespace(
-        name="tasks/current.md",
-        task_digest="current",
-        text="- External IaC repair: `allowed`\n## Validation scope\n- `dev/team/s3`\n",
-    )
-    diagnosis = {
-        "S3": {
-            "reason": "The failed template needs correction to the current approved desired Model.",
-            "inputRefs": [{"path": relative, "sha256": sha(template)}],
-            "modelRefs": [
-                {
-                    "path": model_path,
-                    "sha256": sha(model),
-                    "key": "desired.row.001-001.value",
-                }
-            ],
-        }
+@pytest.mark.parametrize("status", ["UPDATE_COMPLETE", "UPDATE_IN_PROGRESS", "UNKNOWN"])
+def check_handoff_uses_current_state_without_journal(tmp_path, status):
+    request = {
+        "target": {"awsAccountId": "123456789012", "awsRegion": "region"},
+        "diagnosis": {"S3": {}},
+        "allowedPaths": [],
     }
-    failure = {
-        "repository": str(root),
-        "taskFile": task.name,
-        "taskDigest": task.task_digest,
-        "target": target,
-        "environment": "dev",
-        "directory": "team",
-        "inputs": {
-            p.relative_to(root).as_posix(): sha(p)
-            for p in (template, parameters, model)
-        },
-        "states": {
-            "S3": {"status": "BLOCKED", "failure": {"classification": "IAC_CANDIDATE"}}
-        },
-    }
-    failure_path = tmp_path / "failure.json"
-    write_sealed(root, failure_path, failure)
-    state = {
-        "status": "RUNNING",
-        "externalOperation": True,
-        "delivery": {"imports": {}},
-    }
-    if case == "inbound":
-        state["delivery"]["imports"] = {
-            "S3Export": {"ExportingStackId": STACK_ID.format("S3")}
-        }
-    elif case == "unknown":
-        state.pop("delivery")
-    name = "S3" if case == "same" else "KMS"
-    publication = {"repository": str(root), "target": target}
-    if case in {
-        "publication",
-        "disjoint-publication",
-        "waiting-publication",
-        "producer",
-        "unknown-publication",
-    }:
-        overlap = case == "publication"
-        publication["pendingGeneration"] = {
-            "view": {
-                "generated": {
-                    "originals": {
-                        (
-                            model_path if overlap else "docs/designs/dev/team/kms.md"
-                        ): None
-                    },
-                    "outputs": None if case == "waiting-publication" else {},
-                },
-                "waitingModelManifest": {
-                    model_path if overlap else "model/dev/team/kms.properties": "hash"
-                },
-                "producers": [{"stack": "S3"}] if case == "producer" else [],
-            }
-        }
-        if case == "unknown-publication":
-            publication["pendingGeneration"]["view"]["generated"]["originals"] = {}
-            publication["pendingGeneration"]["view"]["waitingModelManifest"] = {}
-    if case == "unknown-owner":
-        publication["repository"] = str(tmp_path / "missing")
-        publication["pendingObserved"] = {
-            "beforeManifest": {"model/unknown.properties": "hash"},
-            "evidence": {"KMS": {}},
-        }
-    elif case in {"observed-overlap", "observed-disjoint"}:
-        publication["pendingObserved"] = {
-            "beforeManifest": {
-                model_path
-                if case == "observed-overlap"
-                else "model/dev/team/kms.properties": "hash"
-            },
-            "evidence": {"KMS": {}},
-        }
-    record = {
-        "target": target,
-        "publication": publication,
-        "operations": {
-            name: {"unit": {"name": name}, "inputDigest": "old", "state": state}
-        },
-    }
-    journal = tmp_path / "operations/journal.json"
-    journal.parent.mkdir(mode=0o700)
-    write_sealed(Path(publication["repository"]), journal, record)
-    before = journal.read_bytes()
-    unit = {"name": "S3", "template": "s3.yaml", "parameters": "s3.json"}
-    exports = (
-        [{"Name": "KmsExport", "ExportingStackId": STACK_ID.format("KMS")}]
-        if case in {"outbound", "transitive"}
-        else []
-    )
-    if case == "independent-many":
-        exports = [
-            {"Name": "KmsExport", "ExportingStackId": STACK_ID.format("KMS")},
-            *[
-                {
-                    "Name": "Other" + str(i),
-                    "ExportingStackId": STACK_ID.format("Other" + str(i)),
-                }
-                for i in range(199)
-            ],
-        ]
-    if case == "outbound":
-        template.write_text(
-            "Resources: {X: {Type: X, Properties: {Value: {Fn::ImportValue: KmsExport}}}}"
-        )
-        failure["inputs"][relative] = sha(template)
-        diagnosis["S3"]["inputRefs"][0]["sha256"] = sha(template)
-        write_sealed(root, failure_path, failure)
-    if case == "transitive":
-        exports.append(
-            {"Name": "MiddleExport", "ExportingStackId": STACK_ID.format("Middle")}
-        )
-    aws = Mock(
-        side_effect=Blocked("read denied")
-        if case == "aws-error"
-        else _bind_framework_callback(handoff_dependency_response, exports)
-    )
+    reader = Mock()
+    path = tmp_path / "request.json"
+    current = {"StackId": "stack", "StackStatus": status}
     with (
-        patch.object(handoff, "task_snapshot", return_value=task),
-        patch.object(J, "location", return_value=journal),
-        patch.object(handoff.inputs, "load_units", return_value=(1, [unit])),
-        patch.object(handoff, "dependency_reader", return_value=aws),
+        patch.object(handoff, "dependency_reader", return_value=reader),
+        patch.object(handoff.current_request, "location", return_value=path),
+        patch.object(handoff.current_state, "read", return_value=current),
+        patch.object(J, "read", side_effect=AssertionError("old journal consulted")),
     ):
-        with J.locked(journal), handoff.repair_lock(root):
-            if case in {
-                "independent",
-                "independent-many",
-                "disjoint-publication",
-                "waiting-publication",
-                "observed-disjoint",
-            }:
-                request = handoff.issue_request(
-                    root, failure_path, diagnosis, [relative]
-                )
-                assert set(request["diagnosis"]) == {"S3"}
-            else:
-                with pytest.raises((Blocked, KeyError)):
-                    handoff.issue_request(root, failure_path, diagnosis, [relative])
-    assert journal.read_bytes() == before
-    if case == "independent-many":
-        assert [(call.args[0], call.kwargs) for call in aws.call_args_list] == [
-            ("describe_stacks", {"StackName": "KMS"}),
-            ("describe_stacks", {"StackName": "S3"}),
-            ("list_imports", {"ExportName": "KmsExport"}),
-            ("describe_stacks", {"StackName": "Middle"}),
-        ]
-
-
-def handoff_dependency_response(exports, operation, **arguments):
-    if operation == "describe_stacks":
-        name = arguments["StackName"].split(":stack/")[-1].split("/")[0]
-        identity = STACK_ID.format(name)
-        return {
-            "Stacks": [
-                {
-                    "StackId": identity,
-                    "StackStatus": "UPDATE_COMPLETE",
-                    "Outputs": [
-                        {
-                            "OutputKey": e["Name"],
-                            "OutputValue": "value",
-                            "ExportName": e["Name"],
-                        }
-                        for e in exports
-                        if e["ExportingStackId"] == identity
-                    ],
-                }
-            ]
-        }
-    if operation == "list_exports":
-        return {"Exports": [dict(e, Value="value") for e in exports]}
-    assert operation == "list_imports"
-    return {
-        "Imports": ["S3" if arguments["ExportName"] == "MiddleExport" else "Middle"]
-    }
+        if status == "UPDATE_COMPLETE":
+            handoff.require_settled(tmp_path, request)
+        else:
+            with pytest.raises(Blocked, match="not settled"):
+                handoff.require_settled(tmp_path, request)
 
 
 @pytest.mark.parametrize("lock", ["journal", "repair"])

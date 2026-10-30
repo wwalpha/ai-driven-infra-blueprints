@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 import worktree_task as wt
-from deploy import generation_resume
+from deploy import generation_resume, worktree
 from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
@@ -106,9 +106,9 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
     }
     first_success(target, report, aws)
     assert all(p.read_bytes() == raw for p, raw in models_before.items())
-    before_status = report.with_suffix(".operations.json").read_bytes()
+    before_status = worktree.progress_path(target).read_bytes()
     assert step(target, report, aws, "status") == 0
-    assert report.with_suffix(".operations.json").read_bytes() == before_status
+    assert worktree.progress_path(target).read_bytes() == before_status
     witnessed = []
     if boundary not in {"normal", "delivery"}:
         with (
@@ -143,9 +143,7 @@ def check_parallel_checkpoint_and_restart(tmp_path, monkeypatch, boundary):
     assert step(target, report, aws, "sync", [SECOND]) == 0
     assert step(target, report, aws, "checkpoint", [SECOND]) == 0
     assert step(target, report, aws, "status") == 0
-    TestCase().assertIn(
-        "current-request-v2", report.with_suffix(".operations.json").read_text()
-    )
+    assert not report.with_suffix(".operations.json").exists()
     provider = json.loads(aws.read_text(encoding="utf-8"))
     assert (
         len([op for _, op, _ in provider["calls"] if op == "execute_change_set"]) == 2
@@ -318,9 +316,7 @@ def check_generation_wait_and_resume(tmp_path, monkeypatch):
     assert step(target, report, aws, "advance") == 0
     assert step(target, report, aws, "sync", [SECOND]) == 0
     assert step(target, report, aws, "checkpoint", [FIRST, SECOND]) == 0
-    TestCase().assertIn(
-        "current-request-v2", report.with_suffix(".operations.json").read_text()
-    )
+    assert not report.with_suffix(".operations.json").exists()
 
 
 def check_zero_difference_checkpoint(tmp_path, monkeypatch):
@@ -344,9 +340,7 @@ def check_zero_difference_checkpoint(tmp_path, monkeypatch):
     assert step(target, report, aws, "sync", [SECOND]) == 0
     assert step(target, report, aws, "checkpoint", [SECOND]) == 0
     TestCase().assertNotEqual(git(primary, "rev-parse", "HEAD"), base)
-    TestCase().assertIn(
-        "current-request-v2", report.with_suffix(".operations.json").read_text()
-    )
+    assert not report.with_suffix(".operations.json").exists()
 
 
 if __name__ == "__main__":

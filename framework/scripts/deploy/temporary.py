@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 from utils.cloudformation.inputs import Blocked
-from utils.sealed_evidence import read_sealed, write_sealed
+from utils.local_evidence import read_sealed, write_sealed
 
 from deploy import handoff, operation_journal, operation_reset
 

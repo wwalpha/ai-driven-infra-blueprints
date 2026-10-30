@@ -7,8 +7,8 @@ import task_contract_core as tasks
 import worktree_python
 import worktree_state as ws
 import worktree_task as wt
+from utils.local_evidence import evidence_store, read_sealed, write_sealed
 from utils.project_targets import load_target_directory
-from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 
 def is_deploy(text):
@@ -80,8 +80,8 @@ def bind(root, task, target, environment, stacks):
         wt.save(path, state)
 
 
-def progress_path(root):
-    return evidence_store(root, create=False) / "deploy-progress.json"
+def progress_path(root, *, create=False):
+    return evidence_store(root, create=create) / "deploy-progress.json"
 
 
 def progress_state(backend):
@@ -132,7 +132,7 @@ def save_progress(backend, fields):
         **copy.deepcopy(context),
         "states": copy.deepcopy(progress["states"]),
     }
-    write_sealed(backend.root, progress_path(backend.root), progress)
+    write_sealed(backend.root, progress_path(backend.root, create=True), progress)
 
 
 def read_progress(root, state):
@@ -199,6 +199,16 @@ def adopt_successes(backend):
         backend.states[name] = copy.deepcopy(saved)
 
 
+def attempts_finished(states, result):
+    statuses = {saved.get("status") for saved in states.values()}
+    return bool(states) and (
+        statuses <= {"SUCCESS", "FAILED"}
+        or result == "FAIL"
+        and "FAILED" in statuses
+        and statuses <= {"SUCCESS", "FAILED", "NOT_STARTED", "READY"}
+    )
+
+
 def require_complete(root, task):
     if not is_deploy(task.text):
         return
@@ -219,6 +229,9 @@ def require_complete(root, task):
         or set(progress["states"]) != set(state["deployIdentity"]["stacks"])
         or progress["pendingObserved"]
         or progress["pendingGeneration"]
+        or not attempts_finished(
+            progress["states"], progress.get("runContext", {}).get("deployResult")
+        )
         or any(
             not saved.get("observedSynced")
             or saved.get("status") == "RUNNING"

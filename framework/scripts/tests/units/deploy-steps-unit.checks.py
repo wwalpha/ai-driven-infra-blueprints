@@ -98,6 +98,33 @@ def check_checkpoint_pending_is_unfinished_even_after_observed():
     assert report["gitPublication"]["status"] == "CONFLICT"
 
 
+@pytest.mark.parametrize("status", ["NOT_STARTED", "READY"])
+def check_intermediate_sync_does_not_finish_unattempted_deploy(status):
+    saved = {"status": status, "observedSynced": True, "checkpointed": True}
+    state = {"A": saved}
+    backend = SimpleNamespace(
+        states=state,
+        run_context={"states": state, "snapshotValidation": "PASS"},
+    )
+    assert steps.describe(backend)["result"] != "COMPLETE"
+
+
+def check_failed_attempt_can_finish_with_unstarted_stack():
+    states = {
+        name: {"status": status, "observedSynced": True, "checkpointed": True}
+        for name, status in [("A", "SUCCESS"), ("B", "FAILED"), ("C", "NOT_STARTED")]
+    }
+    backend = SimpleNamespace(
+        states=states,
+        run_context={
+            "states": states,
+            "deployResult": "FAIL",
+            "snapshotValidation": "PASS",
+        },
+    )
+    assert steps.describe(backend)["result"] == "COMPLETE"
+
+
 @pytest.mark.parametrize("status", ["PENDING", "CONFLICT", "SUCCESS"])
 def check_git_next_actions_are_exposed_until_publication_succeeds(status):
     states = {"A": {"status": "SUCCESS", "observedSynced": True, "checkpointed": True}}
@@ -681,6 +708,33 @@ class TestCurrentState(TestCase):
                 aws, record, {"StackStatus": "UPDATE_ROLLBACK_COMPLETE"}
             )
         )
+
+    def test_missing_change_set_requires_terminal_original_root_event(self):
+        record = {
+            "operation": "execute_change_set",
+            "name": "Example",
+            "changeSetId": "change",
+            "stackId": "stack",
+            "token": "original",
+        }
+        event = {
+            "StackId": "stack",
+            "PhysicalResourceId": "stack",
+            "ResourceType": "AWS::CloudFormation::Stack",
+            "ClientRequestToken": "original",
+            "ResourceStatus": "UPDATE_COMPLETE",
+        }
+        current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
+        for events, expected in [([], False), ([event], True)]:
+            aws = Mock(
+                side_effect=[
+                    AwsError(
+                        "cloudformation", "describe_change_set", "ChangeSetNotFound"
+                    ),
+                    {"StackEvents": events},
+                ]
+            )
+            self.assertEqual(current_request.settled(aws, record, current), expected)
 
     def test_attempt_events_do_not_replace_current_stack_observation(self):
         for current, event_status, expected in [

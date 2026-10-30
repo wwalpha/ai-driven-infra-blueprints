@@ -14,19 +14,18 @@ from task_contract_core import paths_in, safe_path, task_snapshot
 from utils.aws import cloudformation
 from utils.aws.client import connection_context
 from utils.aws.identity import execution_account, select_profile
-from utils.cloudformation.inputs import Blocked, load_template_inputs
+from utils.cloudformation.inputs import Blocked
 from utils.file_operations import sha
-from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
+from utils.local_evidence import evidence_store, read_sealed, write_sealed
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
 from deploy import (
-    change_sets,
     context,
     current_request,
     current_state,
-    inputs,
     operation_journal,
+    worktree,
 )
 
 
@@ -319,99 +318,40 @@ def require_settled(
     stacks = set(request["diagnosis"])
     if not stacks:
         raise Blocked("repair request has no failed Stack scope")
-    files = set(changed) | set(request["allowedPaths"])
-    for entry in request["diagnosis"].values():
-        files.update(
-            ref["path"] for field in ("inputRefs", "modelRefs") for ref in entry[field]
-        )
-    journal_path = operation_journal.location(target)
-    if journal_path.exists() and json.loads(journal_path.read_bytes()) == {
-        "protocol": "current-request-v2"
-    }:
-        reader = dependency_reader(root, request)
-        for name in sorted(stacks):
-            path = current_request.location(target, name)
-            with operation_journal.locked(path):
-                current = current_state.read(reader, name)
-                record = current_request.read(path)
-                if current_state.category(current) in {"RUNNING", "UNKNOWN"}:
-                    raise Blocked("repair target AWS operation is not settled: " + name)
-                if record:
-                    if not current_request.settled(reader, record, current):
-                        raise Blocked("repair target request is not settled: " + name)
-                    path.unlink()
-        return
-    records = operation_journal.read(journal_path) or []
-    pending = {}
-    reader = None
-    for record in records:
-        if operation_journal.target_identity(
-            record["target"]
-        ) != operation_journal.target_identity(target):
-            raise Blocked("unfinished operation Account/Region changed")
-        publication = record["publication"]
-        if publication.get("pendingObserved") or publication.get("pendingGeneration"):
-            owner = operation_journal.safe_path(publication["repository"])
-            paths = operation_journal.publication_paths(publication)
-            producers = set(publication.get("generationProducers", {}))
-            observed = publication.get("pendingObserved")
-            if observed:
-                producers.update(observed["evidence"])
-            for plan in publication.get("pendingGeneration", {}).values():
-                producers.update(p["stack"] for p in plan["producers"])
-            if not paths or not owner.is_dir():
-                raise Blocked("unfinished publication scope/ownership is unknown")
-            if (
-                producers & stacks
-                or operation_journal.same_repository(root, owner, require_known=True)
-                and paths & files
-            ):
-                raise Blocked(
-                    "unfinished publication conflicts with repair/checkpoint files or Producers"
+    if worktree.progress_path(root).exists():
+        state = worktree.require(root)
+        progress = worktree.read_progress(root, state)
+        context = progress.get("runContext", {})
+        observed = context.get("pendingObserved") or {}
+        generation = context.get("pendingGeneration") or {}
+        if observed or generation:
+            files = set(changed) | set(request["allowedPaths"])
+            for entry in request["diagnosis"].values():
+                files.update(
+                    ref["path"]
+                    for field in ("inputRefs", "modelRefs")
+                    for ref in entry[field]
                 )
-        for name, op in record["operations"].items():
-            if not operation_journal.unfinished(op["state"]):
-                continue
-            reader = reader or dependency_reader(root, request)
-            if operation_journal.aws_unfinished(target, name, op, reader):
-                pending[name] = op["state"]
-    if not pending:
-        return
-    if pending.keys() & stacks:
-        raise Blocked(
-            "drain and synchronize unfinished operations before implement handoff"
-        )
-    _, units = inputs.load_units(
-        root, request["environment"], request["directory"], sorted(stacks)
-    )
-    imports = {}
-    for unit in units:
-        template, parameters = inputs.paths(
-            root, request["environment"], request["directory"], target, unit
-        )
-        if any(
-            request["inputs"].get(p.relative_to(root).as_posix())
-            != sha(safe_path(root, p.relative_to(root).as_posix()))
-            for p in (template, parameters)
-        ):
-            raise Blocked("repair dependency inputs are not the current failure inputs")
-        document, values = load_template_inputs(template, parameters)
-        imports[unit["name"]] = change_sets.import_names(
-            document,
-            values,
-            {
-                "AWS::StackName": unit["name"],
-                "AWS::Region": target["awsRegion"],
-                "AWS::AccountId": target.get(
-                    "awsExecutionAccountId", target["awsAccountId"]
-                ),
-            },
-        )
-    if imports.keys() != stacks:
-        raise Blocked("repair dependency Stack scope is incomplete")
-    operation_journal.require_independent(
-        pending, stacks, reader or dependency_reader(root, request), imports=imports
-    )
+            producers = set(context.get("generationProducers", {})) | set(
+                observed.get("evidence", {})
+            )
+            for plan in generation.values():
+                producers.update(item["stack"] for item in plan.get("producers", []))
+            paths = operation_journal.publication_paths(context)
+            if not paths or producers & stacks or paths & files:
+                raise Blocked("current unfinished publication conflicts with repair")
+    reader = dependency_reader(root, request)
+    for name in sorted(stacks):
+        path = current_request.location(target, name)
+        with operation_journal.locked(path):
+            current = current_state.read(reader, name)
+            record = current_request.read(path)
+            if current_state.category(current) in {"RUNNING", "UNKNOWN"}:
+                raise Blocked("repair target AWS operation is not settled: " + name)
+            if record:
+                if not current_request.settled(reader, record, current):
+                    raise Blocked("repair target request is not settled: " + name)
+                path.unlink()
 
 
 def discard_request(state: JsonObject) -> None:

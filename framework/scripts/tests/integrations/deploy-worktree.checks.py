@@ -31,12 +31,13 @@ from deploy import (
 from deploy import git_publication as publication
 from model.format import parse
 from model.format import patch as patch_properties
-from support.deploy_controller_fixtures import ACCOUNT, aws_state, drive, invoke
+from support.deploy_controller_fixtures import ACCOUNT, aws_state, invoke
 from support.pytest_cli import run
 from support.worktree_deploy_fixtures import seed
 from support.worktree_task_fixtures import fixture, git
 from task_contract_core import read_task_snapshot, selected_task, set_status, start
 from utils.aws.client import AwsError
+from utils.sealed_evidence import evidence_store as old_store
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -102,7 +103,10 @@ class RequestProbe:
         return {"Id": arguments.get("ChangeSetName"), "StackId": arguments["StackName"]}
 
 
-def check_current_request_is_shared_without_history_or_duplicate_execute(tmp_path):
+@pytest.mark.parametrize("legacy", [None, b"{}", b"{broken"])
+def check_current_request_is_shared_without_history_or_duplicate_execute(
+    tmp_path, legacy
+):
     case = TestCase()
     with (
         fixture() as primary,
@@ -120,6 +124,9 @@ def check_current_request_is_shared_without_history_or_duplicate_execute(tmp_pat
         one = SimpleNamespace(root=first, target=target, aws=probe.aws, states=states)
         two = SimpleNamespace(root=second, target=target, aws=probe.aws, states=states)
         journal = tmp_path / "operations/journal.json"
+        if legacy is not None:
+            journal.parent.mkdir(mode=0o700)
+            journal.write_bytes(legacy)
         with patch.object(operation_journal, "location", return_value=journal):
             arguments = {
                 "StackName": "Example",
@@ -138,6 +145,7 @@ def check_current_request_is_shared_without_history_or_duplicate_execute(tmp_pat
                 probe.send,
             )
             case.assertEqual(probe.tokens, [("Example", "original")])
+            assert (journal.read_bytes() if journal.exists() else None) == legacy
             probe.finished = True
             case.assertIsNone(current_request.reconcile(two, {"name": "Example"}))
             case.assertFalse(current_request.location(target, "Example").exists())
@@ -407,6 +415,74 @@ def check_git_conflict_checkpoints_peers_and_recovers(monkeypatch, tmp_path):
             assert not wt.changed_paths(root) and not wt.changed_paths(primary)
 
 
+def check_failed_snapshot_with_unstarted_stack_publishes():
+    with (
+        fixture() as primary,
+        patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
+        patch.object(
+            wt.python_env, "runtime", return_value=(sys.executable, dict(os.environ))
+        ),
+        patch.object(publication, "check_scope"),
+        patch.object(wt, "_run_model_guard"),
+        patch.object(publication, "validate_candidate"),
+    ):
+        relative = "model/dev/a/ec2.properties"
+        source = primary / relative
+        source.parent.mkdir(parents=True)
+        source.write_text("# model-format: 2\nobserved.row.001-001.value=`before`\n")
+        name = "tasks/deploy.md"
+        (primary / name).parent.mkdir()
+        (primary / name).write_text(deploy_contract(name, [relative]))
+        git(primary, "add", "-f", name)
+        git(primary, "add", relative)
+        git(primary, "commit", "-qm", "Model fixture")
+        state = wt.create(primary, "deploy")
+        root = Path(state["worktree"])
+        name = state["task_file"]
+        with selected_task(root, name):
+            worktree.bind(
+                root, read_task_snapshot(root, name), {}, "dev", ["A", "B", "C"]
+            )
+            states = {
+                "A": {"status": "SUCCESS", "observedSynced": True},
+                "B": {"status": "FAILED", "observedSynced": True},
+                "C": {"status": "NOT_STARTED", "observedSynced": True},
+            }
+            backend = SimpleNamespace(
+                root=root,
+                phase="deploy",
+                run_context={
+                    "taskFile": name,
+                    "states": states,
+                    "stepwise": False,
+                    "inputDigests": {},
+                    "deployResult": "FAIL",
+                    "snapshotValidation": "PASS",
+                },
+            )
+            worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+            (root / relative).write_text(
+                "# model-format: 2\nobserved.row.001-001.value=`aws`\n"
+            )
+            snapshot = read_task_snapshot(root, name, live=True)
+            snapshot.path.write_text(
+                set_status(snapshot.text, "completed"), encoding="utf-8"
+            )
+            result = publication.finalize(root, "deploy")
+            assert result["verified"] and result["merged"]
+            assert source.read_text().endswith("observed.row.001-001.value=`aws`\n")
+            assert read_task_snapshot(primary, name, live=True).status == "completed"
+            progress = worktree.read_progress(root, result)
+            assert progress["runContext"]["deployResult"] == "FAIL"
+            assert progress["states"]["C"]["status"] == "NOT_STARTED"
+            old = old_store(root)
+            (old / "seal.key").write_bytes(b"broken")
+            receipt = old / "deploy.json"
+            receipt.write_text("{broken", encoding="utf-8")
+            assert wt.cleanup(primary, "deploy")["cleaned"]
+            assert receipt.read_text(encoding="utf-8") == "{broken"
+
+
 def run_controller(root, report, aws, driver):
     if read_task_snapshot(root, "tasks/deploy.md", live=True).status == "completed":
         return invoke(root, report, aws, ["--action", "checkpoint"])
@@ -555,52 +631,6 @@ def interrupt_git(actual, owner, boundary, root, *args, **kwargs):
     ):
         raise OSError("interrupted after Git " + boundary)
     return result
-
-
-def check_managed_journal_recovery_never_reexecutes_success(tmp_path, monkeypatch):
-    report, aws = tmp_path / "report.json", tmp_path / "aws.json"
-    root = seed(tmp_path / "project", report, "orders")
-    monkeypatch.chdir(root)
-    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
-    aws_state(aws)
-    assert drive(root, report, aws, fault="design-io") == 2
-    first = json.loads(report.read_text())
-    assert first["pendingGeneration"]
-    journal = report.with_suffix(".operations.json")
-    retained = report.with_suffix(".retained.json")
-    journal.rename(
-        retained
-    )  # Synthetic loss; keep the exact sealed bytes for restoration.
-    before = json.loads(aws.read_text())["calls"]
-    TestCase().assertEqual(
-        invoke(
-            root,
-            report,
-            aws,
-            ["--action", "sync", "--sync-stack", next(iter(first["states"]))],
-        ),
-        0,
-    )
-    assert not any(
-        op in {"create_change_set", "execute_change_set"}
-        for _, op, _ in json.loads(aws.read_text())["calls"][len(before) :]
-    )
-    retained.rename(journal)
-    assert drive(root, report, aws, ["--recover-operations"]) == 0
-    recovered = json.loads(report.read_text())
-    assert not recovered.get("pendingGeneration")
-    assert invoke(root, report, aws, ["--action", "checkpoint"]) == 0
-    states = json.loads(report.read_text())["states"]
-    calls = json.loads(aws.read_text())["calls"]
-    for name, saved in states.items():
-        assert saved["status"] == "SUCCESS"
-        assert (
-            sum(
-                op == "execute_change_set" and args["StackName"] == saved["stackId"]
-                for _, op, args in calls
-            )
-            == 1
-        ), name
 
 
 @pytest.mark.parametrize("boundary", ["commit", "merge"])

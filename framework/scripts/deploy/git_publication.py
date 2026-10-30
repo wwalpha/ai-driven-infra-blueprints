@@ -508,7 +508,7 @@ def publish(where, task_id, resolution=None, *, automatic=False):
         )
         progress = worktree.read_progress(root, state)
         if progress is None:
-            raise ws.Blocked("Git publication requires signed Deploy progress")
+            raise ws.Blocked("Git publication requires current Deploy progress")
         if type(progress.get("stepwise")) is not bool:
             raise ws.Blocked(
                 "Git publication requires a persisted Deploy mode; review original Task evidence"
@@ -785,7 +785,7 @@ def finalize(where, task_id):
         worktree.require(root, task)
         progress = worktree.read_progress(root, state)
         if progress is None:
-            raise ws.Blocked("final Deploy checkpoint requires signed progress")
+            raise ws.Blocked("final Deploy checkpoint requires current progress")
         task_checkpoint(root, path, state, task, progress)
     result = publish(where, task_id)
     if result["status"] != "SUCCESS":

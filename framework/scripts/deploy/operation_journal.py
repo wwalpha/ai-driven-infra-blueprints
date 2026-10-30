@@ -25,7 +25,7 @@ from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import Blocked
 from utils.file_operations import atomic_replace_file
 from utils.json_format import fingerprint
-from utils.sealed_evidence import read_sealed, sealed
+from utils.local_evidence import read_sealed, sealed
 
 from deploy import change_sets, generation_resume, observed, observed_resume, worktree
 from deploy import context as deploy_context
@@ -109,7 +109,7 @@ def location(target):
     ]
     return (
         Path(tempfile.gettempdir()).resolve()
-        / ("blueprint-cfn-operations-" + fingerprint(identity))
+        / ("blueprint-cfn-current-v3-" + fingerprint(identity))
         / "journal.json"
     )
 

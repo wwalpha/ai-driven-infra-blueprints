@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from deploy import change_sets, handoff, run_context
+from deploy import change_sets, run_context
 from deploy import operation_journal as J
 from deploy.controller import create_runtime
 from support.pytest_cli import run
@@ -198,9 +198,9 @@ def test_journal_tampering_and_redirects_are_rejected(tmp_path):
     backend, _, _, path = backend_for(tmp_path)
     J.save(path, backend)
     raw = json.loads(path.read_text())
-    raw["payload"]["operations"]["Kms"]["state"]["clientToken"] = "new-token"
+    raw["payload"]["operations"]["Kms"]["state"]["unownedField"] = "new-value"
     path.write_text(json.dumps(raw))
-    with pytest.raises(ValueError, match="modified"):
+    with pytest.raises(Blocked, match="invalid unfinished operation fields"):
         J.read(path)
     link = tmp_path / "redirect.json"
     link.symlink_to(path)
@@ -1586,24 +1586,6 @@ def test_consumer_uses_current_export_after_no_change_recovery(tmp_path):
     }
     backend.check_imports({"name": "Consumer"})
     assert J.read(path)[0]["operations"]["Kms"]["state"]["status"] == "SUCCESS"
-    backend.execute.assert_not_called()
-
-
-def test_handoff_uses_same_no_change_classification(tmp_path):
-    backend, _, _, path, _, _ = no_change_fixture(tmp_path)
-    J.save(path, backend)
-    request = {
-        "target": TARGET,
-        "diagnosis": {"Consumer": {"inputRefs": [], "modelRefs": []}},
-        "allowedPaths": [],
-    }
-    with (
-        patch.object(J, "location", return_value=path),
-        patch.object(handoff, "dependency_reader", return_value=backend.aws),
-        patch.object(handoff.inputs, "load_units") as load_units,
-    ):
-        handoff.require_settled(backend.root, request)
-        load_units.assert_not_called()
     backend.execute.assert_not_called()
 
 
