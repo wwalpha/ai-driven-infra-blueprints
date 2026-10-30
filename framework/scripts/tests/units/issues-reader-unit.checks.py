@@ -97,8 +97,88 @@ def test_nested_types(tmp_path):
     data = snapshot_artifact(tmp_path / "repository")
     data["iac_issues"] = [{"members": "secret-marker"}]
     path.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(ValueError, match="iac_issues.members"):
+    with pytest.raises(ValueError, match=r"iac_issues\[\].members"):
         read_scan_artifact(path)
+
+
+@pytest.mark.parametrize(
+    "collection,field",
+    [
+        ("service_results", "service"),
+        ("service_results", "status"),
+        ("record_meta", "record_id"),
+        ("record_meta", "issue_id"),
+        ("record_meta", "category"),
+        ("iac", "service"),
+        ("iac", "category"),
+        ("iac_issues", "id"),
+        ("iac_issues", "category"),
+        ("iac_issues", "members"),
+        ("iac_issues", "compact"),
+        ("iac_issues", "compact.records"),
+    ],
+)
+@pytest.mark.parametrize("missing", [True, False])
+def test_required_nested_fields_rejected_everywhere(
+    tmp_path, monkeypatch, capsys, collection, field, missing
+):
+    root = tmp_path / "repository"
+    root.mkdir()
+    record = dict(
+        category="difference",
+        service="s3",
+        resource="1",
+        property="S3.Bucket.X",
+        reason="value mismatch",
+        desired="a",
+        actual="b",
+        stack="S",
+        iac={"path": "template.yaml"},
+    )
+    data = snapshot_artifact(root, records=[record])
+    parent = data[collection][0]
+    if field == "compact.records":
+        parent = parent["compact"]
+        key = "records"
+    else:
+        key = field
+    if missing:
+        del parent[key]
+    else:
+        parent[key] = (
+            {"secret-marker-key": "secret-marker-value"}
+            if key == "members"
+            else ["secret-marker-value"]
+        )
+    data["secret-marker-key"] = "secret-marker-value"
+    artifact = tmp_path / "scan.json"
+    artifact.write_text(json.dumps(data), encoding="utf-8")
+    state = tmp_path / "checkpoint.json"
+    review = tmp_path / "review.json"
+    review.write_text("{}", encoding="utf-8")
+    files = [state, root / "issues.md", root / "iac-issues.md", root / "task.md"]
+    for path in files:
+        path.write_text("original", encoding="utf-8")
+    before = {path: path.read_bytes() for path in files}
+    diagnostic = f"{collection}[].{field}"
+    kind = "missing required field" if missing else "invalid type at"
+    with pytest.raises(ValueError) as error:
+        read_scan_artifact(artifact)
+    assert str(error.value) == f"Scan artifact: {kind} {diagnostic}"
+    for args in (
+        ["detail", "--artifact", str(artifact), "--section", "iac"],
+        ["save", "--artifact", str(artifact), "--review", str(review)],
+        ["review", "init", "--artifact", str(artifact), "--state", str(state)],
+    ):
+        monkeypatch.setattr(
+            "sys.argv", ["issues_scan.py", "--repository-root", str(root), *args]
+        )
+        assert main() == 2
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
+        assert f"Scan artifact: {kind} {diagnostic}" in output
+        assert "secret-marker" not in output and "Traceback" not in output
+        assert {path: path.read_bytes() for path in files} == before
 
 
 def test_invalid_scan_all_cli_entrypoints_preserve_files(tmp_path, monkeypatch, capsys):

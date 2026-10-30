@@ -1082,15 +1082,9 @@ def check_review_entrypoint_avoids_scan_imports():
 def check_invalid_snapshot_material_cannot_complete(tmp_path):
     data = snapshot_artifact(tmp_path / "repository")
     data["service_results"] = [{"status": "unverified", "code": "conflict"}]
-    review = controller(tmp_path, data)
-    review.initialize()
-    review.submit(submission(review.next_batch()))
-    batch = review.next_batch()
-    before = review.path.read_bytes()
-    with pytest.raises(TypeError):
-        review.submit(submission(batch))
-    assert not review.status()["complete"]
-    assert review.path.read_bytes() == before
+    with pytest.raises(ValueError, match=r"service_results\[\].service"):
+        controller(tmp_path, data)
+    assert not (tmp_path / "progress.json").exists()
 
 
 if __name__ == "__main__":

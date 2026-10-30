@@ -34,7 +34,7 @@ def _field(parent, key, expected, prefix=""):
     if key not in parent:
         raise ValueError(f"Scan artifact: missing required field {name}")
     value = parent[key]
-    if type(value) is not expected:
+    if type(value) not in (expected if isinstance(expected, tuple) else (expected,)):
         raise ValueError(f"Scan artifact: invalid type at {name}")
     return value
 
@@ -90,8 +90,22 @@ def read_scan_artifact(path: Path) -> LoadedScan:
     for key in ("jobs", "coverage"):
         if any(type(item) is not dict for item in _field(lint, key, list, "cfn_lint")):
             raise ValueError(f"Scan artifact: invalid type at cfn_lint.{key}")
+    for result in artifact["service_results"]:
+        for key in ("service", "status"):
+            _field(result, key, str, "service_results[]")
+    for record in artifact["iac"]:
+        for key in ("service", "category"):
+            _field(record, key, str, "iac[]")
+    for meta in artifact["record_meta"]:
+        for key in ("record_id", "category"):
+            _field(meta, key, str, "record_meta[]")
+        _field(meta, "issue_id", (str, type(None)), "record_meta[]")
     for issue in artifact["iac_issues"]:
-        _field(issue, "members", list, "iac_issues")
+        _field(issue, "members", list, "iac_issues[]")
+        for key in ("id", "category"):
+            _field(issue, key, str, "iac_issues[]")
+        compact = _field(issue, "compact", dict, "iac_issues[]")
+        _field(compact, "records", int, "iac_issues[].compact")
     try:
         rule_index = NamingRuleIndex(artifact["naming_context"])
         pending_names = validate_artifact(artifact, rule_index=rule_index)
