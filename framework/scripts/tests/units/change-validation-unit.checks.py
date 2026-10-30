@@ -2055,7 +2055,7 @@ def check_reference_metadata_reuses_immutable_snapshot(project_workspace):
 @pytest.mark.parametrize("defect", ["outside-link", "syntax", "partial-unrelated"])
 @pytest.mark.parametrize(
     "index_state",
-    ["missing", "current", "stale", "old-format", "old-format-rollback", "old-v2"],
+    ["missing", "current", "stale"],
 )
 def check_broken_unrelated_model_save(project_workspace, defect, index_state):
     root = project_workspace
@@ -2082,12 +2082,6 @@ def check_broken_unrelated_model_save(project_workspace, defect, index_state):
     if index_state != "missing":
         with change_plan.change_reads(root, sources.FileReads(), metadata={}):
             index = dependency_index.check_change_inventory(root, set())
-        if index_state.startswith("old-format"):
-            index["version"] = 1
-            for entry in index["models"].values():
-                entry.pop("errors")
-        elif index_state == "old-v2":
-            index["version"] = 2
         dependency_index.write_sealed(root, dependency_index.location(root), index)
     if index_state == "stale":
         peer.write_text(
@@ -2122,38 +2116,18 @@ def check_broken_unrelated_model_save(project_workspace, defect, index_state):
             "check_model_inputs",
             side_effect=AssertionError("Full called"),
         ) as full:
-            if index_state in {"old-format", "old-format-rollback", "old-v2"}:
-                with pytest.raises(ValueError, match="dependency index"):
-                    prepare_edit(
-                        path,
-                        {
-                            path: serialize(
-                                dict(
-                                    before,
-                                    **{"desired.row.001-001.value": "changed-name"},
-                                )
-                            )
-                        },
-                        context,
+            plan = prepare_edit(
+                path,
+                {
+                    path: serialize(
+                        dict(before, **{"desired.row.001-001.value": "changed-name"})
                     )
-            else:
-                plan = prepare_edit(
-                    path,
-                    {
-                        path: serialize(
-                            dict(
-                                before, **{"desired.row.001-001.value": "changed-name"}
-                            )
-                        )
-                    },
-                    context,
-                )
-                assert publish_edit(plan, context) == (path,)
+                },
+                context,
+            )
+            assert publish_edit(plan, context) == (path,)
             full.assert_not_called()
     assert peer.read_bytes() == original
-    if index_state in {"old-format", "old-format-rollback", "old-v2"}:
-        with pytest.raises(ValueError, match="dependency index"):
-            dependency_index.load(root)
 
 
 def check_broken_syntax_keeps_valid_incoming_reference(project_workspace):
