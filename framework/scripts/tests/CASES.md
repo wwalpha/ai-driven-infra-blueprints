@@ -3791,7 +3791,7 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | JSON context | `test_container_references_use_exact_context` | 2 | Value/document structured and Markdown references use their own array object's Type |
 | Display restoration | `test_markdown_rejects_plaintext_link` | 4 | Explicit/missing PLAINTEXT marker rejects links in CREATE/IMPORT |
 | Non-PLAINTEXT | `test_non_plaintext_round_trip` | 2 | PARAMETER_STORE/SECRETS_MANAGER display round trip is preserved |
-| Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 18 | Model-only, Markdown-only and combined policy errors; one/two variables and independent ownership errors; readable/unreadable Markdown and typed IAM.Role; scan/save twice retains Issue IDs and counts, independent S3 comparison/lint, CLI artifact v5 and strict generation rejection |
+| Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 18 | Model-only, Markdown-only and combined policy errors; one/two variables and independent ownership errors; readable/unreadable Markdown and typed IAM.Role; scan/save twice retains Issue IDs and counts, independent S3 comparison, CLI artifact v5 and strict generation rejection; lint stage is not run here (dedicated issues-lint UT/IT coverage) |
 | Structured display | `test_structured_reference_display_is_rejected` | 2 | Symbolic typed rows remain visible; independent Model validation rejects PLAINTEXT references in CREATE/IMPORT |
 | Valid producers | `test_non_plaintext_model_links_pass` | 2 | Authoritative Model passes correct SSM.Parameter/SecretsManager.Secret links |
 

@@ -3,7 +3,6 @@
 import json
 import re
 import sys
-from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -30,7 +29,6 @@ from support.issues_scan_fixtures import fixture, task, write
 from support.model_sources import write_model
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
-from utils.cfn_lint import validate_template
 from utils.reference_contracts import reference_error
 from validation.runner import Validator
 
@@ -45,28 +43,14 @@ REASON = "PLAINTEXTではResource linkは禁止"
 NODE = {"$modelRef": {"logicalId": "S3_Bucket_001", "attribute": "Arn"}}
 
 
-class RepeatedLint:
-    """Replay real lint only for the same case's unchanged second scan."""
-
-    def __init__(self):
-        self.inputs = []
-        self.result = None
-
-    def __call__(self, session, template, region, parameters=None):
-        inputs = (
-            session.cwd,
-            template,
-            Path(template).read_bytes(),
-            region,
-            parameters,
-            Path(parameters).read_bytes() if parameters else None,
-        )
-        self.inputs.append(inputs)
-        assert inputs == self.inputs[0], "repeated scan changed lint inputs"
-        assert len(self.inputs) <= 2
-        if len(self.inputs) == 1:
-            self.result = validate_template(session, template, region, parameters)
-        return deepcopy(self.result)
+@pytest.fixture(autouse=True)
+def plaintext_without_lint():
+    # Lint execution is covered by issues-lint UT/IT, independently of PLAINTEXT policy.
+    with patch(
+        "issues.cfn_lint.run_lint",
+        side_effect=lambda _comparison, *, result: dict(result, status="not_run"),
+    ):
+        yield
 
 
 def values_for(variables, mode="CREATE", indexed=False):
@@ -668,17 +652,8 @@ def test_non_plaintext_round_trip(kind):
     ],
 )
 def test_scan_save_owns_codebuild_and_deduplicates(
-    tmp_path,
-    monkeypatch,
-    unreadable_view,
-    typed,
-    model_link,
-    markdown_link,
-    count,
-    ownership_error,
+    tmp_path, unreadable_view, typed, model_link, markdown_link, count, ownership_error
 ):
-    lint = RepeatedLint()
-    monkeypatch.setattr("issues.cfn_lint.validate_template", lint)
     with mapping_alias(FRAMEWORK, tmp_path):
         _, template = fixture(tmp_path, services=("s3",))
         path = tmp_path / "model/dev/123456789012/codebuild.properties"
@@ -831,9 +806,6 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                 item["service"] == "s3" and item["category"] == "matched"
                 for item in artifact["iac"]
             )
-            assert artifact["cfn_lint"]["jobs"] and all(
-                job["completed"] for job in artifact["cfn_lint"]["jobs"]
-            )
             assert any(
                 result["scope"] == ["dev/123456789012/s3"] and result["checks"] > 0
                 for result in artifact["check_results"]
@@ -976,7 +948,6 @@ def test_scan_save_owns_codebuild_and_deduplicates(
             assert REASON in report
             assert report.count("<!-- issue-id:") == len(diagnostics), report
             assert "### codebuild" in report
-        assert len(lint.inputs) == 2
 
 
 @pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])
