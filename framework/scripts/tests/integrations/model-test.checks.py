@@ -349,6 +349,17 @@ def check():
                         ("PublicIp", "[EIP](#eip-two)", None),
                     ],
                 ),
+                (
+                    "008",
+                    "EC2.EIP",
+                    "eip-three",
+                    [
+                        ("Tags[].Key", "`Name`", None),
+                        ("Tags[].Value", "`duplicate`", None),
+                        ("AllocationId", "[EIP](#eip-three)", None),
+                        ("PublicIp", "[EIP](#eip-three)", None),
+                    ],
+                ),
             ],
         )
         name_data["models"]["dev/cde/vpc"]["observed.row.001-002.value"] = "`vpc-a`"
@@ -386,6 +397,8 @@ def check():
         )
         TestCase().assertEqual(names["EC2_EIP_005"], "duplicate (192.0.2.1)")
         TestCase().assertEqual(names["EC2_EIP_006"], "duplicate (192.0.2.2)")
+        TestCase().assertEqual(names["EC2_EIP_008"], "duplicate")
+        TestCase().assertNotIn("EC2_EIP_", " ".join(names.values()))
         for index, value in enumerate(
             (
                 "UNSET",
