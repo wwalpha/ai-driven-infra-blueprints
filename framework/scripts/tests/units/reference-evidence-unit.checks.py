@@ -35,7 +35,12 @@ from issues.publication import save_scan
 from issues.review import review_snapshot
 from model.references import declarations
 from model.sources import ModelSnapshot, Scope
-from support.issues_scan_fixtures import review_for, snapshot_artifact, task
+from support.issues_scan_fixtures import (
+    review_for,
+    snapshot_artifact,
+    stamp_naming_scan,
+    task,
+)
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
 from utils.iac_values import (
@@ -3564,11 +3569,8 @@ def test_naming_materials_review_save(tmp_path, value, violation, expected, actu
     data["naming_context"] = {
         key: val for key, val in material.items() if key != "names"
     }
-    data["naming_context_id"] = identifier(data["naming_context"])
-    data["naming"]["names"] = [
-        dict(item, naming_context_id=data["naming_context_id"])
-        for item in material["names"]
-    ]
+    data["naming"]["names"] = material["names"]
+    stamp_naming_scan(data)
     data["judgments"] = judgments
     item = next(item for item in data["naming"]["names"] if item["property"] == "Name")
     review = review_for(data)
@@ -3657,11 +3659,8 @@ def test_naming_import_provider_constraint_from_materials(tmp_path):
     data["naming_context"] = {
         key: val for key, val in material.items() if key != "names"
     }
-    data["naming_context_id"] = identifier(data["naming_context"])
-    data["naming"]["names"] = [
-        dict(item, naming_context_id=data["naming_context_id"])
-        for item in material["names"]
-    ]
+    data["naming"]["names"] = material["names"]
+    stamp_naming_scan(data)
     data["judgments"] = judgments
     item = next(
         item for item in data["naming"]["names"] if item["property"] == "AliasName"
@@ -3710,11 +3709,8 @@ def test_naming_missing_rule_from_materials(tmp_path):
     data["naming_context"] = {
         key: val for key, val in material.items() if key != "names"
     }
-    data["naming_context_id"] = identifier(data["naming_context"])
-    data["naming"]["names"] = [
-        dict(item, naming_context_id=data["naming_context_id"])
-        for item in material["names"]
-    ]
+    data["naming"]["names"] = material["names"]
+    stamp_naming_scan(data)
     data["judgments"] = judgments
     item = next(
         item

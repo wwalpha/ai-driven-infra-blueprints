@@ -2,13 +2,22 @@
 
 import hashlib
 import json
+import sys
 from copy import deepcopy
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 from issues.cli import main
 from issues.reader import read_review_json, read_scan_artifact
 from issues.review_progress import ReviewController
 from support.issues_scan_fixtures import snapshot_artifact
+from support.pytest_cli import run
+
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 def test_scan_reader_integrity_and_raw_digest(tmp_path):
@@ -129,3 +138,7 @@ def test_checkpoint_rejects_changed_raw_bytes(tmp_path):
     with pytest.raises(ValueError):
         ReviewController(root, path, state).initialize()
     assert state.read_bytes() == original
+
+
+if __name__ == "__main__":
+    raise SystemExit(run(__file__))

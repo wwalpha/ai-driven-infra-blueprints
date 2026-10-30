@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import deploy.s3_delivery as _imports_deploy_s3_delivery
 from botocore.exceptions import ReadTimeoutError
-from deploy import failures
+from deploy import failures, run_context
 from deploy.timing import Timing
 from generation_inputs import GenerationInputs
 from model.adapters.observed import mappings
@@ -492,9 +492,9 @@ def check_empty_rollback_recreation(tmp_path):
         "metrics": {"observedSyncSeconds": 0},
     }
     synced = _check_empty_rollback_recreation_synced
-    with patch.object(M.run_ops, "sync_successful", side_effect=synced):
+    with patch.object(run_context, "sync_successful", side_effect=synced):
         assert (
-            M.run_ops.run_deploy(
+            run_context.run_deploy(
                 scoped,
                 2,
                 session,
@@ -1664,9 +1664,9 @@ def check_parallel_and_restart():
         "states": states(scoped),
         "metrics": {"observedSyncSeconds": 0},
     }
-    with patch.object(M.run_ops, "sync_successful"):
+    with patch.object(run_context, "sync_successful"):
         assert (
-            M.run_ops.run_deploy(
+            run_context.run_deploy(
                 scoped, 1, saved, sequential, lambda: None, sleep=lambda _: None
             )
             == "STOPPED"
@@ -1691,9 +1691,9 @@ def check_parallel_and_restart():
         "states": state,
         "metrics": {"observedSyncSeconds": 0},
     }
-    with patch.object(M.run_ops, "sync_successful", side_effect=sync):
+    with patch.object(run_context, "sync_successful", side_effect=sync):
         assert (
-            M.run_ops.run_deploy(
+            run_context.run_deploy(
                 scoped,
                 4,
                 session,
@@ -1811,12 +1811,12 @@ def check_parallel_and_restart():
         "metrics": {"observedSyncSeconds": 0},
     }
     with patch.object(
-        M.run_ops,
+        run_context,
         "sync_successful",
         side_effect=ValueError("AMBIGUOUS_OBSERVED_MAPPING"),
     ):
         assert (
-            M.run_ops.run_deploy(
+            run_context.run_deploy(
                 selected,
                 2,
                 session,
@@ -2138,8 +2138,8 @@ def _callback_check_secret_runtime_bootstrap_configure_validate(
 def _callback_check_secret_runtime_bootstrap_configure_run(
     active, backend, session, synced, /
 ):
-    with patch.object(M.run_ops, "sync_successful", side_effect=synced):
-        return M.run_ops.run_deploy(
+    with patch.object(run_context, "sync_successful", side_effect=synced):
+        return run_context.run_deploy(
             active, 2, session, backend, backend.save, sleep=lambda _: None
         )
 
@@ -3063,8 +3063,8 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
     path = tmp_path / "session.json"
     save = _bind_framework_callback(_capacity_save, path, session, snapshots)
     sync = _bind_framework_callback(_callback_check_parallel_and_restart_sync, synced)
-    with patch.object(M.run_ops, "sync_successful", side_effect=sync):
-        result = M.run_ops.run_deploy(
+    with patch.object(run_context, "sync_successful", side_effect=sync):
+        result = run_context.run_deploy(
             scoped, limit, session, backend, save, sleep=lambda _: None
         )
     # Ordinary failure/retry behavior is covered by the existing runtime recovery cases.
@@ -3100,9 +3100,9 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
             )
         # Recompute the current scope after draining; a past capacity error is not a fence.
         restored = json.loads(path.read_text(encoding="utf-8"))
-        with patch.object(M.run_ops, "sync_successful", side_effect=sync):
+        with patch.object(run_context, "sync_successful", side_effect=sync):
             TestCase().assertEqual(
-                M.run_ops.run_deploy(
+                run_context.run_deploy(
                     scoped, limit, restored, backend, lambda: None, sleep=lambda _: None
                 ),
                 "STOPPED" if failure else "COMPLETE",

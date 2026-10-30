@@ -19,6 +19,7 @@ import model.format as _imports_model_format
 import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
 from deploy import observed as deploy_observed
+from deploy import run_context
 from deploy.model_cache import RunModels
 from deploy.observed import removed_resources
 from deploy.preparation import candidate
@@ -109,7 +110,7 @@ def check_inputs(tmp_path):
         "## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n"
     )
     rejects(
-        lambda: M.run_ops.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]),
+        lambda: run_context.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]),
         "infrastructure",
     )
 
@@ -1726,14 +1727,14 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
     outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = "key-current"
     TestCase().assertEqual(before, {path: path.read_bytes() for path in before})
     # Keep the real collector in this scheduler fixture; journal ownership has separate IT.
-    monkeypatch.setattr(M.run_ops, "sync_successful", publish_collected)
+    monkeypatch.setattr(run_context, "sync_successful", publish_collected)
     session = {
         "states": states(selected),
         "metrics": {"observedSyncSeconds": 0},
     }
     session["states"]["A"]["stackId"] = "stack-A"
     assert (
-        M.run_ops.run_deploy(
+        run_context.run_deploy(
             selected, 1, session, backend, lambda: None, sleep=lambda _: None
         )
         == "COMPLETE"
@@ -1756,7 +1757,7 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
         "metrics": {"observedSyncSeconds": 0},
     }
     session["states"]["A"]["stackId"] = "stack-A"
-    result = M.run_ops.run_deploy(
+    result = run_context.run_deploy(
         selected, 1, session, failed, lambda: None, sleep=lambda _: None
     )
     TestCase().assertEqual(result, "COMPLETE")
