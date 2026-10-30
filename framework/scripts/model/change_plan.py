@@ -11,6 +11,7 @@ from utils.arn_components import ARN_COMPONENTS
 from utils.input_cache import memo_table
 from utils.reference_contracts import (
     ARN_SHAPES,
+    CONFIGURATION_PROPERTIES,
     RETURN_ATTRIBUTE_PROPERTIES,
     reference_attribute,
     requires_context,
@@ -125,10 +126,26 @@ def context_changes(old, new, old_number, number, kind, root):
         (old, previous, old_context),
         (new, current, new_context),
     ):
+        pipeline_contexts = (
+            _model_validation_projection.configuration_contexts(
+                values, old_number if values is old else number, root
+            )
+            if kind == "CodePipeline.Pipeline"
+            else None
+        )
         for rid, row in indexed.values():
-            if "value" in row and requires_context(row["property"]):
+            if "value" in row and (
+                requires_context(row["property"])
+                or row["property"] in CONFIGURATION_PROPERTIES
+            ):
                 contexts[rid] = _model_validation_projection.reference_context_for(
-                    values, rid, row, row["value"], "", root
+                    values,
+                    rid,
+                    row,
+                    row["value"],
+                    "",
+                    root,
+                    configuration_contexts_by_row=pipeline_contexts,
                 )
     return {
         rid

@@ -715,9 +715,8 @@ def generated_document(
     return projected
 
 
-def configuration_context(values, row_id, root):
-    """Use the existing lossless Stage/Action projection for split Model rows."""
-    number = row_id.rpartition("-")[0]
+def configuration_contexts(values, number, root):
+    """Index action membership without parsing Configuration documents."""
     kind = "CodePipeline.Pipeline"
     rows = [
         [
@@ -730,20 +729,34 @@ def configuration_context(values, row_id, root):
         if rid.rpartition("-")[0] == number
     ]
     indexed = _imports_array_display.indexed_rows(
-        _imports_codepipeline.pipeline_rows(rows), kind, root
+        _imports_codepipeline.pipeline_membership(rows), kind, root
     )
     contexts = action_contexts(
         [(rid, {"property": prop, "value": value}) for rid, prop, value, _ in indexed]
     )
-    properties = {rid: prop for rid, prop, _, _ in indexed}
-    parent = properties[row_id].split(".Configuration.", 1)[0]
-    return contexts.get(parent, {})
+    return {
+        rid: contexts.get(prop.rsplit(".Configuration", 1)[0], {})
+        for rid, prop, _, _ in indexed
+        if prop.endswith(".Configuration") or ".Configuration." in prop
+    }
 
 
-def reference_context_for(values, row_id, row, value, pointer, root):
+def configuration_context(values, row_id, root):
+    return configuration_contexts(values, row_id.rpartition("-")[0], root).get(
+        row_id, {}
+    )
+
+
+def reference_context_for(
+    values, row_id, row, value, pointer, root, *, configuration_contexts_by_row=None
+):
     """Share the existing split-row and nested JSON receiving-context contract."""
     context = (
-        configuration_context(values, row_id, root)
+        (
+            configuration_context(values, row_id, root)
+            if configuration_contexts_by_row is None
+            else configuration_contexts_by_row.get(row_id, {})
+        )
         if row["property"].startswith(
             "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
         )
@@ -770,7 +783,13 @@ def reference_context_for(values, row_id, row, value, pointer, root):
 
 
 def validate_json_documents(
-    values, model_path, *, warnings=None, excluded_references=(), reference_values=None
+    values,
+    model_path,
+    *,
+    warnings=None,
+    excluded_references=(),
+    reference_values=None,
+    context_values=None,
 ):
     """Generation structure/reference checks, independent of Model quality rules."""
     reference_tokens = _imports_model_identity.reference_tokens
@@ -785,6 +804,8 @@ def validate_json_documents(
         ).with_suffix(".properties")
     resolver = None
     diagnostics = []
+    context_source = values if context_values is None else context_values
+    pipeline_contexts = {}
     for row_id, row in entries(values, "desired.row."):
         if not {"property", "value"} <= row.keys():
             raise ValueError("invalid resource row: " + row_id)
@@ -805,6 +826,16 @@ def validate_json_documents(
                     scope,
                     scope.root,
                 )
+            number = row_id.rpartition("-")[0]
+            if (
+                row["property"].startswith(
+                    "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
+                )
+                and number not in pipeline_contexts
+            ):
+                pipeline_contexts[number] = configuration_contexts(
+                    context_source, number, scope.root
+                )
             _, row_diagnostics = document_references(
                 value,
                 resolver=resolver,
@@ -815,7 +846,13 @@ def validate_json_documents(
                 ),
                 model_key=f"desired.row.{row_id}.{field}",
                 context=reference_context_for(
-                    values, row_id, row, value, "", scope.root
+                    context_source,
+                    row_id,
+                    row,
+                    value,
+                    "",
+                    scope.root,
+                    configuration_contexts_by_row=pipeline_contexts.get(number),
                 ),
                 excluded_references=tuple(
                     pointer

@@ -261,6 +261,7 @@ def _check_changed_documents(
             warnings=findings.warnings,
             excluded_references=prohibited,
             reference_values=authority,
+            context_values=authority,
         ),
     )
 

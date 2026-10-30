@@ -132,6 +132,7 @@ def validate_plan(root, plan, scope=None, *, definitions_root=None):
                     snapshot.scope.path,
                     warnings=findings.warnings,
                     reference_values=snapshot.authoritative,
+                    context_values=snapshot.authoritative,
                 ),
             )
 

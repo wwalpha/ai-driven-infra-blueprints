@@ -18,6 +18,7 @@ def validate_json_settings(
     warnings: list[dict] | None = None,
     excluded_references: Collection[tuple[str, str, str]] = (),
     reference_values: dict[str, str] | None = None,
+    context_values: dict[str, str] | None = None,
 ) -> None:
     """環境値と JSON Document の検証を順に実行する。"""
     path = Path(model_path)
@@ -27,8 +28,13 @@ def validate_json_settings(
             / "model"
             / path.relative_to(path.parents[4] / "docs/designs")
         ).with_suffix(".properties")
+    context = {} if context_values is None else {"context_values": context_values}
     validate_environment_settings(
-        values, path, warnings=warnings, reference_values=reference_values
+        values,
+        path,
+        warnings=warnings,
+        reference_values=reference_values,
+        **context,
     )
     validate_json_documents(
         values,
@@ -36,4 +42,5 @@ def validate_json_settings(
         warnings=warnings,
         excluded_references=excluded_references,
         reference_values=reference_values,
+        **context,
     )

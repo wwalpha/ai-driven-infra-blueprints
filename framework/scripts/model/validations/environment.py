@@ -19,10 +19,17 @@ def validate_environment_settings(
     *,
     warnings: list[dict] | None = None,
     reference_values: dict[str, str] | None = None,
+    context_values: dict[str, str] | None = None,
 ) -> None:
     """環境値の PENDING_DEPLOY 条件を検証し、許可された値を警告する。"""
     root = _imports_model_sources.scope_for(path).root
-    authority = values if reference_values is None else dict(reference_values, **values)
+    authority = (
+        context_values
+        if context_values is not None
+        else values
+        if reference_values is None
+        else dict(reference_values, **values)
+    )
     resources = dict(
         _imports_model_core.structural_entries(authority, "desired.resource.")
     )

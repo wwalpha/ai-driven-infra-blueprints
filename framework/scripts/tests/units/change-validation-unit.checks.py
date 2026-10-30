@@ -25,11 +25,14 @@ from model.format import serialize
 from model.importing.scope import read_consumers, restrict
 from model.operations import prepare_edit, publish_edit
 from model.render import generate_files
+from model.validations.json_settings import validate_json_settings
 from support.import_model_fixtures import service_values
+from support.model_reference_fixtures import FRAMEWORK, pipeline, project, save
 from support.producer_identifier_reference_fixtures import resource, setup, write_model
 from support.pytest_cli import run
 from sync_files import save_files
 from task_contract_core import selected_task, start
+from utils.aws_mappings import mapping_alias
 from validation import change
 from validation.runner import Validator, run_validation
 
@@ -2215,3 +2218,269 @@ def check_outside_link_still_fails_quality(project_workspace, existing):
             change.validate_save(
                 sources.raw_model(path), sources.raw_model(path, reads), reads
             )
+
+
+def check_pipeline_context_and_dependent_selection(project_workspace):
+    setup(project_workspace, ["codepipeline"], [])
+    fields = [
+        ("Stages[].Name", "source"),
+        ("Stages[].Actions[].Name", "first"),
+        ("Stages[].Actions[].ActionTypeId.Category", "Source"),
+        ("Stages[].Actions[].ActionTypeId.Owner", "AWS"),
+        ("Stages[].Actions[].ActionTypeId.Provider", "S3"),
+        ("Stages[].Actions[].ActionTypeId.Version", "1"),
+        ("Stages[].Actions[].Configuration", '`{"S3Bucket":"bucket"}`'),
+        ("Stages[].Actions[].Name", "second"),
+        ("Stages[].Actions[].ActionTypeId.Category", "Build"),
+        ("Stages[].Actions[].ActionTypeId.Owner", "AWS"),
+        ("Stages[].Actions[].ActionTypeId.Provider", "CodeBuild"),
+        ("Stages[].Actions[].ActionTypeId.Version", "1"),
+        ("Stages[].Actions[].Configuration", "`invalid json`"),
+    ]
+    before = resource("001", "CodePipeline.Pipeline", "pipeline", fields)
+    after = dict(before, **{"desired.row.001-005.value": "CodeCommit"})
+    selected = change_plan.compare(
+        snapshot(project_workspace, before, "codepipeline"),
+        snapshot(project_workspace, after, "codepipeline"),
+    )
+    if "001-007" not in selected.rows or "001-013" in selected.rows:
+        pytest.fail(f"incorrect dependent rows: {selected.rows}")
+    row = dict(change_plan.entries(after, "desired.row."))["001-007"]
+    context = change_plan._model_validation_projection.reference_context_for(
+        after, "001-007", row, row["value"], "", project_workspace
+    )
+    if context.get("ActionTypeId", {}).get("Provider") != "CodeCommit":
+        pytest.fail(f"incorrect action context: {context}")
+
+
+@pytest.mark.parametrize("stage,action", [(0, 0), (0, 1), (1, 0)])
+def check_pipeline_selected_configuration_context(tmp_path, stage, action):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        project(tmp_path)
+        _, scope, values, stages = pipeline(tmp_path)
+        values.pop("desired.row.001-002.property")
+        values.pop("desired.row.001-002.value")
+        values.pop("desired.row.001-002.comment")
+        rows = []
+        for item in stages:
+            rows.append(("Stages[].Name", item["Name"]))
+            for entry in item["Actions"]:
+                rows.append(("Stages[].Actions[].Name", entry["Name"]))
+                rows.extend(
+                    ("Stages[].Actions[].ActionTypeId." + key, value)
+                    for key, value in entry["ActionTypeId"].items()
+                )
+                rows.append(
+                    (
+                        "Stages[].Actions[].Configuration",
+                        "`" + json.dumps(entry["Configuration"]) + "`",
+                    )
+                )
+        selected_id = None
+        index = 2
+        for stage_index, item in enumerate(stages):
+            index += 1
+            for action_index, _ in enumerate(item["Actions"]):
+                if (stage_index, action_index) == (stage, action):
+                    selected_id = f"001-{index + 5:03}"
+                index += 6
+        for index, (prop, value) in enumerate(rows, 2):
+            prefix = f"desired.row.001-{index:03}."
+            values[prefix + "property"] = "CodePipeline.Pipeline." + prop
+            values[prefix + "value"] = value
+            values[prefix + "comment"] = "合成"
+        selected = {
+            key: value
+            for key, value in values.items()
+            if not key.startswith("desired.row.")
+            or key.startswith("desired.row." + selected_id + ".")
+        }
+        validate_json_settings(
+            selected, scope.path, reference_values=values, context_values=values
+        )
+        save(scope, values)
+        incoming = sources.load_model(scope)
+        plan = change_plan.ChangePlan(
+            contracts={
+                ("qa", "team", "codepipeline"): (
+                    incoming,
+                    {f"desired.row.{selected_id}.value"},
+                )
+            },
+            reads=sources.FileReads(),
+        )
+        findings = change.validate_plan(tmp_path, plan)
+        if findings.errors:
+            pytest.fail(f"incoming reference rejected: {findings.errors}")
+        if len(stages[0]["Actions"]) > 1:
+            other = "001-008" if selected_id != "001-008" else "001-014"
+            values[f"desired.row.{other}.value"] = "`invalid json`"
+            validate_json_settings(
+                selected, scope.path, reference_values=values, context_values=values
+            )
+        with pytest.raises(ValueError):
+            validate_json_settings(selected, scope.path, reference_values=values)
+
+
+def check_pipeline_changed_provider_and_reference_classification(tmp_path):
+    with mapping_alias(FRAMEWORK, tmp_path):
+        project(tmp_path)
+        _, scope, values, stages = pipeline(tmp_path)
+        values.pop("desired.row.001-002.value")
+        values.pop("desired.row.001-002.property")
+        values.pop("desired.row.001-002.comment")
+        fields = [
+            ("Stages[].Name", "source"),
+            ("Stages[].Actions[].Name", "source"),
+            ("Stages[].Actions[].ActionTypeId.Category", "Source"),
+            ("Stages[].Actions[].ActionTypeId.Owner", "AWS"),
+            ("Stages[].Actions[].ActionTypeId.Provider", "CodeCommit"),
+            ("Stages[].Actions[].ActionTypeId.Version", "1"),
+            (
+                "Stages[].Actions[].Configuration",
+                "`" + json.dumps(stages[0]["Actions"][0]["Configuration"]) + "`",
+            ),
+        ]
+        for index, (prop, value) in enumerate(fields, 2):
+            prefix = f"desired.row.001-{index:03}."
+            values[prefix + "property"] = "CodePipeline.Pipeline." + prop
+            values[prefix + "value"] = value
+            values[prefix + "comment"] = "合成"
+        selected = {
+            key: value
+            for key, value in values.items()
+            if not key.startswith("desired.row.")
+            or key.startswith("desired.row.001-008.")
+        }
+        wrong_type = dict(selected)
+        wrong_type["desired.row.001-008.value"] = (
+            '`{"RepositoryName":{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"BucketName"}}}`'
+        )
+        with pytest.raises(ValueError) as failure:
+            validate_json_settings(
+                wrong_type, scope.path, reference_values=values, context_values=values
+            )
+        if "MODEL_NEEDS_FIX" not in str(failure.value):
+            pytest.fail(f"wrong resource classification: {failure.value}")
+        unsupported = dict(values, **{"desired.row.001-006.value": "Unknown"})
+        with pytest.raises(ValueError) as failure:
+            validate_json_settings(
+                selected,
+                scope.path,
+                reference_values=values,
+                context_values=unsupported,
+            )
+        if "FRAMEWORK_UNSUPPORTED" not in str(failure.value):
+            pytest.fail(f"wrong unsupported classification: {failure.value}")
+        before = dict(values, **{"desired.row.001-006.value": "S3"})
+        change = change_plan.compare(
+            snapshot(tmp_path, before, "codepipeline"),
+            snapshot(tmp_path, values, "codepipeline"),
+        )
+        if "001-008" not in change.rows:
+            pytest.fail(f"Configuration not selected: {change.rows}")
+
+
+def check_environment_context_is_independent_of_reference_values(project_workspace):
+    setup(project_workspace, ["codebuild"], [])
+    values = resource(
+        "001",
+        "CodeBuild.Project",
+        "build",
+        [
+            ("Environment.EnvironmentVariables[].Name", "SECRET"),
+            ("Environment.EnvironmentVariables[].Type", "SECRETS_MANAGER"),
+            ("Environment.EnvironmentVariables[].Value", "literal"),
+        ],
+    )
+    selected = {
+        key: value
+        for key, value in values.items()
+        if not key.startswith("desired.row.") or key.startswith("desired.row.001-003.")
+    }
+    reference_values = dict(values, **{"desired.row.001-002.value": "PLAINTEXT"})
+    with patch(
+        "model.validations.environment.environment_values.row_contexts",
+        wraps=change_plan.environment_values.row_contexts,
+    ) as contexts:
+        validate_json_settings(
+            selected,
+            project_workspace / "model/preview/team/codebuild.properties",
+            reference_values=reference_values,
+            context_values=values,
+        )
+        if not any(
+            row.get("value") == "SECRETS_MANAGER"
+            for _, row in contexts.call_args.args[1]
+        ):
+            pytest.fail(
+                "environment context used reference_values instead of context_values"
+            )
+
+
+@pytest.mark.parametrize(
+    "kind,fields,expected",
+    [
+        (
+            "CodeBuild.Project",
+            [
+                ("Environment.EnvironmentVariables[].Name", "KEY"),
+                ("Environment.EnvironmentVariables[].Type", "SECRETS_MANAGER"),
+                (
+                    "Environment.EnvironmentVariables[].Value",
+                    '`{"$modelRef":{"logicalId":"SecretsManager_Secret_001","attribute":"Id"}}`',
+                ),
+            ],
+            ("Type", "SECRETS_MANAGER"),
+        ),
+        (
+            "CloudTrail.Trail",
+            [
+                ("EventSelectors[].DataResources[].Type", "AWS::S3::Object"),
+                (
+                    "EventSelectors[].DataResources[].Values",
+                    '`[{"$modelRef":{"logicalId":"S3_Bucket_001","attribute":"Arn"}}]`',
+                ),
+            ],
+            ("Type", "AWS::S3::Object"),
+        ),
+        (
+            "EC2.FlowLog",
+            [
+                ("ResourceType", "VPC"),
+                (
+                    "ResourceId",
+                    '`{"$modelRef":{"logicalId":"EC2_VPC_001","attribute":"Id"}}`',
+                ),
+            ],
+            ("ResourceType", "VPC"),
+        ),
+    ],
+)
+def check_full_and_change_receive_same_reference_context(
+    project_workspace, kind, fields, expected
+):
+    setup(project_workspace, ["consumer"], [])
+    values = resource("001", kind, "consumer", fields)
+    row_id = f"001-{len(fields):03}"
+    selected = {
+        key: value
+        for key, value in values.items()
+        if not key.startswith("desired.row.")
+        or key.startswith("desired.row." + row_id + ".")
+    }
+    projection = change_plan._model_validation_projection
+    path = project_workspace / "model/preview/team/consumer.properties"
+    with (
+        patch.object(projection, "reference_resolver"),
+        patch.object(
+            projection, "document_references", return_value=(None, [])
+        ) as documents,
+    ):
+        projection.validate_json_documents(values, path)
+        full = documents.call_args.kwargs["context"]
+        documents.reset_mock()
+        projection.validate_json_documents(selected, path, context_values=values)
+        scoped = documents.call_args.kwargs["context"]
+    if full != scoped or scoped.get(expected[0]) != expected[1]:
+        pytest.fail(f"Full and Change contexts differ: {full}, {scoped}")

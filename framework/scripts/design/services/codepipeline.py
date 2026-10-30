@@ -18,7 +18,7 @@ def array_template(template):
     return ARRAY_ACTIONS.sub(r"\1[]", template)
 
 
-def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
+def pipeline_membership(rows: list[list[str]]) -> list[list[str]]:
     action_counts: list[int] = []
     seen_stage: set[str] = set()
     seen_action: set[str] = set()
@@ -66,7 +66,16 @@ def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
             prefix += (
                 "Actions." if action_counts[stage - 1] == 1 else f"Actions[{action}]."
             )
-        if field != "Configuration":
+        result.append([identity, prefix + field, value, comment])
+    return result + trailing
+
+
+def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
+    result = []
+    for identity, field, value, comment in pipeline_membership(rows):
+        prefix, _, field = field.rpartition(".")
+        prefix += "." if prefix else ""
+        if field != "Configuration" or not prefix.startswith("Stages["):
             result.append([identity, prefix + field, value, comment])
             continue
         config = policy_json(literal(value))
@@ -102,7 +111,7 @@ def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
                     comments[key],
                 ]
             )
-    return result + trailing
+    return result
 
 
 def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
