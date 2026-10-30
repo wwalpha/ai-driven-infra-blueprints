@@ -980,8 +980,7 @@ def check_task_completion_rechecks_checkpoint_receipts(problem):
         )
 
 
-@pytest.mark.parametrize("missing", [None, "one", "all"])
-def check_stepwise_success_while_peer_running(tmp_path, monkeypatch, missing):
+def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
     report, aws = tmp_path / "report.json", tmp_path / "aws.json"
     root = seed(tmp_path / "project", report, "orders", same_group=True)
     primary = Path(ws.load(root, "deploy")[0])
@@ -1034,46 +1033,84 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch, missing):
         == 0
     )
     _, _, path, lifecycle = wt.load(root, "deploy")
-    if missing == "one":
-        lifecycle["deployCheckpoints"].pop(first)
-    elif missing == "all":
-        lifecycle["deployCheckpoints"] = {}
-    if missing:
-        wt.save(path, lifecycle)
-        evidence = worktree.progress_path(root).read_bytes()
-        metadata = path.read_bytes()
-        provider = aws.read_bytes()
-        heads = [git(where, "rev-parse", "HEAD") for where in (primary, root)]
-        statuses = [git(where, "status", "--porcelain") for where in (primary, root)]
+    original = path.read_bytes()
+    evidence = worktree.progress_path(root).read_bytes()
+    provider = aws.read_bytes()
+    controller_report = report.read_bytes()
+    task_bytes = (root / "tasks/deploy.md").read_bytes()
+    heads = [git(where, "rev-parse", "HEAD") for where in (primary, root)]
+    statuses = [git(where, "status", "--porcelain") for where in (primary, root)]
+    for missing in ("one", "all"):
+        altered = json.loads(original)
+        if missing == "one":
+            altered["deployCheckpoints"].pop(first)
+        else:
+            altered["deployCheckpoints"] = {}
+        try:
+            wt.save(path, altered)
+            metadata = path.read_bytes()
+            with selected_task(root, "tasks/deploy.md"):
+                worktree.require_complete(
+                    root, read_task_snapshot(root, "tasks/deploy.md", live=True)
+                )
+            TestCase().assertEqual(
+                read_task_snapshot(root, "tasks/deploy.md", live=True).status,
+                "completed",
+                missing,
+            )
+            TestCase().assertEqual(
+                worktree.progress_path(root).read_bytes(), evidence, missing
+            )
+            TestCase().assertEqual(path.read_bytes(), metadata, missing)
+            TestCase().assertEqual(aws.read_bytes(), provider, missing)
+            TestCase().assertEqual(report.read_bytes(), controller_report, missing)
+            TestCase().assertEqual(
+                (root / "tasks/deploy.md").read_bytes(), task_bytes, missing
+            )
+            TestCase().assertEqual(
+                [git(where, "rev-parse", "HEAD") for where in (primary, root)],
+                heads,
+                missing,
+            )
+            TestCase().assertEqual(
+                [git(where, "status", "--porcelain") for where in (primary, root)],
+                statuses,
+                missing,
+            )
+            TestCase().assertEqual(wt.load(root, "deploy")[3], altered, missing)
+            TestCase().assertEqual(
+                altered["deployPublication"], lifecycle["deployPublication"], missing
+            )
+            TestCase().assertEqual(
+                altered["deployPublication"]["status"], "SUCCESS", missing
+            )
+            TestCase().assertTrue(
+                all(
+                    saved["status"] == "SUCCESS" and saved["observedSynced"]
+                    for saved in worktree.read_progress(root, altered)[
+                        "states"
+                    ].values()
+                ),
+                missing,
+            )
+        except Exception as exc:
+            raise AssertionError(f"receipt case {missing} failed: {exc}") from exc
+        finally:
+            path.write_bytes(original)
+            TestCase().assertEqual(path.read_bytes(), original, missing)
+    try:
         with selected_task(root, "tasks/deploy.md"):
             worktree.require_complete(
                 root, read_task_snapshot(root, "tasks/deploy.md", live=True)
             )
-        TestCase().assertEqual(
-            read_task_snapshot(root, "tasks/deploy.md", live=True).status, "completed"
-        )
-        assert worktree.progress_path(root).read_bytes() == evidence
-        assert path.read_bytes() == metadata
-        assert aws.read_bytes() == provider
-        assert [git(where, "rev-parse", "HEAD") for where in (primary, root)] == heads
-        assert [
-            git(where, "status", "--porcelain") for where in (primary, root)
-        ] == statuses
-        assert lifecycle["deployPublication"]["status"] == "SUCCESS"
-        assert all(
-            saved["status"] == "SUCCESS" and saved["observedSynced"]
-            for saved in worktree.read_progress(root, lifecycle)["states"].values()
-        )
-        return
-    with selected_task(root, "tasks/deploy.md"):
-        worktree.require_complete(
-            root, read_task_snapshot(root, "tasks/deploy.md", live=True)
-        )
-        TestCase().assertEqual(
-            read_task_snapshot(root, "tasks/deploy.md").status, "completed"
-        )
-    assert wt.finalize(root, "deploy")["cleaned"]
-    assert not root.exists()
+            TestCase().assertEqual(
+                read_task_snapshot(root, "tasks/deploy.md").status, "completed"
+            )
+        assert wt.finalize(root, "deploy")["cleaned"]
+        assert not root.exists()
+        TestCase().assertFalse(path.exists(), "normal: lifecycle cleanup")
+    except Exception as exc:
+        raise AssertionError(f"receipt case normal failed: {exc}") from exc
 
 
 if __name__ == "__main__":
