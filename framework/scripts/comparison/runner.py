@@ -816,7 +816,9 @@ class Comparison(Inputs):
                 if self.local_comparison:
                     prepared = evaluation.project_actual(
                         actual,
-                        evaluate=lambda child: self.evaluate(name, child),
+                        evaluate=lambda child: self.evaluate_for_comparison(
+                            name, child
+                        ),
                         property_name=prop,
                         model_path=template,
                         desired=value,

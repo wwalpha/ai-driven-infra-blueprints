@@ -2276,7 +2276,7 @@ class ImportValueResolutionTests(unittest.TestCase):
         comparison.prepare_value = lambda *args, **kwargs: PreparedValue(
             desired_value(*args, **kwargs), []
         )
-        comparison.evaluate.side_effect = lambda stack, value: value
+        comparison.evaluate.side_effect = lambda stack, value, seen=frozenset(): value
         ReferenceDecision = _imports_comparison_references.ReferenceDecision
         comparison.reference_decision.return_value = ReferenceDecision(True)
         stages = [

@@ -254,6 +254,13 @@ class Evaluation:
                             )
                             if retained is not None:
                                 return retained
+                            if ("comparison-select",) in seen and self.defer_select:
+                                return self.defer_select(
+                                    stack,
+                                    Expression("Select", [index, items]),
+                                    reason,
+                                    direct=True,
+                                )
                             raise Blocked(reason)
                     return Expression("Select", [index, items])
                 if isinstance(items, Expression) and items.operation == "Split":

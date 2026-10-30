@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from comparison import expressions
+from comparison.methods import compare_values
+from comparison.registry import rules
 from design.catalog import DesignSchemaCatalog
 from model.core import entries
 from model.identity import COUNTERS, Resolver
@@ -1430,3 +1432,107 @@ def test_symbolic_export_keeps_scope_uniqueness_and_invalid_input_guards(models,
         )
     with pytest.raises((Blocked, ValueError)):
         inputs.evaluate("consumer", {"Fn::ImportValue": "EndpointDns"})
+
+
+def test_comparison_retains_direct_unproven_select(models):
+    inputs, _ = producer(models, "EC2.VPCEndpoint", {"VpcEndpointType": "Interface"})
+    expression = endpoint_export(inputs)
+    with pytest.raises(Blocked, match="Select bounds are unproven"):
+        inputs.evaluate("producer", expression)
+    actual = inputs.evaluate_for_comparison("producer", expression)
+    assert isinstance(actual, Expression)
+    assert actual.operation == "Select"
+    assert (
+        inputs.reference_decision(
+            actual, actual, "Route53.RecordSet", "AliasTarget.DNSName"
+        ).equal
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,attribute,element_type",
+    [
+        ("EC2.Subnet", "Ipv6CidrBlocks", "string"),
+        ("EC2.VPC", "CidrBlockAssociations", "string"),
+        ("EC2.VPC", "Ipv6CidrBlocks", "string"),
+        ("EC2.VPCEndpoint", "DnsEntries", "string"),
+        ("EC2.VPCEndpoint", "NetworkInterfaceIds", "string"),
+        ("ElasticLoadBalancingV2.TargetGroup", "LoadBalancerArns", "string"),
+        ("GuardDuty.MalwareProtectionPlan", "StatusReasons", "object"),
+        ("NetworkFirewall.Firewall", "EndpointIds", "string"),
+        ("QuickSight.Analysis", "DataSetArns", "string"),
+        ("QuickSight.DataSet", "OutputColumns", "object"),
+        ("QuickSight.VPCConnection", "NetworkInterfaces", "object"),
+        ("RDS.DBInstance", "ReadReplicaDBClusterIdentifiers", "string"),
+        ("RDS.DBInstance", "ReadReplicaDBInstanceIdentifiers", "string"),
+        ("RDS.DBInstance", "StatusInfos", "object"),
+        ("Route53.HostedZone", "NameServers", "string"),
+    ],
+)
+def test_comparison_retains_catalog_array_selection(
+    models, kind, attribute, element_type
+):
+    inputs, _ = producer(models, kind, {})
+    expr = {"Fn::Select": [0, {"Fn::GetAtt": ["Resource001", attribute]}]}
+    with pytest.raises(Blocked, match="Select bounds are unproven"):
+        inputs.evaluate("producer", expr)
+    result = inputs.evaluate_for_comparison("producer", expr)
+    assert result.operation == "Select"
+    assert inputs.evaluator().symbolic_schema(result)["type"] == element_type
+    assert (
+        inputs.reference_decision(result, result, "Glue.Job", "DefaultArguments").equal
+        is None
+    )
+    if element_type == "object":
+        with pytest.raises(ValueError):
+            inputs.evaluate_for_comparison("producer", {"Fn::Split": [":", expr]})
+
+
+def test_comparison_select_validation_guards(models):
+    inputs, _ = producer(models, "QuickSight.Analysis", {})
+    getatt = {"Fn::GetAtt": ["Resource001", "DataSetArns"]}
+    for expression in (
+        {"Fn::Select": [-1, getatt]},
+        {"Fn::Select": [1, ["only"]]},
+        {"Fn::Select": [100, getatt]},
+        {"Fn::Select": [0, "not-array"]},
+    ):
+        with pytest.raises(ValueError):
+            inputs.evaluate_for_comparison("producer", expression)
+
+
+@pytest.mark.parametrize("wrapper", ["join", "sub", "list", "object"])
+def test_direct_unproven_select_is_never_implicitly_equal(models, wrapper):
+    inputs, _ = producer(models, "EC2.VPCEndpoint", {"VpcEndpointType": "Interface"})
+    expression = endpoint_export(inputs)
+    payload = {
+        "join": {"Fn::Join": ["", ["prefix", expression]]},
+        "sub": {"Fn::Sub": ["prefix${Dns}", {"Dns": expression}]},
+        "list": [expression],
+        "object": {"value": expression},
+    }[wrapper]
+    actual = inputs.evaluate_for_comparison("producer", payload)
+    if wrapper in {"list", "object"}:
+        actual = actual[0] if wrapper == "list" else actual["value"]
+    assert (
+        inputs.reference_decision(actual, actual, "Glue.Job", "DefaultArguments").equal
+        is None
+    )
+
+
+def test_unproven_selection_container_cannot_pass_without_contract(models):
+    inputs, _ = producer(models, "EC2.VPCEndpoint", {"VpcEndpointType": "Interface"})
+    actual = inputs.evaluate_for_comparison("producer", endpoint_export(inputs))
+    decision = compare_values(
+        [actual],
+        [actual],
+        "ResourceRecords",
+        rules=rules("Route53.RecordSet"),
+        reference=partial(unselected_reference, inputs),
+    )
+    assert decision.equal is None
+
+
+def unselected_reference(inputs, left, right, path):
+    return inputs.reference_decision(left, right, "Route53.RecordSet", path)

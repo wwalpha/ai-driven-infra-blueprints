@@ -77,6 +77,7 @@ class Inputs:
         self.exports = None
         self.model_references = {}
         self.export_provenance = {}
+        self.select_provenance = {}
         self.export_failures, self.stack_errors = [], {}
         self._templates, self.reference_formats = None, {}
         self.read_hashes, self.sensitive_values = {}, set()
@@ -607,14 +608,19 @@ class Inputs:
         try:
             deferred = None
             try:
-                result = self.evaluate(producer, value, seen | {token})
+                result = self.evaluate(
+                    producer, value, (seen - {("comparison-select",)}) | {token}
+                )
             except Blocked as error:
                 if not str(error).startswith("Select bounds are unproven:"):
                     raise
                 # Preserve expression identity only; concrete Select evaluation still fails closed.
                 deferred = str(error)
                 result = self.evaluate(
-                    producer, value, seen | {token, ("expression-identity",)}
+                    producer,
+                    value,
+                    (seen - {("comparison-select",)})
+                    | {token, ("expression-identity",)},
                 )
             if isinstance(result, (ResourceReference, Expression)):
                 # Keep provenance on this import occurrence without mutating cached symbols.
@@ -868,7 +874,15 @@ class Inputs:
             self.defer_select,
         )
 
-    def defer_select(self, stack, value, reason):
+    def defer_select(self, stack, value, reason, *, direct=False):
+        if direct:
+            if not hasattr(self, "select_provenance"):
+                self.select_provenance = {}
+            self.select_provenance[id(value)] = (
+                value,
+                [{"stack": stack, "unproven": reason}],
+            )
+            return value
         origins = reference_evidence.export_origins(
             value.operands[1], self.export_provenance
         )
@@ -888,6 +902,11 @@ class Inputs:
 
     def evaluate(self, stack, value, seen=frozenset()):
         return self.evaluator().evaluate(stack, value, seen)
+
+    def evaluate_for_comparison(self, stack, value):
+        if not self.local_comparison:
+            return self.evaluate(stack, value)
+        return self.evaluate(stack, value, frozenset({("comparison-select",)}))
 
     def reference_forms(self, kind, path):
         key = self.local_comparison, kind, path
@@ -926,6 +945,11 @@ class Inputs:
                 origins.append(origin)
         if origins:
             detail["exports"] = self.redacted(origins)
+        direct = reference_evidence.export_origins(
+            [left, right], getattr(self, "select_provenance", {})
+        )
+        if direct:
+            detail["direct"] = self.redacted(direct)
         return detail
 
     def reference_decision(self, left, right, kind, path, *, context=None):
@@ -943,12 +967,42 @@ class Inputs:
             if outcome is not NotImplemented:
                 equal, reason = outcome
                 detail = self.reference_diagnostic(left, right, kind, path, reason)
+                origins = reference_evidence.export_origins(
+                    [left, right], self.export_provenance
+                )
                 detail.update(
-                    evidence_type="export_expression",
+                    evidence_type="export_expression"
+                    if origins
+                    else "direct_expression",
+                    structural_equivalence=equal,
                     current_aws_verified=False,
                     runtime_bounds_verified=False,
                 )
                 return references.ReferenceDecision(equal, (detail,), equal is True)
+        direct = reference_evidence.export_origins(
+            [left, right], getattr(self, "select_provenance", {})
+        )
+        if direct:
+            if (
+                isinstance(left, (list, dict))
+                and isinstance(right, (list, dict))
+                and not isinstance(left, ResourceReference)
+                and not isinstance(right, ResourceReference)
+            ):
+                return references.ReferenceDecision(NotImplemented)
+            detail = self.reference_diagnostic(
+                left,
+                right,
+                kind,
+                path,
+                "Select bounds and selection contract are unproven",
+            )
+            detail.update(
+                evidence_type="direct_expression",
+                runtime_bounds_verified=False,
+                current_aws_verified=False,
+            )
+            return references.ReferenceDecision(None, (detail,))
         left_origins = reference_evidence.export_origins(
             left, getattr(self, "export_provenance", {})
         )

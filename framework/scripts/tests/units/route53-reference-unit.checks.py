@@ -13,9 +13,10 @@ import pytest
 from comparison.methods import compare_values
 from comparison.registry import rules
 from comparison.rules import route53
+from comparison.runner import Settings
 from model.core import entries
 from model.references import declarations, symbolic
-from model.sources import load_model
+from model.sources import Scope, load_model
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
@@ -177,8 +178,8 @@ def test_other_split_does_not_claim_dns_difference(models, delimiter, field):
     result = inputs.reference_decision(
         desired, imported(inputs), "Route53.RecordSet", "ResourceRecords[]"
     )
-    assert result.equal is None
-    assert "Select(1, Split" in result.diagnostics[0]["reason"]
+    assert result.equal is False
+    assert "differs" in result.diagnostics[0]["reason"]
 
 
 def test_missing_selector_stays_uncompared(models):
@@ -388,3 +389,114 @@ def test_selector_is_preserved_in_symbolic_meaning(models):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_direct_same_stack_selection(models):
+    root, _, values = models
+    endpoint = load_model(root / "model/qa/team/endpoint.properties").authoritative
+    endpoint = dict(endpoint)
+    endpoint["desired.resource.001.cfn-logicalId"] = "consumer-Resource001"
+    save(Scope(root, "qa", "team", "endpoint"), endpoint)
+    inputs, prepared = prepare(models)
+    inputs.stack_inputs["consumer"][0]["Resources"]["Resource001"] = {
+        "Type": "AWS::EC2::VPCEndpoint",
+        "Properties": {"VpcEndpointType": "Interface"},
+    }
+    desired = prepared.require_value()[0]
+    actual = inputs.evaluate_for_comparison("consumer", extraction())
+    decision = inputs.reference_decision(
+        desired, actual, "Route53.RecordSet", "ResourceRecords[]"
+    )
+    assert decision.equal is True
+    settings = Settings(
+        desired={"ResourceRecords": [desired]}, sources={"ResourceRecords": [{}]}
+    )
+    owner = inputs.stack_inputs["consumer"][0]["Resources"]["Policy"]
+    owner["Properties"]["ResourceRecords"] = [extraction()]
+    result = inputs.compare_setting(
+        "dns",
+        "001",
+        "Route53.RecordSet",
+        "ResourceRecords",
+        [desired],
+        settings,
+        "consumer",
+        owner,
+        root / "synthetic.yaml",
+    )
+    assert [row["category"] for row in result.records] == ["matched"], result.records
+    assert decision.diagnostics[0]["runtime_bounds_verified"] is False
+    assert decision.diagnostics[0]["current_aws_verified"] is False
+    assert decision.diagnostics[0]["structural_equivalence"] is True
+    assert decision.diagnostics[0]["direct"][0]["stack"] == "consumer"
+
+
+@pytest.mark.parametrize(
+    "fault,category",
+    [
+        ("index", "difference"),
+        ("delimiter", "difference"),
+        ("field", "difference"),
+        ("attribute", "difference"),
+        ("producer", "difference"),
+        ("endpoint-type", "uncompared"),
+        ("missing-producer", "uncompared"),
+    ],
+)
+def test_direct_comparison_setting_failures(models, fault, category):
+    root, _, _ = models
+    endpoint = dict(
+        load_model(root / "model/qa/team/endpoint.properties").authoritative
+    )
+    endpoint["desired.resource.001.cfn-logicalId"] = "consumer-Resource001"
+    endpoint["desired.resource.002.cfn-logicalId"] = "consumer-Resource002"
+    save(Scope(root, "qa", "team", "endpoint"), endpoint)
+    inputs, prepared = prepare(models)
+    resources = inputs.stack_inputs["consumer"][0]["Resources"]
+    resources["Resource001"] = {
+        "Type": "AWS::EC2::VPCEndpoint",
+        "Properties": {"VpcEndpointType": "Interface"},
+    }
+    resources["Resource002"] = copy.deepcopy(resources["Resource001"])
+    desired = prepared.require_value()[0]
+    expression = extraction(
+        entry=1 if fault == "index" else 0,
+        delimiter="|" if fault == "delimiter" else ":",
+        field=0 if fault == "field" else 1,
+        logical="Absent"
+        if fault == "missing-producer"
+        else "Resource002"
+        if fault == "producer"
+        else "Resource001",
+        attribute="NetworkInterfaceIds" if fault == "attribute" else "DnsEntries",
+    )
+    if fault == "endpoint-type":
+        resources["Resource001"]["Properties"]["VpcEndpointType"] = "Gateway"
+    owner = resources["Policy"]
+    owner["Properties"]["ResourceRecords"] = [expression]
+    settings = Settings(
+        desired={"ResourceRecords": [desired]}, sources={"ResourceRecords": [{}]}
+    )
+    result = inputs.compare_setting(
+        "dns",
+        "001",
+        "Route53.RecordSet",
+        "ResourceRecords",
+        [desired],
+        settings,
+        "consumer",
+        owner,
+        root / "synthetic.yaml",
+    )
+    assert [row["category"] for row in result.records] == [category], result.records
+
+
+def test_direct_cross_stack_is_unproven(models):
+    inputs, prepared = prepare(models)
+    desired = prepared.require_value()[0]
+    actual = inputs.evaluate_for_comparison("producer", extraction())
+    result = inputs.reference_decision(
+        desired, actual, "Route53.RecordSet", "ResourceRecords[]"
+    )
+    assert result.equal is None
+    assert "stack is unproven" in result.diagnostics[0]["reason"]

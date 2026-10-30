@@ -91,17 +91,13 @@ def dns_expression(value):
     field, delimiter, index = operands
     if (
         type(field) is not int
-        or field != 1
-        or delimiter != ":"
+        or not isinstance(delimiter, str)
         or type(index) is not int
         or index < 0
         or not isinstance(value, ResourceReference)
-        or value["$attribute"] != "DnsEntries"
     ):
-        raise Blocked(
-            'Endpoint DNS requires Select(1, Split(":", Select(entry, DnsEntries)))'
-        )
-    return value, index
+        raise Blocked("Endpoint DNS extraction operands are unproven")
+    return value, index, delimiter, field
 
 
 def selected_decision(inputs, left, right, path, *, export_origins):
@@ -116,8 +112,8 @@ def selected_decision(inputs, left, right, path, *, export_origins):
         return None, "Endpoint DNS consumer correspondence is unproven"
     (consumer,) = consumers
     try:
-        left_ref, left_index = dns_expression(left)
-        right_ref, right_index = dns_expression(right)
+        left_ref, left_index, left_delimiter, left_field = dns_expression(left)
+        right_ref, right_index, right_delimiter, right_field = dns_expression(right)
         record_type, scope = stack_property(inputs, *consumer, "Type")
         if (
             model_property(inputs, *consumer, "Type") != "CNAME"
@@ -125,8 +121,30 @@ def selected_decision(inputs, left, right, path, *, export_origins):
         ):
             raise Blocked("Endpoint DNS requires Model and IaC Type=CNAME")
         origins = export_origins([left, right], inputs.export_provenance)
-        if not origins or any(origin.get("scope") != scope for origin in origins):
-            raise Blocked("Endpoint DNS Export provenance/scope is unproven")
+        direct = export_origins([left, right], getattr(inputs, "select_provenance", {}))
+        consumer_stack, _ = cfn_resource_identity(
+            inputs.resources[consumer[0]][consumer[1]]["cfn-logicalId"]
+        )
+        if direct and any(origin["stack"] != consumer_stack for origin in direct):
+            raise Blocked("Endpoint DNS Direct provenance/stack is unproven")
+        if origins:
+            if any(origin.get("scope") != scope for origin in origins):
+                raise Blocked("Endpoint DNS Export provenance/scope is unproven")
+        elif not direct:
+            raise Blocked("Endpoint DNS Direct provenance/stack is unproven")
+        if (
+            left_ref["$attribute"] != right_ref["$attribute"]
+            or left_index != right_index
+            or left_delimiter != right_delimiter
+            or left_field != right_field
+        ):
+            return False, "Endpoint DNS selection or transformation differs"
+        if (
+            left_ref["$attribute"] != "DnsEntries"
+            or left_delimiter != ":"
+            or left_field != 1
+        ):
+            raise Blocked("Endpoint DNS extraction contract is unproven")
         for ref in (left_ref, right_ref):
             if inputs.resource_type(ref) != "EC2.VPCEndpoint":
                 raise Blocked("Endpoint DNS Producer must be EC2.VPCEndpoint")
@@ -151,8 +169,6 @@ def selected_decision(inputs, left, right, path, *, export_origins):
             return False, "Endpoint DNS uses different Producer Resources"
         if producer.equal is not True:
             raise Blocked("Endpoint DNS Producer correspondence is unproven")
-        if left_index != right_index:
-            return False, "Endpoint DNS entry selection differs"
         if (
             expressions.symbolic_same(expressions.parts(left), expressions.parts(right))
             is not True
