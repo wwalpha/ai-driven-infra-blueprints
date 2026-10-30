@@ -500,10 +500,11 @@ def run_parallel_repair(suite, tests, output):
                 ),
                 flush=True,
             )
-        if success:
+        if success and suite_key != CHECKPOINT_SUITE:
             shutil.rmtree(logs)
         else:
-            print(f"Repair case logs retained: {logs}", file=sys.stderr, flush=True)
+            label = "Checkpoint" if suite_key == CHECKPOINT_SUITE else "Repair"
+            print(f"{label} case logs retained: {logs}", file=sys.stderr, flush=True)
 
 
 def execute_suites(tests, output, summary, baseline=False):

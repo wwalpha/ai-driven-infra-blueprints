@@ -1756,8 +1756,17 @@ def check_checkpoint_starts_all_cases_before_wait(tmp_path):
             _callback_checkpoint_wait, state
         )
     launch = _bind_framework_callback(_callback_parallel_receipt, state)
-    with patch.object(run_it.subprocess, "Popen", side_effect=launch):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    with (
+        patch.object(run_it.subprocess, "Popen", side_effect=launch),
+        patch.object(run_it.tempfile, "mkdtemp", return_value=str(logs)),
+    ):
         run_it.run_parallel_repair(tests / suite, tests, tmp_path)
+    if sorted(path.name for path in logs.glob("case-*.log")) != [
+        f"case-{index}.log" for index in range(4)
+    ]:
+        raise ValueError("checkpoint case logs were not retained")
 
 
 @pytest.mark.parametrize("suite", [run_it.REPAIR_SUITE, run_it.CHECKPOINT_SUITE])

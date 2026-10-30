@@ -25,11 +25,12 @@ def check_scope(root, task_file):
 
 
 def check_scope_in_process(root, task_file):
-    require_observation_delta(
-        root, ws.deploy_start_commit(root, task_file, required=True)
-    )
+    baseline = ws.deploy_start_commit(root, task_file, required=True)
+    require_observation_delta(root, baseline)
     findings = Findings(root)
-    task = TaskValidation(root, findings)
+    task = TaskValidation(root, findings, contract_file=task_file)
+    task.baseline = baseline
+    task.baseline_fixed = True
     task.check_task_scope()
     task.check_task_type_requirements()
     if findings.errors:

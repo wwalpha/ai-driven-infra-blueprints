@@ -8,6 +8,7 @@ from pathlib import Path
 # Reviewed Worktree responsibilities, not a filename convention. Exact cases are checked.
 WORKTREE_CASES = {
     "units/deploy-worktree-unit.checks.py": (
+        "check_source_scope_shares_deploy_baseline",
         "check_zero_delta_checkpoint_returns_head",
         "check_preflight_change_blocks_checkpoint",
         "check_direct_checkpoint_rechecks_preflight",

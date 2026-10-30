@@ -28,6 +28,28 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def check_source_scope_shares_deploy_baseline(tmp_path, monkeypatch):
+    start = Mock(return_value="start")
+    observation = Mock()
+    findings = SimpleNamespace(errors=[])
+    task = Mock()
+    monkeypatch.setattr(publication.ws, "deploy_start_commit", start)
+    monkeypatch.setattr(publication, "require_observation_delta", observation)
+    monkeypatch.setattr(publication, "Findings", Mock(return_value=findings))
+    factory = Mock(return_value=task)
+    monkeypatch.setattr(publication, "TaskValidation", factory)
+    publication.check_scope_in_process(tmp_path, "tasks/deploy.md")
+    start.assert_called_once_with(tmp_path, "tasks/deploy.md", required=True)
+    observation.assert_called_once_with(tmp_path, "start")
+    factory.assert_called_once_with(tmp_path, findings, contract_file="tasks/deploy.md")
+    TestCase().assertEqual((task.baseline, task.baseline_fixed), ("start", True))
+    task.check_task_scope.assert_called_once()
+    task.check_task_type_requirements.assert_called_once()
+    findings.errors.append("outside scope")
+    with pytest.raises(ValueError, match="outside scope"):
+        publication.check_scope_in_process(tmp_path, "tasks/deploy.md")
+
+
 def check_zero_delta_checkpoint_returns_head(tmp_path, monkeypatch):
     snapshot = SimpleNamespace(raw=b"task")
     monkeypatch.setattr(
