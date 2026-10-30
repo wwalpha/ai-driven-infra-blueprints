@@ -24,6 +24,7 @@ WORKTREE_CASES = {
         "check_claim_input_hash_still_blocks",
         "check_conflict_records_model_values",
         "check_startup_needs_only_standard_library",
+        "check_progress_uses_fixed_identity_without_git",
         "check_progress_preserves_success_and_omits_unowned_fields",
         "check_progress_ignores_legacy_files_without_key",
         "check_reuse_keeps_exact_identity",

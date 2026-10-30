@@ -10,7 +10,7 @@ from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -833,12 +833,66 @@ def check_startup_needs_only_standard_library():
     assert result.returncode == 0, result.stderr
 
 
+def progress_backend(root, context):
+    identity = dict(
+        taskFile="tasks/deploy.md",
+        taskDigest="digest",
+        target={},
+        environment="dev",
+        stacks=["A"],
+        snapshot="fixed",
+    )
+    context.update(
+        {
+            key: identity[key]
+            for key in ("taskFile", "taskDigest", "target", "environment")
+        }
+    )
+    context["repository"] = str(root)
+    return SimpleNamespace(
+        root=root,
+        phase="deploy",
+        run_context=context,
+        progress_identity=identity,
+        progress_root=root.resolve(),
+        progress_directory=context.get("directory"),
+        progress_destination=worktree.progress_path(root, create=True),
+    )
+
+
+def check_progress_uses_fixed_identity_without_git(tmp_path):
+    context = {"states": {"A": {"status": "RUNNING"}}, "inputDigests": {}}
+    backend = progress_backend(tmp_path, context)
+    with (
+        patch.object(ws, "git", side_effect=AssertionError("unexpected Git")),
+        patch.object(worktree, "require", side_effect=ws.Blocked("worktree changed")),
+    ):
+        worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+        context["states"]["A"]["status"] = "SUCCESS"
+        worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+        with pytest.raises(ws.Blocked, match="worktree changed"):
+            worktree.require(tmp_path)
+    assert (
+        worktree.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})[
+            "states"
+        ]["A"]["status"]
+        == "SUCCESS"
+    )
+    context["taskDigest"] = "other"
+    with pytest.raises(ValueError, match="fixed identity"):
+        worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
+    assert (
+        worktree.read_progress(tmp_path, {"deployIdentity": backend.progress_identity})[
+            "states"
+        ]["A"]["status"]
+        == "SUCCESS"
+    )
+
+
 @pytest.mark.parametrize("stepwise", [False, True])
 def check_progress_preserves_success_and_omits_unowned_fields(
     tmp_path, monkeypatch, stepwise
 ):
-    state = {"deployIdentity": {"taskFile": "tasks/deploy.md", "snapshot": "fixed"}}
-    monkeypatch.setattr(worktree, "require", Mock(return_value=state))
     context = {
         "stepwise": stepwise,
         "states": {
@@ -851,7 +905,8 @@ def check_progress_preserves_success_and_omits_unowned_fields(
         },
         "inputDigests": {"A": "hash"},
     }
-    backend = SimpleNamespace(root=tmp_path, phase="deploy", run_context=context)
+    backend = progress_backend(tmp_path, context)
+    state = {"deployIdentity": backend.progress_identity}
     worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
     context["states"]["A"] = {"status": "NOT_STARTED"}
     context["inputDigests"] = {}
@@ -965,13 +1020,12 @@ def check_progress_ignores_legacy_files_without_key(tmp_path, monkeypatch, legac
         (old / "seal.key").write_bytes(b"broken")
     if legacy is not None:
         (old / "deploy-progress.json").write_text(legacy, encoding="utf-8")
-    state = {"deployIdentity": {"taskFile": "tasks/deploy.md", "snapshot": "fixed"}}
-    monkeypatch.setattr(worktree, "require", Mock(return_value=state))
     context = {
         "states": {"A": {"status": "SUCCESS", "observedSynced": True}},
         "inputDigests": {"A": "hash"},
     }
-    backend = SimpleNamespace(root=tmp_path, phase="deploy", run_context=context)
+    backend = progress_backend(tmp_path, context)
+    state = {"deployIdentity": backend.progress_identity}
     assert worktree.read_progress(tmp_path, state) is None
     worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
     assert worktree.read_progress(tmp_path, state)["states"]["A"]["status"] == "SUCCESS"

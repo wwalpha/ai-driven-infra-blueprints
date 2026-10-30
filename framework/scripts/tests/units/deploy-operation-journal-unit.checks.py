@@ -136,6 +136,14 @@ def test_journal_excludes_history_and_approval_and_discards_success(tmp_path):
 def test_running_restart_observes_original_token_without_execute(tmp_path):
     backend, task, _, path = backend_for(tmp_path)
     J.save(path, backend)
+    original = path.read_bytes()
+    with (
+        patch("utils.file_operations.os.replace", side_effect=OSError("interrupted")),
+        pytest.raises(OSError, match="interrupted"),
+    ):
+        J.save(path, backend)
+    assert path.read_bytes() == original
+    assert J.read(path)[0]["operations"]["Kms"]["state"]["clientToken"] == "original"
     with (
         patch.object(J, "_restore_template"),
         patch.object(J.change_sets, "verify_outputs"),

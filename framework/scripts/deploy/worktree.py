@@ -78,6 +78,7 @@ def bind(root, task, target, environment, stacks):
             raise ws.Blocked("Deploy Task/Target/Stack/snapshot identity changed")
         state["deployIdentity"] = identity
         wt.save(path, state)
+        return copy.deepcopy(identity)
 
 
 def progress_path(root, *, create=False):
@@ -102,10 +103,30 @@ def progress_state(backend):
 def save_progress(backend, fields):
     if getattr(backend, "phase", None) not in {"deploy", "update"}:
         return
-    state = progress_state(backend)
     context = backend.run_context
+    if backend.phase == "deploy":
+        identity = backend.progress_identity
+        if (
+            backend.root.resolve() != backend.progress_root
+            or context.get("repository") != str(backend.progress_root)
+            or context.get("taskFile") != identity["taskFile"]
+            or context.get("taskDigest") != identity["taskDigest"]
+            or context.get("target") != identity["target"]
+            or context.get("environment") != identity["environment"]
+            or context.get("directory") != backend.progress_directory
+            or set(context["states"]) != set(identity["stacks"])
+        ):
+            raise ws.Blocked("Deploy progress differs from its fixed identity")
+        path = progress_path(backend.root, create=True)
+        if path != backend.progress_destination:
+            raise ws.Blocked("Deploy progress destination changed")
+        if path.exists() or path.is_symlink():
+            read_progress(backend.root, {"deployIdentity": identity})
+    else:
+        identity = progress_state(backend)["deployIdentity"]
+        path = progress_path(backend.root, create=True)
     progress = {
-        "identity": state["deployIdentity"],
+        "identity": identity,
         "stepwise": bool(context.get("stepwise")),
         "directory": context.get("directory"),
         "stepUnits": copy.deepcopy(context.get("stepUnits", [])),
@@ -132,7 +153,7 @@ def save_progress(backend, fields):
         **copy.deepcopy(context),
         "states": copy.deepcopy(progress["states"]),
     }
-    write_sealed(backend.root, progress_path(backend.root, create=True), progress)
+    write_sealed(backend.root, path, progress)
 
 
 def read_progress(root, state):

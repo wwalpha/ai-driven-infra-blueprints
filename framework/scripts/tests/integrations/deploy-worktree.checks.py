@@ -43,6 +43,20 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def pin_progress(backend, identity):
+    backend.progress_identity = identity
+    backend.progress_root = backend.root.resolve()
+    backend.progress_directory = backend.run_context.get("directory")
+    backend.progress_destination = worktree.progress_path(backend.root, create=True)
+    backend.run_context["repository"] = str(backend.root)
+    backend.run_context.update(
+        {
+            key: identity[key]
+            for key in ("taskFile", "taskDigest", "target", "environment")
+        }
+    )
+
+
 @pytest.fixture(autouse=True)
 def private_evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
@@ -355,7 +369,9 @@ def check_git_conflict_checkpoints_peers_and_recovers(monkeypatch, tmp_path):
         name = state["task_file"]
         start(root, name, deploy_contract(name, [relative, "file.txt"]))
         with selected_task(root, name):
-            worktree.bind(root, read_task_snapshot(root, name), {}, "dev", ["A", "B"])
+            identity = worktree.bind(
+                root, read_task_snapshot(root, name), {}, "dev", ["A", "B"]
+            )
             backend = SimpleNamespace(
                 root=root,
                 phase="deploy",
@@ -369,6 +385,7 @@ def check_git_conflict_checkpoints_peers_and_recovers(monkeypatch, tmp_path):
                 },
                 save=Mock(),
             )
+            pin_progress(backend, identity)
             worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
             (root / relative).write_text(
                 "# model-format: 2\nobserved.row.001-001.value=`aws`\n"
@@ -444,7 +461,7 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
         root = Path(state["worktree"])
         name = state["task_file"]
         with selected_task(root, name):
-            worktree.bind(
+            identity = worktree.bind(
                 root,
                 read_task_snapshot(root, name),
                 {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
@@ -485,6 +502,7 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
                     "snapshotValidation": "PASS",
                 },
             )
+            pin_progress(backend, identity)
             worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
             (root / relative).write_text(
                 "# model-format: 2\nobserved.row.001-001.value=`aws`\n"
@@ -689,7 +707,9 @@ def check_interrupted_publication_retries_and_cleans(monkeypatch, boundary):
         name = state["task_file"]
         start(root, name, deploy_contract(name, ["file.txt"]))
         with selected_task(root, name):
-            worktree.bind(root, read_task_snapshot(root, name), {}, "dev", ["A"])
+            identity = worktree.bind(
+                root, read_task_snapshot(root, name), {}, "dev", ["A"]
+            )
             backend = SimpleNamespace(
                 root=root,
                 phase="deploy",
@@ -698,6 +718,7 @@ def check_interrupted_publication_retries_and_cleans(monkeypatch, boundary):
                     "inputDigests": {"A": "hash"},
                 },
             )
+            pin_progress(backend, identity)
             worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
             (root / "file.txt").write_text("Task output\n")
             owner = root if boundary == "commit" else primary
@@ -756,7 +777,7 @@ def stepwise_repository(tracked_contract=False):
             start(root, name, contract)
         with selected_task(root, name):
             task = read_task_snapshot(root, name, live=True)
-            worktree.bind(
+            identity = worktree.bind(
                 root,
                 task,
                 {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
@@ -800,6 +821,7 @@ def stepwise_repository(tracked_contract=False):
                     inputs.deployment_input_paths, root, "dev", "app", {}
                 ),
             )
+            pin_progress(backend, identity)
             backend.save = partial(
                 worktree.save_progress, backend, operation_journal.OPERATION_FIELDS
             )

@@ -571,7 +571,9 @@ def run(
         )
         if args.pause_after_group and phase != "update":
             raise Blocked("--pause-after-group is an update-only compatibility hint")
-        worktree.bind(root, task, selected, args.environment, args.stack)
+        progress_identity = worktree.bind(
+            root, task, selected, args.environment, args.stack
+        )
         authentication_error = None
         if args.action == "checkpoint":
             target = selected
@@ -609,6 +611,11 @@ def run(
                 args.approve_change_set,
             )
             backend.phase, backend.timing = phase, timing
+            if phase == "deploy":
+                backend.progress_identity = progress_identity
+                backend.progress_root = root
+                backend.progress_directory = directory
+                backend.progress_destination = worktree.progress_path(root, create=True)
             if authentication_error:
                 backend.aws = partial(current_state.unavailable, authentication_error)
             backend.requested_stacks = args.stack
