@@ -77,6 +77,7 @@ def main_checks():
                 ordinary=[],
                 judgments=[],
                 naming={"names": []},
+                naming_context={},
                 **aggregate(records, "dev", "123456789012", ["s3"]),
             )
             assert summary(artifact)["iac_status"] == "partial"
@@ -127,6 +128,7 @@ def main_checks():
                 ordinary=[],
                 judgments=[],
                 naming={"names": []},
+                naming_context={},
                 **aggregate(records, "dev", "123456789012", ["s3"]),
             )
             assert summary(artifact)["iac_status"] == "error"
@@ -146,6 +148,7 @@ def main_checks():
             ordinary=[],
             judgments=[],
             naming={"names": []},
+            naming_context={},
             **aggregate(records, "dev", "123456789012", ["s3"]),
         )
         assert summary(artifact)["iac_status"] == "differences"
@@ -164,6 +167,7 @@ def main_checks():
             ordinary=[],
             judgments=[],
             naming={"names": []},
+            naming_context={},
             **aggregate(records, "dev", "123456789012", ["s3"]),
         )
         cli_exit(root, Path(temporary), artifact, 2)
@@ -186,6 +190,7 @@ def main_checks():
             ordinary=[],
             judgments=[],
             naming={"names": []},
+            naming_context={},
             **aggregate(baseline, "dev", "123456789012", ["s3"]),
         )
         assert summary(artifact)["iac_status"] == "complete match"
