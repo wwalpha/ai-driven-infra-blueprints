@@ -137,6 +137,14 @@ def route_decision(inputs, left, right, path):
     return inputs.reference_decision(left, right, "Route53.RecordSet", path)
 
 
+def without_expression_evidence(value):
+    if isinstance(value, Expression):
+        return Expression(value.operation, without_expression_evidence(value.operands))
+    if isinstance(value, list):
+        return [without_expression_evidence(item) for item in value]
+    return copy.deepcopy(value)
+
+
 @pytest.mark.parametrize(
     "logical,entry,expected",
     [
@@ -345,6 +353,7 @@ def test_runtime_contract_failures_stay_uncompared(models, fault):
         )
     elif fault == "unproven-provenance":
         inputs.export_provenance.clear()
+        actual = without_expression_evidence(actual)
     else:
         actual = Expression(
             "Select",
@@ -408,6 +417,15 @@ def test_direct_same_stack_selection(models):
         desired, actual, "Route53.RecordSet", "ResourceRecords[]"
     )
     assert decision.equal is True
+    assert (
+        inputs.reference_decision(
+            copy.deepcopy(desired),
+            copy.deepcopy(actual),
+            "Route53.RecordSet",
+            "ResourceRecords[]",
+        ).equal
+        is True
+    )
     settings = Settings(
         desired={"ResourceRecords": [desired]}, sources={"ResourceRecords": [{}]}
     )
@@ -429,6 +447,39 @@ def test_direct_same_stack_selection(models):
     assert decision.diagnostics[0]["current_aws_verified"] is False
     assert decision.diagnostics[0]["structural_equivalence"] is True
     assert decision.diagnostics[0]["direct"][0]["stack"] == "consumer"
+
+
+def test_compare_setting_without_selection_contract_is_uncompared(models):
+    root, _, _ = models
+    endpoint = dict(
+        load_model(root / "model/qa/team/endpoint.properties").authoritative
+    )
+    endpoint["desired.resource.001.cfn-logicalId"] = "consumer-Resource001"
+    save(Scope(root, "qa", "team", "endpoint"), endpoint)
+    inputs, _ = prepare(models)
+    resources = inputs.stack_inputs["consumer"][0]["Resources"]
+    resources["Resource001"] = {
+        "Type": "AWS::EC2::VPCEndpoint",
+        "Properties": {"VpcEndpointType": "Interface"},
+    }
+    desired = copy.deepcopy(inputs.evaluate_for_comparison("consumer", extraction()))
+    owner = resources["Policy"]
+    owner["Properties"]["ResourceRecords"] = [extraction()]
+    settings = Settings(
+        desired={"ResourceRecords": [desired]}, sources={"ResourceRecords": [{}]}
+    )
+    result = inputs.compare_setting(
+        "dns",
+        "001",
+        "Route53.RecordSet",
+        "ResourceRecords",
+        [desired],
+        settings,
+        "consumer",
+        owner,
+        root / "synthetic.yaml",
+    )
+    assert [row["category"] for row in result.records] == ["uncompared"]
 
 
 @pytest.mark.parametrize(
@@ -500,3 +551,33 @@ def test_direct_cross_stack_is_unproven(models):
     )
     assert result.equal is None
     assert "stack is unproven" in result.diagnostics[0]["reason"]
+
+
+def test_direct_missing_evidence_and_scope_are_unproven(models):
+    root, _, _ = models
+    endpoint = dict(
+        load_model(root / "model/qa/team/endpoint.properties").authoritative
+    )
+    endpoint["desired.resource.001.cfn-logicalId"] = "consumer-Resource001"
+    save(Scope(root, "qa", "team", "endpoint"), endpoint)
+    inputs, prepared = prepare(models)
+    inputs.stack_inputs["consumer"][0]["Resources"]["Resource001"] = {
+        "Type": "AWS::EC2::VPCEndpoint",
+        "Properties": {"VpcEndpointType": "Interface"},
+    }
+    desired = prepared.require_value()[0]
+    actual = inputs.evaluate_for_comparison("consumer", extraction())
+    missing = without_expression_evidence(actual)
+    assert route_decision(inputs, desired, missing, "ResourceRecords[]").equal is None
+    document, parameters, pseudo = inputs.stack_inputs["consumer"]
+    inputs.stack_inputs["consumer"] = (
+        document,
+        parameters,
+        dict(pseudo, **{"AWS::Region": "us-east-1"}),
+    )
+    assert (
+        route_decision(
+            inputs, desired, copy.deepcopy(actual), "ResourceRecords[]"
+        ).equal
+        is None
+    )

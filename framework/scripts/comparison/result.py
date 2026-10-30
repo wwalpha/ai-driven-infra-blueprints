@@ -72,7 +72,10 @@ def _reference_types(raw, shown):
         return ResourceReference(shown)
     if isinstance(raw, Expression) and isinstance(shown, dict):
         return Expression(
-            raw.operation, _reference_types(raw.operands, shown["$operands"])
+            raw.operation,
+            _reference_types(raw.operands, shown["$operands"]),
+            raw.direct_origins,
+            raw.export_origins,
         )
     if isinstance(raw, dict) and isinstance(shown, dict):
         return {key: _reference_types(raw[key], item) for key, item in shown.items()}

@@ -121,11 +121,16 @@ def selected_decision(inputs, left, right, path, *, export_origins):
         ):
             raise Blocked("Endpoint DNS requires Model and IaC Type=CNAME")
         origins = export_origins([left, right], inputs.export_provenance)
-        direct = export_origins([left, right], getattr(inputs, "select_provenance", {}))
+        direct = export_origins(
+            [left, right], getattr(inputs, "select_provenance", {}), direct=True
+        )
         consumer_stack, _ = cfn_resource_identity(
             inputs.resources[consumer[0]][consumer[1]]["cfn-logicalId"]
         )
-        if direct and any(origin["stack"] != consumer_stack for origin in direct):
+        if direct and any(
+            origin["stack"] != consumer_stack or origin.get("scope") != scope
+            for origin in direct
+        ):
             raise Blocked("Endpoint DNS Direct provenance/stack is unproven")
         if origins:
             if any(origin.get("scope") != scope for origin in origins):

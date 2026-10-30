@@ -634,11 +634,23 @@ class Inputs:
                 result = (
                     ResourceReference(result)
                     if isinstance(result, ResourceReference)
-                    else Expression(result.operation, result.operands)
+                    else Expression(
+                        result.operation,
+                        result.operands,
+                        result.direct_origins,
+                        result.export_origins,
+                    )
                 )
                 origin = {"export_name": name, "export_stack": producer}
                 if deferred:
                     origin.update(scope=scope, unproven=deferred)
+                if isinstance(result, Expression):
+                    result = Expression(
+                        result.operation,
+                        result.operands,
+                        result.direct_origins,
+                        tuple([origin, *origins]),
+                    )
                 self.export_provenance[id(result)] = (result, [origin, *origins])
             return result
         except Blocked as error:
@@ -880,13 +892,15 @@ class Inputs:
 
     def defer_select(self, stack, value, reason, *, direct=False):
         if direct:
-            if not hasattr(self, "select_provenance"):
-                self.select_provenance = {}
-            self.select_provenance[id(value)] = (
-                value,
-                [{"stack": stack, "unproven": reason}],
+            scope = tuple(
+                context_value(self.stack_inputs[stack][2], group)
+                for group in ("partition", "account", "region")
             )
-            return value
+            return Expression(
+                value.operation,
+                value.operands,
+                ({"stack": stack, "scope": scope, "unproven": reason},),
+            )
         origins = reference_evidence.export_origins(
             value.operands[1], self.export_provenance
         )
@@ -898,11 +912,12 @@ class Inputs:
         )
         if any(origin.get("scope", scope) != scope for origin in origins):
             return None
-        self.export_provenance[id(value)] = (
-            value,
-            [dict(origin, scope=scope, unproven=reason) for origin in origins],
+        return Expression(
+            value.operation,
+            value.operands,
+            value.direct_origins,
+            tuple(dict(origin, scope=scope, unproven=reason) for origin in origins),
         )
-        return value
 
     def evaluate(self, stack, value, seen=frozenset()):
         return self.evaluator().evaluate(stack, value, seen)
@@ -950,7 +965,7 @@ class Inputs:
         if origins:
             detail["exports"] = self.redacted(origins)
         direct = reference_evidence.export_origins(
-            [left, right], getattr(self, "select_provenance", {})
+            [left, right], getattr(self, "select_provenance", {}), direct=True
         )
         if direct:
             detail["direct"] = self.redacted(direct)
@@ -984,7 +999,7 @@ class Inputs:
                 )
                 return references.ReferenceDecision(equal, (detail,), equal is True)
         direct = reference_evidence.export_origins(
-            [left, right], getattr(self, "select_provenance", {})
+            [left, right], getattr(self, "select_provenance", {}), direct=True
         )
         if direct:
             if (
@@ -1028,6 +1043,28 @@ class Inputs:
                 "Export expression identity is unproven; Select bounds remain unproven",
             )
             detail.update(evidence_type="export_expression", current_aws_verified=False)
+            return references.ReferenceDecision(None, (detail,))
+        if (
+            self.local_comparison
+            and not deferred
+            and any(
+                reference_evidence.unproven_select(value, self.evaluator)
+                for value in (left, right)
+            )
+        ):
+            if all(
+                isinstance(value, (list, dict))
+                and not isinstance(value, ResourceReference)
+                for value in (left, right)
+            ):
+                return references.ReferenceDecision(NotImplemented)
+            detail = self.reference_diagnostic(
+                left,
+                right,
+                kind,
+                path,
+                "Select bounds and selection contract are unproven",
+            )
             return references.ReferenceDecision(None, (detail,))
         result = references.reference_same(
             left,

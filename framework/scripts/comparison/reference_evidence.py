@@ -520,11 +520,13 @@ def compare(inputs, left, right, kind, path):
     return ReferenceDecision(equal, (inputs.redacted(detail),), equal is True)
 
 
-def export_origins(value, provenance):
+def export_origins(value, provenance, *, direct=False):
     result = []
+    if isinstance(value, Expression):
+        result.extend(value.direct_origins if direct else value.export_origins)
     entry = provenance.get(id(value))
     if entry is not None and entry[0] is value:
-        result.extend(entry[1])
+        result.extend(origin for origin in entry[1] if origin not in result)
     children = (
         value.operands
         if isinstance(value, Expression)
@@ -535,7 +537,35 @@ def export_origins(value, provenance):
         else ()
     )
     for child in children:
-        for origin in export_origins(child, provenance):
+        for origin in export_origins(child, provenance, direct=direct):
             if origin not in result:
                 result.append(origin)
     return result
+
+
+def unproven_select(value, evaluator):
+    if isinstance(value, Expression):
+        if value.operation == "Select" and len(value.operands) == 2:
+            index, source = value.operands
+            if isinstance(source, (ResourceReference, Expression)):
+                try:
+                    schema = evaluator().symbolic_schema(source)
+                    if (
+                        type(index) is not int
+                        or index < 0
+                        or schema.get("type") != "array"
+                        or index >= schema.get("minItems", 0)
+                    ):
+                        return True
+                except (Blocked, KeyError, ValueError, TypeError):
+                    return True
+        children = value.operands
+    elif isinstance(value, ResourceReference):
+        children = ()
+    elif isinstance(value, dict):
+        children = value.values()
+    elif isinstance(value, list):
+        children = value
+    else:
+        children = ()
+    return any(unproven_select(child, evaluator) for child in children)

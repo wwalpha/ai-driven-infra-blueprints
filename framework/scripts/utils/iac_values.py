@@ -36,6 +36,8 @@ class Expression:
 
     operation: str
     operands: list
+    direct_origins: tuple = ()
+    export_origins: tuple = ()
 
     def __eq__(self, other):
         return (

@@ -5,6 +5,7 @@ import json
 import sys
 from functools import partial
 from pathlib import Path
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1378,6 +1379,15 @@ def test_export_retains_symbolic_dns_expression_and_transform(models, transform)
             decision.diagnostics[-1]["evidence_type"] == "export_expression"
             or transform == "other-export"
         )
+        assert (
+            inputs.reference_decision(
+                copy.deepcopy(a),
+                copy.deepcopy(b),
+                "Route53.RecordSet",
+                "AliasTarget.DNSName",
+            ).equal
+            is decision.equal
+        )
     assert (
         inputs.reference_same(
             left, "historical-dns.example", "Route53.RecordSet", "AliasTarget.DNSName"
@@ -1448,6 +1458,15 @@ def test_comparison_retains_direct_unproven_select(models):
         ).equal
         is None
     )
+    copied = copy.deepcopy(actual)
+    reconstructed = Expression(actual.operation, copy.deepcopy(actual.operands))
+    for value in (copied, reconstructed):
+        assert (
+            inputs.reference_decision(
+                value, copy.deepcopy(value), "Glue.Job", "DefaultArguments"
+            ).equal
+            is None
+        )
 
 
 @pytest.mark.parametrize(
@@ -1484,9 +1503,38 @@ def test_comparison_retains_catalog_array_selection(
         inputs.reference_decision(result, result, "Glue.Job", "DefaultArguments").equal
         is None
     )
+    for value in (
+        copy.deepcopy(result),
+        Expression(result.operation, copy.deepcopy(result.operands)),
+    ):
+        assert (
+            inputs.reference_decision(
+                value, copy.deepcopy(value), "Glue.Job", "DefaultArguments"
+            ).equal
+            is None
+        )
     if element_type == "object":
         with pytest.raises(ValueError):
             inputs.evaluate_for_comparison("producer", {"Fn::Split": [":", expr]})
+
+
+def test_proven_symbolic_array_boundary_remains_comparable(models, monkeypatch):
+    inputs, _ = producer(models, "EC2.VPCEndpoint", {"VpcEndpointType": "Interface"})
+    monkeypatch.setattr(
+        inputs.catalog,
+        "property_schema",
+        Mock(
+            return_value={"type": "array", "minItems": 1, "items": {"type": "string"}}
+        ),
+    )
+    expression = {"Fn::Select": [0, {"Fn::GetAtt": ["Resource001", "DnsEntries"]}]}
+    actual = inputs.evaluate("producer", expression)
+    assert (
+        inputs.reference_decision(
+            actual, copy.deepcopy(actual), "Glue.Job", "DefaultArguments"
+        ).equal
+        is True
+    )
 
 
 def test_comparison_select_validation_guards(models):
@@ -1524,14 +1572,15 @@ def test_direct_unproven_select_is_never_implicitly_equal(models, wrapper):
 def test_unproven_selection_container_cannot_pass_without_contract(models):
     inputs, _ = producer(models, "EC2.VPCEndpoint", {"VpcEndpointType": "Interface"})
     actual = inputs.evaluate_for_comparison("producer", endpoint_export(inputs))
-    decision = compare_values(
-        [actual],
-        [actual],
-        "ResourceRecords",
-        rules=rules("Route53.RecordSet"),
-        reference=partial(unselected_reference, inputs),
-    )
-    assert decision.equal is None
+    for value in (actual, copy.deepcopy(actual)):
+        decision = compare_values(
+            [value],
+            [copy.deepcopy(value)],
+            "ResourceRecords",
+            rules=rules("Route53.RecordSet"),
+            reference=partial(unselected_reference, inputs),
+        )
+        assert decision.equal is None
 
 
 def unselected_reference(inputs, left, right, path):
