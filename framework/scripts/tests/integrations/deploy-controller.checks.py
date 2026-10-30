@@ -246,7 +246,7 @@ def fake_aws(operation, **kwargs):
         return {
             "StackId": "stack",
             "ChangeSetId": "change",
-            "ExecutionStatus": "EXECUTE_COMPLETE",
+            "ExecutionStatus": "EXECUTE_FAILED",
         }
     if operation == "describe_stack_events":
         return {"StackEvents": []}
@@ -298,7 +298,7 @@ def check_approved_remove_recovers_without_duplicate_execute(tmp_path, monkeypat
         "stackId": "stack",
         "changeSetId": "change",
         "token": "original",
-        "submission": "SENT",
+        "submission": "SENDING",
     }
     request.write_text(json.dumps(record), encoding="utf-8")
     request.chmod(0o600)

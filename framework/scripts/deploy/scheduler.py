@@ -56,7 +56,24 @@ def run_group(
     """Single event loop owns the queue; AWS executions overlap, Python decisions do not."""
     for state in states.values():
         state.pop("schedulerError", None)
-    pending = [unit for unit in units if states[unit["name"]]["status"] != "SUCCESS"]
+    backend.verified_settled = set()
+    for unit in sorted(units, key=lambda item: int(item["deployOrder"])):
+        state = states[unit["name"]]
+        if state["status"] != "SETTLED" or not hasattr(backend, "current_satisfied"):
+            continue
+        try:
+            backend.current_satisfied(unit)
+        except Exception as error:
+            state["reason"] = str(error)
+        else:
+            state.pop("reason", None)
+            backend.verified_settled.add(unit["name"])
+    pending = [
+        unit
+        for unit in units
+        if states[unit["name"]]["status"] != "SUCCESS"
+        and unit["name"] not in backend.verified_settled
+    ]
     if not pending:
         return (
             "STOPPED"

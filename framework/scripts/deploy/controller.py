@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import json
 import sys
@@ -22,7 +23,12 @@ from utils.cloudformation.export_resolution import (
     merge_hints,
     resolve_exports,
 )
-from utils.cloudformation.inputs import Blocked, load_template_inputs
+from utils.cloudformation.format import decode
+from utils.cloudformation.inputs import (
+    Blocked,
+    checked_parameters,
+    load_template_inputs,
+)
 from utils.json_format import fingerprint
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
@@ -102,6 +108,7 @@ def create_runtime(
     runtime.template_arguments = partial(template_arguments, runtime)
     runtime.exports_for = partial(exports_for, runtime)
     runtime.check_imports = partial(check_imports, runtime)
+    runtime.current_satisfied = partial(current_satisfied, runtime)
     runtime.describe_change_set = partial(describe_change_set, runtime)
     runtime.verify_stack_ownership = partial(verify_stack_ownership, runtime)
     runtime.observed_readiness = partial(observed.readiness, runtime)
@@ -424,14 +431,149 @@ def check_imports(
 ) -> None:
     boundary = {} if boundary is None else boundary
     exports = runtime.exports_for([unit], boundary)
+    states = runtime.states
+    verified = getattr(runtime, "verified_settled", set())
+    if verified:
+        states = {name: dict(state) for name, state in states.items()}
+        for name in verified:
+            producer = next(item for item in runtime.units if item["name"] == name)
+            current_satisfied(runtime, producer)
+            states[name]["status"] = "SUCCESS"
     return change_sets.check_imports(
         runtime.target,
         runtime.templates,
-        runtime.states,
+        states,
         runtime.aws,
         unit,
         exports,
     )
+
+
+def current_satisfied(runtime: SimpleNamespace, unit: StackUnit) -> None:
+    """Prove current inputs and identifiers without changing the attempt outcome."""
+    name = unit["name"]
+    state = runtime.states[name]
+    if (
+        state.get("requestPending")
+        or state.get("requestError")
+        or not state.get("observedSynced")
+    ):
+        raise Blocked(
+            "current request or observed synchronization is incomplete: " + name
+        )
+    runtime.load_inputs(unit)
+    expected_digest = runtime.expected_digests.get(name)
+    if not expected_digest or runtime.input_digest(unit, fresh=True) != expected_digest:
+        raise Blocked("fixed deployment inputs cannot be confirmed: " + name)
+    current = current_state.read(runtime.aws, name)
+    if current_request.reconcile(runtime, unit):
+        raise Blocked("current Stack request is unresolved: " + name)
+    if current_state.category(current) != "SUCCESS" or not current.get("StackId"):
+        raise Blocked("current Stack is not stable and successful: " + name)
+    if current_state.identity(current) != current_state.identity(
+        state.get("currentStack", {})
+    ):
+        raise Blocked("current Stack observation needs synchronization: " + name)
+    document, parameters = runtime.templates[name]
+    delivery_record = state.get("delivery", {})
+    if unit.get("artifacts"):
+        if delivery_record.get("inputDigest") != expected_digest:
+            raise Blocked("prepared artifact input differs: " + name)
+        boundary = {}
+        exports = runtime.exports_for([unit], boundary)
+        imports = {
+            key: {field: entry[field] for field in ("Value", "ExportingStackId")}
+            for key, entry in exports.items()
+            if key in boundary.get("importNames", {}).get(name, set())
+        }
+        if delivery_record.get("imports") != imports:
+            raise Blocked("prepared artifact imports differ: " + name)
+        document = copy.deepcopy(document)
+        bindings = delivery.artifact_bindings(
+            runtime.target, unit, document, parameters, exports
+        )
+        objects = delivery_record.get("objects", [])
+        if not isinstance(objects, list) or len(objects) < len(bindings):
+            raise Blocked("prepared artifact objects are incomplete: " + name)
+        for (artifact, container, prop, fields), obj in zip(
+            bindings, objects, strict=False
+        ):
+            source = runtime.source_path(artifact)
+            digest = runtime.file_digest(source, fresh=True)
+            if (
+                obj.get("bucket") != artifact["bucket"]
+                or obj.get("key") != artifact["keyPrefix"] + digest + source.suffix
+                or obj.get("checksum")
+                != base64.b64encode(bytes.fromhex(digest)).decode()
+                or obj.get("size") != source.stat().st_size
+            ):
+                raise Blocked("prepared artifact differs from fixed input: " + name)
+            runtime.verify_object(obj)
+            if fields:
+                container[prop][fields[1]] = obj["key"]
+                container[prop].pop(fields[2], None)
+                if obj.get("version"):
+                    container[prop][fields[2]] = obj["version"]
+            else:
+                container[prop] = f"s3://{obj['bucket']}/{obj['key']}"
+    actual = runtime.aws("get_template", StackName=current["StackId"]).get(
+        "TemplateBody"
+    )
+    if isinstance(actual, str):
+        actual, errors = decode(actual)
+        if errors:
+            raise Blocked("current Stack template is unreadable: " + name)
+    if actual != document:
+        raise Blocked("current Stack template differs from fixed input: " + name)
+    actual_parameters = current.get("Parameters", [])
+    if not isinstance(actual_parameters, list) or len(actual_parameters) != len(
+        document.get("Parameters", {})
+    ):
+        raise Blocked("current Stack parameters are incomplete: " + name)
+    actual_parameters = [
+        {
+            "ParameterKey": item.get("ParameterKey"),
+            "ParameterValue": item.get("ParameterValue"),
+        }
+        for item in actual_parameters
+        if isinstance(item, dict)
+    ]
+    if (
+        len(actual_parameters) != len(document.get("Parameters", {}))
+        or len({item["ParameterKey"] for item in actual_parameters})
+        != len(actual_parameters)
+        or any(item["ParameterValue"] in {None, "****"} for item in actual_parameters)
+        or checked_parameters(document, actual_parameters)
+        != checked_parameters(
+            document,
+            [
+                {"ParameterKey": key, "ParameterValue": value}
+                for key, value in parameters.items()
+            ],
+        )
+    ):
+        raise Blocked("current Stack parameters differ from fixed input: " + name)
+    expected_outputs = change_sets.required_outputs(
+        document, parameters, runtime.target, name
+    )
+    change_sets.verify_outputs(
+        runtime.aws, unit, {"stackId": current["StackId"]}, expected_outputs
+    )
+    checked = {name: copy.deepcopy(state)}
+    checked[name].pop("executionEvidence", None)
+    checked[name].pop("changes", None)
+    observed.collect_successful(runtime, [unit], checked)
+    if any(
+        item.get("status") in {"UNCONFIRMED", "UPDATED"}
+        for item in checked[name].get("observedCoverage", {}).values()
+    ):
+        raise Blocked("current Stack identifiers need synchronization: " + name)
+    if current_request.reconcile(runtime, unit):
+        raise Blocked("current Stack request changed during verification: " + name)
+    if current_state.identity(current) != current_state.identity(
+        current_state.read(runtime.aws, name)
+    ):
+        raise Blocked("current Stack changed during verification: " + name)
 
 
 def describe_change_set(

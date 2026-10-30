@@ -269,10 +269,6 @@ def prepare_complete(root, task):
     ):
         raise ws.Blocked("Deploy snapshot, publication or AWS request is incomplete")
     if any(item.get("status") in {"READY", "NOT_STARTED"} for item in states.values()):
-        if not any(item.get("status") == "FAILED" for item in states.values()):
-            raise ws.Blocked(
-                "unexecuted Stacks require a failed Deploy before completion"
-            )
         units = {unit["name"]: unit for unit in progress.get("stepUnits", [])}
         failed_orders = [
             int(units[name]["deployOrder"])

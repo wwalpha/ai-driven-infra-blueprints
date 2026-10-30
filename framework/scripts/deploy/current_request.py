@@ -93,7 +93,12 @@ def root_events(events, token, identity):
 def settled(aws, record, current):
     operation = record["operation"]
     status = current["StackStatus"]
-    if operation == "execute_change_set" and not record.get("stackId"):
+    if operation == "execute_change_set" and (
+        not record.get("stackId")
+        or status
+        not in (current_state.SUCCESS | current_state.FAILED | {"ABSENT"})
+        - {"CREATE_FAILED", "UPDATE_FAILED"}
+    ):
         return False
     if record.get("service") == "secretsmanager":
         metadata = aws(
@@ -115,8 +120,8 @@ def settled(aws, record, current):
                 StackName=record["name"],
                 ChangeSetName=record["changeSetId"],
             )
-        except AwsError as error:
-            if operation != "execute_change_set" or error.code != "ChangeSetNotFound":
+        except AwsError:
+            if operation != "execute_change_set":
                 raise
             change_set = None
         if change_set is None:
@@ -138,17 +143,10 @@ def settled(aws, record, current):
                 "DELETE_COMPLETE",
             }
         execution = change_set.get("ExecutionStatus")
+        if execution in {"EXECUTE_IN_PROGRESS", "AVAILABLE", "UNAVAILABLE"}:
+            return False
         if execution in {"EXECUTE_COMPLETE", "EXECUTE_FAILED", "OBSOLETE"}:
-            if record.get("submission") in {"SENDING", "UNCERTAIN"}:
-                events = current_state.pages(
-                    aws,
-                    "describe_stack_events",
-                    "StackEvents",
-                    StackName=record["stackId"],
-                )
-                if not root_events(events, record["token"], record["stackId"]):
-                    return False
-            record["result"] = "SETTLED" if execution == "EXECUTE_COMPLETE" else "FAIL"
+            record["result"] = "SETTLED"
             return True
     if operation == "delete_stack" and status == "ABSENT":
         return True

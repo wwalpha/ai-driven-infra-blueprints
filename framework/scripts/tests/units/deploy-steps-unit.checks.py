@@ -1,5 +1,7 @@
 """Short-operation decisions and complete identifier coverage, without AWS or worktrees."""
 
+import base64
+import copy
 import json
 import os
 import stat
@@ -97,6 +99,14 @@ def wrong_owner(path, *, original_lstat, directory):
     return info
 
 
+def set_test_coverage(status, _backend, _units, checked):
+    checked["A"]["observedCoverage"] = {"Resource": {"status": status}}
+
+
+def save_test_snapshot(saved, state, path):
+    saved.append((dict(state), path.exists()))
+
+
 def candidate_test_git(root, *args):
     if args[0] == "clone":
         Path(args[-1]).mkdir()
@@ -178,6 +188,12 @@ def check_intermediate_sync_does_not_finish_unattempted_deploy(status):
         states=state,
         run_context={"states": state, "snapshotValidation": "PASS"},
     )
+    TestCase().assertNotEqual(steps.describe(backend)["result"], "COMPLETE")
+    state["B"] = {
+        "status": "SETTLED",
+        "attemptResult": "UNKNOWN",
+        "observedSynced": True,
+    }
     TestCase().assertNotEqual(steps.describe(backend)["result"], "COMPLETE")
 
 
@@ -609,7 +625,7 @@ class TestCurrentState(TestCase):
             "ResourceStatus": "UPDATE_COMPLETE",
         }
         aws = Mock(side_effect=[change, {"StackEvents": [later]}])
-        self.assertFalse(current_request.settled(aws, record, current))
+        self.assertTrue(current_request.settled(aws, record, current))
         later["ClientRequestToken"] = "own"
         aws = Mock(side_effect=[change, {"StackEvents": [later]}])
         self.assertTrue(current_request.settled(aws, record, current))
@@ -654,6 +670,368 @@ class TestCurrentState(TestCase):
             self.assertTrue(state["requestPending"])
             release.assert_not_called()
             backend.save.assert_not_called()
+
+    def test_uncertain_terminal_change_sets_settle_only_when_stack_is_stable(self):
+        record = {
+            "operation": "execute_change_set",
+            "name": "A",
+            "stackId": "stack",
+            "changeSetId": "change",
+            "token": "own",
+            "submission": "SENDING",
+        }
+        current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
+        for execution in ("EXECUTE_FAILED", "OBSOLETE", "EXECUTE_COMPLETE"):
+            change = {
+                "ChangeSetId": "change",
+                "StackId": "stack",
+                "ExecutionStatus": execution,
+            }
+            with self.subTest(execution=execution):
+                evidence = dict(record)
+                self.assertTrue(
+                    current_request.settled(
+                        Mock(return_value=change), evidence, current
+                    )
+                )
+                self.assertEqual(evidence["result"], "SETTLED")
+                self.assertFalse(
+                    current_request.settled(
+                        Mock(return_value=change),
+                        dict(record),
+                        current | {"StackStatus": "UPDATE_IN_PROGRESS"},
+                    )
+                )
+        change["ExecutionStatus"] = "EXECUTE_FAILED"
+        for status in (
+            "UPDATE_FAILED",
+            "CREATE_FAILED",
+            "UNKNOWN",
+            "NEW_UNRECOGNIZED_STATUS",
+        ):
+            self.assertFalse(
+                current_request.settled(
+                    Mock(return_value=change),
+                    dict(record),
+                    current | {"StackStatus": status},
+                )
+            )
+        change["ExecutionStatus"] = "EXECUTE_IN_PROGRESS"
+        self.assertFalse(
+            current_request.settled(Mock(return_value=change), dict(record), current)
+        )
+        change["ExecutionStatus"] = "AVAILABLE"
+        self.assertFalse(
+            current_request.settled(Mock(return_value=change), dict(record), current)
+        )
+        change["ExecutionStatus"] = "EXECUTE_IN_PROGRESS"
+        self.assertFalse(
+            current_request.settled(
+                Mock(return_value=change),
+                dict(record),
+                current | {"StackStatus": "UPDATE_IN_PROGRESS"},
+            )
+        )
+
+    def test_settled_revalidation_allows_next_order_without_reexecuting(self):
+        scoped = units(10, 20)
+        state = states(scoped)
+        state["A"] = {"status": "SETTLED", "attemptResult": "UNKNOWN"}
+        backend = Fake()
+        backend.current_satisfied = Mock()
+        self.assertEqual(
+            scheduler.run_group(scoped, 1, state, backend, single_step=True), "ACTIVE"
+        )
+        self.assertEqual(state["A"]["attemptResult"], "UNKNOWN")
+        self.assertEqual(state["A"]["status"], "SETTLED")
+        self.assertEqual(
+            [event[1] for event in backend.events if event[0] == "start"], ["B"]
+        )
+        scheduler.run_group(scoped, 1, state, backend, single_step=True)
+        self.assertEqual(state["B"]["status"], "SUCCESS")
+        self.assertEqual(
+            scheduler.run_group(scoped, 1, state, backend, single_step=True), "COMPLETE"
+        )
+        self.assertEqual(backend.current_satisfied.call_count, 3)
+
+    def test_settled_revalidation_blocks_next_order_on_mismatch(self):
+        scoped = units(10, 20)
+        state = states(scoped)
+        state["A"] = {"status": "SETTLED", "attemptResult": "UNKNOWN"}
+        backend = Fake()
+        backend.current_satisfied = Mock(side_effect=Blocked("current input differs"))
+        for _ in range(2):
+            self.assertEqual(
+                scheduler.run_group(scoped, 1, state, backend, single_step=True),
+                "STOPPED",
+            )
+        self.assertEqual(state["B"]["status"], "NOT_STARTED")
+        self.assertEqual(state["A"]["attemptResult"], "UNKNOWN")
+        self.assertFalse(backend.events)
+
+    def test_current_satisfied_checks_fixed_template_parameters_outputs_and_identifiers(
+        self,
+    ):
+        unit = {"name": "A", "deployOrder": 10}
+        document = {
+            "Parameters": {"Count": {"Type": "Number"}},
+            "Resources": {},
+            "Outputs": {"Example": {"Value": "expected"}},
+        }
+        current = {
+            "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/id",
+            "StackStatus": "UPDATE_COMPLETE",
+            "Parameters": [{"ParameterKey": "Count", "ParameterValue": "2"}],
+            "Outputs": [{"OutputKey": "Example", "OutputValue": "expected"}],
+        }
+        state = {
+            "status": "SETTLED",
+            "attemptResult": "UNKNOWN",
+            "observedSynced": True,
+            "executionEvidence": {
+                "StackId": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/id"
+            },
+            "currentStack": current_state.observation(current),
+        }
+        aws = Mock(
+            side_effect=lambda operation, **kwargs: {"Stacks": [current]}
+            if operation == "describe_stacks"
+            else {"TemplateBody": document}
+        )
+        backend = SimpleNamespace(
+            states={"A": state},
+            templates={"A": (document, {"Count": "2"})},
+            target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+            expected_digests={"A": "digest"},
+            load_inputs=Mock(),
+            input_digest=Mock(return_value="digest"),
+            aws=aws,
+        )
+        with (
+            patch.object(current_request, "reconcile", return_value=None),
+            patch.object(observed, "collect_successful") as collect,
+        ):
+            controller.current_satisfied(backend, unit)
+            collect.assert_called_once()
+            self.assertNotIn("executionEvidence", collect.call_args.args[2]["A"])
+            for status in ("UNCONFIRMED", "UPDATED"):
+                collect.side_effect = partial(set_test_coverage, status)
+                with self.assertRaises(Blocked):
+                    controller.current_satisfied(backend, unit)
+            collect.side_effect = None
+            current["Outputs"][0]["OutputValue"] = "incorrect"
+            with self.assertRaises(Blocked):
+                controller.current_satisfied(backend, unit)
+            current["Outputs"][0]["OutputValue"] = "expected"
+            current["Parameters"][0]["ParameterValue"] = "3"
+            with self.assertRaises(Blocked):
+                controller.current_satisfied(backend, unit)
+            current["Parameters"][0]["ParameterValue"] = "2"
+            aws.side_effect = (
+                lambda operation, **kwargs: {"Stacks": [current]}
+                if operation == "describe_stacks"
+                else {"TemplateBody": {"Resources": {"Other": {}}}}
+            )
+            with self.assertRaises(Blocked):
+                controller.current_satisfied(backend, unit)
+            fake = Fake()
+            backend.states["B"] = {"status": "NOT_STARTED"}
+            backend.current_satisfied = partial(controller.current_satisfied, backend)
+            backend.prepare, backend.execute, backend.poll = (
+                fake.prepare,
+                fake.execute,
+                fake.poll,
+            )
+            consumer = {
+                "name": "B",
+                "deployOrder": 20,
+                "template": "b",
+                "parameters": "b",
+            }
+            self.assertEqual(
+                scheduler.run_group(
+                    [unit, consumer], 1, backend.states, backend, single_step=True
+                ),
+                "STOPPED",
+            )
+            self.assertEqual(backend.states["B"]["status"], "NOT_STARTED")
+            aws.side_effect = (
+                lambda operation, **kwargs: {"Stacks": [current]}
+                if operation == "describe_stacks"
+                else {"TemplateBody": document}
+            )
+            self.assertEqual(
+                scheduler.run_group(
+                    [unit, consumer], 1, backend.states, backend, single_step=True
+                ),
+                "ACTIVE",
+            )
+            self.assertEqual(
+                [event[1] for event in fake.events if event[0] == "start"], ["B"]
+            )
+        self.assertEqual(state["attemptResult"], "UNKNOWN")
+
+    def test_settled_artifact_is_reconstructed_from_fixed_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "code.zip"
+            source.write_bytes(b"artifact")
+            digest = "a" * 64
+            artifact = {
+                "resource": "Function",
+                "property": "Code",
+                "bucket": "bucket",
+                "keyPrefix": "code/",
+            }
+            unit = {"name": "A", "artifacts": [artifact]}
+            document = {
+                "Resources": {
+                    "Function": {
+                        "Type": "AWS::Lambda::Function",
+                        "Properties": {
+                            "Code": {"S3Bucket": "bucket", "S3Key": "code/placeholder"}
+                        },
+                    }
+                }
+            }
+            deployed = copy.deepcopy(document)
+            code = deployed["Resources"]["Function"]["Properties"]["Code"]
+            code.update(S3Key="code/" + digest + ".zip", S3ObjectVersion="version")
+            obj = {
+                "bucket": "bucket",
+                "key": code["S3Key"],
+                "checksum": base64.b64encode(bytes.fromhex(digest)).decode(),
+                "size": source.stat().st_size,
+                "version": "version",
+            }
+            current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
+            state = {
+                "status": "SETTLED",
+                "attemptResult": "UNKNOWN",
+                "observedSynced": True,
+                "currentStack": current,
+                "delivery": {"inputDigest": "fixed", "imports": {}, "objects": [obj]},
+            }
+            backend = SimpleNamespace(
+                states={"A": state},
+                templates={"A": (document, {})},
+                target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+                expected_digests={"A": "fixed"},
+                load_inputs=Mock(),
+                input_digest=Mock(return_value="fixed"),
+                source_path=Mock(return_value=source),
+                file_digest=Mock(return_value=digest),
+                exports_for=Mock(return_value={}),
+                verify_object=Mock(),
+                aws=Mock(
+                    side_effect=lambda operation, **kwargs: {"Stacks": [current]}
+                    if operation == "describe_stacks"
+                    else {"TemplateBody": deployed}
+                ),
+            )
+            with (
+                patch.object(current_request, "reconcile", return_value=None),
+                patch.object(observed, "collect_successful"),
+            ):
+                controller.current_satisfied(backend, unit)
+                backend.verify_object.assert_called_once_with(obj)
+                obj["checksum"] = "wrong"
+                with self.assertRaises(Blocked):
+                    controller.current_satisfied(backend, unit)
+            self.assertNotIn(
+                "S3ObjectVersion",
+                document["Resources"]["Function"]["Properties"]["Code"],
+            )
+
+    def test_imports_revalidate_settled_producer_without_changing_attempt(self):
+        producer = {"name": "A", "deployOrder": 10}
+        consumer = {"name": "B", "deployOrder": 20}
+        state = {
+            "A": {"status": "SETTLED", "attemptResult": "UNKNOWN"},
+            "B": {"status": "NOT_STARTED"},
+        }
+        document = {
+            "Resources": {
+                "Consumer": {
+                    "Type": "Test",
+                    "Properties": {"Value": {"Fn::ImportValue": "export"}},
+                }
+            }
+        }
+        exports = {
+            "export": {
+                "Value": "value",
+                "ExportingStackId": "arn:aws:cloudformation:region:account:stack/A/id",
+            }
+        }
+        backend = SimpleNamespace(
+            states=state,
+            units=[producer, consumer],
+            verified_settled={"A"},
+            templates={"B": (document, {})},
+            target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
+            exports_for=Mock(return_value=exports),
+            aws=Mock(),
+        )
+        with patch.object(controller, "current_satisfied") as verify:
+            controller.check_imports(backend, consumer)
+            verify.assert_called_once_with(backend, producer)
+        self.assertEqual(state["A"], {"status": "SETTLED", "attemptResult": "UNKNOWN"})
+        with patch.object(
+            controller, "current_satisfied", side_effect=Blocked("changed")
+        ):
+            with self.assertRaises(Blocked):
+                controller.check_imports(backend, consumer)
+
+    def test_uncertain_terminal_requests_persist_before_release(self):
+        for execution in ("EXECUTE_FAILED", "OBSOLETE"):
+            with (
+                self.subTest(execution=execution),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                path = Path(directory).resolve() / "request.json"
+                record = {
+                    "operation": "execute_change_set",
+                    "name": "A",
+                    "stackId": "stack",
+                    "changeSetId": "change",
+                    "token": "own",
+                    "submission": "SENDING",
+                }
+                path.write_text(json.dumps(record), encoding="utf-8")
+                path.chmod(0o600)
+                state = {
+                    "status": "RUNNING",
+                    "clientToken": "own",
+                    "changeSetId": "change",
+                    "executionEvidence": {
+                        "StackId": "stack",
+                        "ChangeSetId": "change",
+                        "clientToken": "own",
+                    },
+                }
+                backend = SimpleNamespace(
+                    target={},
+                    states={"A": state},
+                    units=[{"name": "A"}],
+                    templates={},
+                    aws=partial(
+                        recovery_test_aws,
+                        current="UPDATE_COMPLETE",
+                        execution=execution,
+                    ),
+                )
+                backend.poll = partial(controller.poll, backend)
+                saved = []
+                backend.save = partial(save_test_snapshot, saved, state, path)
+                with patch.object(current_request, "location", return_value=path):
+                    steps.refresh_requests(backend)
+                    self.assertEqual(saved[-1][0]["status"], "SETTLED")
+                    self.assertEqual(saved[-1][0]["attemptResult"], "UNKNOWN")
+                    self.assertTrue(saved[-1][1])
+                    self.assertFalse(path.exists())
+                    steps.refresh_requests(backend)
+                    self.assertEqual(state["status"], "SETTLED")
+                    self.assertEqual(state["attemptResult"], "UNKNOWN")
 
     def test_settled_unknown_is_terminal_without_reexecution(self):
         state = {
@@ -733,8 +1111,19 @@ class TestCurrentState(TestCase):
                     "PREVIOUS_DEPLOY_ORDER_FAILED",
                 )
                 self.assertEqual(saved["runContext"]["deployResult"], "FAIL")
+                saved["states"]["A"].update(status="SETTLED", attemptResult="UNKNOWN")
+                saved["states"]["B"].pop("unexecutedReason", None)
+                worktree.write_sealed(root, path, saved)
                 worktree.prepare_complete(root, task)
-                self.assertEqual(worktree.read_progress(root, lifecycle), saved)
+                settled = worktree.read_progress(root, lifecycle)
+                self.assertEqual(settled["states"]["A"]["attemptResult"], "UNKNOWN")
+                self.assertEqual(
+                    settled["states"]["B"]["unexecutedReason"],
+                    "DEPLOY_ENDED_WITHOUT_EXECUTION",
+                )
+                worktree.write_sealed(root, path, settled)
+                worktree.prepare_complete(root, task)
+                self.assertEqual(worktree.read_progress(root, lifecycle), settled)
                 with patch.object(
                     worktree, "require_complete", side_effect=Blocked("validation")
                 ):
@@ -1440,7 +1829,7 @@ class TestCurrentState(TestCase):
         for execution, current, expected in [
             ("EXECUTE_COMPLETE", "UPDATE_COMPLETE", "SETTLED"),
             ("EXECUTE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE", "SETTLED"),
-            ("EXECUTE_FAILED", "UPDATE_COMPLETE", "FAILED"),
+            ("EXECUTE_FAILED", "UPDATE_COMPLETE", "SETTLED"),
             ("AVAILABLE", "UPDATE_COMPLETE", "BLOCKED"),
         ]:
             with (

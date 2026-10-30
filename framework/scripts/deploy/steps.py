@@ -259,8 +259,9 @@ def refresh_requests(backend):
                 continue
             own_request = current_request.owns(state, request)
             if not own_request:
-                state["externalOperation"] = True
-                state["status"] = "RUNNING"
+                if state["status"] != "SETTLED":
+                    state["externalOperation"] = True
+                    state["status"] = "RUNNING"
             elif request.get("operation") == "create_change_set":
                 state["status"] = (
                     "NOT_STARTED"
@@ -303,7 +304,10 @@ def refresh_requests(backend):
                 ) as error:
                     state["requestError"] = str(error)
 
-        elif current_state.category(state["currentStack"]) == "RUNNING":
+        elif (
+            state["status"] != "SETTLED"
+            and current_state.category(state["currentStack"]) == "RUNNING"
+        ):
             state.update(status="RUNNING", externalOperation=True)
 
 
@@ -462,7 +466,12 @@ def describe(backend: SimpleNamespace) -> dict:
         for s in states.values()
     )
     units = getattr(backend, "units", [])
-    active = [unit for unit in units if states[unit["name"]]["status"] != "SUCCESS"]
+    active = [
+        unit
+        for unit in units
+        if states[unit["name"]]["status"] != "SUCCESS"
+        and unit["name"] not in getattr(backend, "verified_settled", set())
+    ]
     order = min((int(unit["deployOrder"]) for unit in active), default=None)
     candidates = (
         [states[unit["name"]] for unit in active if int(unit["deployOrder"]) == order]
@@ -470,7 +479,8 @@ def describe(backend: SimpleNamespace) -> dict:
         else list(states.values())
     )
     can_advance = any(
-        s["status"] in {"RUNNING", "NOT_STARTED", "READY", "CHANGESET_CREATING"}
+        s["status"]
+        in {"RUNNING", "NOT_STARTED", "READY", "CHANGESET_CREATING", "SETTLED"}
         and not s.get("requestError")
         and not s.get("schedulerError")
         and s.get("failure", {}).get("classification") != "APPROVAL"

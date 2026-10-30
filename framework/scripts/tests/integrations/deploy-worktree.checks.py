@@ -436,7 +436,7 @@ def check_git_conflict_checkpoints_peers_and_recovers(monkeypatch, tmp_path):
             assert not wt.changed_paths(root) and not wt.changed_paths(primary)
 
 
-def check_failed_snapshot_with_unstarted_stack_publishes():
+def publish_unstarted_snapshot(settled):
     with (
         fixture() as primary,
         patch.object(wt.python_env, "setup", return_value={"status": "ready"}),
@@ -475,9 +475,14 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
                     "currentStack": {"StackStatus": "UPDATE_COMPLETE"},
                 },
                 "B": {
-                    "status": "FAILED",
+                    "status": "SETTLED" if settled else "FAILED",
+                    **({"attemptResult": "UNKNOWN"} if settled else {}),
                     "observedSynced": True,
-                    "currentStack": {"StackStatus": "UPDATE_ROLLBACK_COMPLETE"},
+                    "currentStack": {
+                        "StackStatus": "UPDATE_COMPLETE"
+                        if settled
+                        else "UPDATE_ROLLBACK_COMPLETE"
+                    },
                 },
                 "C": {
                     "status": "NOT_STARTED",
@@ -498,7 +503,7 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
                         {"name": "B", "deployOrder": 1},
                         {"name": "C", "deployOrder": 2},
                     ],
-                    "deployResult": "FAIL",
+                    "deployResult": "UNKNOWN" if settled else "FAIL",
                     "snapshotValidation": "PASS",
                 },
             )
@@ -521,14 +526,21 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
                 transitions.complete(root, name)
             saved = worktree.read_progress(root, wt.load(root, "deploy")[3])
             TestCase().assertEqual(
-                saved["states"]["C"]["unexecutedReason"], "PREVIOUS_DEPLOY_ORDER_FAILED"
+                saved["states"]["C"]["unexecutedReason"],
+                "DEPLOY_ENDED_WITHOUT_EXECUTION"
+                if settled
+                else "PREVIOUS_DEPLOY_ORDER_FAILED",
             )
             result = publication.finalize(root, "deploy")
             assert result["verified"] and result["merged"]
             assert source.read_text().endswith("observed.row.001-001.value=`aws`\n")
             assert read_task_snapshot(primary, name, live=True).status == "completed"
             progress = worktree.read_progress(root, result)
-            assert progress["runContext"]["deployResult"] == "FAIL"
+            assert progress["runContext"]["deployResult"] == (
+                "UNKNOWN" if settled else "FAIL"
+            )
+            if settled:
+                assert progress["states"]["B"]["attemptResult"] == "UNKNOWN"
             assert progress["states"]["C"]["status"] == "NOT_STARTED"
             old = old_store(root)
             (old / "seal.key").write_bytes(b"broken")
@@ -536,6 +548,11 @@ def check_failed_snapshot_with_unstarted_stack_publishes():
             receipt.write_text("{broken", encoding="utf-8")
             assert wt.cleanup(primary, "deploy")["cleaned"]
             assert receipt.read_text(encoding="utf-8") == "{broken"
+
+
+def check_failed_snapshot_with_unstarted_stack_publishes():
+    publish_unstarted_snapshot(False)
+    publish_unstarted_snapshot(True)
 
 
 def run_controller(root, report, aws, driver):
