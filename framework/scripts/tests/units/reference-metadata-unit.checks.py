@@ -155,6 +155,14 @@ def check_index_rejects_unproven_metadata(project_workspace, old_version):
     dependency_index.write_sealed(root, dependency_index.location(root), index)
     with pytest.raises(ValueError, match="dependency index"):
         dependency_index.load(root)
+    before_index = dependency_index.location(root).read_bytes()
+    before_model = path.read_bytes()
+    with change_reads(root, sources.FileReads(), metadata={}):
+        with pytest.raises(ValueError, match="unsupported Model dependency index"):
+            dependency_index.check_change_inventory(root, set())
+    assert dependency_index.location(root).read_bytes() == before_index
+    assert path.read_bytes() == before_model
+    dependency_index.rebuild(root)
     with change_reads(root, sources.FileReads(), metadata={}):
         refreshed = dependency_index.check_change_inventory(root, set())
     assert refreshed["version"] == 3

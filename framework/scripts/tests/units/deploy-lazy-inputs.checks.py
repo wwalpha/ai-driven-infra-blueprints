@@ -38,7 +38,7 @@ from utils.input_cache import input_context
 from utils.sealed_evidence import evidence_store as old_store
 from validation.findings import Findings
 
-from model import dependency_index
+from model import change_scope, dependency_index
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -663,6 +663,46 @@ def check_index_corruption_and_related_model(
         with pytest.raises(ValueError, match="evidence|dependency index"):
             dependency_index.load(tmp_path)
             sources.load_model(scope.path)
+
+
+@pytest.mark.parametrize("version", [1, 2, 4, 3.0, "3"])
+@pytest.mark.parametrize("operation", ["load", "publication", "update", "observed", "inventory"])
+def check_unsupported_dependency_index_rejected_without_mutation(
+    tmp_path, monkeypatch, version, operation
+):
+    monkeypatch.delenv("BLUEPRINT_TASK_FILE", raising=False)
+    scope, _ = deploy_properties_fixture(tmp_path)
+    dependency_index.rebuild(tmp_path)
+    path = dependency_index.location(tmp_path)
+    index = dependency_index.load(tmp_path)
+    index["version"] = version
+    if version == 1:
+        for entry in index["models"].values():
+            entry.pop("errors")
+    dependency_index.write_sealed(tmp_path, path, index)
+    before_index = path.read_bytes()
+    before_model = scope.path.read_bytes()
+    with pytest.raises(ValueError, match="unsupported Model dependency index") as error:
+        if operation == "load":
+            dependency_index.load(tmp_path)
+        elif operation == "publication":
+            with sources.publication_lock(tmp_path) as journal:
+                sources._publish_transaction(
+                    tmp_path,
+                    {scope.path: scope.path.read_text() + "# candidate\n"},
+                    (),
+                    journal,
+                )
+        elif operation == "inventory":
+            with change_scope.change_reads(tmp_path, sources.FileReads(), metadata={}):
+                dependency_index.check_change_inventory(tmp_path, set())
+        else:
+            dependency_index.update(
+                tmp_path, {scope.path}, observed=operation == "observed"
+            )
+    assert "framework/scripts/model/cli.py index" in str(error.value)
+    assert path.read_bytes() == before_index
+    assert scope.path.read_bytes() == before_model
 
 
 def check_index_service_part_add_retarget_delete(tmp_path, monkeypatch):

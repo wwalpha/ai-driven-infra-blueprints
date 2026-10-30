@@ -87,7 +87,7 @@ def check_index_rebuild_is_live_inside_input_context(tmp_path):
         rebuilt = dependency_index.load(tmp_path)
         assert rebuilt["files"][relative] != original["files"][relative]
         assert rebuilt["models"][relative]["logical"] == ["Logs_LogGroup_002"]
-        assert dependency_index.load(tmp_path, publication=True) == rebuilt
+        assert dependency_index.load(tmp_path) == rebuilt
 
 
 @pytest.mark.parametrize("candidate", [False, True])
@@ -184,18 +184,17 @@ def check_index_checked_once_per_root_permission_and_execution(tmp_path):
         with input_context(fresh=True, read_only=True):
             assert dependency_index.load(tmp_path) is dependency_index.load(tmp_path)
             assert load.call_count == 1
-            dependency_index.load(tmp_path, publication=True)
-            assert load.call_count == 2
+            assert load.call_count == 1
             with (
                 permissions.restrict(("dev", "team", "logs")),
                 permissions.reference_reader(path),
             ):
                 dependency_index.load(tmp_path)
             dependency_index.load(tmp_path / "other")
-            assert load.call_count == 4
+            assert load.call_count == 3
         with input_context(fresh=True, read_only=True):
             dependency_index.load(tmp_path)
-        assert load.call_count == 5
+        assert load.call_count == 4
 
 
 class ColdWorker:

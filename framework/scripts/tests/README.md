@@ -106,6 +106,22 @@ Worktree関連5 ITは27関数・29入口。実Git/Worktree、CLI連携、状態�
 
 Deploy repair専用ITは2関数3入口（normal batch/stepsとMerge復旧）。通常修復は両方式の独立Deployと実CLI・fresh Validationまで通し、Merge復旧は正式Requestと実Git FF直後中断・永続State再開・証拠/入力保持・Cleanupを検証する。同じ異常YAMLはbatchだけで一度確認する。Assertionの対応は[責務一覧](CASES.md#worktree-deploy-repair-performance-responsibilities)を参照。進捗/Journalの永続化地点は維持し、性能未計測や10秒未達を達成扱いにしない。
 
+## Dependency index（v3のみ）
+
+`model-dependencies.json` はModel本文ではなく、参照・owner・入力revisionの派生メタデータ。
+既存indexの `version` が1/2または未知の値なら、通常のModel保存、差分参照探索、
+observed更新、Deployは保存前に停止する。旧indexを暗黙にv3へ変換しない。
+index未作成時の既存bootstrap/Deploy RunModelsでのin-memory生成は別契約として維持する。
+
+停止した場合はModel正本を変更しない既存の明示offlineコマンドで再構築する。
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py index --repository-root .
+```
+
+再構築はModel publication lockの下で入力を再検証し、v3のprivate atomic recordを保存する。
+旧edgeを根拠にせずModel正本から計算する。AWS実行やModel正本の変更は行わない。
+
 ## 実行入口
 
 リポジトリルートから実行する。管理worktreeでは登録済みPython環境のwrapperを使う。
