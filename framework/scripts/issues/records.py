@@ -1,6 +1,7 @@
 """Issue identities and report text; comparison evidence is produced by comparison."""
 
-from comparison.result import identifier, safe_text
+from utils.issue_text import identifier as identifier
+from utils.issue_text import safe_text as safe_text
 
 
 def iac_key(item):

@@ -32,8 +32,10 @@ from issues.review import (
 )
 from issues.runner import scan_stage
 from model.validations.naming import (
+    NamingRuleIndex,
     naming_rule_files,
     naming_rule_rows,
+    naming_rules,
     provider_naming_errors,
 )
 from support.issues_scan_fixtures import (
@@ -47,6 +49,8 @@ from support.issues_scan_fixtures import (
 from support.pytest_cli import run
 from task_contract_core import active_scope, selected_task, task_reads, task_snapshot
 from utils.function_wrapper import BoundCallback
+from utils.input_cache import input_context
+from utils.json_format import fingerprint
 from utils.project_targets import select_target
 from validation.findings import Findings
 
@@ -1499,6 +1503,168 @@ def decision_artifact(root, kind, prop, value, mode="CREATE"):
     data["naming"]["names"] = [name]
     name["decision"] = naming_decision(data, name)
     return data, name
+
+
+@pytest.mark.parametrize(
+    "kind,prop,value,mode,conditions,expected",
+    [
+        (
+            "S3.Bucket",
+            "BucketName",
+            "app-dev-data-123456789012-extra",
+            "CREATE",
+            {},
+            "dfa4b869364e70ec8dddb7dec693900b371bf19dce4471ed02a0882f588b98fb",
+        ),
+        (
+            "S3.Bucket",
+            "BucketName",
+            "Invalid_Bucket",
+            "CREATE",
+            {},
+            "231cb7b294e61ebdddc1ea91636a5ef8100703334a5450d22e5a3a4569afc0da",
+        ),
+        (
+            "IAM.Role",
+            "RoleName",
+            "app-dev-DataRole",
+            "CREATE",
+            {},
+            "49f1ea65cba5a75d01dbf42550b7b926e222d3dac963bb7ece743adaf185968b",
+        ),
+        (
+            "SQS.Queue",
+            "QueueName",
+            "sqs-app-dev-data",
+            "CREATE",
+            {"FifoQueue": True},
+            "5ca0c71d32f21845883eedef2e66037c716f4ebc7d9ccf6eb0b337137dff1303",
+        ),
+        (
+            "SQS.Queue",
+            "QueueName",
+            "bad",
+            "IMPORT",
+            {"FifoQueue": None},
+            "a6b7a27d72f15ea655e202cb529f3bfffa74345eda8290e34660d1df943fce47",
+        ),
+        (
+            "Organizations.Policy",
+            "Name",
+            "policy-app-dev-example",
+            "CREATE",
+            {"Type": "SERVICE_CONTROL_POLICY"},
+            "8f11494936455c39d2cc539d9bb381404c318a09985311cd649214b5881ad12b",
+        ),
+        (
+            "Organizations.Policy",
+            "Name",
+            "invalid",
+            "CREATE",
+            {"Type": "TAG_POLICY"},
+            "0d870491a41c730adf90e7be3f6c6e62aedad1f037a6926f85f61ca876a9e23e",
+        ),
+        (
+            "Logs.LogGroup",
+            "LogGroupName",
+            "/aws/lambda/MyFunction",
+            "CREATE",
+            {},
+            "115dea90047490a2f11d42ec31bbb9467ae1656f0c3de0403c06938a756fd63c",
+        ),
+        (
+            "EC2.VPC",
+            "Name",
+            "vpc-app-stg",
+            "CREATE",
+            {},
+            "7fcbf737593283f0e755d90d0e1437f1891aaf1b3ac7719247371360bed7df51",
+        ),
+    ],
+)
+def check_indexed_naming_matches_previous_complete_decision(
+    tmp_path, kind, prop, value, mode, conditions, expected
+):
+    data, name = decision_artifact(tmp_path, kind, prop, value, mode)
+    name["conditions"] = conditions
+    index = NamingRuleIndex(data["naming_context"])
+    assert fingerprint(naming_decision(data, name, index)) == expected
+
+
+@pytest.mark.parametrize(
+    "scenario,expected",
+    [
+        ("suffix", "ee422c7489400f35a05705bf6b42b8de6a9d745f12048b7dcc681431b8b10b79"),
+        ("facts", "afe9665742c2b44a499f9bc8cfdd6b071ef7cbf8eb4bebca1dbf0106bd30f69f"),
+        (
+            "conflict",
+            "eab69341cbe30abc366eea2549b8f772f115b3717f6d24001bcff7815b24a47e",
+        ),
+        (
+            "alternative_prefix",
+            "62af0b7ad66cce516ea7cfc224efd96edbd360b384283dfef9d6638018b0ae50",
+        ),
+    ],
+)
+def check_indexed_naming_matches_previous_context_decision(
+    tmp_path, scenario, expected
+):
+    kind, prop, value = (
+        ("IAM.Role", "RoleName", "app-dev-DataRole-wrong")
+        if scenario == "suffix"
+        else ("EC2.VPC", "Name", "vpc-app-dev")
+    )
+    data, name = decision_artifact(tmp_path, kind, prop, value)
+    if scenario == "suffix":
+        data["naming_context"]["target_context"]["suffix"] = "p4x8r2"
+    if scenario in ("facts", "conflict"):
+        data["human_confirmations"]["confirmations"] = [
+            dict(
+                id="human",
+                service="naming",
+                scope=dict(resource="001", property="Name"),
+                fact="environment=stg",
+                exceptions=[],
+                evidence="Synthetic confirmation",
+            )
+        ]
+        if scenario == "facts":
+            data["naming_context"]["target_context"]["environment"] = "stg"
+    if scenario == "alternative_prefix":
+        data["naming_context"]["rules"]["EC2"] = [
+            dict(
+                text="| X | X | `EC2.VPC` | `Name` | `vpc-{{application}}-{{environment}}` | mandatory |\n| X | X | `EC2.VPC` | `Name` | `alt-{{application}}` | alternative |\n| X | X | `EC2.VPC` | `Name` | `vpc-{{application}}` | prefix |"
+            )
+        ]
+    assert (
+        fingerprint(
+            naming_decision(data, name, NamingRuleIndex(data["naming_context"]))
+        )
+        == expected
+    )
+
+
+def check_naming_index_parses_duplicate_text_once():
+    text = "| X | X | `S3.Bucket` | `S3.Bucket.BucketName` | `bucket-{{application}}` | prefix |"
+    context = {"rules": {"S3": [{"text": text}, {"text": text}]}}
+    with (
+        input_context(),
+        patch("model.validations.naming.naming_rules", wraps=naming_rules) as parse,
+    ):
+        index = NamingRuleIndex(context)
+        same = NamingRuleIndex(context)
+        context["rules"]["S3"][0]["text"] = text.replace("bucket-", "changed-")
+        changed = NamingRuleIndex(context)
+    assert parse.call_count == 2
+    assert index.get("S3.Bucket", "BucketName") == same.get("S3.Bucket", "BucketName")
+    assert (
+        index.get("S3.Bucket", "BucketName")
+        == (("bucket-{{application}}", "prefix"),) * 2
+    )
+    assert changed.get("S3.Bucket", "BucketName")[0] == (
+        "changed-{{application}}",
+        "prefix",
+    )
 
 
 def check_target_and_naming_regressions(tmp_path):

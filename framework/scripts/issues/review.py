@@ -11,10 +11,8 @@ from typing import Any
 from model.core import literal
 from model.validations.naming import (
     NAMING_EXEMPT_PROPERTIES,
+    NamingRuleIndex,
     check_iam_role_suffix,
-    naming_rule_rows,
-    naming_rules,
-    naming_target_matches,
     provider_naming_errors,
     value_available,
 )
@@ -167,15 +165,10 @@ def diagnostic_index(
     return by_id
 
 
-def naming_patterns(artifact, name):
+def naming_patterns(artifact, name, rule_index=None):
     kind, prop = required_text(name, "resourceType"), required_text(name, "property")
-    rules = artifact["naming_context"].get("rules", {}).get(kind.partition(".")[0], [])
-    return {
-        pattern
-        for rule in rules
-        for target_kind, target, pattern in naming_rule_rows(rule["text"])
-        if target_kind == kind and naming_target_matches(prop, {target}, kind)
-    }
+    rule_index = rule_index or NamingRuleIndex(artifact["naming_context"])
+    return {pattern for pattern, _ in rule_index.get(kind, prop)}
 
 
 def pattern_matches(pattern, value, fixed=None):
@@ -289,21 +282,16 @@ def naming_value(name):
     )
 
 
-def applicable_patterns(artifact, name):
+def applicable_patterns(artifact, name, rule_index=None):
     """A single resource/property rule proves scope; alternatives need evidence."""
     kind, prop = name["resourceType"], name["property"]
     value = naming_value(name) or ""
-    rules = artifact["naming_context"].get("rules", {}).get(kind.partition(".")[0], [])
+    rule_index = rule_index or NamingRuleIndex(artifact["naming_context"])
     patterns = {
         pattern
-        for rule in rules
-        for target_kind, target, pattern, scope in naming_rules(rule["text"])
-        if target_kind == kind
-        and naming_target_matches(prop, {target}, kind)
-        and (
-            scope == "mandatory"
-            or (scope == "prefix" and pattern_prefix_applies(pattern, value))
-        )
+        for pattern, scope in rule_index.get(kind, prop)
+        if scope == "mandatory"
+        or (scope == "prefix" and pattern_prefix_applies(pattern, value))
     }
     if (
         name["resourceType"] == "Organizations.Policy"
@@ -315,10 +303,11 @@ def applicable_patterns(artifact, name):
     return {pattern for pattern in patterns if pattern_matches(pattern, value)}
 
 
-def naming_violations(artifact, name):
+def naming_violations(artifact, name, rule_index=None):
     """Evidence shared by Scan decisions and validation of additional Naming Issues."""
-    patterns = naming_patterns(artifact, name)
-    applicable = applicable_patterns(artifact, name)
+    rule_index = rule_index or NamingRuleIndex(artifact["naming_context"])
+    patterns = naming_patterns(artifact, name, rule_index)
+    applicable = applicable_patterns(artifact, name, rule_index)
     common = artifact["naming_context"].get("rules", {}).get("common", [])
     common_rule = next((rule["path"] for rule in common), "")
     violations = []
@@ -382,7 +371,7 @@ def naming_violations(artifact, name):
                 for pattern in sorted(relevant)
             )
     if create:
-        errors = mandatory_name_errors(artifact, name, actual)
+        errors = mandatory_name_errors(artifact, name, actual, rule_index)
         violations.extend(
             dict(violation="format", applied_rule=rule, constraint=error)
             for rule, error in errors
@@ -390,10 +379,11 @@ def naming_violations(artifact, name):
     return violations
 
 
-def mandatory_name_errors(artifact, name, actual):
+def mandatory_name_errors(artifact, name, actual, rule_index=None):
     """Explicit service rules remain obligations independently of recommended formats."""
     kind, prop = name["resourceType"], name["property"]
-    rules = sorted(naming_patterns(artifact, name))
+    rule_index = rule_index or NamingRuleIndex(artifact["naming_context"])
+    rules = sorted(naming_patterns(artifact, name, rule_index))
     rule = rules[0] if rules else ""
     target = artifact["naming_context"].get("target_context", {})
     errors = []
@@ -426,17 +416,11 @@ def mandatory_name_errors(artifact, name, actual):
             "Secret Name requires application/environment/purpose_path with lower-kebab-case components"
         )
     suffix = target.get("suffix")
-    applicable = applicable_patterns(artifact, name)
+    applicable = applicable_patterns(artifact, name, rule_index)
     terminal_suffix_patterns = {
         pattern
-        for entry in artifact["naming_context"]
-        .get("rules", {})
-        .get(kind.partition(".")[0], [])
-        for target_kind, target_prop, pattern, scope in naming_rules(entry["text"])
-        if target_kind == kind
-        and naming_target_matches(prop, {target_prop}, kind)
-        and scope == "mandatory"
-        and pattern.endswith("[-{{suffix}}]")
+        for pattern, scope in rule_index.get(kind, prop)
+        if scope == "mandatory" and pattern.endswith("[-{{suffix}}]")
     }
     if (
         suffix
@@ -459,8 +443,9 @@ def mandatory_name_errors(artifact, name, actual):
     return [(rule, error) for error in errors]
 
 
-def naming_decision(artifact, name):
-    violations = naming_violations(artifact, name)
+def naming_decision(artifact, name, rule_index=None):
+    rule_index = rule_index or NamingRuleIndex(artifact["naming_context"])
+    violations = naming_violations(artifact, name, rule_index)
     pending = []
     if name.get("property") != "(no selected naming property)" and not name.get(
         "required_missing"
@@ -472,7 +457,7 @@ def naming_decision(artifact, name):
         elif name.get("provider_checked") is not True:
             pending.append("Provider constraints have not been checked")
     confirmed, conflicts = component_facts(artifact, name)
-    patterns = applicable_patterns(artifact, name)
+    patterns = applicable_patterns(artifact, name, rule_index)
     if any("{{" + key + "}}" in pattern for key in conflicts for pattern in patterns):
         pending.append("Conflicting confirmed component values require review")
     if any(value is None for value in name.get("conditions", {}).values()) and (
@@ -495,16 +480,10 @@ def naming_decision(artifact, name):
         ].get("target_context", {}):
             pending.append("Selected target suffix configuration is unavailable")
         kind, prop = name["resourceType"], name["property"]
-        rules = (
-            artifact["naming_context"].get("rules", {}).get(kind.partition(".")[0], [])
-        )
         mandatory = {
             pattern
-            for rule in rules
-            for target_kind, target, pattern, scope in naming_rules(rule["text"])
-            if target_kind == kind
-            and naming_target_matches(prop, {target}, kind)
-            and scope == "mandatory"
+            for pattern, scope in rule_index.get(kind, prop)
+            if scope == "mandatory"
         }
         if len(mandatory) > 1 and not patterns and naming_value(name) is not None:
             pending.append("No mandatory pattern can be selected; review required")
@@ -536,8 +515,9 @@ def naming_decision(artifact, name):
     )
 
 
-def review_names(artifact):
+def review_names(artifact, rule_index=None):
     """Never trust an asserted AUTO_PASS; recompute from the immutable Scan evidence."""
+    rule_index = rule_index or NamingRuleIndex(artifact["naming_context"])
     pending = []
     seen = set()
     target = artifact["naming_context"].get("target_context", {})
@@ -560,7 +540,7 @@ def review_names(artifact):
         if "decision" not in name:
             pending.append(name)
             continue
-        decision = naming_decision(artifact, name)
+        decision = naming_decision(artifact, name, rule_index)
         if name["decision"] != decision:
             raise ValueError("Naming decision does not match Scan evidence")
         if decision["status"] != "AUTO_PASS":
@@ -568,7 +548,7 @@ def review_names(artifact):
     return pending
 
 
-def validate_naming_issue(artifact, item, name):
+def validate_naming_issue(artifact, item, name, rule_index=None):
     violation = item["violation"]
     applied = required_text(item, "applied_rule")
     if name.get("resourceMode") == "IMPORT" and (
@@ -579,8 +559,11 @@ def validate_naming_issue(artifact, item, name):
         )
     ):
         raise ValueError("IMPORT is exempt from framework naming conventions")
-    candidates = naming_violations(artifact, name)
-    if violation == "required_missing" and applied in naming_patterns(artifact, name):
+    rule_index = rule_index or NamingRuleIndex(artifact["naming_context"])
+    candidates = naming_violations(artifact, name, rule_index)
+    if violation == "required_missing" and applied in naming_patterns(
+        artifact, name, rule_index
+    ):
         candidates = [dict(candidate, applied_rule=applied) for candidate in candidates]
     if not any(
         candidate["violation"] == violation
@@ -803,7 +786,7 @@ def matches_naming_item(item, name):
 
 
 def review_additions(
-    artifact: dict[str, Any], additions: list[dict[str, Any]]
+    artifact: dict[str, Any], additions: list[dict[str, Any]], rule_index=None
 ) -> list[dict[str, Any]]:
     services = artifact["services"]
     if not isinstance(additions, list):
@@ -882,7 +865,9 @@ def review_additions(
                 "rule_missing",
             }:
                 raise ValueError("IMPORT is exempt from framework naming conventions")
-            validate_naming_issue(artifact, item, name)
+            if rule_index is None:
+                rule_index = NamingRuleIndex(artifact["naming_context"])
+            validate_naming_issue(artifact, item, name, rule_index)
             cause = (name["id"], item["violation"])
             if cause in naming_causes:
                 raise ValueError("duplicate Naming violation")
@@ -929,7 +914,13 @@ def validate_review_unverified(
             raise ValueError("invalid unverified review fields")
 
 
-def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapshot:
+def validate_review(
+    artifact: dict[str, Any],
+    review: dict[str, Any],
+    *,
+    naming_ids=None,
+    rule_index=None,
+):
     if artifact.get("version") != 6:
         raise ValueError("unsupported scan artifact version; version 6 required")
     required = {
@@ -957,9 +948,12 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
     confirmations = {
         item["id"]: item for item in artifact["human_confirmations"]["confirmations"]
     }
+    rule_index = rule_index or NamingRuleIndex(artifact["naming_context"])
     reviewed_ids(
         review["reviewed_names"],
-        [item["id"] for item in review_names(artifact)],
+        [item["id"] for item in review_names(artifact, rule_index)]
+        if naming_ids is None
+        else naming_ids,
         "naming",
     )
     reviewed_ids(
@@ -974,16 +968,44 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
     excluded, conflicts = validate_diagnostic_decisions(
         ordinary, review["diagnostic_decisions"], confirmations, services
     )
-    additions = review_additions(dict(artifact, ordinary=ordinary), review["issues"])
+    additions = review_additions(
+        dict(artifact, ordinary=ordinary), review["issues"], rule_index
+    )
     diagnostic_index([*ordinary, *additions], services)
     unverified = review["unverified"]
     validate_review_unverified(artifact, unverified)
+    # Check snapshot-only fields and Review serialization without copying the Scan.
+    json.dumps(review, ensure_ascii=False, sort_keys=True, allow_nan=False)
+    if not isinstance(artifact["unverified"], list):
+        raise ValueError("invalid Scan unverified channel")
+    for result in artifact["service_results"]:
+        if result["status"] == "unverified":
+            dict(code="service.not_run", **result)
+    if unresolved:
+        for item in artifact["unverified"]:
+            item.get("diagnostic_id")
+        for item in artifact["processing_errors"]:
+            item.get("diagnostic_id")
+    stamp = datetime.fromisoformat(
+        required_text(artifact, "executed_at").replace("Z", "+00:00")
+    )
+    if stamp.utcoffset() is None:
+        raise ValueError("Scan execution time requires an explicit timezone")
+    return ordinary, unresolved, excluded, conflicts, additions
+
+
+def build_snapshot(
+    artifact: dict[str, Any], review: dict[str, Any], validated
+) -> Snapshot:
+    ordinary, unresolved, excluded, conflicts, additions = validated
+    unverified = review["unverified"]
     data = deepcopy(artifact)
     data["reviewed"] = True
+    reviewed_names = set(review["reviewed_names"])
     data["automatically_reviewed_names"] = [
         item["id"]
         for item in artifact["naming"]["names"]
-        if item["id"] not in review["reviewed_names"]
+        if item["id"] not in reviewed_names
     ]
     data["notice_overview"] = {}
     data["unverified"].extend(deepcopy(unverified))
@@ -1012,11 +1034,10 @@ def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapsho
         for result in data["service_results"]
         if result["status"] == "unverified"
     )
-    stamp = datetime.fromisoformat(
-        required_text(data, "executed_at").replace("Z", "+00:00")
-    )
-    if stamp.utcoffset() is None:
-        raise ValueError("Scan execution time requires an explicit timezone")
     return Snapshot(
         json.dumps(data, ensure_ascii=False, sort_keys=True, allow_nan=False)
     )
+
+
+def review_snapshot(artifact: dict[str, Any], review: dict[str, Any]) -> Snapshot:
+    return build_snapshot(artifact, review, validate_review(artifact, review))

@@ -3,7 +3,7 @@
 import re
 from collections import Counter
 
-from comparison.deferral import CATEGORIES, validate_cause
+from utils.comparison_contract import CATEGORIES, validate_cause
 from validation.diagnostics import CAUSE_KINDS
 
 import issues.aggregate as _imports_issues_aggregate
@@ -58,13 +58,14 @@ def channel_summary(values, section):
     )
 
 
-def summary(artifact):
+def summary(artifact, *, pending_names=None):
     if artifact.get("version") != 6:
         raise ValueError("unsupported scan artifact version; version 6 required")
     comparison_status = _imports_issues_aggregate.comparison_status
     view = artifact["overview"]
     counts = view["records"]
-    pending_names = review_names(artifact) if "naming" in artifact else []
+    if pending_names is None:
+        pending_names = review_names(artifact) if "naming" in artifact else []
     return dict(
         ordinary_candidates=len(artifact.get("ordinary", [])),
         judgment_items=len(artifact.get("judgments", [])),
@@ -105,8 +106,9 @@ def summary(artifact):
 
 
 def review_payload(artifact, artifact_path):
+    pending_names = review_names(artifact)
     return dict(
-        summary=summary(artifact),
+        summary=summary(artifact, pending_names=pending_names),
         scope={key: artifact[key] for key in ("environment", "target", "services")},
         publication_scope=dict(
             target_services=artifact["target_services"],
@@ -121,7 +123,7 @@ def review_payload(artifact, artifact_path):
         artifact=str(artifact_path),
         iac_summary=artifact["overview"],
         review_required=dict(
-            names=len(review_names(artifact)),
+            names=len(pending_names),
             judgments=len(artifact["judgments"]),
             policy="naming_context、AUTO_PASS以外のnaming、judgmentsの全IDと、全Human確定情報・今回の診断を確認する。AUTO_PASSは個別LLM Review不要。",
         ),
@@ -244,7 +246,7 @@ def detail_payload(
     )
 
 
-def validate_artifact(artifact):
+def validate_artifact(artifact, *, rule_index=None):
     """Validate the saved six-category index without reclassification or regrouping."""
     if artifact.get("version") != 6:
         raise ValueError("unsupported scan artifact version")
@@ -291,8 +293,7 @@ def validate_artifact(artifact):
         raise ValueError("invalid scan_id")
     if identifier(artifact["naming_context"]) != artifact["naming_context_id"]:
         raise ValueError("invalid naming_context_id")
-    if "naming" in artifact:
-        review_names(artifact)
+    pending_names = review_names(artifact, rule_index) if "naming" in artifact else []
     records, meta = artifact["iac"], artifact["record_meta"]
     if len(records) != len(meta) or artifact["overview"]["record_count"] != len(
         records
@@ -351,3 +352,5 @@ def validate_artifact(artifact):
             raise ValueError("invalid artifact Issue membership")
         if (records[i]["category"] in IAC_CATEGORIES) != (i in seen):
             raise ValueError("invalid artifact Issue membership")
+
+    return pending_names

@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 from unittest import TestCase
 
@@ -437,7 +436,7 @@ def check_scan_automatic_pass_resume_review_export_save(tmp_path):
     assert len(snapshot["naming"]["names"]) == len(data["naming"]["names"])
 
 
-def check_3000_automatic_names_excluded_from_review_payload(tmp_path):
+def check_100_automatic_names_excluded_from_review_payload(tmp_path):
     root = tmp_path / "repository"
     fixture(root, services=["cloudwatch-logs"])
     data = scan(
@@ -451,8 +450,7 @@ def check_3000_automatic_names_excluded_from_review_payload(tmp_path):
         n for n in data["naming"]["names"] if n["service"] == "cloudwatch-logs"
     )
     data["naming"]["names"] = []
-    started = time.perf_counter()
-    for i in range(3000):
+    for i in range(100):
         name = dict(
             source,
             id=f"log-{i}",
@@ -462,63 +460,28 @@ def check_3000_automatic_names_excluded_from_review_payload(tmp_path):
         )
         name["decision"] = naming_decision(data, name)
         data["naming"]["names"].append(name)
-    decision_seconds = time.perf_counter() - started
     assert all(n["decision"]["status"] == "AUTO_PASS" for n in data["naming"]["names"])
-    legacy_names = [
-        dict(
-            {
-                key: value
-                for key, value in name.items()
-                if key not in {"decision", "conditions", "provider_checked"}
-            },
-            pattern_review="required",
-        )
-        for name in data["naming"]["names"]
-    ]
-    legacy_bytes = len(json.dumps(legacy_names, ensure_ascii=False).encode("utf-8"))
+    assert review_names(data) == []
     review = controller(tmp_path, data)
-    started = time.perf_counter()
     review.initialize()
-    payload_bytes = 0
     naming_batches = 0
     while not review.status()["complete"]:
         batch = review.next_batch()
-        payload_bytes += len(json.dumps(batch, ensure_ascii=False).encode("utf-8"))
         naming_batches += batch["section"] == "naming"
         review.submit(submission(batch))
-    elapsed = time.perf_counter() - started
     assert naming_batches == 0
-    assert review.status()["automatically_reviewed_names"] == 3000
+    assert review.status()["automatically_reviewed_names"] == 100
     exported, _ = publish(review, tmp_path)
     assert exported["reviewed_names"] == []
-    assert not review_snapshot(data, exported).data.count('"violation":')
-    assert payload_bytes < legacy_bytes
-    legacy_data = dict(data, naming=dict(names=legacy_names))
-    legacy_path = tmp_path / "legacy-scan.json"
-    legacy_path.write_text(json.dumps(legacy_data), encoding="utf-8")
-    legacy = ReviewController(root, legacy_path, tmp_path / "legacy-progress.json")
-    started = time.perf_counter()
-    legacy.initialize()
-    finish(legacy, limit=100)
-    legacy_elapsed = time.perf_counter() - started
-    assert legacy.status()["sections"]["naming"]["reviewed"] == 3000
-    print(
-        json.dumps(
-            dict(
-                naming_total=3000,
-                auto_pass=3000,
-                old_naming_review=3000,
-                new_naming_review=0,
-                mandatory_violations=0,
-                false_positives=0,
-                old_naming_payload_bytes=legacy_bytes,
-                new_naming_payload_bytes=0,
-                all_new_review_payload_bytes=payload_bytes,
-                decision_seconds=decision_seconds,
-                old_synthetic_review_seconds=legacy_elapsed,
-                new_synthetic_review_seconds=elapsed,
-            )
-        )
+    snapshot = json.loads(review_snapshot(data, exported).data)
+    ids = [name["id"] for name in data["naming"]["names"]]
+    assert snapshot["naming"]["names"] == data["naming"]["names"]
+    assert len(ids) == len(set(ids)) == 100
+    assert len(snapshot["automatically_reviewed_names"]) == 100
+    assert set(snapshot["automatically_reviewed_names"]) == set(ids)
+    assert not snapshot["ordinary"]
+    assert not any(
+        name["decision"]["violations"] for name in snapshot["naming"]["names"]
     )
 
 

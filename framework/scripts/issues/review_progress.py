@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from model.sources import publication_lock
+from model.validations.naming import NamingRuleIndex
 from utils.file_operations import atomic_replace_file
 from utils.json_format import exact, fingerprint, strict_json
 
@@ -17,11 +18,11 @@ from .review import (
     diagnostic_index,
     required_text,
     review_additions,
-    review_names,
     review_snapshot,
     reviewed_ids,
     validate_confirmations,
     validate_diagnostic_decisions,
+    validate_review,
     validate_review_unverified,
 )
 
@@ -68,15 +69,18 @@ class ReviewController:
         if self.path == self.artifact_path:
             raise ValueError("checkpoint must differ from Scan artifact")
         raw = self.artifact_path.read_bytes()
-        self.artifact = strict_json(raw)
-        if not isinstance(self.artifact, dict):
+        self._artifact_bytes = raw
+        self._artifact = strict_json(raw)
+        if not isinstance(self._artifact, dict):
             raise ValueError("Scan artifact must be an object")
-        validate_artifact(self.artifact)
-        a = self.artifact
+        self._rule_index = NamingRuleIndex(self._artifact["naming_context"])
+        pending_names = validate_artifact(self._artifact, rule_index=self._rule_index)
+        self._verified_bytes = None
+        a = self._artifact
         if a.get("root") != str(self.root):
             raise ValueError("invalid scan artifact/root")
         validate_confirmations(a["human_confirmations"], a["environment"], a["target"])
-        self.identity = dict(
+        self._identity = dict(
             scan_id=a["scan_id"],
             artifact_digest=hashlib.sha256(raw).hexdigest(),
             naming_context_id=a["naming_context_id"],
@@ -98,12 +102,12 @@ class ReviewController:
                 )
                 for i, rule in enumerate(rules)
             )
-        self.base = {
+        self._base = {
             "naming_context": index_items(contexts, "naming context"),
             "human_confirmations": index_items(
                 a["human_confirmations"]["confirmations"], "Human confirmation"
             ),
-            "naming": index_items(review_names(a), "naming"),
+            "naming": index_items(pending_names, "naming"),
             "judgments": index_items(a["judgments"], "judgment"),
             "additions": {
                 "final": dict(
@@ -114,6 +118,14 @@ class ReviewController:
         }
         diagnostic_index(a["ordinary"], a["services"])
 
+    @property
+    def identity(self) -> Json:
+        return deepcopy(self._identity)
+
+    @property
+    def artifact(self) -> Json:
+        return deepcopy(self._artifact)
+
     def _sections(self, state: Json) -> dict[str, dict[str, Json]]:
         results = state["results"]["judgments"]
         assignments = {
@@ -121,17 +133,18 @@ class ReviewController:
             for key, result in results.items()
             if "assignment" in result
         }
-        known = [item for item in self.artifact["judgments"] if item["id"] in results]
+        known = [item for item in self._artifact["judgments"] if item["id"] in results]
         ordinary, _ = assigned_diagnostics(
-            dict(self.artifact, judgments=known), assignments
+            dict(self._artifact, judgments=known), assignments
         )
         return {
-            **self.base,
-            "diagnostics": diagnostic_index(ordinary, self.artifact["services"]),
+            **self._base,
+            "diagnostics": diagnostic_index(ordinary, self._artifact["services"]),
         }
 
-    def _next_section(self, state: Json) -> str | None:
-        sections = self._sections(state)
+    def _next_section(self, state: Json, sections=None) -> str | None:
+        if sections is None:
+            sections = self._sections(state)
         return next(
             (
                 s
@@ -144,8 +157,8 @@ class ReviewController:
     def _review(self, state: Json) -> Json:
         results = state["results"]
         return dict(
-            scan_id=self.identity["scan_id"],
-            reviewed_naming_context_id=self.identity["naming_context_id"],
+            scan_id=self._identity["scan_id"],
+            reviewed_naming_context_id=self._identity["naming_context_id"],
             reviewed_names=list(results["naming"]),
             reviewed_judgments=list(results["judgments"]),
             reviewed_confirmations=list(results["human_confirmations"]),
@@ -184,22 +197,25 @@ class ReviewController:
         required_text(result, "evidence")
         if "assignment" in fields:
             assigned_diagnostics(
-                dict(self.artifact, ordinary=[], judgments=[item]),
+                dict(self._artifact, ordinary=[], judgments=[item]),
                 {item["id"]: result["assignment"]},
             )
         if "decision" in fields:
-            confirmations = self.base["human_confirmations"]
+            confirmations = self._base["human_confirmations"]
             validate_diagnostic_decisions(
-                [item], [result["decision"]], confirmations, self.artifact["services"]
+                [item], [result["decision"]], confirmations, self._artifact["services"]
             )
-        review_additions(self.artifact, result["issues"])
-        validate_review_unverified(self.artifact, result["unverified"])
+        review_additions(self._artifact, result["issues"], self._rule_index)
+        validate_review_unverified(self._artifact, result["unverified"])
 
     def _batch_id(self, section: str, ids: list[str]) -> str:
-        return fingerprint([self.identity, section, sorted(ids)])
+        return fingerprint([self._identity, section, sorted(ids)])
 
     def _load(self) -> Json:
-        envelope = strict_json(self.path.read_bytes())
+        if self.artifact_path.read_bytes() != self._artifact_bytes:
+            raise ValueError("Scan artifact changed during Review")
+        raw = self.path.read_bytes()
+        envelope = strict_json(raw)
         exact(envelope, {"schema", "state", "digest"}, "Review checkpoint")
         state = envelope["state"]
         if (
@@ -209,11 +225,13 @@ class ReviewController:
         ):
             raise ValueError("corrupt/unsupported Review checkpoint")
         exact(state, {"identity", "results", "pending", "complete"}, "Review state")
-        if state["identity"] != self.identity:
+        if state["identity"] != self._identity:
             raise ValueError("Review checkpoint Scan/context/digest/scope mismatch")
         exact(state["results"], SECTIONS, "Review result sections")
         if any(not isinstance(r, dict) for r in state["results"].values()):
             raise ValueError("corrupt Review result index")
+        if raw == self._verified_bytes:
+            return state
         sections = self._sections(state)
         incomplete = False
         for section in SECTIONS:
@@ -250,7 +268,7 @@ class ReviewController:
             exact(pending, {"batch_id", "section", "ids"}, "pending batch")
             section, ids = pending["section"], pending["ids"]
             if (
-                section != self._next_section(state)
+                section != self._next_section(state, sections)
                 or not isinstance(ids, list)
                 or not ids
             ):
@@ -263,35 +281,39 @@ class ReviewController:
                 raise ValueError("corrupt pending Review batch IDs")
         return state
 
-    def _write(self, state: Json) -> None:
-        state["complete"] = self._next_section(state) is None
-        atomic_replace_file(
-            self.path,
-            encoded(dict(schema=1, state=state, digest=fingerprint(state))),
-            fsync=True,
-        )
+    def _write(self, state: Json, sections=None) -> None:
+        state["complete"] = self._next_section(state, sections) is None
+        content = encoded(dict(schema=1, state=state, digest=fingerprint(state)))
+        atomic_replace_file(self.path, content, fsync=True)
+        self._verified_bytes = content.encode("utf-8")
 
-    def _status(self, state: Json) -> Json:
-        sections = self._sections(state)
-        next_section = self._next_section(state)
+    def _status(self, state: Json, sections=None) -> Json:
+        if sections is None:
+            sections = self._sections(state)
+        next_section = self._next_section(state, sections)
         error = None
         if next_section is None:
             try:
-                review_snapshot(self.artifact, self._review(state))
+                validate_review(
+                    self._artifact,
+                    self._review(state),
+                    naming_ids=self._base["naming"],
+                    rule_index=self._rule_index,
+                )
             except (ValueError, KeyError, TypeError) as failure:
                 error = str(failure)
         return dict(
-            scan_id=self.identity["scan_id"],
-            automatically_reviewed_names=len(self.artifact["naming"]["names"])
-            - len(self.base["naming"]),
-            scope=self.identity["scope"],
+            scan_id=self._identity["scan_id"],
+            automatically_reviewed_names=len(self._artifact["naming"]["names"])
+            - len(self._base["naming"]),
+            scope=deepcopy(self._identity["scope"]),
             sections={
                 s: dict(
                     total=len(sections[s]),
                     reviewed=len(accepted_results(state, s)),
                     remaining=len(sections[s]) - len(accepted_results(state, s)),
                     pending_dependency=s == "diagnostics"
-                    and set(self.base["judgments"])
+                    and set(self._base["judgments"])
                     != state["results"]["judgments"].keys(),
                 )
                 for s in SECTIONS
@@ -308,8 +330,10 @@ class ReviewController:
             if self.path.exists():
                 state = self._load()
             else:
+                if self.artifact_path.read_bytes() != self._artifact_bytes:
+                    raise ValueError("Scan artifact changed during Review")
                 state = dict(
-                    identity=self.identity,
+                    identity=self._identity,
                     results={s: {} for s in SECTIONS},
                     pending=None,
                     complete=False,
@@ -322,12 +346,12 @@ class ReviewController:
             return self._status(self._load())
 
     def _material(self, section: str, item: Json) -> Json:
-        a = self.artifact
+        a = self._artifact
         material = dict(item=item)
         if section in {"naming", "judgments", "diagnostics"}:
             material["human_confirmations"] = [
                 h
-                for h in self.base["human_confirmations"].values()
+                for h in self._base["human_confirmations"].values()
                 if (item.get("service") is None or h["service"] == item["service"])
                 and (
                     h["scope"] == {k: item.get(k) for k in ("resource", "property")}
@@ -354,10 +378,10 @@ class ReviewController:
             raise ValueError("Review limit must be positive and max_bytes at least 256")
         with publication_lock(self.path, read_only=True):
             state = self._load()
-            section = self._next_section(state)
+            sections = self._sections(state)
+            section = self._next_section(state, sections)
             if section is None:
                 return self._status(state)
-            sections = self._sections(state)
             accepted = accepted_results(state, section)
             remaining = [key for key in sections[section] if key not in accepted]
             items: list[Json] = []
@@ -369,7 +393,7 @@ class ReviewController:
                     material["previous_result"] = state["results"][section][key]
                 candidate_ids = [*ids, key]
                 candidate = dict(
-                    scan_id=self.identity["scan_id"],
+                    scan_id=self._identity["scan_id"],
                     section=section,
                     batch_id=self._batch_id(section, candidate_ids),
                     expected_ids=candidate_ids,
@@ -379,7 +403,7 @@ class ReviewController:
                     kinds = {
                         ref for m in candidate["items"] for ref in m["naming_rule_refs"]
                     }
-                    context = self.artifact["naming_context"]
+                    context = self._artifact["naming_context"]
                     candidate["naming_context"] = {
                         **context,
                         "rules": {
@@ -404,8 +428,8 @@ class ReviewController:
             state["pending"] = dict(
                 batch_id=output["batch_id"], section=section, ids=ids
             )
-            self._write(state)
-            return output
+            self._write(state, sections)
+            return deepcopy(output)
 
     def submit(self, submission: Json) -> Json:
         exact(submission, {"batch_id", "section", "results"}, "Review submission")
@@ -435,30 +459,40 @@ class ReviewController:
             ):
                 raise ValueError("Review Batch not issued or incomplete/stale IDs")
             results = {key: results[key] for key in pending["ids"]}
+            sections = self._sections(state)
             for key, result in results.items():
                 try:
-                    self._validate_result(
-                        section, self._sections(state)[section][key], result
-                    )
+                    self._validate_result(section, sections[section][key], result)
                 except (ValueError, KeyError, TypeError) as error:
                     raise ValueError(
                         f"invalid Review {section}/{key}: {error}"
                     ) from error
-            candidate = deepcopy(state)
-            candidate["results"][section].update(deepcopy(results))
+            candidate = dict(state, results=dict(state["results"]))
+            candidate["results"][section] = dict(
+                state["results"][section], **deepcopy(results)
+            )
             candidate["pending"] = None
-            self._validate_candidate(candidate)
-            self._write(candidate)
-            return self._status(candidate)
+            candidate_sections = (
+                self._sections(candidate) if section == "judgments" else sections
+            )
+            self._validate_candidate(candidate, candidate_sections)
+            self._write(candidate, candidate_sections)
+            return self._status(candidate, candidate_sections)
 
-    def _validate_candidate(self, state: Json) -> None:
-        sections = self._sections(state)
+    def _validate_candidate(self, state: Json, sections=None) -> None:
+        if sections is None:
+            sections = self._sections(state)
         review = self._review(state)
-        additions = review_additions(self.artifact, review["issues"])
+        additions = review_additions(self._artifact, review["issues"], self._rule_index)
         ordinary = list(sections["diagnostics"].values())
-        diagnostic_index([*ordinary, *additions], self.artifact["services"])
-        if self._next_section(state) is None:
-            review_snapshot(self.artifact, review)
+        diagnostic_index([*ordinary, *additions], self._artifact["services"])
+        if self._next_section(state, sections) is None:
+            validate_review(
+                self._artifact,
+                review,
+                naming_ids=self._base["naming"],
+                rule_index=self._rule_index,
+            )
 
     def inspect(self, section: str, key: str) -> Json:
         with publication_lock(self.path, read_only=True):
@@ -467,7 +501,7 @@ class ReviewController:
                 raise ValueError("unknown recorded Review section/ID")
             result = state["results"][section][key]
             return dict(
-                scan_id=self.identity["scan_id"],
+                scan_id=self._identity["scan_id"],
                 section=section,
                 id=key,
                 result=result,
@@ -487,7 +521,7 @@ class ReviewController:
         section, key = required_text(revision, "section"), required_text(revision, "id")
         with publication_lock(self.path, read_only=True):
             state = self._load()
-            if revision["scan_id"] != self.identity["scan_id"]:
+            if revision["scan_id"] != self._identity["scan_id"]:
                 raise ValueError("Review revision Scan mismatch")
             if section not in SECTIONS or key not in accepted_results(state, section):
                 raise ValueError("revision requires an accepted section/ID")
@@ -522,9 +556,9 @@ class ReviewController:
                         if name == "additions"
                         else retained,
                     )
-            self._validate_candidate(candidate)
-            self._write(candidate)
-            return self._status(candidate)
+            self._validate_candidate(candidate, sections)
+            self._write(candidate, sections)
+            return self._status(candidate, sections)
 
     def export(self, path: Path) -> Json:
         path = external_path(self.root, path)
@@ -538,8 +572,9 @@ class ReviewController:
                     + encoded(self._status(state)).strip()
                 )
             review = self._review(state)
-            review_snapshot(self.artifact, review)
+            validate_artifact(self._artifact)
+            review_snapshot(self._artifact, review)
             atomic_replace_file(path, encoded(review), fsync=True)
             return dict(
-                scan_id=self.identity["scan_id"], review=str(path), complete=True
+                scan_id=self._identity["scan_id"], review=str(path), complete=True
             )

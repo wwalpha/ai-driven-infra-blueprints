@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
@@ -15,7 +15,7 @@ from design.catalog import (
 )
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
-from utils.input_cache import memoized
+from utils.input_cache import input_context, memoized
 from validation.diagnostics import InputValidationError
 from validation.findings import Findings
 
@@ -147,6 +147,42 @@ def naming_rules(text: str) -> Iterator[tuple[str, str, str, str]]:
                         else "mandatory"
                     )
                     yield kind, cells[3].strip("`"), pattern, scope
+
+
+@memoized
+def parsed_naming_rules(text):
+    return tuple(naming_rules(text))
+
+
+class NamingRuleIndex:
+    """Immutable rules parsed once from a Scan naming context."""
+
+    def __init__(self, context):
+        index = {}
+        errors = {}
+        with input_context():
+            for namespace, entries in context.get("rules", {}).items():
+                if namespace == "common":
+                    continue
+                try:
+                    for entry in entries:
+                        text = entry["text"]
+                        for kind, target, pattern, scope in parsed_naming_rules(text):
+                            key = (namespace, kind, target.removeprefix(kind + "."))
+                            index.setdefault(key, []).append((pattern, scope))
+                except (KeyError, TypeError, AttributeError) as error:
+                    errors[namespace] = (type(error), error.args)
+        self._rules = MappingProxyType(
+            {key: tuple(value) for key, value in index.items()}
+        )
+        self._errors = MappingProxyType(errors)
+
+    def get(self, kind, prop):
+        namespace = kind.partition(".")[0]
+        if namespace in self._errors:
+            error, args = self._errors[namespace]
+            raise error(*args)
+        return self._rules.get((namespace, kind, prop), ())
 
 
 def naming_coverage_errors(

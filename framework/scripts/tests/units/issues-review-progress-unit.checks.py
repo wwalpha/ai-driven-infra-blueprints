@@ -257,7 +257,7 @@ def check_revision_atomic_replace_and_full_validation_failure(tmp_path: Path) ->
     before = review.path.read_bytes()
     with (
         patch(
-            "issues.review_progress.review_snapshot",
+            "issues.review_progress.validate_review",
             side_effect=ValueError("invalid final Review"),
         ),
         pytest.raises(ValueError, match="invalid final"),
@@ -521,7 +521,7 @@ def check_reordered_batch_results_and_human_context_references(tmp_path):
     assert json.loads(output.read_text())["reviewed_names"] == ["name-0", "name-1"]
 
 
-def reject_additions(artifact, additions):
+def reject_additions(artifact, additions, rule_index=None):
     if additions:
         raise ValueError("invalid structured Naming Issue")
     return []
@@ -547,7 +547,7 @@ def check_invalid_shared_validation_never_advances_results(tmp_path):
     before = review.path.read_bytes()
     with (
         patch(
-            "issues.review_progress.review_snapshot",
+            "issues.review_progress.validate_review",
             side_effect=ValueError("final review invalid"),
         ),
         pytest.raises(ValueError, match="final review invalid"),
@@ -645,6 +645,7 @@ def check_atomic_replace_failure_retains_valid_checkpoint(tmp_path):
     review = naming_controller(tmp_path)
     batch = review.next_batch()
     before = review.path.read_bytes()
+    verified = review._verified_bytes
     with (
         patch(
             "utils.file_operations.os.replace",
@@ -654,6 +655,7 @@ def check_atomic_replace_failure_retains_valid_checkpoint(tmp_path):
     ):
         review.submit(submission(batch))
     assert review.path.read_bytes() == before
+    assert review._verified_bytes == verified
     assert {p.name for p in tmp_path.iterdir()} == {
         "repository",
         "scan.json",
@@ -728,12 +730,18 @@ def check_incomplete_export_rejected_and_final_validation_used(tmp_path):
     assert not output.exists()
     finish(review)
     with patch(
-        "issues.review_progress.review_snapshot",
+        "issues.review_progress.validate_review",
         side_effect=ValueError("bad final evidence"),
     ):
         assert not review.status()["exportable"]
-        with pytest.raises(ValueError, match="bad final evidence"):
-            review.export(output)
+    with (
+        patch(
+            "issues.review_progress.review_snapshot",
+            side_effect=ValueError("bad final evidence"),
+        ),
+        pytest.raises(ValueError, match="bad final evidence"),
+    ):
+        review.export(output)
     assert not output.exists()
     review.export(output)
     assert json.loads(output.read_text()) == review_for(review.artifact)
@@ -821,6 +829,76 @@ def check_process_lock_serializes_checkpoint_updates(tmp_path):
     assert process.returncode == 0, (stdout, stderr)
     assert review.status()["sections"]["naming_context"]["reviewed"] == 0
     review.submit(submission(review.next_batch()))
+
+
+def check_verified_checkpoint_reuse_and_external_changes(tmp_path):
+    review = naming_controller(tmp_path, 2)
+    with patch.object(
+        review, "_validate_result", wraps=review._validate_result
+    ) as validate:
+        review.status()
+        assert validate.call_count == 0
+        envelope = json.loads(review.path.read_bytes())
+        result = next(iter(envelope["state"]["results"]["naming_context"].values()))
+        result["reason"] = "Changed externally"
+        envelope["digest"] = fingerprint(envelope["state"])
+        review.path.write_text(encoded(envelope), encoding="utf-8")
+        review.status()
+        assert validate.call_count > 0
+        result["reviewed"] = False
+        envelope["digest"] = fingerprint(envelope["state"])
+        review.path.write_text(encoded(envelope), encoding="utf-8")
+        with pytest.raises(ValueError, match="invalid checkpoint"):
+            review.status()
+
+
+def check_scan_and_returned_material_are_isolated(tmp_path):
+    review = naming_controller(tmp_path, 1)
+    original = review.artifact
+    exposed = review.artifact
+    exposed["naming"]["names"].clear()
+    batch = review.next_batch()
+    batch["items"][0]["item"]["id"] = "modified"
+    assert review.artifact == original
+    assert review.next_batch()["expected_ids"] == ["name-0"]
+    review.artifact_path.write_text(
+        encoded(dict(original, executed_at="changed")), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="Scan artifact changed"):
+        review.status()
+
+
+def check_review_entrypoint_avoids_scan_imports():
+    entry = Path(__file__).resolve().parents[2] / "issues_scan.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            "import runpy,sys; from pathlib import Path; path=sys.argv[1]; sys.path.insert(0,str(Path(path).parent)); sys.argv=[path, 'review', '--help']; runpy.run_path(path); print(any(x in sys.modules for x in ('issues.runner','issues.publication','comparison.runner')))",
+            str(entry),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"
+
+
+def check_invalid_snapshot_material_cannot_complete(tmp_path):
+    data = snapshot_artifact(tmp_path / "repository")
+    data["service_results"] = [{"status": "unverified", "code": "conflict"}]
+    review = controller(tmp_path, data)
+    review.initialize()
+    review.submit(submission(review.next_batch()))
+    batch = review.next_batch()
+    before = review.path.read_bytes()
+    with pytest.raises(TypeError):
+        review.submit(submission(batch))
+    assert not review.status()["complete"]
+    assert review.path.read_bytes() == before
 
 
 if __name__ == "__main__":

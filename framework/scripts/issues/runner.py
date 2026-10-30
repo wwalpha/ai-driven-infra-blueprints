@@ -8,6 +8,7 @@ from functools import partial
 
 from model.core import ReferenceResolutionError, entries
 from model.references import codebuild_reference_errors
+from model.validations.naming import NamingRuleIndex
 from task_contract_core import task_read_scope
 from utils.input_cache import input_scope
 from utils.reference_contracts import reference_error
@@ -635,8 +636,9 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     ):
         artifact[key] = comparison.redacted(artifact[key])
     artifact["checks"] = validator.checks + stages.checks
+    rule_index = NamingRuleIndex(artifact["naming_context"])
     for name in artifact["naming"]["names"]:
-        name["decision"] = naming_decision(artifact, name)
+        name["decision"] = naming_decision(artifact, name, rule_index)
     for result in [*validator.findings.results.values(), *stages.results.values()]:
         finish_result(result)
     artifact["check_results"] = [

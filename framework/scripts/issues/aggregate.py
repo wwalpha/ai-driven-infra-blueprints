@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from comparison.deferral import CATEGORIES
+from utils.comparison_contract import CATEGORIES
 from utils.iac_values import safe_value
 
 from .records import brief, condition_disabled, iac_key, identifier, safe_text

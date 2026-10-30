@@ -1,160 +1,49 @@
 """Current Scan, Review detail and immutable snapshot publication."""
 
-import argparse
 import json
 import os
 import shlex
 import sys
-from pathlib import Path
 
-from comparison.deferral import CATEGORIES
-from utils.json_format import strict_json
+from utils.input_cache import input_context
 
 import issues.artifact as _imports_issues_artifact
 import issues.publication as _imports_issues_publication
 import issues.runner as _imports_issues_runner
 
-from .aggregate import IAC_CLASSES
 from .records import safe_text
-from .review_progress import DEFAULT_MAX_BYTES, SECTIONS, ReviewController
-
-SELECTOR = "BLUEPRINT_TASK_FILE"
-
-
-def outside(root, path):
-    path = path.resolve()
-    if path.is_relative_to(root):
-        raise ValueError(
-            "scan/review/diagnostics artifacts must be outside the repository"
-        )
-    return path
+from .review_cli import SELECTOR, outside, parser, run_review
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
-    parser.add_argument("--task-file")
-    commands = parser.add_subparsers(dest="command", required=True)
-    scanparser = commands.add_parser("scan")
-    scanparser.add_argument("--environment", required=True)
-    scanparser.add_argument("--target-directory", required=True)
-    scanparser.add_argument("--service", action="append", required=True)
-    scanparser.add_argument("--artifact", type=Path, required=True)
-    scanparser.add_argument("--fresh", action="store_true")
-    scanparser.add_argument("--jobs", type=int, choices=(1, 2, 4), default=4)
-    detail = commands.add_parser("detail")
-    detail.add_argument("--artifact", type=Path, required=True)
-    detail.add_argument(
-        "--section",
-        choices=(
-            "ordinary",
-            "naming",
-            "judgments",
-            "human_confirmations",
-            "iac",
-            "iac_issues",
-            "machine_diagnostics",
-            "warnings",
-            "information",
-            "unverified",
-            "processing_errors",
-            "naming_context",
-            "cfn_lint",
-            "lint_coverage",
-            "check_results",
-        ),
-        required=True,
-    )
-    detail.add_argument("--offset", type=int, default=0)
-    detail.add_argument("--limit", type=int, default=50)
-    detail.add_argument(
-        "--category",
-        choices=IAC_CLASSES,
-        help="IaC classification filter; applied before pagination",
-    )
-    detail.add_argument(
-        "--record-category",
-        choices=CATEGORIES,
-        help="comparison record filter for section iac; cannot combine with Issue filters",
-    )
-    detail.add_argument(
-        "--issue-id",
-        help="stable ISSUE-<id>; retrieve members from this artifact without comparison",
-    )
-    saveparser = commands.add_parser("save")
-    saveparser.add_argument("--artifact", type=Path, required=True)
-    saveparser.add_argument("--review", type=Path, required=True)
-    reviewparser = commands.add_parser("review", help="checkpointed complete Review")
-    reviewcommands = reviewparser.add_subparsers(dest="review_command", required=True)
-    for operation in (
-        "init",
-        "next",
-        "submit",
-        "status",
-        "inspect",
-        "revise",
-        "export",
-    ):
-        command = reviewcommands.add_parser(operation)
-        command.add_argument("--artifact", type=Path, required=True)
-        command.add_argument("--state", type=Path, required=True)
-        if operation == "next":
-            command.add_argument("--limit", type=int, default=20)
-            command.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
-        elif operation == "submit":
-            command.add_argument("--submission", type=Path, required=True)
-        elif operation == "inspect":
-            command.add_argument("--section", choices=SECTIONS, required=True)
-            command.add_argument("--id", required=True)
-        elif operation == "revise":
-            command.add_argument("--revision", type=Path, required=True)
-        elif operation == "export":
-            command.add_argument("--review", type=Path, required=True)
-    args = parser.parse_args()
+    args = parser().parse_args()
     root = args.repository_root.resolve()
     if args.task_file:
         os.environ[SELECTOR] = args.task_file
     try:
         if args.command == "review":
-            controller = ReviewController(root, args.artifact, args.state)
-            if args.review_command == "init":
-                output = controller.initialize()
-            elif args.review_command == "status":
-                output = controller.status()
-            elif args.review_command == "next":
-                output = controller.next_batch(args.limit, args.max_bytes)
-            elif args.review_command == "submit":
-                submission = strict_json(outside(root, args.submission).read_bytes())
-                output = controller.submit(submission)
-            elif args.review_command == "inspect":
-                output = controller.inspect(args.section, args.id)
-            elif args.review_command == "revise":
-                revision = strict_json(outside(root, args.revision).read_bytes())
-                output = controller.revise(revision)
-            else:
-                output = controller.export(args.review)
-            print(json.dumps(output, ensure_ascii=False, allow_nan=False))
-            return 2 if output.get("blocked") else 0
+            return run_review(args, root)
         if args.command == "scan":
             review_payload = _imports_issues_artifact.review_payload
             scan_exit_code = _imports_issues_artifact.scan_exit_code
             scan = _imports_issues_runner.scan
             artifact_path = outside(root, args.artifact)
-            artifact = scan(
-                root,
-                args.environment,
-                args.target_directory,
-                args.service,
-                fresh=args.fresh,
-                jobs=args.jobs,
-            )
-            artifact_path.write_text(
-                json.dumps(artifact, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            output = review_payload(artifact, artifact_path)
-            print(json.dumps(output, ensure_ascii=False))
-            return scan_exit_code(artifact)
+            with input_context():
+                artifact = scan(
+                    root,
+                    args.environment,
+                    args.target_directory,
+                    args.service,
+                    fresh=args.fresh,
+                    jobs=args.jobs,
+                )
+                artifact_path.write_text(
+                    json.dumps(artifact, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                output = review_payload(artifact, artifact_path)
+                print(json.dumps(output, ensure_ascii=False))
+                return scan_exit_code(artifact)
         if args.command == "detail":
             detail_payload = _imports_issues_artifact.detail_payload
             artifact = json.loads(

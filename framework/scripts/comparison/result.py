@@ -1,6 +1,5 @@
 """Comparison records and display evidence; predicates run before output redaction."""
 
-import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -8,6 +7,8 @@ from functools import partial
 
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, safe_value
+from utils.issue_text import identifier as identifier
+from utils.issue_text import safe_text as safe_text
 
 import comparison.values as _imports_comparison_values
 
@@ -15,22 +16,6 @@ from .deferral import failure_category
 from .expressions import references
 from .methods import MISSING
 from .references import literal_expression
-
-
-def identifier(value):
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True).encode()
-    ).hexdigest()[:20]
-
-
-def safe_text(text):
-    value = safe_value(text)
-    value = re.sub(
-        r"(?i)((?:password|secretstring|token|credential)\s*[=:]\s*)[^\s,;]+",
-        r"\1<masked>",
-        value,
-    )
-    return value.replace("\n", " ").replace("\r", " ")
 
 
 def _formatted(value):
