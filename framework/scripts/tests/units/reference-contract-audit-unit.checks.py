@@ -1127,7 +1127,7 @@ def test_invalid_producer_cannot_match_itself(models, kind, path):
     inputs = comparison(models, ("producer", "receiver"))
     symbol = ResourceReference({"$resource": ["producer", "001"], "$attribute": "Arn"})
     for value in (symbol, Expression("Join", ["", [symbol]])):
-        assert inputs.reference_decision(value, value, kind, path).equal is not True
+        assert inputs.reference_decision(value, value, kind, path).equal is None
 
 
 @pytest.mark.parametrize(
