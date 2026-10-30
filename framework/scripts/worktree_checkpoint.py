@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from types import SimpleNamespace
 
 import task_contract as tasks
@@ -15,13 +16,14 @@ from validation.runner import Validator
 from validation.task import TaskValidation
 
 
-def validate(backend: SimpleNamespace) -> None:
+def validate(backend: SimpleNamespace, *, scope_checked=False) -> None:
     """Use existing scoped Model/view checks, without completing the running Task."""
     root = backend.root
     findings = Findings(root)
     checks = TaskValidation(root, findings)
-    checks.check_task_scope()
-    checks.check_task_type_requirements()
+    if not scope_checked:
+        checks.check_task_scope()
+        checks.check_task_type_requirements()
     if findings.errors:
         raise DeployStepBlocked(
             "checkpoint Task authority: " + "; ".join(findings.errors)
@@ -299,17 +301,35 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
             )
         context["snapshotValidation"] = "FAIL"
         backend.save()
+        task = tasks.read_task_snapshot(target, state["task_file"], live=True)
+        preflight = {
+            "task": task.raw,
+            "head": wt.output(target, "rev-parse", "HEAD"),
+            "index": wt.output(target, "write-tree"),
+            "changed": changed,
+            "candidate": copy.deepcopy(pending["after"]),
+            "intent": copy.deepcopy(state.get("deployCheckpointIntent")),
+        }
         try:
-            validate(backend)
+            git_publication.check_scope(target, state["task_file"])
+            wt._run_model_guard(target, state["task_file"])
+            validate(backend, scope_checked=True)
         except Exception:
             backend.save()
             raise
         context["snapshotValidation"] = "PASS"
         backend.save()
         backend.guard()
-        if contracts.validation_snapshot(target) != pending["after"]:
+        if (
+            pending["after"] != preflight["candidate"]
+            or contracts.validation_snapshot(target) != preflight["candidate"]
+            or json.loads(path.read_text(encoding="utf-8")).get(
+                "deployCheckpointIntent"
+            )
+            != preflight["intent"]
+        ):
             raise DeployStepBlocked("checkpoint candidate changed during validation")
-        commit = git_publication.checkpoint(target, path, state)
+        commit = git_publication.checkpoint(target, path, state, preflight=preflight)
         for name in names:
             unit = next(u for u in context["stepUnits"] if u["name"] == name)
             receipts[name] = {

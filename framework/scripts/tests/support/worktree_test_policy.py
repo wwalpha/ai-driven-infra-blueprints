@@ -9,6 +9,7 @@ from pathlib import Path
 WORKTREE_CASES = {
     "units/deploy-worktree-unit.checks.py": (
         "check_zero_delta_checkpoint_returns_head",
+        "check_preflight_change_blocks_checkpoint",
         "check_outside_change_blocks_snapshot_checkpoint",
         "check_snapshot_ignores_base_history",
         "check_unmanaged_mutation_is_rejected",

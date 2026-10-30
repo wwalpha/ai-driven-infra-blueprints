@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from functools import partial as _bind_framework_callback
+from unittest import TestCase
 from unittest.mock import patch
 
 import validation.design_tables as _imports_validation_design_tables
@@ -23,6 +26,13 @@ _CALLBACK_DEFAULT = object()
 
 def check_catalog_inputs() -> None:
     repository = SCRIPT.parents[2]
+    script = repository / "framework/scripts/update-catalog-lock.py"
+    normal = subprocess.run([sys.executable, str(script)], capture_output=True)
+    isolated = subprocess.run([sys.executable, "-S", str(script)], capture_output=True)
+    TestCase().assertEqual(
+        (normal.returncode, normal.stdout, normal.stderr),
+        (isolated.returncode, isolated.stdout, isolated.stderr),
+    )
     validator = MODULE.Validator(repository)
     validator.check_catalog_inputs()
     assert not validator.errors, validator.errors

@@ -29,7 +29,7 @@ if not __debug__:
 
 
 def check_zero_delta_checkpoint_returns_head(tmp_path, monkeypatch):
-    snapshot = object()
+    snapshot = SimpleNamespace(raw=b"task")
     monkeypatch.setattr(
         publication.tasks, "read_task_snapshot", lambda *a, **k: snapshot
     )
@@ -47,6 +47,70 @@ def check_zero_delta_checkpoint_returns_head(tmp_path, monkeypatch):
     )
     output.assert_called_once_with(tmp_path, "rev-parse", "HEAD")
     git.assert_not_called()
+    output.reset_mock()
+    monkeypatch.setattr(
+        publication.contracts, "validation_snapshot", Mock(return_value={})
+    )
+    scope = Mock()
+    guard = Mock()
+    monkeypatch.setattr(publication, "check_scope", scope)
+    monkeypatch.setattr(publication.wt, "_run_model_guard", guard)
+    preflight = {
+        "task": b"task",
+        "head": "existing-head",
+        "index": "existing-head",
+        "changed": set(),
+        "candidate": {},
+    }
+    TestCase().assertEqual(
+        publication.checkpoint(
+            tmp_path,
+            tmp_path / "state",
+            {"task_file": "tasks/deploy.md"},
+            preflight=preflight,
+        ),
+        "existing-head",
+    )
+    scope.assert_not_called()
+    guard.assert_not_called()
+
+
+@pytest.mark.parametrize("problem", ["task", "head", "index", "candidate", "paths"])
+def check_preflight_change_blocks_checkpoint(tmp_path, monkeypatch, problem):
+    snapshot = SimpleNamespace(raw=b"task")
+    changed = {"model/a.properties"}
+    path = tmp_path / "model/a.properties"
+    path.parent.mkdir()
+    path.write_text("observed", encoding="utf-8")
+    preflight = {
+        "task": b"other" if problem == "task" else b"task",
+        "head": "other" if problem == "head" else "head",
+        "index": "other" if problem == "index" else "index",
+        "candidate": {"model/a.properties": "other"} if problem == "candidate" else {},
+        "changed": set() if problem == "paths" else changed,
+    }
+    monkeypatch.setattr(
+        publication.tasks, "read_task_snapshot", Mock(return_value=snapshot)
+    )
+    monkeypatch.setattr(publication.worktree, "require", Mock())
+    monkeypatch.setattr(publication.wt, "changed_paths", Mock(return_value=changed))
+    monkeypatch.setattr(publication.wt, "output", Mock(side_effect=["head", "index"]))
+    monkeypatch.setattr(
+        publication.contracts, "validation_snapshot", Mock(return_value={})
+    )
+    scope = Mock()
+    guard = Mock()
+    monkeypatch.setattr(publication, "check_scope", scope)
+    monkeypatch.setattr(publication.wt, "_run_model_guard", guard)
+    with pytest.raises(ValueError, match="changed during preflight"):
+        publication.checkpoint(
+            tmp_path,
+            tmp_path / "state",
+            {"task_file": "tasks/deploy.md"},
+            preflight=preflight,
+        )
+    scope.assert_not_called()
+    guard.assert_not_called()
 
 
 def check_outside_change_blocks_snapshot_checkpoint(tmp_path, monkeypatch):

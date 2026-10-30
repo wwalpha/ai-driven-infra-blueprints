@@ -1019,6 +1019,7 @@ def check_catalog_inputs(findings, root, set_schema_catalog, scope=None):
     result = subprocess.run(
         [
             sys.executable,
+            "-S",
             str(root / "framework" / "scripts" / "update-catalog-lock.py"),
         ],
         cwd=root,

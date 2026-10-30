@@ -38,6 +38,17 @@ REPAIR_CASES = (
     REPAIR_SUITE + "::check_external_implement_round_trip[steps]",
     REPAIR_SUITE + "::check_merge_recovery",
 )
+CHECKPOINT_SUITE = "integrations/worktree-deploy-checkpoint.checks.py"
+CHECKPOINT_CASES = tuple(
+    CHECKPOINT_SUITE + "::" + name
+    for name in (
+        "check_parallel_checkpoint_and_restart",
+        "check_success_checkpoint_survives_peer_failure",
+        "check_model_publication_interruption",
+        "check_generation_wait_and_resume",
+    )
+)
+PARALLEL_CASES = {REPAIR_SUITE: REPAIR_CASES, CHECKPOINT_SUITE: CHECKPOINT_CASES}
 
 
 def registered_cases(tests):
@@ -198,10 +209,11 @@ class PytestReceipt:
         if self.case_id is None:
             return
         found = [self.key(item.nodeid) for item in items]
-        if len(found) != len(REPAIR_CASES) or set(found) != set(REPAIR_CASES):
-            raise ValueError(f"repair collection mismatch: {found}")
-        if self.case_id not in REPAIR_CASES:
+        cases = PARALLEL_CASES.get(self.case_id.split("::", 1)[0], ())
+        if self.case_id not in cases:
             raise ValueError(f"unknown repair case: {self.case_id}")
+        if len(found) != len(cases) or set(found) != set(cases):
+            raise ValueError(f"repair collection mismatch: {found}")
         selected = [item for item in items if self.key(item.nodeid) == self.case_id]
         deselected = [item for item in items if self.key(item.nodeid) != self.case_id]
         config.hook.pytest_deselected(items=deselected)
@@ -349,21 +361,21 @@ def reachability(cases, receipts, registered=None):
     return errors
 
 
-def repair_receipt(receipts):
+def repair_receipt(receipts, suite=REPAIR_SUITE, cases=REPAIR_CASES):
     combined = {
         "version": 1,
-        "suite": REPAIR_SUITE,
+        "suite": suite,
         "completed": {},
         "collected": [],
         "passed": [],
         "metrics": {},
     }
-    if len(receipts) != len(REPAIR_CASES):
+    if len(receipts) != len(cases):
         raise ValueError("missing repair case receipt")
     metrics = Counter()
     completed = Counter()
-    for case, receipt in zip(REPAIR_CASES, receipts, strict=True):
-        invalid = receipt_errors(receipt, REPAIR_SUITE)
+    for case, receipt in zip(cases, receipts, strict=True):
+        invalid = receipt_errors(receipt, suite)
         if invalid:
             raise ValueError(f"{case}: {'; '.join(invalid)}")
         if receipt["collected"] != [case] or receipt["passed"] != [case]:
@@ -378,21 +390,37 @@ def repair_receipt(receipts):
 
 
 def run_parallel_repair(suite, tests, output):
+    suite_key = suite.relative_to(tests).as_posix()
+    cases = PARALLEL_CASES[suite_key]
     ledger = {
         name: value
         for (path, name), value in registered_cases(tests).items()
-        if path == REPAIR_SUITE
+        if path == suite_key
     }
-    if ledger != {
-        "check_external_implement_round_trip": ("pytest", 2),
-        "check_merge_recovery": ("pytest", 1),
-    }:
+    expected = (
+        {
+            "check_external_implement_round_trip": ("pytest", 2),
+            "check_merge_recovery": ("pytest", 1),
+        }
+        if suite_key == REPAIR_SUITE
+        else {case.split("::", 1)[1]: ("pytest", 1) for case in cases}
+    )
+    if ledger != expected:
         raise ValueError(f"repair ledger mismatch: {ledger}")
     logs = Path(tempfile.mkdtemp(prefix="framework-repair-it-logs-"))
     children = []
     success = False
     try:
-        for index, case in enumerate(REPAIR_CASES):
+        deadline = time.monotonic() + 1800
+        for index, case in enumerate(cases):
+            if suite_key == CHECKPOINT_SUITE and index >= 2:
+                previous_case, previous, _, _ = children[index - 2]
+                try:
+                    code = previous.wait(timeout=max(0, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired as error:
+                    raise RuntimeError(f"{previous_case}: process timed out") from error
+                if code:
+                    raise RuntimeError(f"{previous_case}: process exited {code}")
             receipt = output / f"repair-{index}.json"
             log = (logs / f"case-{index}.log").open("w", encoding="utf-8")
             environment = os.environ.copy()
@@ -434,7 +462,6 @@ def run_parallel_repair(suite, tests, output):
                 log.close()
                 raise
             children.append((case, process, log, receipt))
-        deadline = time.monotonic() + 1800
         for case, process, _log, _receipt in children:
             try:
                 code = process.wait(timeout=max(0, deadline - time.monotonic()))
@@ -448,7 +475,7 @@ def run_parallel_repair(suite, tests, output):
                 receipts.append(json.loads(receipt.read_text(encoding="utf-8")))
             except (OSError, ValueError) as error:
                 raise ValueError(f"{case}: missing/invalid receipt: {error}") from error
-        result = repair_receipt(receipts)
+        result = repair_receipt(receipts, suite_key, cases)
         success = True
         return result
     finally:
@@ -494,10 +521,10 @@ def execute_suites(tests, output, summary, baseline=False):
         print(f"::group::{suite.name}", flush=True)
         started = time.monotonic()
         receipt = output / (suite.name + ".json")
-        if not baseline and suite.relative_to(tests).as_posix() == REPAIR_SUITE:
+        if not baseline and suite.relative_to(tests).as_posix() in PARALLEL_CASES:
             receipt.unlink(missing_ok=True)
         try:
-            if not baseline and suite.relative_to(tests).as_posix() == REPAIR_SUITE:
+            if not baseline and suite.relative_to(tests).as_posix() in PARALLEL_CASES:
                 data = run_parallel_repair(suite, tests, output)
                 receipt.write_text(json.dumps(data), encoding="utf-8")
                 code = 0
@@ -683,8 +710,11 @@ def main():
         if args.case_id and (
             args.baseline
             or args.suite.resolve().relative_to(args.tests.resolve()).as_posix()
-            != REPAIR_SUITE
-            or args.case_id not in REPAIR_CASES
+            not in PARALLEL_CASES
+            or args.case_id
+            not in PARALLEL_CASES.get(
+                args.suite.resolve().relative_to(args.tests.resolve()).as_posix(), ()
+            )
         ):
             raise ValueError(f"unknown repair case: {args.case_id}")
         run_child(args.suite, args.tests, args.receipt, args.baseline, args.case_id)

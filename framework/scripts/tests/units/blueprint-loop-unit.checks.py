@@ -1678,6 +1678,26 @@ def check_parallel_repair_receipts():
     invalid = [*receipts[:2], {**receipts[2], "suite": "other"}]
     with pytest.raises(ValueError, match="suite"):
         run_it.repair_receipt(invalid)
+    checkpoint = [
+        {
+            "version": 1,
+            "suite": run_it.CHECKPOINT_SUITE,
+            "completed": {},
+            "collected": [case],
+            "passed": [case],
+            "metrics": {},
+        }
+        for case in run_it.CHECKPOINT_CASES
+    ]
+    combined = run_it.repair_receipt(
+        checkpoint, run_it.CHECKPOINT_SUITE, run_it.CHECKPOINT_CASES
+    )
+    if combined["passed"] != list(run_it.CHECKPOINT_CASES):
+        raise ValueError("checkpoint case receipts were not aggregated")
+    with pytest.raises(ValueError, match="missing"):
+        run_it.repair_receipt(
+            checkpoint[:-1], run_it.CHECKPOINT_SUITE, run_it.CHECKPOINT_CASES
+        )
 
 
 def check_parallel_repair_selection(tmp_path):

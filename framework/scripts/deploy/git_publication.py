@@ -69,18 +69,29 @@ def require_observation_delta(root, baseline):
     verify_observed_outputs(before, after)
 
 
-def checkpoint(root, path, state):
+def checkpoint(root, path, state, *, preflight=None):
     task = tasks.read_task_snapshot(root, state["task_file"], live=True)
     worktree.require(root, task)
     changed = wt.changed_paths(root)
-    if not changed and not state.get("deployCheckpointIntent"):
+    if not changed and not state.get("deployCheckpointIntent") and preflight is None:
         return wt.output(root, "rev-parse", "HEAD")
     before = {
         p: tasks.safe_path(root, p).read_bytes() if (root / p).is_file() else None
         for p in changed
     }
-    check_scope(root, state["task_file"])
-    wt._run_model_guard(root, state["task_file"])
+    if preflight is None:
+        check_scope(root, state["task_file"])
+        wt._run_model_guard(root, state["task_file"])
+    elif (
+        task.raw != preflight["task"]
+        or changed != preflight["changed"]
+        or wt.output(root, "rev-parse", "HEAD") != preflight["head"]
+        or wt.output(root, "write-tree") != preflight["index"]
+        or contracts.validation_snapshot(root) != preflight["candidate"]
+    ):
+        raise ws.Blocked("Deploy checkpoint inputs changed during preflight")
+    if not changed and not state.get("deployCheckpointIntent"):
+        return wt.output(root, "rev-parse", "HEAD")
     if (
         changed != wt.changed_paths(root)
         or any(
