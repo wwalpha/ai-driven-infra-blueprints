@@ -399,6 +399,26 @@ def check():
         TestCase().assertEqual(names["EC2_EIP_006"], "duplicate (192.0.2.2)")
         TestCase().assertEqual(names["EC2_EIP_008"], "duplicate")
         TestCase().assertNotIn("EC2_EIP_", " ".join(names.values()))
+        name_data["models"]["dev/cde/vpc"].pop("observed.row.005-004.value")
+        name_data["models"]["dev/cde/vpc"].pop("observed.row.006-003.value")
+        name_data["models"]["dev/cde/vpc"]["observed.row.006-004.value"] = (
+            "`198.51.100.22`"
+        )
+        write_model(
+            name_root / "model/dev/cde/vpc.properties",
+            name_data["models"]["dev/cde/vpc"],
+        )
+        partial_names = snapshot(generator.generate(name_root, "dev", "cde", "vpc")[0])[
+            "names"
+        ]
+        TestCase().assertEqual(
+            [partial_names[f"EC2_EIP_{number}"] for number in ("005", "006", "008")],
+            [
+                "duplicate (eipalloc-11111111111111111)",
+                "duplicate (198.51.100.22)",
+                "duplicate",
+            ],
+        )
         for index, value in enumerate(
             (
                 "UNSET",

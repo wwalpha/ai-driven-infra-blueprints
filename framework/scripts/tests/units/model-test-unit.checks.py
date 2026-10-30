@@ -193,6 +193,24 @@ class DisplayTests(unittest.TestCase):
             (
                 "EC2.EIP",
                 (allocation, address),
+                [{allocation: "alloc-a"}, {address: "ip-b"}, {}],
+                ["duplicate (alloc-a)", "duplicate (ip-b)", "duplicate"],
+            ),
+            (
+                "EC2.EIP",
+                (allocation, address),
+                [{allocation: "same"}, {address: "same"}, {}],
+                ["duplicate", "duplicate", "duplicate"],
+            ),
+            (
+                "EC2.EIP",
+                (allocation, address),
+                [{allocation: "same", address: "ip-a"}, {address: "same"}, {}],
+                ["duplicate (ip-a)", "duplicate (same)", "duplicate"],
+            ),
+            (
+                "EC2.EIP",
+                (allocation, address),
                 [
                     {allocation: "alloc-a", address: "ip-a"},
                     {allocation: "alloc-b", address: "ip-b"},

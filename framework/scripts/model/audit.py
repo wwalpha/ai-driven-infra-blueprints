@@ -224,6 +224,7 @@ def disambiguate_names(names, kinds, identities, primary):
         choices = [(field,) for field in (*fields, *other)]
         if len(fields) > 1:
             choices.append(tuple(fields))
+        candidates = {key: [] for key in group}
         best = []
         for choice in choices:
             values = [
@@ -235,14 +236,30 @@ def disambiguate_names(names, kinds, identities, primary):
                 for key, value in zip(group, values, strict=True)
                 if all(value) and confirmed[value] == 1
             ]
+            for key, value in selected:
+                identity = ", ".join(value)
+                if identity != name:
+                    candidates[key].append(f"{name} ({identity})")
             if len(selected) > len(best):
                 best = selected
-            if len(best) == len(group):
-                break
         for key, value in best:
             identity = ", ".join(value)
+            display = f"{name} ({identity})"
             if identity != name:
-                names[key] = f"{name} ({identity})"
+                candidates[key].remove(display)
+                candidates[key].insert(0, display)
+        pending = set(group)
+        while pending:
+            for key in pending:
+                names[key] = candidates[key].pop(0) if candidates[key] else name
+            display_counts = Counter(
+                (kinds[key], display) for key, display in names.items()
+            )
+            pending = {
+                key
+                for key in group
+                if names[key] != name and display_counts[kind, names[key]] > 1
+            }
 
 
 @input_scope
