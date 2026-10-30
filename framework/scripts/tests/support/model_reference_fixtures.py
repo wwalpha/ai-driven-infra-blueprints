@@ -17,14 +17,18 @@ def reference(logical="KMS_Key_001", attribute="Arn"):
     return {"$modelRef": {"logicalId": logical, "attribute": attribute}}
 
 
-def save(scope, values):
+def write(scope, values):
     scope.path.parent.mkdir(parents=True, exist_ok=True)
     scope.path.write_text(serialize(values), encoding="utf-8")
+
+
+def save(scope, values):
+    write(scope, values)
     if (scope.root / "project.json").is_file():
         dependency_index.rebuild(scope.root)
 
 
-def resource(
+def resource_values(
     root,
     service,
     kind,
@@ -54,11 +58,16 @@ def resource(
     }
     if observed is not None:
         values[f"observed.row.{number}-001.value"] = "`" + observed + "`"
+    return scope, values
+
+
+def resource(root, service, kind, **settings):
+    scope, values = resource_values(root, service, kind, **settings)
     save(scope, values)
     return scope, values
 
 
-def project(root):
+def project_configuration(root):
     data = {
         "targets": [
             {
@@ -72,6 +81,10 @@ def project(root):
         ]
     }
     (root / "project.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def project(root):
+    project_configuration(root)
     producer, values = resource(root, "kms", "KMS.Key")
     consumer, policy = resource(
         root, "iam", "IAM.ManagedPolicy", attribute="ManagedPolicyName"

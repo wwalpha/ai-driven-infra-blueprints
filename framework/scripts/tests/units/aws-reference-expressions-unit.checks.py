@@ -21,10 +21,11 @@ from model.reference_nodes import receiving_property
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
-    project,
+    project_configuration,
     reference,
-    resource,
+    resource_values,
     save,
+    write,
 )
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
@@ -342,9 +343,7 @@ CASES = [
 @pytest.fixture
 def models(tmp_path):
     with mapping_alias(FRAMEWORK, tmp_path):
-        project(tmp_path)
-        for service in ("iam", "kms"):
-            (tmp_path / "model/qa/team" / (service + ".properties")).unlink()
+        project_configuration(tmp_path)
         yield tmp_path
 
 
@@ -353,12 +352,12 @@ def cached_stack(inputs, unit):
 
 
 def producer(root, kind, properties):
-    scope, values = resource(
+    scope, values = resource_values(
         root, "producer", kind, attribute=next(iter(properties), "Name")
     )
     values["desired.row.001-001.value"] = "`fixture`"
-    save(scope, values)
-    scope, receiver = resource(root, "receiver", "Glue.Job", attribute="Name")
+    write(scope, values)
+    scope, receiver = resource_values(root, "receiver", "Glue.Job", attribute="Name")
     receiver["desired.resource.001.cfn-logicalId"] = "consumer-Policy"
     receiver["desired.resource.001.logicalId"] = "Glue_Job_002"
     receiver[COUNTERS] = json.dumps({"Glue.Job": 2})
