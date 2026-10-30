@@ -386,6 +386,32 @@ Reset and Fence resolution prove no Observed completion, Model integrity or gene
 completion. Preserve the private archives, appended proofs and local seal before OS
 temporary-directory cleanup; neither operation deletes archives or erases fences.
 
+### Lost reset signature key recovery
+
+When the original local signature key is unavailable, ordinary Reset/Fence operations
+remain blocked. Only an explicit Human decision accepting the loss of historical proof
+may use `cloudformation-operation-reset.py lost-key-plan --environment <env> --alias
+<alias> --stack <exact-name> [--stack <exact-name>] --risk "<Human risk decision>"`.
+The Plan preserves every original reset archive in place and freezes its full byte inventory.
+It treats all historical scope and signatures as untrusted; it never re-signs old evidence.
+The active operation journal must be absent. Selected current Stacks must be absent or
+in a verified successful terminal state; unknown/running/failed states block.
+
+The Human runs `lost-key-apply --environment <env> --alias <alias> --plan <id>` in an
+interactive terminal and types the displayed `ACCEPT-LOST-KEY` challenge. An LLM must
+never type that confirmation or invoke Apply on the Human's behalf. Apply rechecks
+Account/Region, repository, target configuration, every archive byte and current AWS
+states before and after consent. It appends a newly signed risk-exception receipt;
+it does not assert VERIFIED_COMPLETE, remove archives or execute AWS mutations.
+
+Deploy may bypass the historical reset fences only for an exact subset of those future
+StackNames in that repository/environment/target while all frozen archive bytes match.
+Other targets/Stacks remain subject to the existing checks. A modified/missing receipt,
+changed archive or changed target configuration blocks. Current Task, ownership,
+Import/Export, ChangeSet approval, execution and observation checks remain mandatory.
+Old temporary input files remain retained if the original reset seals cannot be verified.
+Preserve original archives, the new receipt and the current signature key together.
+
 ### Deployment execution
 
 Use current Task/target/account/Region/profile/scope/input guards before each mutation, original ChangeSet ID/Stack ID and full content re-fetch immediately before Execute, and one stable persisted Token for uncertain submissions. Human approval applies only to the current complete destructive ChangeSet. Stop new starts on errors, drain peers, synchronize each success and verify Output/Export facts. Retain/DELETE_SKIPPED/unknown destruction and integrated children without identifiers never reset identifiers. Do not change IaC, widen scope or infer missing evidence.

@@ -24,6 +24,7 @@ from utils.project_targets import load_target
 from utils.sealed_evidence import read_sealed, sealed
 from utils.type_contracts import JsonObject
 
+from deploy import lost_seal
 from deploy import operation_journal as J
 from deploy.context import check_deploy_context
 from deploy.typing import Target
@@ -977,6 +978,9 @@ def read_fence_aws(connection: tuple, operation: str, **arguments: object) -> Do
 def check_fences(
     journal: Path, target: Target, scope: Iterable[str], backend: SimpleNamespace
 ) -> None:
+    if lost_seal.approved(journal, backend, scope):
+        backend.reset_pending = []
+        return
     selected = set(scope)
     pending = []
     for folder, value in archives(journal):
@@ -1013,7 +1017,15 @@ def check_fences(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "action", choices=("plan", "apply", "fence-plan", "fence-apply")
+        "action",
+        choices=(
+            "plan",
+            "apply",
+            "fence-plan",
+            "fence-apply",
+            "lost-key-plan",
+            "lost-key-apply",
+        ),
     )
     parser.add_argument("--environment", required=True)
     selector = parser.add_mutually_exclusive_group(required=True)
@@ -1034,7 +1046,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         root = Path.cwd()
-        if args.action.startswith("fence-"):
+        if args.action.startswith(("fence-", "lost-key-")):
             if args.mode or args.record:
                 raise Blocked(
                     "Fence operations accept no Reset mode or record selection"
@@ -1044,9 +1056,15 @@ def main(argv: list[str] | None = None) -> int:
                     raise Blocked(
                         "fence-plan requires --fence, --stack and --risk; accepts no --plan"
                     )
-            elif not args.plan or args.fence or args.stack or args.risk:
+            elif args.action == "fence-apply" and (
+                not args.plan or args.fence or args.stack or args.risk
+            ):
                 raise Blocked(
                     "fence-apply requires --plan; scope comes only from that Plan"
+                )
+            if args.action.startswith("lost-key-") and args.fence:
+                raise Blocked(
+                    "lost-key recovery accepts no --fence; every archive is frozen"
                 )
             target = check_deploy_context(
                 root, args.environment, args.aws_account_id, args.alias, args.profile
@@ -1059,7 +1077,9 @@ def main(argv: list[str] | None = None) -> int:
                     execution_account(target),
                 ),
             )
-            if args.action == "fence-plan":
+            if args.action.startswith("lost-key-"):
+                result = lost_seal.run(args, root, aws)
+            elif args.action == "fence-plan":
                 result = resolution_plan(
                     root,
                     args.environment,
