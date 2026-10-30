@@ -1739,15 +1739,38 @@ def _callback_parallel_receipt(state, command, **kwargs):
     return state.processes.pop(0)
 
 
-@pytest.mark.parametrize("mode", ["stale", "fresh", "corrupt"])
-def check_parallel_repair_receipt_freshness(tmp_path, mode):
+def _callback_checkpoint_wait(state, **kwargs):
+    if state.processes:
+        raise ValueError("checkpoint waited before all cases were started")
+    return 0
+
+
+def check_checkpoint_starts_all_cases_before_wait(tmp_path):
     tests = Path(run_it.__file__).parent
-    for index, case in enumerate(run_it.REPAIR_CASES):
+    suite = run_it.CHECKPOINT_SUITE
+    processes = [Mock() for _ in run_it.CHECKPOINT_CASES]
+    state = _CallbackState(mode="fresh", suite=suite, processes=processes.copy())
+    for process in processes:
+        process.poll.return_value = 0
+        process.wait.side_effect = _bind_framework_callback(
+            _callback_checkpoint_wait, state
+        )
+    launch = _bind_framework_callback(_callback_parallel_receipt, state)
+    with patch.object(run_it.subprocess, "Popen", side_effect=launch):
+        run_it.run_parallel_repair(tests / suite, tests, tmp_path)
+
+
+@pytest.mark.parametrize("suite", [run_it.REPAIR_SUITE, run_it.CHECKPOINT_SUITE])
+@pytest.mark.parametrize("mode", ["stale", "fresh", "corrupt"])
+def check_parallel_repair_receipt_freshness(tmp_path, mode, suite):
+    tests = Path(run_it.__file__).parent
+    cases = run_it.PARALLEL_CASES[suite]
+    for index, case in enumerate(cases):
         (tmp_path / f"repair-{index}.json").write_text(
             json.dumps(
                 {
                     "version": 1,
-                    "suite": run_it.REPAIR_SUITE,
+                    "suite": suite,
                     "completed": {},
                     "collected": [case],
                     "passed": [case],
@@ -1756,16 +1779,16 @@ def check_parallel_repair_receipt_freshness(tmp_path, mode):
             ),
             encoding="utf-8",
         )
-    processes = [Mock() for _ in run_it.REPAIR_CASES]
+    processes = [Mock() for _ in cases]
     for process in processes:
         process.wait.return_value = 0
         process.poll.return_value = 0
-    state = _CallbackState(mode=mode, suite=run_it.REPAIR_SUITE, processes=processes)
+    state = _CallbackState(mode=mode, suite=suite, processes=processes)
     launch = _bind_framework_callback(_callback_parallel_receipt, state)
     with patch.object(run_it.subprocess, "Popen", side_effect=launch):
         if mode == "fresh":
             result = run_it.run_parallel_repair(tests / state.suite, tests, tmp_path)
-            assert result["passed"] == list(run_it.REPAIR_CASES)
+            assert result["passed"] == list(cases)
         else:
             with pytest.raises(ValueError, match="missing/invalid receipt"):
                 run_it.run_parallel_repair(tests / state.suite, tests, tmp_path)
@@ -1829,13 +1852,14 @@ def check_parallel_repair_expired_deadline(tmp_path):
     assert all((logs / f"case-{i}.log").exists() for i in range(3))
 
 
+@pytest.mark.parametrize("suite", [run_it.REPAIR_SUITE, run_it.CHECKPOINT_SUITE])
 @pytest.mark.parametrize(
     "failure", ["spawn", "exit", "interrupt", "timeout", "missing", "corrupt"]
 )
-def check_parallel_repair_failure_cleanup(tmp_path, failure):
+def check_parallel_repair_failure_cleanup(tmp_path, failure, suite):
     tests = Path(run_it.__file__).parent
-    suite = tests / run_it.REPAIR_SUITE
-    processes = [Mock(pid=100 + i) for i in range(3)]
+    cases = run_it.PARALLEL_CASES[suite]
+    processes = [Mock(pid=100 + i) for i in range(len(cases))]
     for process in processes:
         process.poll.return_value = None
         process.wait.return_value = 0
@@ -1849,9 +1873,7 @@ def check_parallel_repair_failure_cleanup(tmp_path, failure):
         [processes[0], OSError("spawn failed")] if failure == "spawn" else processes
     )
     if failure == "corrupt":
-        state = _CallbackState(
-            mode="corrupt", suite=run_it.REPAIR_SUITE, processes=processes.copy()
-        )
+        state = _CallbackState(mode="corrupt", suite=suite, processes=processes.copy())
         launched = _bind_framework_callback(_callback_parallel_receipt, state)
     expected = (
         KeyboardInterrupt
@@ -1865,9 +1887,9 @@ def check_parallel_repair_failure_cleanup(tmp_path, failure):
     ):
         (tmp_path / "logs").mkdir()
         with pytest.raises(expected):
-            run_it.run_parallel_repair(suite, tests, tmp_path)
-        count = 1 if failure == "spawn" else 3
-        assert launch.call_count == (2 if failure == "spawn" else 3)
+            run_it.run_parallel_repair(tests / suite, tests, tmp_path)
+        count = 1 if failure == "spawn" else len(cases)
+        assert launch.call_count == (2 if failure == "spawn" else len(cases))
         if os.name == "nt":
             assert all(process.terminate.called for process in processes[:count])
         else:

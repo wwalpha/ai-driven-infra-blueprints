@@ -13,40 +13,27 @@ import worktree_task as wt
 from model.format import parse
 from model.observed import verify_observed_outputs
 from utils.aws_mappings import definition_root
+from validation.findings import Findings
 from validation.runner import Validator
+from validation.task import TaskValidation
 
 from deploy import contracts, inputs, worktree
 
 
 def check_scope(root, task_file):
-    interpreter, environment = wt.python_env.runtime(root)
-    result = subprocess.run(
-        [
-            str(interpreter),
-            "-B",
-            "-c",
-            f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r}); "
-            "from pathlib import Path; from validation.findings import Findings; "
-            "from validation.task import TaskValidation; from task_contract_core import selected_task; "
-            "from deploy.git_publication import require_observation_delta; from worktree_state import deploy_start_commit; "
-            "root=Path.cwd()\n"
-            "with selected_task(root, sys.argv[1]):\n"
-            " require_observation_delta(root, deploy_start_commit(root, sys.argv[1], required=True))\n"
-            " f=Findings(root); t=TaskValidation(root,f); t.check_task_scope(); t.check_task_type_requirements()\n"
-            " if f.errors: raise ValueError('; '.join(f.errors))",
-            task_file,
-        ],
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        encoding="utf-8",
+    wt._run_model_guard(root, task_file, deploy_scope=True)
+
+
+def check_scope_in_process(root, task_file):
+    require_observation_delta(
+        root, ws.deploy_start_commit(root, task_file, required=True)
     )
-    if result.returncode:
-        raise ws.Blocked(
-            "Deploy checkpoint scope/Model check failed: "
-            + result.stderr
-            + result.stdout
-        )
+    findings = Findings(root)
+    task = TaskValidation(root, findings)
+    task.check_task_scope()
+    task.check_task_type_requirements()
+    if findings.errors:
+        raise ValueError("; ".join(findings.errors))
 
 
 def require_observation_delta(root, baseline):
@@ -80,8 +67,16 @@ def checkpoint(root, path, state, *, preflight=None):
         for p in changed
     }
     if preflight is None:
+        head = wt.output(root, "rev-parse", "HEAD")
+        index = wt.output(root, "write-tree")
+        candidate = contracts.validation_snapshot(root)
         check_scope(root, state["task_file"])
-        wt._run_model_guard(root, state["task_file"])
+        if (
+            wt.output(root, "rev-parse", "HEAD") != head
+            or wt.output(root, "write-tree") != index
+            or contracts.validation_snapshot(root) != candidate
+        ):
+            raise ws.Blocked("Deploy checkpoint inputs changed during preflight")
     elif (
         task.raw != preflight["task"]
         or changed != preflight["changed"]

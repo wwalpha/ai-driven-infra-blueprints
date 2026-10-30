@@ -16,7 +16,7 @@ from validation.runner import Validator
 from validation.task import TaskValidation
 
 
-def validate(backend: SimpleNamespace, *, scope_checked=False) -> None:
+def validate(backend: SimpleNamespace, *, scope_checked=False, changed=None) -> None:
     """Use existing scoped Model/view checks, without completing the running Task."""
     root = backend.root
     findings = Findings(root)
@@ -28,7 +28,8 @@ def validate(backend: SimpleNamespace, *, scope_checked=False) -> None:
         raise DeployStepBlocked(
             "checkpoint Task authority: " + "; ".join(findings.errors)
         )
-    changed = wt.changed_paths(root)
+    if changed is None:
+        changed = wt.changed_paths(root)
     sources = {p for p in changed if p.startswith("model/")}
     if sources:
         verify_observed_outputs(
@@ -254,8 +255,9 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
     root, _, path, state = wt.load(backend.root, backend.root.name)
     target, context = backend.root, backend.run_context
     with wt.lifecycle_lock(root):
-        state = wt.load(target, target.name)[3]
-        worktree.require(target)
+        state = worktree.require(target)
+        if state is None:
+            raise DeployStepBlocked("checkpoint requires a Deploy Task")
         pending = context.get("checkpointPending")
         receipts = state.setdefault("deployCheckpoints", {})
         if not names or len(names) != len(set(names)):
@@ -312,8 +314,7 @@ def snapshot_checkpoint(backend: SimpleNamespace, names: list[str]) -> dict:
         }
         try:
             git_publication.check_scope(target, state["task_file"])
-            wt._run_model_guard(target, state["task_file"])
-            validate(backend, scope_checked=True)
+            validate(backend, scope_checked=True, changed=changed)
         except Exception:
             backend.save()
             raise

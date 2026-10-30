@@ -113,6 +113,50 @@ def check_preflight_change_blocks_checkpoint(tmp_path, monkeypatch, problem):
     guard.assert_not_called()
 
 
+@pytest.mark.parametrize("problem", ["head", "index", "candidate", "guard"])
+def check_direct_checkpoint_rechecks_preflight(tmp_path, monkeypatch, problem):
+    path = tmp_path / "model/a.properties"
+    path.parent.mkdir()
+    path.write_text("observed", encoding="utf-8")
+    monkeypatch.setattr(
+        publication.tasks,
+        "read_task_snapshot",
+        Mock(return_value=SimpleNamespace(raw=b"task")),
+    )
+    monkeypatch.setattr(publication.worktree, "require", Mock())
+    monkeypatch.setattr(
+        publication.wt, "changed_paths", Mock(return_value={"model/a.properties"})
+    )
+    values = [
+        "head",
+        "index",
+        "other" if problem == "head" else "head",
+        "other" if problem == "index" else "index",
+    ]
+    monkeypatch.setattr(publication.wt, "output", Mock(side_effect=values))
+    snapshots = [
+        {"model/a.properties": "before"},
+        {"model/a.properties": "after" if problem == "candidate" else "before"},
+    ]
+    monkeypatch.setattr(
+        publication.contracts, "validation_snapshot", Mock(side_effect=snapshots)
+    )
+    scope = Mock(
+        side_effect=ValueError("Model guard failed") if problem == "guard" else None
+    )
+    monkeypatch.setattr(publication, "check_scope", scope)
+    with pytest.raises(
+        ValueError,
+        match="Model guard failed"
+        if problem == "guard"
+        else "changed during preflight",
+    ):
+        publication.checkpoint(
+            tmp_path, tmp_path / "state", {"task_file": "tasks/deploy.md"}
+        )
+    scope.assert_called_once()
+
+
 def check_outside_change_blocks_snapshot_checkpoint(tmp_path, monkeypatch):
     target = tmp_path / "deploy"
     target.mkdir()
@@ -129,7 +173,7 @@ def check_outside_change_blocks_snapshot_checkpoint(tmp_path, monkeypatch):
         checkpoints.wt, "load", lambda *a: (tmp_path, None, tmp_path / "state", state)
     )
     monkeypatch.setattr(checkpoints.wt, "lifecycle_lock", lambda *a: nullcontext())
-    monkeypatch.setattr(checkpoints.worktree, "require", lambda *a: None)
+    monkeypatch.setattr(checkpoints.worktree, "require", lambda *a: state)
     monkeypatch.setattr(checkpoints.contracts, "validation_snapshot", lambda *a: after)
     monkeypatch.setattr(
         checkpoints.wt, "changed_paths", lambda *a: {"model/a.properties", "README.md"}

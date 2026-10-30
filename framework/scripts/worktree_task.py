@@ -455,7 +455,9 @@ def cleanup(where, task_id):
         return cleanup_state(root, path, state)
 
 
-def _run_model_guard(target, task_file, approved=False, *, sources=None):
+def _run_model_guard(
+    target, task_file, approved=False, *, sources=None, deploy_scope=False
+):
     runtime = python_env.runtime(target)
     if runtime is None:
         raise Blocked("registered Python runtime is missing; rerun worktree setup")
@@ -469,12 +471,18 @@ def _run_model_guard(target, task_file, approved=False, *, sources=None):
         "-c",
         f"import sys, json; from pathlib import Path; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); "
         "import task_contract_core as tasks; from import_guard import require_import_changes; "
-        "root = Path.cwd()\n"
+        + (
+            "from deploy.git_publication import check_scope_in_process; "
+            if deploy_scope
+            else ""
+        )
+        + "root = Path.cwd()\n"
         "options = {}\n"
         'if sys.argv[2] == "approved": options["contract_file"] = sys.argv[1]\n'
         'if sys.argv[3] != "null": options["supplied"] = set(json.loads(sys.argv[3]))\n'
         "with tasks.selected_task(root, sys.argv[1]):\n"
-        "    text = tasks.read_task_snapshot(root, sys.argv[1], live=True).text\n"
+        + ("    check_scope_in_process(root, sys.argv[1])\n" if deploy_scope else "")
+        + "    text = tasks.read_task_snapshot(root, sys.argv[1], live=True).text\n"
         "    if '- Workflow: `import`' in tasks.section(text, '## Task contract'):\n"
         "        from task_contract_runtime import check_import\n"
         "        check_import(root, sys.argv[1], supplied=options.get('supplied'), integration=True)\n"
