@@ -245,12 +245,15 @@ def _callback_ImportInventory_inventory_collect(filters, kind, self, service, /)
         return []
     try:
         if plan.mode == "scoped_sdk":
+            if kind == "Route53.RecordSet" and filters is not None:
+                raise ValueError("RecordSet filters are not supported")
             parents = None
-            if kind == "SQS.QueuePolicy":
-                parents = self.inventory(service, "SQS.Queue")
-                if self.statuses["SQS.Queue"]["status"] not in {"complete", "empty"}:
+            if plan.parents:
+                parent = plan.parents[0]
+                parents = self.inventory(service, parent)
+                if self.statuses[parent]["status"] not in {"complete", "empty"}:
                     raise comparator().AcquisitionError(
-                        "sqs.get_queue_attributes", "ParentInventoryIncomplete"
+                        kind, "ParentInventoryIncomplete"
                     )
             records = sdk_inventory.collect(self.ctx, kind, parents=parents)
         elif plan.mode == "adapter":
@@ -677,6 +680,8 @@ def adapter_inventory(ctx, service, resource_types):
                 if kind == "Macie.ClassificationJob" and item.get(key) != selector:
                     raise ValueError("IMPORT job detail identifier mismatch")
                 if api == "quicksight":
+                    if kind == "QuickSight.VPCConnection" and item.get(key) != selector:
+                        raise ValueError("IMPORT QuickSight detail identifier mismatch")
                     item = dict(item, **inputs)
             record = dict(item)
             if api == "ec2":

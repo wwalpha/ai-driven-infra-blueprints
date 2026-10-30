@@ -3897,3 +3897,49 @@ if __name__ == "__main__":
     from support.pytest_cli import run
 
     raise SystemExit(run(__file__))
+
+
+def test_route53_identity_matching_respects_zone_and_set_identifier():
+    kind = "Route53.RecordSet"
+    props = [
+        kind + "." + name for name in ("HostedZoneId", "Name", "Type", "SetIdentifier")
+    ]
+    captured = {
+        "record": "route",
+        "kind": kind,
+        "identity": "synthetic-record",
+        "identityProperty": None,
+        "identityProperties": props,
+        "identityStatus": "known",
+        "identityComponents": [
+            {"property": p, "value": v}
+            for p, v in zip(props, ("Z1", "example.com", "A", "blue"), strict=True)
+        ],
+        "properties": {},
+    }
+    old = {
+        "desired.resource.001.resourceType": kind,
+        "desired.resource.001.resourceMode": "IMPORT",
+    }
+    for index, (prop, value) in enumerate(
+        zip(props, ("/hostedzone/Z1", "EXAMPLE.com.", "A", "blue"), strict=True), 1
+    ):
+        old[f"desired.row.001-{index:03d}.property"] = prop
+        old[f"desired.row.001-{index:03d}.value"] = f"`{value}`"
+    matching = {}
+    empty = {
+        "resources": [],
+        "excluded": [{"record": "route", "reason": "fixture"}],
+        "unreflected": [],
+    }
+    selection_records(empty, [captured], old, old, schema_for, matching=matching)
+    assert matching["route"]["existingResources"] == ["001"]
+    old["desired.row.001-004.value"] = "`other`"
+    matching.clear()
+    selection_records(empty, [captured], old, old, schema_for, matching=matching)
+    assert matching["route"]["status"] == "no-match"
+    del old["desired.row.001-004.value"]
+    del old["desired.row.001-004.property"]
+    matching.clear()
+    selection_records(empty, [captured], old, old, schema_for, matching=matching)
+    assert matching["route"]["status"] == "unresolved"

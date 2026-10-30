@@ -58,6 +58,13 @@ class ScopedInventory:
 
 
 SCOPED_INVENTORIES = {
+    "Route53.RecordSet": ScopedInventory(
+        "route53",
+        ("list_resource_record_sets",),
+        ("list_resource_record_sets", "ResourceRecordSets[]"),
+        ("HostedZoneId", "Name", "Type", "SetIdentifier"),
+        ("HostedZoneId",),
+    ),
     "QuickSight.Group": ScopedInventory(
         "quicksight",
         ("list_namespaces", "list_groups"),
@@ -183,7 +190,10 @@ def resolve(
             "uncertain",
             "SCOPED_SDK_INVENTORY",
             "SDK inventory preserves parent selectors and composite identity",
-            parents=("SQS.Queue",) if kind == "SQS.QueuePolicy" else (),
+            parents={
+                "SQS.QueuePolicy": ("SQS.Queue",),
+                "Route53.RecordSet": ("Route53.HostedZone",),
+            }.get(kind, ()),
         )
     if kind in ADAPTER_INVENTORIES and kind in mapping.identities:
         return DiscoveryPlan(

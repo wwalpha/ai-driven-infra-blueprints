@@ -114,6 +114,11 @@ def selection_records(
                     )
                 if value is None or value == "" or value in ("PENDING_DEPLOY", "UNSET"):
                     break
+                if kind == "Route53.RecordSet" and isinstance(value, str):
+                    if prop.endswith(".Name"):
+                        value = value.rstrip(".").lower()
+                    elif prop.endswith(".HostedZoneId"):
+                        value = value.removeprefix("/hostedzone/")
                 components.append({"property": prop, "value": value})
             if components and len(components) == len(component_properties[kind]):
                 owners.setdefault(

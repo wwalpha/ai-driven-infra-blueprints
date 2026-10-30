@@ -22,6 +22,7 @@ from utils.aws_sdk import aws_runtime, sdk_for
 from utils.mapping_types import Property, Registry
 from utils.script_loader import module
 
+from model.importing import adapter_contracts
 from model.importing.discovery import (
     ADAPTER_INVENTORIES,
     SCOPED_INVENTORIES,
@@ -772,6 +773,14 @@ class Coverage:
             for key, prop in sorted(mapping.properties.items())
             if key.startswith(kind + ".") and prop.include
         ]
+        contracts = adapter_contracts.run(self.root, mapping, kind)
+        for prop in properties:
+            getter = prop["references"]["getter"]
+            evidence = (
+                contracts.get(getter, {}).get("properties", {}).get(prop["property"])
+            )
+            if evidence is not None:
+                prop["adapterContract"] = evidence
         counts = Counter(p["status"] for p in properties)
         status = (
             "not_modelled"
@@ -798,6 +807,7 @@ class Coverage:
                 for name in ("capturable", "unobservable", "broken", "uncertain")
             },
             "propertyDiagnostics": properties,
+            "adapterContracts": contracts,
             "staticStatus": status,
             "runtimeVerified": False,
             "references": {
@@ -843,8 +853,37 @@ def report(root: Path, service: str | None = None) -> Diagnostic:
         "summary": {
             "registeredTypes": len(results),
             "modelledTypes": sum(r["modelled"] for r in results),
+            "awsRetrievalUnverifiedTypes": sum(r["modelled"] for r in results),
             "discoveryReady": sum(r["discovery"]["status"] == "ready" for r in results),
             "identityReady": sum(r["identity"]["status"] == "ready" for r in results),
+            "propertyStatuses": dict(
+                sorted(
+                    Counter(
+                        prop["status"]
+                        for result in results
+                        for prop in result["propertyDiagnostics"]
+                    ).items()
+                )
+            ),
+            "adapterContractGetters": dict(
+                sorted(
+                    Counter(
+                        contract["status"]
+                        for result in results
+                        for contract in result["adapterContracts"].values()
+                    ).items()
+                )
+            ),
+            "adapterContractProperties": dict(
+                sorted(
+                    Counter(
+                        evidence["status"]
+                        for result in results
+                        for contract in result["adapterContracts"].values()
+                        for evidence in contract["properties"].values()
+                    ).items()
+                )
+            ),
             "propertyGapTypes": sum(
                 any(r["properties"][s] for s in ("broken", "uncertain", "unobservable"))
                 for r in results

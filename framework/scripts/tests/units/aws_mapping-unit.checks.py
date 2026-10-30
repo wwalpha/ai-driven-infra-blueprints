@@ -230,6 +230,22 @@ def check_v3_registry():
     }
     assert sum(map(len, tgw_properties.values())) == 18
     baseline_properties = deepcopy(properties)
+    dns = baseline_properties["quicksight"]["QuickSight.VPCConnection"]["DnsResolvers"][
+        "aws"
+    ]
+    assert dns == {"getter": "vpc", "path": "DnsResolvers", "normalize": "typed"}
+    dns["getter"] = "provider-quicksight-vpcconnection"
+    set_identifier = baseline_properties["route53"]["Route53.RecordSet"][
+        "SetIdentifier"
+    ]
+    assert set_identifier["model"]["include"] is True
+    assert set_identifier["aws"] == {
+        "getter": "record",
+        "path": "SetIdentifier",
+        "normalize": "typed",
+    }
+    set_identifier["model"]["include"] = False
+    set_identifier["aws"]["getter"] = "provider-route53-recordset"
     del baseline_properties["lake-formation"]["LakeFormation.Resource"]
     del definitions["lake-formation"]["sdk-lakeformation-resource"]
     del metadata["lake-formation"]

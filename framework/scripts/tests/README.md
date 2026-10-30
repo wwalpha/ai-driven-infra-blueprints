@@ -66,6 +66,12 @@ selectorとseedPropertiesを確認し、条件分岐や動的処理は推測せ�
 AdapterもseedされたpayloadのSchema/Pathが証明できる範囲だけcapturableとし、fetchの存在だけでは成功扱いしない。
 全結果は`runtimeVerified: false`。AWS認証・通信・Model読込/保存は不要。
 
+同じ実行内でMappingからAdapter/SDK Getterを列挙し、対応FixtureがあるPropertyだけ実Adapter、SDK入力、
+SelectorとMapping Pathを検査する。`adapterContracts`は`verified` / `unverified` / `broken`を静的Coverageとは別に返す。
+`verified`は列挙したFixture分岐だけのオフライン証拠であり、他の分岐や実AWSの成功を意味しない。
+Fixture未作成のPropertyや分岐は未検証のまま残り、証拠は保存・再利用しない。
+現在のFixtureはQuickSight VPC接続のDnsResolversとGroupのGroupNameで、Getter全体は他のPropertyが未検証の間は未検証となる。
+
 通常終了は0、`--strict`は未解消のbroken（取得経路不足を含む）があれば1、検証処理/設定エラーは2。
 既存の取得未対応型と不確実性を隠さず出すため、strictをCI必須Gateにはしない。
 `propertyGapTypes`には不整合だけでなく、明示的な非AWS入力と未証明条件も含む。

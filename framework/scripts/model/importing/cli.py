@@ -302,6 +302,61 @@ def empty_capture(value: Any, missing: Any) -> str | None:
     return None
 
 
+def selector_resource(model, record_id, record, mapped):
+    m = comparator()
+    kind = record["kind"]
+    seed_rows = []
+    proxy = m.Resource(
+        model,
+        record_id,
+        {"resourceType": kind, "resourceMode": "IMPORT"},
+        seed_rows,
+    )
+    for prop, item in mapped.items():
+        field = item.field
+        if prop.startswith(kind + ".") and field.getter in record["getters"]:
+            raw = m.select(record["getters"][field.getter], field.path)
+            if (
+                raw not in (m.MISSING, None)
+                and not sensitive(proxy, prop)
+                and not unsafe(raw)
+            ):
+                try:
+                    seed_rows.append(
+                        (
+                            record_id + "-" + str(len(seed_rows) + 1).zfill(3),
+                            {
+                                "property": prop,
+                                "value": model_literal(raw),
+                                "valueShape": "projection"
+                                if array_paths(prop)
+                                else "leaf",
+                            },
+                        )
+                    )
+                except ValueError:
+                    pass  # A non-scalar seed cannot be an adapter selector.
+    for prop, raw in {
+        **record.get("seedProperties", {}),
+        **record.get("selectorProperties", {}),
+    }.items():
+        if not any(row["property"] == prop for _, row in seed_rows) and not unsafe(raw):
+            try:
+                seed_rows.append(
+                    (
+                        record_id + "-" + str(len(seed_rows) + 1).zfill(3),
+                        {
+                            "property": prop,
+                            "value": model_literal(raw),
+                            "valueShape": "projection" if array_paths(prop) else "leaf",
+                        },
+                    )
+                )
+            except ValueError:
+                pass  # Unrepresentable data cannot be an adapter selector.
+    return proxy
+
+
 def _normalize_records(ctx, service, records):
     """Reuse Mapping and adapter getters without constructing any public Model source."""
     m = comparator()
@@ -325,56 +380,7 @@ def _normalize_records(ctx, service, records):
             (kind + "\0" + record["identity"]).encode("utf-8")
         ).hexdigest()
         seed = next(iter(record["getters"].values()), {})
-        seed_rows = []
-        proxy = m.Resource(
-            model,
-            record_id,
-            {"resourceType": kind, "resourceMode": "IMPORT"},
-            seed_rows,
-        )
-        for prop, item in mapped.items():
-            field = item.field
-            if prop.startswith(kind + ".") and field.getter in record["getters"]:
-                raw = m.select(record["getters"][field.getter], field.path)
-                if (
-                    raw not in (m.MISSING, None)
-                    and not sensitive(proxy, prop)
-                    and not unsafe(raw)
-                ):
-                    try:
-                        seed_rows.append(
-                            (
-                                record_id + "-" + str(len(seed_rows) + 1).zfill(3),
-                                {
-                                    "property": prop,
-                                    "value": model_literal(raw),
-                                    "valueShape": "projection"
-                                    if array_paths(prop)
-                                    else "leaf",
-                                },
-                            )
-                        )
-                    except ValueError:
-                        pass  # A non-scalar seed cannot be an adapter selector.
-        for prop, raw in record.get("seedProperties", {}).items():
-            if not any(row["property"] == prop for _, row in seed_rows) and not unsafe(
-                raw
-            ):
-                try:
-                    seed_rows.append(
-                        (
-                            record_id + "-" + str(len(seed_rows) + 1).zfill(3),
-                            {
-                                "property": prop,
-                                "value": model_literal(raw),
-                                "valueShape": "projection"
-                                if array_paths(prop)
-                                else "leaf",
-                            },
-                        )
-                    )
-                except ValueError:
-                    pass  # Unrepresentable data cannot be an adapter selector.
+        proxy = selector_resource(model, record_id, record, mapped)
         for getter, payload in record["getters"].items():
             ctx.fetch_cache[model.path, record_id, getter] = payload
             ctx.fetch_trace[model.path, record_id, getter] = []

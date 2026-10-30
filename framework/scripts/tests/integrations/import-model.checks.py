@@ -737,6 +737,75 @@ def check_generic_acquisition_roundtrip(tmp_path):
     )
 
 
+class Route53Cli(CloudControlCli):
+    def __call__(self, command, **kwargs):
+        if command[1:3] != ["route53", "list-resource-record-sets"]:
+            return super().__call__(command, **kwargs)
+        inputs = json.loads(command[command.index("--cli-input-json") + 1])
+        self.calls.append(("route53", "list-resource-record-sets", inputs))
+        assert inputs == {"HostedZoneId": "Z1"}
+        body = {
+            "IsTruncated": False,
+            "ResourceRecordSets": [
+                {
+                    "Name": "Example.COM.",
+                    "Type": "A",
+                    "SetIdentifier": "blue",
+                    "TTL": 60,
+                    "ResourceRecords": [{"Value": "192.0.2.1"}],
+                },
+                {
+                    "Name": "example.com.",
+                    "Type": "A",
+                    "SetIdentifier": "green",
+                    "TTL": 60,
+                    "ResourceRecords": [{"Value": "192.0.2.2"}],
+                },
+            ],
+        }
+        return subprocess.CompletedProcess(command, 0, json.dumps(body), "")
+
+
+def check_route53_acquired_identity_evidence(tmp_path):
+    root = tmp_path / "case"
+    root.mkdir()
+    project_fixture(root)
+    path = root / "model/dev" / ACCOUNT / "route53.properties"
+    write_model(
+        path, service_values("route53", ["Route53.HostedZone", "Route53.RecordSet"])
+    )
+    checkpoint(root)
+    cli = Route53Cli(
+        {
+            "Route53.HostedZone": [
+                {"identifier": "Z1", "properties": {"Id": "Z1", "Name": "example.com."}}
+            ]
+        }
+    )
+    before = source_files(root)
+    acquired = m.acquire(
+        root, "dev", "route53", ACCOUNT, True, cli, resource_types=["Route53.RecordSet"]
+    )
+    assert acquired["status"] == "acquired", acquired
+    assert len(acquired["records"]) == 2
+    components = [record["identityComponents"] for record in acquired["records"]]
+    assert {item[-1]["value"] for item in components} == {"blue", "green"}
+    assert all(
+        item[0]["value"] == "Z1" and item[1]["value"] == "example.com"
+        for item in components
+    )
+    sealed = import_guard.read_acquisition(
+        root, Path(acquired["evidence"]), ("dev", ACCOUNT, "route53"), True
+    )
+    assert [record["identityComponents"] for record in sealed["records"]] == components
+    stage(root, acquired, {}, excluded=exclusions(acquired, []))
+    review_fixture(root, acquired, dry_run=True)
+    result = m.publish_acquisition(
+        root, "dev", "route53", acquired["evidence"], ACCOUNT, True
+    )
+    assert result["status"] == "dry-run" and source_files(root) == before
+
+
 def _callback_check_reference_publication_counted(
     original_read, reads, root, /, scope, *args, **kwargs
 ):

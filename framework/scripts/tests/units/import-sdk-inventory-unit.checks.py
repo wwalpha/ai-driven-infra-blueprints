@@ -357,6 +357,14 @@ def test_scoped_inventory_failure_is_not_empty(kind):
             }
         ]
         if kind == "SQS.QueuePolicy"
+        else [
+            {
+                "kind": "Route53.HostedZone",
+                "identity": "Z1",
+                "cloudProperties": {"Id": "Z1"},
+            }
+        ]
+        if kind == "Route53.RecordSet"
         else None
     )
     with pytest.raises(ValueError, match="API failed"):
@@ -610,6 +618,31 @@ def test_scoped_getter_permission_and_registration_are_checked(monkeypatch):
     assert result["properties"]["broken"] == 3
 
 
+@pytest.mark.parametrize("value", [["10.0.0.2", "10.0.0.3"], [], None])
+def test_vpc_dns_resolvers_use_inventory_payload(value):
+    ctx = cli.import_context(
+        cli.ROOT,
+        TARGET,
+        Mock(side_effect=AssertionError("Unexpected AWS request")),
+        "quicksight",
+        no_profile=True,
+    )
+    ctx.verified = True
+    payload = {"AwsAccountId": ACCOUNT, "VPCConnectionId": "vpc-id"}
+    if value is not None:
+        payload["DnsResolvers"] = value
+    record = {
+        "kind": "QuickSight.VPCConnection",
+        "identity": "vpc-id",
+        "getters": {"vpc": payload},
+    }
+    result = cli.normalize_records(ctx, "quicksight", [record])[0]
+    capture = result["properties"]["QuickSight.VPCConnection.DnsResolvers"]
+    assert capture["status"] == ("missing" if value is None else "captured")
+    if value is not None:
+        assert capture["value"] == value
+
+
 def test_empty_pipeline_environment_is_captured_without_withholding():
     ctx = cli.import_context(
         cli.ROOT,
@@ -723,3 +756,187 @@ def test_missing_sensitive_sdk_getter_is_not_an_approval_exception(monkeypatch):
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+def test_route53_scoped_records_and_pagination():
+    first = {"HostedZoneId": "Z1"}
+    second = {
+        "HostedZoneId": "Z1",
+        "StartRecordName": "example.com.",
+        "StartRecordType": "A",
+        "StartRecordIdentifier": "a",
+    }
+    calls = {
+        ("list_resource_record_sets", tuple(sorted(first.items()))): {
+            "ResourceRecordSets": [
+                {
+                    "Name": "EXAMPLE.com.",
+                    "Type": "A",
+                    "SetIdentifier": "a",
+                    "AliasTarget": {"DNSName": "target."},
+                }
+            ],
+            "IsTruncated": True,
+            "NextRecordName": "example.com.",
+            "NextRecordType": "A",
+            "NextRecordIdentifier": "a",
+        },
+        ("list_resource_record_sets", tuple(sorted(second.items()))): {
+            "ResourceRecordSets": [
+                {"Name": "example.com.", "Type": "A", "SetIdentifier": "b"}
+            ],
+            "IsTruncated": False,
+        },
+        ("list_resource_record_sets", (("HostedZoneId", "Z2"),)): {
+            "ResourceRecordSets": [{"Name": "example.com.", "Type": "A"}],
+            "IsTruncated": False,
+        },
+    }
+    ctx = Context({}, calls)
+    parents = [
+        {
+            "kind": "Route53.HostedZone",
+            "identity": zone,
+            "cloudProperties": {"Id": "/hostedzone/" + zone},
+        }
+        for zone in ("Z1", "Z2")
+    ]
+    records = sdk_inventory.collect(ctx, "Route53.RecordSet", parents=parents)
+    assert len({item["identity"] for item in records}) == 3
+    assert records[0]["getters"]["record"]["AliasTarget"]["DNSName"] == "target."
+    assert records[2]["identityComponents"][-1]["value"] is None
+    calls[("list_resource_record_sets", tuple(sorted(second.items())))] = ValueError(
+        "page failed"
+    )
+    with pytest.raises(ValueError, match="page failed"):
+        sdk_inventory.collect(ctx, "Route53.RecordSet", parents=parents)
+    with pytest.raises(ValueError, match="requires its parent"):
+        sdk_inventory.collect(ctx, "Route53.RecordSet")
+
+
+def test_route53_adapter_refuses_ambiguous_identifier():
+    adapter = cli.comparator().service_module("route53")
+    records = [
+        {"Name": "example.COM.", "Type": "A", "SetIdentifier": name}
+        for name in ("one", "two")
+    ]
+    ctx = SimpleNamespace(
+        call=Mock(return_value={"ResourceRecordSets": records, "IsTruncated": False})
+    )
+    resource = SimpleNamespace(
+        kind="Route53.RecordSet",
+        value=lambda key, *args: {
+            "HostedZoneId": "Z1",
+            "Name": "EXAMPLE.com",
+            "Type": "A",
+        }[key],
+        optional=lambda key: "two",
+    )
+    assert adapter.fetch(ctx, resource, "record")["SetIdentifier"] == "two"
+    resource.optional = lambda key: None
+    with pytest.raises(cli.comparator().Unresolved, match="SetIdentifier"):
+        adapter.fetch(ctx, resource, "record")
+
+
+def test_route53_normalization_retains_identity_and_selector():
+    ctx = cli.import_context(
+        cli.ROOT,
+        TARGET,
+        Mock(side_effect=AssertionError("unexpected AWS")),
+        "route53",
+        no_profile=True,
+    )
+    ctx.verified = True
+    values = {
+        "HostedZoneId": "Z1",
+        "Name": "example.com",
+        "Type": "A",
+        "SetIdentifier": "blue",
+    }
+    item = {
+        "Name": "Example.Com.",
+        "Type": "A",
+        "SetIdentifier": "blue",
+        "HostedZoneId": "Z1",
+        "TTL": 60,
+        "ResourceRecords": [{"Value": "192.0.2.1"}],
+    }
+    record = sdk_inventory.record(
+        "Route53.RecordSet", values, {"record": item}, selectors={"HostedZoneId": "Z1"}
+    )
+    result = cli.normalize_records(ctx, "route53", [record])[0]
+    assert result["identityComponents"] == record["identityComponents"]
+    for prop, value in (
+        ("HostedZoneId", "Z1"),
+        ("SetIdentifier", "blue"),
+        ("Name", "Example.Com."),
+    ):
+        capture = result["properties"]["Route53.RecordSet." + prop]
+        assert capture["status"] == "captured"
+        assert capture["value"] == value
+
+
+def test_quicksight_inventory_rejects_mismatched_detail():
+    ctx = cli.import_context(cli.ROOT, TARGET, Mock(), "quicksight", no_profile=True)
+    ctx.verified = True
+    ctx.pages = Mock(
+        return_value={"VPCConnectionSummaries": [{"VPCConnectionId": "wanted"}]}
+    )
+    ctx.call = Mock(return_value={"VPCConnection": {"VPCConnectionId": "other"}})
+    with pytest.raises(ValueError, match="detail identifier mismatch"):
+        inventory.adapter_inventory(ctx, "quicksight", ("QuickSight.VPCConnection",))
+
+
+def test_route53_parent_failure_is_not_empty():
+    mapping, mapped = inventory.import_comparison(cli.ROOT, "route53")
+    collector = SimpleNamespace(
+        mapping=lambda service: (mapping, mapped),
+        inventory=Mock(return_value=[]),
+        statuses={"Route53.HostedZone": {"status": "permission_denied"}},
+        ctx=SimpleNamespace(),
+        failure=Mock(),
+        status=Mock(),
+    )
+    result = inventory._callback_ImportInventory_inventory_collect(
+        None, "Route53.RecordSet", collector, "route53"
+    )
+    assert result == []
+    assert collector.failure.call_args.args[1].code == "ParentInventoryIncomplete"
+    collector.status.assert_not_called()
+    collector.failure.reset_mock()
+    inventory._callback_ImportInventory_inventory_collect(
+        {"HostedZoneId": "Z1"}, "Route53.RecordSet", collector, "route53"
+    )
+    assert "filters are not supported" in str(collector.failure.call_args.args[1])
+
+
+@pytest.mark.parametrize("ttl", [-1, "60", True])
+def test_route53_ttl_rejects_invalid_sdk_values(ttl):
+    with pytest.raises(ValueError, match="TTL"):
+        sdk_inventory.route53_projection({"TTL": ttl}, "Z1")
+
+
+def test_route53_ttl_projection_and_simple_alias():
+    assert sdk_inventory.route53_projection({"TTL": 60}, "Z1")["TTL"] == "60"
+    adapter = cli.comparator().service_module("route53")
+    item = {
+        "Name": "EXAMPLE.COM.",
+        "Type": "A",
+        "AliasTarget": {"DNSName": "target.example."},
+    }
+    ctx = SimpleNamespace(
+        call=Mock(return_value={"ResourceRecordSets": [item], "IsTruncated": False})
+    )
+    resource = SimpleNamespace(
+        kind="Route53.RecordSet",
+        value=lambda key, *args: {
+            "HostedZoneId": "Z1",
+            "Name": "example.com",
+            "Type": "A",
+        }[key],
+        optional=lambda key: None,
+    )
+    assert adapter.fetch(ctx, resource, "record")["AliasTarget"] == item["AliasTarget"]
+    ctx.call.return_value["ResourceRecordSets"].append(dict(item))
+    with pytest.raises(cli.comparator().Unresolved, match="ambiguous"):
+        adapter.fetch(ctx, resource, "record")

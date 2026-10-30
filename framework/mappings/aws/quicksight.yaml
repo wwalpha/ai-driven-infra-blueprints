@@ -745,7 +745,7 @@ resourceTypes:
         model: {include: true}
         display: {show: true, name: DnsResolvers}
         access: [read-write]
-        aws: {getter: provider-quicksight-vpcconnection, path: DnsResolvers, normalize: typed}
+        aws: {getter: vpc, path: DnsResolvers, normalize: typed}
       RoleArn:
         model: {include: true}
         display: {show: true, name: RoleArn}

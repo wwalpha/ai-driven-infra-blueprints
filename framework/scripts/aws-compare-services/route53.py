@@ -1,6 +1,7 @@
 """route53: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model.adapters.aws import one
+from model.adapters.aws import Unresolved, one
+from model.importing.sdk_inventory import route53_pages, route53_projection
 
 APIS = {
     ("route53", "list_resource_record_sets"),
@@ -50,15 +51,17 @@ def fetch(ctx, r, getter):
     zone = r.value("HostedZoneId", "id").removeprefix("/hostedzone/")
     name = r.value("Name").rstrip(".").lower()
     kind = r.value("Type")
-    records = ctx.pages("route53", "list_resource_record_sets", HostedZoneId=zone).get(
-        "ResourceRecordSets", []
-    )
+    set_identifier = r.optional("SetIdentifier")
+    records = route53_pages(ctx, zone)
+    candidates = [
+        v
+        for v in records
+        if v["Name"].rstrip(".").lower() == name and v["Type"] == kind
+    ]
+    if set_identifier is None and any(v.get("SetIdentifier") for v in candidates):
+        raise Unresolved("RecordSet SetIdentifier is required for routing records")
     record = one(
-        [
-            v
-            for v in records
-            if v["Name"].rstrip(".").lower() == name and v["Type"] == kind
-        ],
+        [v for v in candidates if v.get("SetIdentifier") == set_identifier],
         "route53.list_resource_record_sets",
     )
-    return dict(record, HostedZoneId=zone)
+    return route53_projection(record, zone)

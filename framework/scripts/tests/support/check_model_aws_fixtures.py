@@ -473,6 +473,8 @@ class FakeResource:
         return []
 
     def optional(self, prop, default=None, norm="typed"):
+        if self.kind == "Route53.RecordSet" and prop == "SetIdentifier":
+            return "fixture"
         return default
 
     def parent(self):

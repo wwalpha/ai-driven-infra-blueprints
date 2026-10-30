@@ -170,10 +170,10 @@ resourceTypes:
         access: [read-write]
         aws: {getter: record, path: 'ResourceRecords[].Value', normalize: set}
       SetIdentifier:
-        model: {include: false}
+        model: {include: true}
         display: {show: false, name: SetIdentifier}
         access: [read-write]
-        aws: {getter: provider-route53-recordset, path: SetIdentifier, normalize: typed}
+        aws: {getter: record, path: SetIdentifier, normalize: typed}
       TTL:
         model: {include: true}
         display: {show: true, name: TTL}
