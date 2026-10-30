@@ -1525,6 +1525,26 @@ def retained_mechanical(original, *args, **kwargs):
     return result
 
 
+@pytest.fixture
+def scan_without_lint_worker():
+    # Worker execution belongs to issues-lint UT/IT; retain real planning and aggregation.
+    with (
+        patch("issues.cfn_lint.lint_session", return_value=nullcontext(None)),
+        patch(
+            "issues.cfn_lint.validate_template",
+            return_value=dict(
+                status="checked",
+                completed=True,
+                decode_complete=True,
+                matches=[],
+                unverified=[],
+                processing_errors=[],
+            ),
+        ),
+    ):
+        yield
+
+
 def diagnostic_mechanical(validator, *args, validator_out, **kwargs):
     validator_out.append(validator)
     return validator.errors, validator.checks, "retained machine output"
@@ -1751,7 +1771,7 @@ def check_reference_diagnostic_isolation(tmp_path, stage):
         "preflight",
     ],
 )
-def check_scan_stage_failures(tmp_path, stage):
+def check_scan_stage_failures(tmp_path, stage, scan_without_lint_worker):
     _exports_support_issues_scan_fixtures.fixture(tmp_path, services=("s3",))
     owner, method = {
         "mechanical": (scan_runner, "mechanical"),
@@ -1828,7 +1848,7 @@ def fail_service_materials(original, comparison, service=None, **kwargs):
 
 
 @pytest.mark.parametrize("stage", ["naming", "review", "normal"])
-def check_material_service_isolation(tmp_path, stage):
+def check_material_service_isolation(tmp_path, stage, scan_without_lint_worker):
     _exports_support_issues_scan_fixtures.fixture(tmp_path, services=("s3", "sqs"))
     services = ["cloudformation-stacks", "s3", "sqs"]
     human = tmp_path / "issues/dev/123456789012/human-confirmations.yaml"

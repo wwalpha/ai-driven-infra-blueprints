@@ -7,6 +7,18 @@
 - `support/`: 共通fixture、loader、pytestの診断補助。UTはITテストモジュールをimportしない。
 - `unknown/`: 分類対象を残さない。分類済みかどうかはディレクトリ名だけで判断しない。
 
+## UTの重複実行
+
+`issues_scan-unit` のstage/material障害隔離9条件は、実lint計画・結果集約を通し、lint workerだけを合成成功結果に置き換える。
+lint起動・失敗・復旧は既存 `issues-lint-unit` と専用ITが担当する。障害隔離の各条件と既存の完了確認は維持する。
+
+CodeBuildのScan/Saveは18→14条件、Scanは36→15回、Saveは32→14回に整理する。
+通常表示の6条件を維持し、読取り不能ViewはModel違反の有無・複数変数・所有権違反の4条件、
+typed IAM.RoleはModel-only・Markdown-only・両方・所有権違反の4条件で確認する。
+読取り不能ViewではMarkdown改変を適用しないため同じ入力となる条件と、既に通る変数数の組合せを削減する。
+Issue IDの再Scan/Save安定性はtyped・Model/Markdown両方・2変数の代表1条件が担当する。
+全UTの時間比較は同じPython・既存schedulerの最大2並列・同じ収集対象で行い、ログはリポジトリ外に保存する。
+
 ## Model Designの責務
 
 `model_design` ITは7関数・7 pytest条件。Endpoint/Route53、IMPORT任意Name、KMS Execution Account、Config異型anchor、Stack/索引Model再読込、複数サービス部分失敗、Dynamic Referenceの実生成を検証する。

@@ -636,19 +636,24 @@ def test_non_plaintext_round_trip(kind):
     assert reference_error(PREFIX + "[].Value", {"Type": kind}) is None
 
 
-@pytest.mark.parametrize(
-    "unreadable_view,typed", [(False, False), (True, False), (False, True)]
-)
 @pytest.mark.usefixtures("catalog_display_fixture")
 @pytest.mark.parametrize(
-    "model_link,markdown_link,count,ownership_error",
+    "unreadable_view,typed,model_link,markdown_link,count,ownership_error",
     [
-        (True, False, 1, False),
-        (False, True, 1, False),
-        (False, True, 2, False),
-        (True, True, 1, False),
-        (True, True, 2, False),
-        (True, True, 1, True),
+        (False, False, True, False, 1, False),
+        (False, False, False, True, 1, False),
+        (False, False, False, True, 2, False),
+        (False, False, True, True, 1, False),
+        (False, False, True, True, 2, False),
+        (False, False, True, True, 1, True),
+        (True, False, True, False, 1, False),
+        (True, False, False, True, 1, False),
+        (True, False, True, True, 2, False),
+        (True, False, True, True, 1, True),
+        (False, True, True, False, 1, False),
+        (False, True, False, True, 2, False),
+        (False, True, True, True, 2, False),
+        (False, True, True, True, 1, True),
     ],
 )
 def test_scan_save_owns_codebuild_and_deduplicates(
@@ -770,7 +775,9 @@ def test_scan_save_owns_codebuild_and_deduplicates(
             ["iam"] if typed else []
         )
         previous_markers = set()
-        for _iteration in range(2):
+        # One typed two-variable case owns stable IDs across repeated scan/save.
+        repeats = 2 if typed and model_link and markdown_link and count == 2 else 1
+        for _iteration in range(repeats):
             if typed:
                 artifact_path = tmp_path.parent / "scan.json"
                 with patch.object(
