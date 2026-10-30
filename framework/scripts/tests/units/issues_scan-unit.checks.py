@@ -2321,6 +2321,7 @@ def check_format_violation_direction(model_format, iac_format, direction):
         allowed_forms=["AliasArn"],
         format=dict(model=model_format, iac=iac_format),
         reason="format violation",
+        code="kms.format_mismatch",
     )
     record = dict(
         category="difference",
@@ -2339,6 +2340,21 @@ def check_format_violation_direction(model_format, iac_format, direction):
         ["dev", "team", "kms-format", iac_key(record)]
     )
     assert action["category"] == "要修正" and action["repair_direction"] == direction
+    translated = dict(
+        record,
+        reason="形式が一致しません",
+        reference_diagnostics=[dict(diagnostic, reason="形式が一致しません")],
+    )
+    translated_action = aggregate([translated], "dev", "team", ["cloudwatch-logs"])[
+        "iac_issues"
+    ][0]
+    for field in ("id", "category", "repair_direction", "classification"):
+        assert action.get(field) == translated_action.get(field)
+    unproven = dict(
+        record, reference_diagnostics=[dict(diagnostic, code="kms.format_unproven")]
+    )
+    unknown = aggregate([unproven], "dev", "team", ["cloudwatch-logs"])["iac_issues"][0]
+    assert unknown["classification"] == "原因未確定"
     report = iac_report("dev", "team", ["cloudwatch-logs"], [record], artifact=data)
     assert "| 要修正 |" in report and action["id"] in report
     assert "修正対象" not in report and "必要な対応" not in report

@@ -90,6 +90,7 @@ def reference_diagnostic(
     path,
     reason,
     *,
+    code=None,
     local_comparison,
     forms_for,
     kms_format,
@@ -114,6 +115,7 @@ def reference_diagnostic(
     )
     return redact(
         dict(
+            **({"code": code} if code is not None else {}),
             path=kind + "." + path,
             model=redact(left, path),
             iac=redact(right, path),
@@ -419,7 +421,7 @@ def reference_same(
         return decision(None if unknown else False)
     allowed = registry.property_rule(kind, path).forms if local_comparison else None
     if allowed:
-        result, reason = registry.property_rule(kind, path).form_compare(
+        outcome = registry.property_rule(kind, path).form_compare(
             left,
             right,
             allowed,
@@ -427,11 +429,18 @@ def reference_same(
             format_of=kms_format,
             project_arn=project_arn,
         )
+        result = outcome.equal
         if result is NotImplemented:
             if evidence is not None:
                 return evidence(left, right, kind, path)
             result = None
-        details = [diagnostic(left, right, kind, path, reason)] if reason else []
+        details = (
+            [diagnostic(left, right, kind, path, outcome.message, code=outcome.code)]
+            if outcome.code
+            else [diagnostic(left, right, kind, path, outcome.message)]
+            if outcome.message
+            else []
+        )
         for detail in details:
             detail.update(evidence_type="logical_reference", current_aws_verified=False)
         return decision(result, details)

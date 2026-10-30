@@ -456,8 +456,7 @@ def setting_result(
         errors = [
             item["reason"]
             for item in decision.diagnostics
-            if item["reason"].startswith("KMS format")
-            and item["reason"] != "KMS format is unproven"
+            if item.get("code") in {"kms.format_outside_allowed", "kms.format_mismatch"}
         ]
         if errors:
             reason = "; ".join(dict.fromkeys(errors))

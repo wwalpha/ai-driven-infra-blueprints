@@ -1670,7 +1670,20 @@ def kms_candidate(left, right, path):
             if left == right
             else "mismatch"
         )
-        return ReferenceDecision(left == right, ({"path": path, "reason": reason},))
+        return ReferenceDecision(
+            left == right,
+            (
+                {
+                    "path": path,
+                    "reason": reason,
+                    **(
+                        {"code": "kms.format_outside_allowed"}
+                        if reason.startswith("KMS format")
+                        else {}
+                    ),
+                },
+            ),
+        )
     return ReferenceDecision(NotImplemented)
 
 
@@ -1703,6 +1716,27 @@ def test_unordered_format_classification_uses_only_selected_candidates():
             redact=safe_value,
         ).records[0]
         assert record["reason"] == expected
+        translated = replace(
+            outcome,
+            diagnostics=tuple(
+                dict(d, reason="形式が一致しません") if d.get("code") else d
+                for d in outcome.diagnostics
+            ),
+        )
+        translated_record = setting_result(
+            "iam",
+            "001",
+            "Setting",
+            left,
+            right,
+            translated,
+            "stack",
+            [{}],
+            {},
+            actual_error=None,
+            redact=safe_value,
+        ).records[0]
+        assert translated_record["category"] == record["category"]
         assert any(
             d["reason"] == "KMS format outside allowed forms: invalid"
             for d in outcome.diagnostics

@@ -17,13 +17,14 @@ from comparison import Comparison
 from comparison.deferral import ImportReferenceDeferred, failure_category
 from comparison.evaluation import project_actual
 from comparison.methods import ORDERED, UNORDERED, CompareOutcome, compare_values, keyed
-from comparison.reference_evidence import Evidence
+from comparison.reference_evidence import Evidence, compare_expression
 from comparison.references import ReferenceDecision
 from comparison.registry import rules
 from comparison.resource import inactive_evidence, inline_owner
 from comparison.result import identifier, setting_result, value_differences
 from comparison.rows import validated_rows
 from comparison.rules.iam import managed_policy_roles
+from comparison.rules.kms import FormOutcome, compare_forms, kms_format
 from comparison.runner import Settings
 from comparison.values import PreparedValue
 from design.catalog import DesignSchemaCatalog
@@ -1324,7 +1325,7 @@ def test_kms_expression_cannot_bypass_allowed_forms(actual):
         KEY_ARN, exported(comparison, actual), "Athena.WorkGroup", ATHENA_KMS
     )
     assert decision.equal is False, decision
-    assert "KMS format" in decision.diagnostics[0]["reason"]
+    assert decision.diagnostics[0]["code"] == "kms.format_outside_allowed"
 
 
 @pytest.mark.parametrize("actual", ["literal", "ref", "expression"])
@@ -1441,6 +1442,17 @@ def test_kms_existing_service_form_matrix(kind, path, allowed, model_form, iac_f
     assert decision.equal is (model_form == iac_form and model_form in allowed), (
         decision
     )
+    outcome = compare_forms(
+        forms[model_form],
+        forms[iac_form],
+        allowed,
+        resolve_literal=comparison.reference_literal,
+        format_of=comparison.kms_format,
+    )
+    if model_form not in allowed or iac_form not in allowed:
+        assert outcome.equal is False and outcome.code == "kms.format_outside_allowed"
+    elif model_form != iac_form:
+        assert outcome.equal is False and outcome.code == "kms.format_mismatch"
 
 
 def test_kms_unresolved_expressions_do_not_gain_symbolic_equality():
@@ -1452,6 +1464,15 @@ def test_kms_unresolved_expressions_do_not_gain_symbolic_equality():
         ).equal
         is None
     )
+    outcome = compare_forms(
+        expression,
+        expression,
+        {"KeyArn"},
+        resolve_literal=str,
+        format_of=partial(kms_format, resources={}),
+    )
+    assert outcome.equal is None and outcome.code == "kms.format_unproven"
+
     assert (
         comparison.reference_decision(
             KEY_ARN, Expression("Future", []), "Athena.WorkGroup", ATHENA_KMS
@@ -4134,6 +4155,24 @@ def test_saved_literal_evidence_is_checked_in_both_directions(fault):
         )
     compound = Expression("Join", ["", ["pre/", desired]])
     evaluated = Expression("Sub", ["pre/${R}", {"R": actual}])
+    if fault is None:
+        rule = replace(
+            rules("Athena.WorkGroup")[ATHENA_KMS],
+            form_compare=Mock(
+                return_value=FormOutcome(
+                    False, "kms.format_mismatch", "形式が一致しません"
+                )
+            ),
+        )
+        with patch(
+            "comparison.reference_evidence.registry.property_rule", return_value=rule
+        ):
+            decision = compare_expression(
+                comparison, compound, evaluated, "Athena.WorkGroup", ATHENA_KMS
+            )
+        assert decision.equal is False
+        assert decision.diagnostics[0]["code"] == "kms.format_mismatch"
+        assert decision.diagnostics[0]["reason"] == "形式が一致しません"
     for left, right in [
         (desired, actual),
         (actual, desired),

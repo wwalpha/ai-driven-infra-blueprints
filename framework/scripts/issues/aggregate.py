@@ -183,30 +183,21 @@ def iac_actions(entries, environment, directory):
                 "参照先Exportの一意性または値を確認できない。設定差分は未確定。"
             )
             remedy = "Export/Importの宣言・有効条件・参照先を確認して再比較する。Model/IaCの修正要否は未確定。"
-        elif item["category"] == "difference" and item["reason"].startswith(
-            "KMS format"
+        elif item["category"] == "difference" and any(
+            field.get("code") in {"kms.format_outside_allowed", "kms.format_mismatch"}
+            for field in item.get("reference_diagnostics", [])
         ):
             target = None
             key = [environment, directory, "kms-format", entry["id"]]
-            proven = item["reason"].startswith(
-                ("KMS format outside allowed forms:", "KMS format mismatch:")
-            )
-            title = (
-                f"{item['service']} / {item['resource']} / {item['property']} のKMS指定形式が"
-                + ("不適合" if proven else "未確定")
-            )
-            classification, status = (
-                ("KMS指定形式違反", "要修正") if proven else ("原因未確定", "要調査")
-            )
-            repair_direction = "修正先要確認" if proven else "未確定"
-            formats = (
-                [
-                    field.get("format", {})
-                    for field in item.get("reference_diagnostics", [])
-                ]
-                if proven
-                else []
-            )
+            title = f"{item['service']} / {item['resource']} / {item['property']} のKMS指定形式が不適合"
+            classification, status = "KMS指定形式違反", "要修正"
+            repair_direction = "修正先要確認"
+            formats = [
+                field.get("format", {})
+                for field in item.get("reference_diagnostics", [])
+                if field.get("code")
+                in {"kms.format_outside_allowed", "kms.format_mismatch"}
+            ]
             for side, other, direction in (
                 ("iac", "model", "IaC修正"),
                 ("model", "iac", "Model修正"),
@@ -220,13 +211,14 @@ def iac_actions(entries, environment, directory):
                 ):
                     repair_direction = direction
                     target = (item.get(side) or {}).get("path")
-            diagnostic = next(iter(item.get("reference_diagnostics", [])), {})
-            description = f"{diagnostic.get('path', item['property']).rsplit('.', 1)[-1]}: {item['reason']}"
-            remedy = (
-                "許可形式と両側の形式を確認し、形式不適合のModel/IaCを修正する。参照先が同じでも形式差は一致扱いしない。"
-                if proven
-                else "許可形式と両側の形式を確認し、形式違反の有無と修正先を特定する。"
+            diagnostic = next(
+                field
+                for field in item["reference_diagnostics"]
+                if field.get("code")
+                in {"kms.format_outside_allowed", "kms.format_mismatch"}
             )
+            description = f"{diagnostic.get('path', item['property']).rsplit('.', 1)[-1]}: {item['reason']}"
+            remedy = "許可形式と両側の形式を確認し、形式不適合のModel/IaCを修正する。参照先が同じでも形式差は一致扱いしない。"
         elif cause.get("kind") == "input-invalid":
             target = (item.get("iac") or {}).get("path")
             if cause.get("rule") == "unique-key":

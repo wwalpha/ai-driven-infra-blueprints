@@ -946,13 +946,14 @@ class Inputs:
     def kms_format(self, value):
         return kms_format(value, self.resources, project_arn=self.project_arn)
 
-    def reference_diagnostic(self, left, right, kind, path, reason):
+    def reference_diagnostic(self, left, right, kind, path, reason, *, code=None):
         detail = references.reference_diagnostic(
             left,
             right,
             kind,
             path,
             reason,
+            code=code,
             local_comparison=self.local_comparison,
             forms_for=self.reference_forms,
             kms_format=self.kms_format,

@@ -223,6 +223,7 @@ def compare_expression(inputs, left, right, kind, path):
         except Blocked as error:
             failures.append(str(error))
     equal, reason = None, "; ".join(dict.fromkeys(failures))
+    outcome = None
     if not failures:
         try:
             left_concrete = expressions.string(left, proof.resolve)
@@ -233,34 +234,36 @@ def compare_expression(inputs, left, right, kind, path):
                 else None
             )
             if allowed:
-                _, format_reason = registry.property_rule(kind, path).form_compare(
+                outcome = registry.property_rule(kind, path).form_compare(
                     left_concrete,
                     right_concrete,
                     allowed,
                     resolve_literal=inputs.reference_literal,
                     format_of=inputs.kms_format,
                 )
-                if format_reason:
-                    raise Blocked(format_reason)
-            left_parts = expressions.parts(left, inputs.resource_type, proof.expand)
-            right_parts = expressions.parts(right, inputs.resource_type, proof.expand)
-            equal = expressions.symbolic_same(left_parts, right_parts)
-            if equal is None:
-                equal = aligned_difference(left_parts, right_parts)
-            reason = (
-                "logical_reference"
-                if equal is True
-                else (
-                    "different Producer or fixed expression parts"
-                    if equal is False
-                    else "expression Producer or attribute equivalence is unproven; recorded_observed cannot prove physical identity"
+            if outcome is not None and outcome.code:
+                equal, reason = outcome.equal, outcome.message
+            else:
+                left_parts = expressions.parts(left, inputs.resource_type, proof.expand)
+                right_parts = expressions.parts(
+                    right, inputs.resource_type, proof.expand
                 )
-            )
+                equal = expressions.symbolic_same(left_parts, right_parts)
+                if equal is None:
+                    equal = aligned_difference(left_parts, right_parts)
+                reason = (
+                    "logical_reference"
+                    if equal is True
+                    else (
+                        "different Producer or fixed expression parts"
+                        if equal is False
+                        else "expression Producer or attribute equivalence is unproven; recorded_observed cannot prove physical identity"
+                    )
+                )
         except Blocked as error:
             reason = str(error)
-            if reason.startswith("KMS format"):
-                equal = False
-    detail = inputs.reference_diagnostic(left, right, kind, path, reason)
+    code = outcome.code if not failures and outcome is not None else None
+    detail = inputs.reference_diagnostic(left, right, kind, path, reason, code=code)
     detail.update(
         local_comparison="matched"
         if equal is True
@@ -453,19 +456,24 @@ def compare(inputs, left, right, kind, path):
             else None
         )
         if allowed:
-            result, reason = registry.property_rule(kind, path).form_compare(
+            outcome = registry.property_rule(kind, path).form_compare(
                 raw,
                 concrete,
                 allowed,
                 resolve_literal=inputs.reference_literal,
                 format_of=inputs.kms_format,
             )
-            if reason:
+            if outcome.code:
                 return ReferenceDecision(
-                    result,
+                    outcome.equal,
                     (
                         inputs.reference_diagnostic(
-                            original_left, original_right, kind, path, reason
+                            original_left,
+                            original_right,
+                            kind,
+                            path,
+                            outcome.message,
+                            code=outcome.code,
                         ),
                     ),
                 )

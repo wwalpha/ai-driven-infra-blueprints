@@ -1,6 +1,7 @@
 """Static KMS comparison methods; container rules include their recursive contents."""
 
 import re
+from dataclasses import dataclass
 
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
@@ -78,20 +79,31 @@ def identity_same(left, right, forms):
     )
 
 
+@dataclass(frozen=True)
+class FormOutcome:
+    equal: object
+    code: str | None = None
+    message: str | None = None
+
+
 def compare_forms(
     left, right, allowed, *, resolve_literal, format_of, project_arn=None
 ):
     forms = format_of(left), format_of(right)
     reason = None
+    code = None
     if any(form is not None and form not in allowed for form in forms):
         result, reason = (
             False,
             f"KMS format outside allowed forms: model={forms[0]}, iac={forms[1]}",
         )
+        code = "kms.format_outside_allowed"
     elif None in forms:
         result, reason = None, "KMS format is unproven"
+        code = "kms.format_unproven"
     elif forms[0] != forms[1]:
         result, reason = False, f"KMS format mismatch: model={forms[0]}, iac={forms[1]}"
+        code = "kms.format_mismatch"
     elif isinstance(left, ResourceReference) and isinstance(right, ResourceReference):
         result = same(left, right)
     elif references(left) or references(right):
@@ -138,7 +150,7 @@ def compare_forms(
             result = same(*values)
         except (Blocked, ValueError, KeyError, TypeError, OSError):
             result, reason = None, "same KMS format; physical value is unproven"
-    return result, reason
+    return FormOutcome(result, code, reason)
 
 
 RULES = {
