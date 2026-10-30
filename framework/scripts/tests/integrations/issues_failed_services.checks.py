@@ -286,7 +286,10 @@ def main_checks():
                 "uncompared",
                 property_name=path,
             )
-            assert "outside receiving property contract" in record["reason"], record
+            assert (
+                record["reason"]
+                == f"reference target must be KMS.Key: Athena.WorkGroup.{path}"
+            ), record
             athena("[KMS_Key_001](kms.md#resource-KMS_Key_001)", key_arn, "uncompared")
             athena("`" + key_arn + "`", "{{resolve:secretsmanager:key}}", "uncompared")
             athena(

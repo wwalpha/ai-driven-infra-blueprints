@@ -2727,7 +2727,7 @@ class ReferenceValueTests(unittest.TestCase):
                 assert same(alias_arn, key_arn, reference=callback, path=path) is False
                 if allowed == {"KeyArn"}:
                     with pytest.raises(
-                        Blocked, match="outside receiving property contract"
+                        Blocked, match=r"reference target must be KMS\.Key"
                     ):
                         comparison.desired_reference(
                             "kms",
