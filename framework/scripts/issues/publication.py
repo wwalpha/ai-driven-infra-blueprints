@@ -16,6 +16,7 @@ from validation_scope import active_scope
 
 from .artifact import validate_artifact
 from .integrity import whole_target
+from .reader import LoadedScan
 from .reports import iac_report, ordinary_report
 from .review import review_snapshot
 
@@ -68,9 +69,13 @@ def render_snapshot(root, snapshot):
 
 
 def save_scan(root, artifact, review):
+    loaded = isinstance(artifact, LoadedScan)
+    if loaded:
+        artifact = artifact.artifact
     if artifact.get("root") != str(root):
         raise ValueError("invalid scan artifact/root")
-    validate_artifact(artifact)
+    if not loaded:
+        validate_artifact(artifact)
     whole_target(artifact)
     snapshot = review_snapshot(artifact, review)
     data = json.loads(snapshot.data)

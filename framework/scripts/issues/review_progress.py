@@ -12,12 +12,14 @@ from utils.file_operations import atomic_replace_file
 from utils.json_format import exact, fingerprint, strict_json
 
 from .artifact import validate_artifact
+from .reader import read_scan_artifact
 from .records import identifier
 from .review import (
     assigned_diagnostics,
     diagnostic_index,
     required_text,
     review_additions,
+    review_names,
     review_snapshot,
     reviewed_ids,
     validate_confirmations,
@@ -68,21 +70,23 @@ class ReviewController:
         self.artifact_path = external_path(self.root, artifact_path)
         if self.path == self.artifact_path:
             raise ValueError("checkpoint must differ from Scan artifact")
-        raw = self.artifact_path.read_bytes()
-        self._artifact_bytes = raw
-        self._artifact = strict_json(raw)
-        if not isinstance(self._artifact, dict):
-            raise ValueError("Scan artifact must be an object")
+        loaded = read_scan_artifact(self.artifact_path)
+        self._artifact = loaded.artifact
         self._rule_index = NamingRuleIndex(self._artifact["naming_context"])
-        pending_names = validate_artifact(self._artifact, rule_index=self._rule_index)
+        pending_names = review_names(self._artifact, self._rule_index)
         self._verified_bytes = None
         a = self._artifact
         if a.get("root") != str(self.root):
             raise ValueError("invalid scan artifact/root")
-        validate_confirmations(a["human_confirmations"], a["environment"], a["target"])
+        try:
+            validate_confirmations(
+                a["human_confirmations"], a["environment"], a["target"]
+            )
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise ValueError("Scan artifact: invalid human_confirmations") from None
         self._identity = dict(
             scan_id=a["scan_id"],
-            artifact_digest=hashlib.sha256(raw).hexdigest(),
+            artifact_digest=loaded.raw_sha256,
             naming_context_id=a["naming_context_id"],
             scope={key: a[key] for key in ("environment", "target", "services")},
         )
@@ -212,7 +216,10 @@ class ReviewController:
         return fingerprint([self._identity, section, sorted(ids)])
 
     def _load(self) -> Json:
-        if self.artifact_path.read_bytes() != self._artifact_bytes:
+        if (
+            hashlib.sha256(self.artifact_path.read_bytes()).hexdigest()
+            != self._identity["artifact_digest"]
+        ):
             raise ValueError("Scan artifact changed during Review")
         raw = self.path.read_bytes()
         envelope = strict_json(raw)
@@ -330,7 +337,10 @@ class ReviewController:
             if self.path.exists():
                 state = self._load()
             else:
-                if self.artifact_path.read_bytes() != self._artifact_bytes:
+                if (
+                    hashlib.sha256(self.artifact_path.read_bytes()).hexdigest()
+                    != self._identity["artifact_digest"]
+                ):
                     raise ValueError("Scan artifact changed during Review")
                 state = dict(
                     identity=self._identity,

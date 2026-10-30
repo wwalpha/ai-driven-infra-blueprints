@@ -11,6 +11,7 @@ import issues.artifact as _imports_issues_artifact
 import issues.publication as _imports_issues_publication
 import issues.runner as _imports_issues_runner
 
+from .reader import read_review_json, read_scan_artifact
 from .records import safe_text
 from .review_cli import SELECTOR, outside, parser, run_review
 
@@ -46,10 +47,7 @@ def main():
                 return scan_exit_code(artifact)
         if args.command == "detail":
             detail_payload = _imports_issues_artifact.detail_payload
-            artifact = json.loads(
-                outside(root, args.artifact).read_text(encoding="utf-8")
-            )
-            _imports_issues_artifact.validate_artifact(artifact)
+            artifact = read_scan_artifact(outside(root, args.artifact)).artifact
             print(
                 json.dumps(
                     detail_payload(
@@ -69,11 +67,9 @@ def main():
             has_processing_errors = _imports_issues_artifact.has_processing_errors
             summary = _imports_issues_artifact.summary
             save_scan = _imports_issues_publication.save_scan
-            artifact = json.loads(
-                outside(root, args.artifact).read_text(encoding="utf-8")
-            )
-            review = json.loads(outside(root, args.review).read_text(encoding="utf-8"))
-            paths, snapshot, task_name = save_scan(root, artifact, review)
+            loaded = read_scan_artifact(outside(root, args.artifact))
+            review = read_review_json(outside(root, args.review))
+            paths, snapshot, task_name = save_scan(root, loaded, review)
             artifact = json.loads(snapshot.data)
         saved_summary = summary(artifact)
         print(

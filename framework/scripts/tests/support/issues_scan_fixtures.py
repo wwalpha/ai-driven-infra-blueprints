@@ -610,6 +610,8 @@ def snapshot_artifact(
         information=[],
         unverified=[],
         processing_errors=[],
+        machine_diagnostics="",
+        cfn_lint=dict(status="not_run", jobs=[], coverage=[]),
         check_results=[
             dict(
                 id="check",

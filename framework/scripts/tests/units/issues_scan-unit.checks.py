@@ -62,6 +62,7 @@ from support.issues_scan_fixtures import (
     render_iac,
     review_payload,
     run,
+    snapshot_artifact,
     summary,
     summary_fixture,
     sys,
@@ -477,7 +478,19 @@ def summary_scale_cases():
     # Exercise the actual detail CLI for every Issue and an omitted Issue's members.
     with tempfile.TemporaryDirectory() as temporary:
         artifact_path = Path(temporary) / "scan.json"
-        artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+        artifact_path.write_text(
+            json.dumps(
+                dict(
+                    snapshot_artifact(
+                        Path(temporary) / "repository",
+                        artifact["services"],
+                        target="cde",
+                    ),
+                    **artifact,
+                )
+            ),
+            encoding="utf-8",
+        )
         for section, extra, total in (
             ("iac_issues", [], 1194),
             ("iac", ["--issue-id", omitted["id"]], len(omitted["members"])),
@@ -2470,7 +2483,15 @@ def check_cli_repair_category(tmp_path, capsys, section):
     )
     validate_artifact(artifact)
     path = tmp_path / "scan.json"
-    path.write_text(json.dumps(artifact), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            dict(
+                snapshot_artifact(tmp_path / "project", ["iam"], target="team"),
+                **artifact,
+            )
+        ),
+        encoding="utf-8",
+    )
     with patch.object(
         sys,
         "argv",
@@ -2896,7 +2917,15 @@ def check_artifact_v6_rejects_invalid_indexes(fault, phase):
 def check_cli_deferred_pagination_and_filter_separation(tmp_path, capsys):
     artifact = deferred_artifact()
     path = tmp_path / "scan.json"
-    path.write_text(json.dumps(artifact), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            dict(
+                snapshot_artifact(tmp_path / "project", ["codebuild"], target="team"),
+                **artifact,
+            )
+        ),
+        encoding="utf-8",
+    )
     arguments = [
         "issues_scan.py",
         "--repository-root",
