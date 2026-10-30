@@ -3567,6 +3567,22 @@ def _callback_check_repair_invalid_model_final_only(
     return saved_load(scope, reads)
 
 
+@pytest.fixture(scope="module")
+def repair_repository_seed():
+    with _imports_support_repository_fixtures.fixture() as root:
+        before = {
+            path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+        yield root
+        assert before == {
+            path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file()
+        }, "repair cases changed the shared Git seed"
+
+
 @pytest.mark.parametrize(
     "old_error", ["reference", "syntax", "identity", "duplicate", "encoding"]
 )
@@ -3598,120 +3614,110 @@ def _callback_check_repair_invalid_model_final_only(
     ),
 )
 @patch("validation.change.validate_producer_inputs")
-def check_repair_invalid_model(producer_inputs, quality, tmp_path, old_error, failure):
-    fixture = _imports_support_repository_fixtures.fixture
+def check_repair_invalid_model(
+    producer_inputs, quality, tmp_path, old_error, failure, repair_repository_seed
+):
     git = _imports_support_repository_fixtures.git
-    start = _imports_support_repository_fixtures.start
-    with fixture() as root:
-        dependency_fixture(root)
-        relative = "model/stg/cde/service-b.properties"
-        path = root / relative
-        valid = path.read_text()
-        broken = valid
-        if old_error == "syntax":
-            broken = "broken properties\n"
-        elif old_error == "reference":
-            broken = valid.replace(
-                "desired.row.002-001.value", "desired.row.999-001.value"
-            )
-        elif old_error == "identity":
-            broken = valid.replace("ServiceB_Resource_002", "invalid")
-        elif old_error == "duplicate":
-            broken += "desired.resource.002.logicalId=duplicate\n"
-        if old_error == "encoding":
-            broken = "\udcff invalid old UTF-8\n"
-        path.write_bytes(broken.encode("utf-8", errors="surrogateescape"))
-        report = root / "issues/stg/cde/issues.md"
-        report.parent.mkdir(parents=True)
-        report.write_text(
-            "### service-b\n1. Existing validation issue\n", encoding="utf-8"
-        )
-        git(root, "add", "model", "project.json", "issues")
-        git(root, "commit", "-qm", "broken baseline")
-        with patch.object(
-            _imports_support_repository_fixtures.dependency_index, "rebuild"
-        ):
-            target, state = start(root, files=(relative,))
-        path = target / relative
-        name = state["task_file"]
-        task = (
-            (target / name)
-            .read_text()
-            .replace("`governance`", "`design`")
-            .replace("- `framework`", "- `stg/cde/service-a`\n- `stg/cde/service-b`")
-        )
+    root = Path(shutil.copytree(repair_repository_seed, tmp_path / "repository"))
+    assert not (root / ".git/config").samefile(repair_repository_seed / ".git/config")
+    dependency_fixture(root)
+    relative = "model/stg/cde/service-b.properties"
+    path = root / relative
+    valid = path.read_text()
+    broken = valid
+    if old_error == "syntax":
+        broken = "broken properties\n"
+    elif old_error == "reference":
+        broken = valid.replace("desired.row.002-001.value", "desired.row.999-001.value")
+    elif old_error == "identity":
+        broken = valid.replace("ServiceB_Resource_002", "invalid")
+    elif old_error == "duplicate":
+        broken += "desired.resource.002.logicalId=duplicate\n"
+    if old_error == "encoding":
+        broken = "\udcff invalid old UTF-8\n"
+    path.write_bytes(broken.encode("utf-8", errors="surrogateescape"))
+    report = root / "issues/stg/cde/issues.md"
+    report.parent.mkdir(parents=True)
+    report.write_text("### service-b\n1. Existing validation issue\n", encoding="utf-8")
+    git(root, "add", "model", "project.json", "issues")
+    git(root, "commit", "-qm", "broken baseline")
+    target = Path(shutil.copytree(root, tmp_path / "repository-candidate"))
+    assert not (target / ".git/index").samefile(root / ".git/index")
+    path = target / relative
+    name = "tasks/example.md"
+    (target / "tasks").mkdir()
+    task = (
+        _imports_support_repository_fixtures.contract("example", (relative,))
+        .replace("`governance`", "`design`")
+        .replace("- `framework`", "- `stg/cde/service-a`\n- `stg/cde/service-b`")
+    )
+    task = task.replace(
+        "## Task contract\n", "## Task contract\n- Workflow: `update`\n"
+    )
+    if failure == "allowed":
         task = task.replace(
-            "## Task contract\n", "## Task contract\n- Workflow: `update`\n"
+            "## Allowed paths\n- `" + name + "`\n- `" + relative + "`",
+            "## Allowed paths\n- `" + name + "`",
         )
-        if failure == "allowed":
-            task = task.replace(
-                "## Allowed paths\n- `" + name + "`\n- `" + relative + "`",
-                "## Allowed paths\n- `" + name + "`",
-            )
-        elif failure == "scope":
-            task = task.replace("- `stg/cde/service-a`\n", "")
-        (target / name).write_text(task)
-        # Correct both the broken baseline and a formerly fixed IMPORT logicalId.
-        candidate = (
-            valid.replace("ServiceB_Resource_002", "ServiceB_Resource_007")
-            .replace('"ServiceB.Resource":2', '"ServiceB.Resource":7')
-            .replace('"ServiceB.Resource": 2', '"ServiceB.Resource": 7')
+    elif failure == "scope":
+        task = task.replace("- `stg/cde/service-a`\n", "")
+    (target / name).write_text(task)
+    # Correct both the broken baseline and a formerly fixed IMPORT logicalId.
+    candidate = (
+        valid.replace("ServiceB_Resource_002", "ServiceB_Resource_007")
+        .replace('"ServiceB.Resource":2', '"ServiceB.Resource":7')
+        .replace('"ServiceB.Resource": 2', '"ServiceB.Resource": 7')
+    )
+    if failure == "reference":
+        candidate = candidate.replace("ServiceA_Resource_001", "ServiceA_Resource_999")
+    elif failure == "duplicate":
+        candidate += "desired.resource.002.logicalId=duplicate\n"
+    elif failure == "anchor":
+        candidate = candidate.replace("anchor=consumer", 'anchor=unsafe"anchor')
+    saved_load = load_model
+    calls = []
+    final_only = _bind_framework_callback(
+        _callback_check_repair_invalid_model_final_only, calls, saved_load
+    )
+    with (
+        selected_task(target, name),
+        patch("model.operations.load_model", side_effect=final_only),
+        patch("model.dependency_index.change_consumers", return_value=[]),
+    ):
+        save = _bind_framework_callback(
+            _callback_check_repair_invalid_model_save,
+            broken,
+            candidate,
+            failure,
+            name,
+            path,
+            target,
         )
-        if failure == "reference":
-            candidate = candidate.replace(
-                "ServiceA_Resource_001", "ServiceA_Resource_999"
+        if failure in {"none", "scope"}:
+            assert save() == (path,)
+            assert path.read_text() == candidate and quality.called
+            import_guard.require_import_changes(target)
+            task_runtime = module("task_contract_runtime.py", "task_contract_runtime")
+            with patch.object(task_runtime, "Validator") as validator:
+                validator.return_value.report.return_value = 0
+                complete(target, name)
+                validator.return_value.run.assert_called_once()
+            assert (
+                _imports_task_contract.status((target / name).read_text())
+                == "completed"
             )
-        elif failure == "duplicate":
-            candidate += "desired.resource.002.logicalId=duplicate\n"
-        elif failure == "anchor":
-            candidate = candidate.replace("anchor=consumer", 'anchor=unsafe"anchor')
-        saved_load = load_model
-        calls = []
-        final_only = _bind_framework_callback(
-            _callback_check_repair_invalid_model_final_only, calls, saved_load
-        )
-        with (
-            selected_task(target, name),
-            patch("model.operations.load_model", side_effect=final_only),
-            patch("model.dependency_index.change_consumers", return_value=[]),
-        ):
-            save = _bind_framework_callback(
-                _callback_check_repair_invalid_model_save,
-                broken,
-                candidate,
-                failure,
-                name,
-                path,
-                target,
+        else:
+            with pytest.raises((ValueError, OSError)):
+                save()
+            expected = broken
+            if failure == "race":
+                expected += "# external edit\n"
+            assert (
+                path.read_bytes().decode("utf-8", errors="surrogateescape") == expected
             )
-            if failure in {"none", "scope"}:
-                assert save() == (path,)
-                assert path.read_text() == candidate and quality.called
-                import_guard.require_import_changes(target)
-                task_runtime = module(
-                    "task_contract_runtime.py", "task_contract_runtime"
-                )
-                with patch.object(task_runtime, "Validator") as validator:
-                    validator.return_value.report.return_value = 0
-                    complete(target, name)
-                    validator.return_value.run.assert_called_once()
-                assert (
-                    _imports_task_contract.status((target / name).read_text())
-                    == "completed"
-                )
-            else:
-                with pytest.raises((ValueError, OSError)):
-                    save()
-                expected = broken
-                if failure == "race":
-                    expected += "# external edit\n"
-                assert (
-                    path.read_bytes().decode("utf-8", errors="surrogateescape")
-                    == expected
-                )
-        assert (root / relative).read_bytes().decode(
-            "utf-8", errors="surrogateescape"
-        ) == broken
+    assert (root / relative).read_bytes().decode(
+        "utf-8", errors="surrogateescape"
+    ) == broken
 
 
 @pytest.fixture
