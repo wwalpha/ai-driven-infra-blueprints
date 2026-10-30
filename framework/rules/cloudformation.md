@@ -53,7 +53,7 @@
 ## AWS execution context
 
 - Preflight and controllers automatically use target `awsProfile` if present. Pass the same `--profile` and target region to direct AWS CLI too (including validate-template, list/get/describe, and observed value retrieval). Reject explicit profiles differing from settings before execution; do not fall back to another profile after authentication failure.
-- Before deploy, match target account/region stacks read-only and confirm designed stack existence, states, parameters, and resource ownership. Distinguish undesigned stacks, same-named stacks differing from design, and designed stacks absent from AWS; do not automatically adopt/change/delete undesigned stacks. Retrieve current stack status from AWS each time; save the adopted minimal Stack observation through the Model writer.
+- Before deploy, match target account/region stacks read-only and confirm designed stack existence, states, parameters, and resource ownership. Distinguish undesigned stacks, same-named stacks differing from design, and designed stacks absent from AWS; do not automatically adopt/change/delete undesigned stacks. Retrieve current stack status from AWS when needed and retain execution state in the existing execution management, not the Stack Model.
 - Framework SDK controllers perform authorized operations through `utils/aws/`; use AWS CLI only for explicitly directed CLI operations.
 
 ## Design coverage and CloudFormation support

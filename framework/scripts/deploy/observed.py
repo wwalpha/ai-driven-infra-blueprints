@@ -15,8 +15,6 @@ from model.adapters.observed import (
     resolve_resources,
     static_export_handle,
 )
-from model.core import entries, properties
-from model.files import read_model
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked as Blocked
 from utils.json_format import fingerprint
@@ -177,15 +175,6 @@ def collect_successful(backend, units, states, *, generated_views=None):
             {entry[0].stem for entry in mapped[unit["name"]].values()}
         )
     changes, identifiers = {}, {}
-    stack_path = (
-        root / "model" / environment / directory / "cloudformation-stacks.properties"
-    )
-    stack_values = properties(read_model(stack_path))
-    loaded[stack_path] = stack_values
-    stack_ids = {
-        item["name"]: identity
-        for identity, item in entries(stack_values, "desired.stack.")
-    }
     for unit in units:
         name = unit["name"]
         state = states[name]
@@ -237,7 +226,6 @@ def collect_successful(backend, units, states, *, generated_views=None):
         }
         coverage = {}
         state["observedCoverage"] = coverage
-        unit_changed = False
         for logical, (path, _identity, resource, rows, selected_outputs) in mapped[
             name
         ].items():
@@ -326,7 +314,6 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     raw is not None
                 )
                 updated |= changed
-                unit_changed |= changed
                 unknown |= value is None
                 changes.setdefault(path, {})[key] = raw
                 identifiers[own_key(path, resource)] = value
@@ -347,25 +334,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     "status": "EXCLUDED",
                     "reason": "Condition inactive or static/retained scaffold",
                 }
-        identity = stack_ids[name]
-        prefix = f"observed.stack.{identity}."
-        patch = {
-            prefix + "status": stack["StackStatus"],
-            prefix + "reason": stack.get("reason"),
-        }
-        if (
-            unit_changed
-            or any(stack_values.get(key) != value for key, value in patch.items())
-            or prefix + "observedAt" not in stack_values
-        ):
-            patch[prefix + "observedAt"] = stack["observedAt"]
-        changes.setdefault(stack_path, {}).update(patch)
-        state["observedServices"] = sorted(
-            {
-                "cloudformation-stacks",
-                *[entry[0].stem for entry in mapped[name].values()],
-            }
-        )
+        state["currentStack"] = current_state.observation(stack)
     if not changes:
         if not getattr(backend, "run_context", {}).get("stepwise"):
             return {}, [], None

@@ -495,9 +495,9 @@ def check_lakeformation_arn_identifiers_are_not_collected(
             deploy_observed.collect_successful(
                 backend, [{"name": "First"}], {"First": {}}
             ),
-            ({}, ["cloudformation-stacks"], None),
+            ({}, [], None),
         )
-    TestCase().assertEqual(destinations.call_args.args[4].get(source, {}), {})
+    destinations.assert_not_called()
     assert source.read_bytes() == before
     if existing_rows:
         values = sources.load_model(source).authoritative

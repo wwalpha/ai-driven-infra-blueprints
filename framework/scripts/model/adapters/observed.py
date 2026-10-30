@@ -791,11 +791,7 @@ def observed_destinations(
         destinations.update(projected)
         snapshot = load_model(path)
         authority_paths.update(
-            snapshot.locations[
-                key.replace("observed.", "desired.", 1)
-                if key.startswith("observed.row.")
-                else "desired.stack." + key.split(".")[2] + ".name"
-            ][0]
+            snapshot.locations[key.replace("observed.", "desired.", 1)][0]
             for key in updates
         )
     views = set()

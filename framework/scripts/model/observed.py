@@ -30,7 +30,7 @@ def verify_observed_outputs(previous, outputs):
         }
         if any(
             re.fullmatch(
-                r"observed\.(?:row\.[A-Za-z0-9_-]+\.value|stack\.[A-Za-z0-9_-]+\.(?:status|observedAt|reason))",
+                r"observed\.row\.[A-Za-z0-9_-]+\.value",
                 key,
             )
             is None
@@ -67,20 +67,6 @@ def prepare_observed(snapshot, changes, policy):
     by_file = {}
     for key, value in changes.items():
         match = re.fullmatch(r"observed\.row\.([A-Za-z0-9_-]+)\.value", key)
-        stack = re.fullmatch(
-            r"observed\.stack\.([A-Za-z0-9_-]+)\.(status|observedAt|reason)", key
-        )
-        if stack:
-            desired = f"desired.stack.{stack[1]}.name"
-            if (
-                snapshot.scope.service != "cloudformation-stacks"
-                or desired not in snapshot.authoritative
-            ):
-                raise ValueError("Stack observation has no desired Stack: " + key)
-            if value is not None and not isinstance(value, str):
-                raise ValueError("Stack observation must be a string")
-            by_file.setdefault(snapshot.locations[desired][0], {})[key] = value
-            continue
         if not match or value is not None and not isinstance(value, str):
             raise ValueError(
                 "observation changes require observed.row.<id>.value string fields only"
@@ -153,18 +139,6 @@ def observed_outputs(path, values):
     rows = dict(entries(snapshot.authoritative, "desired.row."))
     for key, value in changes.items():
         match = re.fullmatch(r"observed\.row\.([A-Za-z0-9_-]+)\.value", key)
-        stack = re.fullmatch(
-            r"observed\.stack\.([A-Za-z0-9_-]+)\.(status|observedAt|reason)", key
-        )
-        if stack:
-            desired = f"desired.stack.{stack[1]}.name"
-            if (
-                snapshot.scope.service != "cloudformation-stacks"
-                or desired not in snapshot.authoritative
-            ):
-                raise ValueError("Stack observation has no desired Stack: " + key)
-            by_file.setdefault(snapshot.locations[desired][0], {})[key] = value
-            continue
         if not match or match[1] not in rows:
             raise ValueError("observed writer requires an existing desired Row")
         row = match[1]

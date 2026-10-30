@@ -70,16 +70,15 @@ def environment(root):
 
 def candidate(root, task, env, directory, target, stacks, services):
     safe_path = _imports_task_contract.safe_path
-    files, sources, generated_views = {task}, set(), set()
+    files, generated_views = {task}, set()
+    stack_source = root / "model" / env / directory / "cloudformation-stacks.properties"
+    sources = set(stack_snapshot(stack_source).dependencies)
     for service in services:
-        source = root / "model" / env / directory / (service + ".properties")
         design = root / "docs/designs" / env / directory / (service + ".md")
         files.update(model_input_paths(root, [f"{env}/{directory}/{service}"]))
         views = {design, *design.with_suffix("").rglob("*.json")}
         generated_views.update(views)
         files.update(path.relative_to(root).as_posix() for path in views)
-        if service == "cloudformation-stacks":
-            sources.update(stack_snapshot(source).dependencies)
     for path in files:
         safe_path(root, path)
     scope = [f"{env}/{directory}/{service}" for service in services]
@@ -157,7 +156,7 @@ def prepare(root, args, run, timing):
         profile = select_profile(target, args.profile)
         directory = args.alias or target["awsAccountId"]
         limit, units = load_units(root, args.environment, directory, args.stack)
-        services = sorted(set(args.service) | {"cloudformation-stacks"})
+        services = sorted(set(args.service))
         text, sources, scope, generated_views = candidate(
             root,
             args.task_file,

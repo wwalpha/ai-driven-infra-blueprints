@@ -1085,8 +1085,14 @@ def check_stepwise_success_while_peer_running(tmp_path, monkeypatch):
     context = json.loads(report.read_text())
     assert context["states"][first]["status"] == "SUCCESS"
     assert context["states"][second]["status"] == "RUNNING"
+    stack_model = root / "model/dev/123456789012/cloudformation-stacks.properties"
+    stack_bytes = stack_model.read_bytes()
     assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0
+    assert stack_model.read_bytes() == stack_bytes
     before = git(primary, "rev-parse", "HEAD")
+    assert invoke(root, report, aws, ["--action", "sync", "--sync-stack", first]) == 0
+    assert stack_model.read_bytes() == stack_bytes
+    assert git(primary, "rev-parse", "HEAD") == before
     with selected_task(root, "tasks/deploy.md"):
         TestCase().assertEqual(publication.publish(root, "deploy")["status"], "SUCCESS")
     assert git(primary, "rev-parse", "HEAD") == before

@@ -87,7 +87,7 @@ Select from the Human's requested change using this table before loading a workf
   outputs in Validation scope. Read-only reference dependencies do not require whole-service
   quality validation or write authority. Read-only producer discovery never expands Allowed paths, Deployment
   scope or AWS permission. Validate final identities and references; only dedicated operations require preservation outside their declarations.
-  Infrastructure observation writers patch only permitted observed Row values and Deploy Stack status/observedAt/reason in the same
+  Infrastructure observation writers patch only permitted observed Row values in the same
   properties. Destroy cannot change desired/display/reference design. Infrastructure
   update keeps Human intended-design inputs immutable; retain generated-view equality
   and unambiguous deployment-target handoff checks.

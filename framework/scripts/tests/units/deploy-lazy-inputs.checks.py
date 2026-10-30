@@ -1048,11 +1048,15 @@ def check_readiness_and_collection_removal_scope(tmp_path, monkeypatch, policy):
                 match="observed reference requires qa-synthetic/team-a/consumer",
             ):
                 backend.observed_readiness(unit, state)
-            with pytest.raises(
-                ValueError,
-                match="observed reference requires qa-synthetic/team-a/cloudformation-stacks",
-            ):
-                observed.collect_successful(backend, [unit], {"fixture": state})
+            stack_path = scope.path.with_name("cloudformation-stacks.properties")
+            before = stack_path.read_bytes()
+            destinations, services, _ = observed.collect_successful(
+                backend, [unit], {"fixture": state}
+            )
+            assert stack_path not in destinations
+            assert "cloudformation-stacks" not in services
+            assert stack_path.read_bytes() == before
+            assert state["stackStatus"] == "UNKNOWN"
 
 
 @pytest.mark.parametrize("problem", ["scope", "declared", "pending-scope"])
@@ -1179,7 +1183,8 @@ def check_retained_and_updating_resources(tmp_path, monkeypatch, other_action):
         destinations, services, _ = observed.collect_successful(
             backend, [{"name": "fixture"}], {"fixture": state}
         )
-        TestCase().assertIn("cloudformation-stacks", services)
+        TestCase().assertNotIn("cloudformation-stacks", services)
+        TestCase().assertEqual(state["stackStatus"], "UPDATE_COMPLETE")
         TestCase().assertIn(scope.path, destinations)
         output = parse(destinations[scope.path]).values
         TestCase().assertEqual(

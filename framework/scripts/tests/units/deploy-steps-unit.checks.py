@@ -28,7 +28,7 @@ from deploy import (
     steps,
     worktree,
 )
-from model.core import stack_model, validate_model_keys
+from model.core import properties, stack_model, validate_model_keys
 from model.observed import verify_observed_outputs
 from model.projection import observed_value
 from support.cloudformation_deploy_fixtures import Fake, states, units
@@ -298,7 +298,9 @@ def check_step_diagnostics_do_not_expose_unknown_error_values():
     assert known["reason"] == "base advanced; review retained commit"
 
 
-@pytest.mark.parametrize("missing", [False, True, "unknown-literal", "missing-status"])
+@pytest.mark.parametrize(
+    "missing", [False, True, "unknown-literal", "missing-status", "wrong-type"]
+)
 @pytest.mark.parametrize("already_matches", [False, True])
 def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
     source = tmp_path / "model/dev/app/ec2.properties"
@@ -322,7 +324,9 @@ def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
                     "StackResourceSummaries": [
                         {
                             "LogicalResourceId": "Vpc",
-                            "ResourceType": "AWS::EC2::VPC",
+                            "ResourceType": "AWS::S3::Bucket"
+                            if missing == "wrong-type"
+                            else "AWS::EC2::VPC",
                             "ResourceStatus": None
                             if missing == "missing-status"
                             else "CREATE_COMPLETE",
@@ -353,7 +357,6 @@ def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
         patch.object(observed, "DesignSchemaCatalog"),
         patch.object(observed, "resolve_resources", return_value=(loaded, mapped)),
         patch.object(observed, "identifier_source", return_value=(True, [])),
-        patch.object(observed, "read_model", return_value="desired.stack.001.name=A\n"),
         patch.object(observed, "own_key", return_value="self"),
         patch.object(observed, "propagate_references"),
         patch.object(
@@ -363,6 +366,12 @@ def check_every_identifier_is_confirmed(tmp_path, missing, already_matches):
         backend.run_context = {}
         observed.sync_successful(backend, [{"name": "A"}], state)
         TestCase().assertTrue(state["A"]["observedSynced"])
+        TestCase().assertEqual(state["A"]["stackStatus"], "CREATE_COMPLETE")
+        if missing == "wrong-type":
+            TestCase().assertEqual(
+                state["A"]["currentStack"]["reason"], "RESOURCE_TYPE_UNCONFIRMED"
+            )
+        TestCase().assertNotIn("cloudformation-stacks", state["A"]["observedServices"])
         if missing:
             TestCase().assertIsNone(
                 destinations.call_args.args[4][source]["observed.row.001-001.value"]
@@ -1029,12 +1038,7 @@ class TestCurrentState(TestCase):
                     "UNKNOWN",
                 )
         with self.assertRaises(ValueError):
-            stack_model(
-                {
-                    "observed.stack.001.status": "UNKNOWN",
-                    "observed.stack.001.observedAt": "2026-10-30T00:00:00+00:00",
-                }
-            )
+            validate_model_keys({"observed.stack.001.status": "UNKNOWN"})
         with self.assertRaises(Blocked):
             current_state.pages(
                 Mock(return_value={"StackEvents": [None]}),
@@ -1285,26 +1289,16 @@ class TestCurrentState(TestCase):
         self.assertNotIn("vpc-old", rendered)
         self.assertIn("UNOBSERVED", rendered)
 
-    def test_stack_observations_and_deletion_preserve_desired(self):
+    def test_stack_observations_are_rejected(self):
         before = "# model-format: 2\ndesired.stack.001.name=Example\ndesired.stack.001.template=example.yaml\ndesired.stack.001.parameters=example.json\ndesired.stack.001.deployOrder=10\n"
-        after = (
-            before
-            + "observed.stack.001.status=UPDATE_ROLLBACK_COMPLETE\nobserved.stack.001.observedAt=2026-10-30T00:00:00+00:00\n"
-        )
-        verify_observed_outputs(
-            {Path("stacks"): before.encode()}, {Path("stacks"): after}
-        )
-        values = observed.properties(after)
-        validate_model_keys(values)
-        stack_model(values)
-        values["observed.stack.002.status"] = "UNKNOWN"
-        with self.assertRaises(ValueError):
-            stack_model(values)
+        after = before + "observed.stack.001.status=UPDATE_ROLLBACK_COMPLETE\n"
         with self.assertRaises(ValueError):
             verify_observed_outputs(
-                {Path("stacks"): before.encode()},
-                {Path("stacks"): after.replace("deployOrder=10", "deployOrder=20")},
+                {Path("stacks"): before.encode()}, {Path("stacks"): after}
             )
+        with self.assertRaises(ValueError):
+            validate_model_keys(properties(after))
+        stack_model(properties(before))
 
     def test_external_request_completion_requires_fresh_desired_changeset(self):
         backend = SimpleNamespace(

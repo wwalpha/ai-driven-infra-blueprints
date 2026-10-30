@@ -75,12 +75,12 @@ def check_preparation():
         )
         assert plan["controllerArgv"][0] == sys.executable
         assert plan["scope"] == [
-            "dev/123456789012/cloudformation-stacks",
             "dev/123456789012/ec2",
             "dev/123456789012/iam",
         ]
         text = (run / "contract.md").read_text(encoding="utf-8")
         declared = paths_in(text, "## Modified files")
+        assert "model/dev/123456789012/cloudformation-stacks.properties" not in declared
         model_parts = _imports_model_sources.model_parts
         outputs = {
             p.relative_to(root).as_posix()
@@ -106,7 +106,6 @@ def check_preparation():
             for name in (
                 "ec2.md",
                 "iam.md",
-                "cloudformation-stacks.md",
                 "iam/worker-role-trust-policy.json",
             )
         }
@@ -396,9 +395,7 @@ def check_generated_boundaries():
         original = serialize(load_model(source).authoritative)
         # Service body/schema validation is deferred to its actual use.
         source.write_text("invalid unrelated service body", encoding="utf-8")
-        with patch.object(
-            M, "stack_snapshot", side_effect=AssertionError("eager service load")
-        ):
+        with patch.object(M, "stack_snapshot", wraps=M.stack_snapshot) as read_stack:
             M.candidate(
                 root,
                 "tasks/deploy-offline.md",
@@ -407,6 +404,9 @@ def check_generated_boundaries():
                 TARGET,
                 STACKS,
                 ["iam"],
+            )
+            assert (
+                read_stack.call_args.args[0].name == "cloudformation-stacks.properties"
             )
         source.write_text(original, encoding="utf-8")
         real_load = M.load_units

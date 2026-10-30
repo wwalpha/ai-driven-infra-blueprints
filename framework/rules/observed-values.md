@@ -77,7 +77,7 @@ Before deletion, `model.adapters.observed.destroy_plan()` resolves explicit mode
 
 ## Compact observation persistence
 
-Store actual `observed.row.*.value`, plus the minimal current Deploy Stack observation described below. Runtime Models restore property/comment from
+Store actual `observed.row.*.value` only. Runtime Models restore property/comment from
 desired metadata and preserve every observed value without desired-value substitution.
 An absent observed.row.<id>.value means unobserved. Distinguish empty string and PENDING_DEPLOY; do not create observation sidecars.
 JSON/read errors, orphan rows and unknown states remain errors. Required observation
@@ -102,10 +102,7 @@ complete snapshot; it never rebaselines concurrent design changes.
 
 ## Current Deploy Snapshot
 
-Deploy saves the latest scoped AWS status at `observed.stack.<id>.status`, the adopted
-observation time at `.observedAt` and an optional short current reason code at `.reason`.
-ABSENT/UNKNOWN are Model-only states. No history, token or generated ARN is persisted.
-If state, values and confirmation are unchanged, retain the old time.
+Keep Stack status, identity and reasons in existing Deploy execution management. Retrieve current AWS state when needed; do not save Stack execution state in the Stack Model.
 
 Confirmed non-ARN identifiers use the existing observed Row. Proven uncreated/deleted
 resources use PENDING_DEPLOY. Unconfirmed identifiers delete that Row value; never store

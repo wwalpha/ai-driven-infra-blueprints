@@ -186,6 +186,11 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
         parse(scope.path.read_text()), {"observed.row.008-001.value": "PENDING_DEPLOY"}
     )
     assert "observed.row.008-002.value=subnet-before" in outputs[scope.path]
+    with pytest.raises(ValueError, match="existing desired Row"):
+        observed_outputs(
+            scope.path,
+            {**snapshot.values, "observed.stack.001.status": "UPDATE_COMPLETE"},
+        )
     with pytest.raises(ValueError, match="IMPORT physical identity"):
         observed_outputs(
             scope.path,
@@ -692,6 +697,10 @@ def check_observed_cannot_bypass_import_or_change_authority():
             with pytest.raises(ValueError, match="observed.row"):
                 prepare_observed(
                     snapshot, {"desired.row.007-001.value": "changed"}, context
+                )
+            with pytest.raises(ValueError, match="observed.row"):
+                prepare_observed(
+                    snapshot, {"observed.stack.001.status": "UPDATE_COMPLETE"}, context
                 )
             with pytest.raises(ValueError, match="unregistered"):
                 prepare_edit(
