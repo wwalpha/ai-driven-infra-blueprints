@@ -1310,7 +1310,6 @@ def check_diagnostic_merge_positions_and_equal_messages(tmp_path):
     assert result.status == "FAIL" and parent.errors.count("same error") == 2
 
 
-
 def check_artifact_alias_and_outside_symlink(tmp_path):
     actual = tmp_path / "actual"
     actual.mkdir()
@@ -1323,9 +1322,16 @@ def check_artifact_alias_and_outside_symlink(tmp_path):
     outside.write_text("{}", encoding="utf-8")
     (directory / "outside.json").symlink_to(outside)
     findings = Findings(alias)
-    validate_artifacts(scope={('dev', 'team', 's3')}, accounts={('dev', 'team'): {}}, findings=findings, markdown_design_artifacts=ArtifactReferences(), root=alias)
+    validate_artifacts(
+        scope={("dev", "team", "s3")},
+        accounts={("dev", "team"): {}},
+        findings=findings,
+        markdown_design_artifacts=ArtifactReferences(),
+        root=alias,
+    )
     assert any(d.code == "design.artifact.placement" for d in findings.diagnostics)
     assert not findings.processing_errors
+
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

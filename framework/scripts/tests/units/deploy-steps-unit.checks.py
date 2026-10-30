@@ -47,9 +47,7 @@ if not __debug__:
 
 def recovery_test_aws(operation, *, current, execution, **kwargs):
     if operation == "describe_stacks":
-        return {
-            "Stacks": [{"StackId": "stack", "StackStatus": current}]
-        }
+        return {"Stacks": [{"StackId": "stack", "StackStatus": current}]}
     if operation == "describe_change_set":
         return {
             "ChangeSetId": "change",
@@ -98,9 +96,11 @@ def wrong_owner(path, *, original_lstat, directory):
         return SimpleNamespace(st_mode=info.st_mode, st_uid=-1)
     return info
 
+
 def candidate_test_git(root, *args):
     if args[0] == "clone":
         Path(args[-1]).mkdir()
+
 
 prepare_complete = worktree.prepare_complete
 
@@ -1648,7 +1648,6 @@ class TestCurrentState(TestCase):
         self.assertNotEqual(steps.describe(backend)["result"], "COMPLETE")
 
 
-
 def progress_backend(root, context):
     identity = dict(
         taskFile="tasks/deploy.md",
@@ -1676,7 +1675,6 @@ def progress_backend(root, context):
     )
 
 
-
 def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
     monkeypatch.setattr(sealed_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     old = os.umask(0o022)
@@ -1684,12 +1682,22 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
         path = worktree.progress_path(tmp_path / "project", create=True)
         for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
             assert stat.S_IMODE(directory.stat().st_mode) == 0o700
-        context = {"states": {"A": {"status": "SUCCESS"}}, "inputDigests": {"A": "hash"}}
+        context = {
+            "states": {"A": {"status": "SUCCESS"}},
+            "inputDigests": {"A": "hash"},
+        }
         backend = progress_backend(tmp_path / "project", context)
         with operation_journal.locked(path):
             worktree.save_progress(backend, operation_journal.OPERATION_FIELDS)
-        with operation_journal.locked(worktree.progress_path(backend.root, create=True)):
-            assert worktree.read_progress(backend.root, {"deployIdentity": backend.progress_identity})["states"]["A"]["status"] == "SUCCESS"
+        with operation_journal.locked(
+            worktree.progress_path(backend.root, create=True)
+        ):
+            assert (
+                worktree.read_progress(
+                    backend.root, {"deployIdentity": backend.progress_identity}
+                )["states"]["A"]["status"]
+                == "SUCCESS"
+            )
     finally:
         os.umask(old)
 
@@ -1709,7 +1717,11 @@ def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, lev
         directory.symlink_to(moved, target_is_directory=True)
     else:
         original_lstat = Path.lstat
-        monkeypatch.setattr(Path, "lstat", partial(wrong_owner, original_lstat=original_lstat, directory=directory))
+        monkeypatch.setattr(
+            Path,
+            "lstat",
+            partial(wrong_owner, original_lstat=original_lstat, directory=directory),
+        )
     with pytest.raises(ValueError):
         worktree.progress_path(root, create=True)
 
@@ -1722,34 +1734,56 @@ def check_candidate_validation_displays_report_once(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(publication, "definition_root", lambda root: root)
     monkeypatch.setattr(publication.wt, "paths", lambda *a: [])
     validator = Mock()
-    validator.display_report.side_effect = lambda: (print("specific failure\nTask Acceptance: FAIL"), 1)[1]
+    validator.display_report.side_effect = lambda: (
+        print("specific failure\nTask Acceptance: FAIL"),
+        1,
+    )[1]
     monkeypatch.setattr(publication, "Validator", lambda *a, **k: validator)
-    assert publication.validate_snapshot(tmp_path, tmp_path, "base", "tree", task.name) == 1
+    assert (
+        publication.validate_snapshot(tmp_path, tmp_path, "base", "tree", task.name)
+        == 1
+    )
     assert "specific failure" in capsys.readouterr().out
     validator.run.assert_called_once()
     validator.display_report.assert_called_once()
 
 
 @pytest.mark.parametrize("returncode", [0, 1])
-def check_candidate_subprocess_result_and_resolved_root(tmp_path, monkeypatch, returncode):
+def check_candidate_subprocess_result_and_resolved_root(
+    tmp_path, monkeypatch, returncode
+):
     real = tmp_path / "real"
     real.mkdir()
     alias = tmp_path / "alias"
     alias.symlink_to(real, target_is_directory=True)
-    monkeypatch.setattr(publication.tempfile, "TemporaryDirectory", lambda **kwargs: nullcontext(str(alias)))
-    monkeypatch.setattr(publication.wt.python_env, "runtime", lambda root: (sys.executable, {}))
+    monkeypatch.setattr(
+        publication.tempfile,
+        "TemporaryDirectory",
+        lambda **kwargs: nullcontext(str(alias)),
+    )
+    monkeypatch.setattr(
+        publication.wt.python_env, "runtime", lambda root: (sys.executable, {})
+    )
     monkeypatch.setattr(publication.wt, "git", candidate_test_git)
-    result = SimpleNamespace(returncode=returncode, stdout="specific failure\nTask Acceptance: FAIL", stderr="diagnostic stderr")
+    result = SimpleNamespace(
+        returncode=returncode,
+        stdout="specific failure\nTask Acceptance: FAIL",
+        stderr="diagnostic stderr",
+    )
     run = Mock(return_value=result)
     monkeypatch.setattr(publication.subprocess, "run", run)
     task = SimpleNamespace(name="tasks/a.md", raw=b"task")
     if returncode:
-        with pytest.raises(Exception, match="(?s)specific failure.*Task Acceptance: FAIL.*diagnostic stderr"):
+        with pytest.raises(
+            Exception,
+            match="(?s)specific failure.*Task Acceptance: FAIL.*diagnostic stderr",
+        ):
             publication.validate_candidate(tmp_path, "tree", "base", task)
     else:
         publication.validate_candidate(tmp_path, "tree", "base", task)
     assert run.call_args.kwargs["cwd"] == (real / "repository").resolve()
     assert run.call_args.kwargs["capture_output"] is True
+
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))

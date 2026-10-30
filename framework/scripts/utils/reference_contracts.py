@@ -1547,14 +1547,25 @@ def contract(prop, context=None):
             for value_array in ("", "[]")
         }:
             return {"EC2.VPC": ("VpcId",)}
-    for prefix in ("IAM.Role.AssumeRolePolicyDocument", "IAM.Role.Policies[].PolicyDocument"):
+    for prefix in (
+        "IAM.Role.AssumeRolePolicyDocument",
+        "IAM.Role.Policies[].PolicyDocument",
+    ):
         for array in ("", "[]"):
             condition = prefix + ".Statement" + array + ".Condition."
             for value_array in ("", "[]"):
                 for operator in ("ArnEquals", "ArnLike"):
                     if prop == condition + operator + ".aws" + value_array:
-                        return {"S3.Bucket": ("Arn",), "SecretsManager.Secret": ("Arn",)}
-                if prop == condition + "StringEquals.kms:EncryptionContext:aws:s3" + value_array:
+                        return {
+                            "S3.Bucket": ("Arn",),
+                            "SecretsManager.Secret": ("Arn",),
+                        }
+                if (
+                    prop
+                    == condition
+                    + "StringEquals.kms:EncryptionContext:aws:s3"
+                    + value_array
+                ):
                     return {"S3.Bucket": ("Arn",)}
                 if prop == condition + "StringLike.kms:EncryptionContext" + value_array:
                     return {"SecretsManager.Secret": ("Arn",)}
