@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from model.sources import publication_lock
-from model.validations.naming import NamingRuleIndex
 from utils.file_operations import atomic_replace_file
 from utils.json_format import exact, fingerprint, strict_json
 
@@ -19,7 +18,6 @@ from .review import (
     diagnostic_index,
     required_text,
     review_additions,
-    review_names,
     review_snapshot,
     reviewed_ids,
     validate_confirmations,
@@ -72,8 +70,13 @@ class ReviewController:
             raise ValueError("checkpoint must differ from Scan artifact")
         loaded = read_scan_artifact(self.artifact_path)
         self._artifact = loaded.artifact
-        self._rule_index = NamingRuleIndex(self._artifact["naming_context"])
-        pending_names = review_names(self._artifact, self._rule_index)
+        self._rule_index = loaded.rule_index
+        pending_ids = set(loaded.pending_name_ids)
+        pending_names = [
+            name
+            for name in self._artifact["naming"]["names"]
+            if name["id"] in pending_ids
+        ]
         self._verified_bytes = None
         a = self._artifact
         if a.get("root") != str(self.root):

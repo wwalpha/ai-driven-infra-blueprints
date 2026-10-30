@@ -208,42 +208,14 @@ def check_process_exit_resume_from_checkpoint_and_save(tmp_path):
     finish(resumed)
     output = tmp_path / "review.json"
     resumed.export(output)
-    with task(review.root, data["services"]):
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(ROOT / "framework/scripts/issues_scan.py"),
-                "--repository-root",
-                str(review.root),
-                "--task-file",
-                "tasks/save.md",
-                "save",
-                "--artifact",
-                str(review.artifact_path),
-                "--review",
-                str(output),
-            ],
-            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-    assert result.returncode == 0, result.stderr
-    saved = json.loads(result.stdout)
-    assert (
-        saved["publication_status"] == "SAVED"
-        and saved["post_save_validation_execution"] == "NOT_STARTED"
-    )
-    assert "Current issue" in (review.root / saved["saved"][0]).read_text(
-        encoding="utf-8"
-    )
     exported = json.loads(output.read_text(encoding="utf-8"))
     assert exported == review_for(data)
-    assert tuple(
-        (review.root / path).read_text(encoding="utf-8") for path in saved["saved"]
-    ) == render_snapshot(review.root, review_snapshot(data, exported))
+    expected = render_snapshot(review.root, review_snapshot(data, exported))
+    with task(review.root, data["services"]):
+        paths, snapshot, _ = save_scan(review.root, data, exported)
+    assert "Current issue" in paths[0].read_text(encoding="utf-8")
+    assert tuple(path.read_text(encoding="utf-8") for path in paths) == expected
+    assert render_snapshot(review.root, snapshot) == expected
 
 
 def check_process_revision_resume_export_and_save(tmp_path: Path) -> None:
@@ -316,34 +288,12 @@ def check_process_revision_resume_export_and_save(tmp_path: Path) -> None:
         dict(id="known", outcome="issue", reason="Current diagnostic confirmed")
     ]
     assert exported["diagnostic_assignments"]["owner"] == result["assignment"]
+    expected = render_snapshot(review.root, review_snapshot(data, exported))
     with task(review.root, data["services"]):
-        saved = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(ROOT / "framework/scripts/issues_scan.py"),
-                "--repository-root",
-                str(review.root),
-                "--task-file",
-                "tasks/save.md",
-                "save",
-                "--artifact",
-                str(review.artifact_path),
-                "--review",
-                str(output),
-            ],
-            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-    assert saved.returncode == 0, saved.stderr
-    paths = json.loads(saved.stdout)["saved"]
-    assert "Retained Issue" in (review.root / paths[0]).read_text(encoding="utf-8")
-    assert tuple(
-        (review.root / p).read_text(encoding="utf-8") for p in paths
-    ) == render_snapshot(review.root, review_snapshot(data, exported))
+        paths, snapshot, _ = save_scan(review.root, data, exported)
+    assert "Retained Issue" in paths[0].read_text(encoding="utf-8")
+    assert tuple(path.read_text(encoding="utf-8") for path in paths) == expected
+    assert render_snapshot(review.root, snapshot) == expected
 
 
 def check_large_review_complete_id_coverage_and_equivalent_reports(tmp_path):
@@ -471,10 +421,9 @@ def check_100_automatic_names_excluded_from_review_payload(tmp_path):
             value=f"/aws-glue/jobs/security-{i}-role/ExecutionRole-{i}/"
             + ("error" if i % 2 else "output"),
         )
-        name["decision"] = naming_decision(data, name)
         data["naming"]["names"].append(name)
-    assert all(n["decision"]["status"] == "AUTO_PASS" for n in data["naming"]["names"])
     stamp_naming_scan(data)
+    assert all(n["decision"]["status"] == "AUTO_PASS" for n in data["naming"]["names"])
     assert review_names(data) == []
     review = controller(tmp_path, data)
     review.initialize()

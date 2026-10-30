@@ -17,6 +17,7 @@ from issues.artifact import validate_artifact
 from issues.materials import rule_section
 from issues.reader import read_scan_artifact
 from issues.records import identifier
+from issues.review import naming_decision
 from issues.review_progress import ReviewController, encoded
 from model.sources import publication_lock
 from support.issues_review_progress_fixtures import cli, controller, finish, submission
@@ -48,6 +49,18 @@ def named_artifact(tmp_path, count=23):
     ]
     stamp_naming_scan(data)
     return data
+
+
+def check_controller_validates_naming_once(tmp_path):
+    data = named_artifact(tmp_path, 100)
+    with patch("issues.review.naming_decision", wraps=naming_decision) as decide:
+        review = controller(tmp_path, data)
+    assert decide.call_count == 100
+    assert len(review._base["naming"]) == 100
+    data["naming"]["names"][0]["decision"]["status"] = "AUTO_PASS"
+    review.artifact_path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="incomplete Naming Scan"):
+        ReviewController(review.root, review.artifact_path, review.path)
 
 
 @pytest.mark.parametrize(

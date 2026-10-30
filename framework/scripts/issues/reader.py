@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from model.validations.naming import NamingRuleIndex
 from utils.json_format import strict_json
 
 from .artifact import validate_artifact
@@ -14,6 +15,8 @@ from .review import IncompleteNamingScan
 class LoadedScan:
     artifact: dict
     raw_sha256: str
+    rule_index: NamingRuleIndex
+    pending_name_ids: tuple[str, ...]
 
 
 def _read_json(raw, label):
@@ -90,7 +93,8 @@ def read_scan_artifact(path: Path) -> LoadedScan:
     for issue in artifact["iac_issues"]:
         _field(issue, "members", list, "iac_issues")
     try:
-        validate_artifact(artifact)
+        rule_index = NamingRuleIndex(artifact["naming_context"])
+        pending_names = validate_artifact(artifact, rule_index=rule_index)
     except IncompleteNamingScan as error:
         message = str(error)
         if message in {
@@ -114,7 +118,12 @@ def read_scan_artifact(path: Path) -> LoadedScan:
         OverflowError,
     ):
         raise ValueError("Scan artifact: invalid structure or integrity") from None
-    return LoadedScan(artifact, hashlib.sha256(raw).hexdigest())
+    return LoadedScan(
+        artifact,
+        hashlib.sha256(raw).hexdigest(),
+        rule_index,
+        tuple(name["id"] for name in pending_names),
+    )
 
 
 def read_review_json(path: Path) -> dict:
