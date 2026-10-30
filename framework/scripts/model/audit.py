@@ -211,12 +211,29 @@ def dependencies(root, target, selected):
     return result
 
 
-def disambiguate_names(names, kinds, identities):
+def disambiguate_names(names, kinds, identities, primary):
     counts = Counter((kinds[logical], name) for logical, name in names.items())
-    for logical, name in names.items():
-        identity = identities[logical]
-        if counts[kinds[logical], name] > 1 and identity and identity != name:
-            names[logical] = f"{name} ({identity})"
+    for kind, name in counts:
+        if counts[kind, name] < 2:
+            continue
+        group = [key for key in names if kinds[key] == kind and names[key] == name]
+        fields = primary.get(kind, ())
+        other = sorted(
+            set.intersection(*(set(identities[key]) for key in group)) - set(fields)
+        )
+        choices = [(field,) for field in (*fields, *other)]
+        if len(fields) > 1:
+            choices.append(tuple(fields))
+        for choice in choices:
+            values = [
+                tuple(identities[key].get(field) for field in choice) for key in group
+            ]
+            if all(all(value) for value in values) and len(set(values)) == len(group):
+                for key, value in zip(group, values, strict=True):
+                    identity = ", ".join(value)
+                    if identity != name:
+                        names[key] = f"{name} ({identity})"
+                break
 
 
 @input_scope
@@ -438,6 +455,7 @@ def generate(root, environment, selector, service):
     names = {}
     identities = {}
     kinds = {}
+    primary = {}
     selected_values = selected_model.values
     logical_ids = {
         resource["logicalId"]
@@ -450,21 +468,29 @@ def generate(root, environment, selector, service):
         name, _ = display_name(
             selected_values, number, resource, rows, ROOT, projection=True
         )
-        candidates = [
-            observed_identifier(
+        kind = resource["resourceType"]
+        primary[kind] = tuple(
+            kind + "." + pointer.removeprefix("/properties/").replace("/", ".")
+            for pointer in catalog.schema(kind).get("primaryIdentifier", ())
+            if pointer.startswith("/properties/")
+        )
+        candidates = {}
+        for rid, row in entries(selected_values, "desired.row."):
+            prop = row["property"]
+            if not rid.startswith(number + "-") or prop not in outputs.get(kind, []):
+                continue
+            value = observed_identifier(
                 selected_values.get("observed.row." + rid + ".value"),
                 m.literal,
                 confirmed_display_name,
                 confirmed,
             )
-            for rid, row in entries(selected_values, "desired.row.")
-            if rid.startswith(number + "-")
-            and row["property"] in outputs.get(resource["resourceType"], [])
-        ]
-        candidates = [
-            value for value in candidates if value and value not in logical_ids
-        ]
-        identity = candidates[0] if len(candidates) == 1 else None
+            if prop in candidates:
+                candidates[prop] = None
+            else:
+                candidates[prop] = value if value not in logical_ids else None
+        valid = [value for value in candidates.values() if value]
+        identity = valid[0] if len(valid) == 1 else None
         if (
             not name
             or name in logical_ids
@@ -475,8 +501,8 @@ def generate(root, environment, selector, service):
         logical = resource["logicalId"]
         names[logical] = name
         kinds[logical] = resource["resourceType"]
-        identities[logical] = identity
-    disambiguate_names(names, kinds, identities)
+        identities[logical] = candidates
+    disambiguate_names(names, kinds, identities, primary)
     snapshot = {
         "names": names,
         "target": target,

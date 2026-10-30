@@ -318,10 +318,42 @@ def check():
                 ),
                 ("003", "EC2.VPC", "vpc-three", [("VpcId", "[VPC](#vpc-three)", None)]),
                 ("004", "EC2.VPC", "vpc-four", [("VpcId", "[VPC](#vpc-four)", None)]),
+                (
+                    "005",
+                    "EC2.EIP",
+                    "eip-one",
+                    [
+                        ("Tags[].Key", "`Name`", None),
+                        ("Tags[].Value", "`duplicate`", None),
+                        ("AllocationId", "[EIP](#eip-one)", None),
+                        ("PublicIp", "[EIP](#eip-one)", None),
+                    ],
+                ),
+                (
+                    "006",
+                    "EC2.EIP",
+                    "eip-two",
+                    [
+                        ("Tags[].Key", "`Name`", None),
+                        ("Tags[].Value", "`duplicate`", None),
+                        ("AllocationId", "[EIP](#eip-two)", None),
+                        ("PublicIp", "[EIP](#eip-two)", None),
+                    ],
+                ),
             ],
         )
         name_data["models"]["dev/cde/vpc"]["observed.row.001-002.value"] = "`vpc-a`"
         name_data["models"]["dev/cde/vpc"]["observed.row.002-002.value"] = "`vpc-b`"
+        for number, allocation, address in (
+            ("005", "eipalloc-11111111111111111", "192.0.2.1"),
+            ("006", "eipalloc-22222222222222222", "192.0.2.2"),
+        ):
+            name_data["models"]["dev/cde/vpc"][f"observed.row.{number}-003.value"] = (
+                f"`{allocation}`"
+            )
+            name_data["models"]["dev/cde/vpc"][f"observed.row.{number}-004.value"] = (
+                f"`{address}`"
+            )
         name_data["models"]["dev/cde/vpc"]["observed.row.003-001.value"] = (
             "`vpc-confirmed`"
         )
@@ -331,7 +363,7 @@ def check():
         )
         names = snapshot(generator.generate(name_root, "dev", "cde", "vpc")[0])["names"]
         TestCase().assertEqual(
-            list(names.values()),
+            [names[f"EC2_VPC_{number}"] for number in ("001", "002", "003", "004")],
             [
                 "duplicate (vpc-a)",
                 "duplicate (vpc-b)",
@@ -339,11 +371,24 @@ def check():
                 "（名前未設定）",
             ],
         )
-        for value in ("UNSET", "PENDING_DEPLOY", "PENDING", "TODO", "N/A", "UNUSED"):
+        TestCase().assertEqual(names["EC2_EIP_005"], "duplicate (192.0.2.1)")
+        TestCase().assertEqual(names["EC2_EIP_006"], "duplicate (192.0.2.2)")
+        for index, value in enumerate(
+            (
+                "UNSET",
+                "PENDING_DEPLOY",
+                "PENDING",
+                "TODO",
+                "N/A",
+                "UNUSED",
+                "EC2_VPC_001",
+                "[VPC](#vpc-one)",
+            )
+        ):
             name_data["models"]["dev/cde/vpc"]["observed.row.001-002.value"] = (
                 f"`{value}`"
             )
-            value_root = root / ("unconfirmed-" + value.replace("/", "-"))
+            value_root = root / f"unconfirmed-{index}"
             value_root.mkdir()
             (value_root / "project.json").write_text(
                 (root / "project.json").read_text(encoding="utf-8"), encoding="utf-8"
@@ -352,14 +397,18 @@ def check():
                 value_root / "model/dev/cde/vpc.properties",
                 name_data["models"]["dev/cde/vpc"],
             )
-            _, _, unsupported = generator.generate(value_root, "dev", "cde", "vpc")
-            TestCase().assertIn(
-                (
-                    "EC2.VPC.VpcId",
-                    "observed identifier missing, unresolved or ambiguous",
-                ),
-                unsupported,
-            )
+            source, _, unsupported = generator.generate(value_root, "dev", "cde", "vpc")
+            unresolved_names = snapshot(source)["names"]
+            TestCase().assertEqual(unresolved_names["EC2_VPC_001"], "duplicate")
+            TestCase().assertEqual(unresolved_names["EC2_VPC_002"], "duplicate")
+            if value != "EC2_VPC_001":
+                TestCase().assertIn(
+                    (
+                        "EC2.VPC.VpcId",
+                        "observed identifier missing, unresolved or ambiguous",
+                    ),
+                    unsupported,
+                )
         # Same account, duplicate Alias/service names and another environment stay distinct.
         crossroot = root / "cross-synthetic"
         crossroot.mkdir()

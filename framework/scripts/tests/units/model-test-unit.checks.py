@@ -160,17 +160,44 @@ class DisplayTests(unittest.TestCase):
         }
         kinds = {key: "EC2.VPC" for key in names}
         identities = {
-            "Internal_1": "vpc-a",
-            "Internal_2": "vpc-b",
-            "Internal_3": "vpc-c",
-            "Internal_4": None,
+            "Internal_1": {"EC2.VPC.VpcId": "vpc-a"},
+            "Internal_2": {"EC2.VPC.VpcId": "vpc-b"},
+            "Internal_3": {"EC2.VPC.VpcId": "vpc-c"},
+            "Internal_4": {},
         }
-        disambiguate_names(names, kinds, identities)
+        disambiguate_names(names, kinds, identities, {"EC2.VPC": ("EC2.VPC.VpcId",)})
         self.assertEqual(
             list(names.values()),
-            ["duplicate (vpc-a)", "duplicate (vpc-b)", "unique", "duplicate"],
+            ["duplicate", "duplicate", "unique", "duplicate"],
         )
         self.assertNotIn("Internal_", " ".join(names.values()))
+
+    def test_multiple_and_composite_identifiers(self):
+        kinds = {str(i): "EC2.EIP" for i in range(3)}
+        primary = {"EC2.EIP": ("EC2.EIP.AllocationId", "EC2.EIP.PublicIp")}
+        identities = {
+            "0": {"EC2.EIP.AllocationId": "alloc-a", "EC2.EIP.PublicIp": "ip-a"},
+            "1": {"EC2.EIP.AllocationId": "alloc-b", "EC2.EIP.PublicIp": "ip-b"},
+            "2": {"EC2.EIP.AllocationId": "alloc-c", "EC2.EIP.PublicIp": "ip-c"},
+        }
+        names = {"0": "duplicate", "1": "duplicate", "2": "unique"}
+        disambiguate_names(names, kinds, identities, primary)
+        self.assertEqual(
+            list(names.values()),
+            ["duplicate (alloc-a)", "duplicate (alloc-b)", "unique"],
+        )
+        names = dict.fromkeys(kinds, "duplicate")
+        identities["1"]["EC2.EIP.AllocationId"] = "alloc-a"
+        identities["2"]["EC2.EIP.PublicIp"] = "ip-a"
+        disambiguate_names(names, kinds, identities, primary)
+        self.assertEqual(
+            list(names.values()),
+            [
+                "duplicate (alloc-a, ip-a)",
+                "duplicate (alloc-a, ip-b)",
+                "duplicate (alloc-c, ip-a)",
+            ],
+        )
 
     def test_formal_names(self):
         root = Path(__file__).resolve().parents[4]
