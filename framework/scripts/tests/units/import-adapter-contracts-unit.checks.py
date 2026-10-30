@@ -846,6 +846,37 @@ def test_lambda_optional_code_source_capture(code):
     assert properties["Lambda.Function.ReservedConcurrentExecutions"]["value"] == 5
 
 
+def test_lambda_zip_missing_image_uri_does_not_fail_inventory():
+    ctx = cli.import_context(
+        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
+    )
+    ctx.verified = True
+    record = {
+        "kind": "Lambda.Function",
+        "identity": "fixture",
+        "getters": {
+            "base": {
+                "Configuration": {
+                    "FunctionName": "fixture",
+                    "PackageType": "Zip",
+                    "Role": "arn:aws:iam::123456789012:role/fixture",
+                },
+                "Code": {
+                    "ResolvedS3Object": {
+                        "S3Bucket": "fixture-code",
+                        "S3Key": "handler.zip",
+                    }
+                },
+            },
+            "recursion": {"RecursiveLoop": "Allow"},
+            "provider-lambda-function": {},
+        },
+    }
+    cli.normalize_records(ctx, "lambda", [record])
+    status = inventory.inventory_for(ctx).statuses.get("Lambda.Function", {})
+    assert status.get("status") != "failed"
+
+
 @pytest.mark.parametrize(
     "package,code,expected",
     [
@@ -865,7 +896,7 @@ def test_lambda_optional_code_source_capture(code):
             ("captured", "unobservable"),
         ),
         ("Image", {"ImageUri": "example/image:tag"}, ("missing", "missing")),
-        ("Image", {}, ("unavailable", "unavailable")),
+        ("Image", {}, ("missing", "missing")),
         ("Unknown", {}, ("unavailable", "unavailable")),
         ("Zip", {"Error": {"ErrorCode": "Failure"}}, ("unavailable", "unavailable")),
     ],

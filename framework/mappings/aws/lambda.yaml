@@ -222,10 +222,10 @@ resourceTypes:
         access: [read-write]
         aws: {getter: base, path: Configuration.Architectures, normalize: typed}
       Code.ImageUri:
-        model: {include: false}
+        model: {include: true}
         display: {show: false, name: Code.ImageUri}
         access: [write-only]
-        aws: {getter: sdk-lambda-function, path: Code.ImageUri, normalize: typed}
+        aws: {getter: base, path: Code.ImageUri, normalize: typed}
       Code.S3Bucket:
         model: {include: true}
         display: {show: true, name: Code.S3Bucket}

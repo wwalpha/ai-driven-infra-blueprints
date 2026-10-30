@@ -184,8 +184,6 @@ def conditional_code_capture(
     if field in resolved:
         raise ValueError("Lambda code-source property was not absent")
     if config["PackageType"] == "Image":
-        if not (code.get("ImageUri") or code.get("ResolvedImageUri")):
-            raise ValueError("Lambda image source is unavailable")
         return None
     restriction["evidence"]["packageType"] = "Zip"
     restriction["evidence"]["codeSource"] = {

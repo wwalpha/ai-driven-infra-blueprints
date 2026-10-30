@@ -4534,10 +4534,11 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
                     },
                 },
                 "Code": {
+                    "ImageUri": "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/fixture:tag",
                     "ResolvedS3Object": {
                         "S3Bucket": "fixture-code",
                         "S3Key": "handler.zip",
-                    }
+                    },
                 },
                 "Concurrency": {"ReservedConcurrentExecutions": 5},
             }
@@ -4575,6 +4576,11 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
                     )
             cases.update(
                 {
+                    "Code.ImageUri": (
+                        "Code.ImageUri",
+                        "typed",
+                        "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/fixture:tag",
+                    ),
                     "Code.S3Bucket": (
                         "Code.ResolvedS3Object.S3Bucket",
                         "name",

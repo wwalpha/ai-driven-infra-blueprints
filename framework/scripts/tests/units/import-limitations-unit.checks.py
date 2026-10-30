@@ -5,6 +5,7 @@ import sys
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,7 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from design.catalog import DesignSchemaCatalog
 from model.format import FORMAT_FIELDS
-from model.importing import approval, cli, evidence, limitations, sources
+from model.importing import (
+    adapter_contracts,
+    approval,
+    cli,
+    evidence,
+    limitations,
+    sources,
+)
 from support.import_model_fixtures import resource_values
 from support.model_v2_fixtures import value_snapshot
 from support.pytest_cli import run
@@ -111,7 +119,12 @@ def case():
 def review_case(data):
     before, after, selection, acquisition = data
     return approval.build_review(
-        acquisition, selection, value_snapshot(before), after, {"r1": []}, schema
+        acquisition,
+        selection,
+        value_snapshot(before),
+        after,
+        {r["record"]: [] for r in acquisition["records"]},
+        schema,
     )
 
 
@@ -584,21 +597,88 @@ def test_lambda_retained_code_is_reviewed_as_unverified():
 
 
 @pytest.mark.parametrize(
-    "rows,complete",
+    "package,code,rows,complete",
     [
-        ([], False),
-        ([("Code.ImageUri", "`UNSET`")], False),
-        ([("Code.ImageUri", "`example/image:tag`")], False),
-        ([("Code.ZipFile", "`code`")], True),
+        (
+            "Image",
+            {"ImageUri": "example/image:tag"},
+            [("Code.ImageUri", "`example/image:tag`")],
+            True,
+        ),
+        ("Image", {}, [], False),
+        (
+            "Zip",
+            {"ResolvedS3Object": {"S3Bucket": "bucket", "S3Key": "file.zip"}},
+            [("Code.S3Bucket", "`bucket`"), ("Code.S3Key", "`file.zip`")],
+            True,
+        ),
+        ("Zip", {}, [], False),
     ],
 )
-def test_lambda_new_resource_requires_code_source(rows, complete):
-    data = lambda_case("add", rows)
-    for prop, value in rows:
-        data[3]["records"][0]["properties"]["Lambda.Function." + prop] = {
-            "status": "captured",
-            "value": value.strip("`"),
+def test_lambda_new_resource_requires_code_source(package, code, rows, complete):
+    ctx = cli.import_context(
+        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
+    )
+    ctx.verified = True
+    ctx.call = Mock(
+        return_value={
+            "Configuration": {"FunctionName": "fixture", "PackageType": package},
+            "Code": code,
         }
+    )
+    record = cli.normalize_records(
+        ctx,
+        "lambda",
+        [
+            {
+                "kind": "Lambda.Function",
+                "identity": "fixture",
+                "seedProperties": {"Lambda.Function.FunctionName": "fixture"},
+                "getters": {"recursion": {}, "provider-lambda-function": {}},
+            }
+        ],
+    )[0]
+    ctx.call.assert_called_once_with("lambda", "get_function", FunctionName="fixture")
+    keep = {
+        "FunctionName",
+        "PackageType",
+        "Code.ImageUri",
+        "Code.S3Bucket",
+        "Code.S3Key",
+    }
+    record["properties"] = {
+        p: v
+        for p, v in record["properties"].items()
+        if p.removeprefix("Lambda.Function.") in keep
+    }
+    data = lambda_case("add", rows)
+    data[1].update(
+        resource_values(
+            "001",
+            "Lambda.Function",
+            "lambda-one",
+            "IMPORT",
+            [("FunctionName", "`fixture`"), ("PackageType", "`" + package + "`")]
+            + rows,
+        )
+    )
+    data[2]["resources"][0]["record"] = record["record"]
+    data[2]["limitations"] = [
+        dict(item, record=record["record"])
+        for item in data[2]["limitations"]
+        if record["properties"][item["property"]]["status"] == "unobservable"
+    ]
+    data[3]["records"] = [record]
+    gaps = [
+        {"record": record["record"], "property": p, "status": v["status"]}
+        for p, v in record["properties"].items()
+        if v["status"] in {"unobservable", "withheld"}
+    ]
+    data[3]["inventory"]["Lambda.Function"].update(
+        status="limited" if gaps else "complete",
+        propertiesComplete=not gaps,
+        limitations=gaps,
+    )
     result = review_case(data)
     assert result["completion"]["propertiesResolved"] is complete
     if complete:
@@ -606,6 +686,54 @@ def test_lambda_new_resource_requires_code_source(rows, complete):
     else:
         with pytest.raises(ValueError, match="limitations/structure"):
             approval.review_binding(result, data[3])
+    if package == "Image" and "ResolvedS3Object" not in code:
+        assert all(
+            record["properties"]["Lambda.Function.Code." + n]["status"] == "missing"
+            for n in ("S3Bucket", "S3Key")
+        )
+        assert not gaps
+        if code:
+            assert (
+                record["properties"]["Lambda.Function.Code.ImageUri"]["value"]
+                == code["ImageUri"]
+            )
+
+
+@pytest.mark.parametrize(
+    "package, code, rows",
+    [
+        (
+            "Zip",
+            {"ImageUri": "example/image:tag"},
+            [("Code.ImageUri", "`example/image:tag`")],
+        ),
+        (
+            "Image",
+            {"ResolvedS3Object": {"S3Bucket": "bucket", "S3Key": "file.zip"}},
+            [("Code.S3Bucket", "`bucket`"), ("Code.S3Key", "`file.zip`")],
+        ),
+    ],
+)
+def test_lambda_mismatched_package_cannot_complete(package, code, rows):
+    test_lambda_new_resource_requires_code_source(package, code, rows, False)
+
+
+def test_lambda_artificial_zipfile_capture_cannot_complete():
+    data = lambda_case("add", [("Code.ZipFile", "`code`")])
+    data[3]["records"][0]["properties"]["Lambda.Function.Code.ZipFile"] = {
+        "status": "captured",
+        "value": "code",
+    }
+    result = review_case(data)
+    assert not result["completion"]["propertiesResolved"]
+    with pytest.raises(ValueError, match="limitations/structure"):
+        approval.review_binding(result, data[3])
+
+
+def test_lambda_unacquired_image_uri_is_rejected():
+    data = lambda_case("add", [("Code.ImageUri", "`example/image:tag`")])
+    with pytest.raises(ValueError, match="unacquired Property"):
+        review_case(data)
 
 
 def test_lambda_retain_existing_requires_an_existing_row():

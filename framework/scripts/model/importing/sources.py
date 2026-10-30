@@ -412,20 +412,29 @@ def pending_items(selection, selected, values, property_schema):
             code = {}
             for name in ("S3Bucket", "S3Key", "ImageUri", "ZipFile"):
                 prop = "Lambda.Function.Code." + name
-                code[name] = property_values(
+                value = property_values(
                     values, rid, prop, property_schema(prop), rows=rows
                 )
+                capture = record["properties"].get(prop, {})
                 code[name] = (
-                    isinstance(code[name], str)
-                    and bool(code[name].strip())
-                    and code[name] not in {"UNSET", "PENDING_DEPLOY"}
+                    isinstance(value, str)
+                    and bool(value.strip())
+                    and value not in {"UNSET", "PENDING_DEPLOY"}
+                    and capture.get("status") == "captured"
+                    and typed_equal(value, capture.get("value"))
                 )
             package = record["properties"].get("Lambda.Function.PackageType", {})
             if package.get("status") != "captured" or not (
                 package.get("value") == "Zip"
-                and (code["S3Bucket"] and code["S3Key"] or code["ZipFile"])
+                and code["S3Bucket"]
+                and code["S3Key"]
+                and not code["ImageUri"]
+                and not code["ZipFile"]
                 or package.get("value") == "Image"
                 and code["ImageUri"]
+                and not code["S3Bucket"]
+                and not code["S3Key"]
+                and not code["ZipFile"]
             ):
                 pending.append(
                     {
