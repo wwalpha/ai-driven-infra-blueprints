@@ -174,10 +174,7 @@ def check_success_checkpoint_survives_peer_failure(tmp_path, monkeypatch):
     TestCase().assertEqual(
         status((target / "tasks/deploy.md").read_text(encoding="utf-8")), "completed"
     )
-    TestCase().assertIn(
-        "ROLLBACK_COMPLETE",
-        (primary / f"model/dev/{ACCOUNT}/cloudformation-stacks.properties").read_text(),
-    )
+    TestCase().assertEqual(saved["states"][SECOND]["stackStatus"], "ROLLBACK_COMPLETE")
     count = len(
         [
             entry
