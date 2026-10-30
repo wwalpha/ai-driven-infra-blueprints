@@ -179,13 +179,7 @@ def check_detail_cli(tmp_path):
         )
         for i in range(3)
     ]
-    artifact = dict(
-        version=6,
-        environment="dev",
-        target="team",
-        services=["s3"],
-        **aggregate(records, "dev", "team", ["s3"]),
-    )
+    artifact = snapshot_artifact(tmp_path / "project", target="team", records=records)
     file = tmp_path / "artifact.json"
     write(file, json.dumps(artifact))
     group = artifact["iac_issues"][0]

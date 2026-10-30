@@ -43,6 +43,7 @@ from support.issues_scan_fixtures import (
     forbid_report_text,
     review_for,
     snapshot_artifact,
+    stamp_naming_scan,
     task,
     write,
 )
@@ -221,6 +222,7 @@ def check_naming_review_contract(tmp_path):
             required_missing=False,
         )
     ]
+    stamp_naming_scan(data)
     review = review_for(data)
     assert not json.loads(review_snapshot(data, review).data)["ordinary"]
     assert not json.loads(review_snapshot(data, review).data)["unverified"]
@@ -252,10 +254,12 @@ def check_naming_review_contract(tmp_path):
         with pytest.raises(ValueError):
             review_snapshot(data, review)
     data["naming"]["names"][0]["resourceMode"] = "IMPORT"
+    stamp_naming_scan(data)
     review["issues"] = [issue]
     with pytest.raises(ValueError):
         review_snapshot(data, review)
     data["naming"]["names"][0]["provider_errors"] = ["Name: invalid"]
+    stamp_naming_scan(data)
     review["issues"] = [
         dict(issue, violation="provider_constraint", applied_rule="Name: invalid")
     ]
@@ -294,8 +298,15 @@ def check_naming_review_contract(tmp_path):
 def check_naming_target_cannot_bypass_evidence(tmp_path, rule):
     data = snapshot_artifact(tmp_path, services=["vpc"])
     data["naming"]["names"] = [
-        dict(id="n1", service="vpc", resource="001", property="Name")
+        dict(
+            id="n1",
+            service="vpc",
+            resource="001",
+            property="Name",
+            resourceType="EC2.VPC",
+        )
     ]
+    stamp_naming_scan(data)
     review = review_for(data)
     review["issues"] = [
         dict(
@@ -389,6 +400,7 @@ def check_name_tag_review_identity(tmp_path, prop, same_source):
             if same_source
             else dict(source, line=14, key="desired.row.001-004.value")
         )
+    stamp_naming_scan(data)
     review = review_for(data)
     review["issues"] = [issue]
     if prop != "Name tag" and (
@@ -443,6 +455,7 @@ def check_name_tag_valid_violation_aliases(tmp_path, prop):
             source=source,
         )
     ]
+    stamp_naming_scan(data)
     review = review_for(data)
     review["issues"] = [
         dict(
@@ -513,6 +526,7 @@ def check_scan_tag_sources(tmp_path, mode, kind, tags):
     ]
     data = snapshot_artifact(tmp_path, services=["sqs"])
     data["naming"]["names"] = material["names"]
+    stamp_naming_scan(data)
     review = review_for(data)
     review["issues"] = [
         dict(
@@ -580,6 +594,7 @@ def check_independent_issue_on_naming_property(tmp_path, kind, prop):
             message="Independent violation",
         )
     ]
+    stamp_naming_scan(data)
     review = review_for(data)
     issue = dict(
         service="vpc",
@@ -820,6 +835,7 @@ def check_confirmed_components_together(
         )
         for key, val in confirmations.items()
     ]
+    stamp_naming_scan(data)
     review = review_for(data)
     review["issues"] = [
         dict(
@@ -973,6 +989,7 @@ def check_naming_review_real_patterns_and_confirmed_values(
                 exceptions=[],
             )
         ]
+    stamp_naming_scan(data)
     review = review_for(data)
     if violation:
         issue = dict(
@@ -1339,8 +1356,17 @@ def check_atomic_rollback(tmp_path, selected, after):
 )
 def check_review_rejects_incomplete_and_old_inputs(tmp_path, fault):
     data = reviewed_artifact(tmp_path)
+    data["naming"]["names"] = [
+        dict(
+            id="name",
+            service="s3",
+            resource="001",
+            resourceType="S3.Bucket",
+            property="Name",
+        )
+    ]
+    stamp_naming_scan(data)
     review = review_for(data)
-    data["naming"]["names"] = [dict(id="name")]
     data["judgments"] = [dict(id="judgment", kind="prose")]
     review.update(reviewed_names=["name"], reviewed_judgments=["judgment"])
     if fault == "scan_id":
@@ -1501,6 +1527,7 @@ def decision_artifact(root, kind, prop, value, mode="CREATE"):
         resourceMode=mode,
     )
     data["naming"]["names"] = [name]
+    name["naming_context_id"] = data["naming_context_id"]
     name["decision"] = naming_decision(data, name)
     return data, name
 

@@ -34,7 +34,7 @@ from issues.artifact import detail_payload, review_payload, summary
 from issues.materials import naming_materials
 from issues.publication import save_scan
 from issues.reports import iac_report
-from issues.review import review_names
+from issues.review import naming_decision, review_names
 from issues.runner import mechanical, scan
 from model.core import entries, properties
 from model.files import load_model, model_file_contents, read_model, resource_row_index
@@ -397,10 +397,10 @@ def summary_fixture():
             service="s3",
             resource=f"{i:04d}",
             property="BucketName",
+            resourceType="S3.Bucket",
             value=f"bucket-app-dev-data{i}",
             resourceMode="CREATE",
             comment="human-confirmed application=app",
-            pattern_review="required",
         )
         for i in range(1000)
     ]
@@ -413,7 +413,11 @@ def summary_fixture():
         )
         for i in range(100)
     ]
-    context = dict(rules={}, target_context={}, review_policy="review all")
+    context = dict(
+        rules={},
+        target_context=dict(environment="dev", alias="cde", suffix=None),
+        review_policy="review all",
+    )
     artifact = dict(
         version=6,
         scan_id="a" * 32,
@@ -433,7 +437,20 @@ def summary_fixture():
         executed_at="2026-10-08T00:00:00Z",
         **aggregate(records, "dev", "cde", ["glue", "iam", "s3"], display),
     )
+    stamp_naming_scan(artifact)
     return artifact
+
+
+def stamp_naming_scan(artifact):
+    """Complete explicitly constructed synthetic Scan evidence before review."""
+    context = artifact["naming_context"]
+    target = context.setdefault("target_context", {})
+    target.update(environment=artifact["environment"], alias=artifact["target"])
+    target.setdefault("suffix", None)
+    artifact["naming_context_id"] = identifier(context)
+    for name in artifact["naming"]["names"]:
+        name["naming_context_id"] = artifact["naming_context_id"]
+        name["decision"] = naming_decision(artifact, name)
 
 
 @pytest.fixture(scope="module", autouse=True)

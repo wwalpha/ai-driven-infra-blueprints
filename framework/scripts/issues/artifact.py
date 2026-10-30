@@ -291,9 +291,19 @@ def validate_artifact(artifact, *, rule_index=None):
                 raise ValueError("outside diagnostic cannot be an ordinary Issue")
     if not re.fullmatch(r"[0-9a-f]{32}", artifact.get("scan_id", "")):
         raise ValueError("invalid scan_id")
-    if identifier(artifact["naming_context"]) != artifact["naming_context_id"]:
-        raise ValueError("invalid naming_context_id")
-    pending_names = review_names(artifact, rule_index) if "naming" in artifact else []
+    if not isinstance(artifact.get("naming_context"), dict) or identifier(
+        artifact["naming_context"]
+    ) != artifact.get("naming_context_id"):
+        raise ValueError(
+            "incomplete Naming Scan: invalid naming_context_id; explicit rescan and Review required"
+        )
+    if not isinstance(artifact.get("naming"), dict) or not isinstance(
+        artifact["naming"].get("names"), list
+    ):
+        raise ValueError(
+            "incomplete Naming Scan: missing names; explicit rescan and Review required"
+        )
+    pending_names = review_names(artifact, rule_index)
     records, meta = artifact["iac"], artifact["record_meta"]
     if len(records) != len(meta) or artifact["overview"]["record_count"] != len(
         records

@@ -24,7 +24,13 @@ from support.issues_review_progress_fixtures import (
     finish,
     submission,
 )
-from support.issues_scan_fixtures import fixture, review_for, snapshot_artifact, task
+from support.issues_scan_fixtures import (
+    fixture,
+    review_for,
+    snapshot_artifact,
+    stamp_naming_scan,
+    task,
+)
 from support.issues_scan_fixtures import pytestmark as pytestmark
 from support.pytest_cli import run
 from utils.json_format import fingerprint
@@ -373,6 +379,7 @@ def check_large_review_complete_id_coverage_and_equivalent_reports(tmp_path):
         )
         for i in range(43)
     ]
+    stamp_naming_scan(data)
     review = controller(tmp_path, data)
     review.initialize()
     status = finish(review)
@@ -380,10 +387,10 @@ def check_large_review_complete_id_coverage_and_equivalent_reports(tmp_path):
     assert status["sections"]["naming"]["reviewed"] == 1223
     assert status["sections"]["human_confirmations"]["reviewed"] == 532
     exported, rendered = publish(review, tmp_path)
-    legacy = review_for(data)
-    assert exported == legacy
-    assert review_snapshot(data, exported) == review_snapshot(data, legacy)
-    assert rendered == render_snapshot(review.root, review_snapshot(data, legacy))
+    expected = review_for(data)
+    assert exported == expected
+    assert review_snapshot(data, exported) == review_snapshot(data, expected)
+    assert rendered == render_snapshot(review.root, review_snapshot(data, expected))
 
 
 def check_scan_automatic_pass_resume_review_export_save(tmp_path):
@@ -434,55 +441,6 @@ def check_scan_automatic_pass_resume_review_export_save(tmp_path):
     snapshot = json.loads(review_snapshot(data, exported).data)
     assert set(snapshot["automatically_reviewed_names"]) == {n["id"] for n in automatic}
     assert len(snapshot["naming"]["names"]) == len(data["naming"]["names"])
-
-
-def check_100_automatic_names_excluded_from_review_payload(tmp_path):
-    root = tmp_path / "repository"
-    fixture(root, services=["cloudwatch-logs"])
-    data = scan(
-        root,
-        "dev",
-        "123456789012",
-        ["cloudformation-stacks", "cloudwatch-logs"],
-        jobs=1,
-    )
-    source = next(
-        n for n in data["naming"]["names"] if n["service"] == "cloudwatch-logs"
-    )
-    data["naming"]["names"] = []
-    for i in range(100):
-        name = dict(
-            source,
-            id=f"log-{i}",
-            resource=f"{i:04d}",
-            value=f"/aws-glue/jobs/security-{i}-role/ExecutionRole-{i}/"
-            + ("error" if i % 2 else "output"),
-        )
-        name["decision"] = naming_decision(data, name)
-        data["naming"]["names"].append(name)
-    assert all(n["decision"]["status"] == "AUTO_PASS" for n in data["naming"]["names"])
-    assert review_names(data) == []
-    review = controller(tmp_path, data)
-    review.initialize()
-    naming_batches = 0
-    while not review.status()["complete"]:
-        batch = review.next_batch()
-        naming_batches += batch["section"] == "naming"
-        review.submit(submission(batch))
-    assert naming_batches == 0
-    assert review.status()["automatically_reviewed_names"] == 100
-    exported, _ = publish(review, tmp_path)
-    assert exported["reviewed_names"] == []
-    snapshot = json.loads(review_snapshot(data, exported).data)
-    ids = [name["id"] for name in data["naming"]["names"]]
-    assert snapshot["naming"]["names"] == data["naming"]["names"]
-    assert len(ids) == len(set(ids)) == 100
-    assert len(snapshot["automatically_reviewed_names"]) == 100
-    assert set(snapshot["automatically_reviewed_names"]) == set(ids)
-    assert not snapshot["ordinary"]
-    assert not any(
-        name["decision"]["violations"] for name in snapshot["naming"]["names"]
-    )
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ def main():
             artifact = json.loads(
                 outside(root, args.artifact).read_text(encoding="utf-8")
             )
+            _imports_issues_artifact.validate_artifact(artifact)
             print(
                 json.dumps(
                     detail_payload(

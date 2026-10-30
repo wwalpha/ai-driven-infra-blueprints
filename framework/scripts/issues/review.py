@@ -521,28 +521,35 @@ def review_names(artifact, rule_index=None):
     pending = []
     seen = set()
     target = artifact["naming_context"].get("target_context", {})
-    if any("decision" in name for name in artifact["naming"]["names"]) and (
-        target.get("environment") != artifact.get("environment")
+    if artifact["naming"]["names"] and (
+        not isinstance(target, dict)
+        or target.get("environment") != artifact.get("environment")
         or target.get("alias", target.get("awsAccountId")) != artifact.get("target")
         or "suffix" not in target
     ):
-        raise ValueError("incomplete Naming target context; rescan required")
+        raise ValueError(
+            "incomplete Naming Scan target context; explicit rescan and Review required"
+        )
     for name in artifact["naming"]["names"]:
         key = required_text(name, "id")
         if key in seen:
-            raise ValueError("duplicate naming ID")
+            raise ValueError(
+                "incomplete Naming Scan: duplicate naming ID; explicit rescan and Review required"
+            )
         seen.add(key)
-        if (
-            "naming_context_id" in name
-            and name["naming_context_id"] != artifact["naming_context_id"]
-        ):
-            raise ValueError("Naming item context ID mismatch")
-        if "decision" not in name:
-            pending.append(name)
-            continue
+        if name.get("naming_context_id") != artifact["naming_context_id"]:
+            raise ValueError(
+                "incomplete Naming Scan: Naming item context ID mismatch; explicit rescan and Review required"
+            )
+        if not isinstance(name.get("decision"), dict):
+            raise ValueError(
+                "incomplete Naming Scan: invalid or missing decision; explicit rescan and Review required"
+            )
         decision = naming_decision(artifact, name, rule_index)
         if name["decision"] != decision:
-            raise ValueError("Naming decision does not match Scan evidence")
+            raise ValueError(
+                "incomplete Naming Scan: Naming decision does not match Scan evidence; explicit rescan and Review required"
+            )
         if decision["status"] != "AUTO_PASS":
             pending.append(name)
     return pending

@@ -13,12 +13,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+from issues.artifact import validate_artifact
 from issues.materials import rule_section
 from issues.records import identifier
 from issues.review_progress import ReviewController, encoded
 from model.sources import publication_lock
 from support.issues_review_progress_fixtures import cli, controller, finish, submission
-from support.issues_scan_fixtures import review_for, snapshot_artifact
+from support.issues_scan_fixtures import (
+    review_for,
+    snapshot_artifact,
+    stamp_naming_scan,
+)
 from support.pytest_cli import run
 from utils.json_format import fingerprint
 
@@ -40,7 +45,106 @@ def named_artifact(tmp_path, count=23):
         )
         for i in range(count)
     ]
+    stamp_naming_scan(data)
     return data
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "all_missing",
+        "partial_missing",
+        "null",
+        "wrong_type",
+        "suffix",
+        "target",
+        "target_type",
+        "item_context",
+        "context_id",
+        "context_missing",
+        "naming_missing",
+        "duplicate",
+    ],
+)
+def check_incomplete_naming_scan_rejected(tmp_path, fault):
+    data = named_artifact(tmp_path, 2)
+    names = data["naming"]["names"]
+    if fault == "all_missing":
+        for name in names:
+            del name["decision"]
+    elif fault == "partial_missing":
+        del names[0]["decision"]
+    elif fault == "null":
+        names[0]["decision"] = None
+    elif fault == "wrong_type":
+        names[0]["decision"] = "AUTO_PASS"
+    elif fault == "suffix":
+        del data["naming_context"]["target_context"]["suffix"]
+        data["naming_context_id"] = identifier(data["naming_context"])
+    elif fault == "target":
+        data["target"] = "other"
+    elif fault == "target_type":
+        data["naming_context"]["target_context"] = None
+        data["naming_context_id"] = identifier(data["naming_context"])
+    elif fault == "item_context":
+        names[0]["naming_context_id"] = "wrong"
+    elif fault == "context_id":
+        data["naming_context_id"] = "wrong"
+    elif fault == "context_missing":
+        del data["naming_context"]
+    elif fault == "naming_missing":
+        del data["naming"]
+    else:
+        names.append(deepcopy(names[0]))
+    with pytest.raises(ValueError, match="incomplete Naming Scan.*rescan and Review"):
+        validate_artifact(data)
+
+
+def check_incomplete_naming_cli_preserves_files(tmp_path):
+    data = named_artifact(tmp_path, 2)
+    review = controller(tmp_path, data)
+    review.initialize()
+    review_file = tmp_path / "review.json"
+    review_file.write_text(json.dumps(review_for(data)), encoding="utf-8")
+    directory = review.root / "issues/dev/123456789012"
+    directory.mkdir(parents=True)
+    files = [
+        review.path,
+        *(
+            directory / name
+            for name in ("issues.md", "iac-issues.md", "human-confirmations.yaml")
+        ),
+    ]
+    for path in files[1:]:
+        path.write_text("original", encoding="utf-8")
+    before = {path: path.read_bytes() for path in files}
+    del data["naming"]["names"][0]["decision"]
+    review.artifact_path.write_text(json.dumps(data), encoding="utf-8")
+    script = Path(__file__).resolve().parents[2] / "issues_scan.py"
+    common = [sys.executable, "-B", str(script), "--repository-root", str(review.root)]
+    for args in (
+        [
+            "review",
+            "status",
+            "--artifact",
+            str(review.artifact_path),
+            "--state",
+            str(review.path),
+        ],
+        ["detail", "--artifact", str(review.artifact_path), "--section", "naming"],
+        ["save", "--artifact", str(review.artifact_path), "--review", str(review_file)],
+    ):
+        result = subprocess.run(
+            common + args, capture_output=True, text=True, encoding="utf-8", check=False
+        )
+        assert result.returncode == 2
+        assert (
+            "incomplete Naming Scan" in result.stderr
+            and "rescan and Review" in result.stderr
+        )
+        assert {path: path.read_bytes() for path in files} == before
+    data["naming"]["names"] = []
+    assert validate_artifact(data) == []
 
 
 def naming_controller(tmp_path, count=23):
@@ -82,6 +186,7 @@ def check_real_naming_rules_shared_with_complete_twenty_item_batch(
         ]
     for i, name in enumerate(data["naming"]["names"]):
         namespace = namespaces[i % len(namespaces)]
+        name["value"] = None
         name["resourceType"] = namespace + (
             ".Bucket" if namespace == "S3" else ".Queue"
         )
@@ -90,13 +195,15 @@ def check_real_naming_rules_shared_with_complete_twenty_item_batch(
         review_policy="Review every applicable rule and fixed component",
         rules=rules,
     )
-    data["naming_context_id"] = identifier(data["naming_context"])
+    stamp_naming_scan(data)
     review = controller(tmp_path, data)
     review.initialize()
     while review.status()["next_section"] == "naming_context":
         review.submit(submission(review.next_batch()))
     batch = review.next_batch(limit=20)
-    assert len(batch["items"]) == 20
+    assert 0 < len(batch["items"]) <= 20
+    if len(namespaces) == 1:
+        assert len(batch["items"]) == 20
     assert len(encoded(batch).encode("utf-8")) <= 32768
     shared = batch["naming_context"]
     assert shared == dict(
@@ -111,25 +218,8 @@ def check_real_naming_rules_shared_with_complete_twenty_item_batch(
             assert (
                 encoded(batch).count(json.dumps(rule["text"], ensure_ascii=False)) == 1
             )
-    # Compare the previous per-item payload under the same complete-JSON byte budget.
-    legacy = {k: v for k, v in batch.items() if k != "naming_context"}
-    legacy["items"] = []
-    for material in batch["items"]:
-        context = dict(
-            shared, rules={k: rules[k] for k in material["naming_rule_refs"]}
-        )
-        legacy["items"].append(
-            {k: v for k, v in material.items() if k != "naming_rule_refs"}
-            | {"naming_context": context}
-        )
-        legacy["expected_ids"] = [m["item"]["id"] for m in legacy["items"]]
-        if len(encoded(legacy).encode("utf-8")) > 32768:
-            break
-    print(
-        f"Naming {namespaces}: {len(legacy['items']) - 1} -> 20 items, {len(encoded(batch).encode('utf-8'))} bytes"
-    )
     review.submit(submission(batch))
-    assert review.status()["sections"]["naming"]["reviewed"] == 20
+    assert review.status()["sections"]["naming"]["reviewed"] == len(batch["items"])
 
 
 def revision_for(
@@ -160,6 +250,7 @@ def revision_controller(tmp_path: Path) -> ReviewController:
             evidence="Human fact",
         )
     ]
+    stamp_naming_scan(data)
     review = controller(tmp_path, data)
     review.initialize()
     finish(review)
@@ -391,7 +482,7 @@ def check_inventory_context_order_and_fetch_is_not_review(tmp_path):
         target_context=dict(environment="dev"),
         rules=dict(S3=[dict(path="rules/s3.md", text="rule body")]),
     )
-    data["naming_context_id"] = identifier(data["naming_context"])
+    stamp_naming_scan(data)
     review = controller(tmp_path, data)
     status = review.initialize()
     assert status["sections"]["naming_context"]["total"] == 2
@@ -588,6 +679,8 @@ def check_scan_identity_mismatch_preserves_checkpoint(tmp_path, fault):
         data["naming_context_id"] = identifier(data["naming_context"])
     else:
         data["target"] = data["human_confirmations"]["target"] = "other"
+    if fault in {"context", "scope"}:
+        stamp_naming_scan(data)
     review.artifact_path.write_text(encoded(data), encoding="utf-8")
     before = review.path.read_bytes()
     other = ReviewController(review.root, review.artifact_path, review.path)

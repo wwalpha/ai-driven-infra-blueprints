@@ -2465,6 +2465,7 @@ def check_cli_repair_category(tmp_path, capsys, section):
         scan_id="a" * 32,
         naming_context={},
         naming_context_id=identifier({}),
+        naming={"names": []},
         **aggregate(records, "dev", "team", ["iam"]),
     )
     validate_artifact(artifact)
