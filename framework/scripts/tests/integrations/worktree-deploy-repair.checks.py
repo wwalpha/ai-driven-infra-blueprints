@@ -86,6 +86,10 @@ def _callback_external_round_trip_interrupted_git(
     return result
 
 
+def _dependency_read(fake, operation, **kwargs):
+    return getattr(fake, operation)(**kwargs)
+
+
 def validate_parent(parent):
     interpreter, environment = wt.python_env.runtime(parent)
     command = [
@@ -145,9 +149,7 @@ def failed_request(
     }
     fake = clients(parent, report, aws)(None, "cloudformation")
 
-    def reader(operation, **kwargs):
-        return getattr(fake, operation)(**kwargs)
-
+    reader = _bind_framework_callback(_dependency_read, fake)
     journal = report.with_suffix(".operations.json")
     with (
         patch.object(handoff, "dependency_reader", return_value=reader),
