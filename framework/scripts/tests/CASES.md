@@ -639,7 +639,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `import-agent-sources::check_duplicate_add_uses_baseline` | `check_duplicate_add_uses_baseline` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L222) | pytest / 8 | 取得・追加候補・不変性の単体判定 | Append-only Import |
 | `import-agent-sources::check_selection_identity_duplicate` | `check_selection_identity_duplicate` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L238) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
 | `import-agent-sources::check_existing_identity_ambiguity_is_local` | `check_existing_identity_ambiguity_is_local` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L248) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_unknown_identity_does_not_block_add` | `check_unknown_identity_does_not_block_add` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L264) | pytest / 4 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_unknown_identity_does_not_block_add` | `check_unknown_identity_does_not_block_add` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L264) | pytest / 3 | 欠落（None）・UNSET・PENDING_DEPLOYの各識別子で追加を妨げず警告する。空文字はNoneと同じ入力になるため除外 | Append-only Import |
 | `import-agent-sources::check_new_resource_and_explicit_dispositions` | `check_new_resource_and_explicit_dispositions` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L272) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
 | `import-agent-sources::check_binding_identity_and_addition` | `check_binding_identity_and_addition` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L295) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
 | `import-agent-sources::check_shared_property_typed_preservation` | `check_shared_property_typed_preservation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L310) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
@@ -1990,7 +1990,7 @@ Model操作の値・承認・保存判定は既存UTへ集約する。Worktree�
 | `import-resource-consolidation::check_model_operation_rejects_unproved_changes` | `check_model_operation_rejects_unproved_changes` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L592) | pytest / 9 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
 | `import-resource-consolidation::check_model_operation_contract_scope` | `check_model_operation_contract_scope` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L625) | pytest / 8 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
 | `import-resource-consolidation::check_model_operation_row_correspondence` | `check_model_operation_row_correspondence` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L656) | pytest / 1 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
-| `import-resource-consolidation::check_model_operation_shape_preservation` | `check_model_operation_shape_preservation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L699) | pytest / 5 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
+| `import-resource-consolidation::check_model_operation_shape_preservation` | `check_model_operation_shape_preservation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L699) | pytest / 3 | 任意行の転送、JSON document転送、未転送JSONの拒否。choice/optional-jsonは同一入力・同一分岐のため除外 | IMPORT統合・削除 |
 | `import-resource-consolidation::check_external_completion_proof` | `check_external_completion_proof` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L733) | pytest / 10 | read_proofの署名/期限/Task/Base/Scope、binding Task/worktree照合とrisk digest改ざん拒否、証跡保持/除去 | Import Receipt |
 | `import-resource-consolidation::check_snapshot_proof_resigning_and_cleanup` | `check_snapshot_proof_resigning_and_cleanup` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L799) | pytest / 1 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
 | `import-resource-consolidation::check_model_only_publication` | `check_model_only_publication` | IT | [integrations/model-operation-publication.checks.py](integrations/model-operation-publication.checks.py#L74) | pytest / 6 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
@@ -2300,7 +2300,7 @@ Properties v2 の追加移行対応（model-properties-v2）:
 | --- | --- | --- | --- | --- |
 | `existing-ut-inventory` | `check_pending_reference_is_required_input` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L365) | pytest / 1 | 保存済みResource URIは観測値が未配備でも必須入力として保持し、空値・未確定literalは拒否、入力不変 |
 
-| `candidate-model/repair` | `check_repair_invalid_model` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1947) | pytest / 40 | 不正な参照・形式・identity・重複の修正保存、IMPORT固定値変更、候補検証・権限・scope・競合・rollback、Git baseline Model展開なし | Added |
+| `candidate-model/repair` | `check_repair_invalid_model` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1947) | pytest / 20 | 修正前5不正形式で成功・競合・rollback、reference形式で候補参照/重複/権限/scope/anchorの各境界。IMPORT固定値訂正と修正後のみの検証を維持 | Added |
 
 ## 残存UTの登録整合
 
@@ -2680,7 +2680,7 @@ import-model/import-cli/Worktree/Full IT、cProfile、性能用追加実行は�
 | `resource-impact::cycles` | `check_minimal_fallback_and_cycles` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py#L54) | pytest / 1 | Resource/Service境界と循環停止 | Resource impact |
 | `resource-impact::invalid` | `check_invalid_baseline_and_counter` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py#L67) | pytest / 1 | 不正旧Modelと不明採番の局所fallback | Resource impact |
 
-既存 `units/import-model-unit.checks.py::check_repair_invalid_model` は旧Snapshotのraw差分取得を許可し、変更後だけの `load_model`、旧syntax/identity/encoding不正の修復、権限・scope・race・rollback・anchor拒否の全40展開を維持する。旧Modelを完全検証することを要求しない。
+`units/import-model-unit.checks.py::check_repair_invalid_model` は修正前Snapshotのraw差分取得を許可し、変更後だけの `load_model` を検証する。参照・syntax・identity・重複・encodingの5不正形式で成功・競合・rollbackの15ケース、reference形式で候補参照・候補重複・権限・scope・anchorの5ケース、計20ケースを維持する。修正前Modelの完全な妥当性は要求しない。
 
 `integrations/sync-model.checks.py::check_integrated_validator` の2展開はImpact再計算3回の旧期待を、共通Snapshotによる計算1回の期待へ変更。生成・入力比較各1回を保持し、候補品質Gateは呼ばず、明示的content Acceptanceのみ保存後に独立実行する。
 

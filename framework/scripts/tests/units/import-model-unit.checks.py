@@ -383,7 +383,7 @@ def check_existing_identity_ambiguity_is_local():
     )
 
 
-@pytest.mark.parametrize("unknown", [None, "", "UNSET", "PENDING_DEPLOY"])
+@pytest.mark.parametrize("unknown", [None, "UNSET", "PENDING_DEPLOY"])
 def check_unknown_identity_does_not_block_add(unknown):
     old = resource(identity=unknown)
     new = {**old, **resource("009")}
@@ -1254,15 +1254,13 @@ def check_model_operation_catalog_arrays(tmp_path, properties, expected):
         ]
 
 
-@pytest.mark.parametrize(
-    "shape", ["optional", "choice", "optional-json", "document", "untransferred"]
-)
+@pytest.mark.parametrize("shape", ["optional", "document", "untransferred"])
 def check_model_operation_shape_preservation(tmp_path, shape):
     before, after = tmp_path / "before", tmp_path / "after"
     operation_fixture(before)
     path = before / "model/stg/cde/vpc.properties"
     values = dict(load_model(path).authoritative)
-    if shape in {"optional", "choice"}:
+    if shape == "optional":
         values.update(
             {
                 "desired.row.009-050.property": "EC2.VPC.EnableDnsHostnames",
@@ -1306,7 +1304,7 @@ def check_model_operation_shape_preservation(tmp_path, shape):
             load_model(before / "model/dev/cde/vpc.properties").authoritative
             == load_model(after / "model/dev/cde/vpc.properties").authoritative
         )
-        if shape in {"optional", "choice"}:
+        if shape == "optional":
             assert (
                 load_model(after / "model/stg/cde/vpc.properties").authoritative[
                     "desired.row.001-050.value"
@@ -3583,20 +3581,23 @@ def repair_repository_seed():
         }, "repair cases changed the shared Git seed"
 
 
+# Preserve every old format for success/raw recovery; candidate guards share one format.
 @pytest.mark.parametrize(
-    "old_error", ["reference", "syntax", "identity", "duplicate", "encoding"]
-)
-@pytest.mark.parametrize(
-    "failure",
+    "failure,old_error",
     [
-        "none",
-        "reference",
-        "duplicate",
-        "allowed",
-        "scope",
-        "race",
-        "rollback",
-        "anchor",
+        (failure, old_error)
+        for failure in (
+            "none",
+            "reference",
+            "duplicate",
+            "allowed",
+            "scope",
+            "race",
+            "rollback",
+            "anchor",
+        )
+        for old_error in ("reference", "syntax", "identity", "duplicate", "encoding")
+        if failure in {"none", "race", "rollback"} or old_error == "reference"
     ],
 )
 @patch(
