@@ -2,6 +2,7 @@
 
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -27,6 +28,8 @@ from deploy import (
     scheduler,
     steps,
     worktree,
+)
+from deploy import (
     git_publication as publication,
 )
 from model.core import properties, stack_model, validate_model_keys
@@ -34,11 +37,70 @@ from model.observed import verify_observed_outputs
 from model.projection import observed_value
 from support.cloudformation_deploy_fixtures import Fake, states, units
 from support.pytest_cli import run
+from utils import sealed_evidence
 from utils.aws.client import AwsError
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+def recovery_test_aws(operation, *, current, execution, **kwargs):
+    if operation == "describe_stacks":
+        return {
+            "Stacks": [{"StackId": "stack", "StackStatus": current}]
+        }
+    if operation == "describe_change_set":
+        return {
+            "ChangeSetId": "change",
+            "StackId": "stack",
+            "ExecutionStatus": execution,
+        }
+    if operation == "describe_stack_events":
+        return {"StackEvents": []}
+    raise AssertionError(operation)
+
+
+def later_event_test_aws(operation, **kwargs):
+    if operation == "describe_stacks":
+        return {
+            "Stacks": [
+                {
+                    "StackId": "stack",
+                    "StackStatus": "UPDATE_ROLLBACK_COMPLETE",
+                }
+            ]
+        }
+    if operation == "describe_change_set":
+        return {
+            "ChangeSetId": "change",
+            "StackId": "stack",
+            "ExecutionStatus": "EXECUTE_COMPLETE",
+        }
+    if operation == "describe_stack_events":
+        return {
+            "StackEvents": [
+                {
+                    "StackId": "stack",
+                    "PhysicalResourceId": "stack",
+                    "ResourceType": "AWS::CloudFormation::Stack",
+                    "ClientRequestToken": "later",
+                    "ResourceStatus": "UPDATE_ROLLBACK_COMPLETE",
+                }
+            ]
+        }
+    raise AssertionError(operation)
+
+
+def wrong_owner(path, *, original_lstat, directory):
+    info = original_lstat(path)
+    if path == directory:
+        return SimpleNamespace(st_mode=info.st_mode, st_uid=-1)
+    return info
+
+def candidate_test_git(root, *args):
+    if args[0] == "clone":
+        Path(args[-1]).mkdir()
 
 prepare_complete = worktree.prepare_complete
 
@@ -1302,21 +1364,7 @@ class TestCurrentState(TestCase):
                     "executionEvidence": {"StackId": "stack"},
                 }
 
-                def aws(operation, *, current=current, execution=execution, **kwargs):
-                    if operation == "describe_stacks":
-                        return {
-                            "Stacks": [{"StackId": "stack", "StackStatus": current}]
-                        }
-                    if operation == "describe_change_set":
-                        return {
-                            "ChangeSetId": "change",
-                            "StackId": "stack",
-                            "ExecutionStatus": execution,
-                        }
-                    if operation == "describe_stack_events":
-                        return {"StackEvents": []}
-                    raise AssertionError(operation)
-
+                aws = partial(recovery_test_aws, current=current, execution=execution)
                 reader = Mock(side_effect=aws)
                 backend = SimpleNamespace(
                     target={},
@@ -1368,41 +1416,11 @@ class TestCurrentState(TestCase):
                 },
             }
 
-            def aws(operation, **kwargs):
-                if operation == "describe_stacks":
-                    return {
-                        "Stacks": [
-                            {
-                                "StackId": "stack",
-                                "StackStatus": "UPDATE_ROLLBACK_COMPLETE",
-                            }
-                        ]
-                    }
-                if operation == "describe_change_set":
-                    return {
-                        "ChangeSetId": "change",
-                        "StackId": "stack",
-                        "ExecutionStatus": "EXECUTE_COMPLETE",
-                    }
-                if operation == "describe_stack_events":
-                    return {
-                        "StackEvents": [
-                            {
-                                "StackId": "stack",
-                                "PhysicalResourceId": "stack",
-                                "ResourceType": "AWS::CloudFormation::Stack",
-                                "ClientRequestToken": "later",
-                                "ResourceStatus": "UPDATE_ROLLBACK_COMPLETE",
-                            }
-                        ]
-                    }
-                raise AssertionError(operation)
-
             backend = SimpleNamespace(
                 target={},
                 states={"A": state},
                 units=[{"name": "A"}],
-                aws=aws,
+                aws=later_event_test_aws,
                 templates={},
             )
             backend.poll = partial(controller.poll, backend)
@@ -1660,9 +1678,6 @@ def progress_backend(root, context):
 
 
 def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
-    import os
-    import stat
-    from utils import sealed_evidence
     monkeypatch.setattr(sealed_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     old = os.umask(0o022)
     try:
@@ -1682,7 +1697,6 @@ def check_progress_initialization_private_and_resumable(tmp_path, monkeypatch):
 @pytest.mark.parametrize("unsafe", ["permissions", "owner", "symlink"])
 @pytest.mark.parametrize("level", [0, 1, 2])
 def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, level):
-    from utils import sealed_evidence
     monkeypatch.setattr(sealed_evidence.tempfile, "gettempdir", lambda: str(tmp_path))
     root = tmp_path / "project"
     path = worktree.progress_path(root, create=True)
@@ -1695,12 +1709,7 @@ def check_progress_rejects_unsafe_directories(tmp_path, monkeypatch, unsafe, lev
         directory.symlink_to(moved, target_is_directory=True)
     else:
         original_lstat = Path.lstat
-        def wrong_owner(path):
-            info = original_lstat(path)
-            if path == directory:
-                return SimpleNamespace(st_mode=info.st_mode, st_uid=-1)
-            return info
-        monkeypatch.setattr(Path, "lstat", wrong_owner)
+        monkeypatch.setattr(Path, "lstat", partial(wrong_owner, original_lstat=original_lstat, directory=directory))
     with pytest.raises(ValueError):
         worktree.progress_path(root, create=True)
 
@@ -1729,10 +1738,7 @@ def check_candidate_subprocess_result_and_resolved_root(tmp_path, monkeypatch, r
     alias.symlink_to(real, target_is_directory=True)
     monkeypatch.setattr(publication.tempfile, "TemporaryDirectory", lambda **kwargs: nullcontext(str(alias)))
     monkeypatch.setattr(publication.wt.python_env, "runtime", lambda root: (sys.executable, {}))
-    def git(root, *args):
-        if args[0] == "clone":
-            Path(args[-1]).mkdir()
-    monkeypatch.setattr(publication.wt, "git", git)
+    monkeypatch.setattr(publication.wt, "git", candidate_test_git)
     result = SimpleNamespace(returncode=returncode, stdout="specific failure\nTask Acceptance: FAIL", stderr="diagnostic stderr")
     run = Mock(return_value=result)
     monkeypatch.setattr(publication.subprocess, "run", run)
