@@ -182,11 +182,13 @@ def same_change_set(expected, actual):
 def record_attempt(state, status):
     """Attempt outcome and current Stack observation have different sources."""
     state["stackStatus"] = state.get("currentStack", {}).get("StackStatus", status)
+    if status in {"ATTEMPT_SUCCESS", "ATTEMPT_FAIL"}:
+        state["status"] = "SUCCESS" if status == "ATTEMPT_SUCCESS" else "FAILED"
+        state.pop("failureDetected", None)
+        state.pop("unexecutedReason", None)
+        state.pop("attemptResult", None)
+        return
     if status == "UNCONFIRMED":
-        if state.get("failureDetected"):
-            state["status"] = "FAILED"
-            state.pop("unexecutedReason", None)
-            return
         state.update(
             status="BLOCKED",
             attemptResult="UNKNOWN",

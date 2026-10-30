@@ -65,6 +65,16 @@ def owns(state, record):
         and current_state.same_change_set(
             state.get("changeSetId"), record.get("changeSetId")
         )
+        and (
+            not state.get("executionEvidence", {}).get("clientToken")
+            or state["executionEvidence"]["clientToken"] == record.get("token")
+        )
+        and (
+            not state.get("executionEvidence", {}).get("ChangeSetId")
+            or current_state.same_change_set(
+                state["changeSetId"], state["executionEvidence"]["ChangeSetId"]
+            )
+        )
     )
 
 
@@ -83,13 +93,7 @@ def root_events(events, token, identity):
 def settled(aws, record, current):
     operation = record["operation"]
     status = current["StackStatus"]
-    execution_complete = False
     if operation == "execute_change_set" and not record.get("stackId"):
-        return False
-    if (
-        operation == "execute_change_set"
-        and current.get("StackId") != record["stackId"]
-    ):
         return False
     if record.get("service") == "secretsmanager":
         metadata = aws(
@@ -134,66 +138,36 @@ def settled(aws, record, current):
                 "DELETE_COMPLETE",
             }
         execution = change_set.get("ExecutionStatus")
-        if current_state.category(current) in {"RUNNING", "UNKNOWN", "REVIEW"}:
-            return False
-        if operation == "execute_change_set" and execution in {
-            "EXECUTE_FAILED",
-            "OBSOLETE",
-        }:
-            record["result"] = "FAIL"
-            record["attemptStatus"] = "UPDATE_FAILED"
+        if execution == "EXECUTE_COMPLETE":
+            record["result"] = "SUCCESS"
             return True
-        if (
-            operation == "execute_change_set"
-            and execution == "EXECUTE_COMPLETE"
-            and current_state.category(current) not in {"RUNNING", "UNKNOWN", "REVIEW"}
-            and (
-                not record.get("before")
-                or current_state.identity(current) != record["before"]
-            )
-        ):
-            execution_complete = True
+        if execution in {"EXECUTE_FAILED", "OBSOLETE"}:
+            record["result"] = "FAIL"
+            return True
     if operation == "delete_stack" and status == "ABSENT":
         return True
-    try:
-        events = current_state.pages(
-            aws,
-            "describe_stack_events",
-            "StackEvents",
-            StackName=record.get("stackId") or record["name"],
-        )
-    except (OSError, Blocked):
-        if not execution_complete:
-            raise
-        events = []
-    matches = root_events(events, record["token"], record.get("stackId"))
-    if current_state.category(current) in {"RUNNING", "UNKNOWN", "REVIEW"}:
+    events = current_state.pages(
+        aws,
+        "describe_stack_events",
+        "StackEvents",
+        StackName=record.get("stackId") or record["name"],
+    )
+    if operation != "execute_change_set" and current_state.category(current) in {
+        "RUNNING",
+        "UNKNOWN",
+        "REVIEW",
+    }:
         return False
+    matches = root_events(events, record["token"], record.get("stackId"))
     if matches:
         terminal = matches[0].get("ResourceStatus")
-        if terminal in {"CREATE_FAILED", "UPDATE_FAILED"} and status != terminal:
+        if terminal in {"CREATE_FAILED", "UPDATE_FAILED"}:
             return False
         if terminal in current_state.SUCCESS | current_state.FAILED:
-            record["result"] = "FAIL" if terminal in current_state.FAILED else "SETTLED"
+            record["result"] = "FAIL" if terminal in current_state.FAILED else "SUCCESS"
             record["attemptStatus"] = terminal
             return True
         return False
-    other_root = next(
-        (
-            event
-            for event in events
-            if event.get("ResourceType") == "AWS::CloudFormation::Stack"
-            and event.get("StackId") == record.get("stackId")
-            and event.get("PhysicalResourceId") == record.get("stackId")
-        ),
-        None,
-    )
-    if execution_complete and not (
-        other_root and other_root.get("ClientRequestToken") != record.get("token")
-    ):
-        record["result"] = "FAIL" if status in current_state.FAILED else "SETTLED"
-        record["attemptStatus"] = status
-        return True
     return False
 
 

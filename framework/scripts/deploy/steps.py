@@ -251,8 +251,10 @@ def refresh_requests(backend):
             else:
                 state["status"] = "RUNNING"
         elif (
-            state["status"] == "RUNNING"
-            and current_state.category(state["currentStack"]) != "RUNNING"
+            state["status"] == "RUNNING" or state.get("attemptResult") == "UNKNOWN"
+        ) and (
+            state.get("clientToken")
+            or current_state.category(state["currentStack"]) != "RUNNING"
         ):
             if state.get("externalOperation"):
                 current = state["currentStack"]

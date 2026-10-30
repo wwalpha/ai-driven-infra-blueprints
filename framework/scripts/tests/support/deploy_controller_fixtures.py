@@ -440,9 +440,14 @@ def _callback_clients_request(
                     "StackId": change["stackId"],
                     "StackName": name,
                     "Status": "CREATE_COMPLETE",
-                    "ExecutionStatus": "EXECUTE_COMPLETE"
-                    if change["executed"]
-                    else "AVAILABLE",
+                    "ExecutionStatus": (
+                        "EXECUTE_IN_PROGRESS"
+                        if change["executed"]
+                        and state["stacks"][name]["status"].endswith("_IN_PROGRESS")
+                        else "EXECUTE_COMPLETE"
+                        if change["executed"]
+                        else "AVAILABLE"
+                    ),
                     "Changes": changes,
                 }
             elif operation == "execute_change_set":

@@ -489,7 +489,7 @@ class TestCurrentState(TestCase):
         current = {"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}
         aws = Mock(side_effect=[change, {"StackEvents": []}])
         self.assertTrue(current_request.settled(aws, record, current))
-        self.assertEqual(record["attemptStatus"], "UPDATE_COMPLETE")
+        self.assertEqual(record["result"], "SUCCESS")
         other_event = {
             "ResourceType": "AWS::CloudFormation::Stack",
             "StackId": "stack",
@@ -497,15 +497,17 @@ class TestCurrentState(TestCase):
             "ClientRequestToken": "other",
             "ResourceStatus": "UPDATE_COMPLETE",
         }
-        self.assertFalse(
+        self.assertTrue(
             current_request.settled(
                 Mock(side_effect=[change, {"StackEvents": [other_event]}]),
                 record.copy(),
                 current,
             )
         )
-        self.assertFalse(
-            current_request.settled(Mock(), record, current | {"StackId": "other"})
+        self.assertTrue(
+            current_request.settled(
+                Mock(return_value=change), record, current | {"StackId": "other"}
+            )
         )
         for wrong in (change | {"ChangeSetId": "other"}, change | {"StackId": "other"}):
             with self.assertRaises(Blocked):
@@ -670,7 +672,7 @@ class TestCurrentState(TestCase):
                 worker_state = dict(state)
                 self.assertEqual(
                     controller.poll(backend, {"name": "A"}, worker_state),
-                    "UPDATE_COMPLETE",
+                    "ATTEMPT_SUCCESS",
                 )
                 self.assertEqual(json.loads(path.read_text()), record)
                 steps.refresh_requests(backend)
@@ -747,7 +749,7 @@ class TestCurrentState(TestCase):
                 steps.refresh_requests(backend)
             self.assertEqual(state["status"], "SUCCESS")
             backend.save.assert_called_once()
-            self.assertNotIn(
+            self.assertIn(
                 "describe_change_set", [call.args[0] for call in aws.call_args_list]
             )
 
@@ -923,7 +925,7 @@ class TestCurrentState(TestCase):
         steps.retry_terminal_attempts(backend, {"A"})
         self.assertEqual(state["status"], "NOT_STARTED")
 
-    def test_mid_failure_with_stale_stack_read_cannot_retire_request(self):
+    def test_completed_changeset_outweighs_stale_failure_event(self):
         stack = {"StackId": "root", "StackStatus": "UPDATE_COMPLETE"}
         record = {
             "operation": "execute_change_set",
@@ -954,7 +956,7 @@ class TestCurrentState(TestCase):
                 },
             ]
         )
-        self.assertFalse(current_request.settled(aws, record, stack))
+        self.assertTrue(current_request.settled(aws, record, stack))
 
     def test_status_classes_are_distinct(self):
         cases = {
@@ -1278,7 +1280,177 @@ class TestCurrentState(TestCase):
         self.assertEqual(state["attemptResult"], "UNKNOWN")
         failed = {"failureDetected": True}
         current_state.record_attempt(failed, "UNCONFIRMED")
-        self.assertEqual(failed["status"], "FAILED")
+        self.assertEqual(failed["status"], "BLOCKED")
+
+    def test_missing_request_recovers_changeset_result_and_keeps_current_observation(
+        self,
+    ):
+        for execution, current, expected in [
+            ("EXECUTE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE", "SUCCESS"),
+            ("EXECUTE_FAILED", "UPDATE_COMPLETE", "FAILED"),
+            ("AVAILABLE", "UPDATE_COMPLETE", "BLOCKED"),
+        ]:
+            with (
+                self.subTest(execution=execution),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                state = {
+                    "status": "RUNNING",
+                    "clientToken": "own",
+                    "changeSetId": "change",
+                    "executionEvidence": {"StackId": "stack"},
+                }
+
+                def aws(operation, *, current=current, execution=execution, **kwargs):
+                    if operation == "describe_stacks":
+                        return {
+                            "Stacks": [{"StackId": "stack", "StackStatus": current}]
+                        }
+                    if operation == "describe_change_set":
+                        return {
+                            "ChangeSetId": "change",
+                            "StackId": "stack",
+                            "ExecutionStatus": execution,
+                        }
+                    if operation == "describe_stack_events":
+                        return {"StackEvents": []}
+                    raise AssertionError(operation)
+
+                reader = Mock(side_effect=aws)
+                backend = SimpleNamespace(
+                    target={},
+                    states={"A": state},
+                    units=[{"name": "A"}],
+                    aws=reader,
+                    templates={},
+                    save=Mock(),
+                )
+                backend.poll = partial(controller.poll, backend)
+                with patch.object(
+                    current_request,
+                    "location",
+                    return_value=Path(directory).resolve() / "absent",
+                ):
+                    steps.refresh_requests(backend)
+                self.assertEqual(state["status"], expected, state)
+                self.assertEqual(state["currentStack"]["StackStatus"], current)
+                self.assertIn(
+                    "describe_change_set",
+                    [call.args[0] for call in reader.call_args_list],
+                )
+                self.assertNotIn(
+                    "execute_change_set",
+                    [call.args[0] for call in reader.call_args_list],
+                )
+                backend.save.assert_called_once()
+
+    def test_completed_shared_request_is_saved_before_release_with_later_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / "request.json"
+            record = {
+                "name": "A",
+                "operation": "execute_change_set",
+                "stackId": "stack",
+                "changeSetId": "change",
+                "token": "original",
+            }
+            path.write_text(json.dumps(record), encoding="utf-8")
+            path.chmod(0o600)
+            state = {
+                "status": "RUNNING",
+                "clientToken": "original",
+                "changeSetId": "change",
+                "executionEvidence": {
+                    "StackId": "stack",
+                    "ChangeSetId": "change",
+                    "clientToken": "original",
+                },
+            }
+
+            def aws(operation, **kwargs):
+                if operation == "describe_stacks":
+                    return {
+                        "Stacks": [
+                            {
+                                "StackId": "stack",
+                                "StackStatus": "UPDATE_ROLLBACK_COMPLETE",
+                            }
+                        ]
+                    }
+                if operation == "describe_change_set":
+                    return {
+                        "ChangeSetId": "change",
+                        "StackId": "stack",
+                        "ExecutionStatus": "EXECUTE_COMPLETE",
+                    }
+                if operation == "describe_stack_events":
+                    return {
+                        "StackEvents": [
+                            {
+                                "StackId": "stack",
+                                "PhysicalResourceId": "stack",
+                                "ResourceType": "AWS::CloudFormation::Stack",
+                                "ClientRequestToken": "later",
+                                "ResourceStatus": "UPDATE_ROLLBACK_COMPLETE",
+                            }
+                        ]
+                    }
+                raise AssertionError(operation)
+
+            backend = SimpleNamespace(
+                target={},
+                states={"A": state},
+                units=[{"name": "A"}],
+                aws=aws,
+                templates={},
+            )
+            backend.poll = partial(controller.poll, backend)
+            progress = path.parent / "progress.json"
+            backend.save = Mock(
+                side_effect=partial(save_test_state, self, path, progress, state)
+            )
+            with patch.object(current_request, "location", return_value=path):
+                steps.refresh_requests(backend)
+            saved = worktree.read_sealed(path.parent, progress)
+            self.assertEqual(saved["status"], "SUCCESS")
+            self.assertEqual(
+                saved["currentStack"]["StackStatus"], "UPDATE_ROLLBACK_COMPLETE"
+            )
+            self.assertFalse(path.exists())
+
+    def test_inconsistent_saved_execution_identity_stays_unconfirmed(self):
+        for field, value in [("clientToken", "other"), ("ChangeSetId", "other")]:
+            state = {
+                "status": "RUNNING",
+                "clientToken": "original",
+                "changeSetId": "change",
+                "executionEvidence": {
+                    "StackId": "stack",
+                    "ChangeSetId": "change",
+                    "clientToken": "original",
+                },
+            }
+            state["executionEvidence"][field] = value
+            aws = Mock(
+                return_value={
+                    "Stacks": [{"StackId": "stack", "StackStatus": "UPDATE_COMPLETE"}]
+                }
+            )
+            status = controller.poll(
+                SimpleNamespace(aws=aws, templates={}), {"name": "A"}, state
+            )
+            self.assertEqual(status, "UNCONFIRMED")
+            self.assertFalse(
+                current_request.owns(
+                    state,
+                    {
+                        "operation": "execute_change_set",
+                        "token": "original",
+                        "changeSetId": "change",
+                        "stackId": "stack",
+                    },
+                )
+            )
 
     def test_unknown_identifier_does_not_render_an_old_id(self):
         row = {

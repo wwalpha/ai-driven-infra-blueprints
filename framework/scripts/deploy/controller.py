@@ -686,7 +686,18 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     state["stackStatus"] = current["StackStatus"]
     state["stackId"] = current.get("StackId")
     attempt_status = None
-    execution_stack = state.get("executionEvidence", {}).get("StackId")
+    evidence = state.get("executionEvidence", {})
+    execution_stack = evidence.get("StackId")
+    if (
+        evidence.get("clientToken")
+        and evidence["clientToken"] != state.get("clientToken")
+    ) or (
+        evidence.get("ChangeSetId")
+        and not current_state.same_change_set(
+            state.get("changeSetId"), evidence["ChangeSetId"]
+        )
+    ):
+        return "UNCONFIRMED"
     if state.get("clientToken"):
         try:
             events = current_state.pages(
@@ -711,28 +722,53 @@ def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
             stack_events = current_request.root_events(
                 matched, state["clientToken"], execution_stack
             )
-            if (
-                stack_events
-                and stack_events[0].get("ResourceStatus")
-                in current_state.SUCCESS | current_state.FAILED
-            ):
+            if stack_events and stack_events[0].get("ResourceStatus") in (
+                current_state.SUCCESS | current_state.FAILED
+            ) - {"CREATE_FAILED", "UPDATE_FAILED"}:
                 attempt_status = stack_events[0]["ResourceStatus"]
                 if attempt_status in current_state.FAILED:
                     state["failureDetected"] = True
         except (OSError, Blocked):
             pass  # Diagnostics cannot veto an otherwise confirmed current observation.
     request = current_request.reconcile(runtime, unit, state)
-    if request:
-        if state.get("requestError"):
-            raise Blocked(state["requestError"])
-        if not request.get("settled"):
-            return "UPDATE_IN_PROGRESS"
+    if request and state.get("requestError"):
+        raise Blocked(state["requestError"])
+    if request and not request.get("settled"):
+        return "UPDATE_IN_PROGRESS"
+    if request and current_request.owns(state, request):
         state["settledRequest"] = request
         state["requestPending"] = False
-        if request.get("result") == "FAIL" and current_request.owns(state, request):
-            state["failureDetected"] = True
-        if attempt_status is None and current_request.owns(state, request):
+    elif (
+        not request
+        and state.get("clientToken")
+        and state.get("changeSetId")
+        and execution_stack
+    ):
+        request = {
+            "operation": "execute_change_set",
+            "name": unit["name"],
+            "stackId": execution_stack,
+            "changeSetId": state["changeSetId"],
+            "token": state["clientToken"],
+        }
+        try:
+            if not current_request.settled(runtime.aws, request, current):
+                request = None
+        except (OSError, Blocked):
+            return "UNCONFIRMED"
+    if request and current_request.owns(state, request):
+        if request.get("result") == "SUCCESS":
+            return "ATTEMPT_SUCCESS"
+        if request.get("result") == "FAIL":
+            return "ATTEMPT_FAIL"
+        if attempt_status is None:
             attempt_status = request.get("attemptStatus")
+    if (
+        current["StackStatus"] == "UNKNOWN"
+        and state.get("clientToken")
+        and attempt_status is None
+    ):
+        return "UNCONFIRMED"
     if current["StackStatus"] == "UNKNOWN" and attempt_status in {
         None,
         "CREATE_FAILED",
