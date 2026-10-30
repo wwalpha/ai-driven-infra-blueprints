@@ -168,9 +168,63 @@ class DisplayTests(unittest.TestCase):
         disambiguate_names(names, kinds, identities, {"EC2.VPC": ("EC2.VPC.VpcId",)})
         self.assertEqual(
             list(names.values()),
-            ["duplicate", "duplicate", "unique", "duplicate"],
+            ["duplicate (vpc-a)", "duplicate (vpc-b)", "unique", "duplicate"],
         )
         self.assertNotIn("Internal_", " ".join(names.values()))
+
+    def test_partial_and_duplicate_identifiers(self):
+        vpc = "EC2.VPC.VpcId"
+        allocation = "EC2.EIP.AllocationId"
+        address = "EC2.EIP.PublicIp"
+        cases = [
+            (
+                "EC2.VPC",
+                (vpc,),
+                [{vpc: "vpc-a"}, {}],
+                ["duplicate (vpc-a)", "duplicate"],
+            ),
+            (
+                "EC2.VPC",
+                (vpc,),
+                [{vpc: "vpc-a"}, {vpc: "vpc-a"}, {}],
+                ["duplicate", "duplicate", "duplicate"],
+            ),
+            ("EC2.VPC", (vpc,), [{vpc: None}, {}], ["duplicate", "duplicate"]),
+            (
+                "EC2.EIP",
+                (allocation, address),
+                [
+                    {allocation: "alloc-a", address: "ip-a"},
+                    {allocation: "alloc-b", address: "ip-b"},
+                    {},
+                ],
+                ["duplicate (alloc-a)", "duplicate (alloc-b)", "duplicate"],
+            ),
+            (
+                "EC2.EIP",
+                (allocation, address),
+                [
+                    {allocation: "alloc-a", address: "ip-a"},
+                    {allocation: "alloc-a", address: "ip-b"},
+                    {allocation: "alloc-b", address: "ip-a"},
+                    {},
+                ],
+                [
+                    "duplicate (alloc-a, ip-a)",
+                    "duplicate (alloc-a, ip-b)",
+                    "duplicate (alloc-b, ip-a)",
+                    "duplicate",
+                ],
+            ),
+        ]
+        for kind, fields, values, expected in cases:
+            with self.subTest(kind=kind, values=values):
+                names = {f"Internal_{i}": "duplicate" for i in range(len(values))}
+                kinds = dict.fromkeys(names, kind)
+                identities = dict(zip(names, values, strict=True))
+                disambiguate_names(names, kinds, identities, {kind: fields})
+                self.assertEqual(list(names.values()), expected)
+                self.assertNotIn("Internal_", " ".join(names.values()))
 
     def test_multiple_and_composite_identifiers(self):
         kinds = {str(i): "EC2.EIP" for i in range(3)}

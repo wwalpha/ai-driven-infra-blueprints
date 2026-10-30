@@ -316,6 +316,15 @@ def check():
                     "vpc-two",
                     [("Name", "`duplicate`", None), ("VpcId", "[VPC](#vpc-two)", None)],
                 ),
+                (
+                    "007",
+                    "EC2.VPC",
+                    "vpc-seven",
+                    [
+                        ("Name", "`duplicate`", None),
+                        ("VpcId", "[VPC](#vpc-seven)", None),
+                    ],
+                ),
                 ("003", "EC2.VPC", "vpc-three", [("VpcId", "[VPC](#vpc-three)", None)]),
                 ("004", "EC2.VPC", "vpc-four", [("VpcId", "[VPC](#vpc-four)", None)]),
                 (
@@ -363,10 +372,14 @@ def check():
         )
         names = snapshot(generator.generate(name_root, "dev", "cde", "vpc")[0])["names"]
         TestCase().assertEqual(
-            [names[f"EC2_VPC_{number}"] for number in ("001", "002", "003", "004")],
+            [
+                names[f"EC2_VPC_{number}"]
+                for number in ("001", "002", "007", "003", "004")
+            ],
             [
                 "duplicate (vpc-a)",
                 "duplicate (vpc-b)",
+                "duplicate",
                 "vpc-confirmed",
                 "（名前未設定）",
             ],
@@ -400,7 +413,7 @@ def check():
             source, _, unsupported = generator.generate(value_root, "dev", "cde", "vpc")
             unresolved_names = snapshot(source)["names"]
             TestCase().assertEqual(unresolved_names["EC2_VPC_001"], "duplicate")
-            TestCase().assertEqual(unresolved_names["EC2_VPC_002"], "duplicate")
+            TestCase().assertEqual(unresolved_names["EC2_VPC_002"], "duplicate (vpc-b)")
             if value != "EC2_VPC_001":
                 TestCase().assertIn(
                     (

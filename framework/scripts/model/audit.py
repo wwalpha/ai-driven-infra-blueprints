@@ -224,16 +224,25 @@ def disambiguate_names(names, kinds, identities, primary):
         choices = [(field,) for field in (*fields, *other)]
         if len(fields) > 1:
             choices.append(tuple(fields))
+        best = []
         for choice in choices:
             values = [
                 tuple(identities[key].get(field) for field in choice) for key in group
             ]
-            if all(all(value) for value in values) and len(set(values)) == len(group):
-                for key, value in zip(group, values, strict=True):
-                    identity = ", ".join(value)
-                    if identity != name:
-                        names[key] = f"{name} ({identity})"
+            confirmed = Counter(value for value in values if all(value))
+            selected = [
+                (key, value)
+                for key, value in zip(group, values, strict=True)
+                if all(value) and confirmed[value] == 1
+            ]
+            if len(selected) > len(best):
+                best = selected
+            if len(best) == len(group):
                 break
+        for key, value in best:
+            identity = ", ".join(value)
+            if identity != name:
+                names[key] = f"{name} ({identity})"
 
 
 @input_scope
