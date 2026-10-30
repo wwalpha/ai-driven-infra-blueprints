@@ -6429,6 +6429,175 @@ def test_codebuild_plaintext_iac_reference_environment(literal, reference, expec
     )
 
 
+@pytest.mark.parametrize(
+    "literal, expected",
+    [
+        ("arn:aws:s3:::fixture-bucket", "matched"),
+        ("arn:aws:s3:::other-bucket", "difference"),
+    ],
+)
+def test_codebuild_plaintext_getatt_bucket_arn(literal, expected):
+    comparison = fixture()
+    resource(
+        comparison,
+        "s3",
+        "001",
+        "S3.Bucket",
+        "Bucket",
+        [("BucketName", "fixture-bucket", None)],
+        properties={"BucketName": "fixture-bucket"},
+    )
+    desired = {
+        "EnvironmentVariables": [
+            {"Name": "BUCKET_ARN", "Type": "PLAINTEXT", "Value": literal}
+        ]
+    }
+    actual = copy.deepcopy(desired)
+    actual["EnvironmentVariables"][0]["Value"] = {"Fn::GetAtt": ["Bucket", "Arn"]}
+    settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
+    outcome = comparison.compare_setting(
+        "codebuild",
+        "002",
+        "CodeBuild.Project",
+        "Environment",
+        desired,
+        settings,
+        "producer",
+        {"Properties": {"Environment": actual}},
+        ROOT / "synthetic.yaml",
+    )
+    (record,) = outcome.records
+    TestCase().assertEqual(record["category"], expected)
+    (evidence,) = record["reference_diagnostics"]
+    TestCase().assertEqual(evidence["evidence_type"], "local_evaluation")
+    TestCase().assertEqual(evidence["local_comparison"], expected)
+    TestCase().assertFalse(evidence["current_aws_verified"])
+
+
+@pytest.mark.parametrize(
+    "literal,reference,expected",
+    [
+        ("fixture-bucket", {"Ref": "Bucket"}, "matched"),
+        ("different", {"Ref": "Bucket"}, "difference"),
+        ("arn:aws:s3:::fixture-bucket", {"Fn::GetAtt": ["Bucket", "Arn"]}, "matched"),
+        ("arn:aws:s3:::different", {"Fn::GetAtt": ["Bucket", "Arn"]}, "difference"),
+        ("fixture-bucket", {"Ref": "Missing"}, "uncompared"),
+    ],
+)
+def test_lambda_environment_iac_reference(literal, reference, expected):
+    comparison = fixture()
+    resource(
+        comparison,
+        "s3",
+        "001",
+        "S3.Bucket",
+        "Bucket",
+        [("BucketName", "fixture-bucket", None)],
+        properties={"BucketName": "fixture-bucket"},
+    )
+    desired = {"Variables": {"BUCKET": literal}}
+    actual = {"Variables": {"BUCKET": reference}}
+    settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
+    outcome = comparison.compare_setting(
+        "lambda",
+        "002",
+        "Lambda.Function",
+        "Environment",
+        desired,
+        settings,
+        "producer",
+        {"Properties": {"Environment": actual}},
+        ROOT / "synthetic.yaml",
+    )
+    (record,) = outcome.records
+    TestCase().assertEqual(record["category"], expected)
+    if expected != "uncompared":
+        (evidence,) = record["reference_diagnostics"]
+        TestCase().assertEqual(evidence["evidence_type"], "local_evaluation")
+        TestCase().assertEqual(evidence["local_comparison"], expected)
+        TestCase().assertFalse(evidence["current_aws_verified"])
+
+
+@pytest.mark.parametrize(
+    "literal,reference,expected,evidence_type",
+    [
+        ("alias/material", {"Ref": "Alias"}, "matched", "local_evaluation"),
+        ("alias/other", {"Ref": "Alias"}, "difference", "local_evaluation"),
+        (
+            "arn:aws:kms:ap-northeast-1:123456789012:alias/material",
+            {
+                "Fn::Sub": "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}"
+            },
+            "matched",
+            "local_evaluation",
+        ),
+        (
+            "arn:aws:kms:ap-northeast-1:123456789012:alias/other",
+            {
+                "Fn::Sub": "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}"
+            },
+            "difference",
+            "local_evaluation",
+        ),
+        (KEY_ID, {"Ref": "Key"}, "uncompared", "recorded_observed"),
+        (
+            "12345678-1234-1234-1234-000000000000",
+            {"Ref": "Key"},
+            "uncompared",
+            "recorded_observed",
+        ),
+        (KEY_ARN, {"Fn::GetAtt": ["Key", "Arn"]}, "uncompared", "recorded_observed"),
+    ],
+)
+def test_codebuild_material_key_id_reference_formats(
+    literal, reference, expected, evidence_type
+):
+    comparison = fixture()
+    resource(
+        comparison,
+        "kms",
+        "001",
+        "KMS.Key",
+        "Key",
+        [("KeyId", "PENDING_DEPLOY", KEY_ID)],
+    )
+    resource(
+        comparison,
+        "kms",
+        "002",
+        "KMS.Alias",
+        "Alias",
+        [("AliasName", "alias/material", None)],
+        properties={"AliasName": "alias/material", "TargetKeyId": {"Ref": "Key"}},
+    )
+    desired = {
+        "EnvironmentVariables": [
+            {"Name": "MATERIAL_KEY_ID", "Type": "PLAINTEXT", "Value": literal}
+        ]
+    }
+    actual = copy.deepcopy(desired)
+    actual["EnvironmentVariables"][0]["Value"] = reference
+    settings = Settings(desired={"Environment": desired}, sources={"Environment": [{}]})
+    outcome = comparison.compare_setting(
+        "codebuild",
+        "002",
+        "CodeBuild.Project",
+        "Environment",
+        desired,
+        settings,
+        "producer",
+        {"Properties": {"Environment": actual}},
+        ROOT / "synthetic.yaml",
+    )
+    (record,) = outcome.records
+    TestCase().assertEqual(record["category"], expected)
+    (evidence,) = record["reference_diagnostics"]
+    TestCase().assertEqual(evidence["local_comparison"], expected)
+    TestCase().assertEqual(evidence["evidence_type"], evidence_type)
+    TestCase().assertFalse(evidence["current_aws_verified"])
+    TestCase().assertTrue(evidence["reason"])
+
+
 def test_codebuild_observed_only_and_difference_are_preserved():
     comparison = fixture()
     resource(
