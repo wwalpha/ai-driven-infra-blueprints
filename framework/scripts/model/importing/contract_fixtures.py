@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from functools import lru_cache, partial
 
 from botocore import xform_name
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ParamValidationError
 from botocore.session import Session as ModelSession
 from botocore.validate import validate_parameters
 
@@ -267,10 +267,16 @@ class SchemaClient:
 
     def request(self, operation, **inputs):
         model = operation_model(self.model, operation)
-        if model.input_shape is not None:
-            validate_parameters(inputs, model.input_shape)
-        elif inputs:
-            raise ValueError("operation has no inputs")
+        try:
+            if model.input_shape is not None:
+                validate_parameters(inputs, model.input_shape)
+            elif inputs:
+                raise ValueError("operation has no inputs")
+        except (ValueError, TypeError, ParamValidationError) as error:
+            self.context.fixture_error = InvalidFixture(
+                f"Invalid fixture request for {self.service}.{operation}: {error}"
+            )
+            raise self.context.fixture_error from error
         self.context.request_count += 1
         fault = self.context.fault
         fault = (

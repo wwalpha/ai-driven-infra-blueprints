@@ -486,7 +486,11 @@ def lambda_case(action, code_rows):
     kind = "Lambda.Function"
     props = [kind + ".Code.S3Bucket", kind + ".Code.S3Key"]
     values = resource_values(
-        "001", kind, "lambda-one", "IMPORT", [("FunctionName", "`fixture`")] + code_rows
+        "001",
+        kind,
+        "lambda-one",
+        "IMPORT",
+        [("FunctionName", "`fixture`"), ("PackageType", "`Zip`")] + code_rows,
     )
     record = {
         "record": "r1",
@@ -497,7 +501,22 @@ def lambda_case(action, code_rows):
         "identityStatus": "known",
         "properties": {
             kind + ".FunctionName": {"status": "captured", "value": "fixture"},
-            **{p: limitations.contract(ROOT, p, "unobservable") for p in props},
+            kind + ".PackageType": {"status": "captured", "value": "Zip"},
+            **{
+                p: limitations.conditional_code_capture(
+                    ROOT,
+                    p,
+                    {
+                        "Configuration": {
+                            "FunctionName": "fixture",
+                            "PackageType": "Zip",
+                        },
+                        "Code": {},
+                    },
+                    "fixture",
+                )
+                for p in props
+            },
         },
     }
     selection = {
@@ -569,7 +588,7 @@ def test_lambda_retained_code_is_reviewed_as_unverified():
     [
         ([], False),
         ([("Code.ImageUri", "`UNSET`")], False),
-        ([("Code.ImageUri", "`example/image:tag`")], True),
+        ([("Code.ImageUri", "`example/image:tag`")], False),
         ([("Code.ZipFile", "`code`")], True),
     ],
 )
@@ -587,6 +606,44 @@ def test_lambda_new_resource_requires_code_source(rows, complete):
     else:
         with pytest.raises(ValueError, match="limitations/structure"):
             approval.review_binding(result, data[3])
+
+
+def test_lambda_retain_existing_requires_an_existing_row():
+    data = lambda_case("refresh", [])
+    with pytest.raises(ValueError, match="retain_existing"):
+        sources.selection_records(data[2], data[3]["records"], data[0], data[1], schema)
+
+
+@pytest.mark.parametrize(
+    "alteration", ["package", "identity", "source", "missing-evidence"]
+)
+def test_lambda_limitation_rejects_inconsistent_acquisition(alteration):
+    data = lambda_case(
+        "refresh", [("Code.S3Bucket", "`bucket`"), ("Code.S3Key", "`file.zip`")]
+    )
+    record = data[3]["records"][0]
+    capture = record["properties"]["Lambda.Function.Code.S3Bucket"]
+    if alteration == "package":
+        record["properties"]["Lambda.Function.PackageType"]["value"] = "Image"
+    elif alteration == "identity":
+        record["identityStatus"] = "unknown"
+    elif alteration == "source":
+        capture["evidence"]["codeSource"]["S3Bucket"] = True
+    else:
+        del capture["evidence"]["locationReturned"]
+    with pytest.raises(ValueError):
+        evidence.validate_inventory(data[3])
+
+
+def test_lambda_limitation_needs_explicit_treatment():
+    data = lambda_case(
+        "refresh", [("Code.S3Bucket", "`bucket`"), ("Code.S3Key", "`file.zip`")]
+    )
+    data[2]["limitations"] = []
+    result = review_case(data)
+    assert not result["completion"]["propertiesResolved"]
+    with pytest.raises(ValueError, match="limitations/structure"):
+        approval.review_binding(result, data[3])
 
 
 def test_missing_absence_is_valid_but_false_limited_evidence_is_not():

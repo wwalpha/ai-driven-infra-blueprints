@@ -83,7 +83,7 @@ def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
         return {
             "status": "unobservable",
             "reasonCode": "OPTIONAL_CODE_SOURCE_NOT_RETURNED",
-            "reason": "GetFunction did not return the optional code source; the existing value is not AWS verified",
+            "reason": "GetFunction did not return this Zip code source; Code.Location does not establish the original upload location and existing values are not AWS verified",
             "evidence": {
                 "mapping": reference,
                 "api": "lambda.get_function",
@@ -157,6 +157,94 @@ def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
     return None
 
 
+def conditional_code_capture(
+    root: Path, prop: str, response: Any, identity: Any
+) -> dict[str, Any] | None:
+    """Classify only a successful, identified Zip response with a missing source field."""
+    restriction = contract(root, prop, "unobservable")
+    if restriction is None or not isinstance(response, dict):
+        raise ValueError("Lambda code-source contract or response is invalid")
+    config, code = response.get("Configuration"), response.get("Code", {})
+    if (
+        not isinstance(config, dict)
+        or not isinstance(code, dict)
+        or not isinstance(identity, str)
+        or not identity
+        or config.get("FunctionName") != identity
+        or config.get("PackageType") not in {"Zip", "Image"}
+        or code.get("Error")
+    ):
+        raise ValueError(
+            "Lambda code-source identity, package type or response is unresolved"
+        )
+    resolved = code.get("ResolvedS3Object", {})
+    if not isinstance(resolved, dict):
+        raise ValueError("Lambda resolved code source is invalid")
+    field = CONDITIONAL_CODE[prop].rsplit(".", 1)[1]
+    if field in resolved:
+        raise ValueError("Lambda code-source property was not absent")
+    if config["PackageType"] == "Image":
+        if not (code.get("ImageUri") or code.get("ResolvedImageUri")):
+            raise ValueError("Lambda image source is unavailable")
+        return None
+    restriction["evidence"]["packageType"] = "Zip"
+    restriction["evidence"]["codeSource"] = {
+        name: bool(resolved.get(name)) for name in ("S3Bucket", "S3Key")
+    }
+    restriction["evidence"]["locationReturned"] = bool(code.get("Location"))
+    restriction["evidence"]["imageUriReturned"] = bool(
+        code.get("ImageUri") or code.get("ResolvedImageUri")
+    )
+    return restriction
+
+
+def valid_capture(
+    root: Path, prop: str, capture: dict[str, Any], record: dict[str, Any]
+) -> bool:
+    if prop not in CONDITIONAL_CODE:
+        return contract(root, prop, capture.get("status", "")) == capture
+    evidence = capture.get("evidence", {})
+    if not isinstance(evidence, dict):
+        return False
+    source = evidence.get("codeSource")
+    expected = contract(root, prop, "unobservable")
+    if (
+        expected is None
+        or not isinstance(source, dict)
+        or set(source) != {"S3Bucket", "S3Key"}
+    ):
+        return False
+    if any(type(value) is not bool for value in source.values()):
+        return False
+    for name in ("locationReturned", "imageUriReturned"):
+        if type(evidence.get(name)) is not bool:
+            return False
+    expected["evidence"].update(
+        packageType="Zip",
+        codeSource=source,
+        locationReturned=evidence["locationReturned"],
+        imageUriReturned=evidence["imageUriReturned"],
+    )
+    props = record.get("properties", {})
+    if (
+        capture != expected
+        or record.get("identityStatus", "known") != "known"
+        or not record.get("identity")
+        or props.get("Lambda.Function.PackageType", {}).get("status") != "captured"
+        or props.get("Lambda.Function.PackageType", {}).get("value") != "Zip"
+        or props.get("Lambda.Function.FunctionName", {}).get("status") != "captured"
+        or props.get("Lambda.Function.FunctionName", {}).get("value")
+        != record["identity"]
+        or source[prop.rsplit(".", 1)[1]]
+    ):
+        return False
+    for name, present in source.items():
+        other = props.get("Lambda.Function.Code." + name, {})
+        if present != (other.get("status") == "captured"):
+            return False
+    return True
+
+
 def required(root: Path, kind: str, prop: str) -> bool:
     catalog = DesignSchemaCatalog(root)
     path = definition_path(prop.removeprefix(kind + "."))
@@ -225,7 +313,7 @@ def validate(
         expected = contract(root, item["property"], capture.get("status", ""))
         if (
             expected is None
-            or capture != expected
+            or not valid_capture(root, item["property"], capture, record)
             or item["reasonCode"] != expected["reasonCode"]
             or record.get("identityStatus", "known") != "known"
         ):
@@ -242,6 +330,8 @@ def validate(
             if (
                 record.get("_action") not in {"refresh", "bind", "replace"}
                 or prior != proposed
+                or item["property"] in CONDITIONAL_CODE
+                and not prior
                 or not prior
                 and required(root, record["kind"], item["property"])
             ):

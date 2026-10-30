@@ -420,11 +420,12 @@ def pending_items(selection, selected, values, property_schema):
                     and bool(code[name].strip())
                     and code[name] not in {"UNSET", "PENDING_DEPLOY"}
                 )
-            if not (
-                code["S3Bucket"]
-                and code["S3Key"]
-                or code["ImageUri"]
-                or code["ZipFile"]
+            package = record["properties"].get("Lambda.Function.PackageType", {})
+            if package.get("status") != "captured" or not (
+                package.get("value") == "Zip"
+                and (code["S3Bucket"] and code["S3Key"] or code["ZipFile"])
+                or package.get("value") == "Image"
+                and code["ImageUri"]
             ):
                 pending.append(
                     {

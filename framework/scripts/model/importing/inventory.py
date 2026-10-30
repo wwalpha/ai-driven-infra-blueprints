@@ -202,6 +202,12 @@ def _callback_ImportInventory_normalize_run(normalize, record, self, service, /)
     missing_required = any(
         value["status"] == "missing"
         and prop.removeprefix(record["kind"] + ".").split(".")[0] in required
+        and not (
+            record["kind"] == "Lambda.Function"
+            and value.get("reason") == "Lambda Image uses an image source"
+            and result["properties"].get("Lambda.Function.PackageType", {}).get("value")
+            == "Image"
+        )
         for prop, value in result["properties"].items()
     )
     if (

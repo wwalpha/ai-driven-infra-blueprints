@@ -367,7 +367,7 @@ class FakeCalls:
             raise ValueError("Operation accepts no input parameters")
         errors = ParamValidator().validate(inputs, shape) if shape else None
         if errors and errors.has_errors():
-            raise ValueError(errors.generate_report())
+            raise InvalidFixture("Invalid fixture request: " + errors.generate_report())
         self.calls.append((api, operation, inputs))
 
     def pages(self, api: str, operation: str, **inputs: Any) -> dict[str, Any]:

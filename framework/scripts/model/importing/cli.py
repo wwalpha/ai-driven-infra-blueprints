@@ -492,20 +492,28 @@ def _normalize_records(ctx, service, records):
                 elif field.classification != "supported":
                     raise ValueError(field.classification + ": " + field.reason)
                 elif prop in properties and field.getter != "tags":
-                    _, value = mapping_value(
+                    response, value = mapping_value(
                         ctx, proxy, mapping, properties[prop], prop
                     )
                 else:
                     value = m.select(ctx.fetch(proxy, field.getter), field.path)
                 if value == m.MISSING:
-                    captured[prop] = (
-                        restriction
-                        if conditional and restriction
-                        else {
-                            "status": "missing",
-                            "reason": "AWS optional value not retrieved",
-                        }
+                    conditional_restriction = (
+                        limitations.conditional_code_capture(
+                            ctx.root, prop, response, record["identity"]
+                        )
+                        if conditional
+                        and record.get("identityStatus", "known") == "known"
+                        else None
                     )
+                    if conditional and record.get("identityStatus", "known") != "known":
+                        raise ValueError("Lambda identity is unknown")
+                    captured[prop] = conditional_restriction or {
+                        "status": "missing",
+                        "reason": "Lambda Image uses an image source"
+                        if conditional
+                        else "AWS optional value not retrieved",
+                    }
                     continue
                 value = normalize_import_value(ctx, value, field.norm)
                 shape = "projection" if array_paths(prop) else "leaf"

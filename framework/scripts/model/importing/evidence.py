@@ -393,11 +393,8 @@ def validate_inventory(value):
                 raise ValueError("IMPORT limited inventory has unresolved acquisition")
             for prop, capture in record["properties"].items():
                 if capture["status"] in {"unobservable", "withheld"}:
-                    if (
-                        limitations.contract(
-                            Path(__file__).resolve().parents[4], prop, capture["status"]
-                        )
-                        != capture
+                    if not limitations.valid_capture(
+                        Path(__file__).resolve().parents[4], prop, capture, record
                     ):
                         raise ValueError(
                             "IMPORT limited inventory has unverified limitation evidence"

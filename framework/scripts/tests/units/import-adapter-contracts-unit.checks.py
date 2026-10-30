@@ -22,6 +22,7 @@ from model.importing import (
     contract_fixtures,
     coverage,
     inventory,
+    limitations,
 )
 from model.importing.discovery import ADAPTER_INVENTORIES
 from support.check_model_aws_fixtures import SchemaOffline
@@ -475,7 +476,13 @@ def test_lambda_function_and_recursion_contracts_use_distinct_operations():
 def test_lambda_get_function_response_shape():
     fake = adapter_contracts.FakeCalls(SimpleNamespace(allowed=set()), {})
     payload = {
-        "Code": {"ResolvedS3Object": {"S3Bucket": "fixture", "S3Key": "file.zip"}}
+        "Code": {
+            "ResolvedS3Object": {
+                "S3Bucket": "fixture",
+                "S3Key": "file.zip",
+                "S3ObjectVersion": "v1",
+            }
+        }
     }
     assert fake.response("lambda", "get_function", payload) == payload
     with pytest.raises(
@@ -819,7 +826,11 @@ def test_lambda_optional_code_source_capture(code):
         "identity": "fixture",
         "getters": {
             "base": {
-                "Configuration": {"FunctionName": "fixture", "MemorySize": 128},
+                "Configuration": {
+                    "FunctionName": "fixture",
+                    "MemorySize": 128,
+                    "PackageType": "Zip",
+                },
                 "Concurrency": {"ReservedConcurrentExecutions": 5},
                 "Code": code,
             }
@@ -833,6 +844,127 @@ def test_lambda_optional_code_source_capture(code):
             assert capture["reasonCode"] == "OPTIONAL_CODE_SOURCE_NOT_RETURNED"
     assert properties["Lambda.Function.MemorySize"]["value"] == 128
     assert properties["Lambda.Function.ReservedConcurrentExecutions"]["value"] == 5
+
+
+@pytest.mark.parametrize(
+    "package,code,expected",
+    [
+        (
+            "Zip",
+            {"Location": "https://example.invalid/bucket/key"},
+            ("unobservable", "unobservable"),
+        ),
+        (
+            "Zip",
+            {"ResolvedS3Object": {"S3Key": "file.zip"}},
+            ("unobservable", "captured"),
+        ),
+        (
+            "Zip",
+            {"ResolvedS3Object": {"S3Bucket": "bucket"}},
+            ("captured", "unobservable"),
+        ),
+        ("Image", {"ImageUri": "example/image:tag"}, ("missing", "missing")),
+        ("Image", {}, ("unavailable", "unavailable")),
+        ("Unknown", {}, ("unavailable", "unavailable")),
+        ("Zip", {"Error": {"ErrorCode": "Failure"}}, ("unavailable", "unavailable")),
+    ],
+)
+def test_lambda_code_source_classification(package, code, expected):
+    ctx = cli.import_context(
+        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
+    )
+    ctx.verified = True
+    record = {
+        "kind": "Lambda.Function",
+        "identity": "fixture",
+        "getters": {
+            "base": {
+                "Configuration": {"FunctionName": "fixture", "PackageType": package},
+                "Code": code,
+            }
+        },
+    }
+    result = cli.normalize_records(ctx, "lambda", [record])[0]
+    props = result["properties"]
+    assert (
+        tuple(
+            props["Lambda.Function.Code." + name]["status"]
+            for name in ("S3Bucket", "S3Key")
+        )
+        == expected
+    )
+    assert props["Lambda.Function.FunctionName"]["value"] == "fixture"
+    for name, status in zip(("S3Bucket", "S3Key"), expected, strict=True):
+        if status == "unobservable":
+            assert limitations.valid_capture(
+                ROOT,
+                "Lambda.Function.Code." + name,
+                props["Lambda.Function.Code." + name],
+                result,
+            )
+
+
+def test_lambda_missing_source_requires_identity_and_propagates_denial(monkeypatch):
+    ctx = cli.import_context(
+        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
+    )
+    ctx.verified = True
+    record = {
+        "kind": "Lambda.Function",
+        "identity": "fixture",
+        "identityStatus": "unknown",
+        "identityProperty": "Lambda.Function.FunctionName",
+        "identityProperties": ["Lambda.Function.FunctionName"],
+        "identityComponents": [],
+        "getters": {
+            "base": {
+                "Configuration": {"FunctionName": "fixture", "PackageType": "Zip"},
+                "Code": {},
+            }
+        },
+    }
+    props = cli.normalize_records(ctx, "lambda", [record])[0]["properties"]
+    assert props["Lambda.Function.Code.S3Bucket"]["status"] == "unavailable"
+    mapping = runtime_registry(ROOT, "lambda")
+    monkeypatch.setattr(
+        adapter_contracts,
+        "direct_fixture",
+        Mock(side_effect=adapter_contracts.InvalidFixture("invalid SDK input")),
+    )
+    with pytest.raises(adapter_contracts.InvalidFixture, match="invalid SDK input"):
+        adapter_contracts.run(ROOT, mapping, "Lambda.Function")
+
+
+def test_lambda_access_denied_is_not_a_limitation(monkeypatch):
+    ctx = cli.import_context(
+        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
+    )
+    ctx.verified = True
+    record = {"kind": "Lambda.Function", "identity": "fixture", "getters": {}}
+    monkeypatch.setattr(
+        cli,
+        "mapping_value",
+        Mock(
+            side_effect=cli.comparator().AcquisitionError(
+                "lambda.get_function", "AccessDenied"
+            )
+        ),
+    )
+    props = cli.normalize_records(ctx, "lambda", [record])[0]["properties"]
+    for name in ("S3Bucket", "S3Key"):
+        assert props["Lambda.Function.Code." + name]["status"] == "unavailable"
+        assert props["Lambda.Function.Code." + name]["errorCode"] == "AccessDenied"
+
+
+def test_sdk_fixture_request_shape_is_validation_error():
+    fake = adapter_contracts.FakeCalls(
+        SimpleNamespace(allowed={("lambda", "get_function")}), {}
+    )
+    with pytest.raises(
+        adapter_contracts.InvalidFixture, match="Invalid fixture request"
+    ):
+        fake.request("lambda", "get_function", {"Wrong": "x"})
 
 
 if __name__ == "__main__":
