@@ -24,10 +24,12 @@ from model.validations.json_settings import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
-    project,
+    project_configuration,
     reference,
     resource,
+    resource_values,
     save,
+    write,
 )
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
@@ -51,17 +53,18 @@ if not __debug__:
 @pytest.fixture
 def models(tmp_path):
     with mapping_alias(FRAMEWORK, tmp_path):
-        project(tmp_path)
-        for service in ("iam", "kms"):
-            (tmp_path / "model/qa/team" / (service + ".properties")).unlink()
+        project_configuration(tmp_path)
         yield tmp_path
 
 
 def prepare(
     root, kind, prop, payload, context=None, producer="S3.Bucket", attribute="Arn"
 ):
-    resource(root, "producer", producer, attribute=attribute, observed="PENDING_DEPLOY")
-    scope, values = resource(root, "receiver", kind, attribute="Name")
+    producer_scope, producer_values = resource_values(
+        root, "producer", producer, attribute=attribute, observed="PENDING_DEPLOY"
+    )
+    write(producer_scope, producer_values)
+    scope, values = resource_values(root, "receiver", kind, attribute="Name")
     values["desired.resource.001.cfn-logicalId"] = "consumer-Policy"
     values.update(
         {
@@ -187,8 +190,13 @@ STATIC = [
 @pytest.mark.parametrize("prop,producer,attribute", STATIC)
 def test_registered_contract_route(models, prop, producer, attribute):
     consumer_kind = ".".join(prop.split(".")[:2])
-    resource(models, "producer", producer, attribute=attribute)
-    scope, authored = resource(models, "receiver", consumer_kind, attribute="Name")
+    producer_scope, producer_values = resource_values(
+        models, "producer", producer, attribute=attribute
+    )
+    write(producer_scope, producer_values)
+    scope, authored = resource_values(
+        models, "receiver", consumer_kind, attribute="Name"
+    )
     authored["desired.resource.001.logicalId"] = (
         consumer_kind.replace(".", "_") + "_999"
     )
@@ -955,17 +963,21 @@ def test_inventory_return_and_arn_contracts(kind):
         if style in {"statement", "wrapped-statement"}
     ],
 )
-@pytest.mark.parametrize("statement", ["Statement", "Statement/0"])
-@pytest.mark.parametrize("value", ["", "/0"])
-def test_source_vpc_policy_contracts(root, style, statement, value):
+def test_source_vpc_policy_contracts(root, style):
     wrapper = "/PolicyDocument" if style == "wrapped-statement" else ""
-    pointer = (
-        wrapper + "/" + statement + "/Condition/StringEquals/aws:SourceVpc" + value
-    )
-    field = receiving_property(root, pointer)
-    assert contract(field) == {"EC2.VPC": ("VpcId",)}
-    assert not contract(field.replace("aws:SourceVpc", "aws:SourceArn"))
-    assert not contract(field.replace("StringEquals", "StringLike"))
+    for statement in ("Statement", "Statement/0"):
+        for value in ("", "/0"):
+            pointer = (
+                wrapper
+                + "/"
+                + statement
+                + "/Condition/StringEquals/aws:SourceVpc"
+                + value
+            )
+            field = receiving_property(root, pointer)
+            assert contract(field) == {"EC2.VPC": ("VpcId",)}
+            assert not contract(field.replace("aws:SourceVpc", "aws:SourceArn"))
+            assert not contract(field.replace("StringEquals", "StringLike"))
 
 
 @pytest.mark.parametrize(
@@ -1307,9 +1319,12 @@ def test_legacy_contract_preparation(models, prop):
     declared = contract(prop)
     producer = next(iter(declared))
     forms = declared[producer]
-    resource(models, "producer", producer, attribute=forms[0])
+    producer_scope, producer_values = resource_values(
+        models, "producer", producer, attribute=forms[0]
+    )
+    write(producer_scope, producer_values)
     kind = ".".join(prop.split(".")[:2])
-    scope, receiver = resource(models, "receiver", kind, attribute="Name")
+    scope, receiver = resource_values(models, "receiver", kind, attribute="Name")
     receiver.update(
         {
             "desired.row.001-002.property": prop,
@@ -1340,9 +1355,12 @@ def test_legacy_contract_rejects_wrong_producer(models, prop):
     wrong = next(
         kind for kind in ("S3.Bucket", "IAM.Role", "EC2.VPC") if kind not in declared
     )
-    resource(models, "producer", wrong, attribute="Name")
+    producer_scope, producer_values = resource_values(
+        models, "producer", wrong, attribute="Name"
+    )
+    write(producer_scope, producer_values)
     kind = ".".join(prop.split(".")[:2])
-    scope, receiver = resource(models, "receiver", kind, attribute="Name")
+    scope, receiver = resource_values(models, "receiver", kind, attribute="Name")
     receiver.update(
         {
             "desired.row.001-002.property": prop,
@@ -1408,8 +1426,6 @@ def test_route53_query_logging_rejects_log_group_getatt_with_suffix(models):
 @pytest.mark.parametrize(
     "prefix", ["AssumeRolePolicyDocument", "Policies[].PolicyDocument"]
 )
-@pytest.mark.parametrize("statement", ["Statement", "Statement[]"])
-@pytest.mark.parametrize("suffix", ["", "[]"])
 @pytest.mark.parametrize(
     "operator,key,producer",
     [
@@ -1422,30 +1438,12 @@ def test_route53_query_logging_rejects_log_group_getatt_with_suffix(models):
     ],
 )
 def test_iam_condition_arn_contract_and_comparison(
-    models, prefix, statement, suffix, operator, key, producer
+    models, prefix, operator, key, producer
 ):
     resource(models, "producer", producer, attribute="Arn")
     resource(models, "receiver", "IAM.Role", attribute="Name")
     value = reference(producer.replace(".", "_") + "_001", "Arn")
-    condition = {operator: {key: [value] if suffix else value}}
-    statement_value = {"Condition": condition}
-    document = {
-        "Statement": [statement_value] if "[]" in statement else statement_value
-    }
-    root = "IAM.Role.Policies" if "[]" in prefix else "IAM.Role." + prefix
-    payload = [{"PolicyDocument": document}] if "[]" in prefix else document
-    (node,) = nodes(payload)
-    pointer = node.pointer
-    field = receiving_property(root, pointer)
-    path = field.removeprefix("IAM.Role.")
-    expected = (
-        {"S3.Bucket": ("Arn",), "SecretsManager.Secret": ("Arn",)}
-        if operator.startswith("Arn")
-        else {producer: ("Arn",)}
-    )
-    assert contract(field) == expected
     resolver = Resolver(models)
-    resolver.validate_attribute(producer, "Arn", field=field)
     inputs = comparison(models, ("producer", "receiver"))
     symbol = ResourceReference(
         {
@@ -1453,15 +1451,37 @@ def test_iam_condition_arn_contract_and_comparison(
             "$attribute": reference_attribute(producer, "Arn"),
         }
     )
-    assert inputs.desired_reference("receiver", symbol, "IAM.Role", path) == symbol
-    assert inputs.reference_same(symbol, symbol, "IAM.Role", path) is True
-    for bad_kind, bad_attribute in (("EC2.VPC", "VpcId"), (producer, "Name")):
-        with pytest.raises(ValueError):
-            resolver.validate_attribute(bad_kind, bad_attribute, field=field)
-    assert not contract(field.replace(key, "unknown"))
-    assert not contract(field.replace(key, key.rsplit(":", 1)[0]))
-    assert not contract(field.replace(key, key + ":extra"))
-    assert not contract(field.replace(operator, "UnknownOperator"))
+    for statement in ("Statement", "Statement[]"):
+        for suffix in ("", "[]"):
+            condition = {operator: {key: [value] if suffix else value}}
+            statement_value = {"Condition": condition}
+            document = {
+                "Statement": [statement_value] if "[]" in statement else statement_value
+            }
+            root = "IAM.Role.Policies" if "[]" in prefix else "IAM.Role." + prefix
+            payload = [{"PolicyDocument": document}] if "[]" in prefix else document
+            (node,) = nodes(payload)
+            pointer = node.pointer
+            field = receiving_property(root, pointer)
+            path = field.removeprefix("IAM.Role.")
+            expected = (
+                {"S3.Bucket": ("Arn",), "SecretsManager.Secret": ("Arn",)}
+                if operator.startswith("Arn")
+                else {producer: ("Arn",)}
+            )
+            assert contract(field) == expected
+            resolver.validate_attribute(producer, "Arn", field=field)
+            assert (
+                inputs.desired_reference("receiver", symbol, "IAM.Role", path) == symbol
+            )
+            assert inputs.reference_same(symbol, symbol, "IAM.Role", path) is True
+            for bad_kind, bad_attribute in (("EC2.VPC", "VpcId"), (producer, "Name")):
+                with pytest.raises(ValueError):
+                    resolver.validate_attribute(bad_kind, bad_attribute, field=field)
+            assert not contract(field.replace(key, "unknown"))
+            assert not contract(field.replace(key, key.rsplit(":", 1)[0]))
+            assert not contract(field.replace(key, key + ":extra"))
+            assert not contract(field.replace(operator, "UnknownOperator"))
 
 
 def test_iam_condition_document_generation(models):

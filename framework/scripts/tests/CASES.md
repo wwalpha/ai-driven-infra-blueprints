@@ -3432,8 +3432,15 @@ existing owners because they test independent contracts rather than typed-node d
 
 ## Common receiving-reference contract audit
 
+同suiteは627ケース。初期fixtureはProject設定のみを生成し、static/prepare/legacyのproducer・receiverは最終値をまとめて書いてから実際の依存索引を構築する。Policyの配列・単一値の4形は同一fixture内で全て検証し、入力パターンやassertを省略しない。
+
+| Case ID | Function | Layer | Suite | Execution / Count | Coverage | Origin |
+| --- | --- | --- | --- | --- | --- | --- |
+| `reference-policy::source-vpc-shapes` | `test_source_vpc_policy_contracts` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 20 | 全20 Policy rootでStatementの単一/配列と値の単一/配列の全4形、計80入力を検証 | Synthetic policy pointers |
+| `reference-policy::iam-condition-shapes` | `test_iam_condition_arn_contract_and_comparison` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 12 | IAM Roleの2 Policy root×6 operator/key/producer組合せで各4形、計48入力。型・比較・誤Producer/attribute・キー/演算子の境界を維持 | Synthetic Models and policies |
+
 `units/reference-contract-audit-unit.checks.py` owns the full current static contract matrix
-(115 Producer/attribute/receiving-property combinations across 89 entries), applying the
+(247 Producer/attribute/receiving-property combinations across 203 entries), applying the
 Resolver, typed normalization, final symbolic comparison, wrong Producer/attribute and
 IMPORT rejection together. Context/Action contracts are covered jointly with the existing
 `model-reference-nodes-unit.checks.py`; SSM.Parameter applicability is explicitly unsupported.
@@ -3441,7 +3448,7 @@ No old service-specific tests or CodePipeline acceptance checks are duplicated o
 
 | Case | Function | Layer | Entry | Runtime | Guarantees | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
-| `reference-audit::static` | `test_registered_contract_route` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L102) | pytest / 115 | Shared contract/Resolver/typed comparison, wrong attributes/Producer and IMPORT protection for every static declaration | Authored temporary Models |
+| `reference-audit::static` | `test_registered_contract_route` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L102) | pytest / 247 | Shared contract/Resolver/typed comparison, wrong attributes/Producer and IMPORT protection for every static declaration | Authored temporary Models |
 | `reference-audit::context` | `test_context_never_guesses` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L81) | pytest / 3 | Wrong/missing CloudTrail Type and unknown CodeBuild Type cannot produce confirmed references | Synthetic JSON |
 | `reference-audit::flow-resolver` | `test_flowlog_nested_context` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L88) | pytest / 1 | VPC context and rejection of another ResourceType | Synthetic Models |
 | `reference-audit::catalog` | `test_catalog_and_context_boundaries` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py#L141) | pytest / 1 | Every registered schema and context choice is inspected; SSM is unsupported | Framework schemas |
@@ -3535,7 +3542,7 @@ All patterns use the common evaluator and authored temporary Models. An incomple
 | `reference-shared::network-firewall-unit.checks.py:test_rule_group_type` | `test_rule_group_type` | UT | [units/network-firewall-unit.checks.py](units/network-firewall-unit.checks.py) | pytest / 2 | Shared return, ARN, intrinsic and Producer proof regression | Synthetic inputs and pinned Framework contracts |
 | `reference-shared::network-firewall-unit.checks.py:test_unproven_rule_group_type` | `test_unproven_rule_group_type` | UT | [units/network-firewall-unit.checks.py](units/network-firewall-unit.checks.py) | pytest / 6 | Shared return, ARN, intrinsic and Producer proof regression | Synthetic inputs and pinned Framework contracts |
 | `reference-shared::reference-contract-audit-unit.checks.py:test_inventory_is_exactly_the_supported_framework_types` | `test_inventory_is_exactly_the_supported_framework_types` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | Shared return, ARN, intrinsic and Producer proof regression | Synthetic inputs and pinned Framework contracts |
-| `reference-shared::reference-contract-audit-unit.checks.py:test_inventory_return_and_arn_contracts` | `test_inventory_return_and_arn_contracts` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 178 | Shared return, ARN, intrinsic and Producer proof regression | Synthetic inputs and pinned Framework contracts |
+| `reference-shared::reference-contract-audit-unit.checks.py:test_inventory_return_and_arn_contracts` | `test_inventory_return_and_arn_contracts` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 179 | Shared return, ARN, intrinsic and Producer proof regression | Synthetic inputs and pinned Framework contracts |
 | `reference-shared::reference-evidence-unit.checks.py:test_cached_exports_are_bound_to_the_consumer_scope` | `test_cached_exports_are_bound_to_the_consumer_scope` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | Shared return, ARN, intrinsic and Producer proof regression | Synthetic inputs and pinned Framework contracts |
 | `reference-shared::reference-evidence-unit.checks.py:test_saved_literal_evidence_is_checked_in_both_directions` | `test_saved_literal_evidence_is_checked_in_both_directions` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 3 | Shared return, ARN, intrinsic and Producer proof regression | Synthetic inputs and pinned Framework contracts |
 | `reference-shared::reference-evidence-unit.checks.py:test_shared_recorded_arn_proof` | `test_shared_recorded_arn_proof` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 28 | Shared return, ARN, intrinsic and Producer proof regression | Synthetic inputs and pinned Framework contracts |
