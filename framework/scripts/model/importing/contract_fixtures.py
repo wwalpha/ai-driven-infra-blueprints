@@ -21,6 +21,10 @@ TARGET = {
 }
 
 
+class InvalidFixture(ValueError):
+    """The offline fixture violates its SDK response contract."""
+
+
 def shape_value(shape, depth=0, seen=()):
     """SDK-schema synthetic values, independent of comparator field mappings."""
     terminal = depth > 10 or shape.name in seen
@@ -284,10 +288,16 @@ class SchemaClient:
                 },
                 model.name,
             )
-        response = sdk_response(
-            self.model, self.service, operation, self.context.egress
-        )
-        validate_parameters(response, model.output_shape)
+        try:
+            response = sdk_response(
+                self.model, self.service, operation, self.context.egress
+            )
+            validate_parameters(response, model.output_shape)
+        except Exception as error:
+            self.context.fixture_error = InvalidFixture(
+                f"Invalid fixture response for {self.service}.{operation}: {error}"
+            )
+            raise self.context.fixture_error from error
         return response
 
 
@@ -297,6 +307,14 @@ class SchemaOffline(m.Context):
     def __init__(self, root, fault=None, target=TARGET):
         super().__init__(root, target, session=self)
         self.fault, self.request_count, self.egress = fault, 0, False
+        self.fixture_error = None
+
+    def _call(self, service, operation, **inputs):
+        try:
+            return super()._call(service, operation, **inputs)
+        finally:
+            if self.fixture_error is not None:
+                raise self.fixture_error
 
     def client(self, service):
         if service not in self.clients:

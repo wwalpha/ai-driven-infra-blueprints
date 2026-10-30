@@ -37,6 +37,11 @@ UNOBSERVABLE = {
     ),
 }
 
+CONDITIONAL_CODE = {
+    "Lambda.Function.Code.S3Bucket": "Code.ResolvedS3Object.S3Bucket",
+    "Lambda.Function.Code.S3Key": "Code.ResolvedS3Object.S3Key",
+}
+
 
 def sensitive(resource: Any, prop: str) -> bool:
     return resource.module.sensitive(prop or "") or bool(
@@ -58,6 +63,33 @@ def contract(root: Path, prop: str, status: str) -> dict[str, Any] | None:
     if mapped is None or not mapped.include:
         return None
     reference = "framework/mappings/aws/" + service + ".yaml#" + prop
+    if status == "unobservable" and prop in CONDITIONAL_CODE:
+        path = CONDITIONAL_CODE[prop]
+        getter = mapping.getters.get(mapped.field.getter, {})
+        if (
+            mapped.source != "aws"
+            or mapped.field.classification != "supported"
+            or mapped.field.getter != "base"
+            or mapped.field.path != path
+            or getter.get("kind") != "adapter"
+        ):
+            return None
+        model = sdk_for(root).service_model("lambda")
+        shape = model.operation_model("GetFunction").output_shape
+        try:
+            response_shape(shape, path)
+        except ValueError:
+            return None
+        return {
+            "status": "unobservable",
+            "reasonCode": "OPTIONAL_CODE_SOURCE_NOT_RETURNED",
+            "reason": "GetFunction did not return the optional code source; the existing value is not AWS verified",
+            "evidence": {
+                "mapping": reference,
+                "api": "lambda.get_function",
+                "missingPath": path,
+            },
+        }
     if status == "withheld":
         adapter = module("model/adapters/aws.py", "model.adapters.aws")
         if service not in adapter.SERVICES or not sensitive(

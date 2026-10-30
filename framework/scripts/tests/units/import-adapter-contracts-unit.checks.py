@@ -304,33 +304,29 @@ def test_fake_context_rejects_invalid_and_unknown_requests():
         fake.response("s3", "create_bucket_metadata_configuration", {"unexpected": 1})
 
 
-def test_invalid_response_fixture_is_unverified(monkeypatch):
+def test_invalid_response_fixture_is_validation_error(monkeypatch, capsys):
     monkeypatch.setattr(
         adapter_contracts,
         "vpc_fixture",
         Mock(side_effect=adapter_contracts.InvalidFixture("invalid SDK output")),
     )
     mapping = runtime_registry(ROOT, "quicksight")
-    evidence = adapter_contracts.run(ROOT, mapping, "QuickSight.VPCConnection")
-    assert evidence["vpc"]["properties"]["QuickSight.VPCConnection.DnsResolvers"] == {
-        "status": "unverified",
-        "reason": "invalid SDK output",
-    }
+    with pytest.raises(adapter_contracts.InvalidFixture, match="invalid SDK output"):
+        adapter_contracts.run(ROOT, mapping, "QuickSight.VPCConnection")
+    for fmt in ("text", "json"):
+        assert coverage.main(["--service", "quicksight", "--format", fmt]) == 2
+        assert "Fixture Validation Error" in capsys.readouterr().err
 
 
-def test_model_invalid_fixture_is_unverified(monkeypatch):
+def test_model_invalid_fixture_is_validation_error(monkeypatch):
     monkeypatch.setattr(
         adapter_contracts.cli,
         "validation_errors",
         Mock(return_value=["invalid fixture value"]),
     )
     mapping = runtime_registry(ROOT, "config")
-    result = adapter_contracts.run(ROOT, mapping, "Config.DeliveryChannel")["channel"]
-    assert result["status"] == "unverified"
-    assert all(
-        "invalid fixture value" in value["reason"]
-        for value in result["properties"].values()
-    )
+    with pytest.raises(adapter_contracts.InvalidFixture, match="invalid fixture value"):
+        adapter_contracts.run(ROOT, mapping, "Config.DeliveryChannel")
 
 
 def test_shared_sdk_fixture_records_partial_evidence_without_verification():
@@ -460,10 +456,36 @@ def test_lambda_function_and_recursion_contracts_use_distinct_operations():
     assert result["base"]["status"] == "verified"
     assert result["recursion"]["status"] == "verified"
     assert result["base"]["fixtureOperation"] == "lambda.get_function"
+    for key in (
+        "MemorySize",
+        "ReservedConcurrentExecutions",
+        "Code.S3Bucket",
+        "Code.S3Key",
+    ):
+        assert (
+            result["base"]["properties"]["Lambda.Function." + key]["status"]
+            == "verified"
+        )
     assert (
         result["recursion"]["fixtureOperation"]
         == "lambda.get_function_recursion_config"
     )
+
+
+def test_lambda_get_function_response_shape():
+    fake = adapter_contracts.FakeCalls(SimpleNamespace(allowed=set()), {})
+    payload = {
+        "Code": {"ResolvedS3Object": {"S3Bucket": "fixture", "S3Key": "file.zip"}}
+    }
+    assert fake.response("lambda", "get_function", payload) == payload
+    with pytest.raises(
+        adapter_contracts.InvalidFixture, match="Invalid fixture response"
+    ):
+        fake.response(
+            "lambda",
+            "get_function",
+            {"Code": {"ResolvedS3Object": {"WrongField": "x"}}},
+        )
 
 
 def test_eventbridge_rule_and_scheduler_contracts_cover_bus_scope():
@@ -773,18 +795,44 @@ def test_invalid_shared_sdk_output_cannot_be_verified(monkeypatch):
         {"FlowLogs.FlowLogId": 7},
     )
     mapping = runtime_registry(ROOT, "vpc")
-    result = adapter_contracts.shared_fixture_evidence(
-        ROOT,
-        mapping,
-        "EC2.FlowLog",
-        "base",
-        adapter_contracts.contracts(mapping, "EC2.FlowLog")["base"],
+    with pytest.raises(adapter_contracts.InvalidFixture, match="describe_flow_logs"):
+        adapter_contracts.shared_fixture_evidence(
+            ROOT,
+            mapping,
+            "EC2.FlowLog",
+            "base",
+            adapter_contracts.contracts(mapping, "EC2.FlowLog")["base"],
+        )
+
+
+@pytest.mark.parametrize(
+    "code",
+    [{}, {"ResolvedS3Object": {"S3Bucket": "fixture-code", "S3Key": "handler.zip"}}],
+)
+def test_lambda_optional_code_source_capture(code):
+    ctx = cli.import_context(
+        ROOT, adapter_contracts.TARGET, service="lambda", no_profile=True
     )
-    assert all(item["status"] == "unverified" for item in result.values())
-    assert all(
-        "fixture cannot establish selectors" in item["reason"]
-        for item in result.values()
-    )
+    ctx.verified = True
+    record = {
+        "kind": "Lambda.Function",
+        "identity": "fixture",
+        "getters": {
+            "base": {
+                "Configuration": {"FunctionName": "fixture", "MemorySize": 128},
+                "Concurrency": {"ReservedConcurrentExecutions": 5},
+                "Code": code,
+            }
+        },
+    }
+    properties = cli.normalize_records(ctx, "lambda", [record])[0]["properties"]
+    for name in ("S3Bucket", "S3Key"):
+        capture = properties["Lambda.Function.Code." + name]
+        assert capture["status"] == ("captured" if code else "unobservable")
+        if not code:
+            assert capture["reasonCode"] == "OPTIONAL_CODE_SOURCE_NOT_RETURNED"
+    assert properties["Lambda.Function.MemorySize"]["value"] == 128
+    assert properties["Lambda.Function.ReservedConcurrentExecutions"]["value"] == 5
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ from botocore.validate import ParamValidator
 from utils.aws_sdk import aws_runtime
 
 from model.importing import cli, inventory, limitations
-from model.importing.contract_fixtures import SchemaOffline
+from model.importing.contract_fixtures import InvalidFixture, SchemaOffline
 from model.importing.discovery import ADAPTER_INVENTORIES, resolve
 
 ACCOUNT = "123456789012"
@@ -27,8 +27,8 @@ TARGET = {
 }
 
 
-class InvalidFixture(ValueError):
-    """Fixture data cannot prove the adapter contract."""
+class UnverifiedFixture(ValueError):
+    """The fixture does not establish the requested evidence."""
 
 
 def fixture_context(root: Path, service: str, calls: type, payload: Any):
@@ -67,10 +67,10 @@ def import_normalize(
         item == cli.comparator().MISSING or cli.unsafe(item)
         for item in extracted.values
     ):
-        raise InvalidFixture("Fixture contains sensitive or unresolved values")
+        raise UnverifiedFixture("Fixture contains sensitive or unresolved values")
     errors = cli.validation_errors(ctx.catalog, kind, path, extracted)
     if errors:
-        raise InvalidFixture(
+        raise UnverifiedFixture(
             "Fixture value is invalid for the Model: " + "; ".join(errors)
         )
 
@@ -91,8 +91,8 @@ def fixture_properties(
         name = key.removeprefix(kind + ".")
         prop = mapping.properties[key]
         case = expected.get(name)
-        if cli.sensitive(resource, key) or limitations.contract(
-            ctx.root, key, "unobservable"
+        if cli.sensitive(resource, key) or (
+            prop.source != "aws" and limitations.contract(ctx.root, key, "unobservable")
         ):
             items[key] = {
                 "status": "unverified",
@@ -110,33 +110,33 @@ def fixture_properties(
             }
             continue
         _, raw = mapping_value(ctx, resource, mapping, prop, key)
-        try:
-            import_normalize(ctx, kind, key, raw, prop.field.norm)
-        except InvalidFixture as error:
-            items[key] = {
-                "status": "broken" if model_failure_is_broken else "unverified",
-                "reason": (
-                    "SDK attribute is rejected by Import Model validation: "
-                    if model_failure_is_broken
-                    else ""
-                )
-                + str(error),
-            }
-            continue
         actual = (
             raw
             if prop.field.norm == "kms"
             else cli.comparator().normalize(ctx, raw, prop.field.norm)
         )
-        items[key] = (
-            {
-                "status": "verified",
-                "reason": "Offline fixture only; AWS retrieval remains unverified",
-                "branches": list(branches),
+        if actual != case[2]:
+            items[key] = {
+                "status": "broken",
+                "reason": "Adapter result differs from fixture",
             }
-            if actual == case[2]
-            else {"status": "broken", "reason": "Adapter result differs from fixture"}
-        )
+            continue
+        try:
+            import_normalize(ctx, kind, key, raw, prop.field.norm)
+        except UnverifiedFixture as error:
+            if not model_failure_is_broken:
+                raise InvalidFixture(str(error)) from error
+            items[key] = {
+                "status": "broken",
+                "reason": "SDK attribute is rejected by Import Model validation: "
+                + str(error),
+            }
+            continue
+        items[key] = {
+            "status": "verified",
+            "reason": "Offline fixture only; AWS retrieval remains unverified",
+            "branches": list(branches),
+        }
     return items
 
 
@@ -237,6 +237,8 @@ def shared_failure_branches(
     except cli.comparator().AcquisitionError as error:
         if error.code == "AccessDeniedException":
             branches.append("access-denied")
+    except InvalidFixture:
+        raise
     except (
         ValueError,
         KeyError,
@@ -252,6 +254,8 @@ def shared_failure_branches(
         mapping_value(ctx, resource, mapping, mapping.properties[sample], sample)
     except cli.comparator().Unresolved:
         branches.append("all-selectors-missing")
+    except InvalidFixture:
+        raise
     except (
         ValueError,
         KeyError,
@@ -270,12 +274,16 @@ def shared_fixture_evidence(
     ctx = schema_context(root, mapping.service)
     try:
         records = inventory.adapter_inventory(ctx, mapping.service, (kind,))
+        if ctx.fixture_error is not None:
+            raise ctx.fixture_error
         if not records:
-            raise InvalidFixture("Shared SDK fixture produced no inventory record")
+            raise UnverifiedFixture("Shared SDK fixture produced no inventory record")
         record = records[0]
         resource = fixture_resource(root, ctx, mapping.service, record)
+    except InvalidFixture:
+        raise
     except (
-        InvalidFixture,
+        UnverifiedFixture,
         ValueError,
         KeyError,
         TypeError,
@@ -283,6 +291,8 @@ def shared_fixture_evidence(
         cli.comparator().Unresolved,
         cli.comparator().AcquisitionError,
     ) as error:
+        if ctx.fixture_error is not None:
+            raise ctx.fixture_error from error
         return {
             key: {
                 "status": "unverified",
@@ -307,12 +317,14 @@ def shared_fixture_evidence(
             _, raw = mapping_value(ctx, resource, mapping, prop, key)
             expected = project(prop, record.get("getters", {}).get(getter, {}))
             if expected == cli.comparator().MISSING or raw != expected:
-                raise InvalidFixture(
+                raise UnverifiedFixture(
                     "Independent inventory value unavailable or differs"
                 )
             import_normalize(ctx, kind, key, raw, prop.field.norm)
+        except InvalidFixture:
+            raise
         except (
-            InvalidFixture,
+            UnverifiedFixture,
             ValueError,
             KeyError,
             TypeError,
@@ -6221,11 +6233,8 @@ def run(root: Path, mapping: Any, kind: str) -> dict[str, Any]:
         if fixture is not None and getter in mapping.getters:
             try:
                 items = fixture(root, mapping, properties)
-            except InvalidFixture as error:
-                items = {
-                    key: {"status": "unverified", "reason": str(error)}
-                    for key in properties
-                }
+            except InvalidFixture:
+                raise
             except (
                 ValueError,
                 KeyError,

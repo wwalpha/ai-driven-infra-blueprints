@@ -477,7 +477,12 @@ def _normalize_records(ctx, service, records):
                         }
                         continue
                     safe_empty = absence == "empty"
-                if restriction is not None and not safe_empty:
+                conditional = prop in limitations.CONDITIONAL_CODE
+                if conditional and restriction is None:
+                    raise ValueError(
+                        "Lambda code-source limitation contract is invalid"
+                    )
+                if restriction is not None and not safe_empty and not conditional:
                     captured[prop] = restriction
                     continue
                 if hidden and not safe_empty:
@@ -493,10 +498,14 @@ def _normalize_records(ctx, service, records):
                 else:
                     value = m.select(ctx.fetch(proxy, field.getter), field.path)
                 if value == m.MISSING:
-                    captured[prop] = {
-                        "status": "missing",
-                        "reason": "AWS optional value not retrieved",
-                    }
+                    captured[prop] = (
+                        restriction
+                        if conditional and restriction
+                        else {
+                            "status": "missing",
+                            "reason": "AWS optional value not retrieved",
+                        }
+                    )
                     continue
                 value = normalize_import_value(ctx, value, field.norm)
                 shape = "projection" if array_paths(prop) else "leaf"

@@ -405,6 +405,34 @@ def pending_items(selection, selected, values, property_schema):
     known = {(item["record"], item.get("property")) for item in pending}
     rows = resource_row_index(values)
     for rid, record in selected.items():
+        if (
+            record["kind"] == "Lambda.Function"
+            and record.get("_action", "add") == "add"
+        ):
+            code = {}
+            for name in ("S3Bucket", "S3Key", "ImageUri", "ZipFile"):
+                prop = "Lambda.Function.Code." + name
+                code[name] = property_values(
+                    values, rid, prop, property_schema(prop), rows=rows
+                )
+                code[name] = (
+                    isinstance(code[name], str)
+                    and bool(code[name].strip())
+                    and code[name] not in {"UNSET", "PENDING_DEPLOY"}
+                )
+            if not (
+                code["S3Bucket"]
+                and code["S3Key"]
+                or code["ImageUri"]
+                or code["ZipFile"]
+            ):
+                pending.append(
+                    {
+                        "record": record["record"],
+                        "reason": "Lambda deployment code source is not established",
+                        "category": "structure",
+                    }
+                )
         if record.get("structureStatus") == "unresolved" and not record.get(
             "_structureResolved"
         ):

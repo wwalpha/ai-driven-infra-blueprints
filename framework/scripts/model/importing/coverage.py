@@ -935,6 +935,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = report(args.repository_root.absolute(), args.service)
+    except adapter_contracts.InvalidFixture as error:
+        message = {"error": "Fixture Validation Error", "reason": str(error)}
+        print(
+            json.dumps(message)
+            if args.format == "json"
+            else f"{message['error']}: {error}",
+            file=sys.stderr,
+        )
+        return 2
     except (
         OSError,
         ValueError,

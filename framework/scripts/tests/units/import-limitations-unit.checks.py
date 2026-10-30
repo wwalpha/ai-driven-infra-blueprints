@@ -482,6 +482,113 @@ def test_queue_structure_cannot_be_waived_by_property_limitations():
         sources.selection_records(selection, [record], {}, values, schema)
 
 
+def lambda_case(action, code_rows):
+    kind = "Lambda.Function"
+    props = [kind + ".Code.S3Bucket", kind + ".Code.S3Key"]
+    values = resource_values(
+        "001", kind, "lambda-one", "IMPORT", [("FunctionName", "`fixture`")] + code_rows
+    )
+    record = {
+        "record": "r1",
+        "kind": kind,
+        "identity": "fixture",
+        "identityProperty": kind + ".FunctionName",
+        "identityProperties": [kind + ".FunctionName"],
+        "identityStatus": "known",
+        "properties": {
+            kind + ".FunctionName": {"status": "captured", "value": "fixture"},
+            **{p: limitations.contract(ROOT, p, "unobservable") for p in props},
+        },
+    }
+    selection = {
+        "resources": [
+            {
+                "record": "r1",
+                "resource": "001",
+                "action": action,
+                "reason": "explicit",
+                "basis": [],
+            }
+        ],
+        "excluded": [],
+        "unreflected": [],
+        "limitations": [
+            {
+                "record": "r1",
+                "property": p,
+                "reasonCode": "OPTIONAL_CODE_SOURCE_NOT_RETURNED",
+                "treatment": "retain_existing"
+                if action == "refresh"
+                else "omit_unobserved",
+                "reason": "not returned",
+            }
+            for p in props
+        ],
+    }
+    acquisition = {
+        "version": 3,
+        **FORMAT_FIELDS,
+        "root": "/synthetic/worktree",
+        "task": "tasks/import.md",
+        "scope": ["dev", "cde", "lambda"],
+        "sources": {},
+        "connection": {},
+        "acquiredAt": datetime.now(timezone.utc).isoformat(),
+        "records": [record],
+        "inventory": {
+            kind: {
+                "status": "limited",
+                "enumerationComplete": True,
+                "propertiesComplete": False,
+                "limitations": [
+                    {"record": "r1", "property": p, "status": "unobservable"}
+                    for p in props
+                ],
+            }
+        },
+    }
+    return values if action == "refresh" else {}, values, selection, acquisition
+
+
+def test_lambda_retained_code_is_reviewed_as_unverified():
+    data = lambda_case(
+        "refresh", [("Code.S3Bucket", "`bucket`"), ("Code.S3Key", "`file.zip`")]
+    )
+    result = review_case(data)
+    assert result["completion"]["propertiesResolved"]
+    assert not result["completion"]["allPropertiesObserved"]
+    assert all(
+        item["currentModelValuePresent"] and "not verified" in item["residualRisk"]
+        for item in result["limitations"]
+    )
+    approval.review_binding(result, data[3])
+
+
+@pytest.mark.parametrize(
+    "rows,complete",
+    [
+        ([], False),
+        ([("Code.ImageUri", "`UNSET`")], False),
+        ([("Code.ImageUri", "`example/image:tag`")], True),
+        ([("Code.ZipFile", "`code`")], True),
+    ],
+)
+def test_lambda_new_resource_requires_code_source(rows, complete):
+    data = lambda_case("add", rows)
+    for prop, value in rows:
+        data[3]["records"][0]["properties"]["Lambda.Function." + prop] = {
+            "status": "captured",
+            "value": value.strip("`"),
+        }
+    result = review_case(data)
+    assert result["completion"]["propertiesResolved"] is complete
+    if complete:
+        approval.review_binding(result, data[3])
+    else:
+        with pytest.raises(ValueError, match="limitations/structure"):
+            approval.review_binding(result, data[3])
+
+
 def test_missing_absence_is_valid_but_false_limited_evidence_is_not():
     data = case()
     data[3]["records"][0]["properties"]["LakeFormation.Resource.RoleArn"] = {
