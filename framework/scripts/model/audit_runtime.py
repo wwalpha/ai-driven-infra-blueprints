@@ -488,7 +488,7 @@ def identifier_result(m, ctx, resource, item):
         }
 
 
-def classify_exclusion(m, snapshot, resource, item):
+def classify_exclusion(m, snapshot, resource, item, *, resource_confirmed=False):
     prop = item["propertiesKey"]
     reason = snapshot.get("exclusions", {}).get(prop)
     if (
@@ -504,6 +504,11 @@ def classify_exclusion(m, snapshot, resource, item):
         == "DescribeResource confirmed ResourceArn but omitted WithFederation"
     ):
         reason = item["reason"]
+    if prop == "LakeFormation.Resource.UseServiceLinkedRole":
+        reason = (
+            "RegisterResource input cannot be recovered from DescribeResource"
+            if resource_confirmed else None
+        )
     if item["status"] not in {"sdk_unavailable", "local_metadata"} or not reason:
         return item
     try:
@@ -673,16 +678,24 @@ def audit(snapshot, profile=None, cli_runner=None):
                     )
                 )
             )
+            items = [
+                reference_result(m, snapshot, resource, identifier_result(m, ctx, resource, item))
+                for item in items
+            ]
             failed = any(
                 item["status"] in {"acquisition_failed", "resource_missing"}
                 for item in items
             )
+            resource_confirmed = any(
+                item.get("propertiesKey") == "LakeFormation.Resource.ResourceArn"
+                and item["status"] == "match"
+                for item in items
+            )
             for item in items:
-                item = reference_result(
-                    m, snapshot, resource, identifier_result(m, ctx, resource, item)
-                )
                 records.append(
-                    item if failed else classify_exclusion(m, snapshot, resource, item)
+                    item if failed else classify_exclusion(
+                        m, snapshot, resource, item, resource_confirmed=resource_confirmed
+                    )
                 )
         except Exception as error:
             # Never turn a new upstream dependency or malformed response into a silent skip.
@@ -743,6 +756,8 @@ def report(snapshot, profile, account, records, timestamp):
             "resource_missing": "NG",
             "excluded": "INFO",
         }.get(item["status"], "ERROR")
+        if item["status"] == "resource_missing" and item.get("resourceType") == "LakeFormation.Resource":
+            state = "ERROR"
         counts[state] += 1
         prop = item.get("propertiesKey") or "(resource)"
         kind = item.get("resourceType") or ".".join(prop.split(".")[:2])

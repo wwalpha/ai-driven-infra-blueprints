@@ -1436,18 +1436,39 @@ def lakeformation_federation_audit():
                 text, _ = engine["report"](snap, None, "123456789012", records, datetime.now(timezone.utc))
                 if value is None:
                     assert "[INFO] LakeFormation.Resource" in text and "Verification: NOT_VERIFIABLE" in text
+        role_key = "LakeFormation.Resource.UseServiceLinkedRole"
+        role_arn = "arn:aws:iam::123456789012:role/aws-service-role/lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess"
+        for desired in (True, False):
+            data["models"]["dev/cde/lake-formation"]["desired.row.001-002.value"] = "`" + json.dumps(desired) + "`"
+            write_model(path, data["models"]["dev/cde/lake-formation"])
+            snap = snapshot(generator.generate(root, "dev", "cde", "lake-formation")[0])
+            engine = runtime(snap)
+            for actual_role in (role_arn, "arn:aws:iam::123456789012:role/other"):
+                info = {"ResourceArn": arn, "RoleArn": actual_role, "WithFederation": True}
+                records = engine["audit"](snap, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": info}}))[2]
+                item = next(item for item in records if item["propertiesKey"] == role_key)
+                assert item["status"] == "excluded" and item["designValue"] is desired, records
+                text, _ = engine["report"](snap, None, "123456789012", records, datetime.now(timezone.utc))
+                assert any(line.startswith("[INFO] LakeFormation.Resource |") and line.endswith("| UseServiceLinkedRole") for line in text.splitlines()) and "Verification: NOT_VERIFIABLE" in text
+        invalid_role = copy.deepcopy(snap)
+        invalid_role["models"]["dev/cde/lake-formation"]["desired.row.001-002.value"] = "`invalid`"
+        records = runtime(invalid_role)["audit"](invalid_role, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": {"ResourceArn": arn}}}))[2]
+        assert next(item for item in records if item["propertiesKey"] == role_key)["status"] == "design_unresolved", records
         for info in ({}, {"ResourceArn": arn + "-other"}):
             records = engine["audit"](snap, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": info}}))[2]
             assert next(item for item in records if item["propertiesKey"] == key)["status"] != "excluded", records
+            assert next(item for item in records if item["propertiesKey"] == role_key)["status"] != "excluded", records
         invalid = copy.deepcopy(snap)
         invalid["models"]["dev/cde/lake-formation"]["desired.row.001-003.value"] = "`invalid`"
         records = runtime(invalid)["audit"](invalid, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": {"ResourceArn": arn}}}))[2]
         assert next(item for item in records if item["propertiesKey"] == key)["status"] == "design_unresolved", records
-        for code, expected in (("EntityNotFoundException", "resource_missing"), ("AccessDeniedException", "acquisition_failed"), ("InvalidInputException", "acquisition_failed")):
+        for code, expected in (("EntityNotFoundException", "resource_missing"), ("ResourceNotFoundException", "resource_missing"), ("AccessDeniedException", "acquisition_failed")):
             cli = _bind_framework_callback(_callback_lakeformation_failure, code)
             records = engine["audit"](snap, None, cli)[2]
             assert any(item["status"] == expected for item in records), records
             assert not any(item["status"] == "excluded" for item in records), records
+            text, exit_code = engine["report"](snap, None, "123456789012", records, datetime.now(timezone.utc))
+            assert "[ERROR] LakeFormation.Resource" in text and exit_code == 2, text
 
 
 @it_case

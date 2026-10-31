@@ -1575,6 +1575,19 @@ class IdentifierTests(unittest.TestCase):
             self.assertIn("Verification: NOT_VERIFIABLE", text)
             self.assertIn("INFO: 1", text)
 
+    def test_lakeformation_request_input_requires_resource_confirmation(self):
+        prop = "LakeFormation.Resource.UseServiceLinkedRole"
+        item = {"propertiesKey": prop, "status": "sdk_unavailable", "reason": "request input"}
+        for desired in (True, False):
+            self.resource.rows_for.return_value = [("001-001", {"value": str(desired)})]
+            self.resource.parse = lambda row: desired
+            result = audit.classify_exclusion(self.m, {}, self.resource, item, resource_confirmed=True)
+            self.assertEqual(result["status"], "excluded")
+            self.assertIs(result["designValue"], desired)
+            self.assertIs(audit.classify_exclusion(self.m, {}, self.resource, item), item)
+        self.resource.parse = Mock(side_effect=ValueError("invalid"))
+        self.assertEqual(audit.classify_exclusion(self.m, {}, self.resource, item, resource_confirmed=True)["status"], "design_unresolved")
+
     def test_lambda_bucket_missing_evidence_only_is_excluded(self):
         prop = "Lambda.Function.Code.S3Bucket"
         self.resource.rows_for.return_value = [("001-001", {"value": "`bucket`"})]
