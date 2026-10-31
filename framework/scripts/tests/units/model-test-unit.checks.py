@@ -901,6 +901,31 @@ class CloudTrailArrayTests(unittest.TestCase):
     ref = staticmethod(ReferenceTests.ref)
     save = ReferenceTests.save
 
+    @staticmethod
+    def records(snapshot, response):
+        cli = Mock(
+            side_effect=[
+                subprocess.CompletedProcess(
+                    [],
+                    0,
+                    json.dumps(
+                        {
+                            "Account": "123456789012",
+                            "Arn": "arn:aws:iam::123456789012:user/offline",
+                        }
+                    ),
+                    "",
+                ),
+                subprocess.CompletedProcess(
+                    [], 0, json.dumps({"Trail": {"Name": "fixture"}}), ""
+                ),
+                subprocess.CompletedProcess(
+                    [], 0, json.dumps({"EventSelectors": response}), ""
+                ),
+            ]
+        )
+        return audit.audit(snapshot, cli_runner=cli)[2]
+
     def test_reference_array_membership(self):
         arn = "arn:aws:lambda:ap-northeast-1:123456789012:function:fixture"
         producer = self.model(
@@ -959,30 +984,6 @@ class CloudTrailArrayTests(unittest.TestCase):
             "resolved",
         )
 
-        def records(response):
-            cli = Mock(
-                side_effect=[
-                    subprocess.CompletedProcess(
-                        [],
-                        0,
-                        json.dumps(
-                            {
-                                "Account": "123456789012",
-                                "Arn": "arn:aws:iam::123456789012:user/offline",
-                            }
-                        ),
-                        "",
-                    ),
-                    subprocess.CompletedProcess(
-                        [], 0, json.dumps({"Trail": {"Name": "fixture"}}), ""
-                    ),
-                    subprocess.CompletedProcess(
-                        [], 0, json.dumps({"EventSelectors": response}), ""
-                    ),
-                ]
-            )
-            return audit.audit(snapshot, cli_runner=cli)[2]
-
         for response, prop, expected in [
             (selectors, "ReadWriteType", "match"),
             (
@@ -1020,13 +1021,15 @@ class CloudTrailArrayTests(unittest.TestCase):
         ]:
             with self.subTest(prop=prop, expected=expected):
                 result = next(
-                    r for r in records(response) if r["propertiesKey"].endswith(prop)
+                    r
+                    for r in self.records(snapshot, response)
+                    if r["propertiesKey"].endswith(prop)
                 )
                 self.assertEqual(result["status"], expected, result)
         self.assertTrue(
             all(
                 r["status"] == "match"
-                for r in records(selectors)
+                for r in self.records(snapshot, selectors)
                 if "EventSelectors[]" in r["propertiesKey"]
             )
         )
@@ -1066,7 +1069,7 @@ class CloudTrailArrayTests(unittest.TestCase):
             )
             result = next(
                 r
-                for r in records(selectors)
+                for r in self.records(snapshot, selectors)
                 if r["propertiesKey"].endswith("ReadWriteType")
             )
             self.assertEqual(result["status"], "design_unresolved", result)
@@ -1079,7 +1082,7 @@ class CloudTrailArrayTests(unittest.TestCase):
         snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
         result = next(
             r
-            for r in records(selectors)
+            for r in self.records(snapshot, selectors)
             if r["propertiesKey"].endswith("DataResources[].Values")
         )
         self.assertNotEqual(result["status"], "match", result)
