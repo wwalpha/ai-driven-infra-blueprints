@@ -23,7 +23,7 @@ class StackUnit(StackOptions):
     deployOrder: str | int
 
 
-# Stack operation records also supply the minimal unfinished-operation journal.
+# Stack states are persisted only in this Task's current progress.
 StackState: TypeAlias = JsonObject
 States: TypeAlias = dict[str, StackState]
 Target: TypeAlias = dict[str, str]
@@ -33,7 +33,6 @@ AwsValue: TypeAlias = (
 )
 AwsResponse: TypeAlias = dict[str, AwsValue]
 Save: TypeAlias = Callable[[], None]
-Sleep: TypeAlias = Callable[[float], None]
 PathsFor: TypeAlias = Callable[[StackUnit], tuple[Path, Path]]
 InputPaths: TypeAlias = Callable[[Iterable[StackUnit]], list[Path]]
 

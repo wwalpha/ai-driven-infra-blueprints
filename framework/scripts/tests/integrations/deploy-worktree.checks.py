@@ -29,6 +29,7 @@ from deploy import (
     inputs,
     operation_journal,
     steps,
+    temporary,
     worktree,
 )
 from deploy import git_publication as publication
@@ -194,6 +195,48 @@ def check_current_request_is_shared_without_history_or_duplicate_execute(tmp_pat
                 )
             case.assertEqual(probe.tokens, [("Example", "original")])
             assert not journal.exists()
+            owner = SimpleNamespace(name="tasks/request-one.md", task_digest="one")
+            directory = temporary.create(journal, first, owner, target, ["Example"])
+            template = directory / "Example.json"
+            template.write_text("{}", encoding="utf-8")
+            states["Example"].update(status="RUNNING", delivery={"path": str(template)})
+            one.phase = "deploy"
+            one.run_context = {
+                "states": states,
+                "directory": "app",
+                "inputDigests": {"Example": "fixed"},
+            }
+            identity = {
+                "taskFile": owner.name,
+                "taskDigest": owner.task_digest,
+                "target": target,
+                "environment": "dev",
+                "stacks": ["Example"],
+            }
+            pin_progress(one, identity)
+            worktree.save_progress(one, operation_journal.OPERATION_FIELDS)
+            progress_path = worktree.progress_path(first)
+            progress_bytes = progress_path.read_bytes()
+            request_path = current_request.location(target, "Example")
+            request_bytes = request_path.read_bytes()
+            temporary.reclaim(
+                journal,
+                second,
+                target,
+                task=SimpleNamespace(name="tasks/request-two.md", task_digest="two"),
+                run_context={"states": {}},
+            )
+            assert template.read_text(encoding="utf-8") == "{}"
+            assert (
+                progress_path.read_bytes() == progress_bytes
+                and request_path.read_bytes() == request_bytes
+            )
+            restored = worktree.read_progress(first, {"deployIdentity": identity})[
+                "runContext"
+            ]
+            assert restored["states"]["Example"]["delivery"]["path"] == str(template)
+            temporary.reclaim(journal, first, target, task=owner, run_context=restored)
+            assert template.exists()
             assert_request_lock_survives_process_exit(
                 current_request.location(target, "Example")
             )

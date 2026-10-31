@@ -24,6 +24,7 @@ from support.cloudformation_deploy_fixtures import (
     Path,
     Runtime,
     StubAws,
+    advance_group,
     finish,
     rejects,
     run,
@@ -109,12 +110,8 @@ def check_scheduler():
         Fake({"B": ["CREATE_IN_PROGRESS"] * 3 + ["CREATE_COMPLETE"]}),
     )
     assert (
-        scheduler.run_group(
-            scoped,
-            2,
-            _state_check_scheduler_42.state,
-            _state_check_scheduler_42.fake,
-            sleep=lambda _: None,
+        advance_group(
+            scoped, 2, _state_check_scheduler_42.state, _state_check_scheduler_42.fake
         )
         == "GROUP_COMPLETE"
     )
@@ -206,7 +203,7 @@ def check_scheduler():
         and not _state_check_scheduler_42.fake.running
     )
     assert (
-        scheduler.run_group(
+        advance_group(
             scoped, 2, _state_check_scheduler_42.state, _state_check_scheduler_42.fake
         )
         == "STOPPED"
@@ -291,13 +288,12 @@ def check_scheduler():
         )
         _state_check_scheduler_42.fake.execute = submit
         try:
-            result = scheduler.run_group(
+            result = advance_group(
                 selected,
                 1,
                 _state_check_scheduler_42.state,
                 _state_check_scheduler_42.fake,
                 save,
-                sleep=lambda _: None,
             )
             assert (
                 _state_check_scheduler_42.boundary == "submitted"
@@ -313,17 +309,15 @@ def check_scheduler():
         )
         if _state_check_scheduler_42.boundary != "intent":
             token = _state_check_scheduler_42.state["A"]["clientToken"]
-            assert scheduler.run_group(
+            assert advance_group(
                 selected,
                 1,
                 _state_check_scheduler_42.state,
                 _state_check_scheduler_42.fake,
-                sleep=lambda _: None,
-                drain_only=True,
             ) == (
                 "COMPLETE"
                 if _state_check_scheduler_42.boundary == "submitted"
-                else "STOPPED"
+                else "GROUP_COMPLETE"
             )
             assert (
                 _state_check_scheduler_42.state["A"]["status"] == "SUCCESS"

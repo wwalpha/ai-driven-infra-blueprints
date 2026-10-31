@@ -37,7 +37,7 @@ from deploy import (
 from model.core import properties, stack_model, validate_model_keys
 from model.observed import verify_observed_outputs
 from model.projection import observed_value
-from support.cloudformation_deploy_fixtures import Fake, states, units
+from support.cloudformation_deploy_fixtures import Fake, advance_group, states, units
 from support.pytest_cli import run
 from utils import sealed_evidence
 from utils.aws.client import AwsError
@@ -119,21 +119,12 @@ def check_advance_returns_with_running_peers_without_sync():
     scoped = units(10, 10, 20)
     state = states(scoped)
     backend = Fake(completions={"A": ["CREATE_COMPLETE"], "B": ["CREATE_IN_PROGRESS"]})
-    backend.sync_completed = Mock(side_effect=AssertionError("LLM owns sync"))
-    sleep = Mock(side_effect=AssertionError("advance must return"))
-    assert (
-        scheduler.run_group(scoped, 2, state, backend, sleep=sleep, single_step=True)
-        == "ACTIVE"
-    )
+    assert scheduler.run_group(scoped, 2, state, backend) == "ACTIVE"
     assert state["A"]["status"] == state["B"]["status"] == "RUNNING"
-    assert (
-        scheduler.run_group(scoped, 2, state, backend, sleep=sleep, single_step=True)
-        == "ACTIVE"
-    )
+    assert scheduler.run_group(scoped, 2, state, backend) == "ACTIVE"
     assert state["A"]["status"] == "SUCCESS"
     assert state["B"]["status"] == "RUNNING"
     assert state["C"]["status"] == "NOT_STARTED"
-    backend.sync_completed.assert_not_called()
     result = steps.describe(
         SimpleNamespace(run_context={"states": state}, states=state)
     )
@@ -146,9 +137,9 @@ def check_advance_retains_original_execute_after_interruption():
     backend = Fake(
         completions={"A": ["CREATE_IN_PROGRESS"], "B": ["CREATE_IN_PROGRESS"]}
     )
-    scheduler.run_group(scoped, 2, state, backend, single_step=True)
+    scheduler.run_group(scoped, 2, state, backend)
     tokens = {n: s["clientToken"] for n, s in state.items()}
-    scheduler.run_group(scoped, 2, state, backend, single_step=True)
+    scheduler.run_group(scoped, 2, state, backend)
     assert {n: s["clientToken"] for n, s in state.items()} == tokens
     assert len([e for e in backend.events if e[0] == "start"]) == 2
 
@@ -265,17 +256,11 @@ def check_unknown_poll_stops_without_resubmit():
     scoped = units(10)
     state = states(scoped)
     backend = Fake(completions={"A": ["UNRECOGNIZED"]})
-    scheduler.run_group(scoped, 1, state, backend, single_step=True)
+    scheduler.run_group(scoped, 1, state, backend)
     token = state["A"]["clientToken"]
-    TestCase().assertEqual(
-        scheduler.run_group(scoped, 1, state, backend, single_step=True), "ACTIVE"
-    )
-    TestCase().assertEqual(
-        scheduler.run_group(scoped, 1, state, backend, single_step=True), "ACTIVE"
-    )
-    TestCase().assertEqual(
-        scheduler.run_group(scoped, 1, state, backend, single_step=True), "STOPPED"
-    )
+    TestCase().assertEqual(scheduler.run_group(scoped, 1, state, backend), "ACTIVE")
+    TestCase().assertEqual(scheduler.run_group(scoped, 1, state, backend), "ACTIVE")
+    TestCase().assertEqual(scheduler.run_group(scoped, 1, state, backend), "STOPPED")
     result = steps.describe(
         SimpleNamespace(run_context={"states": state}, states=state)
     )
@@ -472,7 +457,6 @@ class TestCurrentState(TestCase):
                 backend.states,
                 backend,
                 save=lambda: saved.append(dict(state)),
-                single_step=True,
             )
             self.assertEqual(saved[-1]["status"], "SUCCESS")
             self.assertNotIn("attemptResult", saved[-1])
@@ -482,7 +466,7 @@ class TestCurrentState(TestCase):
         scoped = units(10)
         state = states(scoped)
         state["A"]["unexecutedReason"] = "DEPLOY_ENDED_WITHOUT_EXECUTION"
-        scheduler.run_group(scoped, 1, state, Fake(), single_step=True)
+        scheduler.run_group(scoped, 1, state, Fake())
         self.assertNotIn("unexecutedReason", state["A"])
         state["A"]["unexecutedReason"] = "stale"
         current_state.record_attempt(state["A"], "UPDATE_COMPLETE")
@@ -675,19 +659,15 @@ class TestCurrentState(TestCase):
         state["A"] = {"status": "SETTLED", "attemptResult": "UNKNOWN"}
         backend = Fake()
         backend.current_satisfied = Mock()
-        self.assertEqual(
-            scheduler.run_group(scoped, 1, state, backend, single_step=True), "ACTIVE"
-        )
+        self.assertEqual(scheduler.run_group(scoped, 1, state, backend), "ACTIVE")
         self.assertEqual(state["A"]["attemptResult"], "UNKNOWN")
         self.assertEqual(state["A"]["status"], "SETTLED")
         self.assertEqual(
             [event[1] for event in backend.events if event[0] == "start"], ["B"]
         )
-        scheduler.run_group(scoped, 1, state, backend, single_step=True)
+        scheduler.run_group(scoped, 1, state, backend)
         self.assertEqual(state["B"]["status"], "SUCCESS")
-        self.assertEqual(
-            scheduler.run_group(scoped, 1, state, backend, single_step=True), "COMPLETE"
-        )
+        self.assertEqual(scheduler.run_group(scoped, 1, state, backend), "COMPLETE")
         self.assertEqual(backend.current_satisfied.call_count, 3)
 
     def test_settled_revalidation_blocks_next_order_on_mismatch(self):
@@ -698,7 +678,7 @@ class TestCurrentState(TestCase):
         backend.current_satisfied = Mock(side_effect=Blocked("current input differs"))
         for _ in range(2):
             self.assertEqual(
-                scheduler.run_group(scoped, 1, state, backend, single_step=True),
+                scheduler.run_group(scoped, 1, state, backend),
                 "STOPPED",
             )
         self.assertEqual(state["B"]["status"], "NOT_STARTED")
@@ -785,9 +765,7 @@ class TestCurrentState(TestCase):
                 "parameters": "b",
             }
             self.assertEqual(
-                scheduler.run_group(
-                    [unit, consumer], 1, backend.states, backend, single_step=True
-                ),
+                scheduler.run_group([unit, consumer], 1, backend.states, backend),
                 "STOPPED",
             )
             self.assertEqual(backend.states["B"]["status"], "NOT_STARTED")
@@ -797,9 +775,7 @@ class TestCurrentState(TestCase):
                 else {"TemplateBody": document}
             )
             self.assertEqual(
-                scheduler.run_group(
-                    [unit, consumer], 1, backend.states, backend, single_step=True
-                ),
+                scheduler.run_group([unit, consumer], 1, backend.states, backend),
                 "ACTIVE",
             )
             self.assertEqual(
@@ -977,12 +953,8 @@ class TestCurrentState(TestCase):
         }
         backend = Fake()
         backend.execute = Mock(side_effect=AssertionError("duplicate execution"))
-        outcome = scheduler.run_group(
-            [{"name": "A", "deployOrder": 1}],
-            1,
-            {"A": state},
-            backend,
-            sleep=Mock(side_effect=AssertionError("unexpected wait")),
+        outcome = advance_group(
+            [{"name": "A", "deployOrder": 1}], 1, {"A": state}, backend
         )
         self.assertEqual(outcome, "STOPPED")
         backend.execute.assert_not_called()
@@ -1238,7 +1210,7 @@ class TestCurrentState(TestCase):
         backend = Fake()
         backend.prepare = Mock()
         backend.execute = Mock()
-        scheduler.run_group(scoped, 1, state, backend, single_step=True)
+        scheduler.run_group(scoped, 1, state, backend)
         steps.retry_terminal_attempts(
             SimpleNamespace(states=state, units=scoped), {"A"}
         )
@@ -1271,15 +1243,15 @@ class TestCurrentState(TestCase):
         state = states(scoped)
         state["A"].update(status="SUCCESS", observedSynced=False)
         backend = Fake()
-        scheduler.run_group(scoped, 1, state, backend, single_step=True)
+        scheduler.run_group(scoped, 1, state, backend)
         self.assertEqual(state["B"]["status"], "RUNNING")
 
     def test_short_advances_do_not_starve_independent_peers(self):
         scoped = units(10, 10, 20)
         state = states(scoped)
         backend = Fake(blocked={"A"})
-        scheduler.run_group(scoped, 1, state, backend, single_step=True)
-        scheduler.run_group(scoped, 1, state, backend, single_step=True)
+        scheduler.run_group(scoped, 1, state, backend)
+        scheduler.run_group(scoped, 1, state, backend)
         self.assertEqual(state["B"]["status"], "RUNNING")
         self.assertEqual(state["C"]["status"], "NOT_STARTED")
         state["A"].update(status="FAILED")
@@ -1293,7 +1265,7 @@ class TestCurrentState(TestCase):
         scoped = units(10)
         state = states(scoped)
         state["A"]["schedulerError"] = "past concurrency mode"
-        scheduler.run_group(scoped, 1, state, Fake(), single_step=True)
+        scheduler.run_group(scoped, 1, state, Fake())
         self.assertEqual(state["A"]["status"], "RUNNING")
         self.assertNotIn("schedulerError", state["A"])
 
@@ -2388,6 +2360,59 @@ def check_unconfirmed_create_preserves_original_recovery_identity(tmp_path):
         not found.get("settled")
         and json.loads(request.read_text(encoding="utf-8")) == record
     )
+
+
+@pytest.mark.parametrize(
+    "condition",
+    ["request", "approval", "authorization", "ended-unknown", "generation-error"],
+)
+def check_current_guidance_preserves_safe_recovery_and_final_choices(condition):
+    state = {
+        "status": "SUCCESS",
+        "observedSynced": True,
+        "currentStack": {"StackStatus": "UPDATE_COMPLETE", "StackId": "stack"},
+    }
+    context = {
+        "states": {"A": state},
+        "stepUnits": [{"name": "A", "deployOrder": 10}],
+        "taskFile": "tasks/deploy.md",
+        "snapshotValidation": "PASS",
+    }
+    if condition == "request":
+        state.update(status="RUNNING", requestPending=True)
+    elif condition in {"approval", "authorization"}:
+        state.update(status="BLOCKED", failure={"classification": condition.upper()})
+    elif condition == "ended-unknown":
+        state.update(
+            status="SETTLED",
+            attemptResult="UNKNOWN",
+            endedRequest={"result": "UNKNOWN"},
+        )
+    else:
+        context["generationError"] = "generation incomplete"
+    backend = SimpleNamespace(
+        run_context=context,
+        states=context["states"],
+        units=context["stepUnits"],
+        phase="deploy",
+        task_status="running",
+    )
+    original = copy.deepcopy(context)
+    with patch.object(publication, "display", return_value=None):
+        report = steps.describe(backend)
+    actions = report["nextActions"]
+    assert bool([a for a in actions if a.get("final")]) == (
+        condition in {"approval", "authorization", "ended-unknown"}
+    )
+    assert ({"action": "advance"} in actions) == (
+        condition in {"request", "ended-unknown"}
+    )
+    assert actions and all(
+        a["action"] in {"advance", "sync", "review"} for a in actions
+    )
+    assert context == original
+    if condition == "ended-unknown":
+        assert report["deployResult"] == "UNKNOWN" and report["task"] == "running"
 
 
 if __name__ == "__main__":

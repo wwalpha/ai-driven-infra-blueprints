@@ -8,7 +8,6 @@ import shlex
 import sys
 import threading
 import time
-from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext, redirect_stdout
 from functools import partial
@@ -667,22 +666,8 @@ def check_worktree_commands_reproduce_wrapper_environment(managed_python):
     expected_path = os.environ["PATH"]
     task = "tasks/parent's task.md"
     plan = root.parent / "approved plan's $(ignored).json"
-    args = Namespace(
-        environment="dev",
-        alias="app",
-        aws_account_id=None,
-        stack=["App"],
-        profile="app dev",
-        sequential=True,
-    )
     reports = [
         G.preparation_result(root, plan, True),
-        G.controller_result(
-            "STOPPED",
-            {"taskFile": task, "states": {"App": {"status": "RUNNING"}}},
-            args,
-            root,
-        ),
         G.handoff_result(
             {"repository": str(root), "taskFile": task, "requestId": "reviewed-id"}
         ),
@@ -703,7 +688,6 @@ def check_worktree_commands_reproduce_wrapper_environment(managed_python):
                 / "framework/scripts"
                 / {
                     "REGISTRATION": "deploy_preparation.py",
-                    "AWS_OPERATION": "cloudformation-deploy.py",
                     "HANDOFF": "task_contract.py",
                 }[report["stage"]]
             ),

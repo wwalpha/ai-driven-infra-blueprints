@@ -23,7 +23,6 @@ from deploy import run_context
 from deploy.model_cache import RunModels
 from deploy.observed import removed_resources
 from deploy.preparation import candidate
-from deploy.scheduler import run_group
 from model.adapters import observed
 from model.adapters.observed import mappings, preflight, validate_mapping_targets
 from model.format import parse
@@ -37,6 +36,7 @@ from support.cloudformation_deploy_fixtures import (
     Path,
     Runtime,
     SimpleNamespace,
+    advance_group,
     copy,
     io,
     json,
@@ -1731,7 +1731,7 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
     session = {"states": states(selected)}
     session["states"]["A"]["stackId"] = "stack-A"
     for unit in selected:
-        run_group(selected, 1, session["states"], backend, sleep=lambda _: None)
+        advance_group(selected, 1, session["states"], backend)
         publish_collected(backend, [unit], session["states"])
     assert starts(backend) == ["A", "B"]
     failed = Fake()
@@ -1752,7 +1752,7 @@ def check_secretsmanager_arn_identifiers(publication_workspace, monkeypatch):
     }
     session["states"]["A"]["stackId"] = "stack-A"
     for unit in selected:
-        run_group(selected, 1, session["states"], failed, sleep=lambda _: None)
+        advance_group(selected, 1, session["states"], failed)
         publish_collected(failed, [unit], session["states"])
     TestCase().assertEqual(starts(failed), ["A", "B"])
     TestCase().assertEqual(

@@ -17,7 +17,6 @@ from comparison.methods import compare_values
 from comparison.registry import rules
 from comparison.values import desired_value
 from deploy.controller import load_inputs
-from deploy.scheduler import run_group
 from design.catalog import DesignSchemaCatalog
 from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from model.core import ModelNeedsFixError, literal
@@ -41,6 +40,7 @@ from model.sources import load_model
 from model.validations.environment import validate_environment_settings
 from model.validations.full_inputs import check_model_inputs as model_inputs
 from model.validations.json_settings import validate_json_settings
+from support.cloudformation_deploy_fixtures import advance_group
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
@@ -766,7 +766,7 @@ def check_pending_stack_keeps_independent_peer_running(limit, ready):
     states = {
         unit["name"]: {"status": "READY" if ready else "NOT_STARTED"} for unit in units
     }
-    assert run_group(units, limit, states, backend, sleep=lambda _: None) == "STOPPED"
+    assert advance_group(units, limit, states, backend) == "STOPPED"
     assert backend.executed == ["good"]
     if not ready:
         assert backend.run_context["metrics"]["inputLoadSeconds"] > 0

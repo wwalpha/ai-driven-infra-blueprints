@@ -32,13 +32,28 @@ def create(journal, root, task, target, stacks):
     return path
 
 
-def reclaim(journal, root, target, *, states):
+def reclaim(journal, root, target, *, task, run_context):
     """Unknown files survive; no PID inference, global /tmp sweep or lock removal."""
     needed = {
         Path(saved["delivery"]["path"])
-        for saved in states.values()
-        if saved.get("status") in {"RUNNING", "READY", "CHANGESET_CREATING"}
-        and saved.get("delivery", {}).get("path")
+        for saved in run_context["states"].values()
+        if saved.get("delivery", {}).get("path")
+        and (
+            saved.get("status") in {"RUNNING", "READY", "CHANGESET_CREATING"}
+            or saved.get("requestPending")
+            or saved.get("requestError")
+            or saved.get("attemptResult") == "UNKNOWN"
+            and not saved.get("endedRequest")
+            or any(
+                run_context.get(key)
+                for key in (
+                    "pendingObserved",
+                    "pendingGeneration",
+                    "generationError",
+                    "checkpointPending",
+                )
+            )
+        )
     }
     for directory in journal.parent.glob("inputs-*"):
         try:
@@ -50,7 +65,11 @@ def reclaim(journal, root, target, *, states):
                 owner["target"]
             ) != operation_journal.target_identity(target):
                 continue
-            if not operation_journal.same_repository(root, owner["repository"]):
+            if (
+                operation_journal.safe_path(Path(owner["repository"])) != root
+                or owner["taskFile"] != task.name
+                or owner["taskDigest"] != task.task_digest
+            ):
                 continue
             with handoff.repair_lock(Path(owner["repository"])):
                 needed.update(

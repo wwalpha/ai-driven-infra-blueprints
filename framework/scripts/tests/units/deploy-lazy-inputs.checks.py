@@ -21,7 +21,6 @@ from deploy import (
     inputs,
     model_cache,
     observed,
-    scheduler,
 )
 from deploy import (
     run_context as session,
@@ -31,6 +30,7 @@ from model.adapters.observed import mapped_resource, resource_index
 from model.format import FORMAT, INDEX, parse, serialize
 from model.format import patch as patch_properties
 from model.render import stack_markdown
+from support.cloudformation_deploy_fixtures import advance_group
 from support.model_v2_fixtures import deploy_properties_fixture
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
@@ -70,10 +70,7 @@ def check_100_stacks_bounded(limit):
     units = [{"name": str(i), "deployOrder": 10} for i in range(100)]
     states = {u["name"]: {"status": "NOT_STARTED"} for u in units}
     backend = Queue(True, limit)
-    assert (
-        scheduler.run_group(units, limit, states, backend, sleep=lambda _: None)
-        == "STOPPED"
-    )
+    assert advance_group(units, limit, states, backend) == "STOPPED"
     TestCase().assertEqual(backend.loads, [str(i) for i in range(100)])
     TestCase().assertEqual(backend.loads, backend.deliveries)
     TestCase().assertEqual(backend.loads, backend.executed)
@@ -321,10 +318,7 @@ def check_resume_skips_success_and_dependency_unknown(tmp_path):
     states = {u["name"]: {"status": "SUCCESS", "observedSynced": True} for u in units}
     states["2"] = {"status": "NOT_STARTED"}
     backend = Queue(False, 1)
-    assert (
-        scheduler.run_group(units, 1, states, backend, sleep=lambda _: None)
-        == "GROUP_COMPLETE"
-    )
+    assert advance_group(units, 1, states, backend) == "GROUP_COMPLETE"
     assert backend.loads == backend.executed == ["2"]
 
 
@@ -930,10 +924,7 @@ def check_readiness_blocks_before_mutation(tmp_path, monkeypatch, problem, statu
             dependency_index, "rebuild", side_effect=AssertionError("rebuild")
         ),
     ):
-        assert (
-            scheduler.run_group(units, 1, states, backend, sleep=lambda _: None)
-            == "STOPPED"
-        )
+        assert advance_group(units, 1, states, backend) == "STOPPED"
     assert states["fixture"]["status"] == "BLOCKED"
     assert "fixture: Observed readiness:" in states["fixture"]["reason"]
     if problem == "missing":

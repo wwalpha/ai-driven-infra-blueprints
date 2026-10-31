@@ -2,7 +2,6 @@
 """Presentation contracts: no AWS calls, mutation, inferred approval or normal retries."""
 
 import ast
-import copy
 import json
 import re
 import shlex
@@ -36,187 +35,6 @@ ARGS = Namespace(
     profile="app dev",
     sequential=True,
 )
-
-
-@pytest.mark.parametrize(
-    ("result", "context", "kind", "stage"),
-    [
-        ("COMPLETE", {}, "VERIFY_TASK", "COMPLETE"),
-        (
-            "STOPPED",
-            {
-                "states": {
-                    "a": {
-                        "status": "BLOCKED",
-                        "failure": {"classification": "APPROVAL"},
-                    }
-                }
-            },
-            "HUMAN_APPROVAL",
-            "CHANGESET_REVIEW",
-        ),
-        (
-            "STOPPED",
-            {
-                "states": {
-                    "a": {
-                        "status": "BLOCKED",
-                        "failure": {"classification": "AUTHORIZATION"},
-                    }
-                }
-            },
-            "CONTEXT_REVIEW",
-            "AWS_AUTHORIZATION",
-        ),
-        (
-            "STOPPED",
-            {
-                "states": {
-                    "a": {
-                        "status": "BLOCKED",
-                        "failure": {
-                            "classification": "NEEDS_HUMAN",
-                            "dependencyWait": True,
-                        },
-                    }
-                }
-            },
-            "DEPENDENCY_WAIT",
-            "PREPARATION",
-        ),
-        (
-            "STOPPED",
-            {
-                "states": {
-                    "a": {
-                        "status": "BLOCKED",
-                        "failure": {
-                            "stage": "CHANGESET_REVIEW",
-                            "classification": "NEEDS_HUMAN",
-                        },
-                    }
-                }
-            },
-            "HUMAN_REVIEW",
-            "CHANGESET_REVIEW",
-        ),
-        (
-            "STOPPED",
-            {
-                "states": {
-                    "a": {
-                        "status": "FAILED",
-                        "failure": {
-                            "stage": "EXECUTE",
-                            "classification": "NEEDS_HUMAN",
-                        },
-                    }
-                }
-            },
-            "HUMAN_REVIEW",
-            "EXECUTE",
-        ),
-        (
-            "STOPPED",
-            {"observedError": "secret=never-return"},
-            "HUMAN_REVIEW",
-            "OBSERVED",
-        ),
-        (
-            "STOPPED",
-            {"generationError": "secret=never-return"},
-            "HUMAN_REVIEW",
-            "GENERATION",
-        ),
-        (
-            "STOPPED",
-            {"pendingGeneration": {"ec2.md": {"reason": "REFERENCE_PENDING_DEPLOY"}}},
-            "DEPENDENCY_WAIT",
-            "GENERATION",
-        ),
-        (
-            "STOPPED",
-            {
-                "states": {
-                    "a": {
-                        "status": "BLOCKED",
-                        "reason": "PENDING_DEPLOY approval recover execute repair",
-                    }
-                }
-            },
-            "HUMAN_REVIEW",
-            "CONTROLLER",
-        ),
-    ],
-)
-def check_controller_routes(result, context, kind, stage):
-    original = copy.deepcopy(context)
-    report = G.controller_result(
-        result, context, ARGS, ROOT, repair_failure="/tmp/failure.json"
-    )
-    assert report["nextAction"]["type"] == kind and report["stage"] == stage
-    assert report["nextAction"]["command"] is None
-    assert "never-return" not in json.dumps(report)
-    assert context == original
-
-
-@pytest.mark.parametrize("authority", [False, True])
-@pytest.mark.parametrize(
-    "classification",
-    ["IAC_CANDIDATE", "NEEDS_HUMAN", "APPROVAL", "AUTHORIZATION", "DEPENDENCY_WAIT"],
-)
-def check_repair_candidate_requires_structured_cause_and_authority(
-    authority, classification
-):
-    context = {
-        "states": {
-            "a": {"status": "BLOCKED", "failure": {"classification": classification}}
-        }
-    }
-    report = G.controller_result(
-        "STOPPED",
-        context,
-        ARGS,
-        ROOT,
-        repair_failure="/tmp/failure.json",
-        task_text="- External IaC repair: `allowed`" if authority else "",
-    )
-    assert (report["nextAction"]["type"] == "INVESTIGATE_IAC") == (
-        authority and classification == "IAC_CANDIDATE"
-    )
-    assert report["nextAction"]["command"] is None
-
-
-@pytest.mark.parametrize(
-    "state",
-    [
-        {"status": "RUNNING"},
-        {"status": "BLOCKED", "failure": {"executionState": "UNKNOWN"}},
-    ],
-)
-def check_unknown_execution_only_proposes_original_recovery(tmp_path, state):
-    root = tmp_path / "repo with spaces"
-    context = {"taskFile": "tasks/current-task.md", "states": {"a": state}}
-    with patch.object(G, "command_environment", return_value=["env"]):
-        report = G.controller_result("STOPPED", context, ARGS, root)
-    command = report["nextAction"]["command"]
-    argv = shlex.split(command.split(" && ", 1)[1])
-    assert "BLUEPRINT_TASK_FILE=tasks/current-task.md" in argv
-    assert str(ROOT / "framework/scripts/run-python.py") in argv
-    assert shlex.split(command.split(" && ", 1)[0]) == ["cd", str(root)]
-    assert argv[argv.index("--profile") + 1] == "app dev"
-    assert argv.count("--stack") == 2 and argv[-2:] == ["--action", "status"]
-    assert "--approve-change-set" not in argv and "--resume" not in argv
-    with patch.object(controller.steps, "run", return_value=0) as run:
-        assert (
-            controller.controller_main(argv[argv.index("--environment") :], root) == 0
-        )
-    assert run.call_args.args[0].action == "status"
-    context.pop("taskFile")
-    assert (
-        G.controller_result("STOPPED", context, ARGS, root)["nextAction"]["command"]
-        is None
-    )
 
 
 @pytest.mark.parametrize(
@@ -310,6 +128,11 @@ def check_cli_help_and_example_options(script, module, tokens):
             for option in re.findall(r"--[a-z][a-z-]+", line):
                 assert option in options, (script, option)
     if script == "cloudformation-deploy.py":
+        assert (
+            "A failed attempt retains Deploy FAIL when its Task completes."
+            in result.stdout
+        )
+        assert "all are needed for COMPLETE" not in result.stdout
         assert all(
             old not in result.stdout
             for old in ["--state", "--resume", "--repair-result", "--observe-only"]
@@ -630,7 +453,6 @@ def check_unknown_error_fields_and_environment_fail_closed(tmp_path):
             ]
             is None
         )
-        assert G.recovery_command(ARGS, tmp_path, "tasks/parent.md") is None
         assert (
             G.handoff_result(
                 {

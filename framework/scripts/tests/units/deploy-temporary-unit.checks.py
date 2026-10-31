@@ -3,6 +3,7 @@
 import sys
 from argparse import Namespace
 from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -34,7 +35,9 @@ def workspace(tmp_path):
     root.mkdir()
     journal = tmp_path / "journal/journal.json"
     journal.parent.mkdir(mode=0o700)
-    task = SimpleNamespace(name="tasks/deploy.md", task_digest="task", status="running")
+    task = SimpleNamespace(
+        name="tasks/deploy.md", task_digest="task", status="running", text=""
+    )
     return root, journal, task
 
 
@@ -46,6 +49,14 @@ def workspace(tmp_path):
         "READY",
         "CHANGESET_CREATING",
         "blocked",
+        "changed-task-digest",
+        "uncertain-request",
+        "request-error",
+        "unknown-attempt",
+        "pending-observed",
+        "pending-generation",
+        "generation-error",
+        "checkpoint-pending",
         "orphan",
         "other-task",
         "other-root",
@@ -79,6 +90,8 @@ def check_owned_directory_cleanup(tmp_path, state):
         if state != "other-task"
         else SimpleNamespace(name="tasks/another.md", task_digest="other")
     )
+    if state == "changed-task-digest":
+        owner_task = SimpleNamespace(name=task.name, task_digest="previous")
     owner_target = (
         {**TARGET, "awsRegion": "other"} if state == "other-target" else TARGET
     )
@@ -130,15 +143,44 @@ def check_owned_directory_cleanup(tmp_path, state):
         if state == "active-handoff"
         else nullcontext(),
         J.locked(journal),
-        patch.object(J, "same_repository", return_value=state != "other-root"),
     ):
         saved = {"App": {"status": state, "delivery": {"path": str(template)}}}
-        temporary.reclaim(journal, root, TARGET, states=saved)
+        context = {"states": saved}
+        if state == "uncertain-request":
+            saved["App"].update(status="BLOCKED", requestPending=True)
+        elif state == "request-error":
+            saved["App"].update(status="BLOCKED", requestError="unreadable request")
+        elif state == "unknown-attempt":
+            saved["App"].update(status="BLOCKED", attemptResult="UNKNOWN")
+        pending = {
+            "pending-observed": "pendingObserved",
+            "pending-generation": "pendingGeneration",
+            "generation-error": "generationError",
+            "checkpoint-pending": "checkpointPending",
+        }.get(state)
+        if pending:
+            saved["App"]["status"] = "SUCCESS"
+            context[pending] = (
+                {"candidate": "retained"}
+                if pending != "generationError"
+                else "failed generation"
+            )
+        temporary.reclaim(journal, root, TARGET, task=task, run_context=context)
         retained = state in {
             "RUNNING",
             "READY",
             "CHANGESET_CREATING",
             "other-root",
+            "other-task",
+            "same-repository",
+            "changed-task-digest",
+            "uncertain-request",
+            "request-error",
+            "unknown-attempt",
+            "pending-observed",
+            "pending-generation",
+            "generation-error",
+            "checkpoint-pending",
             "failure",
             "tampered-failure",
             "foreign-failure",
@@ -157,6 +199,14 @@ def check_owned_directory_cleanup(tmp_path, state):
     assert journal.with_suffix(".lock").is_file()
 
 
+def reclaim_under_progress_lock(actual, backend, *args, **kwargs):
+    progress = steps.worktree.progress_path(backend.root)
+    with pytest.raises(Blocked, match="lock busy"):
+        with J.locked(progress):
+            raise AssertionError("cleanup ran after releasing progress lock")
+    actual(*args, **kwargs)
+
+
 @pytest.mark.parametrize("blocked", [False, True])
 def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
     tmp_path, blocked
@@ -169,7 +219,7 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         stack=["App"],
         profile=None,
         approve_change_set=[],
-        action="status",
+        action="advance",
         sequential=False,
     )
     prior_directory = temporary.create(journal, root, task, TARGET, ["App"])
@@ -189,7 +239,12 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
     )
     current_directory = temporary.create(journal, root, task, TARGET, ["App"])
     backend = SimpleNamespace(
-        root=root, target=TARGET, workdir=current_directory, states={}, aws=Mock()
+        root=root,
+        target=TARGET,
+        workdir=current_directory,
+        task=task,
+        run_context={"states": {}},
+        aws=Mock(),
     )
     report = (
         Mock(side_effect=Blocked("unconfirmed AWS operation"))
@@ -211,6 +266,16 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
         patch.object(steps, "refresh_requests"),
         patch.object(steps, "checkpoint_receipts"),
         patch.object(steps, "describe", report),
+        patch.object(steps, "run_group", return_value="ACTIVE"),
+        patch.object(steps, "save"),
+        patch.object(
+            temporary,
+            "reclaim",
+            side_effect=partial(
+                reclaim_under_progress_lock, temporary.reclaim, backend
+            ),
+        ),
+        patch.object(run_context, "_callback_run_guard"),
         patch.object(J, "location", return_value=journal),
     ):
         TestCase().assertEqual(
@@ -224,6 +289,9 @@ def check_controller_closes_lock_and_cleans_workdir_on_return_or_error(
             2 if blocked else 0,
         )
     TestCase().assertFalse(current_directory.exists())
+    assert list(journal.parent.glob("inputs-*")) == [prior_directory]
+    with J.locked(steps.worktree.progress_path(root)):
+        pass
     TestCase().assertTrue(failure.exists() and prior_template.exists())
     with J.locked(journal):
         pass
@@ -264,7 +332,7 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
         assert "approvedChangeDigest" not in read_sealed(root, failure)["states"]["App"]
         backend.run_context.update(taskFile="tasks/another.md", taskDigest="another")
         second = Path(temporary.handoff.record_failure(backend))
-        temporary.reclaim(journal, root, TARGET, states={})
+        temporary.reclaim(journal, root, TARGET, task=task, run_context={"states": {}})
         assert (
             failure.read_bytes() == original and second.exists() and template.exists()
         )
@@ -284,7 +352,9 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
             }
             write_sealed(root, request, identity)
             with J.locked(journal):
-                temporary.reclaim(journal, root, TARGET, states={})
+                temporary.reclaim(
+                    journal, root, TARGET, task=task, run_context={"states": {}}
+                )
             assert template.exists() and failure.exists()
             write_sealed(
                 root,
@@ -318,7 +388,9 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
                     original_failure = failure.read_bytes()
                     failure.unlink()
                 with J.locked(journal):
-                    temporary.reclaim(journal, root, TARGET, states={})
+                    temporary.reclaim(
+                        journal, root, TARGET, task=task, run_context={"states": {}}
+                    )
                 assert template.exists()
                 if consume == "unknown-cleanup":
                     receipt.write_bytes(original_receipt)
@@ -327,7 +399,7 @@ def check_failure_survives_new_task_and_templates_live_until_consumed(
             temporary.handoff.discard_request(state)
     assert not failure.exists()
     with J.locked(journal):
-        temporary.reclaim(journal, root, TARGET, states={})
+        temporary.reclaim(journal, root, TARGET, task=task, run_context={"states": {}})
     assert not directory.exists()
 
 

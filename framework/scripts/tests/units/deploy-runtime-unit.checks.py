@@ -29,6 +29,7 @@ from support.cloudformation_deploy_fixtures import (
     Runtime,
     SimpleNamespace,
     StubAws,
+    advance_group,
     deployment_bucket,
     deployment_settings,
     finish,
@@ -97,12 +98,10 @@ def execution_poll_aws(event, actual, operation, **args):
 TEST_OBSERVATION = SimpleNamespace(sync=None)
 
 
-def supervise_turns(units, limit, context, backend, save, **kwargs):
+def supervise_turns(units, limit, context, backend, save):
     """Test supervisor chooses bounded advances, explicit observation and authorized repair."""
     for _ in range(100):
-        result = scheduler.run_group(
-            units, limit, context["states"], backend, save, single_step=True
-        )
+        result = scheduler.run_group(units, limit, context["states"], backend, save)
         successful = [
             unit
             for unit in units
@@ -554,7 +553,6 @@ def check_empty_rollback_recreation(tmp_path):
                 session,
                 _state_check_empty_rollback_recreation_180.backend,
                 lambda: None,
-                sleep=lambda _: None,
             )
             == "COMPLETE"
         )
@@ -1210,10 +1208,7 @@ def check_delivery(tmp_path):
     )
     bootstrap.poll = complete
     session = states(scoped)
-    assert (
-        scheduler.run_group(scoped, 1, session, bootstrap, sleep=lambda _: None)
-        == "GROUP_COMPLETE"
-    )
+    assert advance_group(scoped, 1, session, bootstrap) == "GROUP_COMPLETE"
     assert session["B"]["status"] == "NOT_STARTED" and not any(
         op == "put_object" for op, _ in bootstrap.calls
     )
@@ -1719,12 +1714,7 @@ def check_parallel_and_restart():
         "metrics": {"observedSyncSeconds": 0},
     }
     with patch.object(TEST_OBSERVATION, "sync"):
-        assert (
-            supervise_turns(
-                scoped, 1, saved, sequential, lambda: None, sleep=lambda _: None
-            )
-            == "STOPPED"
-        )
+        assert supervise_turns(scoped, 1, saved, sequential, lambda: None) == "STOPPED"
     assert sequential.peak == 1 and starts(sequential) == ["A", "B", "C", "D"]
     assert all(
         saved["states"][u["name"]]["status"] == "NOT_STARTED" for u in scoped[4:]
@@ -1753,7 +1743,6 @@ def check_parallel_and_restart():
                 session,
                 _state_check_parallel_and_restart_1131.backend,
                 lambda: None,
-                sleep=lambda _: None,
             )
             == "COMPLETE"
         )
@@ -1809,12 +1798,8 @@ def check_parallel_and_restart():
     )
     _state_check_parallel_and_restart_1131.backend.poll = stack_poll
     assert (
-        scheduler.run_group(
-            selected,
-            4,
-            state,
-            _state_check_parallel_and_restart_1131.backend,
-            sleep=lambda _: None,
+        advance_group(
+            selected, 4, state, _state_check_parallel_and_restart_1131.backend
         )
         == "GROUP_COMPLETE"
     )
@@ -1835,12 +1820,8 @@ def check_parallel_and_restart():
     )
     _state_check_parallel_and_restart_1131.backend.execute = interrupted
     with pytest.raises(KeyboardInterrupt):
-        scheduler.run_group(
-            selected,
-            2,
-            state,
-            _state_check_parallel_and_restart_1131.backend,
-            sleep=lambda _: None,
+        advance_group(
+            selected, 2, state, _state_check_parallel_and_restart_1131.backend
         )
     assert state["A"]["status"] == "RUNNING" and state["B"]["status"] == "READY"
     _state_check_parallel_and_restart_1131.backend.execute = execute
@@ -2159,9 +2140,7 @@ def _callback_check_secret_runtime_bootstrap_configure_run(
     active, backend, session, synced, /
 ):
     with patch.object(TEST_OBSERVATION, "sync", side_effect=synced):
-        return supervise_turns(
-            active, 2, session, backend, backend.save, sleep=lambda _: None
-        )
+        return supervise_turns(active, 2, session, backend, backend.save)
 
 
 def _callback_check_secret_runtime_bootstrap_configure_failed(
@@ -3085,9 +3064,7 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
     sync = _bind_framework_callback(_callback_check_parallel_and_restart_sync, synced)
     with patch.object(TEST_OBSERVATION, "sync", side_effect=sync):
         if violation:
-            result = scheduler.run_group(
-                scoped, limit, saved, backend, save, sleep=lambda _: None
-            )
+            result = scheduler.run_group(scoped, limit, saved, backend, save)
             sync(
                 backend,
                 [unit for unit in scoped if saved[unit["name"]]["status"] == "SUCCESS"],
@@ -3127,13 +3104,23 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
                 and s["states"]["A"]["status"] == "RUNNING"
                 for s in snapshots
             )
-        # Recompute the current scope after draining; a past capacity error is not a fence.
+        # Explicit polls use only accepted peers, then reload the durable state for another turn.
+        for _ in range(4):
+            active = [u for u in scoped if saved[u["name"]]["status"] == "RUNNING"]
+            if not active:
+                break
+            scheduler.run_group(active, limit, saved, backend, save)
+            sync(
+                backend,
+                [u for u in active if saved[u["name"]]["status"] == "SUCCESS"],
+                saved,
+            )
+            save()
+        assert not backend.running and not starts(backend)
         restored = json.loads(path.read_text(encoding="utf-8"))
         with patch.object(TEST_OBSERVATION, "sync", side_effect=sync):
             TestCase().assertEqual(
-                supervise_turns(
-                    scoped, limit, restored, backend, lambda: None, sleep=lambda _: None
-                ),
+                supervise_turns(scoped, limit, restored, backend, lambda: None),
                 "STOPPED" if failure else "COMPLETE",
             )
         TestCase().assertTrue(starts(backend))
@@ -3163,7 +3150,7 @@ states = {n: {'status': 'RUNNING' if n != 'C' else 'READY', 'clientToken': n} fo
 session = {'states': states, 'metrics': {'observedSyncSeconds': 0}}
 backend = SimpleNamespace(poll=Mock(return_value='CREATE_COMPLETE'), prepare=Mock(), execute=Mock(),
                           prepare_delivery_group=Mock(), repair=Mock())
-result = run_group(units, 1, states, backend, lambda: None, sleep=lambda _: None)
+result = run_group(units, 1, states, backend, lambda: None)
 for state in states.values():
     state.pop('executionSeconds', None)
 print(json.dumps([result, states, backend.prepare.call_count, backend.execute.call_count,
@@ -3271,9 +3258,7 @@ def check_execute_timeout_keeps_evidence(tmp_path):
     assert restored["A"]["executionEvidence"] == evidence
     backend.stack_status = "CREATE_COMPLETE"
     assert (
-        scheduler.run_group(
-            selected, 1, restored, backend, save=backend.save, sleep=lambda _: None
-        )
+        advance_group(selected, 1, restored, backend, save=backend.save)
         == "GROUP_COMPLETE"
     )
     assert json.loads(path.read_text(encoding="utf-8"))["states"] == restored
@@ -3292,10 +3277,7 @@ def check_guard_failure_drains_accepted_peer():
         backend.load_inputs(unit)
         backend.expected_digests[unit["name"]] = backend.input_digest(unit)
     saved = states(selected)
-    assert (
-        scheduler.run_group(selected, 2, saved, backend, sleep=lambda _: None)
-        == "STOPPED"
-    )
+    assert advance_group(selected, 2, saved, backend) == "STOPPED"
     assert (
         saved["A"]["status"] == "SUCCESS"
         and saved["A"]["endedRequest"]["executionEvidence"]["clientToken"]

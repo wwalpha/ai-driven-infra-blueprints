@@ -145,9 +145,25 @@ def starts(fake):
     return [event[1] for event in fake.events if event[0] == "start"]
 
 
+def advance_group(units, limit, state, backend, save=lambda: None):
+    """The test chooses further polls; stopped turns drain only accepted requests."""
+    stopped = False
+    selected = units
+    for _ in range(500):
+        outcome = scheduler.run_group(selected, limit, state, backend, save)
+        stopped |= outcome == "STOPPED"
+        if stopped:
+            selected = [u for u in units if state[u["name"]]["status"] == "RUNNING"]
+            if not selected:
+                return "STOPPED"
+        elif outcome != "ACTIVE":
+            return outcome
+    raise AssertionError("test group did not settle bounded turns")
+
+
 def finish(units, limit, state, fake):
-    for _ in range(10):
-        outcome = scheduler.run_group(units, limit, state, fake, sleep=lambda _: None)
+    for _ in range(len(units) + 1):
+        outcome = advance_group(units, limit, state, fake)
         if outcome != "GROUP_COMPLETE":
             return outcome
     raise AssertionError("groups did not complete")

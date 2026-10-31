@@ -107,7 +107,7 @@ Model / Import / Deploy / Issues / Validation / CloudFormationの業務テスト
 業務側は `repository_fixtures` の独立した通常Git、または `import_repository_fixtures` のファイルsnapshotを使う。
 保存能力は `publication_fixtures` で渡し、実Task検証・入力変更検知・保存・生成・rollbackを通す。
 productionの管理所有者確認は維持し、そのfactory/registry境界を専用UT/ITで検証する。
-通常controllerはsession内ledgerを実保存し、worktree間の所有登録アダプターだけを置換する。
+通常controllerはTask固有のprogress（identity/runContext）と未確定current requestを実保存する。旧Session/ledgerの保存・再生は行わない。
 外部修復のcheckpoint・child・検証・親統合・cleanupは専用Worktree ITが実行する。
 
 全UT/IT/supportの依存を静的にたどり、直接/間接Import・動的fixture loader・worktree Mockを検出する。
@@ -117,7 +117,7 @@ read-only discoveryは許可する。公開Reviewの `worktree` フィールド�
 
 Worktree関連5 ITは27関数・29入口。実Git/Worktree、CLI連携、状態の永続化、失敗復旧、独立プロセス間Lockだけを検証する。
 入力条件は既存Import/Model/Worktree UTへ集約し、Python decodingとglobal wrapperのIT関数は廃止した。
-実venv初回生成・再利用とプロセス間排他を保持する。Fake AWSは既存sleep注入で実時間待機せず、1 controller invokeで100回までの上限・poll・終了・Patch復元を検証する。
+実venv初回生成・再利用とプロセス間排他を保持する。Fake AWSも本番と同じ1回のbounded操作を使い、テストsupervisorが必要な追加pollを明示する。schedulerのsleep注入・連続実行modeは使用しない。
 削除した内部パターン数、既存UT対応、各IT固有の保証は[削減一覧](CASES.md#worktree-it-runtime-reduction-master-1024v4)を参照。
 ローカルで長時間ITや性能比較を再実行しない。関連短時間UT・構文・登録静的整合性を確認し、ITと時間測定は既存Framework ITに委ねる。30%以上の時間削減は実測前には達成扱いにしない。
 
@@ -235,9 +235,9 @@ Issue 21のローカル確認は関連UT・構文・collect-only・登録/参照
 
 ## Deploy correctness / 1023v2
 
-`deploy-runtime-unit.checks.py` は旧controller suiteのrequest/判定/scheduler/差替えsessionケースを保持する。`deploy-sdk.checks.py` は境界内共有と境界間再取得、cleanup中の配送条件変更、削除証拠を検証する。`deploy-observed-unit.checks.py` は条件付き親参照とraw候補探索を、`aws-client.checks.py` は実SDKの一時設定/合成credential、生成排他とpaginationを検証する。API総件数や読込量・120秒判定を合格条件にしない。
+`deploy-runtime-unit.checks.py` は旧controller suiteのrequest/判定/scheduler/保存・再読込ケースを保持する。`deploy-sdk.checks.py` は境界内共有と境界間再取得、cleanup中の配送条件変更、削除証拠を検証する。`deploy-observed-unit.checks.py` は条件付き親参照とraw候補探索を、`aws-client.checks.py` は実SDKの一時設定/合成credential、生成排他とpaginationを検証する。API総件数や読込量・120秒判定を合格条件にしない。
 
-`integrations/deploy-controller.checks.py` は実controllerからtarget/Task/CFN loader、guard、SDK service wrapper、scheduler、session保存/再読込とobserved公開を通す。AWS応答をSDK client取得境界で置換し、未定義operationは失敗する。static seedは `fixtures/deploy_controller.yaml` と既存 `fixture_cases` を使い、各ケースが独立Project/cwd/実Git/sessionを持つ。別プロセスresumeはfake AWS JSONとsessionファイルだけを共有する。finallyを通らない終了後のlockは、その子を終了確認したテストだけが明示的に回収する。productionには回収分岐を追加しない。
+`integrations/deploy-controller.checks.py` は実controllerからtarget/Task/CFN loader、guard、SDK service wrapper、scheduler、progress保存/再読込とobserved公開を通す。AWS応答をSDK client取得境界で置換し、未定義operationは失敗する。static seedは `fixtures/deploy_controller.yaml` と既存 `fixture_cases` を使い、各ケースが独立Project/cwd/実Git/progressを持つ。別プロセスresumeはfake AWS JSONとprogress/current requestだけを共有する。finallyを通らない終了後のlockは、その子を終了確認したテストだけが明示的に回収する。productionには回収分岐を追加しない。
 
 関連UTは各ファイルの既存直接入口または明示pytestで実行できる。既定収集は `python3 -B framework/scripts/run-python.py -m pytest --collect-only -q framework/scripts/tests`。正式ITは既存のGitHub Actions `Framework IT` jobが `framework/scripts/tests/run_it.py` を実行する。新しいFull IT runnerは追加していない。
 
@@ -284,10 +284,10 @@ controller ITは6関数6フロー。Order 10の2Stack配送・成功・実Model�
 
 seed・Project全生成・Git initは各66→6、初期Gitは330→30、Python子processは100→7の静的見込み。小型ITと新規UTの追加子processは0。既存sleep無効化・skip・xfail・timeout短縮やrunner選別を短縮根拠にしない。Worktree normal/mergeは実checkpoint/child/validation/merge/cleanup/親Task再開とコピー結果・再適用・未記録変更拒否を保持し、追加assertionを共有helperから明示的に呼ぶ。
 
-ローカル検証は変更に関連するUTだけに限定する。invokeの共通sleep注入を変更した場合は、それを直接利用する既存UTも確認する。controller IT・小型IT・Worktree ITは修正と静的確認だけとし、IT収集・run_it.py・CI起動・IT時間計測は行わない。将来の正式CIでcontroller単独60秒と関連UT/小型ITを含めた合計を比較する。IT未実行、60秒以内の達成は未計測。
+ローカル検証は変更に関連するUTだけに限定する。scheduler変更時はbounded操作、送信前保存、中断再開、並列数・Order制約と呼出元UTを確認する。controller IT・小型IT・Worktree ITは修正と静的確認だけとし、IT収集・run_it.py・CI起動・IT時間計測は行わない。将来の正式CIでcontroller単独60秒と関連UT/小型ITを含めた合計を比較する。IT未実行、60秒以内の達成は未計測。
 
 
-追加レビューでは、公開失敗UTのplanに実行証拠を持たせ、stage別I/O失敗後のplan全体保持とdesign既公開候補の不一致拒否を確認する。acceptの再試行は署名付きsessionの実saveを置換前後で中断し、実diskからrestoreして受理済revision・予約・状態を保持する。controllerのdesign I/O失敗には初回のpeer RUNNING状態を記録し、完了後のSUCCESSだけでdrainを代用しない。この記録のためのJSON読込は当該faultの初回だけで、通常invokeには追加しない。6 controllerフロー・小型IT1本・子process7回の構成とする。
+追加レビューでは、公開失敗UTのplanに実行証拠を持たせ、stage別I/O失敗後のplan全体保持とdesign既公開候補の不一致拒否を確認する。要求の追跡終了はprogress保存とrequest解放の前後で中断し、元identityを復元して新要求を誤削除しない。controllerのdesign I/O失敗には初回のpeer RUNNING状態を記録し、完了後のSUCCESSだけでdrainを代用しない。この記録のためのJSON読込は当該faultの初回だけで、通常invokeには追加しない。6 controllerフロー・小型IT1本・子process7回の構成とする。
 
 CloudFormation共通処理は`utils/cloudformation/inputs.py`（入力評価・Blocked）、`schema.py`（Schema/キャッシュ/Lock）、`format.py`（YAML/JSON解析）へ集約する。純粋な入力判定は`cloudformation-inputs-unit`、Comparison証跡は`comparison_core-unit`、解析とSchemaは既存専用UTが担当する。
 
@@ -426,3 +426,8 @@ Run related UTs, scoped validation and repository-wide Ruff locally; long/full I
 remain separate checks.
 
 Dependency index tests require sealed v3 with an integer version. Legacy or invalid versions are rejected for publication, updates, inventory and Deploy; missing-index bootstrap remains separate. The offline `model/cli.py index --repository-root <root>` rebuild derives v3 from Model sources without trusting old edges. See [CASES.md](CASES.md#dependency-index-v3-only-issue-49).
+
+Deploy一時入力のreclaimはprogress lock内で行い、正確なWorktree/Task/digestの所有物だけを対象にする。
+別Worktree・別Taskは探索・書換えせず保全する。未確定要求、Observed/生成/最終保存候補の参照も保持する。
+UTは所有判定・保全条件・lock順序、既存cross-worktree ITは実保存/再読込とrequest/progress/templateの不変を担当する。
+旧controller_result/recovery_command専用UTは削除し、現行steps.describe/nextActionsの承認・認証・未確定要求・終了済UNKNOWN・生成失敗の案内を検証する。

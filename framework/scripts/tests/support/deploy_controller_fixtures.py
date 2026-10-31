@@ -751,12 +751,6 @@ def _callback_invoke_write(
     return result
 
 
-def fake_sleep(delays, seconds):
-    # Two synthetic stacks must terminate; bound polling even when real waiting is removed.
-    assert len(delays) < 100, "Fake AWS polling did not terminate"
-    delays.append(seconds)
-
-
 def explained_stop(real, stage, error):
     traceback.print_exception(error, file=sys.stderr)
     return real(stage, error)

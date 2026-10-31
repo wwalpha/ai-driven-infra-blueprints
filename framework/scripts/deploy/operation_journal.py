@@ -7,7 +7,6 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-import worktree_state
 from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 
@@ -134,27 +133,6 @@ def target_identity(target):
         target.get("awsExecutionAccountId", target["awsAccountId"]),
         target["awsRegion"],
     )
-
-
-def same_repository(root, owner):
-    owner = safe_path(Path(owner))
-    if root == owner:
-        return True
-    try:
-        return (
-            Path(
-                worktree_state.output(
-                    root, "rev-parse", "--path-format=absolute", "--git-common-dir"
-                )
-            ).resolve()
-            == Path(
-                worktree_state.output(
-                    owner, "rev-parse", "--path-format=absolute", "--git-common-dir"
-                )
-            ).resolve()
-        )
-    except (OSError, ValueError):
-        return False
 
 
 def publication_paths(context):

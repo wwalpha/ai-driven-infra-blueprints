@@ -808,6 +808,9 @@ def run(
                 backend.workdir = temporary.create(
                     journal, root, task, target, args.stack
                 )
+                resources.callback(
+                    temporary.reclaim, journal, root, target, task=task, run_context=run
+                )
                 models = RunModels(root, run)
                 resources.enter_context(model_session(models))
                 for unit in units:
@@ -822,7 +825,6 @@ def run(
                     backend.states,
                     backend,
                     backend.save,
-                    single_step=True,
                 )
                 if any(s["status"] == "FAILED" for s in backend.states.values()):
                     run["deployResult"] = "FAIL"
@@ -893,6 +895,3 @@ def run(
             )
         )
         return 2
-    finally:
-        if backend is not None and backend.workdir is not None:
-            temporary.reclaim(journal, root, backend.target, states=backend.states)
