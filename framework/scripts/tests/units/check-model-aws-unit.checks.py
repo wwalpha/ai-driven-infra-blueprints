@@ -1333,6 +1333,7 @@ if __name__ == "__main__":
     raise SystemExit(run(__file__))
 
 
+@pytest.mark.parametrize("getter", ["base", "permissions"])
 @pytest.mark.parametrize(
     "accounts,execution,verified,identifier,works",
     [
@@ -1341,13 +1342,14 @@ if __name__ == "__main__":
         (["999999999999"], ACCOUNT, True, "fixture", False),
         ([ACCOUNT, ACCOUNT], ACCOUNT, True, "fixture", False),
         (["PENDING_DEPLOY"], ACCOUNT, True, "fixture", False),
+        (["UNSET"], ACCOUNT, True, "fixture", False),
         ([], "999999999999", True, "fixture", False),
         ([], ACCOUNT, False, "fixture", False),
         ([], ACCOUNT, True, None, False),
     ],
 )
 def test_quicksight_datasource_selector(
-    tmp_path, accounts, execution, verified, identifier, works
+    tmp_path, accounts, execution, verified, identifier, works, getter
 ):
     ctx = SchemaOffline(tmp_path)
     ctx.target["awsExecutionAccountId"] = execution
@@ -1375,24 +1377,31 @@ def test_quicksight_datasource_selector(
         rows,
     )
     with patch.object(
-        ctx, "call", return_value={"DataSource": {"Type": "ATHENA"}}
+        ctx, "call", return_value={"DataSource": {"Type": "ATHENA"}, "Permissions": []}
     ) as call:
         if works:
-            result = resource.module.fetch(ctx, resource, "base")
-            check(result["Type"] == "ATHENA", "actual type retained")
+            result = resource.module.fetch(ctx, resource, getter)
+            check(
+                result.get("Type") == "ATHENA"
+                if getter == "base"
+                else result["Permissions"] == [],
+                "response retained",
+            )
             check(
                 bool(accounts) or "AwsAccountId" not in result,
                 "omitted account is not response data",
             )
             call.assert_called_once_with(
                 "quicksight",
-                "describe_data_source",
+                "describe_data_source"
+                if getter == "base"
+                else "describe_data_source_permissions",
                 AwsAccountId=ACCOUNT,
                 DataSourceId="fixture",
             )
         else:
             with pytest.raises(m.Unresolved):
-                resource.module.fetch(ctx, resource, "base")
+                resource.module.fetch(ctx, resource, getter)
             call.assert_not_called()
 
 
@@ -1419,6 +1428,7 @@ def test_quicksight_other_getters_unchanged(tmp_path):
             VPCConnectionId="vpc-id",
         )
     resource.kind = "QuickSight.DataSource"
+    resource.rows_for.return_value = [object()]
     resource.value.side_effect = m.Unresolved("missing account")
     with patch.object(ctx, "call") as call:
         with pytest.raises(m.Unresolved):

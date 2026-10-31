@@ -16,12 +16,8 @@ def sensitive(prop):
     return False
 
 
-def fetch(ctx, r, getter):
-    omitted = (
-        r.kind == "QuickSight.DataSource"
-        and getter == "base"
-        and not r.rows_for("AwsAccountId")
-    )
+def datasource_account(ctx, r):
+    omitted = not r.rows_for("AwsAccountId")
     if omitted:
         account = ctx.target["awsAccountId"]
         if (
@@ -33,6 +29,17 @@ def fetch(ctx, r, getter):
         account = r.value("AwsAccountId")
     if account != ctx.target["awsAccountId"]:
         raise Unresolved("QuickSight AwsAccountId conflicts with target")
+    return account, omitted
+
+
+def fetch(ctx, r, getter):
+    if r.kind == "QuickSight.DataSource":
+        account, omitted = datasource_account(ctx, r)
+    else:
+        account = r.value("AwsAccountId")
+        omitted = False
+        if account != ctx.target["awsAccountId"]:
+            raise Unresolved("QuickSight AwsAccountId conflicts with target")
     if getter == "vpc":
         result = ctx.call(
             "quicksight",

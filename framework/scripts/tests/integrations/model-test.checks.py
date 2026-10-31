@@ -299,7 +299,7 @@ with open(os.environ["AUDIT_CALLS"], "a", encoding="utf-8") as f: f.write("/".jo
 case = os.environ.get("AUDIT_CASE", "match")
 if api == ["sts", "get-caller-identity"]:
  if case == "auth": sys.stderr.write("Unable to locate credentials"); sys.exit(1)
- value = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}
+ value = {"Account": os.environ["ACCOUNT"], "Arn": "arn:aws:iam::123456789012:user/offline"}
 elif api == ["route53", "list-hosted-zones"]: value = {"HostedZones": [{"Id": "/hostedzone/Z123", "Name": "example.com."}]}
 elif api == ["route53", "get-hosted-zone"]: value = {"HostedZone": {"Id": "/hostedzone/Z123", "Name": "example.com."}}
 elif api == ["route53", "list-resource-record-sets"]:
@@ -919,7 +919,9 @@ def glue_write_only():
         case.assertIn("Result: PASS", result.stdout)
 
 
+@it_case
 def check():
+    test_quicksight_generated_standalone()
     glue_write_only()
     macie_job_standalone()
     codebuild_boolean_standalone()
@@ -2141,11 +2143,6 @@ def check():
     )
 
 
-if __name__ == "__main__":
-    with patch.dict(sys.modules):
-        check()
-
-
 def test_quicksight_generated_standalone():
     case = TestCase()
     with tempfile.TemporaryDirectory(prefix="audit-quicksight-") as directory:
@@ -2168,7 +2165,12 @@ def test_quicksight_generated_standalone():
                     "001",
                     "QuickSight.DataSource",
                     "source",
-                    [("Type", "`ATHENA`", None), ("DataSourceId", "`source-id`", None)],
+                    [
+                        ("Type", "`ATHENA`", None),
+                        ("DataSourceId", "`source-id`", None),
+                        ("Permissions[].Principal", "`principal`", None),
+                        ("Permissions[].Actions", '`["ActionA"]`', None),
+                    ],
                 )
             ],
         )
@@ -2188,11 +2190,15 @@ def test_quicksight_generated_standalone():
 api = sys.argv[1:3]
 args = json.loads(sys.argv[sys.argv.index("--cli-input-json") + 1])
 if api == ["sts", "get-caller-identity"]:
- value = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}
+ value = {"Account": os.environ["ACCOUNT"], "Arn": "arn:aws:iam::123456789012:user/offline"}
 elif api == ["quicksight", "describe-data-source"] and args == {"AwsAccountId": "123456789012", "DataSourceId": "source-id"}:
  value = {"DataSource": {"Type": os.environ["ACTUAL_TYPE"], "DataSourceId": "source-id"}}
+elif api == ["quicksight", "describe-data-source-permissions"] and args == {"AwsAccountId": "123456789012", "DataSourceId": "source-id"}:
+ value = {"Permissions": [{"Principal": "principal", "Actions": ["ActionA"]}]}
 else:
  raise RuntimeError(str((api, args)))
+if api[0] == "quicksight":
+ open(os.environ["CALLS"], "a").write("called\\n")
 print(json.dumps(value))
 """
         )
@@ -2201,7 +2207,13 @@ print(json.dumps(value))
             process = subprocess.run(
                 [sys.executable, "-I", "-B", str(script)],
                 cwd=root,
-                env={**os.environ, "PATH": str(root), "ACTUAL_TYPE": actual},
+                env={
+                    **os.environ,
+                    "PATH": str(root),
+                    "ACTUAL_TYPE": actual,
+                    "ACCOUNT": "123456789012",
+                    "CALLS": str(root / "calls"),
+                },
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -2209,3 +2221,27 @@ print(json.dumps(value))
             case.assertIn(marker, process.stdout, process.stdout + process.stderr)
             case.assertIn("Type", process.stdout)
             case.assertIn(actual, process.stdout)
+            case.assertRegex(process.stdout, r"\[OK\].*Permissions\[\]\.Actions")
+            case.assertRegex(process.stdout, r"\[OK\].*Permissions\[\]\.Principal")
+        (root / "calls").unlink()
+        process = subprocess.run(
+            [sys.executable, "-I", "-B", str(script)],
+            cwd=root,
+            env={
+                **os.environ,
+                "PATH": str(root),
+                "ACTUAL_TYPE": "ATHENA",
+                "ACCOUNT": "999999999999",
+                "CALLS": str(root / "calls"),
+            },
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        case.assertIn("[ERROR]", process.stdout, process.stdout + process.stderr)
+        case.assertFalse((root / "calls").exists())
+
+
+if __name__ == "__main__":
+    with patch.dict(sys.modules):
+        check()
