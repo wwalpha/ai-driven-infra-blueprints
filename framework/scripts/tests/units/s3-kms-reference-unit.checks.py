@@ -482,7 +482,7 @@ def logs_fixture(root, observed, logical="KMS_Alias_001", attribute="Arn"):
         ),
         (
             "87654321-1234-1234-1234-123456789abc",
-            "不一致: 87654321-1234-1234-1234-123456789abc",
+            "87654321-1234-1234-1234-123456789abc",
             "reference.mismatch",
         ),
         ("PENDING_DEPLOY", "PENDING_DEPLOY", None),
@@ -611,7 +611,7 @@ def check_kms_alias_name_and_multiple_aliases(project_workspace):
     "state,observed,expected",
     [
         ("match", "key-id", "key-id"),
-        ("mismatch", "key-id", "不一致: key-id"),
+        ("mismatch", "key-id", "key-id"),
         ("unproven", "key-id", "未確認: key-id"),
         ("pending", "PENDING_DEPLOY", "PENDING_DEPLOY"),
         ("unobserved", None, "未観測"),

@@ -48,7 +48,7 @@ def reference_label(
     state, observed = observation
     return {
         "match": observed,
-        "mismatch": "不一致: " + str(observed),
+        "mismatch": observed,
         "unproven": "未確認: " + str(observed),
         "pending": "PENDING_DEPLOY",
         "unobserved": "未観測",
