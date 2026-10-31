@@ -519,6 +519,15 @@ class DataZoneCalls(FakeCalls):
         self.request(api, operation, inputs)
         if self.error:
             raise self.error
+        if (api, operation, inputs) == (
+            "datazone", "get_domain", {"identifier": "dzd_domain"}
+        ):
+            return self.response(api, operation, {
+                "id": "dzd_domain",
+                "domainExecutionRole": "arn:aws:iam::123456789012:role/fixture",
+                "status": "AVAILABLE",
+                "domainVersion": "V2",
+            })
         if (api, operation, inputs) != (
             "datazone",
             "get_project",
@@ -5790,6 +5799,27 @@ def datazone_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[st
     return items
 
 
+def datazone_domain_fixture(
+    root: Path, mapping: Any, properties: list[str]
+) -> dict[str, Any]:
+    ctx, fake = fixture_context(root, "datazone", DataZoneCalls, {})
+    record = {
+        "kind": "DataZone.Domain",
+        "getters": {},
+        "selectorProperties": {"DataZone.Domain.Id": "dzd_domain"},
+    }
+    resource = fixture_resource(root, ctx, "datazone", record)
+    items = fixture_properties(
+        ctx, resource, mapping, properties, "DataZone.Domain",
+        {"DomainVersion": ("domainVersion", "typed", "V2")},
+        ["normal", "missing-selector", "access-denied"],
+    )
+    failure_branches(
+        ctx, fake, resource, mapping, properties[0], "datazone.get_domain", "Id"
+    )
+    return items
+
+
 def route53_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str, Any]:
     cases = [
         {
@@ -6238,6 +6268,7 @@ def run(root: Path, mapping: Any, kind: str) -> dict[str, Any]:
             ("CodeBuild.Project", "base"): codebuild_fixture,
             ("Config.DeliveryChannel", "channel"): config_fixture,
             ("DataZone.Project", "sdk-datazone-project"): datazone_fixture,
+            ("DataZone.Domain", "sdk-datazone-domain"): datazone_domain_fixture,
             ("EC2.Subnet", "base"): subnet_fixture,
             ("EC2.RouteTable", "base"): subnet_fixture,
             ("EC2.VPC", "base"): vpc_network_fixture,
@@ -6361,6 +6392,7 @@ def run(root: Path, mapping: Any, kind: str) -> dict[str, Any]:
                 "datazone.get_project",
                 ["DomainIdentifier", "Id"],
             ),
+            ("DataZone.Domain", "sdk-datazone-domain"): ("datazone.get_domain", ["Id"]),
             ("LakeFormation.Resource", "sdk-lakeformation-resource"): (
                 "lakeformation.describe_resource",
                 ["ResourceArn"],

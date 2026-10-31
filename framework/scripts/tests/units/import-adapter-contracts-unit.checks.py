@@ -182,6 +182,11 @@ def test_route53_getter_uses_real_inventory_and_distinct_branches():
 
 def test_datazone_getter_uses_scoped_inventory():
     mapping = runtime_registry(ROOT, "datazone")
+    domain = adapter_contracts.run(ROOT, mapping, "DataZone.Domain")["sdk-datazone-domain"]
+    assert domain["status"] == "verified"
+    assert {"normal", "missing-selector", "access-denied"} <= set(
+        domain["properties"]["DataZone.Domain.DomainVersion"]["branches"]
+    )
     result = adapter_contracts.run(ROOT, mapping, "DataZone.Project")[
         "sdk-datazone-project"
     ]

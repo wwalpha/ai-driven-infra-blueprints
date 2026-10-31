@@ -1556,10 +1556,10 @@ def check_inventory_singleflight_and_isolation():
         assert all(result == results[0] for result in results)
         assert mapping.call_count == 1 and normalize.call_count == 2
     calls = Counter((s, o, json.dumps(i, sort_keys=True)) for s, o, i in cli.calls)
-    assert len(calls) == 5 and set(calls.values()) == {
+    assert len(calls) == 7 and set(calls.values()) == {
         1
-    }  # STS + two list pages + two detail reads.
-    assert ctx.metrics["api_calls"] == 5
+    }  # STS + two list pages + two provider and two SDK detail reads.
+    assert ctx.metrics["api_calls"] == 7
     assert (
         ctx.metrics["inventory_normalize_runs"]
         == ctx.metrics["inventory_identity_runs"]
@@ -1835,10 +1835,11 @@ def check_cloudcontrol_json_and_readonly_boundary():
         with pytest.raises(ValueError, match="allowlist"):
             ctx.call("cloudcontrol", operation)
     with pytest.raises(ValueError, match="allowlist"):
-        ctx.call("datazone", "get_domain", identifier="unvalidated-selector")
+        ctx.call("datazone", "delete_domain", identifier="unvalidated-selector")
     datazone = m.comparator().Context(m.ROOT, target, services=("datazone",))
     assert datazone.allowed == {
         ("sts", "get_caller_identity"),
+        ("datazone", "get_domain"),
         ("datazone", "get_project"),
     }
 
