@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import json_intrinsics
+from utils.reference_contracts import ARN_SHAPES
 
 import model.files as files
 import model.identity as identity
@@ -181,6 +182,26 @@ class Presentation:
             displayed = projection._display_document_value(
                 {node: result}, self.resolver, self.scope, self.root, node
             )
+            kind = resource["resourceType"]
+            attribute = projection.reference_attribute(kind, node.attribute)
+            field = projection.RETURN_ATTRIBUTE_PROPERTIES.get(
+                (kind, attribute), attribute
+            )
+            identifiers = projection.identifier_outputs(self.root).get(kind, ())
+            shape = ARN_SHAPES.get(kind)
+            components = shape[0] if shape else ()
+            components = (components,) if isinstance(components, str) else components
+            identifier_arn = (
+                shape is not None
+                and attribute == projection.reference_attribute(kind, "Arn")
+                and any(kind + "." + part in identifiers for part in components)
+            )
+            if (
+                kind + "." + field in identifiers
+                or identifier_arn
+                or attribute == "AliasName"
+            ) and isinstance(displayed, str):
+                name = displayed
             if position.source_field == "value" and not position.pointer:
                 raw, structured = references._json(
                     f"desired.row.{position.row_id}.value",
@@ -192,7 +213,7 @@ class Presentation:
                     )
                     if observation is not None:
                         state, observed = observation
-                        displayed = {
+                        name = {
                             "match": observed,
                             "mismatch": "不一致: " + str(observed),
                             "unproven": "未確認: " + str(observed),
@@ -208,8 +229,6 @@ class Presentation:
                     snapshot,
                     number,
                 )
-            elif isinstance(displayed, str):
-                name = displayed
             if (
                 not name
                 or literal(name).lower()

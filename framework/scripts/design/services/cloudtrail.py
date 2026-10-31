@@ -56,7 +56,7 @@ def require_reference_links(prop, field, nodes, links, diagnostics):
 
 def reference_label(prop, field, name, displayed, snapshot, number):
     if prop != CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Values" or field != "value":
-        return displayed if isinstance(displayed, str) else name
+        return name
     if isinstance(name, str) and literal(name).lstrip().startswith("{"):
         try:
             value = json.loads(literal(name))

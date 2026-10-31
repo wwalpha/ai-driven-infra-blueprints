@@ -878,6 +878,199 @@ def test_codebuild_vpc_connection(models, field, producer_kind, attribute):
     assert "$modelRef" in restore(path, markdown, values)
 
 
+@pytest.mark.parametrize(
+    "consumer_service,consumer_kind,field,producer_service,producer_kind,name_field,name,attribute",
+    [
+        (
+            "cloudtrail",
+            "CloudTrail.Trail",
+            "CloudWatchLogsLogGroupArn",
+            "logs",
+            "Logs.LogGroup",
+            "LogGroupName",
+            "/aws/cloudtrail/fixture",
+            "Arn",
+        ),
+        (
+            "cloudtrail",
+            "CloudTrail.Trail",
+            "CloudWatchLogsRoleArn",
+            "iam",
+            "IAM.Role",
+            "RoleName",
+            "fixture-role",
+            "Arn",
+        ),
+        (
+            "lambda",
+            "Lambda.Function",
+            "Role",
+            "iam",
+            "IAM.Role",
+            "RoleName",
+            "fixture-role",
+            "Arn",
+        ),
+        (
+            "lambda",
+            "Lambda.Permission",
+            "SourceArn",
+            "s3",
+            "S3.Bucket",
+            "BucketName",
+            "fixture-bucket",
+            "Arn",
+        ),
+        (
+            "lambda",
+            "Lambda.Permission",
+            "SourceArn",
+            "events",
+            "Events.Rule",
+            "Name",
+            "fixture-rule",
+            "Arn",
+        ),
+        (
+            "codebuild",
+            "CodeBuild.Project",
+            "ServiceRole",
+            "iam",
+            "IAM.Role",
+            "RoleName",
+            "fixture-role",
+            "Arn",
+        ),
+        (
+            "codepipeline",
+            "CodePipeline.Pipeline",
+            "RoleArn",
+            "iam",
+            "IAM.Role",
+            "RoleName",
+            "fixture-role",
+            "Arn",
+        ),
+        (
+            "s3",
+            "S3.Bucket",
+            "ReplicationConfiguration.Role",
+            "iam",
+            "IAM.Role",
+            "RoleName",
+            "fixture-role",
+            "Arn",
+        ),
+        (
+            "route53",
+            "Route53.HostedZone",
+            "QueryLoggingConfig.CloudWatchLogsLogGroupArn",
+            "logs",
+            "Logs.LogGroup",
+            "LogGroupName",
+            "/aws/cloudtrail/fixture",
+            "Arn",
+        ),
+        (
+            "firehose",
+            "Firehose.DeliveryStream",
+            "S3DestinationConfiguration.BucketARN",
+            "s3",
+            "S3.Bucket",
+            "BucketName",
+            "fixture-bucket",
+            "Arn",
+        ),
+        (
+            "firehose",
+            "Firehose.DeliveryStream",
+            "S3DestinationConfiguration.RoleARN",
+            "iam",
+            "IAM.Role",
+            "RoleName",
+            "fixture-role",
+            "Arn",
+        ),
+        (
+            "config",
+            "Config.ConfigurationRecorder",
+            "RoleARN",
+            "iam",
+            "IAM.Role",
+            "RoleName",
+            "fixture-role",
+            "Arn",
+        ),
+        (
+            "scheduler",
+            "Scheduler.Schedule",
+            "Target.RoleArn",
+            "iam",
+            "IAM.Role",
+            "RoleName",
+            "fixture-role",
+            "Arn",
+        ),
+        (
+            "ecs",
+            "ECS.TaskDefinition",
+            "TaskRoleArn",
+            "iam",
+            "IAM.Role",
+            "RoleName",
+            "fixture-role",
+            "Arn",
+        ),
+    ],
+)
+def test_normal_resource_reference_labels(
+    models,
+    consumer_service,
+    consumer_kind,
+    field,
+    producer_service,
+    producer_kind,
+    name_field,
+    name,
+    attribute,
+):
+    target, producer = resource(
+        models, producer_service, producer_kind, attribute=name_field
+    )
+    producer["desired.row.001-001.value"] = f"`{name}`"
+    save(target, producer)
+    scope, values, path = consumer(models, consumer_service, consumer_kind)
+    node = reference(producer_kind.replace(".", "_") + "_001", attribute)
+    rid = add(values, consumer_kind, field, node)
+    before = copy.deepcopy(values)
+    presentation = Presentation(values, path, models)
+    link = presentation.references[Position(rid, "value", "")].link
+    assert link == f"[{name}]({producer_service}.md#saved-001)"
+    execution = generated_document(
+        node,
+        models,
+        resolver=reference_resolver(values, scope, models),
+        scope=scope,
+        property_name=consumer_kind + "." + field,
+    )
+    expected = {
+        "Logs.LogGroup": "arn:aws:logs:ap-northeast-1:123456789012:log-group:/aws/cloudtrail/fixture:*",
+        "IAM.Role": "arn:aws:iam::123456789012:role/fixture-role",
+        "S3.Bucket": "arn:aws:s3:::fixture-bucket",
+        "Events.Rule": "arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule",
+    }
+    assert execution == expected[producer_kind]
+    if consumer_kind == "CloudTrail.Trail":
+        values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
+        before = copy.deepcopy(values)
+        save(scope, values)
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        assert link in markdown
+        assert "$modelRef" in restore(path, markdown, values)
+        assert generate_markdown(path, values, FRAMEWORK) == markdown
+    assert values == before
+
+
 def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     scope, values, path = consumer(models, "iam", "IAM.ManagedPolicy")
     values["desired.row.001-001.property"] = "IAM.ManagedPolicy.ManagedPolicyName"
@@ -901,7 +1094,7 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     assert json.loads(files[artifact])["Statement"][0]["Resource"] == (
         "arn:aws:s3:::shared-name"
     )
-    assert "[arn:aws:s3:::shared-name](s3.md#s3-saved-anchor)" in files[path]
+    assert "[shared-name](s3.md#s3-saved-anchor)" in files[path]
     assert "](" not in files[artifact] and "$modelRef" not in files[artifact]
     for file, text in files.items():
         file.parent.mkdir(parents=True, exist_ok=True)
@@ -928,7 +1121,7 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
             (rid, {"property": policy.property_name, "document": json.dumps(document)})
         ]
     }
-    assert "[arn:aws:s3:::shared-name](s3.md#s3-saved-anchor)" in "\n".join(
+    assert "[shared-name](s3.md#s3-saved-anchor)" in "\n".join(
         policy_lines(path, policy, presentation=presentation, policy_rows=rows)
     )
     artifact.write_text(json.dumps(document), encoding="utf-8")
