@@ -1303,7 +1303,7 @@ def glue_write_only():
                         ("CatalogId", "`123456789012`", None),
                         (
                             "ConnectionInput.ValidateForComputeEnvironments",
-                            '`["SPARK"]`',
+                            '`["ATHENA"]`',
                             None,
                         ),
                     ],
@@ -1331,26 +1331,64 @@ def glue_write_only():
             }
         }
         engine = runtime(snap)
-        records = engine["audit"](snap, None, CLI(responses))[2]
-        info_record = next(item for item in records if item["propertiesKey"] == key)
-        text, code = engine["report"](
-            snap, None, "123456789012", records, datetime.now(timezone.utc)
-        )
-        case.assertEqual(code, 0, text)
-        case.assertIn("[INFO] Glue.Connection", text)
-        case.assertIn("Verification: NOT_VERIFIABLE", text)
-        case.assertIn("INFO: 1", text)
-        case.assertIn("[OK] Glue.Connection", text)
-        case.assertNotIn("[ERROR]", text)
-        multiple = copy.deepcopy(snap)
-        multiple["models"]["dev/cde/glue"]["desired.row.001-004.value"] = (
-            '`["SPARK", "ATHENA", "PYTHON"]`'
-        )
-        records = runtime(multiple)["audit"](multiple, None, CLI(responses))[2]
+        for desired, actual, expected in (
+            (["ATHENA"], ["ATHENA"], "match"),
+            (["ATHENA"], ["SPARK", "ATHENA"], "match"),
+            (["ATHENA", "SPARK"], ["SPARK", "ATHENA"], "match"),
+            (["ATHENA"], ["SPARK"], "difference"),
+            (["ATHENA", "SPARK"], ["ATHENA"], "difference"),
+            (["ATHENA"], [], "difference"),
+            (["ATHENA"], None, "excluded"),
+        ):
+            with case.subTest(desired=desired, actual=actual):
+                candidate = copy.deepcopy(snap)
+                candidate["models"]["dev/cde/glue"]["desired.row.001-004.value"] = (
+                    "`" + json.dumps(desired) + "`"
+                )
+                answer = copy.deepcopy(responses)
+                answer[("glue", "get-connection")]["Connection"][
+                    "CompatibleComputeEnvironments"
+                ] = actual
+                cli = CLI(answer)
+                records = runtime(candidate)["audit"](candidate, None, cli)[2]
+                case.assertEqual(
+                    sum(api == ("glue", "get-connection") for api, _, _ in cli.calls), 1
+                )
+                item = next(item for item in records if item["propertiesKey"] == key)
+                case.assertEqual(item["status"], expected)
+                text, code = engine["report"](
+                    candidate, None, "123456789012", records, datetime.now(timezone.utc)
+                )
+                case.assertEqual(code, 1 if expected == "difference" else 0, text)
+                if expected == "excluded":
+                    case.assertIn("Verification: NOT_VERIFIABLE", text)
+                else:
+                    case.assertIn(
+                        "compatibility based on CompatibleComputeEnvironments", text
+                    )
+                    case.assertIn("creation request not verified", text)
+                case.assertTrue(
+                    all(
+                        item["status"] == "match"
+                        for item in records
+                        if item["propertiesKey"] != key
+                    )
+                )
+        missing = copy.deepcopy(responses)
+        del missing[("glue", "get-connection")]["Connection"][
+            "CompatibleComputeEnvironments"
+        ]
+        records = engine["audit"](snap, None, CLI(missing))[2]
         case.assertEqual(
             next(item for item in records if item["propertiesKey"] == key)["status"],
             "excluded",
         )
+        info_record = next(item for item in records if item["propertiesKey"] == key)
+        absent = copy.deepcopy(snap)
+        for suffix in ("property", "value", "comment"):
+            del absent["models"]["dev/cde/glue"]["desired.row.001-004." + suffix]
+        records = runtime(absent)["audit"](absent, None, CLI(responses))[2]
+        case.assertFalse(any(item["propertiesKey"] == key for item in records))
         records = engine["audit"](snap, None, CLI(responses, account="999999999999"))[2]
         case.assertTrue(all(item["status"] == "acquisition_failed" for item in records))
         case.assertEqual(
@@ -1376,6 +1414,10 @@ def glue_write_only():
                 snap, None, "123456789012", records, datetime.now(timezone.utc)
             )[1],
             2,
+        )
+        case.assertEqual(
+            next(item for item in records if item["propertiesKey"] == key)["status"],
+            "acquisition_failed",
         )
         changed = copy.deepcopy(snap)
         changed["models"]["dev/cde/glue"]["desired.row.001-004.value"] = (
@@ -1430,7 +1472,9 @@ def glue_write_only():
             timeout=30,
         )
         case.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        case.assertIn("Verification: NOT_VERIFIABLE", result.stdout)
+        case.assertIn(
+            "compatibility based on CompatibleComputeEnvironments", result.stdout
+        )
         case.assertIn("Result: PASS", result.stdout)
         for value in (
             [123],

@@ -547,6 +547,54 @@ def classify_exclusion(m, snapshot, resource, item, *, resource_confirmed=False)
     }
 
 
+def glue_compute_compatibility(m, ctx, resource, item):
+    if (
+        item["propertiesKey"]
+        != "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments"
+        or item["status"] != "excluded"
+    ):
+        return item
+    start = len(ctx.trace)
+    try:
+        actual = ctx.fetch(resource, "base").get("CompatibleComputeEnvironments")
+    except m.AcquisitionError as error:
+        return {
+            **item,
+            "status": error.status,
+            "reason": error.code,
+            "apis": ctx.trace[start:],
+        }
+    except (m.Unresolved, ValueError, TypeError, KeyError) as error:
+        return {**item, "status": "design_unresolved", "reason": str(error)}
+    if actual is None:
+        return {**item, "reason": "GetConnection omitted CompatibleComputeEnvironments"}
+    if not isinstance(actual, list) or not all(
+        isinstance(value, str) for value in actual
+    ):
+        return {
+            **item,
+            "status": "acquisition_failed",
+            "reason": "invalid CompatibleComputeEnvironments response",
+        }
+    expected = item["designValue"]
+    if not isinstance(expected, list) or not all(
+        isinstance(value, str) for value in expected
+    ):
+        return {
+            **item,
+            "status": "design_unresolved",
+            "reason": "invalid compute environment design",
+        }
+    return {
+        **item,
+        "status": "match" if set(expected) <= set(actual) else "difference",
+        "awsValue": actual,
+        "compatibility": True,
+        "reason": "required compute environment is not compatible",
+        "apis": ctx.trace[start:],
+    }
+
+
 def resolve_endpoint_aliases(m, ctx, snapshot):
     for rows in snapshot["referenceRows"].values():
         for row in rows.values():
@@ -710,17 +758,18 @@ def audit(snapshot, profile=None, cli_runner=None):
                 for item in items
             )
             for item in items:
-                records.append(
-                    item
-                    if failed
-                    else classify_exclusion(
+                if not failed or item["propertiesKey"] == (
+                    "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments"
+                ):
+                    item = classify_exclusion(
                         m,
                         snapshot,
                         resource,
                         item,
                         resource_confirmed=resource_confirmed,
                     )
-                )
+                    item = glue_compute_compatibility(m, ctx, resource, item)
+                records.append(item)
         except Exception as error:
             # Never turn a new upstream dependency or malformed response into a silent skip.
             for prop in dict.fromkeys(row["property"] for _, row in resource.rows):
@@ -801,6 +850,10 @@ def report(snapshot, profile, account, records, timestamp):
             if state == "INFO"
             else "  AWS:    " + json.dumps(actual, ensure_ascii=False, sort_keys=True)
         )
+        if item.get("compatibility"):
+            line(
+                "  Verification: compatibility based on CompatibleComputeEnvironments; creation request not verified"
+            )
         if state != "OK":
             line(
                 "  Reason: "
@@ -810,7 +863,7 @@ def report(snapshot, profile, account, records, timestamp):
                 .replace("Model reference", "Design reference")
                 .replace("producer Model is absent", "producer Design is absent")
             )
-        if item["status"] == "difference":
+        if item["status"] == "difference" and not item.get("compatibility"):
             line(
                 "  Diff paths: "
                 + ", ".join(
