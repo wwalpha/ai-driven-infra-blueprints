@@ -104,6 +104,16 @@ finish edits, required dependency-selected UTs, necessary IT and static checks u
 candidate validation/completion and exact-HEAD ff-only integration; no Consumer service tuple
 is required. Other Task types/approved suspended failures keep their completion order.
 
+## Explicit PR integration
+
+Only a Human request for a PR selects Worktree `finalize --create-pr`. Existing completion,
+validation, scope and failure-approval checks apply before publication. The verified candidate
+is published without local-base merge or cleanup; `integrationMode: "pr"` and publication
+intent retain the exact candidate/base/Task identity. Retry with the same flag and candidate;
+plain finalize never falls back to merge. Remote drift/collisions or an unconfirmed creation
+without a matching PR require review. Deploy and repair-child publication remain separate and
+reject PR mode before their existing operations. See [Worktree PR publication](../../.agents/skills/worktree/SKILL.md#explicit-pr-publication).
+
 ## Human-approved validation failures
 
 Only explicit Human approval of concrete failures permits isolated Git integration with

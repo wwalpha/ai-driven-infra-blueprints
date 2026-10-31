@@ -4609,3 +4609,27 @@ Fixtureを使う比較は読込・実行・期待結果照合の3ステップで
 サービス固有判定と生成コードの同一プロセス実行はUT、独立プロセス・ログ・CLI契約の連携は
 上記2系統のITが担当する。ITは`CASES.md`の登録、`@it_case`、`run_it.py`、Runtime Receiptで
 完了と到達性を確認する。
+
+
+## Explicit PR publication (Issue #77)
+
+PR tests remain offline: gh responses are mocked, and Git publishes only to a private bare repository.
+Existing normal/empty, approved-failure, Model and Framework candidate tests retain their FF assertions.
+Model operation integration additionally runs the same real candidate/guard through the PR exit.
+
+| Case ID | Function | Class | File | Entry / parameters | Guarantee | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `worktree-pr::cli` | `check_pr_cli_and_special_routes` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 9 | Finalize-only flag and rejection before Deploy/repair publication | Parser / mocked lifecycle |
+| `worktree-pr::url` | `check_pr_repository_url` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 8 | HTTPS/SSH identity and rejection of credentials/ambiguous URLs | Pure parser |
+| `worktree-pr::remote` | `check_pr_remote_identity` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 6 | Remote URLs, rewrites, authentication, repository and write permission | Mock Git/gh |
+| `worktree-pr::existing` | `check_pr_existing_identity` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 11 | Open same-repo/base/head/SHA reuse; closed/merged/fork/retarget/collision refusal | Mock gh |
+| `worktree-pr::base` | `check_pr_remote_base` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 3 | Both GitHub and Git refs must match validated local base | Mock remote |
+| `worktree-pr::candidate` | `check_pr_candidate_identity` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 8 | Candidate, Task, lifecycle and local-base freshness | No Git fixture |
+| `worktree-pr::prewrite` | `check_pr_publication_prewrite` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 4 | Collision, lost head, auth/API failures stop before push/create | Mock publication boundary |
+| `worktree-pr::gh` | `check_pr_gh_noninteractive` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 3 | Argument arrays, disabled prompts, deadline and secret-free diagnostics | Mock process |
+| `worktree-pr::lock` | `check_pr_lock_and_mode_retention` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 1 | Per-task OS exclusion, symlink refusal, no fallback merge or cleanup | Local lock / mocked lifecycle |
+| `worktree-pr::recovery` | `check_pr_publication_recovery` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py) | direct / 1 | Ordinary and Framework CLI publication, push/API and create/save interruption recovery, one PR, one final validation, explicit failure approval, unchanged local/remote base, retained worktree | Real Git/bare remote, mocked gh |
+| `worktree-pr::validation` | `check_pr_empty_and_failed_validation` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py) | direct / 1 | Empty diff, incomplete Task and final validation FAIL retain worktree without network | Real Git / injected validator result |
+| `worktree-pr::existing-hook` | `check_pr_existing_hook_is_preserved` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 1 | Existing pre-push hook is preserved and requires review | Local file / no Git |
+| `worktree-pr::push-race-lock` | `check_pr_push_race_and_process_lock` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py) | direct / 1 | Unknown branch appearing during push cannot be fast-forwarded; process death releases the per-task lock with unchanged inode | Real Git and OS process lock / mocked gh |
+| `worktree-pr::git-deadline` | `check_pr_git_deadline` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 1 | Git transport deadline, SSH batch mode and secret-free timeout diagnostics | Mock process |

@@ -165,7 +165,48 @@ the guard; changed Task, files or index stop before staging. No runtime fallback
 setup/retry occurs. Successful guard diagnostics use stderr so stdout remains CLI JSON; failures
 retain the child return code, stdout and stderr separately in `diagnostics`.
 
-It then checks a clean worktree holding the local base, rebases the task onto its latest local commit, rechecks the base, merges with `--ff-only`, verifies the expected task tip is included, and removes the worktree/branch without force. Have the local base checked out in an available worktree before finalize; the helper does not switch anyone's branch. Helpers serialize Git integration through the shared `<primary>/.worktrees/.blueprint/lifecycle.lock/` mutex; AWS locks remain separate. No remote push or PR is created.
+It then checks a clean worktree holding the local base, rebases the task onto its latest local commit, rechecks the base, merges with `--ff-only`, verifies the expected task tip is included, and removes the worktree/branch without force. Have the local base checked out in an available worktree before finalize; the helper does not switch anyone's branch. Helpers serialize Git integration through the shared `<primary>/.worktrees/.blueprint/lifecycle.lock/` mutex; AWS locks remain separate. Default finalize creates no remote push or PR. Only an explicit Human PR request selects the PR exit below.
+
+## Explicit PR publication
+
+Use `python3 -B framework/scripts/worktree_task.py finalize --task-id <task-id> --create-pr`
+only when the Human explicitly requests a Pull Request. A feature implementation request
+about PR support is not itself a request to publish that Task as a PR. Default finalize
+retains FF Merge → Cleanup. `--create-pr` is finalize-only and is rejected for Deploy or
+Deploy Repair Child before their publication/parent integration begins.
+
+PR mode shares existing commit, rebase, guards and completion checks. Model/Framework
+final-candidate validation still runs once. It never merges, commits, checks out or resets
+the local base, never sets `merged`, and never runs cleanup. Zero diff is refused.
+Validation-failure approval remains independently explicit: where the existing exception
+permits publication, retain Task `suspend`, the approval and Validation FAIL; never claim PASS.
+
+The helper requires `gh`, authentication/write permission and a single identical `origin`
+fetch/push URL in HTTPS/SSH form without credentials. It verifies repository identity and
+both GitHub/Git base refs against the validated local base. It refuses URL rewrites,
+unknown/mismatched remote branches, changed candidate/Task/base, duplicate or closed/merged
+PRs. Git transport uses a 60-second deadline and SSH batch mode. A temporary creation-only
+pre-push guard rejects a remote branch that appears between discovery and push, including
+a normally fast-forwardable branch. An existing pre-push hook is preserved and requires
+review instead of replacement. Push uses only the candidate SHA and Task head without force; an existing matching
+open PR is reused without editing its title/body. Publication title/body use the Task ID
+and confirmed contract content.
+
+`integrationMode: "pr"` and `prPublication` retain base/head/candidate/Task identity,
+remote/repository, PREPARED/PUSHED/OPEN progress and PR URL/number/state. The verified intent
+is atomically saved before remote effects. A task OS lock serializes publication before
+short lifecycle sections; network calls never hold the common lifecycle lock. Its owned
+lock file stays at the same inode and the OS releases exclusion on process exit.
+
+After failure, retain Worktree/branch/lifecycle and retry the same Task with `--create-pr`.
+Reconcile remote refs and the matching PR after a push/API or creation/state-save interruption;
+never silently create a second PR or fall back to FF Merge. A prior create intent with no
+matching PR has an uncertain outcome and requires Human review. Plain finalize on a PR Task
+stops with explicit guidance. Candidate/base/authority changes and unsafe Git state require
+review; do not hand-edit lifecycle metadata or overwrite remote refs. PR success returns
+`prPublication.url`, `number`, `prState` and `status: OPEN`; worktree and branch remain.
+`cleanup` refuses PR Tasks. Automated cleanup after GitHub merge (including squash/rebase),
+mode conversion and later candidate updates are outside this workflow.
 
 ## Failures and cleanup
 

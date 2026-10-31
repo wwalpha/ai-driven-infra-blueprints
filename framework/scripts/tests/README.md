@@ -431,3 +431,14 @@ Deploy一時入力のreclaimはprogress lock内で行い、正確なWorktree/Tas
 別Worktree・別Taskは探索・書換えせず保全する。未確定要求、Observed/生成/最終保存候補の参照も保持する。
 UTは所有判定・保全条件・lock順序、既存cross-worktree ITは実保存/再読込とrequest/progress/templateの不変を担当する。
 旧controller_result/recovery_command専用UTは削除し、現行steps.describe/nextActionsの承認・認証・未確定要求・終了済UNKNOWN・生成失敗の案内を検証する。
+
+
+## Explicit Worktree PR publication (Issue #77)
+
+`worktree-guard-unit` owns PR flag/identity/authentication/remote drift/collision/closed PR,
+process and local-candidate refusal conditions. The existing Worktree IT suite owns CLI,
+real Git publication to a private bare remote, durable intent/retry after push and PR creation,
+base immutability, creation-only pre-push race protection, process-exit lock release and retained worktrees. Existing Model and Framework candidate checks retain
+one-pass final validation and default FF behavior. gh/API calls are mocked; these tests never
+push to GitHub or create a live PR. Run only these related IT cases/suites when explicitly
+validating this feature; no new runner or unrelated Full IT run is required.

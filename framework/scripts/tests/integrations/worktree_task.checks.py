@@ -22,6 +22,7 @@ import pytest as _imports_pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
 import task_contract_runtime
 import validation.loop as _imports_validation_loop
+import worktree_pr as pr
 from import_guard import require_import_changes
 from model.adapters.task import edit_write_context
 from model.format import serialize
@@ -1217,6 +1218,323 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
     )
 
 
+class PRGitHub:
+    """Offline gh responses, with real Git publication to a private bare repository."""
+
+    url = "https://github.com/fixture/repository.git"
+
+    def __init__(self, root, state, interruption="none"):
+        self.root, self.state, self.interruption = root, state, interruption
+        self.remote = root.parent / "remote.git"
+        git(
+            root,
+            "clone",
+            "--bare",
+            "--quiet",
+            "--single-branch",
+            "--branch",
+            state["base"],
+            str(root),
+            str(self.remote),
+        )
+        git(root, "remote", "add", "origin", self.url)
+        git(Path(state["worktree"]), "remote", "get-url", "origin")
+        self.real_git, self.real_run, self.real_save = wt.git, subprocess.run, wt.save
+        self.pr, self.created, self.failed = None, 0, False
+        self.validations = []
+
+    def git(self, root, *args, **kwargs):
+        if "push" in args:
+            assert not any(str(arg).startswith("--force") for arg in args)
+            if self.interruption == "race" and not self.failed:
+                self.failed = True
+                self.real_git(
+                    self.remote,
+                    "update-ref",
+                    "refs/heads/" + self.state["branch"],
+                    self.state["start"],
+                )
+        return self.real_git(
+            root,
+            *(str(self.remote) if arg == self.url else arg for arg in args),
+            **kwargs,
+        )
+
+    def child(self, command, **kwargs):
+        if (
+            command[0] == str(sys.executable)
+            and "-c" in command
+            and "from worktree_task import _integrate_model"
+            in command[command.index("-c") + 1]
+        ):
+            wt._integrate_model(self.root, self.state["task_id"])
+            return subprocess.CompletedProcess(command, 0, "", "")
+        return self.real_run(command, **kwargs)
+
+    def validate(self, root, options, *, final_candidate):
+        assert not (self.root / ".worktrees/.blueprint/lifecycle.lock").exists()
+        self.validations.append(final_candidate.candidate_head)
+        return 0
+
+    def save(self, path, state):
+        if (
+            self.interruption == "create"
+            and not self.failed
+            and state.get("prPublication", {}).get("status") == "OPEN"
+        ):
+            self.failed = True
+            raise OSError("injected state-save interruption after PR creation")
+        return self.real_save(path, state)
+
+    def gh(self, target, host, *args):
+        assert not (self.root / ".worktrees/.blueprint/lifecycle.lock").exists()
+        assert (self.root / ".worktrees/.blueprint/tasks/example.pr-lock").is_file()
+        assert host == "github.com"
+        if args[:2] == ("auth", "status"):
+            return ""
+        if args[:2] == ("repo", "view"):
+            return json.dumps(
+                dict(
+                    url="https://github.com/fixture/repository",
+                    nameWithOwner="fixture/repository",
+                    viewerPermission="WRITE",
+                )
+            )
+        if args[0] == "api":
+            return json.dumps(
+                {
+                    "commit": {
+                        "sha": git(
+                            self.remote, "rev-parse", "refs/heads/" + self.state["base"]
+                        )
+                    }
+                }
+            )
+        if args[:2] == ("pr", "list"):
+            head = self.real_git(
+                self.remote,
+                "rev-parse",
+                "--verify",
+                "refs/heads/" + self.state["branch"],
+                check=False,
+            )
+            if self.interruption == "push" and not self.failed and head.returncode == 0:
+                self.failed = True
+                raise wt.Blocked("injected API interruption after push")
+            return json.dumps([self.pr] if self.pr else [])
+        if args[:2] == ("pr", "view"):
+            return json.dumps(self.pr)
+        assert args[:2] == ("pr", "create"), args
+        body = Path(args[args.index("--body-file") + 1]).read_text(encoding="utf-8")
+        assert "example" in body and "Required changes" in body
+        self.created += 1
+        assert self.created == 1
+        self.pr = dict(
+            number=7,
+            url="https://github.com/fixture/repository/pull/7",
+            state="OPEN",
+            baseRefName=self.state["base"],
+            headRefName=self.state["branch"],
+            headRefOid=git(
+                self.remote, "rev-parse", "refs/heads/" + self.state["branch"]
+            ),
+            isCrossRepository=False,
+        )
+        return self.pr["url"] + "\n"
+
+
+@it_case
+def check_pr_publication_recovery():
+    for framework, interruption in (
+        (False, "none"),
+        (False, "push"),
+        (False, "create"),
+        (False, "approved"),
+        (True, "push"),
+        (True, "create"),
+    ):
+        with fixture(branch="release") as root:
+            git(root, "config", "blueprint.baseBranch", "release")
+            relative = "framework/scripts/candidate.txt" if framework else "file.txt"
+            target, state = start(root, files=(relative,))
+            source = target / relative
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("PR candidate\n", encoding="utf-8")
+            approval = (
+                "Human accepts the synthetic validation FAIL"
+                if interruption == "approved"
+                else None
+            )
+            if approval:
+                tasks.suspend(target, state["task_file"], "synthetic validation FAIL")
+            elif not framework:
+                finish_contract(target, state)
+            base = git(root, "rev-parse", "HEAD")
+            remote = PRGitHub(root, state, interruption)
+            with (
+                patch.object(wt, "git", side_effect=remote.git),
+                patch.object(pr, "gh", side_effect=remote.gh),
+                patch.object(wt, "save", side_effect=remote.save),
+                patch.object(
+                    wt.python_env,
+                    "runtime",
+                    return_value=(
+                        Path(sys.executable),
+                        wt.python_env.environment(Path(sys.prefix)),
+                    ),
+                ),
+                patch.object(subprocess, "run", side_effect=remote.child),
+                patch.object(loop, "run_loop", side_effect=remote.validate),
+            ):
+                if interruption in {"push", "create"}:
+                    with pytest.raises((wt.Blocked, OSError), match="injected"):
+                        wt.finalize(root, "example", create_pr=True)
+                    saved = wt.load(root, "example")[3]
+                    assert saved["integrationMode"] == "pr" and saved["merged"] is None
+                    assert remote.created == (1 if interruption == "create" else 0)
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "worktree_task.py",
+                        "finalize",
+                        "--repository-root",
+                        str(root),
+                        "--task-id",
+                        "example",
+                        "--create-pr",
+                        *(
+                            ["--human-approved-validation-failure", approval]
+                            if approval
+                            else []
+                        ),
+                    ],
+                ):
+                    with patch("sys.stdout", new_callable=io.StringIO) as output:
+                        code = wt.main()
+                        assert code == 0, output.getvalue()
+                    published = json.loads(output.getvalue())
+                assert (
+                    published["status"] == "ok"
+                    and published["prPublication"]["prState"] == "OPEN"
+                )
+                assert (
+                    published["merged"] is None
+                    and published["prPublication"]["number"] == 7
+                )
+                assert remote.created == 1
+                assert published.get("validation_failure_approval") == approval
+                assert len(remote.validations) == int(framework)
+                assert tasks.status((target / state["task_file"]).read_text()) == (
+                    "suspend" if approval else "completed"
+                )
+                assert (
+                    wt.finalize(root, "example", create_pr=True)["prPublication"]["url"]
+                    == remote.pr["url"]
+                )
+                assert remote.created == 1 and len(remote.validations) == int(framework)
+                with pytest.raises(wt.Blocked, match="--create-pr"):
+                    wt.finalize(root, "example")
+                with pytest.raises(wt.Blocked, match="PR worktree is retained"):
+                    wt.cleanup(root, "example")
+                retained(root, target, state, base)
+                assert (
+                    git(remote.remote, "rev-parse", "refs/heads/" + state["base"])
+                    == base
+                )
+                assert (
+                    git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
+                    == published["tip"]
+                )
+                assert git(root, "status", "--porcelain") == ""
+
+
+@it_case
+def check_pr_empty_and_failed_validation():
+    for incomplete in (False, True):
+        with fixture() as root:
+            target, state = start(root)
+            if incomplete:
+                (target / "file.txt").write_text("unfinished candidate\n")
+            else:
+                finish_contract(target, state)
+            before = git(root, "rev-parse", "HEAD")
+            with patch.object(pr, "gh") as gh:
+                with pytest.raises(
+                    wt.Blocked,
+                    match="task must be completed" if incomplete else "no PR diff",
+                ):
+                    wt.finalize(root, "example", create_pr=True)
+                gh.assert_not_called()
+            retained(root, target, state, before)
+    with fixture() as root:
+        relative = "framework/scripts/candidate.txt"
+        target, state = start(root, files=(relative,))
+        source = target / relative
+        source.parent.mkdir(parents=True)
+        source.write_text("candidate\n")
+        remote = PRGitHub(root, state)
+        before = git(root, "rev-parse", "HEAD")
+        with (
+            patch.object(subprocess, "run", side_effect=remote.child),
+            patch.object(
+                wt.python_env,
+                "runtime",
+                return_value=(
+                    Path(sys.executable),
+                    wt.python_env.environment(Path(sys.prefix)),
+                ),
+            ),
+            patch.object(loop, "run_loop", return_value=1),
+            patch.object(pr, "gh") as gh,
+        ):
+            with pytest.raises(wt.Blocked, match="validation failed"):
+                wt.finalize(root, "example", create_pr=True)
+            gh.assert_not_called()
+        retained(root, target, state, before)
+        assert tasks.status((target / state["task_file"]).read_text()) == "suspend"
+        assert not wt.load(root, "example")[3].get("prPublication")
+
+
+@it_case
+def check_pr_push_race_and_process_lock():
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("candidate\n")
+        finish_contract(target, state)
+        before = git(root, "rev-parse", "HEAD")
+        remote = PRGitHub(root, state, "race")
+        with (
+            patch.object(wt, "git", side_effect=remote.git),
+            patch.object(pr, "gh", side_effect=remote.gh),
+        ):
+            with pytest.raises(wt.Blocked, match="push failed"):
+                wt.finalize(root, "example", create_pr=True)
+            assert remote.created == 0 and remote.failed
+            assert (
+                git(remote.remote, "rev-parse", "refs/heads/" + state["branch"])
+                == before
+            )
+            retained(root, target, state, before)
+        path = wt.load(root, "example")[2]
+        command = [
+            sys.executable,
+            "-S",
+            "-B",
+            "-c",
+            f"import sys,os; from pathlib import Path; sys.path.insert(0, {str(SCRIPT.parent)!r}); import worktree_pr as pr;\nwith pr.publication_lock(Path(sys.argv[1])): os._exit(0)",
+            str(path),
+        ]
+        with pr.publication_lock(path):
+            identity = path.with_suffix(".pr-lock").stat().st_ino
+            busy = subprocess.run(command, capture_output=True, encoding="utf-8")
+            assert busy.returncode != 0 and "publication busy" in busy.stderr
+        exited = subprocess.run(command, capture_output=True, encoding="utf-8")
+        assert exited.returncode == 0, exited.stderr
+        with pr.publication_lock(path):
+            assert path.with_suffix(".pr-lock").stat().st_ino == identity
+
+
 def main():
     for check in (
         check_implement_rewritten_base_and_real_conflict,
@@ -1240,6 +1558,9 @@ def main():
         check_model_operation_integration,
         check_model_refactor_integration,
         check_framework_final_candidate,
+        check_pr_publication_recovery,
+        check_pr_empty_and_failed_validation,
+        check_pr_push_race_and_process_lock,
     ):
         check()
     print("worktree-task: PASS (Git integration and failure recovery)")
@@ -1333,60 +1654,88 @@ def check_model_operation_integration():
     operation_contract = _imports_support_import_model_fixtures.operation_contract
     operation_fixture = _imports_support_import_model_fixtures.operation_fixture
     action = "import-merge"
-    with fixture() as root:
-        operation_fixture(root)
-        git(root, "add", "model", "project.json")
-        git(root, "commit", "-qm", "model fixture")
-        with tempfile.TemporaryDirectory() as directory:
-            candidate = Path(directory) / "candidate"
-            sources = operation_candidate(root, candidate, action)
-            target, state = start(root, files=tuple(sorted(sources)))
-            text = (
-                operation_contract(action)
-                + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
-            )
-            for heading in ("Modified files", "Allowed paths"):
-                text += (
-                    "\n## "
-                    + heading
-                    + "\n"
-                    + "".join(
-                        "- `" + name + "`\n"
-                        for name in sorted(sources | {state["task_file"]})
-                    )
+    for create_pr in (False, True):
+        with fixture() as root:
+            operation_fixture(root)
+            git(root, "add", "model", "project.json")
+            git(root, "commit", "-qm", "model fixture")
+            with tempfile.TemporaryDirectory() as directory:
+                candidate = Path(directory) / "candidate"
+                sources = operation_candidate(root, candidate, action)
+                target, state = start(root, files=tuple(sorted(sources)))
+                text = (
+                    operation_contract(action)
+                    + "## Required changes\n- [R1] Apply synthetic Model candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n"
                 )
-            text += "\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n"
-            (target / state["task_file"]).write_text(text)
-            task_contract_runtime.refresh(target, state["task_file"])
-            for name in sources:
-                shutil.copyfile(candidate / name, target / name)
-            with (
-                mapping_alias(SCRIPT.parents[2], target),
-                patch.object(
-                    wt.python_env,
-                    "runtime",
-                    return_value=(
-                        Path(sys.executable),
-                        wt.python_env.environment(Path(sys.prefix)),
+                for heading in ("Modified files", "Allowed paths"):
+                    text += (
+                        "\n## "
+                        + heading
+                        + "\n"
+                        + "".join(
+                            "- `" + name + "`\n"
+                            for name in sorted(sources | {state["task_file"]})
+                        )
+                    )
+                text += "\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n"
+                (target / state["task_file"]).write_text(text)
+                task_contract_runtime.refresh(target, state["task_file"])
+                for name in sources:
+                    shutil.copyfile(candidate / name, target / name)
+                with (
+                    mapping_alias(SCRIPT.parents[2], target),
+                    patch.object(
+                        wt.python_env,
+                        "runtime",
+                        return_value=(
+                            Path(sys.executable),
+                            wt.python_env.environment(Path(sys.prefix)),
+                        ),
                     ),
-                ),
-            ):
-                finish_contract(target, state)
-                final = wt.prepare_integration(root, "example")
-                require_import_changes = _imports_import_guard.require_import_changes
-                loop = _imports_validation_loop
-                validate = _bind_framework_callback(
-                    _callback_check_model_operation_integration_validate,
-                    require_import_changes,
-                )
-                with patch.object(loop, "run_loop", side_effect=validate):
-                    result = wt.validate_final_candidate(final)
-                    assert (
-                        wt.merge_validated_candidate(result)["merged"]
-                        == final.candidate_head
+                ):
+                    finish_contract(target, state)
+                    require_import_changes = (
+                        _imports_import_guard.require_import_changes
                     )
-                    assert wt.cleanup(root, "example")["cleaned"]
-                    assert not target.exists()
+                    loop = _imports_validation_loop
+                    validate = _bind_framework_callback(
+                        _callback_check_model_operation_integration_validate,
+                        require_import_changes,
+                    )
+                    with patch.object(
+                        loop, "run_loop", side_effect=validate
+                    ) as checked:
+                        if create_pr:
+                            base = git(root, "rev-parse", "HEAD")
+                            remote = PRGitHub(root, state)
+                            with (
+                                patch.object(wt, "git", side_effect=remote.git),
+                                patch.object(pr, "gh", side_effect=remote.gh),
+                                patch.object(
+                                    subprocess, "run", side_effect=remote.child
+                                ),
+                            ):
+                                published = wt.finalize(root, "example", create_pr=True)
+                                assert (
+                                    published["merged"] is None and remote.created == 1
+                                )
+                                assert (
+                                    wt.finalize(root, "example", create_pr=True)[
+                                        "prPublication"
+                                    ]["number"]
+                                    == 7
+                                )
+                            retained(root, target, state, base)
+                        else:
+                            final = wt.prepare_integration(root, "example")
+                            result = wt.validate_final_candidate(final)
+                            assert (
+                                wt.merge_validated_candidate(result)["merged"]
+                                == final.candidate_head
+                            )
+                            assert wt.cleanup(root, "example")["cleaned"]
+                            assert not target.exists()
+                        checked.assert_called_once()
     print("Model-only merge final-candidate integration: PASS")
 
 

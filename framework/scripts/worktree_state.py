@@ -13,7 +13,7 @@ class Blocked(ValueError):
     pass
 
 
-def git(root, *args, check=True):
+def git(root, *args, check=True, timeout=None):
     # Never route commands through an inherited worktree/private index or prompt.
     environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     environment.update(
@@ -25,6 +25,7 @@ def git(root, *args, check=True):
         env=environment,
         capture_output=True,
         encoding="utf-8",
+        timeout=timeout,
     )
     if check and result.returncode:
         raise Blocked(

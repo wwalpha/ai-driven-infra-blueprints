@@ -189,7 +189,12 @@ def setup(where, task_id):
         raise Blocked("Python setup busy; retain work and retry") from None
     try:
         with lifecycle_lock(root):
+            root, common, path, state = load(root, task_id)
             target = task_worktree(root, state)
+            if state.get("integrationMode") == "pr":
+                raise Blocked(
+                    "PR Task retains its registered environment; setup refused"
+                )
             if state["merged"]:
                 raise Blocked("merged worktree awaits cleanup; setup refused")
             previous = state.get("python_setup", {})
@@ -401,6 +406,10 @@ def deploy_cleanup_task(target, state):
 def cleanup_state(root, path, state):
     phase = "verify_merge"
     try:
+        if state.get("integrationMode") == "pr":
+            raise Blocked(
+                "PR worktree is retained; automatic post-PR cleanup is outside this lifecycle"
+            )
         if not state["merged"] or not ancestor(root, state["merged"], state["base"]):
             raise Blocked("cleanup requires a verified successful merge")
         if state["commit"] and not ancestor(root, state["commit"], state["base"]):
@@ -752,11 +761,16 @@ def _recovery_candidate(target, state, text, recovery):
     head = output(target, "rev-parse", "HEAD")
     if (
         changed_paths(target)
-        or tasks.status(text) != ("suspend" if state.get("validation_failure_approval") else "running")
-        or ("approval" in recovery and (
-            recovery["approval"] != state.get("validation_failure_approval")
-            or recovery["contract"] != hashlib.sha256(text.encode("utf-8")).hexdigest()
-        ))
+        or tasks.status(text)
+        != ("suspend" if state.get("validation_failure_approval") else "running")
+        or (
+            "approval" in recovery
+            and (
+                recovery["approval"] != state.get("validation_failure_approval")
+                or recovery["contract"]
+                != hashlib.sha256(text.encode("utf-8")).hexdigest()
+            )
+        )
         or git(
             target, "merge-base", "--is-ancestor", base, head, check=False
         ).returncode
@@ -784,6 +798,11 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
         raise Blocked("finish and re-pin recovery are mutually exclusive")
     root, _, path, state = load(where, task_id)
     with lifecycle_lock(root):
+        root, _, path, state = load(root, task_id)
+        if state.get("integrationMode") == "pr":
+            raise Blocked(
+                "PR Task intent is immutable; reviewed PR recovery is required"
+            )
         target = task_worktree(root, state)
         base = base_worktree(root, state)
         if not all(
@@ -792,9 +811,7 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
         ):
             raise Blocked("recovery requires full expected commit/base hashes")
         if state["merged"] or not state["verified"]:
-            raise Blocked(
-                "recovery requires an unmerged verified task"
-            )
+            raise Blocked("recovery requires an unmerged verified task")
         approval = state.get("validation_failure_approval")
         if output(base, "rev-parse", "HEAD") != expected_base:
             raise Blocked("recovery base changed")
@@ -855,7 +872,9 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
             raise Blocked("recovery task commit changed or recovery already started")
         if approval and (not isinstance(approval, str) or not approval.strip()):
             raise Blocked("invalid recorded validation failure approval")
-        if tasks.status(text) not in ({"suspend"} if approval else {"completed", "running"}):
+        if tasks.status(text) not in (
+            {"suspend"} if approval else {"completed", "running"}
+        ):
             raise Blocked("resume suspended tasks before recovery")
         if git(
             target,
@@ -879,7 +898,8 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
         )
         if approval:
             state["recovery"].update(
-                approval=approval, contract=hashlib.sha256(text.encode("utf-8")).hexdigest()
+                approval=approval,
+                contract=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             )
         else:
             tasks.atomic_files(
@@ -898,7 +918,31 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
         return state
 
 
-def finalize(where, task_id, human_approved_validation_failure=None):
+def finalize(
+    where, task_id, human_approved_validation_failure=None, *, create_pr=False
+):
+    root, _, path, state = load(where, task_id)
+    if state.get("deployIdentity") or state.get("deployRepair") or state["merged"]:
+        if create_pr:
+            raise Blocked(
+                "PR publication is unavailable for Deploy, repair or merged tasks"
+            )
+        return _finalize(where, task_id, human_approved_validation_failure)
+    publication = module("worktree_pr.py", "worktree_pr")
+    with publication.publication_lock(path):
+        state = load(root, task_id)[3]
+        if create_pr:
+            return publication.finalize(
+                root, task_id, human_approved_validation_failure
+            )
+        if state.get("integrationMode") == "pr":
+            raise Blocked(
+                "Task selected PR publication; retry finalize --create-pr; no automatic merge"
+            )
+        return _finalize(root, task_id, human_approved_validation_failure)
+
+
+def _finalize(where, task_id, human_approved_validation_failure=None):
     if (
         human_approved_validation_failure is not None
         and not human_approved_validation_failure.strip()
@@ -955,6 +999,8 @@ def finalize(where, task_id, human_approved_validation_failure=None):
                     + result.stderr.strip()
                     + result.stdout.strip()
                 )
+            if state.get("integrationMode") == "pr":
+                return load(root, task_id)[3]
             # The surviving launcher owns cleanup, after the registered child exits.
             return cleanup(root, task_id)
     with lifecycle_lock(root):
@@ -994,6 +1040,10 @@ def finalize(where, task_id, human_approved_validation_failure=None):
                 raise Blocked(
                     "validated candidate, Task or base changed before merge; retain worktree"
                 )
+        if state.get("integrationMode") == "pr":
+            return module("worktree_pr.py", "worktree_pr").prepare(
+                root, path, state, latest, expected
+            )
         git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
         if output(base, "rev-parse", "HEAD") != expected or not ancestor(
             root, expected, state["base"]
@@ -1044,6 +1094,7 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
     candidate = result.candidate
     root, _, path, state = load(candidate.root, Path(candidate.task_file).stem)
     with lifecycle_lock(root):
+        root, _, path, state = load(candidate.root, Path(candidate.task_file).stem)
         target = task_worktree(root, state)
         base = base_worktree(root, state)
         if (
@@ -1074,6 +1125,10 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
             or output(base, "rev-parse", "HEAD") != candidate.base_commit
         ):
             raise Blocked("validated state changed during task completion; no merge")
+        if state.get("integrationMode") == "pr":
+            return module("worktree_pr.py", "worktree_pr").prepare(
+                root, path, state, candidate.base_commit, candidate.candidate_head
+            )
         git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
         if output(
             base, "rev-parse", "HEAD"
@@ -1182,6 +1237,9 @@ def sync_base(where, task_id, expected_base):
 
     root, _, path, state = load(where, task_id)
     with lifecycle_lock(root):
+        root, _, path, state = load(root, task_id)
+        if state.get("integrationMode") == "pr":
+            raise Blocked("PR Task intent is immutable; base sync refused")
         target = task_worktree(root, state)
         text = tasks.read_task_snapshot(target, state["task_file"], live=True).text
         tasks.validate_contract(target, state["task_file"], text)
@@ -1374,6 +1432,11 @@ def main():
     parser.add_argument("--repository-root", type=Path, default=Path.cwd())
     parser.add_argument("--task-id", required=True)
     parser.add_argument(
+        "--create-pr",
+        action="store_true",
+        help="Publish a validated PR only on explicit Human request; retain worktree without local merge",
+    )
+    parser.add_argument(
         "--human-approved-validation-failure",
         metavar="APPROVAL",
         help="Finalize a suspended task only after explicit human approval of named validation failures",
@@ -1394,6 +1457,8 @@ def main():
         help="Explicitly pin a reviewed clean recovery candidate to the latest descendant base",
     )
     args = parser.parse_args()
+    if args.create_pr and args.command != "finalize":
+        parser.error("--create-pr is only valid with finalize")
     if args.publication_resolution and args.command != "deploy-publish":
         parser.error("--publication-resolution requires deploy-publish")
     if (
@@ -1448,7 +1513,10 @@ def main():
                 )
                 if args.command == "recover"
                 else finalize(
-                    where, args.task_id, args.human_approved_validation_failure
+                    where,
+                    args.task_id,
+                    args.human_approved_validation_failure,
+                    create_pr=args.create_pr,
                 )
                 if args.command == "finalize"
                 else globals()[args.command](where, args.task_id)

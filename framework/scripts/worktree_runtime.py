@@ -32,6 +32,7 @@ def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
     """Commit/rebase a private Model or Framework candidate before final validation."""
     root, _, path, state = wt.load(where, task_id)
     with wt.lifecycle_lock(root):
+        root, _, path, state = wt.load(root, task_id)
         if (
             path.with_suffix(".setup-lock").exists()
             or state.get("python_setup", {}).get("status") != "ready"

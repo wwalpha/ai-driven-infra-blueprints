@@ -77,7 +77,7 @@ Use `/worktree <task-id> <child skill/task and inputs>` with [the worktree skill
 
 For `/import`, an explicit Human request may select the current checkout instead; follow [08_import](framework/prompts/codex/08_import.md).
 
-The helper `framework/scripts/worktree_task.py create|setup|finalize|cleanup --task-id <task-id>` returns JSON and an exit code. Follow the skill's [Create and execute](.agents/skills/worktree/SKILL.md#create-and-execute), [Complete and integrate](.agents/skills/worktree/SKILL.md#complete-and-integrate), and [Failures and cleanup](.agents/skills/worktree/SKILL.md#failures-and-cleanup) sections. It uses an existing committed local base without remote Git operations. Failed/incomplete tasks retain their work; concrete validation failures require explicit human approval before exceptional integration, with Task `suspend` and validation FAIL retained. A cleanup failure after merge retains merged history and requires the helper's cleanup-only retry.
+The helper `framework/scripts/worktree_task.py create|setup|finalize|cleanup --task-id <task-id>` returns JSON and an exit code. Follow the skill's [Create and execute](.agents/skills/worktree/SKILL.md#create-and-execute), [Complete and integrate](.agents/skills/worktree/SKILL.md#complete-and-integrate), and [Failures and cleanup](.agents/skills/worktree/SKILL.md#failures-and-cleanup) sections. By default it uses an existing committed local base without remote Git operations. Failed/incomplete tasks retain their work; concrete validation failures require explicit human approval before exceptional integration, with Task `suspend` and validation FAIL retained. A cleanup failure after merge retains merged history and requires the helper's cleanup-only retry.
 
 Create uses one fixed shared venv at `<primary>/.worktrees/.blueprint/python-env/`. Initial setup creates it at that final path, installs the primary checkout’s `framework/scripts/requirements.txt`, verifies isolation/core imports/pinned versions and runs `pip check`, then writes a completion marker. Create/setup/runtime compare the canonical requirements SHA-256 with `.blueprint-requirements-sha256`. Matching hashes reuse the environment without dependency-check Python children, pip or imports. Changed/missing hashes trigger one installed-version query; matching versions only record the hash, while missing/different versions use the existing pip install and verification before recording success. `.blueprint-owner` and `.blueprint-ready` retain their ownership/completion roles. Global packages are never used as a managed dependency fallback or modified. `python_setup.kind` is `shared`; `installed` is true only for the installing call. No Task-local venv is created.
 
@@ -94,6 +94,21 @@ py -3 -B framework/scripts/worktree_task.py setup --task-id <task-id>
 The setup command uses the helper from the invoking checkout and the canonical dependencies from the primary checkout, checking compatibility with the retained worktree. A previously created worktree may still contain the old helper, so update its code through the normal Git workflow before invoking setup from that worktree. Setup does not propagate code changes to other worktrees.
 
 In each worktree, use `python3 -B framework/scripts/run-python.py <Python arguments>` for task commands, tests and local loops,. The wrapper chooses that worktree's Interpreter and PATH in every shell, including subprocesses using `sys.executable`; activation is unnecessary. Outside managed worktrees it uses the current Python. The wrapper uses shared Python directly, sets child-only `VIRTUAL_ENV`/PATH and removes `PYTHONHOME`/`PYTHONPATH`; no shell activation/export is needed. Cleanup never deletes the shared environment or changes another Task's setup state. Normal runtime rejects old `global`/`venv` registrations; explicit setup updates the registration to `shared`. Legacy Task-local `.venv` directories and other ignored artifacts require preservation before cleanup, which stops rather than deleting them. Symlinks and unknown directories remain protected. MWAA requirements remain separate. PDF export still needs Pandoc and WeasyPrint's native OS libraries; AWS CLI/Terraform are external prerequisites.
+
+Only an explicit Human request to publish a PR selects `finalize --task-id <task-id> --create-pr`.
+It uses the existing commit/rebase/validation path, pushes the verified candidate and creates
+or reuses one open GitHub PR; it never merges into or checks out the local base. `origin`
+must have one identical HTTPS/SSH fetch/push URL, gh authentication and repository write access,
+and its GitHub/Git base must equal the validated local base. URL rewrites, branch collisions,
+closed/merged PRs and changed candidates stop safely. An existing pre-push hook requires
+review and is preserved; a temporary creation-only hook rejects a branch appearing during push. PR mode and publication intent are saved
+before remote writes; retry the same command to reconcile a push or PR whose result was not
+saved. If creation remains unconfirmed with no matching PR, stop for review. Plain finalize
+never changes a PR Task back to merge mode. Validation-failure approval remains a separate
+explicit option and preserves Task `suspend`/FAIL. Deploy and repair-child PR mode is refused
+before publication. PR success returns `prPublication` URL/number/state and retains worktree,
+branch and lifecycle; automatic cleanup after any GitHub merge is outside this feature.
+The per-task OS publication lock is released on process exit; its lock file retains one inode.
 
 Worktrees start from committed base inputs. `/update` requires the human's uncommitted intended model diff in the task worktree; source dirty files are not automatically copied. Git isolation does not isolate AWS resources; cross-worktree AWS mutation locking is a separate responsibility.
 

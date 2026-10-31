@@ -18,6 +18,7 @@ import subprocess
 from unittest.mock import Mock, patch
 
 import pytest
+import worktree_pr as pr
 import worktree_state
 import worktree_task as wt
 from support.worktree_task_fixtures import contract
@@ -977,6 +978,370 @@ def check_checkpoint_uses_scoped_barrier_under_ordered_locks(tmp_path, case):
         git.assert_not_called()
     with journal.locked(journal_path), handoff.repair_lock(tmp_path):
         pass
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "create",
+        "setup",
+        "cleanup",
+        "recover",
+        "repair-checkpoint",
+        "repair-validate",
+        "sync-base",
+        "deploy-start",
+        "deploy-publish",
+    ],
+)
+def check_pr_cli_and_special_routes(tmp_path, command):
+    with (
+        patch.object(
+            sys,
+            "argv",
+            ["worktree_task.py", command, "--task-id", "example", "--create-pr"],
+        ),
+        patch.object(wt, "load") as load,
+    ):
+        with pytest.raises(SystemExit) as error:
+            wt.main()
+        assert error.value.code == 2
+        load.assert_not_called()
+    for special in ("deployIdentity", "deployRepair", "merged"):
+        state = {"merged": None, special: "present"}
+        with (
+            patch.object(
+                wt,
+                "load",
+                return_value=(tmp_path, None, tmp_path / "state.json", state),
+            ),
+            patch.object(wt, "module") as module,
+            patch.object(wt, "git") as git,
+        ):
+            with pytest.raises(wt.Blocked, match="Deploy, repair or merged"):
+                wt.finalize(tmp_path, "example", create_pr=True)
+            module.assert_not_called()
+            git.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://github.com/team/repo.git", ("github.com", "team/repo")),
+        ("git@github.com:team/repo.git", ("github.com", "team/repo")),
+        ("ssh://git@ghe.example/team/repo", ("ghe.example", "team/repo")),
+        ("https://github.com/team/repo/", ("github.com", "team/repo")),
+        ("https://token@github.com/team/repo", None),
+        ("https://github.com/team/repo?token=secret", None),
+        ("/tmp/remote", None),
+        ("-evil", None),
+    ],
+)
+def check_pr_repository_url(url, expected):
+    if expected:
+        assert pr.repository_identity(url) == expected
+    else:
+        with pytest.raises(wt.Blocked, match="URL without credentials"):
+            pr.repository_identity(url)
+
+
+@pytest.mark.parametrize(
+    "failure", ["none", "urls", "rewrite", "auth", "repository", "permission"]
+)
+def check_pr_remote_identity(tmp_path, failure):
+    url = "https://github.com/team/repo.git"
+    info = {
+        "url": "https://github.com/team/repo",
+        "nameWithOwner": "team/repo",
+        "viewerPermission": "WRITE",
+    }
+    if failure == "repository":
+        info["nameWithOwner"] = "other/repo"
+    if failure == "permission":
+        info["viewerPermission"] = "READ"
+    with (
+        patch.object(
+            wt,
+            "output",
+            side_effect=[url, url + ("\nother" if failure == "urls" else "")],
+        ),
+        patch.object(
+            wt,
+            "git",
+            return_value=SimpleNamespace(returncode=0 if failure == "rewrite" else 1),
+        ),
+        patch.object(
+            pr,
+            "gh",
+            side_effect=wt.Blocked("auth failure")
+            if failure == "auth"
+            else ["", json.dumps(info)],
+        ),
+    ):
+        if failure == "none":
+            assert pr.remote_identity(tmp_path)["repository"] == "team/repo"
+        else:
+            with pytest.raises(wt.Blocked):
+                pr.remote_identity(tmp_path)
+
+
+def _pr_publication():
+    return dict(
+        status="PREPARED",
+        base="main",
+        head="codex/worktree/example",
+        baseCommit="base",
+        candidate="candidate",
+        remoteUrl="https://github.com/team/repo.git",
+        repository="team/repo",
+        host="github.com",
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "none",
+        "closed",
+        "merged",
+        "base",
+        "head",
+        "sha",
+        "fork",
+        "url",
+        "number",
+        "missing",
+        "multiple",
+    ],
+)
+def check_pr_existing_identity(tmp_path, change):
+    publication = _pr_publication()
+    item = dict(
+        number=7,
+        url="https://github.com/team/repo/pull/7",
+        state="OPEN",
+        baseRefName="main",
+        headRefName=publication["head"],
+        headRefOid="candidate",
+        isCrossRepository=False,
+    )
+    if change in {"closed", "merged"}:
+        item["state"] = change.upper()
+    for value, key in (
+        ("base", "baseRefName"),
+        ("head", "headRefName"),
+        ("sha", "headRefOid"),
+        ("url", "url"),
+    ):
+        if change == value:
+            item[key] = "other"
+    if change == "fork":
+        item["isCrossRepository"] = True
+    if change in {"number", "missing"}:
+        publication["number"] = 8
+    items = [] if change == "missing" else [item] * (2 if change == "multiple" else 1)
+    with patch.object(pr, "gh", side_effect=[json.dumps(items), json.dumps(item)]):
+        if change == "none":
+            assert pr.existing_pr(tmp_path, publication) == item
+        else:
+            with pytest.raises(wt.Blocked):
+                pr.existing_pr(tmp_path, publication)
+
+
+@pytest.mark.parametrize("change", ["none", "api", "git"])
+def check_pr_remote_base(tmp_path, change):
+    publication = _pr_publication()
+    with (
+        patch.object(
+            pr,
+            "gh",
+            return_value=json.dumps(
+                {"commit": {"sha": "drift" if change == "api" else "base"}}
+            ),
+        ),
+        patch.object(
+            pr,
+            "remote_heads",
+            return_value={"refs/heads/main": "drift" if change == "git" else "base"},
+        ),
+    ):
+        if change == "none":
+            assert pr.remote_base(tmp_path, publication) is None
+        else:
+            with pytest.raises(wt.Blocked, match="base differs"):
+                pr.remote_base(tmp_path, publication)
+
+
+@pytest.mark.parametrize(
+    "change", ["none", "head", "commit", "base", "dirty", "task", "mode", "state"]
+)
+def check_pr_candidate_identity(tmp_path, change):
+    text = contract("example", ["file.txt"]).replace("`running`", "`completed`")
+    publication = _pr_publication()
+    publication["taskHash"] = pr.hashlib.sha256(text.encode("utf-8")).hexdigest()
+    state = dict(
+        task_id="example",
+        task_file="tasks/example.md",
+        integrationMode="pr",
+        branch=publication["head"],
+        base="main",
+        merged=None,
+        tip="candidate",
+        commit="candidate",
+        verified=True,
+        prPublication=publication,
+    )
+    if change == "commit":
+        state["commit"] = "other"
+    if change == "mode":
+        state["integrationMode"] = "merge"
+    path = tmp_path / "state.json"
+    with (
+        patch.object(
+            wt,
+            "load",
+            return_value=(tmp_path, None, path, {} if change == "state" else state),
+        ),
+        patch.object(wt, "task_worktree", return_value=tmp_path),
+        patch.object(wt, "base_worktree", return_value=tmp_path / "base"),
+        patch.object(
+            wt.tasks,
+            "read_task_snapshot",
+            return_value=SimpleNamespace(
+                text=text + ("edit" if change == "task" else "")
+            ),
+        ),
+        patch.object(
+            wt,
+            "output",
+            side_effect=[
+                "other" if change == "head" else "candidate",
+                "other" if change == "base" else "base",
+            ],
+        ),
+        patch.object(
+            wt,
+            "changed_paths",
+            return_value={"file.txt"} if change == "dirty" else set(),
+        ),
+        patch.object(wt, "integration_task") as integration,
+    ):
+        if change == "none":
+            assert pr.check_candidate(tmp_path, path, state) == (tmp_path, text)
+            integration.assert_called_once()
+        else:
+            with pytest.raises(wt.Blocked, match="changed"):
+                pr.check_candidate(tmp_path, path, state)
+
+
+@pytest.mark.parametrize("failure", ["collision", "missing", "auth", "api"])
+def check_pr_publication_prewrite(tmp_path, failure):
+    publication = _pr_publication()
+    if failure == "missing":
+        publication["status"] = "PUSHED"
+    state = dict(task_id="example", prPublication=publication)
+    identity = {key: publication[key] for key in ("remoteUrl", "repository", "host")}
+    with (
+        patch.object(wt, "lifecycle_lock", return_value=nullcontext()),
+        patch.object(pr, "check_candidate", return_value=(tmp_path, "task")),
+        patch.object(
+            pr,
+            "remote_identity",
+            side_effect=wt.Blocked("auth") if failure == "auth" else None,
+            return_value=identity,
+        ),
+        patch.object(pr, "record"),
+        patch.object(
+            pr,
+            "remote_base",
+            side_effect=wt.Blocked("API unavailable") if failure == "api" else None,
+            return_value="foreign" if failure == "collision" else None,
+        ),
+        patch.object(wt, "git") as git,
+        patch.object(pr, "existing_pr") as existing,
+    ):
+        with pytest.raises(wt.Blocked):
+            pr.publish(tmp_path, tmp_path / "state.json", state)
+        git.assert_not_called()
+        existing.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["none", "exit", "timeout"])
+def check_pr_gh_noninteractive(tmp_path, failure):
+    with patch.object(
+        pr.subprocess,
+        "run",
+        side_effect=subprocess.TimeoutExpired("gh", 60)
+        if failure == "timeout"
+        else None,
+        return_value=SimpleNamespace(
+            returncode=1 if failure == "exit" else 0,
+            stdout="{}",
+            stderr="sensitive credential",
+        ),
+    ) as run:
+        if failure == "none":
+            assert pr.gh(tmp_path, "github.com", "repo", "view") == "{}"
+            arguments, options = run.call_args
+            assert arguments[0] == ["gh", "repo", "view"]
+            assert options["env"]["GH_PROMPT_DISABLED"] == "1"
+            assert options["timeout"] == 60 and "shell" not in options
+        else:
+            with pytest.raises(wt.Blocked) as error:
+                pr.gh(tmp_path, "github.com", "auth", "status")
+            assert "sensitive" not in str(error.value)
+
+
+def check_pr_lock_and_mode_retention(tmp_path):
+    path = tmp_path / "task.json"
+    with pr.publication_lock(path):
+        with pytest.raises(wt.Blocked, match="busy"):
+            with pr.publication_lock(path):
+                pytest.fail("double publisher")
+    assert path.with_suffix(".pr-lock").is_file()
+    path.with_suffix(".tmp").symlink_to(tmp_path / "foreign")
+    with pytest.raises(wt.Blocked, match="redirected"):
+        with pr.publication_lock(path):
+            pytest.fail("redirected metadata")
+    path.with_suffix(".tmp").unlink()
+    state = {"merged": None, "integrationMode": "pr"}
+    with (
+        patch.object(wt, "load", return_value=(tmp_path, None, path, state)),
+        patch.object(wt, "_finalize") as finalize,
+    ):
+        with pytest.raises(wt.Blocked, match="--create-pr"):
+            wt.finalize(tmp_path, "example")
+        finalize.assert_not_called()
+    with pytest.raises(wt.Blocked, match="PR worktree is retained"):
+        wt.cleanup_state(tmp_path, path, state)
+
+
+def check_pr_existing_hook_is_preserved(tmp_path):
+    hook = tmp_path / "pre-push"
+    hook.write_text("Human hook\n", encoding="utf-8")
+    with (
+        patch.object(wt, "output", return_value=str(hook)),
+        patch.object(wt, "git") as git,
+    ):
+        with pytest.raises(wt.Blocked, match="never replaces"):
+            pr.push_candidate(tmp_path, _pr_publication())
+        git.assert_not_called()
+    assert hook.read_text(encoding="utf-8") == "Human hook\n"
+
+
+def check_pr_git_deadline(tmp_path):
+    with (
+        patch.object(wt, "output", return_value=str(tmp_path / "no-hook")),
+        patch.object(
+            wt, "git", side_effect=subprocess.TimeoutExpired("git sensitive", 60)
+        ) as git,
+    ):
+        for operation in (pr.remote_heads, pr.push_candidate):
+            with pytest.raises(wt.Blocked) as error:
+                operation(tmp_path, _pr_publication())
+            assert "sensitive" not in str(error.value)
+            assert git.call_args.kwargs["timeout"] == 60
+            assert "core.sshCommand=ssh -o BatchMode=yes" in git.call_args.args
 
 
 if __name__ == "__main__":
