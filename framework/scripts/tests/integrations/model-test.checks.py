@@ -112,16 +112,20 @@ def check_pipeline_membership(root):
         actions = []
         for action in range(4):
             name = f"action-{stage}-{action}"
-            pipeline_rows.extend(
-                [
-                    ("Stages[].Actions[].ActionTypeId.Category", "`Build`", None),
-                    ("Stages[].Actions[].Name", f"`{name}`", None),
-                    ("Stages[].Actions[].RunOrder", "`1`", None),
-                ]
-            )
-            actions.append(
-                {"name": name, "actionTypeId": {"category": "Build"}, "runOrder": 1}
-            )
+            pipeline_rows.append(("Stages[].Actions[].ActionTypeId.Category", "`Build`", None))
+            if (stage, action) != (1, 2):
+                config = {"ProjectName": name, f"Extra{action}": name}
+                pipeline_rows.append(
+                    ("Stages[].Actions[].Configuration", "`" + json.dumps(config) + "`", None)
+                )
+            pipeline_rows.extend([
+                ("Stages[].Actions[].Name", f"`{name}`", None),
+                ("Stages[].Actions[].RunOrder", "`1`", None),
+            ])
+            action_data = {"name": name, "actionTypeId": {"category": "Build"}, "runOrder": 1}
+            if (stage, action) != (1, 2):
+                action_data["configuration"] = {"ProjectName": name, f"Extra{action}": name}
+            actions.append(action_data)
         pipeline_rows.append(("Stages[].Name", f"`stage-{stage}`", None))
         pipeline_stages.append({"name": f"stage-{stage}", "actions": actions})
     pipeline = fixture(
@@ -130,7 +134,12 @@ def check_pipeline_membership(root):
         [("001", "CodePipeline.Pipeline", "pipeline", pipeline_rows)],
     )
     pipeline_path = root / "model/dev/cde/codepipeline.properties"
-    write_model(pipeline_path, pipeline["models"]["dev/cde/codepipeline"])
+    pipeline_values = pipeline["models"]["dev/cde/codepipeline"]
+    for rid, row in entries(pipeline_values, "desired.row."):
+        if row["property"].endswith(".Configuration"):
+            keys = json.loads(row["value"][1:-1])
+            pipeline_values[f"desired.row.{rid}.comment"] = " / ".join(f"{key}: fixture" for key in keys)
+    write_model(pipeline_path, pipeline_values)
     pipeline_source, _, notices = generator.generate(root, "dev", "cde", "codepipeline")
     assert not any("membership unresolved" in reason for _, reason in notices), notices
     generated = {"__name__": "pipeline_fixture", "__file__": str(root / "audit.py")}
@@ -143,6 +152,12 @@ def check_pipeline_membership(root):
     records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
     run = next(item for item in records if item["propertiesKey"].endswith(".RunOrder"))
     assert run["status"] == "match", run
+    config = next(item for item in records if item["propertiesKey"].endswith(".Configuration"))
+    assert config["status"] == "match", config
+    pipeline_stages[1]["actions"][3]["configuration"]["Extra3"] = "wrong"
+    records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
+    config = next(item for item in records if item["propertiesKey"].endswith(".Configuration"))
+    assert config["status"] == "difference", config
     pipeline_stages[1]["actions"][2]["runOrder"] = 2
     records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
     run = next(item for item in records if item["propertiesKey"].endswith(".RunOrder"))

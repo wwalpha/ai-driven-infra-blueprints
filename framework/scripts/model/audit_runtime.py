@@ -232,6 +232,20 @@ def engine(snapshot):
 
 def reference_result(m, snapshot, resource, item):
     rows = resource.rows_for(item["propertiesKey"])
+    if resource.kind == "CodePipeline.Pipeline" and ".Stages[]." in item["propertiesKey"]:
+        paths = snapshot.get("pipelineIndexedRows", {}).get(resource.number, {})
+        missing = [rid for rid, _ in rows if rid not in paths]
+        if missing:
+            return {
+                **item,
+                "status": item["status"]
+                if item["status"] in {"resource_missing", "acquisition_failed"}
+                else "design_unresolved",
+                "designValue": None,
+                "reason": "array membership unresolved for row IDs "
+                + ", ".join(missing)
+                + ": Stage Name, Action Name and ActionTypeId.Category must identify membership",
+            }
     resolutions = [row_resolution(snapshot, resource, row) for _, row in rows]
     if not any(resolutions) and not any(
         contains_reference(row.get("document", row["value"])) for _, row in rows

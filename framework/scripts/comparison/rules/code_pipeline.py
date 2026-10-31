@@ -26,8 +26,8 @@ def prepare_rows(rows, *, index_rows):
             for rid, row in rows
         ]
     )
-    prepared, configurations = [], set()
-    for rid, prop, value, _ in index_rows(displayed, kind):
+    compact, configurations = [], set()
+    for rid, prop, value, comment in displayed:
         row = original[rid]
         if row["property"].endswith(".Configuration"):
             if rid in configurations:
@@ -35,8 +35,11 @@ def prepare_rows(rows, *, index_rows):
             configurations.add(rid)
             prop = prop.split(".Configuration.", 1)[0] + ".Configuration"
             value = row["value"]
-        prepared.append((rid, dict(row, property=kind + "." + prop, value=value)))
-    return prepared
+        compact.append([rid, prop, value, comment])
+    return [
+        (rid, dict(original[rid], property=kind + "." + prop, value=value))
+        for rid, prop, value, _ in index_rows(compact, kind)
+    ]
 
 
 RULES = {

@@ -2119,10 +2119,48 @@ class PipelineMembershipTests(unittest.TestCase):
             notices,
         )
 
+    def test_configuration_keys_remain_with_their_action(self):
+        self.build(reference=True)
+        path = self.root / "model/dev/cde/codepipeline.properties"
+        values = dict(load_model(path).authoritative)
+        config_rows = [
+            rid for rid, row in entries(values, "desired.row.")
+            if row["property"].endswith(".Configuration")
+        ]
+        for index, rid in enumerate(config_rows):
+            if index == 2:
+                for field in ("property", "value", "comment"):
+                    values.pop(f"desired.row.{rid}.{field}")
+                continue
+            config = {"ProjectName": self.ref("CodeBuild_Project_001", "Name") if index == 0 else f"project-{index // 2}-{index % 2}"}
+            config[f"Extra{index}"] = f"value-{index}"
+            values[f"desired.row.{rid}.value"] = "`" + json.dumps(config) + "`"
+            values[f"desired.row.{rid}.comment"] = f"ProjectName: project / Extra{index}: extra"
+        write_model(path, values)
+        source = generate(self.root, "dev", "cde", "codepipeline")[0]
+        snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+        _, response, _ = self.build(reference=True)
+        for index, action in enumerate(a for stage in response for a in stage["actions"]):
+            if index == 2:
+                action.pop("configuration")
+            else:
+                action["configuration"][f"Extra{index}"] = f"value-{index}"
+        config = next(r for r in self.records(snapshot, response) if r["propertiesKey"].endswith(".Configuration"))
+        self.assertEqual(config["status"], "match", config)
+        response[1]["actions"][1]["configuration"]["Extra3"] = "wrong"
+        config = next(r for r in self.records(snapshot, response) if r["propertiesKey"].endswith(".Configuration"))
+        self.assertEqual(config["status"], "difference", config)
+        failure = Mock(return_value=subprocess.CompletedProcess([], 1, "", "denied"))
+        config = next(r for r in audit.audit(snapshot, cli_runner=failure)[2] if r["propertiesKey"].endswith(".Configuration"))
+        self.assertNotIn("Design reference projection failed", config["reason"])
+
     def test_ambiguous_membership(self):
         snapshot, response, _ = self.build(2, 2, ambiguous=True)
         self.assertFalse(snapshot["pipelineIndexedRows"]["001"])
         records = self.records(snapshot, response)
+        config = next(r for r in records if r["propertiesKey"].endswith(".Configuration"))
+        self.assertIn("001-", config["reason"])
+        self.assertIn("Stage Name, Action Name and ActionTypeId.Category", config["reason"])
         self.assertTrue(
             all(
                 r["status"] == "design_unresolved"
