@@ -2678,6 +2678,21 @@ def check_create_handoff_rejects_mismatched_evidence(tmp_path, problem):
         backend.save.assert_not_called()
 
 
+def handoff_test_save(boundary, tmp_path, progress, state):
+    if boundary == "save":
+        raise OSError("save interrupted")
+    worktree.write_sealed(tmp_path, progress, state)
+
+
+def handoff_test_replace_file(boundary, replace, *args, **kwargs):
+    if boundary == "replace":
+        raise OSError("replace interrupted")
+    result = replace(*args, **kwargs)
+    if boundary == "after_replace":
+        raise OSError("after replace interrupted")
+    return result
+
+
 @pytest.mark.parametrize("boundary", ["save", "replace", "after_replace", "transport"])
 def check_create_handoff_interruption_preserves_evidence(tmp_path, boundary):
     stack = "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/A/stack-id"
@@ -2722,10 +2737,7 @@ def check_create_handoff_interruption_preserves_evidence(tmp_path, boundary):
     request.write_text(json.dumps(prior), encoding="utf-8")
     request.chmod(0o600)
 
-    def save():
-        if boundary == "save":
-            raise OSError("save interrupted")
-        worktree.write_sealed(tmp_path, progress, state)
+    save = partial(handoff_test_save, boundary, tmp_path, progress, state)
 
     backend = SimpleNamespace(
         target={"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"},
@@ -2736,13 +2748,7 @@ def check_create_handoff_interruption_preserves_evidence(tmp_path, boundary):
     transport = Mock(side_effect=OSError("transport interrupted"))
     replace = current_request.atomic_replace_file
 
-    def replace_file(*args, **kwargs):
-        if boundary == "replace":
-            raise OSError("replace interrupted")
-        result = replace(*args, **kwargs)
-        if boundary == "after_replace":
-            raise OSError("after replace interrupted")
-        return result
+    replace_file = partial(handoff_test_replace_file, boundary, replace)
 
     with (
         patch.object(current_request, "location", return_value=request),

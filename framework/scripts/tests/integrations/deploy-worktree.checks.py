@@ -1379,6 +1379,39 @@ def check_final_candidate_external_changes_stop_before_adoption(kind):
         )
 
 
+def atomic_test_save(tmp_path, progress, state, request, saves):
+    worktree.write_sealed(tmp_path, progress, state)
+    saves.append(
+        (
+            json.loads(request.read_text()) if request.exists() else None,
+            json.loads(json.dumps(state)),
+        )
+    )
+
+
+def atomic_test_transport(
+    calls, request, missing_stack, stack, _runtime, _service, operation, arguments
+):
+    calls.append((operation, dict(arguments), json.loads(request.read_text())))
+    return (
+        {"StackId": None if missing_stack else stack}
+        if operation == "create_change_set"
+        else {}
+    )
+
+
+def atomic_test_aws(runtime, transport, stack, observed, operation, **arguments):
+    if operation in {"create_change_set", "execute_change_set"}:
+        return current_request.send(runtime, operation, arguments, transport)
+    if operation == "describe_stacks":
+        return {"Stacks": [{"StackId": stack, "StackStatus": "UPDATE_COMPLETE"}]}
+    if operation == "describe_change_set":
+        return dict(observed)
+    if operation == "describe_stack_events":
+        return {"StackEvents": []}
+    raise AssertionError(operation)
+
+
 @pytest.mark.parametrize(
     "released,missing_stack", [(False, False), (False, True), (True, False)]
 )
@@ -1413,33 +1446,9 @@ def check_create_review_execute_uses_one_atomic_request(
         expected_digests={name: "input"},
     )
 
-    def save():
-        worktree.write_sealed(tmp_path, progress, state)
-        saves.append(
-            (
-                json.loads(request.read_text()) if request.exists() else None,
-                json.loads(json.dumps(state)),
-            )
-        )
-
-    def transport(_runtime, _service, operation, arguments):
-        calls.append((operation, dict(arguments), json.loads(request.read_text())))
-        return (
-            {"StackId": None if missing_stack else stack}
-            if operation == "create_change_set"
-            else {}
-        )
-
-    def aws(operation, **arguments):
-        if operation in {"create_change_set", "execute_change_set"}:
-            return current_request.send(runtime, operation, arguments, transport)
-        if operation == "describe_stacks":
-            return {"Stacks": [{"StackId": stack, "StackStatus": "UPDATE_COMPLETE"}]}
-        if operation == "describe_change_set":
-            return dict(observed)
-        if operation == "describe_stack_events":
-            return {"StackEvents": []}
-        raise AssertionError(operation)
+    save = partial(atomic_test_save, tmp_path, progress, state, request, saves)
+    transport = partial(atomic_test_transport, calls, request, missing_stack, stack)
+    aws = partial(atomic_test_aws, runtime, transport, stack, observed)
 
     runtime.aws = aws
     runtime.save = save
