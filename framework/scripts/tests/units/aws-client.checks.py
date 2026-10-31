@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -559,6 +560,7 @@ def check_read_rates_shared_by_eight_threads(monkeypatch, operation):
 
 
 @pytest.mark.parametrize("operation", list(sdk.READ_RATES))
+@pytest.mark.parametrize("message", ["resource missing", "secret denied"])
 @pytest.mark.parametrize(
     "code",
     [
@@ -570,13 +572,15 @@ def check_read_rates_shared_by_eight_threads(monkeypatch, operation):
         "ValidationError",
     ],
 )
-def check_reference_retry_and_non_throttling_failure(monkeypatch, operation, code):
+def check_reference_retry_and_non_throttling_failure(
+    monkeypatch, operation, code, message
+):
     clock = Clock()
     monkeypatch.setattr(sdk, "time", clock)
     monkeypatch.setattr(sdk, "_rate_locks", {})
     monkeypatch.setattr(sdk, "_rate_next", {})
     monkeypatch.setattr(sdk.random, "uniform", lambda a, b: 1)
-    error = ClientError({"Error": {"Code": code}}, operation)
+    error = ClientError({"Error": {"Code": code, "Message": message}}, operation)
     send = Mock(side_effect=[error, {"ok": True}])
     if code in sdk.THROTTLING:
         assert sdk.read_api("account", "region", operation, send) == {"ok": True}
@@ -585,6 +589,22 @@ def check_reference_retry_and_non_throttling_failure(monkeypatch, operation, cod
         with pytest.raises(ClientError):
             sdk.read_api("account", "region", operation, send)
         assert send.call_count == 1 and not clock.waits
+
+
+def check_cli_throttling_text_is_not_retried(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(sdk, "time", clock)
+    monkeypatch.setattr(sdk, "_rate_locks", {})
+    monkeypatch.setattr(sdk, "_rate_next", {})
+    error = subprocess.CalledProcessError(
+        254,
+        "aws",
+        stderr="An error occurred (ThrottlingException) when calling DescribeStacks: secret",
+    )
+    send = Mock(side_effect=error)
+    with pytest.raises(subprocess.CalledProcessError):
+        sdk.read_api("account", "region", "describe_stacks", send)
+    assert send.call_count == 1 and not clock.waits
 
 
 def check_reference_attempt_limit_and_deadline(monkeypatch):

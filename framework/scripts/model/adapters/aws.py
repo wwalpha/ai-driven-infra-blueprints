@@ -120,17 +120,11 @@ class AcquisitionError(Exception):
 
 def sdk_error(api, error, request):
     detail = getattr(error, "response", {}).get("Error", {})
-    if isinstance(error, subprocess.CalledProcessError):
-        match = re.search(
-            r"An error occurred \(([^)]+)\) when calling [^:\n]+(?: \(reached max retries: \d+\))?: (.*)",
-            error.stderr or "",
-        )
-        detail = (
-            {"Code": match[1], "Message": match[2]}
-            if match
-            else {"Code": "AwsCliError"}
-        )
-    code = detail.get("Code", getattr(error, "code", type(error).__name__))
+    code = (
+        "AwsCliError"
+        if isinstance(error, subprocess.CalledProcessError)
+        else detail.get("Code", getattr(error, "code", type(error).__name__))
+    )
     missing = code in {
         "ResourceNotFoundException",
         "ResourceNotFound",
@@ -149,10 +143,6 @@ def sdk_error(api, error, request):
         "TrailNotFoundException",
         "RepositoryDoesNotExistException",
     }
-    if api == "cloudformation.describe_stacks" and code == "ValidationError":
-        missing = bool(
-            re.fullmatch(r"Stack with id .+ does not exist", detail.get("Message", ""))
-        )
     return AcquisitionError(
         api, code, "resource_missing" if missing else "acquisition_failed", request
     )
@@ -488,7 +478,12 @@ class Context:
 
     def fresh_pages(self, service, operation, **inputs):
         fresh = Context(
-            self.root, self.target, self.session, self.cli_runner, self.services, self.import_mode
+            self.root,
+            self.target,
+            self.session,
+            self.cli_runner,
+            self.services,
+            self.import_mode,
         )
         fresh.verified = self.verified
         try:

@@ -450,14 +450,8 @@ def test_iam_inline_fresh_recheck():
                 adapter.fetch(ctx, resource, "inline")
                 raise AssertionError(case)
             except AcquisitionError as error:
-                assert error.status == (
-                    "resource_missing"
-                    if case == "missing_role"
-                    else "acquisition_failed"
-                ), case
-        assert calls.count("list-role-policies") == (
-            1 if case == "missing_role" else 3 if case == "deleted" else 2
-        )
+                assert error.status == "acquisition_failed", case
+        assert calls.count("list-role-policies") == (1 if case == "missing_role" else 2)
 
 
 def test_iam_inline_generated_report():
@@ -524,7 +518,7 @@ def test_iam_inline_generated_report():
             expected = {
                 "present": "OK",
                 "missing_policy": "NG",
-                "missing_role": "NG",
+                "missing_role": "ERROR",
                 "deleted": "ERROR",
                 "denied": "ERROR",
                 "changed": "ERROR",
@@ -751,7 +745,7 @@ print(json.dumps(value))
                     assert "Verification: NOT_VERIFIABLE" in process.stdout
                 if service == "sqs" and case == "sqs_denied":
                     assert "[ERROR] SQS.QueuePolicy" in process.stdout
-                    assert "AccessDenied" in process.stdout
+                    assert "AwsCliError" in process.stdout
                 if service == "route53" and case != "auth":
                     assert entries.count("route53/list-resource-record-sets") >= 2
 
@@ -934,7 +928,7 @@ def typed_reference_round_trip():
                     assert 'Design: "/aws/vpc/flowlogs/fixture"' in process.stdout
                     if case in {"missing", "denied"}:
                         assert (
-                            "ResourceNotFound" if case == "missing" else "AccessDenied"
+                            "ResourceNotFound" if case == "missing" else "AwsCliError"
                         ) in process.stdout
                     if case == "missing":
                         assert (
@@ -987,7 +981,7 @@ def typed_reference_round_trip():
                 )
                 if case != "match":
                     assert (
-                        "ResourceNotFound" if case == "missing" else "AccessDenied"
+                        "ResourceNotFound" if case == "missing" else "AwsCliError"
                     ) in process.stdout
                     assert "Design: null" in process.stdout
 
@@ -1262,7 +1256,7 @@ def lambda_bucket_audit():
         )
         case.assertFalse(any(item["status"] == "excluded" for item in records), records)
         for error, expected in [
-            ("ResourceNotFoundException", "resource_missing"),
+            ("ResourceNotFoundException", "acquisition_failed"),
             ("AccessDenied", "acquisition_failed"),
         ]:
             cli = _bind_framework_callback(_lambda_error_cli, error)
@@ -1615,7 +1609,7 @@ print(json.dumps(value))
             (good.replace("ap-northeast-1", "us-east-1"), "ERROR", "account or region"),
             (good.replace("arn:aws:", "arn:aws-cn:"), "ERROR", "account or region"),
             (good.replace("/team", "/wrong"), "ERROR", "group name"),
-            ("FAIL", "ERROR", "ResourceNotFoundException"),
+            ("FAIL", "ERROR", "AwsCliError"),
         ]
         for arn, status, reason in cases:
             with case.subTest(arn=arn):
@@ -1704,7 +1698,7 @@ else:
         fake.chmod(0o700)
         for scenario, status, code in [
             ("success", "OK", 0),
-            ("missing", "NG", 1),
+            ("missing", "ERROR", 2),
             ("denied", "ERROR", 2),
             ("unresolved", "ERROR", 2),
             ("ambiguous", "ERROR", 2),
@@ -1748,25 +1742,12 @@ else:
                 assert "[OK] Lambda.Function | fixture-function | Timeout" in output, (
                     output
                 )
-            if scenario == "missing":
-                assert (
-                    output.count(
-                        "[NG] Lambda.Function | fixture-function | FunctionName (resource missing)"
-                    )
-                    == 1
-                ), output
-                assert (
-                    output.count(
-                        "[NG] Lambda.Function | fixture-function | Timeout (resource missing)"
-                    )
-                    == 1
-                ), output
-                assert output.count("[NG] Lambda.Function") == 2, output
-                assert output.count("AWS:    null") == 2, output
-                assert (
-                    "ResourceNotFoundException" in output
-                    and "Diff paths:" not in output
-                ), output
+            if scenario in ("missing", "denied"):
+                assert output.count("[ERROR] Lambda.Function") == 2, output
+                assert "AwsCliError" in output, output
+                assert "ResourceNotFoundException" not in output, output
+                assert "AccessDeniedException" not in output, output
+                assert "details" not in output, output
             if scenario in ("unresolved", "ambiguous", "account"):
                 assert not calls.exists(), output
 
@@ -1812,8 +1793,8 @@ else:
             generator.generate(root, "dev", "cde", "glue")[0], encoding="utf-8"
         )
         for scenario, status, code in [
-            ("EntityNotFoundException", "NG", 1),
-            ("ResourceNotFoundException", "NG", 1),
+            ("EntityNotFoundException", "ERROR", 2),
+            ("ResourceNotFoundException", "ERROR", 2),
             ("AccessDeniedException", "ERROR", 2),
             ("success", "OK", 0),
         ]:
@@ -1834,7 +1815,8 @@ else:
                 ), output
             assert output.count(f"[{status}] Glue.Job | fixture-job |") == 2, output
             if scenario != "success":
-                assert output.count(f"Reason: {scenario}") == 2, output
+                assert output.count("Reason: AwsCliError") == 2, output
+                assert scenario not in output and "details" not in output, output
             if status == "NG":
                 assert "Diff paths:" not in output, output
 
@@ -2015,8 +1997,8 @@ def lakeformation_federation_audit():
             == "design_unresolved"
         ), records
         for code, expected in (
-            ("EntityNotFoundException", "resource_missing"),
-            ("ResourceNotFoundException", "resource_missing"),
+            ("EntityNotFoundException", "acquisition_failed"),
+            ("ResourceNotFoundException", "acquisition_failed"),
             ("AccessDeniedException", "acquisition_failed"),
         ):
             cli = _bind_framework_callback(_callback_lakeformation_failure, code)

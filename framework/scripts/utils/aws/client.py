@@ -3,8 +3,6 @@
 import hashlib
 import os
 import random
-import re
-import subprocess
 import threading
 import time
 from functools import partial
@@ -61,9 +59,6 @@ def read_api(account, region, operation, send, *, deadline=None):
                 if isinstance(error, AwsError)
                 else getattr(error, "response", {}).get("Error", {}).get("Code")
             )
-            if isinstance(error, subprocess.CalledProcessError):
-                match = re.search(r"\(([^)]+)\) when calling", error.stderr or "")
-                code = match[1] if match else None
             if code not in THROTTLING or attempt == 4:
                 raise
         finally:

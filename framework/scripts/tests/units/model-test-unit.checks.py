@@ -17,6 +17,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from botocore.exceptions import ClientError
 from design.layout import confirmed_display_name
 from model.adapters.aws import AcquisitionError, Unresolved, sdk_error, service_module
 from model.audit import (
@@ -73,20 +74,37 @@ def _sg_sdk_error(code):
 
 
 class SdkErrorTests(unittest.TestCase):
-    def test_lambda_cli_errors_with_retry_metadata(self):
+    def test_structured_errors_ignore_message(self):
         for code, expected in [
             ("ResourceNotFoundException", "resource_missing"),
             ("AccessDeniedException", "acquisition_failed"),
+            ("ValidationError", "acquisition_failed"),
         ]:
-            for suffix in ("", " (reached max retries: 2)"):
-                with self.subTest(code=code, suffix=suffix):
-                    error = subprocess.CalledProcessError(
-                        254,
-                        "aws",
-                        stderr=f"An error occurred ({code}) when calling the GetFunction operation{suffix}: details",
+            for message in ("Stack with id x does not exist", "sensitive text"):
+                with self.subTest(code=code, message=message):
+                    error = ClientError(
+                        {"Error": {"Code": code, "Message": message}}, "DescribeStacks"
                     )
-                    result = sdk_error("lambda.get_function", error, ("request",))
+                    result = sdk_error("cloudformation.describe_stacks", error, ())
                     self.assertEqual((result.code, result.status), (code, expected))
+                    self.assertNotIn(message, str(result))
+
+    def test_cli_errors_do_not_recover_codes(self):
+        for code in (
+            "ResourceNotFoundException",
+            "AccessDeniedException",
+            "ThrottlingException",
+        ):
+            error = subprocess.CalledProcessError(
+                254,
+                "aws",
+                stderr=f"An error occurred ({code}) when calling GetFunction: secret",
+            )
+            result = sdk_error("lambda.get_function", error, ())
+            self.assertEqual(
+                (result.code, result.status), ("AwsCliError", "acquisition_failed")
+            )
+            self.assertNotIn("secret", str(result))
 
 
 class IamInlinePolicyTests(unittest.TestCase):
@@ -923,7 +941,10 @@ class ReferenceTests(unittest.TestCase):
                     else "acquisition_failed",
                 )
                 self.assertIn("must be string", item["reason"])
-                self.assertIn(failure, item["reason"])
+                self.assertIn(
+                    "AwsCliError" if failure == "AccessDenied" else failure,
+                    item["reason"],
+                )
                 self.assertIsNone(item["designValue"])
                 self.assertEqual(
                     sum(
