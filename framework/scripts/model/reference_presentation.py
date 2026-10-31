@@ -184,6 +184,24 @@ class Presentation:
             displayed = projection._display_document_value(
                 {node: result}, self.resolver, self.scope, self.root, node
             )
+            if position.source_field == "value" and not position.pointer:
+                raw, structured = references._json(
+                    f"desired.row.{position.row_id}.value",
+                    self.values[f"desired.row.{position.row_id}.value"],
+                )
+                if structured and references.is_reference(raw):
+                    observation = references.kms_observation(
+                        self.values, position.row_id, node, self.scope, self.resolver
+                    )
+                    if observation is not None:
+                        state, observed = observation
+                        displayed = {
+                            "match": observed,
+                            "mismatch": "不一致: " + str(observed),
+                            "unproven": "未確認: " + str(observed),
+                            "pending": "PENDING_DEPLOY",
+                            "unobserved": "未観測",
+                        }[state]
             if isinstance(displayed, str):
                 name = displayed
             if (

@@ -13,6 +13,7 @@ from validation.diagnostics import Diagnostic, service_scope
 import model.change_scope as change_plan
 import model.core as _imports_model_core
 import model.dependency_index as dependency_index
+import model.environment_values as environment_values
 import model.format as _imports_model_projection
 import model.identity as _imports_model_identity
 import model.importing.scope as _imports_model_importing_scope
@@ -28,6 +29,7 @@ from model.reference_nodes import (
     reference_document,
     resolve,
 )
+from model.reference_values import reference_value
 
 FIELDS = {
     "consumerKey",
@@ -413,6 +415,69 @@ def _callback_diagnose_warn(usage, warnings, /, message):
     )
 
 
+def kms_observation(values, row_id, node, scope, resolver):
+    """Compare only a scalar KMS-normalized consumer against a proven Key identity."""
+    if node.pointer or node.attribute not in {"Arn", "KeyId"}:
+        return None
+    prop = values.get(f"desired.row.{row_id}.property", "")
+    kind = ".".join(prop.split(".")[:2])
+    mapping = environment_values.mapping_for(scope.root, kind).get(prop)
+    if mapping is None or mapping.field.norm != "kms":
+        return None
+    target, number, resource, _ = resolve(node, scope, resolver, field=prop)
+    if resource["resourceType"] not in {"KMS.Key", "KMS.Alias"}:
+        return None
+    if target.scope == scope and number == row_id.rpartition("-")[0]:
+        return None
+    observed = values.get(f"observed.row.{row_id}.value")
+    if observed is None:
+        return "unobserved", None
+    observed = literal(observed)
+    if observed == "PENDING_DEPLOY":
+        return "pending", observed
+    if (
+        re.fullmatch(
+            r"(?:[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}|mrk-[a-fA-F0-9]{32})",
+            observed,
+        )
+        is None
+    ):
+        return "unproven", observed
+    try:
+        if resource["resourceType"] == "KMS.Alias":
+            if resource.get(
+                "parentProperty"
+            ) != "KMS.Alias.TargetKeyId" or not resource.get("parentReference"):
+                return "unproven", observed
+            parent = parse(resource["parentReference"])
+            alias_scope = target.scope
+            target, number, resource, _ = resolve(
+                parent, alias_scope, resolver, field="KMS.Alias.TargetKeyId"
+            )
+            if target.scope != alias_scope or resource["resourceType"] != "KMS.Key":
+                return "unproven", observed
+        rows = [
+            (rid, row)
+            for rid, row in entries(target.authoritative, "desired.row.")
+            if rid.rpartition("-")[0] == number
+            and row.get("property") == "KMS.Key.KeyId"
+        ]
+        if (
+            len(rows) != 1
+            or f"observed.row.{rows[0][0]}.value" not in target.authoritative
+        ):
+            return "unproven", observed
+        key_node = parse(
+            {"$modelRef": {"logicalId": resource["logicalId"], "attribute": "KeyId"}}
+        )
+        key = reference_value(resolver, target.scope, key_node)
+        if key.status != "resolved":
+            return "unproven", observed
+        return ("match" if key.value == observed else "mismatch"), observed
+    except ReferenceDiagnosticError:
+        return "unproven", observed
+
+
 def diagnose(
     snapshot, read_context=None, *, _producer_scope=None, errors=None, details=None
 ):
@@ -486,6 +551,42 @@ def diagnose(
         identity = matches[0]
         resource = resources[identity]
         if usage.attribute is not None:
+            if (
+                resource["resourceType"] in {"KMS.Key", "KMS.Alias"}
+                and usage.attribute in {"Arn", "KeyId"}
+                and usage.consumer_key.startswith("desired.row.")
+                and usage.consumer_key.endswith(".value")
+                and usage.pointer == ""
+            ):
+                rid = usage.consumer_key.split(".")[2]
+                raw, structured = _json(
+                    usage.consumer_key, snapshot.authoritative[usage.consumer_key]
+                )
+                if structured and is_reference(raw):
+                    resolver = _imports_model_identity.Resolver(
+                        snapshot.scope.root, reads
+                    )
+                    resolver.models = cache
+                    try:
+                        state = kms_observation(
+                            snapshot.authoritative,
+                            rid,
+                            parse(raw),
+                            snapshot.scope,
+                            resolver,
+                        )
+                    except ReferenceDiagnosticError:
+                        state = None
+                    if state and state[0] in {"mismatch", "unproven"}:
+                        _callback_diagnose_warn(
+                            usage,
+                            warnings,
+                            "observed KMS KeyId differs from the referenced Key"
+                            if state[0] == "mismatch"
+                            else "observed KMS KeyId relationship is unproven",
+                        )
+                        if state[0] == "unproven":
+                            warnings[-1]["code"] = "reference.unresolved"
             continue
         if spec and resource["resourceType"] != spec["resourceType"]:
             _callback_diagnose_warn(usage, warnings, "producer Resource Type differs")

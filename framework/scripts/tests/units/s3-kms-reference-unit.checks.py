@@ -7,11 +7,14 @@ from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import model.validations.full_inputs as _model_validation_full_inputs
 from comparison import Comparison
 from design.catalog import DesignSchemaCatalog
+from design.document import DesignIndex
 from generation_inputs import GenerationInputs
 from model.core import ModelNeedsFixError, entries
 from model.format import parse, serialize
@@ -19,8 +22,16 @@ from model.format import patch as patch_model
 from model.identity import COUNTERS, Resolver
 from model.importing.references import Resolver as ImportResolver
 from model.operations import validate_candidates
-from model.projection import reference_display
-from model.references import incoming
+from model.projection import (
+    document_references,
+    generated_document,
+    reference_display,
+    reference_resolver,
+)
+from model.reference_nodes import parse as parse_reference
+from model.reference_presentation import Position, Presentation
+from model.reference_values import reference_value
+from model.references import diagnose, incoming, kms_observation
 from model.render import generate_markdown
 from model.sources import Scope, load_model
 from support.model_reference_fixtures import reference
@@ -195,7 +206,7 @@ def check_authority_display_and_references(project_workspace):
         displayed = reference_display(bucket, scope.path, scope.root)
         files = designs(scope, bucket, kms)
     view = scope.root / "docs/designs/fixture/team/s3.md"
-    expected = ALIAS_LINK
+    expected = "[未観測](kms.md#alias-one)"
     assert expected in files[view] and "$resource" not in files[view]
     TestCase().assertNotIn("$modelRef", displayed[ROW])
     TestCase().assertEqual(bucket[ROW], snapshot.authoritative[ROW])
@@ -429,6 +440,248 @@ def check_kms_consumers_obey_attribute_contracts(project_workspace):
         resolver.validate_attribute("KMS.Key", "KeyId", field=fields[0])
     for field in fields[1:]:
         resolver.validate_attribute("KMS.Key", "KeyId", field=field)
+
+
+def logs_fixture(root, observed, logical="KMS_Alias_001", attribute="Arn"):
+    scope, _, kms = fixture(root)
+    logs = {
+        COUNTERS: '{"Logs.LogGroup":1}',
+        "desired.service.cloudwatch-logs.serviceId": "cloudwatch-logs",
+        "desired.service.cloudwatch-logs.ownedCatalogResourceTypes": "Logs.LogGroup",
+        "display.service.title": "# 合成ログ",
+        "desired.resource.001.resourceType": "Logs.LogGroup",
+        "desired.resource.001.logicalId": "Logs_LogGroup_001",
+        "desired.resource.001.anchor": "log-group",
+        "desired.resource.001.resourceMode": "IMPORT",
+        "display.resource.001.comment": "合成ログ",
+        "desired.row.001-001.property": "Logs.LogGroup.LogGroupName",
+        "desired.row.001-001.value": "`fixture-logs`",
+        "desired.row.001-001.comment": "名前",
+        "desired.row.001-002.property": "Logs.LogGroup.KmsKeyId",
+        "desired.row.001-002.value": "`"
+        + json.dumps(reference(logical, attribute))
+        + "`",
+        "desired.row.001-002.comment": "暗号化キー",
+    }
+    if observed is not None:
+        logs["observed.row.001-002.value"] = "`" + observed + "`"
+    logs_scope = Scope(root, "fixture", "team", "cloudwatch-logs")
+    write_model(logs_scope.path, logs)
+    dependency_index.rebuild(root)
+    return logs_scope, logs, kms
+
+
+@pytest.mark.parametrize(
+    "observed,label,warning",
+    [
+        (
+            "12345678-1234-1234-1234-123456789abc",
+            "12345678-1234-1234-1234-123456789abc",
+            None,
+        ),
+        (
+            "87654321-1234-1234-1234-123456789abc",
+            "不一致: 87654321-1234-1234-1234-123456789abc",
+            "reference.mismatch",
+        ),
+        ("PENDING_DEPLOY", "PENDING_DEPLOY", None),
+        (None, "未観測", None),
+    ],
+)
+def check_logs_observed_kms_key_id_label(project_workspace, observed, label, warning):
+    scope, logs, _ = logs_fixture(project_workspace, observed)
+    path = scope.root / "docs/designs/fixture/team/cloudwatch-logs.md"
+    presentation = Presentation(logs, path, scope.root)
+    link = presentation.references[Position("001-002", "value", "")].link
+    assert link == f"[{label}](kms.md#alias-one)"
+    diagnostics, _ = diagnose(load_model(scope))
+    relevant = [
+        d for d in diagnostics if d.get("consumerKey") == "desired.row.001-002.value"
+    ]
+    assert [d["code"] for d in relevant] == ([warning] if warning else [])
+
+
+def check_logs_kms_key_identity_unproven(project_workspace):
+    observed = "12345678-1234-1234-1234-123456789abc"
+    scope, logs, kms = logs_fixture(project_workspace, observed)
+    kms.pop("observed.row.001-001.value")
+    write_model(Scope(scope.root, "fixture", "team", "kms").path, kms)
+    path = scope.root / "docs/designs/fixture/team/cloudwatch-logs.md"
+    link = (
+        Presentation(logs, path, scope.root)
+        .references[Position("001-002", "value", "")]
+        .link
+    )
+    assert link == f"[未確認: {observed}](kms.md#alias-one)"
+    diagnostics, _ = diagnose(load_model(scope))
+    assert any(
+        d["code"] == "reference.unresolved"
+        and d.get("consumerKey") == "desired.row.001-002.value"
+        for d in diagnostics
+    )
+
+
+@pytest.mark.parametrize(
+    "logical,anchor", [("KMS_Key_001", "key-one"), ("KMS_Alias_001", "alias-one")]
+)
+def check_logs_kms_key_reference_roundtrip(project_workspace, logical, anchor):
+    observed = "12345678-1234-1234-1234-123456789abc"
+    scope, logs, _ = logs_fixture(project_workspace, observed, logical, "Arn")
+    original = {p: p.read_bytes() for p in scope.path.parent.glob("*.properties")}
+    path = scope.root / "docs/designs/fixture/team/cloudwatch-logs.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with catalog_display():
+        markdown = generate_markdown(path, logs, FRAMEWORK)
+        assert f"[{observed}](kms.md#{anchor})" in markdown
+        restored = DesignIndex(FRAMEWORK).get(path, text=markdown, values=logs)
+        assert "Logs.LogGroup.KmsKeyId" in "\n".join(restored.raw.display_lines)
+        assert (
+            generate_markdown(path, load_model(scope).authoritative, FRAMEWORK)
+            == markdown
+        )
+    assert {
+        p: p.read_bytes() for p in scope.path.parent.glob("*.properties")
+    } == original
+    node = parse_reference(reference(logical, "Arn"))
+    resolver = reference_resolver(logs, scope, scope.root)
+    execution = generated_document(
+        reference(logical, "Arn"),
+        scope.root,
+        resolver=resolver,
+        scope=scope,
+        property_name="Logs.LogGroup.KmsKeyId",
+    )
+    assert execution.startswith("arn:aws:kms:")
+    assert (
+        observed not in execution
+        if logical == "KMS_Alias_001"
+        else observed in execution
+    )
+    assert (
+        reference_value(resolver, scope, node, field="Logs.LogGroup.KmsKeyId").value
+        == execution
+    )
+    assert (
+        Presentation(logs, path, scope.root)
+        .references[Position("001-002", "value", "")]
+        .link
+        == f"[{observed}](kms.md#{anchor})"
+    )
+
+
+def check_kms_alias_name_and_multiple_aliases(project_workspace):
+    scope, bucket, kms = fixture(project_workspace)
+    bucket[ROW] = "`" + json.dumps(reference("KMS_Alias_001", "AliasName")) + "`"
+    bucket["observed.row.001-003.value"] = "`12345678-1234-1234-1234-123456789abc`"
+    path = scope.root / "docs/designs/fixture/team/s3.md"
+    assert (
+        Presentation(bucket, path, scope.root)
+        .references[Position("001-003", "value", "")]
+        .link
+        == "[alias/fixture-key](kms.md#alias-one)"
+    )
+    kms[COUNTERS] = '{"KMS.Key":2,"KMS.Alias":2}'
+    for key, value in list(kms.items()):
+        if key.startswith("desired.resource.002."):
+            kms[key.replace(".002.", ".004.")] = value
+    kms["desired.resource.004.logicalId"] = "KMS_Alias_002"
+    kms["desired.resource.004.anchor"] = "alias-two"
+    kms["desired.row.004-001.property"] = "KMS.Alias.AliasName"
+    kms["desired.row.004-001.value"] = "`alias/second-key`"
+    kms["desired.row.004-001.comment"] = "別名"
+    write_model(Scope(scope.root, "fixture", "team", "kms").path, kms)
+    logs_scope, logs, _ = logs_fixture(
+        project_workspace,
+        "12345678-1234-1234-1234-123456789abc",
+        "KMS_Alias_002",
+    )
+    write_model(Scope(logs_scope.root, "fixture", "team", "kms").path, kms)
+    dependency_index.rebuild(logs_scope.root)
+    path = logs_scope.root / "docs/designs/fixture/team/cloudwatch-logs.md"
+    assert (
+        Presentation(logs, path, logs_scope.root)
+        .references[Position("001-002", "value", "")]
+        .link
+        == "[12345678-1234-1234-1234-123456789abc](kms.md#alias-two)"
+    )
+
+
+def check_kms_observation_not_applied_inside_document(project_workspace):
+    scope, logs, _ = logs_fixture(
+        project_workspace, "12345678-1234-1234-1234-123456789abc"
+    )
+    path = scope.root / "docs/designs/fixture/team/cloudwatch-logs.md"
+    resolver = Presentation(logs, path, scope.root).resolver
+    node = parse_reference(reference("KMS_Alias_001", "Arn"), "/0")
+    assert kms_observation(logs, "001-002", node, scope, resolver) is None
+
+
+def check_kms_alias_missing_parent_is_unproven(project_workspace):
+    observed = "12345678-1234-1234-1234-123456789abc"
+    scope, logs, kms = logs_fixture(project_workspace, observed)
+    del kms["desired.resource.002.parentReference"]
+    write_model(Scope(scope.root, "fixture", "team", "kms").path, kms)
+    path = scope.root / "docs/designs/fixture/team/cloudwatch-logs.md"
+    assert (
+        Presentation(logs, path, scope.root)
+        .references[Position("001-002", "value", "")]
+        .link
+        == f"[未確認: {observed}](kms.md#alias-one)"
+    )
+    diagnostics, _ = diagnose(load_model(scope))
+    assert any(d["code"] == "reference.unresolved" for d in diagnostics)
+
+
+@pytest.mark.parametrize("fault", ["target", "attribute", "anchor"])
+def check_logs_invalid_kms_reference_remains_invalid(project_workspace, fault):
+    logical = "KMS_Missing_001" if fault == "target" else "KMS_Alias_001"
+    attribute = "Missing" if fault == "attribute" else "Arn"
+    scope, logs, kms = logs_fixture(
+        project_workspace, "12345678-1234-1234-1234-123456789abc", logical, attribute
+    )
+    if fault == "anchor":
+        kms["desired.resource.002.anchor"] = "invalid anchor"
+        write_model(Scope(scope.root, "fixture", "team", "kms").path, kms)
+    path = scope.root / "docs/designs/fixture/team/cloudwatch-logs.md"
+    presentation = Presentation(logs, path, scope.root)
+    assert presentation.references[Position("001-002", "value", "")].link is None
+    if fault != "anchor":
+        _, diagnostics = document_references(
+            reference(logical, attribute),
+            resolver=presentation.resolver,
+            scope=scope,
+            property_name="Logs.LogGroup.KmsKeyId",
+        )
+        assert diagnostics
+
+
+def check_alias_execution_projection_stays_arn(project_workspace):
+    scope, logs, _ = logs_fixture(
+        project_workspace, "12345678-1234-1234-1234-123456789abc"
+    )
+    resolver = reference_resolver(logs, scope, scope.root)
+    raw = reference("KMS_Alias_001", "Arn")
+    expected = reference_value(
+        resolver, scope, parse_reference(raw), field="Logs.LogGroup.KmsKeyId"
+    ).value
+    actual = generated_document(
+        raw,
+        scope.root,
+        resolver=resolver,
+        scope=scope,
+        property_name="Logs.LogGroup.KmsKeyId",
+    )
+    assert actual == expected and actual.startswith("arn:") and "fixture-key" in actual
+
+
+def check_kms_self_identifier_is_plain_text(project_workspace):
+    scope, _, kms = fixture(project_workspace)
+    path = scope.root / "docs/designs/fixture/team/kms.md"
+    with catalog_display():
+        markdown = generate_markdown(path, kms, FRAMEWORK)
+    observed = "12345678-1234-1234-1234-123456789abc"
+    assert "`" + observed + "`" in markdown
+    assert "[" + observed + "](#key-one)" not in markdown
 
 
 if __name__ == "__main__":
