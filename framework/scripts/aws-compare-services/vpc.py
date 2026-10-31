@@ -1,6 +1,6 @@
 """vpc: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model.adapters.aws import MISSING, Field, Unresolved, one
+from model.adapters.aws import AcquisitionError, MISSING, Field, Unresolved, one
 
 APIS = {
     ("ec2", "describe_vpc_attribute"),
@@ -66,14 +66,27 @@ def fetch(ctx, r, getter):
     if current:
         inputs = {argument: [current]}
     elif r.kind == "EC2.FlowLog":
-        inputs = {"Filter": [{"Name": "resource-id", "Values": [r.value("ResourceId", "id")]}]}
+        try:
+            resource_id = r.value("ResourceId", "id")
+        except AcquisitionError as error:
+            if error.status == "resource_missing":
+                raise Unresolved("Flow Log ResourceId could not be resolved") from error
+            raise
+        if not isinstance(resource_id, str) or not resource_id.startswith(
+            ("vpc-", "subnet-", "eni-")
+        ) or resource_id.endswith("-"):
+            raise Unresolved("Flow Log ResourceId is unresolved")
+        inputs = {"Filter": [{"Name": "resource-id", "Values": [resource_id]}]}
     else:
         inputs = {"Filters": [{"Name": "tag:Name", "Values": [r.value("Name")]}]}
         if r.kind != "EC2.VPC" and r.rows_for("VpcId"):
             inputs["Filters"].append(
                 {"Name": "vpc-id", "Values": [r.value("VpcId", "id")]}
             )
-    records = ctx.pages("ec2", op, **inputs).get(collection, [])
+    response = ctx.pages("ec2", op, **inputs)
+    if r.kind == "EC2.FlowLog" and not isinstance(response.get(collection), list):
+        raise Unresolved("Flow Log response lacks a complete collection")
+    records = response.get(collection, [])
     if r.kind == "EC2.FlowLog" and not current and len(records) > 1:
         for prop in ("LogDestinationType", "LogDestination", "LogGroupName"):
             if r.rows_for(prop):

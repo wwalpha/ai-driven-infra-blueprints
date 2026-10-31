@@ -126,6 +126,9 @@ class FlowLogLookupTests(unittest.TestCase):
         adapter.fetch(ctx, resource, "base")
         ctx.pages.assert_called_with("ec2", "describe_flow_logs", FlowLogIds=["fl-123"])
         resource.current.return_value = None
+        ctx.pages.return_value = {}
+        with self.assertRaises(Unresolved):
+            adapter.fetch(ctx, resource, "base")
         ctx.pages.return_value = {"FlowLogs": []}
         with self.assertRaises(AcquisitionError) as missing:
             adapter.fetch(ctx, resource, "base")
@@ -146,6 +149,16 @@ class FlowLogLookupTests(unittest.TestCase):
             adapter.fetch(ctx, resource, "base")
         self.assertEqual(denied.exception.status, "acquisition_failed")
         ctx.pages.reset_mock(side_effect=True)
+        resource.value.side_effect = AcquisitionError("ec2.describe_vpcs", "ResourceNotFound", "resource_missing")
+        with self.assertRaises(Unresolved):
+            adapter.fetch(ctx, resource, "base")
+        ctx.pages.assert_not_called()
+        resource.value.side_effect = None
+        for invalid in (None, "UNSET", "vpc-", ["vpc-123"]):
+            resource.value.return_value = invalid
+            with self.assertRaises(Unresolved):
+                adapter.fetch(ctx, resource, "base")
+            ctx.pages.assert_not_called()
         resource.value.side_effect = Unresolved("ResourceId unresolved")
         with self.assertRaises(Unresolved):
             adapter.fetch(ctx, resource, "base")
@@ -411,6 +424,34 @@ class ReferenceTests(unittest.TestCase):
             for item in audit.audit(snapshot, cli_runner=self.cli)[2]
             if item["propertiesKey"] == "EC2.FlowLog.LogGroupName"
         ][0]
+
+    def test_flow_log_traffic_type_outcomes(self):
+        self.consumer = self.model(
+            "EC2.FlowLog", "EC2_FlowLog_001",
+            {"Id": self.ref("EC2_FlowLog_001", "Id"),
+             "ResourceId": "vpc-123", "TrafficType": "ALL"},
+        )
+        self.save()
+        snapshot = self.snapshot()
+        record = {"FlowLogId": "fl-123", "ResourceId": "vpc-123", "TrafficType": "ALL"}
+        for case, response, status in (
+            ("untagged", [record], "match"),
+            ("missing", [], "resource_missing"),
+            ("ambiguous", [record, {**record, "FlowLogId": "fl-456"}], "design_unresolved"),
+            ("denied", None, "acquisition_failed"),
+        ):
+            with self.subTest(case=case):
+                def cli(command, **kwargs):
+                    if command[1] == "sts":
+                        return subprocess.CompletedProcess(command, 0, json.dumps({"Account": "123456789012"}), "")
+                    if response is None:
+                        return subprocess.CompletedProcess(command, 1, "", "An error occurred (AccessDenied) when calling Mock: denied")
+                    return subprocess.CompletedProcess(command, 0, json.dumps({"FlowLogs": response}), "")
+                item = next(item for item in audit.audit(snapshot, cli_runner=cli)[2]
+                            if item["propertiesKey"] == "EC2.FlowLog.TrafficType")
+                self.assertEqual(item["status"], status, item)
+                if case == "untagged":
+                    self.assertEqual(item["awsValue"], "ALL")
 
     def test_boolean_literal_comparisons(self):
         self.consumer["desired.row.001-002.value"] = "`False`"
