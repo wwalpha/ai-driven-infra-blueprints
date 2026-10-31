@@ -34,6 +34,7 @@ from model.projection import resource_display_rows, validate_json_documents
 from model.reference_values import ReferenceValue, confirmed
 from model.render import display_name
 from model.sources import load_model
+from support.check_model_aws_fixtures import FakeResource, SchemaOffline, m
 from support.model_sources import write_model
 from utils.cloudformation.schema import native_type_errors
 from utils.input_cache import input_scope
@@ -288,51 +289,112 @@ class DataZoneDomainTests(unittest.TestCase):
         ctx.pages.assert_called_once_with("datazone", "list_domains")
         ctx.call.assert_not_called()
 
+    def test_project_comparison(self):
+        with tempfile.TemporaryDirectory(prefix="datazone-project-") as directory:
+            ctx = SchemaOffline(Path(directory))
+            ctx.egress = False
+            ctx.verified = True
+            for desired, expected in [
+                ("fixture", "match"),
+                ("different", "difference"),
+            ]:
+                resource = FakeResource(
+                    ctx,
+                    "datazone",
+                    "DataZone.Project",
+                    "DataZone.Project.DomainIdentifier",
+                    desired,
+                )
+                self.assertTrue(
+                    any(
+                        item["status"] == expected
+                        for item in m.compare_resource(ctx, resource)
+                    )
+                )
+
     def test_generated_standalone_domain_version(self):
         with tempfile.TemporaryDirectory(prefix="datazone-audit-") as directory:
             root = Path(directory)
             (root / "project.json").write_text(
-                json.dumps({"projectName": "fixture", "targets": [{
-                    "environment": "dev", "alias": "cde",
-                    "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1",
-                    "iacEngine": "cloudformation",
-                }]}), encoding="utf-8",
+                json.dumps(
+                    {
+                        "projectName": "fixture",
+                        "targets": [
+                            {
+                                "environment": "dev",
+                                "alias": "cde",
+                                "awsAccountId": "123456789012",
+                                "awsRegion": "ap-northeast-1",
+                                "iacEngine": "cloudformation",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
             )
             values = ReferenceTests.model(
-                "DataZone.Domain", "DataZone_Domain_001",
-                {"Id": "dzdm-confirmed", "DomainVersion": "V2"},
+                "DataZone.Domain",
+                "DataZone_Domain_001",
+                {
+                    "Id": ReferenceTests.ref("DataZone_Domain_001", "Id"),
+                    "DomainVersion": "V2",
+                },
             )
+            values["observed.row.001-001.property"] = "DataZone.Domain.Id"
+            values["observed.row.001-001.value"] = "`dzd-confirmed`"
             write_model(root / "model/dev/cde/datazone.properties", values)
             source = generate(root, "dev", "cde", "datazone")[0]
             script = root / "audit.py"
             script.write_text(source, encoding="utf-8")
             fake = root / "aws"
-            for version, expected in [("V2", "[OK]"), ("V1", "[NG]"), (None, "[ERROR]")]:
+            for version, expected in [
+                ("V2", "[OK]"),
+                ("V1", "[NG]"),
+                ("missing", "[ERROR]"),
+                (None, "[ERROR]"),
+                ("denied", "[ERROR]"),
+            ]:
                 failure = (
                     "if args[0] == 'datazone':\n print('AccessDenied', file=sys.stderr); sys.exit(1)\n"
-                    if version is None else ""
+                    if version == "denied"
+                    else ""
                 )
                 fake.write_text(
                     "#!" + sys.executable + "\nimport json, sys\n"
                     "args = sys.argv[1:]\n"
-                    "assert args[0] == 'sts' or (args[:2] == ['datazone', 'get-domain'] and json.loads(args[args.index('--cli-input-json') + 1]) == {'identifier': 'dzdm-confirmed'})\n"
+                    "assert args[0] == 'sts' or (args[:2] == ['datazone', 'get-domain'] and json.loads(args[args.index('--cli-input-json') + 1]) == {'identifier': 'dzd-confirmed'})\n"
                     + failure
-                    + "print(json.dumps({'Account': '123456789012', 'Arn': 'arn:aws:iam::123456789012:user/offline'} if args[0] == 'sts' else {'domainVersion': " + repr(version) + "}))\n",
+                    + "print(json.dumps({'Account': '123456789012', 'Arn': 'arn:aws:iam::123456789012:user/offline'} if args[0] == 'sts' else "
+                    + repr(
+                        {"id": "dzd-confirmed"}
+                        if version == "missing"
+                        else {"id": "dzd-confirmed", "domainVersion": version}
+                    )
+                    + "))\n",
                     encoding="utf-8",
                 )
                 fake.chmod(0o700)
                 process = subprocess.run(
-                    [sys.executable, "-I", "-B", str(script)], cwd=root,
-                    env={**os.environ, "PATH": str(root)}, capture_output=True,
-                    text=True, timeout=30,
+                    [sys.executable, "-I", "-B", str(script)],
+                    cwd=root,
+                    env={**os.environ, "PATH": str(root)},
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 )
                 self.assertIn(
-                    expected + " DataZone.Domain | （名前未設定） | DomainVersion",
-                    process.stdout, process.stdout + process.stderr,
+                    expected + " DataZone.Domain | dzd-confirmed | DomainVersion",
+                    process.stdout,
+                    process.stdout + process.stderr,
                 )
                 self.assertNotIn("NameError", process.stdout + process.stderr)
-                if version is None:
+                if version == "denied":
                     self.assertIn("Reason: AwsCliError", process.stdout)
+                elif version in ("missing", None):
+                    self.assertIn(
+                        "GetDomain response does not confirm domainVersion",
+                        process.stdout,
+                    )
 
 
 class EmbeddedImportTests(unittest.TestCase):

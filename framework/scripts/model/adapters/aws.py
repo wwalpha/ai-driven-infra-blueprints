@@ -1061,6 +1061,13 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
         start = len(ctx.trace)
         try:
             response, value = mapped_value(ctx, resource, mapping, definition, prop)
+            if prop == "DataZone.Domain.DomainVersion" and (
+                value is None or value == MISSING
+            ):
+                raise AcquisitionError(
+                    "datazone.get_domain",
+                    "GetDomain response does not confirm domainVersion",
+                )
             if value == MISSING:
                 value = field.copy_default()
             if resource.kind == "LakeFormation.Resource" and value == MISSING:
