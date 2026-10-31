@@ -34,6 +34,8 @@ def datasource_account(ctx, r):
         )
     except IdentityError as error:
         raise Unresolved(str(error)) from error
+    if account not in {execution_account(ctx.target), ctx.target["awsAccountId"]}:
+        raise Unresolved("QuickSight account is outside the configured target accounts")
     return account, omitted
 
 
@@ -54,6 +56,7 @@ def verify_owner(result, account, key="Arn"):
 
 def fetch(ctx, r, getter):
     if getter == "group-namespace":
+        account, _ = datasource_account(ctx, r)
         try:
             response = ctx.fetch(
                 r, "sdk-quicksight-group", {"operation": "describe_group"}
@@ -72,10 +75,7 @@ def fetch(ctx, r, getter):
             or parts[2] != "quicksight"
         ):
             raise Unresolved("QuickSight Group ARN is missing or malformed")
-        if (
-            parts[3] != ctx.target["awsRegion"]
-            or parts[4] != datasource_account(ctx, r)[0]
-        ):
+        if parts[3] != ctx.target["awsRegion"] or parts[4] != account:
             raise Unresolved(
                 "QuickSight Group ARN account or region conflicts with target"
             )
@@ -92,10 +92,6 @@ def fetch(ctx, r, getter):
         return {"Namespace": resource[1]}
     account, omitted = datasource_account(ctx, r)
     if getter == "vpc":
-        if account != execution_account(ctx.target):
-            raise Unresolved(
-                "QuickSight VPC connection owner differs from verified execution account"
-            )
         result = ctx.call(
             "quicksight",
             "describe_vpc_connection",

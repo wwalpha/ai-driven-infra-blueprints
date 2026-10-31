@@ -1317,15 +1317,35 @@ def check_lakeformation_resource_comparison(tmp_path):
             ctx = SchemaOffline(tmp_path, target=target)
             ctx.verified = True
             selected = m.Model(ctx, scope.path).resources[0]
-            with patch.object(ctx, "call", return_value={"ResourceInfo": dict(response["ResourceInfo"], WithFederation=actual)}):
-                result = next(item for item in m.compare_resource(ctx, selected) if item["propertiesKey"].endswith(".WithFederation"))
+            with patch.object(
+                ctx,
+                "call",
+                return_value={
+                    "ResourceInfo": dict(
+                        response["ResourceInfo"], WithFederation=actual
+                    )
+                },
+            ):
+                result = next(
+                    item
+                    for item in m.compare_resource(ctx, selected)
+                    if item["propertiesKey"].endswith(".WithFederation")
+                )
             assert result["status"] == expected
-        for info, confirmed in (({"ResourceArn": arn}, True), ({"ResourceArn": arn + "-other"}, False), ({}, False)):
+        for info, confirmed in (
+            ({"ResourceArn": arn}, True),
+            ({"ResourceArn": arn + "-other"}, False),
+            ({}, False),
+        ):
             ctx = SchemaOffline(tmp_path, target=target)
             ctx.verified = True
             selected = m.Model(ctx, scope.path).resources[0]
             with patch.object(ctx, "call", return_value={"ResourceInfo": info}):
-                result = next(item for item in m.compare_resource(ctx, selected) if item["propertiesKey"].endswith(".WithFederation"))
+                result = next(
+                    item
+                    for item in m.compare_resource(ctx, selected)
+                    if item["propertiesKey"].endswith(".WithFederation")
+                )
             assert ("confirmed ResourceArn" in result["reason"]) == confirmed
         selected.rows[0][1]["value"] = (
             "`"
@@ -1353,7 +1373,7 @@ if __name__ == "__main__":
     [
         ([], ACCOUNT, True, "fixture", True),
         ([ACCOUNT], ACCOUNT, True, "fixture", True),
-        (["999999999999"], ACCOUNT, True, "fixture", True),
+        (["999999999999"], ACCOUNT, True, "fixture", False),
         ([ACCOUNT, ACCOUNT], ACCOUNT, True, "fixture", False),
         (["PENDING_DEPLOY"], ACCOUNT, True, "fixture", False),
         (["UNSET"], ACCOUNT, True, "fixture", False),
@@ -1523,10 +1543,13 @@ def test_quicksight_account_fallback_and_other_resources(tmp_path):
 
 @pytest.mark.parametrize(
     "configured,owner,verified,allowed",
-    [(ACCOUNT, ACCOUNT, True, True),
-     ("999999999999", "999999999999", True, True),
-     ("999999999999", ACCOUNT, True, False),
-     (ACCOUNT, ACCOUNT, False, False)],
+    [
+        (ACCOUNT, ACCOUNT, True, True),
+        ("999999999999", "999999999999", True, True),
+        ("999999999999", ACCOUNT, True, True),
+        ("999999999999", "111111111111", True, False),
+        (ACCOUNT, ACCOUNT, False, False),
+    ],
 )
 def test_quicksight_vpc_owner_before_describe(
     tmp_path, configured, owner, verified, allowed
@@ -1537,16 +1560,21 @@ def test_quicksight_vpc_owner_before_describe(
     resource = Mock(kind="QuickSight.VPCConnection")
     resource.rows_for.return_value = [object()]
     resource.value.side_effect = lambda prop: {
-        "AwsAccountId": owner, "VPCConnectionId": "vpc-id"
+        "AwsAccountId": owner,
+        "VPCConnectionId": "vpc-id",
     }[prop]
     with patch.object(
         ctx, "call", return_value={"VPCConnection": {"DnsResolvers": ["10.0.0.2"]}}
     ) as call:
         if allowed:
-            assert m.service_module("quicksight").fetch(ctx, resource, "vpc")["DnsResolvers"] == ["10.0.0.2"]
+            assert m.service_module("quicksight").fetch(ctx, resource, "vpc")[
+                "DnsResolvers"
+            ] == ["10.0.0.2"]
             call.assert_called_once_with(
-                "quicksight", "describe_vpc_connection",
-                AwsAccountId=owner, VPCConnectionId="vpc-id"
+                "quicksight",
+                "describe_vpc_connection",
+                AwsAccountId=owner,
+                VPCConnectionId="vpc-id",
             )
         else:
             with pytest.raises(m.Unresolved):
@@ -1562,19 +1590,41 @@ def test_quicksight_vpc_dns_comparison(tmp_path, actual, status):
     ctx.verified = True
     kind = "QuickSight.VPCConnection"
     model = SimpleNamespace(
-        ctx=ctx, service="quicksight", values={}, locations={},
+        ctx=ctx,
+        service="quicksight",
+        values={},
+        locations={},
         path=ROOT / "model/dev" / ACCOUNT / "quicksight.properties",
     )
-    resource = m.Resource(model, "001", {"resourceType": kind, "logicalId": "VPC"}, [
-        ("001-001", {"property": kind + ".AwsAccountId", "value": "`999999999999`"}),
-        ("001-002", {"property": kind + ".VPCConnectionId", "value": "`vpc-id`"}),
-        ("001-003", {"property": kind + ".DnsResolvers", "value": '`["10.0.0.2"]`', "valueShape": "leaf"}),
-    ])
+    resource = m.Resource(
+        model,
+        "001",
+        {"resourceType": kind, "logicalId": "VPC"},
+        [
+            (
+                "001-001",
+                {"property": kind + ".AwsAccountId", "value": "`999999999999`"},
+            ),
+            ("001-002", {"property": kind + ".VPCConnectionId", "value": "`vpc-id`"}),
+            (
+                "001-003",
+                {
+                    "property": kind + ".DnsResolvers",
+                    "value": '`["10.0.0.2"]`',
+                    "valueShape": "leaf",
+                },
+            ),
+        ],
+    )
     with patch.object(
         ctx, "call", return_value={"VPCConnection": {"DnsResolvers": actual}}
     ) as call:
         records = m.compare_resource(ctx, resource)
-    dns = next(record for record in records if record["propertiesKey"] == kind + ".DnsResolvers")
+    dns = next(
+        record
+        for record in records
+        if record["propertiesKey"] == kind + ".DnsResolvers"
+    )
     assert dns["status"] == status, dns
     assert call.call_args.kwargs["AwsAccountId"] == "999999999999"
 
@@ -1590,3 +1640,179 @@ def test_quicksight_vpc_access_denied(tmp_path):
         with pytest.raises(m.AcquisitionError) as caught:
             m.service_module("quicksight").fetch(ctx, resource, "vpc")
     assert caught.value.code == "AccessDenied"
+
+
+@pytest.mark.parametrize(
+    "kind,getter",
+    [
+        ("QuickSight.DataSource", "base"),
+        ("QuickSight.DataSource", "permissions"),
+        ("QuickSight.Group", "group"),
+        ("QuickSight.Group", "group-namespace"),
+        ("QuickSight.VPCConnection", "vpc"),
+    ],
+)
+@pytest.mark.parametrize(
+    "account,allowed",
+    [
+        (None, True),
+        ("111111111111", True),
+        ("123456789012", True),
+        ("999999999999", False),
+    ],
+)
+def test_quicksight_split_operation_accounts(tmp_path, kind, getter, account, allowed):
+    ctx = SchemaOffline(tmp_path)
+    ctx.target.update(awsAccountId="111111111111", awsExecutionAccountId="123456789012")
+    ctx.verified = True
+    resource = Mock(kind=kind)
+    resource.rows_for.return_value = [] if account is None else [object()]
+    resource.value.side_effect = lambda prop: {
+        "AwsAccountId": account,
+        "DataSourceId": "source",
+        "VPCConnectionId": "vpc",
+        "Namespace": "default",
+        "GroupName": "readers",
+    }[prop]
+    owner = account or "123456789012"
+    arn = f"arn:aws:quicksight:ap-northeast-1:{owner}:group/default/readers"
+    response = {
+        "DataSource": {"Type": "ATHENA"},
+        "Permissions": [],
+        "VPCConnection": {},
+        "Group": {"Arn": arn},
+    }
+    module = m.service_module("quicksight")
+    with (
+        patch.object(ctx, "call", return_value=response) as call,
+        patch.object(ctx, "fetch", return_value=response) as fetch,
+    ):
+        if not allowed:
+            with pytest.raises(m.Unresolved):
+                if getter == "group":
+                    module.fetch_sdk(ctx, resource, "describe_group")
+                else:
+                    module.fetch(ctx, resource, getter)
+            call.assert_not_called()
+            fetch.assert_not_called()
+        elif getter == "group":
+            module.fetch_sdk(ctx, resource, "describe_group")
+            check(call.call_args.kwargs["AwsAccountId"] == owner, "group account")
+        elif getter == "group-namespace":
+            check(
+                module.fetch(ctx, resource, getter) == {"Namespace": "default"},
+                "namespace",
+            )
+        else:
+            result = module.fetch(ctx, resource, getter)
+            check(call.call_args.kwargs["AwsAccountId"] == owner, "operation account")
+            if getter == "base":
+                check(result["Type"] == "ATHENA", "Athena type retained")
+            if getter == "permissions":
+                check(result["Permissions"] == [], "permissions retained")
+
+
+def test_quicksight_comparisons_with_split_accounts(tmp_path):
+    ctx = SchemaOffline(
+        tmp_path,
+        target=dict(
+            TARGET, awsAccountId="111111111111", awsExecutionAccountId="123456789012"
+        ),
+    )
+    ctx.verified = True
+    kind = "QuickSight.DataSource"
+    model = SimpleNamespace(
+        ctx=ctx,
+        service="quicksight",
+        values={},
+        locations={},
+        path=tmp_path / "model/dev" / ACCOUNT / "quicksight.properties",
+    )
+    principal = "arn:aws:quicksight:ap-northeast-1:999999999999:group/default/readers"
+    resource = m.Resource(
+        model,
+        "001",
+        {"resourceType": kind, "logicalId": "source"},
+        [
+            ("001-001", {"property": kind + ".DataSourceId", "value": "`source`"}),
+            ("001-002", {"property": kind + ".Type", "value": "`ATHENA`"}),
+            (
+                "001-003",
+                {
+                    "property": kind + ".Permissions[].Principal",
+                    "value": f"`{principal}`",
+                },
+            ),
+        ],
+    )
+    response = {
+        "DataSource": {"Type": "ATHENA"},
+        "Permissions": [{"Principal": principal}],
+    }
+    with patch.object(ctx, "call", return_value=response):
+        records = m.compare_resource(ctx, resource)
+    for name in ("Type", "Permissions[].Principal"):
+        record = next(
+            item for item in records if item["propertiesKey"] == kind + "." + name
+        )
+        check(record["status"] == "match", str(record))
+
+
+def test_quicksight_sts_mismatch_before_api(tmp_path):
+    target = {
+        "awsAccountId": "111111111111",
+        "awsExecutionAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+    }
+    runner = Mock(
+        return_value=SimpleNamespace(
+            returncode=0, stdout='{"Account":"999999999999"}', stderr=""
+        )
+    )
+    ctx = m.Context(tmp_path, target, cli_runner=runner, services=(), import_mode=True)
+    resource = Mock(kind="QuickSight.DataSource")
+    resource.rows_for.return_value = []
+    with pytest.raises(m.IdentityError):
+        ctx.verify()
+    with patch.object(ctx, "call") as call:
+        with pytest.raises(m.Unresolved):
+            m.service_module("quicksight").fetch(ctx, resource, "base")
+        call.assert_not_called()
+
+
+def test_quicksight_group_namespace_comparison_split_accounts(tmp_path):
+    ctx = SchemaOffline(
+        tmp_path,
+        target=dict(
+            TARGET, awsAccountId="111111111111", awsExecutionAccountId="123456789012"
+        ),
+    )
+    ctx.verified = True
+    kind = "QuickSight.Group"
+    model = SimpleNamespace(
+        ctx=ctx,
+        service="quicksight",
+        values={},
+        locations={},
+        path=tmp_path / "model/dev" / ACCOUNT / "quicksight.properties",
+    )
+    resource = m.Resource(
+        model,
+        "001",
+        {"resourceType": kind, "logicalId": "group"},
+        [
+            ("001-001", {"property": kind + ".GroupName", "value": "`readers`"}),
+            ("001-002", {"property": kind + ".Namespace", "value": "`default`"}),
+        ],
+    )
+    response = {
+        "Group": {
+            "Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/readers"
+        }
+    }
+    with patch.object(ctx, "call", return_value=response):
+        records = m.compare_resource(ctx, resource)
+    record = next(
+        item for item in records if item["propertiesKey"] == kind + ".Namespace"
+    )
+    check(record["status"] == "match", str(record))
