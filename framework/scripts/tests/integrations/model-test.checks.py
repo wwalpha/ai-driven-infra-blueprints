@@ -1366,8 +1366,60 @@ else:
                 assert not calls.exists(), output
 
 
+def _callback_lakeformation_failure(code, /, command, **kwargs):
+    if command[1:3] == ["lakeformation", "describe-resource"]:
+        return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({code}) when calling DescribeResource: failed")
+    return CLI({})(command, **kwargs)
+
+
+def lakeformation_federation_audit():
+    with tempfile.TemporaryDirectory(prefix="audit-lakeformation-") as directory:
+        root = Path(directory)
+        target = {"environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
+                  "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
+        (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [target]}), encoding="utf-8")
+        arn = "arn:aws:s3:::fixture-bucket"
+        data = fixture({}, "lake-formation", [("001", "LakeFormation.Resource", "resource", [
+            ("ResourceArn", "`" + arn + "`", None),
+            ("UseServiceLinkedRole", "`false`", None),
+            ("WithFederation", "`true`", None),
+        ])])
+        path = root / "model/dev/cde/lake-formation.properties"
+        write_model(path, data["models"]["dev/cde/lake-formation"])
+        key = "LakeFormation.Resource.WithFederation"
+        for desired in (True, False):
+            data["models"]["dev/cde/lake-formation"]["desired.row.001-003.value"] = "`" + json.dumps(desired) + "`"
+            write_model(path, data["models"]["dev/cde/lake-formation"])
+            snap = snapshot(generator.generate(root, "dev", "cde", "lake-formation")[0])
+            engine = runtime(snap)
+            for value in (True, False, None):
+                info = {"ResourceArn": arn}
+                if value is not None:
+                    info["WithFederation"] = value
+                records = engine["audit"](snap, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": info}}))[2]
+                item = next(item for item in records if item["propertiesKey"] == key)
+                expected = "excluded" if value is None else "match" if value == desired else "difference"
+                assert item["status"] == expected, records
+                text, _ = engine["report"](snap, None, "123456789012", records, datetime.now(timezone.utc))
+                if value is None:
+                    assert "[INFO] LakeFormation.Resource" in text and "Verification: NOT_VERIFIABLE" in text
+        for info in ({}, {"ResourceArn": arn + "-other"}):
+            records = engine["audit"](snap, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": info}}))[2]
+            assert next(item for item in records if item["propertiesKey"] == key)["status"] != "excluded", records
+        invalid = copy.deepcopy(snap)
+        invalid["models"]["dev/cde/lake-formation"]["desired.row.001-003.value"] = "`invalid`"
+        records = runtime(invalid)["audit"](invalid, None, CLI({("lakeformation", "describe-resource"): {"ResourceInfo": {"ResourceArn": arn}}}))[2]
+        assert next(item for item in records if item["propertiesKey"] == key)["status"] == "design_unresolved", records
+        for code, expected in (("EntityNotFoundException", "resource_missing"), ("AccessDeniedException", "acquisition_failed"), ("InvalidInputException", "acquisition_failed")):
+            cli = _bind_framework_callback(_callback_lakeformation_failure, code)
+            records = engine["audit"](snap, None, cli)[2]
+            assert any(item["status"] == expected for item in records), records
+            assert not any(item["status"] == "excluded" for item in records), records
+
+
 @it_case
 def check():
+    lakeformation_federation_audit()
     test_iam_inline_fresh_recheck()
     test_iam_inline_generated_report()
     lambda_missing_standalone()

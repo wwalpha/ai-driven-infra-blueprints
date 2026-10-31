@@ -497,6 +497,13 @@ def classify_exclusion(m, snapshot, resource, item):
         and item.get("reason", "").startswith("GetFunction did not return Code.ResolvedS3Object;")
     ):
         reason = item["reason"]
+    if (
+        prop == "LakeFormation.Resource.WithFederation"
+        and item["status"] == "sdk_unavailable"
+        and item.get("reason")
+        == "DescribeResource confirmed ResourceArn but omitted WithFederation"
+    ):
+        reason = item["reason"]
     if item["status"] not in {"sdk_unavailable", "local_metadata"} or not reason:
         return item
     try:

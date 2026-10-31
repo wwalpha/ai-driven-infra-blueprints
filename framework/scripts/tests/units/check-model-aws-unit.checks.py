@@ -1313,6 +1313,20 @@ def check_lakeformation_resource_comparison(tmp_path):
             call.assert_called_once_with(
                 "lakeformation", "describe_resource", ResourceArn=arn
             )
+        for actual, expected in ((True, "match"), (False, "difference")):
+            ctx = SchemaOffline(tmp_path, target=target)
+            ctx.verified = True
+            selected = m.Model(ctx, scope.path).resources[0]
+            with patch.object(ctx, "call", return_value={"ResourceInfo": dict(response["ResourceInfo"], WithFederation=actual)}):
+                result = next(item for item in m.compare_resource(ctx, selected) if item["propertiesKey"].endswith(".WithFederation"))
+            assert result["status"] == expected
+        for info, confirmed in (({"ResourceArn": arn}, True), ({"ResourceArn": arn + "-other"}, False), ({}, False)):
+            ctx = SchemaOffline(tmp_path, target=target)
+            ctx.verified = True
+            selected = m.Model(ctx, scope.path).resources[0]
+            with patch.object(ctx, "call", return_value={"ResourceInfo": info}):
+                result = next(item for item in m.compare_resource(ctx, selected) if item["propertiesKey"].endswith(".WithFederation"))
+            assert ("confirmed ResourceArn" in result["reason"]) == confirmed
         selected.rows[0][1]["value"] = (
             "`"
             + json.dumps(reference_fixtures.reference("Glue_Connection_001", "Name"))

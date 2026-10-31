@@ -1069,7 +1069,14 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                         **item,
                         "status": "sdk_unavailable",
                         "apis": ctx.trace[start:],
-                        "reason": "DescribeResource did not return this attribute",
+                        "reason": (
+                            "DescribeResource confirmed ResourceArn but omitted WithFederation"
+                            if prop == "LakeFormation.Resource.WithFederation"
+                            and isinstance(response.get("ResourceInfo"), dict)
+                            and response["ResourceInfo"].get("ResourceArn")
+                            == resource.value("ResourceArn", "arn")
+                            else "DescribeResource did not return this attribute"
+                        ),
                     }
                 )
                 continue
