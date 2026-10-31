@@ -20,6 +20,8 @@ import utils.file_operations as _imports_utils_file_operations
 import utils.iac_values as _imports_iac_values
 import utils.input_cache as _imports_input_cache
 from aws_mapping_compare import comparison
+from comparison.rules.cloud_trail import cloudtrail_rows
+from design.array_display import indexed_rows
 from design.catalog import DesignSchemaCatalog
 from design.layout import confirmed_display_name
 from task_contract_core import SELECTOR as SELECTOR
@@ -27,6 +29,7 @@ from task_contract_core import status as status
 from task_contract_core import task_revision as task_revision
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
+from utils.comparison_rows import Unresolved
 from utils.input_cache import input_scope, input_text
 from utils.property_path import definition_path
 from utils.script_loader import module
@@ -35,6 +38,7 @@ import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 from model.audit_runtime import observed_identifier
 from model.core import ReferenceDiagnosticError, entries, literal
+from model.literal_values import value_shape
 from model.projection import (
     document_references,
     reference_context_for,
@@ -686,6 +690,7 @@ def generate(root, environment, selector, service):
                         )
     selected_model = load_model(path)
     names = {}
+    indexed_rows_by_resource = {}
     identities = {}
     kinds = {}
     primary = {}
@@ -695,6 +700,26 @@ def generate(root, environment, selector, service):
         for _, resource in entries(selected_values, "desired.resource.")
     }
     for number, resource in entries(selected_values, "desired.resource."):
+        if resource["resourceType"] == "CloudTrail.Trail":
+            leaves = [
+                (rid, row)
+                for rid, row in entries(selected_values, "desired.row.")
+                if rid.startswith(number + "-") and value_shape(row) == "leaf"
+            ]
+            try:
+                prepared = cloudtrail_rows(
+                    leaves, index_rows=_bind_framework_callback(indexed_rows, root=ROOT)
+                )
+            except Unresolved:
+                prepared = leaves
+            if any(
+                re.sub(r"\[\d+\]", "[]", row["property"]) != original["property"]
+                for (_, row), (_, original) in zip(prepared, leaves, strict=True)
+            ):
+                prepared = leaves
+            indexed_rows_by_resource[number] = {
+                rid: row["property"] for rid, row in prepared
+            }
         rows = resource_display_rows(
             selected_values, number, resource, ROOT, scope=selected_model.scope
         )
@@ -745,6 +770,7 @@ def generate(root, environment, selector, service):
             name: dict(data.values) for name, data in sorted(runtime_models.items())
         },
         "referenceRows": resolved_rows,
+        "cloudtrailIndexedRows": indexed_rows_by_resource,
         "schemas": schemas,
         "outputs": outputs,
         "mappings": mappings,

@@ -517,7 +517,17 @@ def audit(snapshot, profile=None, cli_runner=None):
                 reference_result(
                     m, snapshot, resource, identifier_result(m, ctx, resource, item)
                 )
-                for item in attributes(m.compare_resource(ctx, resource))
+                for item in attributes(
+                    m.compare_resource(
+                        ctx,
+                        resource,
+                        indexed_rows=snapshot.get("cloudtrailIndexedRows", {}).get(
+                            resource.number
+                        )
+                        if resource.kind == "CloudTrail.Trail"
+                        else None,
+                    )
+                )
             )
         except Exception as error:
             # Never turn a new upstream dependency or malformed response into a silent skip.

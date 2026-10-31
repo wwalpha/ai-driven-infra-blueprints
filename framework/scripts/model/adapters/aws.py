@@ -1007,7 +1007,7 @@ def source(resource, rows):
     ]
 
 
-def compare_resource(ctx, resource):
+def compare_resource(ctx, resource, *, indexed_rows=None):
     results, failures = [], {}
     grouped = defaultdict(list)
     for rid, row in resource.rows:
@@ -1157,7 +1157,7 @@ def compare_resource(ctx, resource):
     parsed.sort(key=lambda row: row[0])
     conflicts = projection_conflicts(resource.rows)
     unresolved = {}
-    for _rid, prop, value, _, shape in parsed:
+    for rid, prop, value, _, shape in parsed:
         setting = re.sub(
             r"\[(?:\d*)\]", "", prop.removeprefix(resource.kind + ".").split(".", 1)[0]
         )
@@ -1167,7 +1167,7 @@ def compare_resource(ctx, resource):
             if shape == "projection":
                 project(expected, prop, value)
             else:
-                put_row(expected, prop, value)
+                put_row(expected, (indexed_rows or {}).get(rid, prop), value)
         except Unresolved as error:
             unresolved.setdefault(setting, str(error))
     expected, actual = canonical(expected), canonical(actual)
