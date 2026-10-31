@@ -211,7 +211,20 @@ def typed_reference_round_trip():
                     "EC2.FlowLog",
                     "flowlog",
                     [
-                        ("Id", "[FlowLog](#flowlog)", None),
+                        (
+                            "Id",
+                            "`"
+                            + json.dumps(
+                                {
+                                    "$modelRef": {
+                                        "logicalId": "EC2_FlowLog_001",
+                                        "attribute": "Id",
+                                    }
+                                }
+                            )
+                            + "`",
+                            None,
+                        ),
                         ("LogGroupName", "`" + json.dumps(reference) + "`", None),
                     ],
                 )
@@ -246,6 +259,7 @@ def typed_reference_round_trip():
             values = fixture({}, service, resources)["models"]["dev/cde/" + service]
             if service == "vpc":
                 values["observed.row.001-001.value"] = "`fl-fixture`"
+                vpc_values = values
             write_model(root / "model/dev/cde" / (service + ".properties"), values)
         with (
             patch.object(
@@ -319,8 +333,14 @@ def typed_reference_round_trip():
                 )
                 assert "NameError" not in process.stdout + process.stderr
                 assert "never-print" not in process.stdout + process.stderr
+                assert "  Model:" not in process.stdout + process.stderr
+                assert "  Design:" in process.stdout
+                logs = list((root / "tests/results/dev/cde").glob(service + "-*.log"))
+                assert logs and process.stdout in [
+                    path.read_text(encoding="utf-8") for path in logs
+                ]
                 if service == "vpc":
-                    assert 'Model: "/aws/vpc/flowlogs/fixture"' in process.stdout
+                    assert 'Design: "/aws/vpc/flowlogs/fixture"' in process.stdout
                     if case in {"missing", "denied"}:
                         assert (
                             "ResourceNotFound" if case == "missing" else "AccessDenied"
@@ -329,6 +349,36 @@ def typed_reference_round_trip():
                     assert (
                         actual_policy["Statement"][0]["Resource"][0] in process.stdout
                     )
+
+        for value, reason in (
+            ([reference], "must be string"),
+            (
+                {
+                    "$modelRef": {
+                        "logicalId": "Missing_001",
+                        "attribute": "LogGroupName",
+                    }
+                },
+                "Design reference unresolved",
+            ),
+        ):
+            vpc_values["desired.row.001-002.value"] = "`" + json.dumps(value) + "`"
+            write_model(root / "model/dev/cde/vpc.properties", vpc_values)
+            source = generator.generate(root, "dev", "cde", "vpc")[0]
+            script = root / "vpc-invalid.py"
+            script.write_text(source, encoding="utf-8")
+            process = subprocess.run(
+                [sys.executable, "-I", "-B", str(script)],
+                cwd=root,
+                env={**os.environ, "PATH": str(root)},
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert process.returncode == 2, (process.stdout, process.stderr)
+            assert "[ERROR] EC2.FlowLog" in process.stdout
+            assert reason in process.stdout
+            assert "  Design:" in process.stdout and "  Model:" not in process.stdout
 
 
 @it_case

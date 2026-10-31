@@ -177,6 +177,55 @@ class ReferenceTests(unittest.TestCase):
         item = self.result(snapshot)
         self.assertEqual(item["status"], "design_unresolved", item)
 
+    def test_resolved_native_containers_are_validated_before_serialization(self):
+        snapshot = self.snapshot()
+        resolved = snapshot["referenceRows"]["dev/cde/vpc"]["001-002"]
+        for value in (
+            ["/aws/vpc/flowlogs/fixture"],
+            {"name": "fixture"},
+            7,
+            True,
+            None,
+        ):
+            with self.subTest(value=value):
+                resolved["value"] = value
+                for actual in ("/aws/vpc/flowlogs/fixture", json.dumps(value)):
+                    self.actual, self.missing = actual, False
+                    item = next(
+                        item
+                        for item in audit.audit(snapshot, cli_runner=self.cli)[2]
+                        if item["propertiesKey"].endswith("LogGroupName")
+                    )
+                    self.assertEqual(item["status"], "design_unresolved", item)
+                    self.assertIn("must be string", item["reason"])
+
+    def test_resolved_number_and_boolean_type_mismatch(self):
+        snapshot = self.snapshot()
+        resolved = snapshot["referenceRows"]["dev/cde/vpc"]["001-002"]
+        for kind, value in (("number", True), ("boolean", 1)):
+            with self.subTest(kind=kind):
+                snapshot["schemas"]["EC2.FlowLog.LogGroupName"] = {"type": kind}
+                resolved["value"] = value
+                item = self.result(snapshot)
+                self.assertEqual(item["status"], "design_unresolved", item)
+                self.assertIn("must be " + kind, item["reason"])
+
+    def test_resolved_native_array_and_object(self):
+        snapshot = self.snapshot()
+        m = audit.engine(snapshot)
+        resource = (
+            m.Context(m.ROOT, snapshot["target"])
+            .model(m.ROOT / "model/dev/cde/vpc.properties")
+            .resources[0]
+        )
+        row = resource.rows[1][1]
+        resolved = snapshot["referenceRows"]["dev/cde/vpc"]["001-002"]
+        for kind, value in (("array", ["value"]), ("object", {"key": "value"})):
+            with self.subTest(kind=kind):
+                snapshot["schemas"][row["property"]] = {"type": kind}
+                resolved["value"] = value
+                self.assertEqual(resource.parse(row), value)
+
     def test_boolean_is_not_an_integer(self):
         for reference in (True, False):
             with self.subTest(reference=reference):
@@ -352,7 +401,7 @@ class ReferenceTests(unittest.TestCase):
                 self.missing, self.actual = False, None
                 item = audit.audit(snapshot, cli_runner=self.cli)[2][0]
                 self.assertEqual(item["status"], "design_unresolved", item)
-                self.assertIn("Model reference unresolved", item["reason"])
+                self.assertIn("Design reference unresolved", item["reason"])
         self.consumer = self.model(
             "EC2.VPC",
             "EC2_VPC_001",
@@ -445,7 +494,7 @@ class ReferenceTests(unittest.TestCase):
             status="resolved", value=self.ref("Logs_LogGroup_001", "LogGroupName")
         )
         self.assertIn(
-            "generated value still contains a Model reference",
+            "generated value still contains a Design reference",
             self.result(snapshot)["reason"],
         )
 
@@ -624,6 +673,37 @@ class IdentifierTests(unittest.TestCase):
         self.assertEqual(result["status"], "match")
         self.assertEqual(result["designValue"], "[REDACTED]")
         self.assertEqual(result["awsValue"], "[REDACTED]")
+
+    def test_report_uses_design_for_every_result(self):
+        snapshot = {
+            "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
+            "service": "vpc",
+            "modelHash": "hash",
+            "names": {},
+        }
+        for status, reason in (
+            ("match", ""),
+            ("difference", "value differs"),
+            ("design_unresolved", "Design reference unresolved"),
+            ("resource_missing", "ResourceNotFound"),
+            ("acquisition_failed", "AccessDenied"),
+        ):
+            with self.subTest(status=status):
+                item = {
+                    **self.item,
+                    "resource": "id",
+                    "status": status,
+                    "reason": reason,
+                    "designValue": "vpc-123",
+                }
+                text, _ = audit.report(
+                    snapshot, None, "account", [item], datetime.now(timezone.utc)
+                )
+                self.assertIn('  Design: "vpc-123"', text)
+                self.assertIn('  AWS:    "vpc-123"', text)
+                self.assertNotIn("  Model:", text)
+                if reason:
+                    self.assertIn(reason, text)
 
     def test_report_does_not_include_internal_id_or_api(self):
         snapshot = {

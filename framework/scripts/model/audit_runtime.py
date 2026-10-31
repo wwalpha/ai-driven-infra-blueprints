@@ -27,7 +27,7 @@ def _callback_engine_load_model(m, snapshot, /, path):
 def _callback_engine_resolve_json(self, m, original_resolve, /, value, norm="typed"):
     if m.is_reference(value):
         raise m.Unresolved(
-            "Model reference unresolved: missing generated row resolution"
+            "Design reference unresolved: missing generated row resolution"
         )
     if isinstance(value, dict) and "Fn::GetAtt" in value:
         item = value["Fn::GetAtt"]
@@ -73,7 +73,7 @@ def resolution_error(resolved):
     if resolved["status"] != "resolved":
         return resolved["reason"] or resolved["status"]
     if contains_reference(resolved["value"]):
-        return "generated value still contains a Model reference"
+        return "generated value still contains a Design reference"
     return None
 
 
@@ -87,14 +87,18 @@ def _callback_engine_parse(self, snapshot, m, original_parse, /, row, norm="type
     if resolved is not None:
         reason = resolution_error(resolved)
         if reason:
-            raise m.Unresolved("Model reference unresolved: " + reason)
+            raise m.Unresolved("Design reference unresolved: " + reason)
         value = resolved["value"]
         materialized = dict(row)
         schema = snapshot["schemas"].get(row["property"])
-        if schema and not isinstance(value, (str, list, dict)):
-            errors = m.native_type_errors(schema, value)
-            if errors:
-                raise m.Unresolved("candidate Property " + errors[0])
+        if schema:
+            values = m.normalize_literals(
+                row["property"], value, m.value_shape(row)
+            ).values
+            for element in values:
+                errors = m.native_type_errors(schema, element)
+                if errors:
+                    raise m.Unresolved("candidate Property " + errors[0])
         if "document" in row:
             materialized["document"] = json.dumps(value, ensure_ascii=False)
         else:
@@ -106,7 +110,7 @@ def _callback_engine_parse(self, snapshot, m, original_parse, /, row, norm="type
             materialized["value"] = "`" + raw + "`"
     elif contains_reference(row.get("document", row["value"])):
         raise m.Unresolved(
-            "Model reference unresolved: missing generated row resolution"
+            "Design reference unresolved: missing generated row resolution"
         )
     else:
         materialized = row
@@ -136,7 +140,7 @@ def _callback_engine_reference(self, m, snapshot, /, value):
         if resource.spec["logicalId"] == node.logical_id
     ]
     if len(matches) != 1:
-        raise m.Unresolved("Model reference has no unique producer in audit snapshot")
+        raise m.Unresolved("Design reference has no unique producer in audit snapshot")
     return matches[0]
 
 
@@ -235,7 +239,7 @@ def reference_result(m, snapshot, resource, item):
         )
     )
     if reasons:
-        reason = "Model reference unresolved: " + "; ".join(reasons)
+        reason = "Design reference unresolved: " + "; ".join(reasons)
         if item.get("reason") and reason not in item["reason"]:
             reason += "; " + item["reason"]
         return {
@@ -269,7 +273,7 @@ def reference_result(m, snapshot, resource, item):
             if item["status"] in {"resource_missing", "acquisition_failed"}
             else "design_unresolved",
             "designValue": None,
-            "reason": "Model reference projection failed: "
+            "reason": "Design reference projection failed: "
             + str(error)
             + "; "
             + item.get("reason", ""),
@@ -584,14 +588,14 @@ def report(snapshot, profile, account, records, timestamp):
         line(f"[{state}] {kind} | {name} | {attribute}")
         expected = masked(item.get("designValue"), prop)
         actual = masked(item.get("awsValue"), prop)
-        line("  Model: " + json.dumps(expected, ensure_ascii=False, sort_keys=True))
-        line("  AWS:   " + json.dumps(actual, ensure_ascii=False, sort_keys=True))
+        line("  Design: " + json.dumps(expected, ensure_ascii=False, sort_keys=True))
+        line("  AWS:    " + json.dumps(actual, ensure_ascii=False, sort_keys=True))
         if state != "OK":
             line(
                 "  Reason: "
                 + item.get(
                     "reason", "value differs" if state == "NG" else item["status"]
-                )
+                ).replace("Model reference", "Design reference")
             )
         if state == "NG":
             line(
