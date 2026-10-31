@@ -68,6 +68,9 @@ def pipeline_indexed_rows(rows):
         for rid, row in stage_rows
     ):
         return {}
+    # Fixed row IDs restore the authored sequence before proving its boundaries.
+    rows = sorted(rows, key=lambda item: item[0])
+    stage_rows = sorted(stage_rows, key=lambda item: item[0])
     try:
         prepared = pipeline_rows(
             rows, index_rows=_bind_framework_callback(indexed_rows, root=ROOT)
@@ -124,6 +127,37 @@ def pipeline_indexed_rows(rows):
             return {}
     if len(orientations) != 1:
         return {}
+    # Names and categories must identify actual, distinct parent/child objects.
+    identities = {}
+    for rid, path in paths.items():
+        match = re.fullmatch(
+            r"CodePipeline\.Pipeline\.Stages\[([1-9]\d*)\]\.(?:Actions\[([1-9]\d*)\]\.)?(Name|ActionTypeId\.Category)",
+            path,
+        )
+        if match:
+            stage, action, field = match.groups()
+            value = literal(original[rid]["value"])
+            try:
+                if (
+                    not value.strip()
+                    or value.startswith("{")
+                    or confirmed(value) is None
+                ):
+                    return {}
+            except ValueError:
+                return {}
+            identities[stage, action, field] = value
+    stage_names = [identities.get((stage, None, "Name")) for stage in stages]
+    if len(set(stage_names)) != len(stage_names):
+        return {}
+    for stage in stages:
+        names = [
+            identities.get((stage, action, "Name"))
+            for owner, action in actions
+            if owner == stage
+        ]
+        if len(set(names)) != len(names):
+            return {}
     signatures = list(actions.values())
     if any(
         fields.count("Name") != 1 or fields.count("ActionTypeId.Category") != 1
@@ -945,6 +979,18 @@ def generate(root, environment, selector, service):
                     )
     compile(result, f"{service}.py", "exec")
     unsupported = []
+    for number, paths in pipeline_indexed_rows_by_resource.items():
+        if not paths:
+            for rid, row in entries(selected_values, "desired.row."):
+                if rid.startswith(number + "-") and row["property"].startswith(
+                    "CodePipeline.Pipeline.Stages[]."
+                ):
+                    unsupported.append(
+                        (
+                            rid + " " + row["property"],
+                            "array membership unresolved: Stage Name, Action Name and ActionTypeId.Category do not prove membership",
+                        )
+                    )
     for _, row in entries(
         models["/".join((environment, target["directory"], service))].values,
         "desired.row.",

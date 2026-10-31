@@ -105,6 +105,60 @@ POLICY = {
 }
 
 
+def check_pipeline_membership(root):
+    pipeline_rows = [("Name", "`fixture-pipeline`", None)]
+    pipeline_stages = []
+    for stage in range(2):
+        actions = []
+        for action in range(4):
+            name = f"action-{stage}-{action}"
+            pipeline_rows.extend(
+                [
+                    ("Stages[].Actions[].ActionTypeId.Category", "`Build`", None),
+                    ("Stages[].Actions[].Name", f"`{name}`", None),
+                    ("Stages[].Actions[].RunOrder", "`1`", None),
+                ]
+            )
+            actions.append(
+                {"name": name, "actionTypeId": {"category": "Build"}, "runOrder": 1}
+            )
+        pipeline_rows.append(("Stages[].Name", f"`stage-{stage}`", None))
+        pipeline_stages.append({"name": f"stage-{stage}", "actions": actions})
+    pipeline = fixture(
+        {},
+        "codepipeline",
+        [("001", "CodePipeline.Pipeline", "pipeline", pipeline_rows)],
+    )
+    pipeline_path = root / "model/dev/cde/codepipeline.properties"
+    write_model(pipeline_path, pipeline["models"]["dev/cde/codepipeline"])
+    pipeline_source, _, notices = generator.generate(root, "dev", "cde", "codepipeline")
+    assert not any("membership unresolved" in reason for _, reason in notices), notices
+    generated = {"__name__": "pipeline_fixture", "__file__": str(root / "audit.py")}
+    exec(compile(pipeline_source, "audit.py", "exec"), generated)
+    responses = {
+        ("codepipeline", "get-pipeline"): {
+            "pipeline": {"name": "fixture-pipeline", "stages": pipeline_stages}
+        }
+    }
+    records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
+    run = next(item for item in records if item["propertiesKey"].endswith(".RunOrder"))
+    assert run["status"] == "match", run
+    pipeline_stages[1]["actions"][2]["runOrder"] = 2
+    records = generated["audit"](generated["SNAPSHOT"], None, CLI(responses))[2]
+    run = next(item for item in records if item["propertiesKey"].endswith(".RunOrder"))
+    assert run["status"] == "difference", run
+    values = pipeline["models"]["dev/cde/codepipeline"]
+    del values["desired.row.001-002.property"]
+    del values["desired.row.001-002.value"]
+    del values["desired.row.001-002.comment"]
+    write_model(pipeline_path, values)
+    _, _, notices = generator.generate(root, "dev", "cde", "codepipeline")
+    assert any(
+        "001-004" in key and "membership unresolved" in reason
+        for key, reason in notices
+    ), notices
+
+
 def runtime(data):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -1208,6 +1262,7 @@ def check():
             ),
             encoding="utf-8",
         )
+        check_pipeline_membership(root)
         iam = fixture(
             {},
             "iam",

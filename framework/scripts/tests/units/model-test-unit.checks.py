@@ -27,6 +27,7 @@ from model.audit import (
     pipeline_indexed_rows,
     reference_rows,
 )
+from model.core import entries
 from model.literal_values import normalize, value_shape
 from model.projection import resource_display_rows, validate_json_documents
 from model.reference_values import ReferenceValue, confirmed
@@ -1769,6 +1770,7 @@ class PipelineMembershipTests(unittest.TestCase):
         ambiguous=False,
         varied=False,
         order="last",
+        run_order=False,
     ):
         values = self.model(
             "CodePipeline.Pipeline", "CodePipeline_Pipeline_001", {"Name": "fixture"}
@@ -1818,6 +1820,8 @@ class PipelineMembershipTests(unittest.TestCase):
                     rows.insert(
                         -1, ("Stages[].Actions[].Namespace", "optional", "fixture")
                     )
+                if run_order:
+                    rows.append(("Stages[].Actions[].RunOrder", "1", "fixture"))
                 aws_actions.append(
                     {
                         "name": name,
@@ -1830,6 +1834,8 @@ class PipelineMembershipTests(unittest.TestCase):
                         "configuration": {"ProjectName": project},
                     }
                 )
+                if run_order:
+                    aws_actions[-1]["runOrder"] = 1
             if varied and stage == 1:
                 aws_actions[1]["namespace"] = "optional"
             rows.append(("Stages[].Name", f"stage-{stage}", "fixture"))
@@ -1899,6 +1905,29 @@ class PipelineMembershipTests(unittest.TestCase):
                 )
                 self.assertEqual(config["status"], "difference", config)
                 self.assertEqual(category["status"], "match", category)
+
+    def test_run_order_membership_four_actions(self):
+        for order in ("first", "last", "middle"):
+            with self.subTest(order=order):
+                snapshot, response, _ = self.build(2, 4, order=order, run_order=True)
+                paths = snapshot["pipelineIndexedRows"]["001"]
+                run_paths = [
+                    path for path in paths.values() if path.endswith(".RunOrder")
+                ]
+                self.assertEqual(len(run_paths), 8)
+                self.assertEqual(len(set(run_paths)), 8)
+                records = self.records(snapshot, response)
+                run = next(
+                    r for r in records if r["propertiesKey"].endswith(".RunOrder")
+                )
+                self.assertEqual(run["status"], "match", run)
+                response[1]["actions"][2]["runOrder"] = 2
+                run = next(
+                    r
+                    for r in self.records(snapshot, response)
+                    if r["propertiesKey"].endswith(".RunOrder")
+                )
+                self.assertEqual(run["status"], "difference", run)
 
     def test_name_before_configuration(self):
         for stages, actions in [(1, 1), (2, 2)]:
@@ -1977,6 +2006,39 @@ class PipelineMembershipTests(unittest.TestCase):
                     for i, field in enumerate(fields, 1)
                 ]
                 self.assertFalse(pipeline_indexed_rows(rows))
+
+    def test_fixed_ids_restore_membership_after_input_reordering(self):
+        self.build(2, 4, run_order=True)
+        rows = [
+            (rid, row)
+            for rid, row in entries(
+                load_model(
+                    self.root / "model/dev/cde/codepipeline.properties"
+                ).authoritative,
+                "desired.row.",
+            )
+            if rid.startswith("001-")
+        ]
+        paths = pipeline_indexed_rows(rows)
+        self.assertTrue(paths)
+        self.assertEqual(paths, pipeline_indexed_rows(list(reversed(rows))))
+
+    def test_missing_action_identity_reports_row_ids(self):
+        self.build(2, 4, run_order=True)
+        path = self.root / "model/dev/cde/codepipeline.properties"
+        values = dict(load_model(path).authoritative)
+        values.pop("desired.row.001-002.property")
+        values.pop("desired.row.001-002.value")
+        values.pop("desired.row.001-002.comment")
+        write_model(path, values)
+        _, _, notices = generate(self.root, "dev", "cde", "codepipeline")
+        self.assertTrue(
+            any(
+                "001-008" in key and "membership unresolved" in reason
+                for key, reason in notices
+            ),
+            notices,
+        )
 
     def test_ambiguous_membership(self):
         snapshot, response, _ = self.build(2, 2, ambiguous=True)
