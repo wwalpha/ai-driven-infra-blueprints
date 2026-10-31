@@ -19,6 +19,7 @@ from design.policy_tables import (
     Policy,
     policy_document_lines,
     policy_lines,
+    policy_sub_resource,
     rendered_design,
 )
 from design.services import route53
@@ -1202,6 +1203,70 @@ def test_route53_scalar_record_endpoint_node():
     found = route53.endpoint_nodes(values, "001-002", "value", expression)
     assert len(found) == 1
     assert found[0][0] is None and found[0][1].pointer == route53.POINTER
+
+
+def test_policy_sub_reference_shows_link_and_path_without_changing_json(models):
+    scope, values, path = consumer(models, "iam", "IAM.ManagedPolicy")
+    values["desired.row.001-001.property"] = "IAM.ManagedPolicy.ManagedPolicyName"
+    expression = {
+        "Fn::Sub": [
+            "${BucketArn}/staging/release/*",
+            {"BucketArn": reference("S3_Bucket_001", "Arn")},
+        ]
+    }
+    complex_expression = {
+        "Fn::Sub": [
+            "${BucketArn}/${Other}",
+            {"BucketArn": reference("S3_Bucket_001", "Arn"), "Other": "suffix"},
+        ]
+    }
+    document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "ReadVersions",
+                "Effect": "Allow",
+                "Action": "s3:GetObjectVersionForReplication",
+                "Resource": [expression, complex_expression],
+            }
+        ],
+    }
+    rid = add(values, "IAM.ManagedPolicy", "PolicyDocument", "placeholder")
+    values[f"desired.row.{rid}.value"] = "[Policy](iam/policy.json)"
+    values[f"desired.row.{rid}.document"] = json.dumps(document)
+    save(scope, values)
+    before = copy.deepcopy(values)
+    files = generate_files(path, values, models)
+    artifact = path.with_suffix("") / "policy.json"
+    saved = json.loads(files[artifact])["Statement"][0]["Resource"]
+    assert saved == [
+        "arn:aws:s3:::shared-name/staging/release/*",
+        "arn:aws:s3:::shared-name/suffix",
+    ]
+    assert "[shared-name](s3.md#s3-saved-anchor)`/staging/release/*`" in files[path], (
+        files[path]
+    )
+    assert "Fn::Sub" in files[path]
+    assert values == before
+    for file, text in files.items():
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text, encoding="utf-8")
+    assert rendered_design(path, definitions_root=FRAMEWORK) == files[path]
+    restore(path, files[path], values)
+
+
+@pytest.mark.parametrize(
+    "template,variables",
+    [
+        ("${Bucket}/x/${Other}", {"Bucket": "marker"}),
+        ("prefix/${Bucket}/x", {"Bucket": "marker"}),
+        ("${Bucket}/x", {"Bucket": "unresolved"}),
+        ("${Bucket}/x", {"Bucket": "marker", "Other": "value"}),
+    ],
+)
+def test_policy_sub_does_not_guess_complex_or_unlinked_references(template, variables):
+    expression = {"Fn::Sub": [template, variables]}
+    assert policy_sub_resource(expression, {"marker"}) == expression
 
 
 def test_s3_bucket_policy_self_reference_links_only_bucket_arn(models):

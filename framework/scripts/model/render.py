@@ -868,7 +868,12 @@ def model_policy_views(values, *, presentation=None):
             lines = policy_document_lines(document, policy)
             if presentation is not None:
                 marked = presentation.document(row_id, "document", document)
-                marked_lines = policy_document_lines(marked, policy)
+                marked_lines = policy_document_lines(
+                    _dependency_policy_tables.policy_sub_resources(
+                        marked, policy, presentation.marker_links
+                    ),
+                    policy,
+                )
                 lines = presentation.lines(marked_lines, marked_lines)
             policies.extend(["", *lines])
         if policies:

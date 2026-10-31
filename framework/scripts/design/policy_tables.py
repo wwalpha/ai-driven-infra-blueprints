@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -333,6 +334,64 @@ def settings_rows(value: object, pointer: str = "") -> list[list[str]]:
     return [[code(pointer), kind, code(value)]]
 
 
+def policy_sub_resource(value, markers):
+    if not isinstance(value, dict) or set(value) != {"Fn::Sub"}:
+        return value
+    parts = value["Fn::Sub"]
+    if not isinstance(parts, list) or len(parts) != 2:
+        return value
+    template, variables = parts
+    if (
+        not isinstance(template, str)
+        or not isinstance(variables, dict)
+        or len(variables) != 1
+    ):
+        return value
+    variable, link = next(iter(variables.items()))
+    prefix = "${" + variable + "}"
+    if (
+        not template.startswith(prefix)
+        or not isinstance(link, str)
+        or link not in markers
+    ):
+        return value
+    suffix = template[len(prefix) :]
+    if (
+        not suffix.startswith("/")
+        or "${" in suffix
+        or any(char in suffix for char in "`|\r\n")
+    ):
+        return value
+    return link + suffix
+
+
+def policy_sub_resources(document, policy, markers):
+    document = copy.deepcopy(document)
+    if POLICY_FORMATS.get(policy.property_name) == "wrapped-statement" and isinstance(
+        document, dict
+    ):
+        document_body = document.get("PolicyDocument")
+    else:
+        document_body = document
+    if not isinstance(document_body, dict):
+        return document
+    statements = document_body.get("Statement")
+    statements = statements if isinstance(statements, list) else [statements]
+    for statement in statements:
+        if not isinstance(statement, dict):
+            continue
+        for field in ("Resource", "NotResource"):
+            if field not in statement:
+                continue
+            value = statement[field]
+            statement[field] = (
+                [policy_sub_resource(item, markers) for item in value]
+                if isinstance(value, list)
+                else policy_sub_resource(value, markers)
+            )
+    return document
+
+
 def policy_lines(
     path: Path, policy: Policy, *, presentation=None, policy_rows=None
 ) -> list[str]:
@@ -379,7 +438,11 @@ def policy_lines(
             baseline = policy_document_lines(document, policy)
             displayed = presentation.document(rid, "document", document)
             return presentation.lines(
-                baseline, policy_document_lines(displayed, policy)
+                baseline,
+                policy_document_lines(
+                    policy_sub_resources(displayed, policy, presentation.marker_links),
+                    policy,
+                ),
             )
     if any(nodes(document)):
         root = path.parents[4]
