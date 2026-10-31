@@ -2,8 +2,7 @@
 
 from typing import Any
 
-from model.adapters.aws import Unresolved, one
-from utils.aws.identity import execution_account
+from model.adapters.aws import Unresolved, execution_account, one
 
 APIS = {
     ("datazone", "get_project"),

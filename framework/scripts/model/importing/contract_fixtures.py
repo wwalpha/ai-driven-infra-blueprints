@@ -334,7 +334,7 @@ class SchemaOffline(m.Context):
             if self.fixture_error is not None:
                 raise self.fixture_error
 
-    def client(self, service):
+    def client(self, service, **options):
         if service not in self.clients:
             self.clients[service] = SchemaClient(self, service)
         return self.clients[service]

@@ -254,8 +254,11 @@ class DataZoneDomainTests(unittest.TestCase):
         )
         resource.current.return_value = None
         ctx.reset_mock()
-        with self.assertRaisesRegex(Unresolved, "confirmed Id"):
+        ctx.target = {"awsAccountId": "123456789012"}
+        ctx.pages.return_value = {"items": []}
+        with self.assertRaises(AcquisitionError):
             adapter.fetch_sdk(ctx, resource, "get_domain")
+        ctx.pages.assert_called_once_with("datazone", "list_domains")
         ctx.call.assert_not_called()
 
     def test_generated_standalone_domain_version(self):

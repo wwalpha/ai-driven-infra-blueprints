@@ -5812,7 +5812,7 @@ def datazone_domain_fixture(
     resource = fixture_resource(root, ctx, "datazone", record)
     items = fixture_properties(
         ctx, resource, mapping, properties, "DataZone.Domain",
-        {"DomainVersion": ("domainVersion", "typed", "V2")},
+        {"Id": ("id", "typed", "dzd_domain"), "DomainVersion": ("domainVersion", "typed", "V2")},
         ["normal", "missing-selector", "access-denied"],
     )
     failure_branches(
