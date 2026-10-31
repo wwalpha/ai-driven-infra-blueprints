@@ -61,6 +61,8 @@ def endpoint_id(node, scope, resolver):
         )
     except ReferenceDiagnosticError:
         return None
+    if value.status in {"pending_deploy", "logical_only"}:
+        return "PENDING_DEPLOY"
     return (
         value.value
         if value.status == "resolved" and isinstance(value.value, str)

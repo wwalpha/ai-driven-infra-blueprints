@@ -1075,7 +1075,12 @@ def test_normal_resource_reference_labels(
 
 @pytest.mark.parametrize(
     ("observed", "index"),
-    [("vpce-03de8390963d671da", 1), (None, 1), ("vpce-03de8390963d671da", 0)],
+    [
+        ("vpce-03de8390963d671da", 1),
+        ("PENDING_DEPLOY", 1),
+        (None, 1),
+        ("vpce-03de8390963d671da", 0),
+    ],
 )
 def test_route53_endpoint_alias_expression_display(models, observed, index):
     target, endpoint = resource(
@@ -1126,7 +1131,7 @@ def test_route53_endpoint_alias_expression_display(models, observed, index):
     assert values == before
 
 
-@pytest.mark.parametrize("observed", ["vpce-02771914003dc1188", None])
+@pytest.mark.parametrize("observed", ["vpce-02771914003dc1188", "PENDING_DEPLOY", None])
 def test_route53_endpoint_record_expression_display(models, observed):
     target, endpoint = resource(
         models, "vpc-endpoint", "EC2.VPCEndpoint", attribute="Id"
@@ -1185,6 +1190,20 @@ def test_route53_endpoint_record_expression_display(models, observed):
     )
     assert "$modelRef" in restore(path, markdown, values)
     assert values == before
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("logical_only", "PENDING_DEPLOY"),
+        ("pending_deploy", "PENDING_DEPLOY"),
+        ("unresolved", None),
+    ],
+)
+def test_route53_endpoint_identifier_reference_states(status, expected):
+    node = parse(reference("EC2_VPCEndpoint_001", "DnsEntries"))
+    with patch.object(route53, "reference_value", return_value=ReferenceValue(status)):
+        assert route53.endpoint_id(node, None, None) == expected
 
 
 def test_route53_scalar_record_endpoint_node():
