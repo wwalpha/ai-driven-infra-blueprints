@@ -32,6 +32,47 @@ def _fetch_permissions(items, egress):
     return result
 
 
+def rule_candidates(records, group, egress, expected):
+    """Match only complete, independently specified rule identities."""
+    sources = (
+        "CidrIp",
+        "CidrIpv6",
+        "SourcePrefixListId",
+        "DestinationPrefixListId",
+        "SourceSecurityGroupId",
+        "DestinationSecurityGroupId",
+    )
+    selected = [key for key in sources if expected.get(key)]
+    protocol = str(expected.get("IpProtocol", "")).lower()
+    if not group or not protocol or len(selected) != 1:
+        raise Unresolved("security group rule identity is incomplete")
+    if protocol in {"tcp", "udp", "icmp", "icmpv6", "6", "17", "1", "58"} and any(
+        key not in expected for key in ("FromPort", "ToPort")
+    ):
+        raise Unresolved("security group rule ports are incomplete")
+    aliases = {"6": "tcp", "17": "udp", "1": "icmp", "58": "icmpv6"}
+    rename = {
+        "CidrIp": "CidrIpv4",
+        "SourcePrefixListId": "PrefixListId",
+        "DestinationPrefixListId": "PrefixListId",
+        "SourceSecurityGroupId": "ReferencedGroupInfo.GroupId",
+        "DestinationSecurityGroupId": "ReferencedGroupInfo.GroupId",
+    }
+    fields = [selected[0], *[key for key in ("FromPort", "ToPort") if key in expected]]
+    return [
+        record
+        for record in records
+        if record.get("GroupId") == group
+        and record.get("IsEgress") is egress
+        and aliases.get(
+            str(record.get("IpProtocol", "")).lower(),
+            str(record.get("IpProtocol", "")).lower(),
+        )
+        == aliases.get(protocol, protocol)
+        and all(select(record, rename.get(key, key)) == expected[key] for key in fields)
+    ]
+
+
 def fetch(ctx, r, getter):
     if getter == "group":
         current = r.current("Id")
@@ -100,6 +141,7 @@ def fetch(ctx, r, getter):
             "CidrIp": "CidrIpv4",
             "SourceSecurityGroupId": "ReferencedGroupInfo.GroupId",
             "DestinationSecurityGroupId": "ReferencedGroupInfo.GroupId",
+            "SourceSecurityGroupOwnerId": "ReferencedGroupInfo.UserId",
         }
         fields = (
             "IpProtocol",
@@ -114,6 +156,7 @@ def fetch(ctx, r, getter):
         rename["DestinationPrefixListId"] = "PrefixListId"
         rename["SourcePrefixListId"] = "PrefixListId"
         expected_paths = {rename.get(k, k) for k in expected}
+        candidates = rule_candidates(candidates, group, egress, expected)
         candidates = [
             v
             for v in candidates

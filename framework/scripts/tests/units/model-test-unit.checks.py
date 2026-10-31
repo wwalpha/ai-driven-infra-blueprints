@@ -2361,6 +2361,79 @@ class SecurityGroupRuleRecoveryTests(unittest.TestCase):
         self.assertEqual(result["awsValue"], "sgr-new")
 
 
+class IngressRuleTests(unittest.TestCase):
+    def test_pending_recreation_and_direction(self):
+        module = service_module("security-group")
+        resource = Mock()
+        resource.kind = "EC2.SecurityGroupIngress"
+        resource.parent.return_value.identity.return_value = "sg-parent"
+        resource.parse.side_effect = lambda row, norm: row["value"]
+        resource.rows = [
+            (key, {"property": resource.kind + "." + key, "value": value})
+            for key, value in {
+                "IpProtocol": "tcp",
+                "FromPort": 443,
+                "ToPort": 443,
+                "SourceSecurityGroupId": "sg-peer",
+            }.items()
+        ]
+        rule = {
+            "SecurityGroupRuleId": "sgr-new",
+            "GroupId": "sg-parent",
+            "IsEgress": False,
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "ReferencedGroupInfo": {"GroupId": "sg-peer"},
+        }
+        ctx = Mock()
+        resource.current.return_value = None
+        ctx.pages.return_value = {"SecurityGroupRules": [rule]}
+        self.assertEqual(module.fetch(ctx, resource, "rule"), rule)
+        ctx.pages.return_value = {"SecurityGroupRules": [{**rule, "IsEgress": True}]}
+        with self.assertRaises(AcquisitionError):
+            module.fetch(ctx, resource, "rule")
+        ctx.pages.return_value = {"SecurityGroupRules": [rule, rule]}
+        with self.assertRaises(Unresolved):
+            module.fetch(ctx, resource, "rule")
+        error = Exception()
+        error.response = {"Error": {"Code": "InvalidSecurityGroupRuleId.NotFound"}}
+        resource.current.return_value = "sgr-old"
+        ctx.pages.side_effect = [
+            sdk_error("ec2.describe_security_group_rules", error, {}),
+            {"SecurityGroupRules": [rule]},
+        ]
+        self.assertEqual(module.fetch(ctx, resource, "rule"), rule)
+
+    def test_pending_identifier_is_not_adopted(self):
+        engine = SimpleNamespace(
+            ROOT=Path("/"),
+            catalog_outputs=lambda root, kind: {kind + ".Id"},
+            literal=lambda raw: raw.strip("`"),
+            confirmed_display_name=confirmed_display_name,
+            confirmed=confirmed,
+        )
+        resource = SimpleNamespace(
+            kind="EC2.SecurityGroupIngress",
+            rows_for=lambda key: [("001", {})],
+            model=SimpleNamespace(
+                values={"observed.row.001.value": "`PENDING_DEPLOY`"}
+            ),
+        )
+        result = audit.identifier_result(
+            engine,
+            None,
+            resource,
+            {
+                "propertiesKey": resource.kind + ".Id",
+                "status": "identifier",
+                "awsValue": "sgr-new",
+            },
+        )
+        self.assertEqual(result["status"], "design_unresolved")
+        self.assertIsNone(result["designValue"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

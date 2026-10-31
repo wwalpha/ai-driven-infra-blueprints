@@ -3,8 +3,10 @@
 import re
 
 import design.layout as _imports_design_layout
+import utils.cloudformation.format as _imports_cfn_format
 import utils.cloudformation.inputs as _imports_cfn_inputs
 from design.catalog import DesignSchemaCatalog
+from model.adapters.aws import Unresolved, service_module
 from model.adapters.observed import (
     active_outputs,
     ambiguous,
@@ -76,6 +78,125 @@ def selected_resources(document, parameters, pseudo, removed, grouped):
         if definition["Type"] not in grouped:
             selected.add(logical)
     return selected
+
+
+def security_group_rule_id(
+    backend, stack, document, parameters, pseudo, actuals, logical, actual, output
+):
+    """Confirm a Stack output against one rule selected by the deployed template."""
+    if current_state.category(stack) != "SUCCESS" or actual.get(
+        "ResourceStatus"
+    ) not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}:
+        return None
+    try:
+        deployed = backend.aws("get_template", StackName=stack["StackId"]).get(
+            "TemplateBody"
+        )
+        if isinstance(deployed, str):
+            deployed, errors = _imports_cfn_format.decode(deployed)
+            if errors:
+                return None
+        if deployed != document or document.get("Transform"):
+            return None
+        actual_parameters = stack.get("Parameters", [])
+        if not isinstance(actual_parameters, list) or any(
+            not isinstance(item, dict) or item.get("ParameterValue") in (None, "****")
+            for item in actual_parameters
+        ):
+            return None
+        actual_parameters = [
+            {
+                "ParameterKey": item["ParameterKey"],
+                "ParameterValue": item["ParameterValue"],
+            }
+            for item in actual_parameters
+        ]
+        if len({item["ParameterKey"] for item in actual_parameters}) != len(
+            actual_parameters
+        ):
+            return None
+        checked = _imports_cfn_inputs.checked_parameters
+        if checked(document, actual_parameters) != checked(
+            document,
+            [
+                {"ParameterKey": key, "ParameterValue": value}
+                for key, value in parameters.items()
+            ],
+        ):
+            return None
+        references = {
+            item["LogicalResourceId"]: item["PhysicalResourceId"]
+            for item in actuals
+            if item.get("ResourceType") == "AWS::EC2::SecurityGroup"
+            and item.get("ResourceStatus")
+            in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
+            and isinstance(item.get("PhysicalResourceId"), str)
+        }
+        props = document["Resources"][logical]["Properties"]
+        names = {
+            "GroupId",
+            "IpProtocol",
+            "FromPort",
+            "ToPort",
+            "CidrIp",
+            "CidrIpv6",
+            "SourcePrefixListId",
+            "DestinationPrefixListId",
+            "SourceSecurityGroupId",
+            "DestinationSecurityGroupId",
+        }
+        expected = {}
+        for key, value in props.items():
+            if key not in names:
+                continue
+            if isinstance(value, dict) and "Fn::GetAtt" in value:
+                ref = value["Fn::GetAtt"]
+                ref = ref.split(".", 1) if isinstance(ref, str) else ref
+                if (
+                    isinstance(ref, list)
+                    and len(ref) == 2
+                    and ref[1] == "GroupId"
+                    and ref[0] in references
+                ):
+                    value = {"Ref": ref[0]}
+            expected[key] = _imports_cfn_inputs.resolve_value(
+                value,
+                parameters,
+                pseudo | references,
+                conditions=document.get("Conditions"),
+            )
+        group = expected.pop("GroupId")
+        if not isinstance(group, str) or not re.fullmatch(r"sg-[0-9a-f]+", group):
+            return None
+        for key in ("FromPort", "ToPort"):
+            if key in expected:
+                expected[key] = int(expected[key])
+        records = current_state.pages(
+            lambda operation, **kw: backend.aws(operation, service="ec2", **kw),
+            "describe_security_group_rules",
+            "SecurityGroupRules",
+            Filters=[{"Name": "group-id", "Values": [group]}],
+        )
+        egress = (
+            document["Resources"][logical]["Type"] == "AWS::EC2::SecurityGroupEgress"
+        )
+        candidates = service_module("security-group").rule_candidates(
+            records, group, egress, expected
+        )
+        if len(candidates) != 1 or candidates[0].get("SecurityGroupRuleId") != output:
+            return None
+        after = current_state.read(backend.aws, stack["StackId"])
+        if current_state.identity(stack) != current_state.identity(after) or stack.get(
+            "Outputs", []
+        ) != after.get("Outputs", []):
+            return None
+        return (
+            output
+            if isinstance(output, str) and re.fullmatch(r"sgr-[0-9a-f]+", output)
+            else None
+        )
+    except (AwsError, Blocked, Unresolved, KeyError, TypeError, ValueError):
+        return None
 
 
 def readiness(backend, unit, state=None):
@@ -291,7 +412,14 @@ def collect_successful(backend, units, states, *, generated_views=None):
                     )
                     values = [outputs[key] for key in keys if key in outputs]
                     physical = actual.get("PhysicalResourceId") if primary else None
-                    if values and (
+                    if resource["resourceType"] in {"EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"}:
+                        declarations = active_outputs(document, parameters, pseudo)
+                        id_keys = [key for key in keys if declarations[key] != {"Ref": logical}]
+                        if complete and id_keys and all(key in outputs for key in id_keys):
+                            ids = {outputs[key] for key in id_keys}
+                            if len(ids) == 1:
+                                value = security_group_rule_id(backend, stack, document, parameters, pseudo, actuals, logical, actual, ids.pop())
+                    elif values and (
                         len(set(values)) != 1
                         or physical is not None
                         and physical != values[0]

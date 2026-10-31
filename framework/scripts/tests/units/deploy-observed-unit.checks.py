@@ -3,6 +3,7 @@
 import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -10,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 
 import pytest
+from deploy.observed import security_group_rule_id
+from model.adapters.aws import Unresolved, service_module
 from model.adapters.observed import propagate_references, resolve_resources
 from model.files import read_model
 from support.cloudformation_deploy_fixtures import TARGET
@@ -237,3 +240,106 @@ if __name__ == "__main__":
     from support.pytest_cli import run
 
     raise SystemExit(run(__file__))
+
+
+def check_ingress_rule_confirmation():
+    document = {
+        "Resources": {
+            "Rule": {
+                "Type": "AWS::EC2::SecurityGroupIngress",
+                "Properties": {
+                    "GroupId": "sg-12345678",
+                    "IpProtocol": "tcp",
+                    "FromPort": 443,
+                    "ToPort": 443,
+                    "SourceSecurityGroupId": "sg-abcdef12",
+                },
+            }
+        }
+    }
+    stack = {
+        "StackId": "stack",
+        "StackStatus": "CREATE_COMPLETE",
+        "Outputs": [],
+        "Parameters": [],
+    }
+    actual = {"ResourceStatus": "CREATE_COMPLETE", "PhysicalResourceId": "sg-12345678"}
+    rule = {
+        "GroupId": "sg-12345678",
+        "IsEgress": False,
+        "IpProtocol": "tcp",
+        "FromPort": 443,
+        "ToPort": 443,
+        "ReferencedGroupInfo": {"GroupId": "sg-abcdef12"},
+        "SecurityGroupRuleId": "sgr-12345678",
+    }
+    records = [rule]
+
+    def aws(operation, **kwargs):
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        if operation == "describe_security_group_rules":
+            return {"SecurityGroupRules": records}
+        if operation == "describe_stacks":
+            return {"Stacks": [stack]}
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(aws=aws)
+
+    def result(output="sgr-12345678"):
+        return security_group_rule_id(
+            backend, stack, document, {}, {}, [], "Rule", actual, output
+        )
+
+    assert result() == "sgr-12345678"
+    assert result("sgr-99999999") is None
+    records[:] = [rule, rule]
+    assert result() is None
+    records[:] = [{**rule, "IsEgress": True}]
+    assert result() is None
+    records[:] = [{**rule, "ReferencedGroupInfo": {"GroupId": "sg-bad"}}]
+    assert result() is None
+    records[:] = []
+    assert result() is None
+    assert service_module("security-group").rule_candidates(
+        [rule],
+        "sg-12345678",
+        False,
+        {
+            "IpProtocol": "6",
+            "FromPort": 443,
+            "ToPort": 443,
+            "SourceSecurityGroupId": "sg-abcdef12",
+        },
+    ) == [rule]
+
+
+def check_ingress_cidr_and_recreation():
+    module = service_module("security-group")
+    expected = {
+        "IpProtocol": "tcp",
+        "FromPort": 443,
+        "ToPort": 443,
+        "CidrIp": "10.0.0.0/24",
+    }
+    rule = {
+        "GroupId": "sg-parent",
+        "IsEgress": False,
+        "IpProtocol": "tcp",
+        "FromPort": 443,
+        "ToPort": 443,
+        "CidrIpv4": "10.0.0.0/24",
+        "SecurityGroupRuleId": "sgr-new",
+    }
+    assert module.rule_candidates([rule], "sg-parent", False, expected) == [rule]
+    for replacement in (
+        {"GroupId": "sg-other"},
+        {"IsEgress": True},
+        {"FromPort": 80},
+        {"CidrIpv4": "10.0.1.0/24"},
+    ):
+        assert not module.rule_candidates(
+            [{**rule, **replacement}], "sg-parent", False, expected
+        )
+    with pytest.raises(Unresolved):
+        module.rule_candidates([rule], "sg-parent", False, {"IpProtocol": "tcp"})

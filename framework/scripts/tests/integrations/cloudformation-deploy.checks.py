@@ -24,7 +24,13 @@ from deploy.model_cache import RunModels
 from deploy.observed import removed_resources
 from deploy.preparation import candidate
 from model.adapters import observed
-from model.adapters.observed import mappings, preflight, validate_mapping_targets
+from model.adapters.observed import (
+    mappings,
+    preflight,
+    publish_observed,
+    validate_mapping_targets,
+)
+from model.core import entries
 from model.format import parse
 from model.format import patch as patch_properties
 from model.sources import load_model, model_parts
@@ -62,6 +68,7 @@ from support.cloudformation_deploy_fixtures import (
 from support.model_sources import allocate_fixture as allocate
 from support.model_v2_fixtures import deploy_properties_fixture
 from support.repository_fixtures import fixture, git, start
+from support.security_group_tables_fixtures import GENERATED_MODEL
 from task_contract_core import paths_in, selected_task
 from utils.aws_catalogs import catalog_outputs
 from utils.input_cache import input_context, input_scope, memo_table
@@ -1877,3 +1884,107 @@ def check_deploy_preparation_separates_producer_reads_from_writes(
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def check_ingress_observed_publication(project_workspace):
+    root = project_workspace
+    (root / "project.json").write_text(
+        json.dumps({"targets": [{"environment": "dev", **TARGET}]})
+    )
+    source = root / "model/dev/123456789012/security-group.properties"
+    model = GENERATED_MODEL.replace(
+        "observed.row.002-001.value=`sgr-00000001`",
+        "observed.row.002-001.value=`PENDING_DEPLOY`",
+    )
+    write_model(source, model)
+    task = root / "tasks/observation-fixture.md"
+    task.parent.mkdir(exist_ok=True)
+    task.write_text(observation_contract(root, ("security-group",)))
+    loaded = properties(read_model(source))
+    resource = dict(entries(loaded, "desired.resource."))["002"]
+    row = dict(entries(loaded, "desired.row."))["002-001"]
+    group = "sg-00000001"
+    document = {
+        "Resources": {
+            "Rule": {
+                "Type": "AWS::EC2::SecurityGroupIngress",
+                "Properties": {
+                    "GroupId": group,
+                    "IpProtocol": "tcp",
+                    "FromPort": 443,
+                    "ToPort": 443,
+                    "SourceSecurityGroupId": "sg-00000002",
+                },
+            }
+        },
+        "Outputs": {"RuleId": {"Value": {"Fn::GetAtt": ["Rule", "Id"]}}},
+    }
+    actual = {
+        "LogicalResourceId": "Rule",
+        "ResourceType": "AWS::EC2::SecurityGroupIngress",
+        "ResourceStatus": "CREATE_COMPLETE",
+        "PhysicalResourceId": group,
+    }
+    rule = {
+        "GroupId": group,
+        "IsEgress": False,
+        "IpProtocol": "tcp",
+        "FromPort": 443,
+        "ToPort": 443,
+        "ReferencedGroupInfo": {"GroupId": "sg-00000002"},
+        "SecurityGroupRuleId": "sgr-00000002",
+    }
+    stack = {
+        "StackId": "stack-A",
+        "StackStatus": "CREATE_COMPLETE",
+        "Parameters": [],
+        "Outputs": [
+            {"OutputKey": "RuleId", "OutputValue": rule["SecurityGroupRuleId"]}
+        ],
+    }
+
+    def aws(operation, **kwargs):
+        if operation == "describe_stacks":
+            return {"Stacks": [stack]}
+        if operation == "list_stack_resources":
+            return {"StackResourceSummaries": [actual]}
+        if operation == "describe_security_group_rules":
+            return {"SecurityGroupRules": [rule]}
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        raise AssertionError(operation)
+
+    backend = SimpleNamespace(
+        root=root,
+        environment="dev",
+        directory="123456789012",
+        target=TARGET,
+        templates={"A": (document, {})},
+        aws=aws,
+    )
+    mapping = {
+        "A": {
+            "Rule": (
+                source,
+                "002",
+                resource,
+                [("002-001", row)],
+                {"EC2.SecurityGroupIngress.Id"},
+            )
+        }
+    }
+    selected = [{"name": "A"}]
+    state = {"A": {}}
+    with (
+        patch(
+            "deploy.observed.resolve_resources",
+            return_value=({source: loaded}, mapping),
+        ),
+        patch("deploy.observed.propagate_references"),
+    ):
+        outputs, _, _ = deploy_observed.collect_successful(backend, selected, state)
+    publish_observed(root, outputs)
+    assert (
+        properties(read_model(source))["observed.row.002-001.value"] == "`sgr-00000002`"
+    )
+    assert state["A"]["observedCoverage"]["Rule"]["status"] == "UPDATED"
