@@ -187,7 +187,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (179, 53, 50, 64, 83, 82)
+    ) == (179, 53, 50, 64, 84, 83)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -262,7 +262,11 @@ def check_v3_registry():
         "RESOURCE_TYPES": [],
         "IDENTITIES": {},
         "GETTERS": {},
-        "APIS": [("datazone", "get_domain"), ("datazone", "get_project")],
+        "APIS": [
+            ("datazone", "get_domain"),
+            ("datazone", "get_project"),
+            ("datazone", "list_domains"),
+        ],
     }
     namespace = baseline_properties["quicksight"]["QuickSight.Group"]["Namespace"]
     assert namespace.pop("aws") == {
@@ -279,8 +283,21 @@ def check_v3_registry():
     del definitions["quicksight"]["group-namespace"]
     del metadata["quicksight"]["GETTERS"]["group-namespace"]
     metadata["quicksight"]["RESOURCE_TYPES"].remove("QuickSight.Group")
-    domain_version = baseline_properties["datazone"]["DataZone.Domain"]["DomainVersion"]["aws"]
-    assert domain_version == {"getter": "sdk-datazone-domain", "path": "domainVersion", "normalize": "typed"}
+    domain_id = baseline_properties["datazone"]["DataZone.Domain"]["Id"]["aws"]
+    assert domain_id == {
+        "getter": "sdk-datazone-domain",
+        "path": "id",
+        "normalize": "typed",
+    }
+    domain_id.update(getter="provider-datazone-domain", path="Id")
+    domain_version = baseline_properties["datazone"]["DataZone.Domain"][
+        "DomainVersion"
+    ]["aws"]
+    assert domain_version == {
+        "getter": "sdk-datazone-domain",
+        "path": "domainVersion",
+        "normalize": "typed",
+    }
     domain_version.update(getter="provider-datazone-domain", path="DomainVersion")
     metadata["quicksight"]["APIS"].remove(("quicksight", "describe_group"))
     table_id = baseline_properties["glue"]["Glue.Table"]["Id"]

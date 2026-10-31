@@ -773,7 +773,7 @@ resourceTypes:
         model: {include: true}
         display: {show: true, name: Id}
         access: [read-only]
-        aws: {getter: provider-datazone-domain, path: Id, normalize: typed}
+        aws: {getter: sdk-datazone-domain, path: id, normalize: typed}
       Description:
         model: {include: false}
         display: {show: false, name: Description}

@@ -171,3 +171,159 @@ def check_service_adapters(tmp_path):
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+@pytest.mark.parametrize("case", ["found", "missing", "ambiguous", "denied", "known"])
+def test_datazone_domain_selector(tmp_path, case):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    module = m.service_module("datazone")
+    account = "123456789012"
+    resource = SimpleNamespace(
+        current=lambda _: "dzd-known" if case == "known" else None,
+        value=lambda _: "domain",
+    )
+    candidates = [{"name": "domain", "managedAccountId": account, "id": "dzd-found"}]
+    if case == "missing":
+        candidates = [
+            {"name": "domain", "managedAccountId": "999999999999", "id": "other"}
+        ]
+    if case == "ambiguous":
+        candidates *= 2
+    ctx = SimpleNamespace(
+        target={"awsAccountId": account},
+        pages=Mock(return_value={"items": candidates}),
+        call=Mock(return_value={"id": "dzd-found"}),
+    )
+    if case == "denied":
+        ctx.pages.side_effect = m.AcquisitionError(
+            "datazone.list_domains", "AccessDeniedException", "acquisition_failed"
+        )
+    if case in {"missing", "ambiguous", "denied"}:
+        with pytest.raises((m.AcquisitionError, m.Unresolved)):
+            module.fetch_sdk(ctx, resource, "get_domain")
+        ctx.call.assert_not_called()
+    else:
+        module.fetch_sdk(ctx, resource, "get_domain")
+        ctx.call.assert_called_once_with(
+            "datazone",
+            "get_domain",
+            identifier="dzd-known" if case == "known" else "dzd-found",
+        )
+        if case == "known":
+            ctx.pages.assert_not_called()
+
+
+def test_datazone_pagination(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1"}
+    ctx = m.Context(tmp_path, target, services=["datazone"], import_mode=True)
+    ctx.verified = True
+    ctx.call = Mock(
+        side_effect=[
+            {"items": [], "nextToken": "next"},
+            {
+                "items": [
+                    {
+                        "name": "domain",
+                        "managedAccountId": target["awsAccountId"],
+                        "id": "dzd-found",
+                    }
+                ]
+            },
+            {"id": "dzd-found"},
+        ]
+    )
+    resource = SimpleNamespace(current=lambda _: None, value=lambda _: "domain")
+    assert (
+        m.service_module("datazone").fetch_sdk(ctx, resource, "get_domain")["id"]
+        == "dzd-found"
+    )
+    assert ctx.call.call_args_list[1].kwargs == {"nextToken": "next"}
+
+
+def test_datazone_pending_producer_remains_unresolved(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from model.identity import Resolver
+    from model.reference_nodes import parse
+    from model.reference_values import reference_value
+    from support.model_reference_fixtures import FRAMEWORK, project, reference, resource
+    from utils.aws_mappings import mapping_alias
+
+    with mapping_alias(FRAMEWORK, tmp_path):
+        _, _, consumer, _ = project(tmp_path)
+        resource(
+            tmp_path,
+            "datazone",
+            "DataZone.Domain",
+            attribute="Id",
+            observed="PENDING_DEPLOY",
+        )
+        ctx = SimpleNamespace(
+            target={"awsAccountId": "123456789012"},
+            pages=Mock(
+                return_value={
+                    "items": [
+                        {
+                            "name": "domain",
+                            "managedAccountId": "123456789012",
+                            "id": "dzd-found",
+                        }
+                    ]
+                }
+            ),
+            call=Mock(return_value={"id": "dzd-found"}),
+        )
+        selected = SimpleNamespace(current=lambda _: None, value=lambda _: "domain")
+        assert (
+            m.service_module("datazone").fetch_sdk(ctx, selected, "get_domain")["id"]
+            == "dzd-found"
+        )
+        value = reference_value(
+            Resolver(tmp_path), consumer, parse(reference("DataZone_Domain_001", "Id"))
+        )
+        assert value.status == "pending_deploy" and value.value != "dzd-found"
+
+
+def test_datazone_id_mapping_uses_get_domain(tmp_path):
+    from unittest.mock import Mock
+
+    ctx = m.Context(
+        tmp_path,
+        {
+            "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1",
+            "environment": "dev",
+            "directory": "123456789012",
+        },
+        services=["datazone"],
+    )
+    ctx.verified = True
+    ctx.pages = Mock(
+        return_value={
+            "items": [
+                {
+                    "name": "fixture",
+                    "managedAccountId": "123456789012",
+                    "id": "dzd-found",
+                }
+            ]
+        }
+    )
+    ctx.call = Mock(return_value={"id": "dzd-found"})
+    resource = FakeResource(ctx, "datazone", "DataZone.Domain")
+    resource.current = lambda _: None
+    mapping, properties = _imports_aws_mapping_compare.comparison(m.ROOT, "datazone")
+    prop = properties["DataZone.Domain.Id"]
+    assert prop.field.classification == "supported"
+    assert (
+        _imports_aws_mapping_compare.value(
+            ctx, resource, mapping, prop, "DataZone.Domain.Id"
+        )[1]
+        == "dzd-found"
+    )
+    assert ("cloudcontrol", "get_resource") not in ctx.allowed

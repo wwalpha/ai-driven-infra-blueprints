@@ -2,9 +2,14 @@
 
 from typing import Any
 
-from model.adapters.aws import Unresolved
+from model.adapters.aws import Unresolved, one
+from utils.aws.identity import execution_account
 
-APIS = {("datazone", "get_project"), ("datazone", "get_domain")}
+APIS = {
+    ("datazone", "get_project"),
+    ("datazone", "get_domain"),
+    ("datazone", "list_domains"),
+}
 SDK_OPERATIONS = {"DataZone.Project": "get_project", "DataZone.Domain": "get_domain"}
 
 
@@ -20,7 +25,20 @@ def fetch_sdk(ctx: Any, resource: Any, operation: str) -> dict[str, Any]:
     if operation == "get_domain":
         domain_id = resource.current("Id")
         if not domain_id:
-            raise Unresolved("DataZone domain requires a confirmed Id")
+            name = resource.value("Name")
+            account = execution_account(ctx.target)
+            domain = one(
+                [
+                    item
+                    for item in ctx.pages("datazone", "list_domains").get("items", [])
+                    if item.get("name") == name
+                    and item.get("managedAccountId") == account
+                ],
+                "datazone.list_domains",
+            )
+            domain_id = domain.get("id")
+            if not domain_id:
+                raise Unresolved("DataZone domain has no confirmed Id")
         return ctx.call("datazone", operation, identifier=domain_id)
     return ctx.call(
         "datazone",
