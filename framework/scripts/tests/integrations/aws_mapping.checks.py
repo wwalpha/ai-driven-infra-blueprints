@@ -482,12 +482,161 @@ def check_scheduler_compare():
         )
 
 
+def check_glue_catalog_compare():
+    kind = "Glue.Catalog"
+    permissions = [
+        {
+            "Principal": {"DataLakePrincipalIdentifier": "principal"},
+            "Permissions": ["CREATE_TABLE", "ALTER"],
+        }
+    ]
+    names = (
+        "FederatedCatalog.Identifier",
+        "CreateDatabaseDefaultPermissions",
+        "CreateTableDefaultPermissions",
+    )
+    payload = {
+        "Name": "catalog",
+        "FederatedCatalog": {
+            "Identifier": "remote-id",
+            "ConnectionName": "different-connection",
+        },
+        names[1]: permissions,
+        names[2]: permissions,
+    }
+    target = {
+        "awsAccountId": "123456789012",
+        "awsExecutionAccountId": "999999999999",
+        "awsRegion": "ap-northeast-1",
+        "environment": "dev",
+        "directory": "fixture",
+    }
+    with TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        for direct in (True, False):
+            for scenario in ("match", "difference", "empty", "missing", "error"):
+                actual = copy.deepcopy(payload)
+                if scenario == "difference":
+                    actual["FederatedCatalog"]["Identifier"] = "other-id"
+                    actual[names[1]][0]["Permissions"] = ["ALTER"]
+                    actual[names[2]][0]["Principal"]["DataLakePrincipalIdentifier"] = (
+                        "other"
+                    )
+                elif scenario == "empty":
+                    actual[names[1]] = actual[names[2]] = []
+                elif scenario == "missing":
+                    actual.pop(names[1])
+                    actual.pop(names[2])
+                    actual["FederatedCatalog"].pop("Identifier")
+                client = Mock()
+                client.can_paginate.return_value = False
+                client.get_catalog.return_value = {"Catalog": actual}
+                client.get_catalogs.return_value = {
+                    "CatalogList": [{"Name": "other"}, actual]
+                }
+                if scenario == "error":
+                    error = ClientError(
+                        {
+                            "Error": {
+                                "Code": "AccessDeniedException",
+                                "Message": "denied",
+                            }
+                        },
+                        "GetCatalog",
+                    )
+                    (
+                        client.get_catalog if direct else client.get_catalogs
+                    ).side_effect = error
+                ctx = m.Context(
+                    root,
+                    target,
+                    session=SimpleNamespace(client=Mock(return_value=client)),
+                    services=["glue"],
+                )
+                ctx.verified = True
+                model = SimpleNamespace(
+                    ctx=ctx,
+                    service="glue",
+                    values={},
+                    locations={},
+                    path=root / "model/dev/fixture/glue.properties",
+                )
+                values = ["remote-id", permissions, permissions]
+                if scenario in ("empty", "missing"):
+                    values[1:] = [[], []]
+                rows = [
+                    (
+                        f"001-{index:03}",
+                        {
+                            "property": kind + "." + name,
+                            "value": "`"
+                            + (json.dumps(value) if isinstance(value, list) else value)
+                            + "`",
+                        },
+                    )
+                    for index, (name, value) in enumerate(
+                        zip(names, values, strict=True), 1
+                    )
+                ]
+                rows.append(
+                    (
+                        "001-004",
+                        {
+                            "property": kind
+                            + "."
+                            + ("CatalogId" if direct else "Name"),
+                            "value": "`"
+                            + ("catalog-id" if direct else "catalog")
+                            + "`",
+                        },
+                    )
+                )
+                resource = m.Resource(
+                    model,
+                    "001",
+                    {"resourceType": kind, "logicalId": "Glue_Catalog_001"},
+                    rows,
+                )
+                results = m.compare_resource(ctx, resource)
+                if scenario == "error":
+                    assert (
+                        len(results) == 1
+                        and results[0]["status"] == "acquisition_failed"
+                    ), results
+                    assert set(results[0]["affectedKeys"]) >= {
+                        kind + "." + name for name in names
+                    }
+                else:
+                    found = {item["propertiesKey"]: item for item in results}
+                    expected = {
+                        "match": "match",
+                        "difference": "difference",
+                        "empty": "match",
+                        "missing": "difference",
+                    }[scenario]
+                    assert all(
+                        found[kind + "." + name]["status"] == expected for name in names
+                    ), results
+                    if scenario == "match":
+                        assert found[kind + "." + names[1]]["awsValue"] == permissions
+                assert all(item["api"].startswith("glue.") for item in ctx.trace)
+                if direct:
+                    client.get_catalog.assert_called_once_with(CatalogId="catalog-id")
+                    client.get_catalogs.assert_not_called()
+                else:
+                    client.get_catalogs.assert_called_once_with(
+                        ParentCatalogId="999999999999"
+                    )
+                    client.get_catalog.assert_not_called()
+
+
 def main():
     with patch.object(
         socket.socket, "connect", side_effect=AssertionError("network forbidden")
     ):
         check_config()
         check_scheduler_compare()
+        check_glue_catalog_compare()
     print(
         "AWS Mapping checks: PASS (Config explicit values, Compare, IMPORT and display 18/18; no AWS connection)"
     )

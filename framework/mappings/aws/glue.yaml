@@ -110,12 +110,12 @@ resourceTypes:
         model: {include: false}
         display: {show: false, name: CreateDatabaseDefaultPermissions}
         access: [read-write]
-        aws: {getter: provider-glue-catalog, path: CreateDatabaseDefaultPermissions, normalize: typed}
+        aws: {getter: base, path: CreateDatabaseDefaultPermissions, normalize: typed}
       CreateTableDefaultPermissions:
         model: {include: false}
         display: {show: false, name: CreateTableDefaultPermissions}
         access: [read-write]
-        aws: {getter: provider-glue-catalog, path: CreateTableDefaultPermissions, normalize: typed}
+        aws: {getter: base, path: CreateTableDefaultPermissions, normalize: typed}
       Description:
         model: {include: false}
         display: {show: false, name: Description}
@@ -135,7 +135,7 @@ resourceTypes:
         model: {include: true}
         display: {show: true, name: FederatedCatalog.Identifier}
         access: [read-write]
-        aws: {getter: provider-glue-catalog, path: FederatedCatalog.Identifier, normalize: typed}
+        aws: {getter: base, path: FederatedCatalog.Identifier, normalize: typed}
       Name:
         model: {include: true}
         display: {show: true, name: Name}

@@ -1845,3 +1845,44 @@ def test_quicksight_group_namespace_comparison_split_accounts(tmp_path):
         item for item in records if item["propertiesKey"] == kind + ".Namespace"
     )
     check(record["status"] == "match", str(record))
+
+
+def test_glue_catalog_base_mapping_and_selectors(tmp_path):
+    ctx = SchemaOffline(tmp_path)
+    mapping, properties = ctx.comparison("glue")
+    names = (
+        "CreateDatabaseDefaultPermissions",
+        "CreateTableDefaultPermissions",
+        "FederatedCatalog.Identifier",
+    )
+    for name in names:
+        field = properties["Glue.Catalog." + name].field
+        assert (field.classification, field.getter, field.path) == (
+            "supported",
+            "base",
+            name,
+        )
+        assert field.copy_default() == m.MISSING
+    assert ("cloudcontrol", "get_resource") not in m.service_module("glue").APIS
+    record = {
+        "Name": "catalog",
+        "FederatedCatalog": {"Identifier": "id"},
+        "CreateDatabaseDefaultPermissions": [],
+        "CreateTableDefaultPermissions": [],
+    }
+    resource = SimpleNamespace(
+        kind="Glue.Catalog", current=lambda _: "catalog-id", value=lambda _: "catalog"
+    )
+    context = SimpleNamespace(
+        target={"awsAccountId": "resource", "awsExecutionAccountId": "execution"},
+        call=Mock(return_value={"Catalog": record}),
+        pages=Mock(),
+    )
+    assert m.service_module("glue").fetch(context, resource, "base") == record
+    context.call.assert_called_once_with("glue", "get_catalog", CatalogId="catalog-id")
+    resource.current = lambda _: None
+    context.pages.return_value = {"CatalogList": [{"Name": "other"}, record]}
+    assert m.service_module("glue").fetch(context, resource, "base") == record
+    context.pages.assert_called_once_with(
+        "glue", "get_catalogs", ParentCatalogId="execution"
+    )
