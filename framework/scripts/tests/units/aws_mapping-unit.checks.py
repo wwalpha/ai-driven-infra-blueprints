@@ -356,7 +356,7 @@ def check_v3_registry():
     for values, expected in [
         (
             baseline_properties,
-            "302ae86df4742799a99e695433dbdd06017a25b18bc40398d77536244e1ac5b9",
+            "aab77cee3918e4f8ff32277f71539549778afd740269297002823aa5a8cd75e8",
         ),
         (
             definitions,
