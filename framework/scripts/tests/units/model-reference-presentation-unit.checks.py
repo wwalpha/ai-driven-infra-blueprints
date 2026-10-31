@@ -21,6 +21,7 @@ from design.policy_tables import (
     policy_lines,
     rendered_design,
 )
+from design.services import route53
 from model.core import (
     ModelNeedsFixError,
     ReferenceResolutionError,
@@ -1122,6 +1123,85 @@ def test_route53_endpoint_alias_expression_display(models, observed, index):
     )
     assert "$modelRef" in restore(path, markdown, values)
     assert values == before
+
+
+@pytest.mark.parametrize("observed", ["vpce-02771914003dc1188", None])
+def test_route53_endpoint_record_expression_display(models, observed):
+    target, endpoint = resource(
+        models, "vpc-endpoint", "EC2.VPCEndpoint", attribute="Id"
+    )
+    if observed:
+        endpoint["observed.row.001-001.value"] = "`" + observed + "`"
+    add(endpoint, "EC2.VPCEndpoint", "Tags[].Key", "Name", number=2)
+    add(endpoint, "EC2.VPCEndpoint", "Tags[].Value", "endpoint-name", number=3)
+    save(target, endpoint)
+    scope, values, path = consumer(models, "route53", "Route53.RecordSet")
+    values["desired.row.001-001.property"] = "Route53.RecordSet.Name"
+    expression = {
+        "Fn::Select": [
+            1,
+            {
+                "Fn::Split": [
+                    ":",
+                    {"Fn::Select": [0, reference("EC2_VPCEndpoint_001", "DnsEntries")]},
+                ]
+            },
+        ]
+    }
+    other_expression = copy.deepcopy(expression)
+    other_expression["Fn::Select"][0] = 0
+    records = [expression, "example.com", other_expression]
+    rid = add(
+        values,
+        "Route53.RecordSet",
+        "ResourceRecords",
+        records,
+        comment="接続先Endpoint: [endpoint-name](vpc-endpoint.md#saved-001)",
+    )
+    before = copy.deepcopy(values)
+    save(scope, values)
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    lines = [line for line in markdown.splitlines() if "ResourceRecords[" in line]
+    assert len(lines) == 3, markdown
+    if observed:
+        assert f"[{observed}](vpc-endpoint.md#saved-001)" in lines[0]
+        assert "Fn::Select" not in lines[0]
+    else:
+        assert "Fn::Select" in lines[0]
+    assert "example.com" in lines[1]
+    assert "Fn::Select" in lines[2]
+    assert "接続先Endpoint: [endpoint-name](vpc-endpoint.md#saved-001)" in markdown
+    assert json.loads(literal(values[f"desired.row.{rid}.value"])) == records
+    assert (
+        generated_document(
+            records,
+            models,
+            resolver=reference_resolver(values, scope, models),
+            scope=scope,
+            property_name="Route53.RecordSet.ResourceRecords",
+        )
+        == records
+    )
+    assert "$modelRef" in restore(path, markdown, values)
+    assert values == before
+
+
+def test_route53_scalar_record_endpoint_node():
+    expression = {
+        "Fn::Select": [
+            1,
+            {
+                "Fn::Split": [
+                    ":",
+                    {"Fn::Select": [0, reference("EC2_VPCEndpoint_001", "DnsEntries")]},
+                ]
+            },
+        ]
+    }
+    values = {"desired.row.001-002.property": "Route53.RecordSet.ResourceRecords[]"}
+    found = route53.endpoint_nodes(values, "001-002", "value", expression)
+    assert len(found) == 1
+    assert found[0][0] is None and found[0][1].pointer == route53.POINTER
 
 
 def test_s3_bucket_policy_self_reference_links_only_bucket_arn(models):
