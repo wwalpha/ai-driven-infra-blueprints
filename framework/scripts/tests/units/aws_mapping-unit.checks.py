@@ -187,7 +187,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (179, 52, 50, 63, 82, 81)
+    ) == (179, 53, 50, 64, 82, 81)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -264,6 +264,21 @@ def check_v3_registry():
         "GETTERS": {},
         "APIS": [("datazone", "get_project")],
     }
+    namespace = baseline_properties["quicksight"]["QuickSight.Group"]["Namespace"]
+    assert namespace.pop("aws") == {
+        "getter": "group-namespace",
+        "path": "Namespace",
+        "normalize": "typed",
+    }
+    namespace["source"] = {
+        "kind": "model",
+        "location": "desired row Namespace; describe_group request input",
+        "constraint": "Existing fetch copies this verified request input; it is not an AWS response property.",
+        "classification": "local_metadata",
+    }
+    del definitions["quicksight"]["group-namespace"]
+    del metadata["quicksight"]["GETTERS"]["group-namespace"]
+    metadata["quicksight"]["RESOURCE_TYPES"].remove("QuickSight.Group")
     metadata["quicksight"]["APIS"].remove(("quicksight", "describe_group"))
     table_id = baseline_properties["glue"]["Glue.Table"]["Id"]
     assert table_id["model"]["include"] and table_id["source"] == {
@@ -315,7 +330,7 @@ def check_v3_registry():
             == expected
         )
     print(
-        "YAML v3/environment baseline: PASS (50 files, 179 types, 52 adapter types, 50 identities, 63 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
+        "YAML v3/environment baseline: PASS (50 files, 179 types, 53 adapter types, 50 identities, 64 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
     )
 
 

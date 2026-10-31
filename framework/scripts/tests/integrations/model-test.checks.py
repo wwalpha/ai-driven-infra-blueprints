@@ -984,6 +984,121 @@ def glue_write_only():
 
 
 @it_case
+def test_quicksight_group_namespace():
+    case = TestCase()
+    with tempfile.TemporaryDirectory(prefix="audit-quicksight-group-") as directory:
+        root = Path(directory)
+        target = {
+            "environment": "dev",
+            "alias": "cde",
+            "awsAccountId": "123456789012",
+            "awsRegion": "ap-northeast-1",
+            "iacEngine": "cloudformation",
+        }
+        (root / "project.json").write_text(
+            json.dumps({"projectName": "fixture", "targets": [target]})
+        )
+        data = fixture(
+            {},
+            "quicksight",
+            [
+                (
+                    "001",
+                    "QuickSight.Group",
+                    "group",
+                    [
+                        ("AwsAccountId", "`123456789012`", None),
+                        ("Namespace", "`default`", None),
+                        ("GroupName", "`team`", None),
+                        ("Description", "`description`", None),
+                        (
+                            "PrincipalId",
+                            '`{"$modelRef":{"logicalId":"QuickSight_Group_001","attribute":"PrincipalId"}}`',
+                            None,
+                        ),
+                    ],
+                )
+            ],
+        )
+        data["models"]["dev/cde/quicksight"]["observed.row.001-005.value"] = (
+            "`principal`"
+        )
+        write_model(
+            root / "model/dev/cde/quicksight.properties",
+            data["models"]["dev/cde/quicksight"],
+        )
+        script = root / "quicksight.py"
+        script.write_text(generator.generate(root, "dev", "cde", "quicksight")[0])
+        fake = root / "aws"
+        fake.write_text(
+            "#!"
+            + sys.executable
+            + "\n"
+            + """import json, os, sys
+api = sys.argv[1:3]
+if api == ["sts", "get-caller-identity"]:
+ value = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/offline"}
+elif api == ["quicksight", "describe-group"]:
+ open(os.environ["CALLS"], "a").write("called\\n")
+ if os.environ["ARN"] == "FAIL":
+  print("An error occurred (ResourceNotFoundException) when calling DescribeGroup: group not found", file=sys.stderr)
+  sys.exit(1)
+ group = {"GroupName": "team", "Description": "description", "PrincipalId": "principal"}
+ if os.environ["ARN"] != "MISSING":
+  group["Arn"] = os.environ["ARN"]
+ value = {"Group": group}
+else:
+ raise RuntimeError(str(api))
+print(json.dumps(value))
+"""
+        )
+        fake.chmod(0o700)
+        good = "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/team"
+        cases = [
+            (good, "OK", None),
+            (good.replace("/default/", "/other/"), "NG", None),
+            ("MISSING", "ERROR", "missing or malformed"),
+            ("invalid", "ERROR", "missing or malformed"),
+            (good.replace("arn:aws:", "arn:invalid:"), "ERROR", "missing or malformed"),
+            (good.replace(":quicksight:", ":s3:"), "ERROR", "missing or malformed"),
+            (good.replace("/default/", "//"), "ERROR", "namespace is malformed"),
+            (
+                good.replace("123456789012", "999999999999"),
+                "ERROR",
+                "account or region",
+            ),
+            (good.replace("ap-northeast-1", "us-east-1"), "ERROR", "account or region"),
+            (good.replace("/team", "/wrong"), "ERROR", "group name"),
+            ("FAIL", "ERROR", "ResourceNotFoundException"),
+        ]
+        for arn, status, reason in cases:
+            with case.subTest(arn=arn):
+                calls = root / "calls"
+                calls.unlink(missing_ok=True)
+                process = subprocess.run(
+                    [sys.executable, "-I", "-B", str(script)],
+                    cwd=root,
+                    env={
+                        **os.environ,
+                        "PATH": str(root),
+                        "ARN": arn,
+                        "CALLS": str(calls),
+                    },
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                output = process.stdout + process.stderr
+                case.assertRegex(output, r"\[" + status + r"\].*Namespace", output)
+                if reason:
+                    case.assertIn(reason, output)
+                if arn != "FAIL":
+                    for prop in ("GroupName", "Description", "PrincipalId"):
+                        case.assertRegex(output, r"\[OK\].*" + prop, output)
+                case.assertEqual(calls.read_text().count("called"), 1, output)
+
+
+@it_case
 def check():
     test_quicksight_generated_standalone()
     glue_write_only()

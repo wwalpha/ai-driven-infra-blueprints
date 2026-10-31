@@ -1,6 +1,9 @@
 version: 3
 service: quicksight
 getters:
+  group-namespace:
+    kind: adapter
+    resources: [QuickSight.Group]
   sdk-quicksight-group:
     kind: sdk
     service: quicksight
@@ -79,11 +82,7 @@ resourceTypes:
         model: {include: true}
         display: {show: true, name: Namespace}
         access: [api]
-        source:
-          kind: model
-          location: desired row Namespace; describe_group request input
-          constraint: Existing fetch copies this verified request input; it is not an AWS response property.
-          classification: local_metadata
+        aws: {getter: group-namespace, path: Namespace, normalize: typed}
       GroupName:
         model: {include: true}
         display: {show: true, name: GroupName}

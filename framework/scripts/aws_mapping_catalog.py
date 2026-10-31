@@ -26,7 +26,6 @@ INPUT_SOURCES = {
     "QuickSight.DataSource.AwsAccountId": "model",
     "QuickSight.VPCConnection.AwsAccountId": "model",
     "QuickSight.Group.AwsAccountId": "model",
-    "QuickSight.Group.Namespace": "model",
     "SQS.Queue.QueueName": "model",
     "SQS.QueuePolicy.Queues[]": "model",
     "Glue.Connection.CatalogId": "model",
