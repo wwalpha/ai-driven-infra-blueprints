@@ -15,6 +15,7 @@ import model.validations.full_inputs as _model_validation_full_inputs
 from comparison import Comparison
 from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex
+from design.services import kms
 from generation_inputs import GenerationInputs
 from model.core import ModelNeedsFixError, entries
 from model.format import parse, serialize
@@ -604,6 +605,38 @@ def check_kms_alias_name_and_multiple_aliases(project_workspace):
         .link
         == "[12345678-1234-1234-1234-123456789abc](kms.md#alias-two)"
     )
+
+
+@pytest.mark.parametrize(
+    "state,observed,expected",
+    [
+        ("match", "key-id", "key-id"),
+        ("mismatch", "key-id", "不一致: key-id"),
+        ("unproven", "key-id", "未確認: key-id"),
+        ("pending", "PENDING_DEPLOY", "PENDING_DEPLOY"),
+        ("unobserved", None, "未観測"),
+    ],
+)
+def check_kms_service_reference_label(state, observed, expected):
+    position = Position("001-002", "value", "")
+    values = {"desired.row.001-002.value": "`" + json.dumps(reference()) + "`"}
+    with patch.object(
+        kms.references, "kms_observation", return_value=(state, observed)
+    ):
+        assert (
+            kms.reference_label(
+                values,
+                position,
+                object(),
+                None,
+                None,
+                {"resourceType": "KMS.Key"},
+                "Arn",
+                "key-name",
+                "resolved-arn",
+            )
+            == expected
+        )
 
 
 def check_kms_observation_not_applied_inside_document(project_workspace):

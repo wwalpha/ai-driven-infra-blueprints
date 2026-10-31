@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import json_intrinsics
+from design.services import reference_labels
 from utils.reference_contracts import ARN_SHAPES
 
 import model.files as files
@@ -196,30 +197,21 @@ class Presentation:
                 and attribute == projection.reference_attribute(kind, "Arn")
                 and any(kind + "." + part in identifiers for part in components)
             )
-            if (
-                kind + "." + field in identifiers
-                or identifier_arn
-                or attribute == "AliasName"
-            ) and isinstance(displayed, str):
+            if (kind + "." + field in identifiers or identifier_arn) and isinstance(
+                displayed, str
+            ):
                 name = displayed
-            if position.source_field == "value" and not position.pointer:
-                raw, structured = references._json(
-                    f"desired.row.{position.row_id}.value",
-                    self.values[f"desired.row.{position.row_id}.value"],
-                )
-                if structured and references.is_reference(raw):
-                    observation = references.kms_observation(
-                        self.values, position.row_id, node, self.scope, self.resolver
-                    )
-                    if observation is not None:
-                        state, observed = observation
-                        name = {
-                            "match": observed,
-                            "mismatch": "不一致: " + str(observed),
-                            "unproven": "未確認: " + str(observed),
-                            "pending": "PENDING_DEPLOY",
-                            "unobserved": "未観測",
-                        }[state]
+            name = reference_labels.select(
+                self.values,
+                position,
+                node,
+                self.scope,
+                self.resolver,
+                resource,
+                attribute,
+                name,
+                displayed,
+            )
             if self.service_presentation:
                 name = self.service_presentation.reference_label(
                     contract.get("property_name"),
