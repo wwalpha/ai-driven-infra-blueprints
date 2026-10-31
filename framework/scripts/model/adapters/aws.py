@@ -1079,6 +1079,13 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                 )
             if (
                 resource.kind == "Lambda.Function"
+                and prop == "Lambda.Function.Code.S3Bucket"
+                and isinstance(response.get("Code"), dict)
+                and response["Code"].get("Error")
+            ):
+                raise AcquisitionError("lambda.GetFunction", "CodeRetrievalError")
+            if (
+                resource.kind == "Lambda.Function"
                 and prop
                 in {"Lambda.Function.Code.S3Bucket", "Lambda.Function.Code.S3Key"}
                 and value == MISSING

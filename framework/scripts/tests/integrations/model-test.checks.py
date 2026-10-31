@@ -858,6 +858,48 @@ def codebuild_boolean_standalone():
             )
 
 
+def lambda_bucket_audit():
+    case = TestCase()
+    with tempfile.TemporaryDirectory(prefix="audit-lambda-") as directory:
+        root = Path(directory)
+        target = {"environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
+                  "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
+        (root / "project.json").write_text(json.dumps({"projectName": "fixture", "targets": [target]}))
+        data = fixture({}, "lambda", [("001", "Lambda.Function", "function", [
+            ("FunctionName", "`fixture-function`", None),
+            ("Code.S3Bucket", "`fixture-bucket`", None),
+        ])])
+        write_model(root / "model/dev/cde/lambda.properties", data["models"]["dev/cde/lambda"])
+        snap = snapshot(generator.generate(root, "dev", "cde", "lambda")[0])
+        engine = runtime(snap)
+        key = "Lambda.Function.Code.S3Bucket"
+        for code, expected in [
+            ({"ResolvedS3Object": {"S3Bucket": "fixture-bucket"}}, "match"),
+            ({"ResolvedS3Object": {"S3Bucket": "other-bucket"}}, "difference"),
+            ({"Location": "https://example.invalid/package", "CodeSha256": "ignored"}, "excluded"),
+        ]:
+            response = {("lambda", "get-function"): {"Configuration": {"FunctionName": "fixture-function"}, "Code": code}}
+            records = engine["audit"](snap, None, CLI(response))[2]
+            item = next(item for item in records if item["propertiesKey"] == key)
+            case.assertEqual(item["status"], expected, records)
+            if expected == "excluded":
+                text, _ = engine["report"](snap, None, "123456789012", records, datetime.now(timezone.utc))
+                case.assertIn("[INFO] Lambda.Function", text)
+                case.assertIn("Verification: NOT_VERIFIABLE", text)
+        response = {("lambda", "get-function"): {"Configuration": {"FunctionName": "fixture-function"}, "Code": {"Error": {"ErrorCode": "AccessDenied"}}}}
+        records = engine["audit"](snap, None, CLI(response))[2]
+        case.assertTrue(any(item["status"] == "acquisition_failed" for item in records), records)
+        case.assertFalse(any(item["status"] == "excluded" for item in records), records)
+        for error, expected in [("ResourceNotFoundException", "resource_missing"), ("AccessDenied", "acquisition_failed")]:
+            def cli(command, **kwargs):
+                if command[1:3] == ["lambda", "get-function"]:
+                    return subprocess.CompletedProcess(command, 1, "", f"An error occurred ({error}) when calling GetFunction: failed")
+                return CLI({})(command, **kwargs)
+            records = engine["audit"](snap, None, cli)[2]
+            case.assertTrue(any(item["status"] == expected for item in records), records)
+            case.assertFalse(any(item["status"] == "excluded" for item in records), records)
+
+
 def glue_write_only():
     case = TestCase()
     with tempfile.TemporaryDirectory(prefix="audit-glue-") as directory:
@@ -1222,6 +1264,7 @@ def check():
     lambda_missing_standalone()
     test_quicksight_generated_standalone()
     glue_write_only()
+    lambda_bucket_audit()
     macie_job_standalone()
     codebuild_boolean_standalone()
     standalone_service_imports()

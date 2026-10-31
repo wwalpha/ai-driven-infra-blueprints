@@ -473,6 +473,12 @@ def identifier_result(m, ctx, resource, item):
 def classify_exclusion(m, snapshot, resource, item):
     prop = item["propertiesKey"]
     reason = snapshot.get("exclusions", {}).get(prop)
+    if (
+        prop == "Lambda.Function.Code.S3Bucket"
+        and item["status"] == "sdk_unavailable"
+        and item.get("reason", "").startswith("GetFunction did not return Code.ResolvedS3Object;")
+    ):
+        reason = item["reason"]
     if item["status"] not in {"sdk_unavailable", "local_metadata"} or not reason:
         return item
     try:

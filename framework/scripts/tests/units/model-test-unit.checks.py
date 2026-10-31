@@ -1480,6 +1480,19 @@ class IdentifierTests(unittest.TestCase):
             self.assertIn("Verification: NOT_VERIFIABLE", text)
             self.assertIn("INFO: 1", text)
 
+    def test_lambda_bucket_missing_evidence_only_is_excluded(self):
+        prop = "Lambda.Function.Code.S3Bucket"
+        self.resource.rows_for.return_value = [("001-001", {"value": "`bucket`"})]
+        self.resource.parse = lambda row: row["value"].strip("`")
+        item = {"propertiesKey": prop, "status": "sdk_unavailable",
+                "reason": "GetFunction did not return Code.ResolvedS3Object; unavailable"}
+        self.assertEqual(audit.classify_exclusion(self.m, {}, self.resource, item)["status"], "excluded")
+        for status in ("match", "difference", "resource_missing", "acquisition_failed"):
+            candidate = {**item, "status": status}
+            self.assertIs(audit.classify_exclusion(self.m, {}, self.resource, candidate), candidate)
+        candidate = {**item, "reason": "other SDK failure"}
+        self.assertIs(audit.classify_exclusion(self.m, {}, self.resource, candidate), candidate)
+
     def test_missing_resource_report_is_not_a_property_diff(self):
         snapshot = {
             "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
