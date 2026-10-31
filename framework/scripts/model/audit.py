@@ -43,12 +43,13 @@ from model.core import ReferenceDiagnosticError, entries, literal
 from model.literal_values import value_shape
 from model.projection import (
     document_references,
+    execution_document,
     reference_context_for,
     reference_resolver,
     resource_display_rows,
 )
-from model.reference_nodes import nodes, project
-from model.reference_values import confirmed
+from model.reference_nodes import nodes, parse, project
+from model.reference_values import confirmed, reference_value
 from model.render import display_name
 from model.sources import load_model, model_paths, publication_lock
 
@@ -487,24 +488,70 @@ def reference_rows(root, models):
             )
             statuses = sorted({value.status for value in resolutions.values()})
             resolved = not diagnostics and statuses == ["resolved"]
-            rows[rid] = {
-                "status": "resolved"
-                if resolved
-                else statuses[0]
-                if len(statuses) == 1
-                and not any(
-                    d.get("category") in {"MODEL_NEEDS_FIX", "FRAMEWORK_UNSUPPORTED"}
-                    for d in diagnostics
-                )
-                else "unresolved",
-                "value": project(
+            producer = None
+            if (
+                row["property"] == "Route53.RecordSet.AliasTarget.DNSName"
+                and len(references) == 1
+            ):
+                node = references[0]
+                producer = {"logicalId": node.logical_id, "attribute": node.attribute}
+                if statuses in (["logical_only"], ["unresolved"]) and all(
+                    d.get("category") == "REFERENCE_UNRESOLVED" for d in diagnostics
+                ):
+                    try:
+                        _, _, spec = resolver.resolve_logical(
+                            node.logical_id, data.scope
+                        )
+                        if (
+                            spec["resourceType"] == "EC2.VPCEndpoint"
+                            and node.attribute == "DnsEntries"
+                        ):
+                            identity = reference_value(
+                                resolver,
+                                data.scope,
+                                parse(
+                                    {
+                                        "$modelRef": {
+                                            "logicalId": node.logical_id,
+                                            "attribute": "Id",
+                                        }
+                                    }
+                                ),
+                            )
+                            if identity.status == "resolved" and isinstance(
+                                identity.value, str
+                            ):
+                                producer["endpointId"] = identity.value
+                    except ReferenceDiagnosticError:
+                        pass
+            value = None
+            if resolved:
+                value = project(
                     document,
                     _bind_framework_callback(
                         _callback_reference_rows_value, resolutions
                     ),
                 )
+                if producer:
+                    value = execution_document(
+                        value, root, property_name=row["property"], scope=data.scope
+                    )
+                    if not isinstance(value, str) or not value:
+                        resolved = False
+                        value = None
+            rows[rid] = {
+                **({"producer": producer, "expression": document} if producer else {}),
+                "status": "resolved"
                 if resolved
-                else None,
+                else statuses[0]
+                if len(statuses) == 1
+                and statuses[0] != "resolved"
+                and not any(
+                    d.get("category") in {"MODEL_NEEDS_FIX", "FRAMEWORK_UNSUPPORTED"}
+                    for d in diagnostics
+                )
+                else "unresolved",
+                "value": value,
                 "diagnostics": diagnostics,
                 "reason": "; ".join(
                     dict.fromkeys(
@@ -512,7 +559,13 @@ def reference_rows(root, models):
                         for d in diagnostics
                     )
                 )
-                or ("" if resolved else ", ".join(statuses) or "invalid reference"),
+                or (
+                    ""
+                    if resolved
+                    else ", ".join(statuses)
+                    if statuses != ["resolved"]
+                    else "Producer output expression unresolved"
+                ),
             }
         if rows:
             result[name] = rows
@@ -827,7 +880,19 @@ def generate(root, environment, selector, service):
         name: input_text(
             scripts / "aws-compare-services" / (name + ".py"), encoding="utf-8"
         )
-        for name in sorted(set(mappings) | {"iam", "kms"})
+        for name in sorted(
+            set(mappings)
+            | {"iam", "kms"}
+            | (
+                {"vpc-endpoint"}
+                if any(
+                    row.get("producer", {}).get("endpointId")
+                    for rows in resolved_rows.values()
+                    for row in rows.values()
+                )
+                else set()
+            )
+        )
     }
     adapters = {
         name: embed_adapter(source, name, engine) for name, source in adapters.items()

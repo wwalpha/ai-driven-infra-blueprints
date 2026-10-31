@@ -2648,6 +2648,142 @@ print(json.dumps(value))
         case.assertFalse((root / "calls").exists())
 
 
+@it_case
+def test_route53_alias_producer_observation():
+    with tempfile.TemporaryDirectory(prefix="route53-producer-") as directory:
+        root = Path(directory)
+        root.joinpath("project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "fixture",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "alias": "cde",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        ref = {
+            "$modelRef": {"logicalId": "EC2_VPCEndpoint_001", "attribute": "DnsEntries"}
+        }
+        expression = {"Fn::Select": [1, {"Fn::Split": [":", {"Fn::Select": [0, ref]}]}]}
+        route = fixture(
+            {},
+            "route53",
+            [
+                (
+                    "001",
+                    "Route53.RecordSet",
+                    "record",
+                    [
+                        ("HostedZoneId", "`Z123`", None),
+                        ("Name", "`www.example.com.`", None),
+                        ("Type", "`A`", None),
+                        (
+                            "AliasTarget.DNSName",
+                            "`" + json.dumps(expression) + "`",
+                            None,
+                        ),
+                    ],
+                )
+            ],
+        )["models"]["dev/cde/route53"]
+        endpoint = fixture(
+            {},
+            "vpc-endpoint",
+            [("001", "EC2.VPCEndpoint", "endpoint", [("Id", "`vpce-123`", None)])],
+        )["models"]["dev/cde/vpc-endpoint"]
+        endpoint["observed.row.001-001.value"] = "`vpce-123`"
+        for service, values in [("route53", route), ("vpc-endpoint", endpoint)]:
+            write_model(root / "model/dev/cde" / (service + ".properties"), values)
+        source = generator.generate(root, "dev", "cde", "route53")[0]
+        snap = snapshot(source)
+        row = snap["referenceRows"]["dev/cde/route53"]["001-004"]
+        assert row["status"] == "unresolved", row
+        assert row["producer"]["endpointId"] == "vpce-123", row
+        namespace = {"__name__": "audit_fixture", "SNAPSHOT": snap}
+        exec(compile(source, "<generated-audit>", "exec"), namespace)
+
+        def responses(dns, endpoints):
+            return {
+                ("ec2", "describe-vpc-endpoints"): {"VpcEndpoints": endpoints},
+                ("route53", "list-resource-record-sets"): {
+                    "ResourceRecordSets": [
+                        {
+                            "Name": "www.example.com.",
+                            "Type": "A",
+                            "AliasTarget": {
+                                "DNSName": dns,
+                                "HostedZoneId": "Z",
+                                "EvaluateTargetHealth": False,
+                            },
+                        }
+                    ],
+                    "IsTruncated": False,
+                },
+            }
+
+        endpoint_record = {
+            "VpcEndpointId": "vpce-123",
+            "VpcEndpointType": "Interface",
+            "State": "available",
+            "DnsEntries": [{"HostedZoneId": "Z", "DnsName": "producer.example"}],
+        }
+        for actual, producers, status in [
+            ("producer.example", [endpoint_record], "match"),
+            ("different.example", [endpoint_record], "difference"),
+            ("producer.example", [], "design_unresolved"),
+        ]:
+            cli = CLI(responses(actual, producers))
+            records = namespace["audit"](snap, cli_runner=cli)[2]
+            item = next(
+                x
+                for x in records
+                if x["propertiesKey"] == "Route53.RecordSet.AliasTarget.DNSName"
+            )
+            assert item["status"] == status, item
+            if status == "design_unresolved":
+                assert "EC2_VPCEndpoint_001.DnsEntries" in item["reason"], item
+            else:
+                assert item["designValue"] == "producer.example", item
+            assert any(
+                call[0] == ("ec2", "describe-vpc-endpoints") for call in cli.calls
+            )
+        endpoint.pop("observed.row.001-001.value")
+        write_model(root / "model/dev/cde/vpc-endpoint.properties", endpoint)
+        unresolved = snapshot(generator.generate(root, "dev", "cde", "route53")[0])
+        row = unresolved["referenceRows"]["dev/cde/route53"]["001-004"]
+        assert "endpointId" not in row["producer"], row
+        assert "EC2_VPCEndpoint_001.DnsEntries" in namespace["resolution_error"](row)
+        (root / "model/dev/cde/vpc-endpoint.properties").unlink()
+        missing = snapshot(generator.generate(root, "dev", "cde", "route53")[0])
+        row = missing["referenceRows"]["dev/cde/route53"]["001-004"]
+        assert row["status"] == "unresolved", row
+        assert "EC2_VPCEndpoint_001.DnsEntries" in namespace["resolution_error"](row)
+        endpoint["observed.row.001-001.value"] = "`vpce-123`"
+        endpoint.update(
+            {
+                "desired.row.001-002.property": "EC2.VPCEndpoint.DnsEntries",
+                "desired.row.001-002.value": '`["Z:producer.example"]`',
+                "desired.row.001-002.comment": "fixture",
+            }
+        )
+        endpoint["observed.row.001-002.value"] = '`["Z:producer.example"]`'
+        write_model(root / "model/dev/cde/vpc-endpoint.properties", endpoint)
+        resolved = snapshot(generator.generate(root, "dev", "cde", "route53")[0])[
+            "referenceRows"
+        ]["dev/cde/route53"]["001-004"]
+        assert (
+            resolved["status"] == "resolved" and resolved["value"] == "producer.example"
+        ), resolved
+
+
 if __name__ == "__main__":
     with patch.dict(sys.modules):
         check()

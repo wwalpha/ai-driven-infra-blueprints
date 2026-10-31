@@ -2246,3 +2246,83 @@ class SecurityGroupRuleRecoveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class Route53AliasProducerTests(unittest.TestCase):
+    def test_endpoint_observation_and_unresolved_reasons(self):
+        ref = {
+            "$modelRef": {"logicalId": "EC2_VPCEndpoint_001", "attribute": "DnsEntries"}
+        }
+        expression = {"Fn::Select": [1, {"Fn::Split": [":", {"Fn::Select": [0, ref]}]}]}
+        producer = {
+            "logicalId": "EC2_VPCEndpoint_001",
+            "attribute": "DnsEntries",
+            "endpointId": "vpce-123",
+        }
+        original = {
+            "status": "logical_only",
+            "reason": "",
+            "producer": producer,
+            "expression": expression,
+        }
+        m = SimpleNamespace(AcquisitionError=AcquisitionError, Unresolved=Unresolved)
+        for records, status, reason in [
+            (
+                [
+                    {
+                        "VpcEndpointId": "vpce-123",
+                        "VpcEndpointType": "Interface",
+                        "State": "available",
+                        "DnsEntries": [
+                            {"HostedZoneId": "Z", "DnsName": "producer.example"}
+                        ],
+                    }
+                ],
+                "resolved",
+                "",
+            ),
+            ([], "logical_only", "absent or ambiguous"),
+            (
+                [
+                    {
+                        "VpcEndpointId": "vpce-123",
+                        "VpcEndpointType": "Interface",
+                        "State": "pending",
+                    }
+                ],
+                "logical_only",
+                "not an available",
+            ),
+            (
+                [
+                    {
+                        "VpcEndpointId": "vpce-123",
+                        "VpcEndpointType": "Interface",
+                        "State": "available",
+                        "DnsEntries": [
+                            {"HostedZoneId": "Z", "DnsName": "one"},
+                            {"HostedZoneId": "Z", "DnsName": "two"},
+                        ],
+                    }
+                ],
+                "logical_only",
+                "ambiguous",
+            ),
+        ]:
+            with self.subTest(reason=reason):
+                row = dict(original)
+                ctx = Mock()
+                ctx.pages.return_value = {"VpcEndpoints": records}
+                audit.resolve_endpoint_aliases(
+                    m, ctx, {"referenceRows": {"route53": {"001": row}}}
+                )
+                self.assertEqual(row["status"], status)
+                if status == "resolved":
+                    self.assertEqual(row["value"], "producer.example")
+                else:
+                    self.assertIn(reason, audit.resolution_error(row))
+                    self.assertIn(
+                        "EC2_VPCEndpoint_001.DnsEntries", audit.resolution_error(row)
+                    )
+                ctx.pages.assert_called_once_with(
+                    "ec2", "describe_vpc_endpoints", VpcEndpointIds=["vpce-123"]
+                )

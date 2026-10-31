@@ -1,6 +1,7 @@
 """Runtime source embedded into each generated file; requires only Python stdlib."""
 
 import argparse
+import copy
 import io
 import json
 import re
@@ -71,7 +72,13 @@ def row_resolution(snapshot, resource, row):
 
 def resolution_error(resolved):
     if resolved["status"] != "resolved":
-        return resolved["reason"] or resolved["status"]
+        producer = resolved.get("producer")
+        detail = (
+            (producer["logicalId"] + "." + producer["attribute"] + ": ")
+            if producer
+            else ""
+        )
+        return detail + (resolved["reason"] or resolved["status"])
     if contains_reference(resolved["value"]):
         return "generated value still contains a Design reference"
     return None
@@ -488,7 +495,70 @@ def classify_exclusion(m, snapshot, resource, item):
     }
 
 
+def resolve_endpoint_aliases(m, ctx, snapshot):
+    for rows in snapshot["referenceRows"].values():
+        for row in rows.values():
+            producer = row.get("producer") or {}
+            endpoint = producer.get("endpointId")
+            if row["status"] not in {"logical_only", "unresolved"} or not endpoint:
+                continue
+            ref = {
+                "$modelRef": {
+                    "logicalId": producer["logicalId"],
+                    "attribute": "DnsEntries",
+                }
+            }
+            expression = {
+                "Fn::Select": [1, {"Fn::Split": [":", {"Fn::Select": [0, ref]}]}]
+            }
+            if row.get("expression") != expression:
+                row["reason"] = "unsupported Producer DNS selection"
+                continue
+            try:
+                records = ctx.pages(
+                    "ec2", "describe_vpc_endpoints", VpcEndpointIds=[endpoint]
+                ).get("VpcEndpoints", [])
+                if len(records) != 1 or records[0].get("VpcEndpointId") != endpoint:
+                    raise ValueError("Producer absent or ambiguous")
+                record = records[0]
+                entries = record.get("DnsEntries")
+                if (
+                    record.get("State") != "available"
+                    or record.get("VpcEndpointType") != "Interface"
+                ):
+                    raise ValueError("Producer is not an available interface endpoint")
+                if not isinstance(entries, list) or len(entries) != 1:
+                    raise ValueError("Producer DnsEntries selection is ambiguous")
+                if not isinstance(entries[0], dict):
+                    raise ValueError("Producer DnsEntries is invalid")
+                name = entries[0].get("DnsName")
+                zone = entries[0].get("HostedZoneId")
+                if (
+                    not isinstance(name, str)
+                    or not name
+                    or not isinstance(zone, str)
+                    or not zone
+                    or ":" in name
+                    or ":" in zone
+                ):
+                    raise ValueError("Producer DnsEntries is invalid")
+                row.update(status="resolved", value=name, reason="")
+            except (
+                m.AcquisitionError,
+                m.Unresolved,
+                ValueError,
+                TypeError,
+                KeyError,
+            ) as error:
+                row["reason"] = "Producer observation unavailable: " + (
+                    str(error)
+                    if isinstance(error, ValueError)
+                    else type(error).__name__
+                )
+
+
 def audit(snapshot, profile=None, cli_runner=None):
+    snapshot = copy.deepcopy(snapshot)
     m = engine(snapshot)
     target = dict(snapshot["target"])
     ctx = None
@@ -545,6 +615,7 @@ def audit(snapshot, profile=None, cli_runner=None):
                     )
                 )
         return m, account, records
+    resolve_endpoint_aliases(m, ctx, snapshot)
     model = ctx.model(
         m.ROOT
         / "model"
