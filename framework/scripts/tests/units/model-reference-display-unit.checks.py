@@ -232,16 +232,17 @@ def check_nameless_projection_reference(tmp_path, label, observed):
         heading = "### KMS.Key" + (": " + label if label else "")
         assert f'<a id="saved-001"></a>\n\n{heading}\n' in producer_markdown
         markdown = generate_markdown(path, policy, FRAMEWORK)
-        if True:
-            link = f"[{name}](kms.md#saved-001)"
-            assert link in markdown
-            resolved = projection.reference_resolver(
-                policy, consumer, tmp_path
-            ).resolve(reference(), consumer)
-            assert resolved[2]["logicalId"] == "KMS_Key_001"
-            assert model_reference_tables(
-                path, markdown, tuple(policy.items()), FRAMEWORK
-            )
+        displayed = (
+            observed
+            if observed == "PENDING_DEPLOY"
+            else f"arn:aws:kms:ap-northeast-1:123456789012:key/{observed}"
+        )
+        assert f"[{displayed}](kms.md#saved-001)" in markdown
+        resolved = projection.reference_resolver(policy, consumer, tmp_path).resolve(
+            reference(), consumer
+        )
+        assert resolved[2]["logicalId"] == "KMS_Key_001"
+        assert model_reference_tables(path, markdown, tuple(policy.items()), FRAMEWORK)
         assert "$modelRef" in policy["desired.row.001-002.document"]
         assert policy == before
 

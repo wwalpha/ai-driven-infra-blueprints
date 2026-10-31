@@ -14,7 +14,7 @@ import model.projection as projection
 import model.references as references
 import model.render as render
 import model.sources as sources
-from model.core import LINK, literal
+from model.core import LINK, literal, require_reference_diagnostics
 from model.reference_nodes import (
     context_at,
     nodes,
@@ -84,7 +84,7 @@ class Presentation:
                     )
                     if not structured:
                         continue
-                    resolutions, _ = projection.document_references(
+                    resolutions, diagnostics = projection.document_references(
                         raw,
                         resolver=self.resolver,
                         scope=self.scope,
@@ -94,6 +94,28 @@ class Presentation:
                             values, rid, row, raw, "", root
                         ),
                     )
+                    if (
+                        field == "value"
+                        and prop
+                        == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
+                        and isinstance(raw, list)
+                        and any(nodes(raw, errors=[]))
+                    ):
+                        if len(raw) != 1:
+                            raise ValueError(
+                                "CloudTrail DataResources requires exactly one value"
+                            )
+                        require_reference_diagnostics(
+                            [
+                                d
+                                for d in diagnostics
+                                if d.get("code")
+                                in {
+                                    "MODEL_REF_TYPE_MISMATCH",
+                                    "MODEL_REF_INVALID_ATTRIBUTE",
+                                }
+                            ]
+                        )
                     for node in nodes(raw, errors=[]):
                         result = resolutions.get(node)
                         position = Position(rid, field, node.pointer)
@@ -226,6 +248,14 @@ class Presentation:
                 for pos, ref in self.references.items()
             ):
                 marked = self.document(rid, "value", None)
+                if (
+                    prop == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
+                    and isinstance(marked, list)
+                    and len(marked) == 1
+                    and isinstance(marked[0], str)
+                    and marked[0] in self.marker_links
+                ):
+                    marked = marked[0]
                 text = (
                     marked
                     if isinstance(marked, str)

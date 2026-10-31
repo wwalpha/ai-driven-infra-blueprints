@@ -1,5 +1,6 @@
 """CloudTrail DataResources restoration."""
 
+import json
 import re
 
 from model.core import ReferenceResolutionError, literal
@@ -25,7 +26,7 @@ def compact_array(template):
     return bool(COMPACT_ARRAY.search(template))
 
 
-def formal_rows(cells, display_property, count, mode):
+def formal_rows(cells, display_property, count, mode, *, verified_reference=False):
     prop = cells[1]
     result = []
     match = CLOUDTRAIL_DATA_RESOURCE.fullmatch(display_property)
@@ -39,6 +40,18 @@ def formal_rows(cells, display_property, count, mode):
         and resource_value == "`All current and future S3 buckets`"
     ):
         resource_value = '`["arn:aws:s3"]`'
+    elif (
+        mode != "IMPORT"
+        and verified_reference
+        and re.fullmatch(r"`\[.*\]`", resource_value)
+    ):
+        values = json.loads(literal(resource_value))
+        if (
+            not isinstance(values, list)
+            or len(values) != 1
+            or not isinstance(values[0], str)
+        ):
+            raise ValueError("CloudTrail DataResources requires exactly one value")
     elif mode != "IMPORT" and not re.fullmatch(
         r"\[[^\]]+\]\([^)]*#[^)]+\)", resource_value
     ):

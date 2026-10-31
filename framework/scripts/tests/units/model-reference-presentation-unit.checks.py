@@ -93,6 +93,100 @@ def restore(path, markdown, values):
     return "\n".join(document.raw.display_lines)
 
 
+@pytest.mark.parametrize(
+    ("service", "kind", "attribute", "resource_type", "logical_id", "label"),
+    [
+        (
+            "s3",
+            "S3.Bucket",
+            "BucketName",
+            "AWS::S3::Object",
+            "S3_Bucket_001",
+            "shared-name",
+        ),
+        (
+            "lambda",
+            "Lambda.Function",
+            "FunctionName",
+            "AWS::Lambda::Function",
+            "Lambda_Function_001",
+            "arn:aws:lambda:ap-northeast-1:123456789012:function:function-name",
+        ),
+    ],
+)
+def test_cloudtrail_reference_array_roundtrip(
+    models, service, kind, attribute, resource_type, logical_id, label
+):
+    if service == "lambda":
+        target, target_values = resource(models, service, kind, attribute=attribute)
+        target_values["desired.row.001-001.value"] = "`function-name`"
+        target_values["desired.resource.001.anchor"] = "lambda-saved-anchor"
+        save(target, target_values)
+    scope, values, path = consumer(models, "cloudtrail", "CloudTrail.Trail")
+    values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Type",
+        resource_type,
+    )
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Values",
+        [reference(logical_id, "ObjectArn" if service == "s3" else "Arn")],
+        number=3,
+    )
+    save(scope, values)
+    before = copy.deepcopy(values)
+    tables = []
+    markdown = generate_markdown(path, values, FRAMEWORK, reference_tables=tables)
+    link = f"[{label}]({service}.md#{service}-saved-anchor)"
+    assert f"| {link} |" in markdown, markdown
+    assert '`["`' not in markdown and '`"]`' not in markdown
+    assert "CloudTrail.Trail.EventSelectors[].DataResources[].Values" in restore(
+        path, markdown, values
+    )
+    assert json.loads(literal(values["desired.row.001-003.value"])) == [
+        reference(logical_id, "ObjectArn" if service == "s3" else "Arn")
+    ]
+    assert values == before
+    with pytest.raises(ValueError, match="Model expected display"):
+        restore(
+            path, markdown.replace(f"{service}-saved-anchor", "wrong-anchor"), values
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        [],
+        [reference("S3_Bucket_001", "ObjectArn")] * 2,
+        [reference("CodeBuild_Project_001", "Arn")],
+    ],
+)
+def test_cloudtrail_invalid_reference_array_is_not_silently_accepted(models, value):
+    scope, values, path = consumer(models, "cloudtrail", "CloudTrail.Trail")
+    values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Type",
+        "AWS::S3::Object",
+    )
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Values",
+        value,
+        number=3,
+    )
+    save(scope, values)
+    with pytest.raises(ValueError):
+        markdown = generate_markdown(path, values, FRAMEWORK)
+        restore(path, markdown, values)
+
+
 def test_positions_glue_equal_names_escaping_and_roundtrip(models):
     scope, values, path = consumer(models)
     args = {

@@ -971,7 +971,11 @@ def expanded_display_rows(
             ):
                 rows.extend(
                     cloudtrail_formal_rows(
-                        cells, display_property, cloudtrail_count, mode
+                        cells,
+                        display_property,
+                        cloudtrail_count,
+                        mode,
+                        verified_reference=_verified_reference,
                     )
                 )
                 cloudtrail_count += 1
