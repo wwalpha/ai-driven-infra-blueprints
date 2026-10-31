@@ -46,6 +46,8 @@ def reference_label(
     if observation is None:
         return name
     state, observed = observation
+    if state == "unobserved" and displayed == "PENDING_DEPLOY":
+        return displayed
     return {
         "match": observed,
         "mismatch": observed,

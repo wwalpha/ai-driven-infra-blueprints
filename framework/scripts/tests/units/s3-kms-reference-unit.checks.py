@@ -502,6 +502,43 @@ def check_logs_observed_kms_key_id_label(project_workspace, observed, label, war
     assert [d["code"] for d in relevant] == ([warning] if warning else [])
 
 
+def check_athena_pending_key_without_consumer_observation(project_workspace):
+    scope, _, kms_values = fixture(project_workspace)
+    kms_values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+    write_model(Scope(scope.root, "fixture", "team", "kms").path, kms_values)
+    athena_scope = Scope(scope.root, "fixture", "team", "athena")
+    values = {
+        COUNTERS: '{"Athena.WorkGroup":1}',
+        "desired.service.athena.serviceId": "athena",
+        "desired.service.athena.ownedCatalogResourceTypes": "Athena.WorkGroup",
+        "display.service.title": "# 合成Athena",
+        "desired.resource.001.resourceType": "Athena.WorkGroup",
+        "desired.resource.001.logicalId": "Athena_WorkGroup_001",
+        "desired.resource.001.anchor": "workgroup",
+        "desired.resource.001.resourceMode": "IMPORT",
+        "display.resource.001.comment": "合成",
+        "desired.row.001-001.property": "Athena.WorkGroup.Name",
+        "desired.row.001-001.value": "`fixture`",
+        "desired.row.001-001.comment": "名前",
+        "desired.row.001-002.property": "Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey",
+        "desired.row.001-002.value": "`"
+        + json.dumps(reference("KMS_Key_001", "Arn"))
+        + "`",
+        "desired.row.001-002.comment": "暗号化キー",
+    }
+    write_model(athena_scope.path, values)
+    dependency_index.rebuild(scope.root)
+    path = scope.root / "docs/designs/fixture/team/athena.md"
+    presentation = Presentation(values, path, scope.root)
+    assert presentation.references[Position("001-002", "value", "")].link == (
+        "[PENDING_DEPLOY](kms.md#key-one)"
+    )
+    with catalog_display():
+        markdown = generate_markdown(path, values, FRAMEWORK)
+    assert "[PENDING_DEPLOY](kms.md#key-one)" in markdown
+    assert "observed.row.001-002.value" not in values
+
+
 def check_logs_kms_key_identity_unproven(project_workspace):
     observed = "12345678-1234-1234-1234-123456789abc"
     scope, logs, kms = logs_fixture(project_workspace, observed)
