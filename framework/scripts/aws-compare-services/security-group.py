@@ -104,6 +104,41 @@ def fetch(ctx, r, getter):
         return record
     parent = r.parent()
     group = parent.identity()
+    if (
+        r.kind == "EC2.SecurityGroupEgress"
+        and getattr(ctx, "import_mode", False) is not True
+    ):
+        identity_fields = {
+            "IpProtocol",
+            "FromPort",
+            "ToPort",
+            "CidrIp",
+            "CidrIpv6",
+            "DestinationPrefixListId",
+            "DestinationSecurityGroupId",
+        }
+        expected = {}
+        for _, row in r.rows:
+            name = row["property"].removeprefix(r.kind + ".")
+            if name in identity_fields:
+                if name in expected:
+                    raise Unresolved(
+                        "security group rule identity has duplicate properties"
+                    )
+                expected[name] = r.parse(
+                    row, "id" if name.endswith("SecurityGroupId") else "typed"
+                )
+        records = ctx.pages(
+            "ec2",
+            "describe_security_group_rules",
+            Filters=[{"Name": "group-id", "Values": [group]}],
+        ).get("SecurityGroupRules", [])
+        if any(record.get("GroupId") != group for record in records):
+            raise Unresolved("security group rule parent mismatch")
+        return one(
+            rule_candidates(records, group, True, expected),
+            "ec2.describe_security_group_rules",
+        )
     current = r.current("Id")
     inputs = (
         {"SecurityGroupRuleIds": [current]}

@@ -80,6 +80,11 @@ def check_service_adapters(tmp_path):
             ctx.egress = False
             ctx.verify()
             resource = FakeResource(ctx, service, owner)
+            if kind == "EC2.SecurityGroupEgress":
+                resource.rows.extend(
+                    (name, {"property": kind + "." + name, "value": "fixture"})
+                    for name in ("IpProtocol", "CidrIp")
+                )
             if kind in {"QuickSight.DataSource", "QuickSight.VPCConnection"}:
                 resource.rows.append(
                     (

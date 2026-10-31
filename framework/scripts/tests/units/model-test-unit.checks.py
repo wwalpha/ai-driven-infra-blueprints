@@ -2339,11 +2339,10 @@ class SecurityGroupRuleRecoveryTests(unittest.TestCase):
         ctx = Mock()
         for name, responses, expected in (
             ("normal", [{"SecurityGroupRules": [rule]}], "sgr-old"),
-            ("deleted", [missing, {"SecurityGroupRules": []}], "missing"),
+            ("deleted", [{"SecurityGroupRules": []}], "missing"),
             (
                 "recreated",
                 [
-                    missing,
                     {
                         "SecurityGroupRules": [
                             {**rule, "SecurityGroupRuleId": "sgr-new"}
@@ -2352,7 +2351,7 @@ class SecurityGroupRuleRecoveryTests(unittest.TestCase):
                 ],
                 "sgr-new",
             ),
-            ("ambiguous", [missing, {"SecurityGroupRules": [rule, rule]}], "ambiguous"),
+            ("ambiguous", [{"SecurityGroupRules": [rule, rule]}], "ambiguous"),
             (
                 "parent",
                 [{"SecurityGroupRules": [{**rule, "GroupId": "sg-other"}]}],
@@ -2361,7 +2360,7 @@ class SecurityGroupRuleRecoveryTests(unittest.TestCase):
             ("denied", [sdk("AccessDenied")], "denied"),
             (
                 "different attributes",
-                [missing, {"SecurityGroupRules": [{**rule, "CidrIpv6": "::/0"}]}],
+                [{"SecurityGroupRules": [{**rule, "CidrIpv4": "10.1.0.0/24"}]}],
                 "missing",
             ),
         ):
@@ -2381,6 +2380,7 @@ class SecurityGroupRuleRecoveryTests(unittest.TestCase):
                         module.fetch(ctx, resource, "rule")["SecurityGroupRuleId"],
                         expected,
                     )
+                self.assertEqual(ctx.pages.call_args.kwargs, {"Filters": [{"Name": "group-id", "Values": ["sg-parent"]}]})
 
 
 

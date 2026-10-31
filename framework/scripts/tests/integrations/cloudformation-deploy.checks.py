@@ -1988,3 +1988,50 @@ def check_ingress_observed_publication(project_workspace):
         properties(read_model(source))["observed.row.002-001.value"] == "`sgr-00000002`"
     )
     assert state["A"]["observedCoverage"]["Rule"]["status"] == "UPDATED"
+
+
+@pytest.mark.parametrize("case", ["normal", "pending", "ambiguous", "recreated"])
+def check_egress_observed_publication(project_workspace, case):
+    root = project_workspace
+    (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET}]}))
+    source = root / "model/dev/123456789012/security-group.properties"
+    model = GENERATED_MODEL.replace("observed.row.005-001.value=`PENDING_DEPLOY`", "observed.row.005-001.value=`sgr-00000001`") if case == "recreated" else GENERATED_MODEL
+    write_model(source, model)
+    task = root / "tasks/observation-fixture.md"
+    task.parent.mkdir(exist_ok=True)
+    task.write_text(observation_contract(root, ("security-group",)))
+    loaded = properties(read_model(source))
+    resource = dict(entries(loaded, "desired.resource."))["005"]
+    row = dict(entries(loaded, "desired.row."))["005-001"]
+    group = "sg-00000001"
+    document = {
+        "Resources": {"Rule": {"Type": "AWS::EC2::SecurityGroupEgress", "Properties": {
+            "GroupId": group, "IpProtocol": "-1", "DestinationSecurityGroupId": group}}},
+        "Outputs": {"RuleId": {"Value": {"Fn::GetAtt": ["Rule", "Id"]}}},
+    }
+    actual = {"LogicalResourceId": "Rule", "ResourceType": "AWS::EC2::SecurityGroupEgress", "ResourceStatus": "CREATE_COMPLETE", "PhysicalResourceId": group}
+    rule = {"GroupId": group, "IsEgress": True, "IpProtocol": "-1", "ReferencedGroupInfo": {"GroupId": group}, "SecurityGroupRuleId": "sgr-00000002"}
+    stack = {"StackId": "stack-A", "StackStatus": "CREATE_COMPLETE", "Parameters": [], "Outputs": [] if case == "pending" else [{"OutputKey": "RuleId", "OutputValue": rule["SecurityGroupRuleId"]}]}
+    def aws(operation, **kwargs):
+        if operation == "describe_stacks":
+            return {"Stacks": [stack]}
+        if operation == "list_stack_resources":
+            return {"StackResourceSummaries": [actual]}
+        if operation == "describe_security_group_rules":
+            return {"SecurityGroupRules": [rule, rule] if case == "ambiguous" else [rule]}
+        if operation == "get_template":
+            return {"TemplateBody": document}
+        raise AssertionError(operation)
+    backend = SimpleNamespace(root=root, environment="dev", directory="123456789012", target=TARGET, templates={"A": (document, {})}, aws=aws)
+    mapping = {"A": {"Rule": (source, "005", resource, [("005-001", row)], {"EC2.SecurityGroupEgress.Id"})}}
+    state = {"A": {}}
+    with patch("deploy.observed.resolve_resources", return_value=({source: loaded}, mapping)), patch("deploy.observed.propagate_references"):
+        outputs, _, _ = deploy_observed.collect_successful(backend, [{"name": "A"}], state)
+    publish_observed(root, outputs)
+    value = properties(read_model(source)).get("observed.row.005-001.value")
+    if case in {"normal", "recreated"}:
+        assert value == "`sgr-00000002`"
+        assert state["A"]["observedCoverage"]["Rule"]["status"] == "UPDATED"
+    else:
+        assert value is None or "PENDING_DEPLOY" in value
+        assert state["A"]["observedCoverage"]["Rule"]["status"] == "UNCONFIRMED"
