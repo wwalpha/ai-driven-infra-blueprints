@@ -14,12 +14,7 @@ import model.projection as projection
 import model.references as references
 import model.render as render
 import model.sources as sources
-from model.core import (
-    LINK,
-    ReferenceResolutionError,
-    literal,
-    require_reference_diagnostics,
-)
+from model.core import LINK, literal
 from model.reference_nodes import (
     context_at,
     nodes,
@@ -67,8 +62,11 @@ def input_strings(value):
 class Presentation:
     """Carry typed positions through existing, lossless service display transforms."""
 
-    def __init__(self, values, path, root, *, reference_values=None):
+    def __init__(
+        self, values, path, root, *, reference_values=None, service_presentation=None
+    ):
         self.values, self.root = values, root
+        self.service_presentation = service_presentation
         self.scope = sources.scope_for(
             (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
                 ".properties"
@@ -99,29 +97,12 @@ class Presentation:
                             values, rid, row, raw, "", root
                         ),
                     )
-                    if (
-                        field == "value"
-                        and prop
-                        == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
-                        and isinstance(raw, list)
-                        and any(nodes(raw, errors=[]))
-                    ):
-                        if len(raw) != 1:
-                            raise ValueError(
-                                "CloudTrail DataResources requires exactly one value"
-                            )
-                        require_reference_diagnostics(
-                            [
-                                d
-                                for d in diagnostics
-                                if d.get("category")
-                                not in {
-                                    "REFERENCE_PENDING_DEPLOY",
-                                    "REFERENCE_UNRESOLVED",
-                                }
-                            ]
+                    row_nodes = list(nodes(raw, errors=[]))
+                    if self.service_presentation:
+                        self.service_presentation.validate_references(
+                            prop, field, raw, row_nodes, diagnostics
                         )
-                    for node in nodes(raw, errors=[]):
+                    for node in row_nodes:
                         result = resolutions.get(node)
                         position = Position(rid, field, node.pointer)
                         self.references[position] = Reference(
@@ -145,16 +126,17 @@ class Presentation:
                                 result=result,
                             ),
                         )
-                        if (
-                            field == "value"
-                            and prop
-                            == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
-                            and self.references[position].link is None
-                        ):
-                            require_reference_diagnostics(diagnostics)
-                            raise ReferenceResolutionError(
-                                "CloudTrail DataResources reference has no display link"
-                            )
+                    if self.service_presentation:
+                        self.service_presentation.require_reference_links(
+                            prop,
+                            field,
+                            row_nodes,
+                            [
+                                self.references[Position(rid, field, node.pointer)].link
+                                for node in row_nodes
+                            ],
+                            diagnostics,
+                        )
 
         inputs = tuple(input_strings(values)) + tuple(
             ref.link for ref in self.references.values() if ref.link
@@ -217,23 +199,17 @@ class Presentation:
                             "pending": "PENDING_DEPLOY",
                             "unobserved": "未観測",
                         }[state]
-            if (
-                isinstance(displayed, str)
-                and contract.get("property_name")
-                != "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
-            ):
+            if self.service_presentation:
+                name = self.service_presentation.reference_label(
+                    contract.get("property_name"),
+                    position.source_field,
+                    name,
+                    displayed,
+                    snapshot,
+                    number,
+                )
+            elif isinstance(displayed, str):
                 name = displayed
-            if (
-                contract.get("property_name")
-                == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
-                and isinstance(name, str)
-                and literal(name).lstrip().startswith("{")
-            ):
-                try:
-                    if any(nodes(json.loads(literal(name)), errors=[])):
-                        return None
-                except ValueError:
-                    pass
             if (
                 not name
                 or literal(name).lower()
@@ -296,14 +272,6 @@ class Presentation:
                 for pos, ref in self.references.items()
             ):
                 marked = self.document(rid, "value", None)
-                if (
-                    prop == "CloudTrail.Trail.EventSelectors[].DataResources[].Values"
-                    and isinstance(marked, list)
-                    and len(marked) == 1
-                    and isinstance(marked[0], str)
-                    and marked[0] in self.marker_links
-                ):
-                    marked = marked[0]
                 text = (
                     marked
                     if isinstance(marked, str)

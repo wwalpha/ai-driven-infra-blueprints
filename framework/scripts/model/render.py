@@ -13,6 +13,7 @@ import design.array_display as _dependency_array_display
 import design.layout as _dependency_design_layout
 import design.policy_tables as _dependency_policy_tables
 import design.policy_tables as _imports_policy_tables
+import design.services.cloudtrail as _cloudtrail_presentation
 import design.services.ec2.security_groups as _ec2_security_groups
 from design.catalog import DesignSchemaCatalog as DesignSchemaCatalog
 from design.layout_schema import GROUPED
@@ -559,7 +560,13 @@ def _generate_markdown(
     scope_for = _imports_model_sources.scope_for
     references = _dependency_model_display.reference_rows(values)
     presentation = _reference_presentation.Presentation(
-        values, path, path.parents[4], reference_values=reference_values
+        values,
+        path,
+        path.parents[4],
+        reference_values=reference_values,
+        service_presentation=_cloudtrail_presentation
+        if path.stem == "cloudtrail"
+        else None,
     )
     values = reference_display(
         values,

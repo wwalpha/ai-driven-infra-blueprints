@@ -3,7 +3,12 @@
 import json
 import re
 
-from model.core import ReferenceResolutionError, literal
+from model.core import (
+    LINK,
+    ReferenceResolutionError,
+    literal,
+    require_reference_diagnostics,
+)
 
 from design.services.definitions.cloudtrail import (
     ARRAY_DATA_RESOURCE,
@@ -14,6 +19,52 @@ from design.services.definitions.cloudtrail import (
     CLOUDTRAIL_RESOURCE_TYPES,
     COMPACT_ARRAY,
 )
+
+
+def validate_references(prop, field, raw, nodes, diagnostics):
+    if (
+        prop != CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Values"
+        or field != "value"
+        or not isinstance(raw, list)
+        or not nodes
+    ):
+        return
+    if len(raw) != 1:
+        raise ValueError("CloudTrail DataResources requires exactly one value")
+    require_reference_diagnostics(
+        [
+            d
+            for d in diagnostics
+            if d.get("category")
+            not in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
+        ]
+    )
+
+
+def require_reference_links(prop, field, nodes, links, diagnostics):
+    if (
+        prop == CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Values"
+        and field == "value"
+        and nodes
+        and not all(links)
+    ):
+        require_reference_diagnostics(diagnostics)
+        raise ReferenceResolutionError(
+            "CloudTrail DataResources reference has no display link"
+        )
+
+
+def reference_label(prop, field, name, displayed, snapshot, number):
+    if prop != CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Values" or field != "value":
+        return displayed if isinstance(displayed, str) else name
+    if isinstance(name, str) and literal(name).lstrip().startswith("{"):
+        try:
+            value = json.loads(literal(name))
+        except ValueError:
+            value = None
+        if isinstance(value, dict) and "$modelRef" in value:
+            return snapshot.authoritative.get(f"display.resource.{number}.label")
+    return name
 
 
 def array_template(template):
@@ -85,6 +136,18 @@ def display_row(rows, index, counts, mode):
     counts["data"] = counts.get("data", 0) + 1
     prop = f"CloudTrail.Trail.EventSelectors.DataResources[{counts['data']}].{types[literal(value)]}"
     value = rows[index + 1][2]
+    if literal(value).startswith("["):
+        try:
+            items = json.loads(literal(value))
+        except ValueError:
+            items = None
+        if (
+            isinstance(items, list)
+            and len(items) == 1
+            and isinstance(items[0], str)
+            and LINK.fullmatch(items[0])
+        ):
+            value = items[0]
     if (
         literal(value) == '["arn:aws:s3"]'
         or mode == "IMPORT"

@@ -195,10 +195,11 @@ def test_cloudtrail_invalid_reference_array_is_not_silently_accepted(models, val
 
 def test_cloudtrail_pending_reference_is_not_invalid_model(models):
     target, target_values = resource(
-        models, "lambda", "Lambda.Function", attribute="FunctionName"
+        models, "lambda", "Lambda.Function", attribute="Arn", observed="PENDING_DEPLOY"
     )
-    target_values["desired.row.001-001.value"] = "`function-name`"
+    add(target_values, "Lambda.Function", "FunctionName", "confirmed-label")
     save(target, target_values)
+    validate_authority(target_values)
     scope, values, path = consumer(models, "cloudtrail", "CloudTrail.Trail")
     values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
     add(
@@ -216,28 +217,52 @@ def test_cloudtrail_pending_reference_is_not_invalid_model(models):
         number=3,
     )
     save(scope, values)
-    diagnostic = {
-        "category": "REFERENCE_PENDING_DEPLOY",
-        "code": "REFERENCE_PENDING_DEPLOY",
-        "status": "FAIL",
-        "message": "pending",
-    }
-    pending = ReferenceValue("pending_deploy", diagnostic=diagnostic)
-    with patch(
-        "model.reference_presentation.projection.document_references",
-        return_value=({parse(ref, "/0"): pending}, [diagnostic]),
-    ):
-        markdown = generate_markdown(path, values, FRAMEWORK)
-    assert "[function-name](lambda.md#saved-001)" in markdown
+    before = copy.deepcopy(values)
+    producer_before = target.path.read_bytes()
+    resolver = reference_resolver(values, scope, models)
+    result = reference_value(resolver, scope, parse(ref))
+    assert result.status == "resolved", result
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    assert "[confirmed-label](lambda.md#saved-001)" in markdown
     assert "$modelRef" not in markdown
-    target_values["desired.row.001-001.value"] = (
-        "`" + json.dumps(reference("Lambda_Function_001", "FunctionName")) + "`"
+    assert "CloudTrail.Trail.EventSelectors[].DataResources[].Values" in restore(
+        path, markdown, values
     )
-    target_values["observed.row.001-001.value"] = "`PENDING_DEPLOY`"
+    assert values == before and target.path.read_bytes() == producer_before
+    with pytest.raises(ValueError, match="Model expected display"):
+        restore(
+            path, markdown.replace("lambda.md#saved-001", "lambda.md#wrong"), values
+        )
+
+
+def test_cloudtrail_unconfirmed_name_does_not_emit_raw_reference(models):
+    target, target_values = resource(
+        models,
+        "lambda",
+        "Lambda.Function",
+        attribute="FunctionName",
+        observed="PENDING_DEPLOY",
+    )
     save(target, target_values)
-    with pytest.raises(ReferenceResolutionError) as exc:
+    validate_authority(target_values)
+    scope, values, path = consumer(models, "cloudtrail", "CloudTrail.Trail")
+    values["desired.row.001-001.property"] = "CloudTrail.Trail.TrailName"
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Type",
+        "AWS::Lambda::Function",
+    )
+    add(
+        values,
+        "CloudTrail.Trail",
+        "EventSelectors[].DataResources[].Values",
+        [reference("Lambda_Function_001", "Arn")],
+        number=3,
+    )
+    save(scope, values)
+    with pytest.raises(ReferenceResolutionError):
         generate_markdown(path, values, FRAMEWORK)
-    assert exc.value.category == "REFERENCE_UNRESOLVED"
 
 
 @pytest.mark.parametrize("fault", ["missing", "duplicate"])
