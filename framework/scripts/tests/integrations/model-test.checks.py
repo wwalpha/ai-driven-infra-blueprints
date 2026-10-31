@@ -1569,6 +1569,7 @@ print(json.dumps(value))
                 "owner conflicts",
             ),
             (good.replace("ap-northeast-1", "us-east-1"), "ERROR", "account or region"),
+            (good.replace("arn:aws:", "arn:aws-cn:"), "ERROR", "account or region"),
             (good.replace("/team", "/wrong"), "ERROR", "group name"),
             ("FAIL", "ERROR", "ResourceNotFoundException"),
         ]
@@ -1991,6 +1992,7 @@ def check():
     test_iam_inline_generated_report()
     lambda_missing_standalone()
     test_quicksight_generated_standalone()
+    test_quicksight_group_namespace()
     glue_write_only()
     lambda_bucket_audit()
     macie_job_standalone()

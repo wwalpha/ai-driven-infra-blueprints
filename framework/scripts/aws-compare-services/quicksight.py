@@ -39,6 +39,21 @@ def datasource_account(ctx, r):
     return account, omitted
 
 
+def group_account(ctx, r):
+    if not ctx.verified:
+        raise Unresolved("QuickSight execution account is not verified")
+    try:
+        account = execution_account(ctx.target)
+        if (
+            r.rows_for("AwsAccountId")
+            and execution_account({"awsAccountId": r.value("AwsAccountId")}) != account
+        ):
+            raise Unresolved("QuickSight Group account differs from execution account")
+    except IdentityError as error:
+        raise Unresolved(str(error)) from error
+    return account
+
+
 def verify_owner(result, account, key="Arn"):
     arn = result.get(key)
     if arn is not None:
@@ -56,7 +71,7 @@ def verify_owner(result, account, key="Arn"):
 
 def fetch(ctx, r, getter):
     if getter == "group-namespace":
-        account, _ = datasource_account(ctx, r)
+        account = group_account(ctx, r)
         try:
             response = ctx.fetch(
                 r, "sdk-quicksight-group", {"operation": "describe_group"}
@@ -75,7 +90,24 @@ def fetch(ctx, r, getter):
             or parts[2] != "quicksight"
         ):
             raise Unresolved("QuickSight Group ARN is missing or malformed")
-        if parts[3] != ctx.target["awsRegion"] or parts[4] != account:
+        region = ctx.target["awsRegion"]
+        partition = next(
+            (
+                name
+                for prefix, name in (
+                    ("us-gov-", "aws-us-gov"),
+                    ("cn-", "aws-cn"),
+                    ("us-iso-", "aws-iso"),
+                    ("us-isob-", "aws-iso-b"),
+                    ("eu-isoe-", "aws-iso-e"),
+                    ("us-isof-", "aws-iso-f"),
+                    ("eusc-", "aws-eusc"),
+                )
+                if region.startswith(prefix)
+            ),
+            "aws",
+        )
+        if parts[3] != region or parts[4] != account or parts[1] != partition:
             raise Unresolved(
                 "QuickSight Group ARN account or region conflicts with target"
             )
@@ -124,7 +156,7 @@ SDK_OPERATIONS = {"QuickSight.Group": "describe_group"}
 
 
 def fetch_sdk(ctx: Any, r: Any, operation: str) -> dict[str, Any]:
-    account, _ = datasource_account(ctx, r)
+    account = group_account(ctx, r)
     result = ctx.call(
         "quicksight",
         operation,

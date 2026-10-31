@@ -1485,6 +1485,33 @@ def test_quicksight_other_getters_unchanged(tmp_path):
         )
 
 
+@pytest.mark.parametrize(
+    "configured,allowed", [(ACCOUNT, True), ("999999999999", False), (None, True)]
+)
+def test_quicksight_group_execution_account(tmp_path, configured, allowed):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    ctx.target["awsAccountId"] = "111111111111"
+    ctx.target["awsExecutionAccountId"] = ACCOUNT
+    resource = Mock(kind="QuickSight.Group")
+    resource.rows_for.return_value = [object()] if configured else []
+    resource.value.side_effect = lambda prop: {
+        "AwsAccountId": configured,
+        "Namespace": "default",
+        "GroupName": "readers",
+    }[prop]
+    with patch.object(ctx, "call", return_value={"Group": {}}) as call:
+        if allowed:
+            m.service_module("quicksight").fetch_sdk(ctx, resource, "describe_group")
+            assert call.call_args.kwargs["AwsAccountId"] == ACCOUNT
+        else:
+            with pytest.raises(m.Unresolved):
+                m.service_module("quicksight").fetch_sdk(
+                    ctx, resource, "describe_group"
+                )
+            call.assert_not_called()
+
+
 @pytest.mark.parametrize("getter", ["base", "permissions"])
 def test_quicksight_owner_conflict(tmp_path, getter):
     ctx = SchemaOffline(tmp_path)
@@ -1675,6 +1702,8 @@ def test_quicksight_split_operation_accounts(tmp_path, kind, getter, account, al
         "GroupName": "readers",
     }[prop]
     owner = account or "123456789012"
+    if kind == "QuickSight.Group" and owner != "123456789012":
+        allowed = False
     arn = f"arn:aws:quicksight:ap-northeast-1:{owner}:group/default/readers"
     response = {
         "DataSource": {"Type": "ATHENA"},
