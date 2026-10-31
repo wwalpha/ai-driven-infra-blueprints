@@ -27,17 +27,45 @@ from model.audit import (
     pipeline_indexed_rows,
     reference_rows,
 )
+from model.literal_values import normalize, value_shape
 from model.projection import resource_display_rows, validate_json_documents
 from model.reference_values import ReferenceValue, confirmed
 from model.render import display_name
 from model.sources import load_model
 from support.model_sources import write_model
+from utils.cloudformation.schema import native_type_errors
 from utils.input_cache import input_scope
 
 from model import audit_runtime as audit
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+class WriteOnlyArrayValidationTests(unittest.TestCase):
+    def test_array_item_types(self):
+        m = SimpleNamespace(
+            normalize_literals=normalize,
+            value_shape=value_shape,
+            native_type_errors=native_type_errors,
+            Unresolved=Unresolved,
+        )
+        row = {"property": "example"}
+        snapshot = {
+            "schemas": {"example": {"type": "array", "items": {"type": "string"}}}
+        }
+        for value, error in [
+            (["SPARK"], None),
+            ([123], "item 0"),
+            (["SPARK", 123], "item 1"),
+            ("SPARK", "must be array"),
+        ]:
+            with self.subTest(value=value):
+                if error is None:
+                    audit.validate_design_value(m, snapshot, row, value)
+                else:
+                    with self.assertRaisesRegex(Unresolved, error):
+                        audit.validate_design_value(m, snapshot, row, value)
 
 
 class MacieLookupTests(unittest.TestCase):

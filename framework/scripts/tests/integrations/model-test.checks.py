@@ -834,6 +834,7 @@ def glue_write_only():
         snap = snapshot(source)
         key = "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments"
         case.assertIn(key, snap["exclusions"])
+        case.assertEqual(snap["schemas"][key]["items"], {"type": "string"})
         responses = {
             ("glue", "get-connection"): {
                 "Connection": {"Name": "fixture-connection", "ConnectionType": "JDBC"}
@@ -841,6 +842,7 @@ def glue_write_only():
         }
         engine = runtime(snap)
         records = engine["audit"](snap, None, CLI(responses))[2]
+        info_record = next(item for item in records if item["propertiesKey"] == key)
         text, code = engine["report"](
             snap, None, "123456789012", records, datetime.now(timezone.utc)
         )
@@ -876,6 +878,12 @@ def glue_write_only():
         case.assertEqual(
             next(item for item in records if item["propertiesKey"] == key)["status"],
             "design_unresolved",
+        )
+        case.assertEqual(
+            engine["report"](
+                changed, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1],
+            2,
         )
         changed = copy.deepcopy(snap)
         observable = "Glue.Connection.ConnectionInput.ConnectionType"
@@ -917,6 +925,49 @@ def glue_write_only():
         case.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         case.assertIn("Verification: NOT_VERIFIABLE", result.stdout)
         case.assertIn("Result: PASS", result.stdout)
+        for value in ([123], ["SPARK", 123], "SPARK"):
+            with case.subTest(value=value):
+                data["models"]["dev/cde/glue"]["desired.row.001-004.value"] = (
+                    "`" + json.dumps(value) + "`"
+                )
+                write_model(
+                    root / "model/dev/cde/glue.properties",
+                    data["models"]["dev/cde/glue"],
+                )
+                invalid_source = generator.generate(root, "dev", "cde", "glue")[0]
+                invalid_snap = snapshot(invalid_source)
+                records = runtime(invalid_snap)["audit"](
+                    invalid_snap, None, CLI(responses)
+                )[2]
+                case.assertEqual(
+                    next(item for item in records if item["propertiesKey"] == key)[
+                        "status"
+                    ],
+                    "design_unresolved",
+                )
+                mixed_text, mixed_code = engine["report"](
+                    invalid_snap,
+                    None,
+                    "123456789012",
+                    records + [info_record],
+                    datetime.now(timezone.utc),
+                )
+                case.assertEqual(mixed_code, 2, mixed_text)
+                case.assertIn("INFO: 1", mixed_text)
+                case.assertIn("Result: FAIL", mixed_text)
+                script.write_text(invalid_source)
+                result = subprocess.run(
+                    [sys.executable, "-I", "-B", str(script)],
+                    cwd=root,
+                    env={**os.environ, "PATH": str(root)},
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                case.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                case.assertIn("[ERROR] Glue.Connection", result.stdout)
+                case.assertIn("[OK] Glue.Connection", result.stdout)
+                case.assertIn("Result: FAIL", result.stdout)
 
 
 @it_case

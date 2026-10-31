@@ -649,6 +649,10 @@ def generate(root, environment, selector, service):
                     )
                     if k in schema
                 }
+                if prop in exclusions and isinstance(schema.get("items"), dict):
+                    item_type = schema["items"].get("type")
+                    if item_type:
+                        schemas[prop]["items"] = {"type": item_type}
             except KeyError:
                 pass  # Existing Resource.parse treats design-only properties as strings.
             outputs[kind] = sorted(catalog_outputs(ROOT, kind))

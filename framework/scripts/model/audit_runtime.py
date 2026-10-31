@@ -90,6 +90,13 @@ def validate_design_value(m, snapshot, row, value):
             errors = m.native_type_errors(schema, element)
             if errors:
                 raise m.Unresolved("candidate Property " + errors[0])
+            if isinstance(element, list) and "items" in schema:
+                for index, item in enumerate(element):
+                    errors = m.native_type_errors(schema["items"], item)
+                    if errors:
+                        raise m.Unresolved(
+                            f"candidate Property item {index} " + errors[0]
+                        )
             if isinstance(element, (int, float)) and not isinstance(element, bool):
                 if "minimum" in schema and element < schema["minimum"]:
                     raise m.Unresolved("candidate Property below minimum")
