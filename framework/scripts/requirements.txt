@@ -3,6 +3,7 @@ PyYAML==6.0.3
 boto3==1.43.108
 cfn-lint==1.58.0
 pytest==9.1.1
+pytest-datadir==1.8.0
 pypdf==6.10.0
 weasyprint==70.0
 ruff==0.14.2
