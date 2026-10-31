@@ -185,7 +185,9 @@ def test_route53_getter_uses_real_inventory_and_distinct_branches():
 
 def test_datazone_getter_uses_scoped_inventory():
     mapping = runtime_registry(ROOT, "datazone")
-    domain = adapter_contracts.run(ROOT, mapping, "DataZone.Domain")["sdk-datazone-domain"]
+    domain = adapter_contracts.run(ROOT, mapping, "DataZone.Domain")[
+        "sdk-datazone-domain"
+    ]
     assert domain["status"] == "verified"
     assert {"normal", "missing-selector", "access-denied"} <= set(
         domain["properties"]["DataZone.Domain.DomainVersion"]["branches"]
@@ -518,6 +520,72 @@ def test_eventbridge_rule_and_scheduler_contracts_cover_bus_scope():
     schedule = adapter_contracts.run(ROOT, mapping, "Scheduler.Schedule")["schedule"]
     assert schedule["status"] == "verified"
     assert schedule["fixtureOperation"] == "scheduler.get_schedule"
+
+
+def test_scheduler_import_uses_group_and_cloud_inventory():
+    kind = "Scheduler.Schedule"
+    ctx, _ = adapter_contracts.fixture_context(
+        ROOT, "eventbridge", adapter_contracts.DirectCalls, {}
+    )
+    ctx.pages = Mock(
+        return_value={
+            "ResourceDescriptions": [
+                {
+                    "Identifier": "job",
+                    "Properties": json.dumps({"Name": "job", "GroupName": "custom"}),
+                }
+            ]
+        }
+    )
+    ctx.call = Mock(
+        return_value={
+            "Name": "job",
+            "GroupName": "custom",
+            "State": "ENABLED",
+            "FlexibleTimeWindow": {"Mode": "OFF"},
+            "ScheduleExpression": "rate(1 hour)",
+            "ScheduleExpressionTimezone": "UTC",
+            "Target": {
+                "Arn": "arn:aws:lambda:ap-northeast-1:123456789012:function:fixture",
+                "RoleArn": "arn:aws:iam::123456789012:role/fixture",
+                "RetryPolicy": {
+                    "MaximumEventAgeInSeconds": 3600,
+                    "MaximumRetryAttempts": 3,
+                },
+            },
+        }
+    )
+    records = inventory.inventory_for(ctx).inventory("eventbridge", kind)
+    assert records[0]["identity"] == "job"
+    assert records[0]["seedProperties"][kind + ".GroupName"] == "custom"
+    normalized = cli.normalize_records(ctx, "eventbridge", records)
+    ctx.call.assert_called_once_with(
+        "scheduler", "get_schedule", Name="job", GroupName="custom"
+    )
+    assert (
+        normalized[0]["properties"][kind + ".Target.RetryPolicy.MaximumRetryAttempts"][
+            "value"
+        ]
+        == 3
+    )
+
+
+def test_scheduler_import_rejects_unconfirmed_group():
+    kind = "Scheduler.Schedule"
+    ctx, _ = adapter_contracts.fixture_context(
+        ROOT, "eventbridge", adapter_contracts.DirectCalls, {}
+    )
+    ctx.pages = Mock(
+        return_value={
+            "ResourceDescriptions": [
+                {"Identifier": "job", "Properties": json.dumps({"Name": "job"})}
+            ]
+        }
+    )
+    ctx.call = Mock()
+    records = inventory.inventory_for(ctx).inventory("eventbridge", kind)
+    assert records == []
+    ctx.call.assert_not_called()
 
 
 def test_secret_metadata_includes_external_secret_type():

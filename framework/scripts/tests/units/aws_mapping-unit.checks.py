@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from datetime import datetime, timezone
 from threading import Barrier, Event
 
 import aws_mapping_catalog
@@ -20,6 +21,7 @@ import pytest
 import utils.aws_mappings as providers
 import utils.mapping_runtime as _mapping_runtime
 import utils.mapping_types as _mapping_types
+from botocore.session import get_session
 from support.aws_mapping_fixtures import (
     BASELINE,
     CHANNEL,
@@ -936,6 +938,124 @@ def check_readonly_defaults():
     assert namespace["Field"](default={"nested": (False, 0, None)}).copy_default() == {
         "nested": [False, 0, None]
     }
+
+
+def test_scheduler_mapping_and_sdk_projection():
+    adapter = m.service_module("eventbridge")
+    mapping = aws_mapping.registry(ROOT, "eventbridge")
+    properties = {
+        key: item
+        for key, item in mapping.properties.items()
+        if key.startswith("Scheduler.Schedule.")
+    }
+    assert len(properties) == 43
+    assert all(item.field.getter == "schedule" for item in properties.values())
+    assert all(
+        item.field.path == key.removeprefix("Scheduler.Schedule.")
+        for key, item in properties.items()
+    )
+    shape = (
+        get_session()
+        .get_service_model("scheduler")
+        .operation_model("GetSchedule")
+        .output_shape
+    )
+    for prop in properties.values():
+        node = shape
+        parent = ""
+        for component in prop.field.path.split("."):
+            name = component.removesuffix("[]")
+            if name == "AwsvpcConfiguration":
+                name = "awsvpcConfiguration"
+            elif parent in {
+                "CapacityProviderStrategy",
+                "PlacementConstraints",
+                "PlacementStrategy",
+            }:
+                name = name[0].lower() + name[1:]
+            assert name in node.members
+            node = node.members[name]
+            if component.endswith("[]"):
+                assert node.type_name == "list"
+                node = node.member
+            parent = name
+    payload = {
+        "StartDate": datetime(2026, 1, 1, tzinfo=timezone.utc),
+        "Target": {
+            "EcsParameters": {
+                "NetworkConfiguration": {
+                    "awsvpcConfiguration": {
+                        "Subnets": ["a"],
+                        "SecurityGroups": ["b"],
+                        "AssignPublicIp": "DISABLED",
+                    }
+                },
+                "CapacityProviderStrategy": [
+                    {"capacityProvider": "first", "weight": 0, "base": 0},
+                    {"capacityProvider": "second", "weight": 1},
+                ],
+                "PlacementConstraints": [{"type": "memberOf", "expression": ""}],
+                "PlacementStrategy": [{"type": "spread", "field": "attribute:zone"}],
+            }
+        },
+    }
+    result = adapter.normalize_schedule(payload)
+    expected = {
+        "NetworkConfiguration.AwsvpcConfiguration.Subnets[]": ["a"],
+        "NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]": ["b"],
+        "NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp": "DISABLED",
+        "CapacityProviderStrategy[].CapacityProvider": ["first", "second"],
+        "CapacityProviderStrategy[].Weight": [0, 1],
+        "CapacityProviderStrategy[].Base": [0, m.MISSING],
+        "PlacementConstraints[].Type": ["memberOf"],
+        "PlacementConstraints[].Expression": [""],
+        "PlacementStrategy[].Type": ["spread"],
+        "PlacementStrategy[].Field": ["attribute:zone"],
+    }
+    for path, value in expected.items():
+        prop = properties["Scheduler.Schedule.Target.EcsParameters." + path]
+        assert aws_mapping_catalog.project(prop, result) == value
+    assert result["StartDate"] == adapter.normalize_date("2026-01-01T09:00:00+09:00")
+    assert adapter.sensitive("Scheduler.Schedule.Target.Input")
+
+
+class SchedulerSelector:
+    def __init__(self, group=None):
+        self.group = group
+
+    def value(self, name):
+        assert name == "Name"
+        return "job"
+
+    def optional(self, name):
+        assert name == "GroupName"
+        if self.group == "unresolved":
+            raise m.Unresolved("unresolved group")
+        return self.group
+
+
+class SchedulerCalls:
+    def __init__(self):
+        self.calls = []
+
+    def call(self, service, operation, **inputs):
+        self.calls.append((service, operation, inputs))
+        return {"Name": inputs["Name"]}
+
+
+def test_scheduler_group_selection():
+    adapter = m.service_module("eventbridge")
+    ctx = SchedulerCalls()
+    adapter.fetch(ctx, SchedulerSelector(), "schedule")
+    adapter.fetch(ctx, SchedulerSelector("default"), "schedule")
+    adapter.fetch(ctx, SchedulerSelector("other"), "schedule")
+    with pytest.raises(m.Unresolved):
+        adapter.fetch(ctx, SchedulerSelector("unresolved"), "schedule")
+    assert ctx.calls == [
+        ("scheduler", "get_schedule", {"Name": "job"}),
+        ("scheduler", "get_schedule", {"Name": "job", "GroupName": "default"}),
+        ("scheduler", "get_schedule", {"Name": "job", "GroupName": "other"}),
+    ]
 
 
 if __name__ == "__main__":

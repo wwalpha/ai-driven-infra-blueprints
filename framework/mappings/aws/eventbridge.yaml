@@ -24,13 +24,6 @@ getters:
   schedule:
     kind: adapter
     resources: [Scheduler.Schedule]
-  provider-scheduler-schedule:
-    kind: cloudcontrol
-    service: cloudcontrol
-    operation: get_resource
-    result: ResourceDescription.Properties
-    resourceType: Scheduler.Schedule
-    identifier: [/properties/Name]
 resourceTypes:
   Events.EventBus:
     properties:
@@ -227,12 +220,12 @@ resourceTypes:
         model: {include: false}
         display: {show: false, name: Description}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Description, normalize: typed}
+        aws: {getter: schedule, path: Description, normalize: typed}
       EndDate:
         model: {include: false}
         display: {show: false, name: EndDate}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: EndDate, normalize: typed}
+        aws: {getter: schedule, path: EndDate, normalize: typed}
       FlexibleTimeWindow.Mode:
         model: {include: true}
         display: {show: true, name: FlexibleTimeWindow.Mode}
@@ -242,17 +235,17 @@ resourceTypes:
         model: {include: false}
         display: {show: false, name: FlexibleTimeWindow.MaximumWindowInMinutes}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: FlexibleTimeWindow.MaximumWindowInMinutes, normalize: typed}
+        aws: {getter: schedule, path: FlexibleTimeWindow.MaximumWindowInMinutes, normalize: typed}
       GroupName:
         model: {include: false}
         display: {show: false, name: GroupName}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: GroupName, normalize: typed}
+        aws: {getter: schedule, path: GroupName, normalize: typed}
       KmsKeyArn:
         model: {include: false}
         display: {show: false, name: KmsKeyArn}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: KmsKeyArn, normalize: typed}
+        aws: {getter: schedule, path: KmsKeyArn, normalize: typed}
       ScheduleExpression:
         model: {include: true}
         display: {show: true, name: ScheduleExpression}
@@ -267,7 +260,7 @@ resourceTypes:
         model: {include: false}
         display: {show: false, name: StartDate}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: StartDate, normalize: typed}
+        aws: {getter: schedule, path: StartDate, normalize: typed}
       Target.Arn:
         model: {include: true}
         display: {show: true, name: Target.Arn}
@@ -282,149 +275,149 @@ resourceTypes:
         model: {include: false}
         display: {show: false, name: Target.DeadLetterConfig.Arn}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.DeadLetterConfig.Arn, normalize: typed}
+        aws: {getter: schedule, path: Target.DeadLetterConfig.Arn, normalize: typed}
       Target.RetryPolicy.MaximumEventAgeInSeconds:
         model: {include: true}
         display: {show: true, name: Target.RetryPolicy.MaximumEventAgeInSeconds}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.RetryPolicy.MaximumEventAgeInSeconds, normalize: typed}
+        aws: {getter: schedule, path: Target.RetryPolicy.MaximumEventAgeInSeconds, normalize: typed}
       Target.RetryPolicy.MaximumRetryAttempts:
         model: {include: true}
         display: {show: true, name: Target.RetryPolicy.MaximumRetryAttempts}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.RetryPolicy.MaximumRetryAttempts, normalize: typed}
+        aws: {getter: schedule, path: Target.RetryPolicy.MaximumRetryAttempts, normalize: typed}
       Target.Input:
         model: {include: false}
         display: {show: false, name: Target.Input}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.Input, normalize: typed}
+        aws: {getter: schedule, path: Target.Input, normalize: typed}
       Target.EcsParameters.TaskDefinitionArn:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.TaskDefinitionArn}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.TaskDefinitionArn, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.TaskDefinitionArn, normalize: typed}
       Target.EcsParameters.TaskCount:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.TaskCount}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.TaskCount, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.TaskCount, normalize: typed}
       Target.EcsParameters.LaunchType:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.LaunchType}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.LaunchType, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.LaunchType, normalize: typed}
       Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]', normalize: typed}
       Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups[]', normalize: typed}
       Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp, normalize: typed}
       Target.EcsParameters.PlatformVersion:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.PlatformVersion}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.PlatformVersion, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.PlatformVersion, normalize: typed}
       Target.EcsParameters.Group:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.Group}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.Group, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.Group, normalize: typed}
       Target.EcsParameters.CapacityProviderStrategy[].CapacityProvider:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.CapacityProviderStrategy[].CapacityProvider'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.CapacityProviderStrategy[].CapacityProvider', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.CapacityProviderStrategy[].CapacityProvider', normalize: typed}
       Target.EcsParameters.CapacityProviderStrategy[].Weight:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.CapacityProviderStrategy[].Weight'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.CapacityProviderStrategy[].Weight', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.CapacityProviderStrategy[].Weight', normalize: typed}
       Target.EcsParameters.CapacityProviderStrategy[].Base:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.CapacityProviderStrategy[].Base'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.CapacityProviderStrategy[].Base', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.CapacityProviderStrategy[].Base', normalize: typed}
       Target.EcsParameters.EnableECSManagedTags:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.EnableECSManagedTags}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.EnableECSManagedTags, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.EnableECSManagedTags, normalize: typed}
       Target.EcsParameters.EnableExecuteCommand:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.EnableExecuteCommand}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.EnableExecuteCommand, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.EnableExecuteCommand, normalize: typed}
       Target.EcsParameters.PlacementConstraints[].Type:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.PlacementConstraints[].Type'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.PlacementConstraints[].Type', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.PlacementConstraints[].Type', normalize: typed}
       Target.EcsParameters.PlacementConstraints[].Expression:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.PlacementConstraints[].Expression'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.PlacementConstraints[].Expression', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.PlacementConstraints[].Expression', normalize: typed}
       Target.EcsParameters.PlacementStrategy[].Type:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.PlacementStrategy[].Type'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.PlacementStrategy[].Type', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.PlacementStrategy[].Type', normalize: typed}
       Target.EcsParameters.PlacementStrategy[].Field:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.PlacementStrategy[].Field'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.PlacementStrategy[].Field', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.PlacementStrategy[].Field', normalize: typed}
       Target.EcsParameters.PropagateTags:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.PropagateTags}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.PropagateTags, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.PropagateTags, normalize: typed}
       Target.EcsParameters.ReferenceId:
         model: {include: false}
         display: {show: false, name: Target.EcsParameters.ReferenceId}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EcsParameters.ReferenceId, normalize: typed}
+        aws: {getter: schedule, path: Target.EcsParameters.ReferenceId, normalize: typed}
       Target.EcsParameters.Tags[]:
         model: {include: false}
         display: {show: false, name: 'Target.EcsParameters.Tags[]'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.EcsParameters.Tags[]', normalize: typed}
+        aws: {getter: schedule, path: 'Target.EcsParameters.Tags[]', normalize: typed}
       Target.EventBridgeParameters.DetailType:
         model: {include: false}
         display: {show: false, name: Target.EventBridgeParameters.DetailType}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EventBridgeParameters.DetailType, normalize: typed}
+        aws: {getter: schedule, path: Target.EventBridgeParameters.DetailType, normalize: typed}
       Target.EventBridgeParameters.Source:
         model: {include: false}
         display: {show: false, name: Target.EventBridgeParameters.Source}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.EventBridgeParameters.Source, normalize: typed}
+        aws: {getter: schedule, path: Target.EventBridgeParameters.Source, normalize: typed}
       Target.KinesisParameters.PartitionKey:
         model: {include: false}
         display: {show: false, name: Target.KinesisParameters.PartitionKey}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.KinesisParameters.PartitionKey, normalize: typed}
+        aws: {getter: schedule, path: Target.KinesisParameters.PartitionKey, normalize: typed}
       Target.SageMakerPipelineParameters.PipelineParameterList[].Name:
         model: {include: false}
         display: {show: false, name: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Name'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Name', normalize: typed}
+        aws: {getter: schedule, path: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Name', normalize: typed}
       Target.SageMakerPipelineParameters.PipelineParameterList[].Value:
         model: {include: false}
         display: {show: false, name: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Value'}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Value', normalize: typed}
+        aws: {getter: schedule, path: 'Target.SageMakerPipelineParameters.PipelineParameterList[].Value', normalize: typed}
       Target.SqsParameters.MessageGroupId:
         model: {include: false}
         display: {show: false, name: Target.SqsParameters.MessageGroupId}
         access: [read-write]
-        aws: {getter: provider-scheduler-schedule, path: Target.SqsParameters.MessageGroupId, normalize: typed}
+        aws: {getter: schedule, path: Target.SqsParameters.MessageGroupId, normalize: typed}

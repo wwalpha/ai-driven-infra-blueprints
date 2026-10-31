@@ -4,10 +4,14 @@
 import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
+from unittest.mock import Mock
+
+from botocore.exceptions import ClientError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from model.importing import adapter_contracts, cli, inventory
 from support.aws_mapping_fixtures import (
     BASELINE,
     CHANNEL,
@@ -271,11 +275,219 @@ def check_config():
         document.write_text(markdown, encoding="utf-8")
 
 
+class SchedulerClient:
+    def __init__(self, payload, error=None):
+        self.payload = payload
+        self.error = error
+        self.calls = []
+
+    def get_schedule(self, **inputs):
+        self.calls.append(inputs)
+        if self.error:
+            raise ClientError(
+                {"Error": {"Code": self.error, "Message": "fixture"}}, "GetSchedule"
+            )
+        return copy.deepcopy(self.payload)
+
+
+@it_case
+def check_scheduler_compare():
+    kind = "Scheduler.Schedule"
+    target = {
+        "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+        "environment": "dev",
+        "directory": "fixture",
+    }
+    rows = {
+        "Name": "job",
+        "GroupName": "custom",
+        "Target.RetryPolicy.MaximumEventAgeInSeconds": 3600,
+        "Target.RetryPolicy.MaximumRetryAttempts": 3,
+        "StartDate": "2026-01-01T09:00:00+09:00",
+        "Target.Input": "sensitive-demo-value",
+    }
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "alias": "fixture",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        path = root / "model/dev/fixture/eventbridge.properties"
+        values = {
+            "desired.service.eventbridge.serviceId": "eventbridge",
+            "desired.service.eventbridge.ownedCatalogResourceTypes": kind,
+            "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
+            "desired.resource.001.resourceType": kind,
+            "desired.resource.001.resourceMode": "IMPORT",
+            "desired.resource.001.logicalId": "Scheduler_Schedule_001",
+        }
+        for index, (name, value) in enumerate(rows.items(), 1):
+            values.update(
+                {
+                    f"desired.row.001-{index:03}.property": kind + "." + name,
+                    f"desired.row.001-{index:03}.value": "`" + str(value) + "`",
+                    f"desired.row.001-{index:03}.comment": "fixture",
+                }
+            )
+        write_model(path, values)
+        payload = {
+            "Name": "job",
+            "GroupName": "custom",
+            "StartDate": "2026-01-01T00:00:00Z",
+            "Target": {
+                "Input": "different-sensitive-value",
+                "RetryPolicy": {
+                    "MaximumEventAgeInSeconds": 3600,
+                    "MaximumRetryAttempts": 3,
+                },
+            },
+        }
+        client = SchedulerClient(payload)
+        ctx = m.Context(
+            root,
+            target,
+            session=SimpleNamespace(client=Mock(return_value=client)),
+            services=["eventbridge"],
+        )
+        ctx.catalog = m.DesignSchemaCatalog(ROOT)
+        ctx.verified = True
+        results = m.compare_resource(ctx, ctx.model(path).resources[0])
+        by_key = {item["propertiesKey"]: item for item in results}
+        assert (
+            by_key[kind + ".Target.RetryPolicy.MaximumEventAgeInSeconds"]["status"]
+            == "match"
+        )
+        assert (
+            by_key[kind + ".Target.RetryPolicy.MaximumRetryAttempts"]["status"]
+            == "match"
+        )
+        assert by_key[kind + ".StartDate"]["status"] == "match"
+        assert by_key[kind + ".Target.Input"]["status"] == "difference"
+        assert "sensitive-demo-value" not in str(
+            results
+        ) and "different-sensitive-value" not in str(results)
+        assert client.calls == [{"Name": "job", "GroupName": "custom"}]
+        assert "sensitive-demo-value" not in str(ctx.trace)
+        for retry, expected in [
+            (
+                {"MaximumEventAgeInSeconds": 7200, "MaximumRetryAttempts": 5},
+                ("difference", "difference"),
+            ),
+            (
+                {"MaximumEventAgeInSeconds": 3600, "MaximumRetryAttempts": 0},
+                ("match", "difference"),
+            ),
+            (None, ("difference", "difference")),
+        ]:
+            changed = copy.deepcopy(payload)
+            if retry is None:
+                del changed["Target"]["RetryPolicy"]
+            else:
+                changed["Target"]["RetryPolicy"] = retry
+            client = SchedulerClient(changed)
+            ctx = m.Context(
+                root,
+                target,
+                session=SimpleNamespace(client=Mock(return_value=client)),
+                services=["eventbridge"],
+            )
+            ctx.catalog = m.DesignSchemaCatalog(ROOT)
+            ctx.verified = True
+            outcomes = {
+                item["propertiesKey"]: item
+                for item in m.compare_resource(ctx, ctx.model(path).resources[0])
+            }
+            keys = [
+                kind + ".Target.RetryPolicy.MaximumEventAgeInSeconds",
+                kind + ".Target.RetryPolicy.MaximumRetryAttempts",
+            ]
+            assert tuple(outcomes[key]["status"] for key in keys) == expected
+            assert len(client.calls) == 1
+        values["desired.row.001-004.value"] = "`0`"
+        write_model(path, values)
+        changed = copy.deepcopy(payload)
+        changed["Target"]["RetryPolicy"]["MaximumRetryAttempts"] = 0
+        client = SchedulerClient(changed)
+        ctx = m.Context(
+            root,
+            target,
+            session=SimpleNamespace(client=Mock(return_value=client)),
+            services=["eventbridge"],
+        )
+        ctx.catalog = m.DesignSchemaCatalog(ROOT)
+        ctx.verified = True
+        result = {
+            item["propertiesKey"]: item
+            for item in m.compare_resource(ctx, ctx.model(path).resources[0])
+        }
+        assert (
+            result[kind + ".Target.RetryPolicy.MaximumRetryAttempts"]["status"]
+            == "match"
+        )
+        for code, status in [
+            ("ResourceNotFoundException", "resource_missing"),
+            ("AccessDeniedException", "acquisition_failed"),
+        ]:
+            client = SchedulerClient({}, error=code)
+            ctx = m.Context(
+                root,
+                target,
+                session=SimpleNamespace(client=Mock(return_value=client)),
+                services=["eventbridge"],
+            )
+            ctx.catalog = m.DesignSchemaCatalog(ROOT)
+            ctx.verified = True
+            failures = m.compare_resource(ctx, ctx.model(path).resources[0])
+            assert len(failures) == 1 and failures[0]["status"] == status
+            assert len(client.calls) == 1
+        import_ctx, _ = adapter_contracts.fixture_context(
+            ROOT, "eventbridge", adapter_contracts.DirectCalls, {}
+        )
+        import_ctx.pages = Mock(
+            return_value={
+                "ResourceDescriptions": [
+                    {
+                        "Identifier": "job",
+                        "Properties": json.dumps(
+                            {"Name": "job", "GroupName": "custom"}
+                        ),
+                    }
+                ]
+            }
+        )
+        import_ctx.call = Mock(return_value=payload)
+        records = inventory.inventory_for(import_ctx).inventory("eventbridge", kind)
+        normalized = cli.normalize_records(import_ctx, "eventbridge", records)
+        import_ctx.call.assert_called_once_with(
+            "scheduler", "get_schedule", Name="job", GroupName="custom"
+        )
+        assert (
+            normalized[0]["properties"][
+                kind + ".Target.RetryPolicy.MaximumRetryAttempts"
+            ]["value"]
+            == 3
+        )
+
+
 def main():
     with patch.object(
         socket.socket, "connect", side_effect=AssertionError("network forbidden")
     ):
         check_config()
+        check_scheduler_compare()
     print(
         "AWS Mapping checks: PASS (Config explicit values, Compare, IMPORT and display 18/18; no AWS connection)"
     )

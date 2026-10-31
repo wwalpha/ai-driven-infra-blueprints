@@ -574,6 +574,10 @@ class ImportInventory:
             and prop.include
             and mapping.getters.get(prop.field.getter, {}).get("kind") == "cloudcontrol"
         ]
+        if kind == "Scheduler.Schedule" and (
+            not props.get("Name") or not props.get("GroupName")
+        ):
+            raise m.Unresolved("Schedule inventory does not confirm Name and GroupName")
         if any(project(prop, props) == m.MISSING for prop in needed) or any(
             pointer_value(props, pointer) is None
             for pointer in schema.get("primaryIdentifier", ())

@@ -1136,6 +1136,8 @@ def compare_resource(ctx, resource, *, indexed_rows=None):
                 normalize(ctx, resource.parse(row, field.norm), field.norm)
                 for _, row in rows
             ]
+            if prop in {"Scheduler.Schedule.StartDate", "Scheduler.Schedule.EndDate"}:
+                values = [resource.module.normalize_date(item) for item in values]
             parsed.extend(
                 (rid, prop, val, row.get("comment", ""), value_shape(row))
                 for (rid, row), val in zip(rows, values, strict=False)

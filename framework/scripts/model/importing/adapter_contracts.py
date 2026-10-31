@@ -520,14 +520,20 @@ class DataZoneCalls(FakeCalls):
         if self.error:
             raise self.error
         if (api, operation, inputs) == (
-            "datazone", "get_domain", {"identifier": "dzd_domain"}
+            "datazone",
+            "get_domain",
+            {"identifier": "dzd_domain"},
         ):
-            return self.response(api, operation, {
-                "id": "dzd_domain",
-                "domainExecutionRole": "arn:aws:iam::123456789012:role/fixture",
-                "status": "AVAILABLE",
-                "domainVersion": "V2",
-            })
+            return self.response(
+                api,
+                operation,
+                {
+                    "id": "dzd_domain",
+                    "domainExecutionRole": "arn:aws:iam::123456789012:role/fixture",
+                    "status": "AVAILABLE",
+                    "domainVersion": "V2",
+                },
+            )
         if (api, operation, inputs) != (
             "datazone",
             "get_project",
@@ -4500,7 +4506,7 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
             "Name",
             "$",
         )
-        cloud = {"Name": "fixture"}
+        cloud = {"Name": "fixture", "GroupName": "default"}
         payload = {
             "Name": "fixture",
             "State": "ENABLED",
@@ -4510,6 +4516,10 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
             "Target": {
                 "Arn": "arn:aws:lambda:ap-northeast-1:123456789012:function:fixture",
                 "RoleArn": "arn:aws:iam::123456789012:role/fixture",
+                "RetryPolicy": {
+                    "MaximumEventAgeInSeconds": 3600,
+                    "MaximumRetryAttempts": 3,
+                },
             },
         }
         cases = {
@@ -4524,6 +4534,16 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
             ),
             "Target.Arn": ("Target.Arn", "arn", payload["Target"]["Arn"]),
             "Target.RoleArn": ("Target.RoleArn", "arn", payload["Target"]["RoleArn"]),
+            "Target.RetryPolicy.MaximumEventAgeInSeconds": (
+                "Target.RetryPolicy.MaximumEventAgeInSeconds",
+                "typed",
+                3600,
+            ),
+            "Target.RetryPolicy.MaximumRetryAttempts": (
+                "Target.RetryPolicy.MaximumRetryAttempts",
+                "typed",
+                3,
+            ),
         }
     elif kind == "Lambda.Function":
         service, api, operation, selector, argument, envelope = (
@@ -4722,6 +4742,7 @@ def direct_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str,
             argument: "fixture",
             **extra_inputs,
             **({"EventBusName": "default"} if kind == "Events.Rule" else {}),
+            **({"GroupName": "default"} if kind == "Scheduler.Schedule" else {}),
         },
         envelope,
     )
@@ -5811,8 +5832,15 @@ def datazone_domain_fixture(
     }
     resource = fixture_resource(root, ctx, "datazone", record)
     items = fixture_properties(
-        ctx, resource, mapping, properties, "DataZone.Domain",
-        {"Id": ("id", "typed", "dzd_domain"), "DomainVersion": ("domainVersion", "typed", "V2")},
+        ctx,
+        resource,
+        mapping,
+        properties,
+        "DataZone.Domain",
+        {
+            "Id": ("id", "typed", "dzd_domain"),
+            "DomainVersion": ("domainVersion", "typed", "V2"),
+        },
         ["normal", "missing-selector", "access-denied"],
     )
     failure_branches(
