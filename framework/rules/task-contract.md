@@ -176,8 +176,9 @@ amending/discarding it. Failed-validation approval cannot bypass deletion final 
 `None` when no operation is declared. Its pairs and references contain immutable
 `MergePair` and `ReferenceChange` values, respectively.
 
-Python consumers import contract parsing and shared data types from
-`task_contract_core`, and Task transitions from `task_contract_runtime`;
+Python consumers import contract parsing, shared data types, and the `start` and
+`suspend` transitions from `task_contract_core`, and validation-backed Task transitions
+such as `refresh`, `resume`, and `complete` from `task_contract_runtime`;
 `task_contract.py` remains the Task transition CLI. Validation consumers import
 from `validation.runner` or `validation.loop` rather than their CLI wrappers.
 Import acquisition and receipt operations belong to `model.importing.evidence`,
