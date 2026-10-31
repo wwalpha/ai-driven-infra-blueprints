@@ -125,6 +125,15 @@ def sdk_error(api, error, request):
         if isinstance(error, subprocess.CalledProcessError)
         else detail.get("Code", getattr(error, "code", type(error).__name__))
     )
+    if api == "s3.get_bucket_replication" and isinstance(
+        error, subprocess.CalledProcessError
+    ):
+        try:
+            detail = json.loads(error.stderr)
+        except (TypeError, ValueError):
+            detail = None
+        if isinstance(detail, dict) and isinstance(detail.get("Code"), str):
+            code = detail["Code"]
     missing = code in {
         "ResourceNotFoundException",
         "ResourceNotFound",
@@ -367,6 +376,11 @@ class Context:
                 **os.environ,
                 "AWS_CLI_AUTO_PROMPT": "off",
                 "AWS_PAGER": "",
+                **(
+                    {"AWS_CLI_ERROR_FORMAT": "json"}
+                    if (service, operation) == ("s3", "get_bucket_replication")
+                    else {}
+                ),
                 **(
                     {"AWS_MAX_ATTEMPTS": "1"}
                     if self.import_mode

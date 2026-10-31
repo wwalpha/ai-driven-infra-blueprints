@@ -17,6 +17,7 @@ from threading import Barrier, Event
 
 import aws_mapping_catalog
 import aws_mapping_catalog as _imports_aws_mapping_catalog
+import aws_mapping_compare
 import pytest
 import utils.aws_mappings as providers
 import utils.mapping_runtime as _mapping_runtime
@@ -189,7 +190,7 @@ def check_v3_registry():
         getters,
         len(apis),
         len(set(apis)),
-    ) == (179, 53, 50, 64, 84, 83)
+    ) == (179, 53, 50, 65, 85, 84)
     stack = m.service_module("cloudformation-stacks")
     assert stack.STACK_TYPE == "CloudFormation.Stack"
     assert all(
@@ -333,7 +334,9 @@ def check_v3_registry():
     assert len(replication) == 21
     for name, prop in replication.items():
         assert prop["model"]["include"] is True and prop["display"]["show"] is True
+        assert prop["aws"]["getter"] == "replication"
         baseline = baseline_properties["s3"]["S3.Bucket"][name]
+        baseline["aws"]["getter"] = "provider-s3-bucket"
         baseline["model"]["include"] = baseline["display"]["show"] = False
     policy_id = baseline_properties["sqs"]["SQS.QueuePolicy"]["Id"]["source"]
     assert policy_id["constraint"] == (
@@ -343,15 +346,21 @@ def check_v3_registry():
     policy_id["constraint"] = (
         "SQS has no independent QueuePolicy resource ID; GetQueueAttributes returns only the queue policy document."
     )
+    assert definitions["s3"].pop("replication") == {
+        "kind": "adapter",
+        "resources": ["S3.Bucket"],
+    }
+    assert metadata["s3"]["GETTERS"].pop("replication") == ("S3.Bucket",)
+    metadata["s3"]["APIS"].remove(("s3", "get_bucket_replication"))
     # Environment mappings add CodePipeline SDK fields and expose ECS/Lambda values.
     for values, expected in [
         (
             baseline_properties,
-            "756741f1aee199834603331d1ba4a9611fc8660e6da724b4d6a16db05b04c03e",
+            "302ae86df4742799a99e695433dbdd06017a25b18bc40398d77536244e1ac5b9",
         ),
         (
             definitions,
-            "b611a2bf2ce4b384c2e80b6c63f51646e0f5439789bdeb308878250df095e0c4",
+            "1d85f271be7b8d688df6d45d3a098285adf73b6459edafc7aaa6a30d30308d82",
         ),
         (metadata, "6ddf2190bf6c29c9615b5fad44deb27f8b33007f9fd8b4596be89630da10869b"),
     ]:
@@ -360,7 +369,7 @@ def check_v3_registry():
             == expected
         )
     print(
-        "YAML v3/environment baseline: PASS (50 files, 179 types, 53 adapter types, 50 identities, 64 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
+        "YAML v3/environment baseline: PASS (50 files, 179 types, 53 adapter types, 50 identities, 65 adapter getters; 18 TGW include/show changes explicit; properties/getters/metadata/API sets pinned)"
     )
 
 
@@ -1060,3 +1069,208 @@ def test_scheduler_group_selection():
 
 if __name__ == "__main__":
     raise SystemExit(run(__file__))
+
+
+class ReplicationResource:
+    kind = "S3.Bucket"
+
+    def value(self, name):
+        assert name == "BucketName"
+        return "source-bucket"
+
+
+class ReplicationContext:
+    target = {"awsAccountId": "111111111111", "awsExecutionAccountId": "222222222222"}
+
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    def call(self, service, operation, **kwargs):
+        self.calls.append((service, operation, kwargs))
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
+
+
+def test_s3_replication_mapping_and_normalization():
+    mapping, properties = aws_mapping_compare.comparison(ROOT, "s3")
+    replication = {
+        k: v
+        for k, v in properties.items()
+        if k.startswith("S3.Bucket.ReplicationConfiguration.")
+    }
+    assert len(replication) == 21
+    assert all(
+        v.field.classification == "supported" and v.field.getter == "replication"
+        for v in replication.values()
+    )
+    raw = {
+        "ReplicationConfiguration": {
+            "Role": "role",
+            "Rules": [
+                {
+                    "ID": "one",
+                    "Destination": {"Bucket": "arn:aws:s3:::destination"},
+                    "Filter": {
+                        "And": {
+                            "Prefix": "a/",
+                            "Tags": [
+                                {"Key": "a", "Value": "1"},
+                                {"Key": "b", "Value": "2"},
+                            ],
+                        }
+                    },
+                    "Status": "Enabled",
+                },
+                {
+                    "ID": "two",
+                    "Destination": {"Bucket": "arn:aws:s3:::destination"},
+                    "Filter": {"Tag": {"Key": "c", "Value": "3"}},
+                    "Status": "Disabled",
+                },
+            ],
+        }
+    }
+    original = deepcopy(raw)
+    ctx = ReplicationContext(raw)
+    result = m.service_module("s3").fetch(ctx, ReplicationResource(), "replication")
+    assert raw == original
+    rules = result["ReplicationConfiguration"]["Rules"]
+    assert [r["Id"] for r in rules] == ["one", "two"]
+    assert (
+        rules[0]["Filter"]["And"]["TagFilters"]
+        == original["ReplicationConfiguration"]["Rules"][0]["Filter"]["And"]["Tags"]
+    )
+    assert rules[1]["Filter"]["TagFilter"] == {"Key": "c", "Value": "3"}
+    assert ctx.calls == [
+        (
+            "s3",
+            "get_bucket_replication",
+            {"Bucket": "source-bucket", "ExpectedBucketOwner": "222222222222"},
+        )
+    ]
+    assert aws_mapping_catalog.project(
+        replication["S3.Bucket.ReplicationConfiguration.Rules[].Id"], result
+    ) == ["one", "two"]
+    assert aws_mapping_catalog.project(
+        replication["S3.Bucket.ReplicationConfiguration.Rules[].Filter.TagFilter.Key"],
+        result,
+    ) == [m.MISSING, "c"]
+    assert mapping.getters["replication"]["kind"] == "adapter"
+
+
+def test_s3_replication_error_classification():
+    adapter = m.service_module("s3")
+    resource = ReplicationResource()
+    absent = m.AcquisitionError(
+        "s3.get_bucket_replication", "ReplicationConfigurationNotFoundError"
+    )
+    assert adapter.fetch(ReplicationContext(absent), resource, "replication") == {}
+    for code, status in [
+        ("AccessDenied", "acquisition_failed"),
+        ("NoSuchBucket", "resource_missing"),
+    ]:
+        error = m.AcquisitionError("s3.get_bucket_replication", code, status)
+        with pytest.raises(m.AcquisitionError) as exc:
+            adapter.fetch(ReplicationContext(error), resource, "replication")
+        assert exc.value.code == code and exc.value.status == status
+    with pytest.raises(m.AcquisitionError) as exc:
+        adapter.fetch(
+            ReplicationContext({"ReplicationConfiguration": {"Rules": "bad"}}),
+            resource,
+            "replication",
+        )
+    assert (
+        exc.value.code == "InvalidResponse" and exc.value.status == "acquisition_failed"
+    )
+
+
+@pytest.mark.parametrize(
+    "code,status",
+    [
+        ("ReplicationConfigurationNotFoundError", "acquisition_failed"),
+        ("AccessDenied", "acquisition_failed"),
+        ("NoSuchBucket", "resource_missing"),
+    ],
+)
+def test_replication_cli_structured_errors(code, status):
+    ctx = m.Context(
+        ROOT,
+        {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
+        services=["s3"],
+    )
+    ctx.verified = True
+    response = _CallbackState(
+        returncode=254,
+        stdout="",
+        stderr=json.dumps({"Code": code, "Message": "secret"}),
+    )
+    with patch.object(m.subprocess, "run", return_value=response) as process:
+        for _ in range(2):
+            with pytest.raises(m.AcquisitionError) as caught:
+                ctx.call("s3", "get_bucket_replication", Bucket="source-bucket")
+            assert caught.value.code == code and caught.value.status == status
+            assert "secret" not in str(caught.value)
+        assert process.call_count == 1
+        assert process.call_args.kwargs["env"]["AWS_CLI_ERROR_FORMAT"] == "json"
+
+
+def test_replication_cli_success_and_bucket_cache():
+    ctx = m.Context(
+        ROOT,
+        {"awsAccountId": "123456789012", "awsRegion": "us-east-1"},
+        services=["s3"],
+    )
+    ctx.verified = True
+    response = _CallbackState(
+        returncode=0,
+        stdout=json.dumps({"ReplicationConfiguration": {"Role": "role", "Rules": []}}),
+        stderr="",
+    )
+    with patch.object(m.subprocess, "run", return_value=response) as process:
+        for bucket in ["one", "one", "two"]:
+            assert ctx.call(
+                "s3", "get_bucket_replication", Bucket=bucket
+            ) == json.loads(response.stdout)
+        assert process.call_count == 2
+
+
+def test_replication_cli_absence_and_unstructured_failure():
+    target = {"awsAccountId": "123456789012", "awsRegion": "us-east-1"}
+    adapter = m.service_module("s3")
+    for stderr, expected in [
+        (json.dumps({"Code": "ReplicationConfigurationNotFoundError"}), None),
+        ("An error occurred (AccessDenied): secret", "AwsCliError"),
+        (json.dumps({"Code": "NoSuchBucket"}), "NoSuchBucket"),
+    ]:
+        ctx = m.Context(ROOT, target, services=["s3"])
+        ctx.verified = True
+        response = _CallbackState(returncode=254, stdout="", stderr=stderr)
+        with patch.object(m.subprocess, "run", return_value=response) as process:
+            if expected is None:
+                assert adapter.fetch(ctx, ReplicationResource(), "replication") == {}
+            else:
+                with pytest.raises(m.AcquisitionError) as caught:
+                    adapter.fetch(ctx, ReplicationResource(), "replication")
+                assert caught.value.code == expected
+            assert (
+                json.loads(process.call_args.args[0][-2])["ExpectedBucketOwner"]
+                == target["awsAccountId"]
+            )
+
+
+def test_replication_malformed_tag_is_acquisition_failure():
+    adapter = m.service_module("s3")
+    for filt in ({"Tag": []}, {"And": {"Tags": ["invalid"]}}, {"And": []}):
+        payload = {
+            "ReplicationConfiguration": {"Role": "role", "Rules": [{"Filter": filt}]}
+        }
+        with pytest.raises(m.AcquisitionError) as caught:
+            adapter.fetch(
+                ReplicationContext(payload), ReplicationResource(), "replication"
+            )
+        assert (
+            caught.value.code == "InvalidResponse"
+            and caught.value.status == "acquisition_failed"
+        )

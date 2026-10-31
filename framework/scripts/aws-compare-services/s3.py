@@ -1,9 +1,14 @@
 """s3: selected properties -> read-only SDK responses; inputs in fetch()."""
 
+from copy import deepcopy
+
+from botocore.validate import ParamValidator
 from model.adapters.aws import MISSING, AcquisitionError, Field, one
+from utils.aws_sdk import Sdk
 
 APIS = {
     ("s3", "get_bucket_policy"),
+    ("s3", "get_bucket_replication"),
     ("s3", "get_bucket_lifecycle_configuration"),
     ("s3", "get_bucket_encryption"),
     ("s3", "get_public_access_block"),
@@ -13,6 +18,8 @@ APIS = {
     ("s3", "get_bucket_ownership_controls"),
     ("s3", "get_bucket_location"),
 }
+
+SDK = Sdk()
 
 MODEL_FIELDS = {"S3.Bucket.Region": Field("base", "BucketRegion", default=MISSING)}
 
@@ -63,6 +70,7 @@ def fetch(ctx, r, getter):
     operations = {
         "encryption": "get_bucket_encryption",
         "lifecycle": "get_bucket_lifecycle_configuration",
+        "replication": "get_bucket_replication",
         "ownership": "get_bucket_ownership_controls",
         "public": "get_public_access_block",
         "versioning": "get_bucket_versioning",
@@ -88,9 +96,14 @@ def fetch(ctx, r, getter):
             "ObjectLockConfigurationNotFoundError",
             "NoSuchBucketPolicy",
         }
-        if error.code in absent:
+        if error.code in absent or (
+            getter == "replication"
+            and error.code == "ReplicationConfigurationNotFoundError"
+        ):
             return {}
         raise
+    if getter == "replication":
+        return normalize_replication(result)
     if getter == "encryption":
         return {
             "ServerSideEncryptionConfiguration": result[
@@ -106,6 +119,32 @@ def fetch(ctx, r, getter):
         result["LockBoolean"] = (
             result["ObjectLockConfiguration"].get("ObjectLockEnabled") == "Enabled"
         )
+    return result
+
+
+def normalize_replication(result):
+    api = "s3.get_bucket_replication"
+    if not isinstance(result, dict) or not isinstance(
+        result.get("ReplicationConfiguration"), dict
+    ):
+        raise AcquisitionError(api, "InvalidResponse")
+    shape = SDK.service_model("s3").operation_model("GetBucketReplication").output_shape
+    payload = {key: value for key, value in result.items() if key != "ResponseMetadata"}
+    if ParamValidator().validate(payload, shape).has_errors():
+        raise AcquisitionError(api, "InvalidResponse")
+    result = deepcopy(result)
+    config = result["ReplicationConfiguration"]
+    for rule in config["Rules"]:
+        if "ID" in rule:
+            rule["Id"] = rule.pop("ID")
+        if "Filter" in rule:
+            filt = rule["Filter"]
+            if "Tag" in filt:
+                filt["TagFilter"] = filt.pop("Tag")
+            if "And" in filt:
+                conjunction = filt["And"]
+                if "Tags" in conjunction:
+                    conjunction["TagFilters"] = conjunction.pop("Tags")
     return result
 
 

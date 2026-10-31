@@ -3452,6 +3452,87 @@ def s3_fixture(root: Path, mapping: Any, properties: list[str]) -> dict[str, Any
     kind = ".".join(properties[0].split(".")[:2])
     getter = mapping.properties[properties[0]].field.getter
     configs = {
+        "replication": (
+            "get_bucket_replication",
+            {
+                "ReplicationConfiguration": {
+                    "Role": "arn:aws:iam::123456789012:role/replication",
+                    "Rules": [
+                        {
+                            "ID": "rule",
+                            "Status": "Enabled",
+                            "Priority": 1,
+                            "DeleteMarkerReplication": {"Status": "Disabled"},
+                            "Destination": {
+                                "Account": ACCOUNT,
+                                "Bucket": "arn:aws:s3:::destination",
+                                "StorageClass": "STANDARD",
+                                "EncryptionConfiguration": {
+                                    "ReplicaKmsKeyID": "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+                                },
+                                "Metrics": {
+                                    "Status": "Enabled",
+                                    "EventThreshold": {"Minutes": 15},
+                                },
+                                "ReplicationTime": {
+                                    "Status": "Enabled",
+                                    "Time": {"Minutes": 15},
+                                },
+                            },
+                            "Filter": {
+                                "Prefix": "logs/",
+                                "Tag": {"Key": "team", "Value": "ops"},
+                                "And": {
+                                    "Prefix": "logs/",
+                                    "Tags": [{"Key": "env", "Value": "dev"}],
+                                },
+                            },
+                            "SourceSelectionCriteria": {
+                                "ReplicaModifications": {"Status": "Enabled"},
+                                "SseKmsEncryptedObjects": {"Status": "Enabled"},
+                            },
+                        }
+                    ],
+                }
+            },
+            {
+                "ReplicationConfiguration." + name: (
+                    "ReplicationConfiguration." + name,
+                    "typed",
+                    value,
+                )
+                for name, value in {
+                    "Role": "arn:aws:iam::123456789012:role/replication",
+                    "Rules[].Id": ["rule"],
+                    "Rules[].Status": ["Enabled"],
+                    "Rules[].Priority": [1],
+                    "Rules[].DeleteMarkerReplication.Status": ["Disabled"],
+                    "Rules[].Destination.Account": [ACCOUNT],
+                    "Rules[].Destination.Bucket": ["arn:aws:s3:::destination"],
+                    "Rules[].Destination.StorageClass": ["STANDARD"],
+                    "Rules[].Destination.EncryptionConfiguration.ReplicaKmsKeyID": [
+                        "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+                    ],
+                    "Rules[].Destination.Metrics.EventThreshold.Minutes": [15],
+                    "Rules[].Destination.Metrics.Status": ["Enabled"],
+                    "Rules[].Destination.ReplicationTime.Status": ["Enabled"],
+                    "Rules[].Destination.ReplicationTime.Time.Minutes": [15],
+                    "Rules[].Filter.And.Prefix": ["logs/"],
+                    "Rules[].Filter.And.TagFilters[].Key": [["env"]],
+                    "Rules[].Filter.And.TagFilters[].Value": [["dev"]],
+                    "Rules[].Filter.Prefix": ["logs/"],
+                    "Rules[].Filter.TagFilter.Key": ["team"],
+                    "Rules[].Filter.TagFilter.Value": ["ops"],
+                    "Rules[].SourceSelectionCriteria.ReplicaModifications.Status": [
+                        "Enabled"
+                    ],
+                    "Rules[].SourceSelectionCriteria.SseKmsEncryptedObjects.Status": [
+                        "Enabled"
+                    ],
+                }.items()
+            },
+            "ReplicationConfigurationNotFoundError",
+        ),
         "encryption": (
             "get_bucket_encryption",
             {
@@ -6296,6 +6377,7 @@ def run(root: Path, mapping: Any, kind: str) -> dict[str, Any]:
             ("S3.Bucket", "base"): s3_base_fixture,
             ("S3.Bucket", "encryption"): s3_fixture,
             ("S3.Bucket", "lifecycle"): s3_fixture,
+            ("S3.Bucket", "replication"): s3_fixture,
             ("S3.Bucket", "lock"): s3_fixture,
             ("S3.Bucket", "public"): s3_fixture,
             ("S3.Bucket", "ownership"): s3_fixture,
@@ -6398,6 +6480,7 @@ def run(root: Path, mapping: Any, kind: str) -> dict[str, Any]:
                 "s3.get_bucket_lifecycle_configuration",
                 ["BucketName"],
             ),
+            ("S3.Bucket", "replication"): ("s3.get_bucket_replication", ["BucketName"]),
             ("S3.Bucket", "lock"): ("s3.get_object_lock_configuration", ["BucketName"]),
             ("S3.Bucket", "ownership"): (
                 "s3.get_bucket_ownership_controls",

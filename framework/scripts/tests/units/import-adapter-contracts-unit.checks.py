@@ -685,7 +685,14 @@ def test_iam_managed_policy_getters_cover_ambiguity_and_detail():
 
 def test_s3_configuration_getters_respect_absence_and_failures():
     results = adapter_contracts.run(ROOT, runtime_registry(ROOT, "s3"), "S3.Bucket")
-    for getter in ("encryption", "lifecycle", "ownership", "public", "versioning"):
+    for getter in (
+        "encryption",
+        "lifecycle",
+        "replication",
+        "ownership",
+        "public",
+        "versioning",
+    ):
         result = results[getter]
         assert result["status"] == "verified", result
         for evidence in result["properties"].values():

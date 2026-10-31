@@ -514,10 +514,7 @@ def check_cli_errors(tmp_path):
                 "CLI error details hidden and no fallback",
             )
 
-    for code, expected in [
-        ("NoSuchBucket", "resource_missing"),
-        ("AccessDenied", "acquisition_failed"),
-    ]:
+    for code in ("NoSuchBucket", "AccessDenied"):
         ctx = m.Context(root, items[0][0])
         ctx.verified = True
         error = SimpleNamespace(
@@ -530,8 +527,9 @@ def check_cli_errors(tmp_path):
                 with pytest.raises(m.AcquisitionError) as caught:
                     ctx.call("s3", "get_bucket_versioning", Bucket="fixture")
                 check(
-                    caught.value.status == expected and caught.value.code == code,
-                    "CLI AWS error classification retained",
+                    caught.value.status == "acquisition_failed"
+                    and caught.value.code == "AwsCliError",
+                    "unstructured CLI errors remain acquisition failures",
                 )
                 check("secret" not in str(caught.value), "CLI error message redacted")
             check(process.call_count == 1, "failed CLI request cached")

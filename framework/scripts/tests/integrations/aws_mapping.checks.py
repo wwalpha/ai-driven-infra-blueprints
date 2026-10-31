@@ -11,6 +11,7 @@ from botocore.exceptions import ClientError
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from aws_mapping_compare import value as mapping_value
 from model.importing import adapter_contracts, cli, inventory
 from support.aws_mapping_fixtures import (
     BASELINE,
@@ -630,6 +631,258 @@ def check_glue_catalog_compare():
                     client.get_catalog.assert_not_called()
 
 
+
+class ReplicationClient:
+    def __init__(self, payload, error=None):
+        self.payload = payload
+        self.error = error
+        self.replication_calls = []
+
+    def list_buckets(self, **inputs):
+        return {
+            "Buckets": [
+                {"Name": "fixture-bucket", "BucketArn": "arn:aws:s3:::fixture-bucket"}
+            ]
+        }
+
+    def get_bucket_location(self, **inputs):
+        return {"LocationConstraint": "ap-northeast-1"}
+
+    def get_bucket_replication(self, **inputs):
+        self.replication_calls.append(inputs)
+        if self.error:
+            raise ClientError(
+                {"Error": {"Code": self.error, "Message": "fixture"}},
+                "GetBucketReplication",
+            )
+        return copy.deepcopy(self.payload)
+
+
+class ReplicationImportCalls:
+    def __init__(self, payload, error):
+        self.payload = payload
+        self.error = error
+        self.replication_calls = []
+
+    def pages(self, service, operation, **inputs):
+        if (service, operation) == ("cloudcontrol", "list_resources"):
+            return {
+                "ResourceDescriptions": [
+                    {
+                        "Identifier": "fixture-bucket",
+                        "Properties": json.dumps({"BucketName": "fixture-bucket"}),
+                    }
+                ]
+            }
+        if (service, operation) == ("s3", "list_buckets"):
+            return {
+                "Buckets": [
+                    {
+                        "Name": "fixture-bucket",
+                        "BucketArn": "arn:aws:s3:::fixture-bucket",
+                    }
+                ]
+            }
+        raise AssertionError((service, operation))
+
+    def call(self, service, operation, **inputs):
+        if (service, operation) == ("cloudcontrol", "get_resource"):
+            return {
+                "ResourceDescription": {
+                    "Identifier": "fixture-bucket",
+                    "Properties": json.dumps({"BucketName": "fixture-bucket"}),
+                }
+            }
+        if (service, operation) == ("s3", "get_bucket_location"):
+            return {"LocationConstraint": "ap-northeast-1"}
+        if (service, operation) == ("s3", "get_bucket_replication"):
+            self.replication_calls.append(inputs)
+            if self.error:
+                raise m.AcquisitionError("s3.get_bucket_replication", self.error)
+            return copy.deepcopy(self.payload)
+        raise m.AcquisitionError(service + "." + operation, "AccessDenied")
+
+
+@it_case
+def check_s3_replication():
+    kind = "S3.Bucket"
+    target = {
+        "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+        "environment": "dev",
+        "directory": "fixture",
+    }
+    payload = {
+        "ReplicationConfiguration": {
+            "Role": "arn:aws:iam::123456789012:role/replication",
+            "Rules": [
+                {
+                    "ID": "first",
+                    "Status": "Enabled",
+                    "Priority": 1,
+                    "Destination": {
+                        "Bucket": "arn:aws:s3:::destination-one",
+                        "StorageClass": "STANDARD",
+                    },
+                    "Filter": {
+                        "And": {
+                            "Prefix": "one/",
+                            "Tags": [
+                                {"Key": "a", "Value": "1"},
+                                {"Key": "b", "Value": "2"},
+                            ],
+                        }
+                    },
+                },
+                {
+                    "ID": "second",
+                    "Status": "Disabled",
+                    "Priority": 2,
+                    "Destination": {
+                        "Bucket": "arn:aws:s3:::destination-two",
+                        "StorageClass": "STANDARD_IA",
+                    },
+                    "Filter": {
+                        "And": {
+                            "Prefix": "two/",
+                            "Tags": [
+                                {"Key": "c", "Value": "3"},
+                                {"Key": "d", "Value": "4"},
+                            ],
+                        }
+                    },
+                },
+            ],
+        }
+    }
+    prefix = "ReplicationConfiguration."
+    expected = {
+        "Role": payload["ReplicationConfiguration"]["Role"],
+        "Rules[].Id": ["first", "second"],
+        "Rules[].Status": ["Enabled", "Disabled"],
+        "Rules[].Priority": [1, 2],
+        "Rules[].Destination.Bucket": [
+            "arn:aws:s3:::destination-one",
+            "arn:aws:s3:::destination-two",
+        ],
+        "Rules[].Destination.StorageClass": ["STANDARD", "STANDARD_IA"],
+        "Rules[].Filter.And.Prefix": ["one/", "two/"],
+        "Rules[].Filter.And.TagFilters[].Key": [["a", "b"], ["c", "d"]],
+        "Rules[].Filter.And.TagFilters[].Value": [["1", "2"], ["3", "4"]],
+    }
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "alias": "fixture",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        path = root / "model/dev/fixture/s3.properties"
+        values = {
+            "desired.service.s3.serviceId": "s3",
+            "desired.service.s3.ownedCatalogResourceTypes": kind,
+            "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
+            "desired.resource.001.resourceType": kind,
+            "desired.resource.001.resourceMode": "IMPORT",
+            "desired.resource.001.logicalId": "S3_Bucket_001",
+        }
+        rows = {
+            "BucketName": "fixture-bucket",
+            **{prefix + key: value for key, value in expected.items()},
+        }
+        for index, (name, value) in enumerate(rows.items(), 1):
+            values[f"desired.row.001-{index:03}.property"] = kind + "." + name
+            values[f"desired.row.001-{index:03}.value"] = cli.model_literal(value)
+            values[f"desired.row.001-{index:03}.comment"] = "fixture"
+            if "[]" in name:
+                values[f"desired.row.001-{index:03}.valueShape"] = "projection"
+        write_model(path, values)
+        for error, changed, expected_status in [
+            (None, False, "match"),
+            (None, True, "difference"),
+            ("ReplicationConfigurationNotFoundError", False, "difference"),
+            ("AccessDenied", False, "acquisition_failed"),
+            ("NoSuchBucket", False, "resource_missing"),
+        ]:
+            response = copy.deepcopy(payload)
+            if changed:
+                response["ReplicationConfiguration"]["Rules"][1]["Status"] = "Enabled"
+            client = ReplicationClient(response, error)
+            ctx = m.Context(
+                root,
+                target,
+                session=SimpleNamespace(client=Mock(return_value=client)),
+                services=["s3"],
+            )
+            ctx.catalog = m.DesignSchemaCatalog(ROOT)
+            ctx.verified = True
+            results = m.compare_resource(ctx, ctx.model(path).resources[0])
+            if error in ("AccessDenied", "NoSuchBucket"):
+                assert any(row["status"] == expected_status for row in results)
+            else:
+                selected = {row["propertiesKey"]: row["status"] for row in results}
+                assert (
+                    selected[kind + "." + prefix + "Rules[].Status"] == expected_status
+                )
+                if not error and not changed:
+                    assert all(
+                        selected[kind + "." + prefix + key] == "match"
+                        for key in expected
+                    )
+            if not error and not changed:
+                mapping, mapped = ctx.comparison("s3")
+                resource = ctx.model(path).resources[0]
+                properties = {
+                    key: prop
+                    for key, prop in mapped.items()
+                    if key.startswith(kind + "." + prefix)
+                }
+                assert len(properties) == 21
+                for key, prop in properties.items():
+                    mapping_value(ctx, resource, mapping, prop, key)
+            assert client.replication_calls == [
+                {"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}
+            ]
+
+        for error in (None, "ReplicationConfigurationNotFoundError", "AccessDenied"):
+            ctx, _ = adapter_contracts.fixture_context(
+                ROOT, "s3", adapter_contracts.DirectCalls, {}
+            )
+            fake = ReplicationImportCalls(payload, error)
+            ctx.call, ctx.pages = fake.call, fake.pages
+            records = inventory.inventory_for(ctx).inventory("s3", kind)
+            assert len(records) == 1 and records[0]["identity"] == "fixture-bucket"
+            captured = cli.normalize_records(ctx, "s3", records)[0]["properties"]
+            assert captured[kind + ".BucketName"]["value"] == "fixture-bucket"
+            prop = captured[kind + "." + prefix + "Rules[].Id"]
+            assert fake.replication_calls == [
+                {"Bucket": "fixture-bucket", "ExpectedBucketOwner": "123456789012"}
+            ]
+            if error is None:
+                assert prop["status"] == "captured" and prop["value"] == [
+                    "first",
+                    "second",
+                ]
+                assert captured[
+                    kind + "." + prefix + "Rules[].Filter.And.TagFilters[].Value"
+                ]["value"] == [["1", "2"], ["3", "4"]]
+            elif error == "AccessDenied":
+                assert prop["status"] == "unavailable" and prop["errorCode"] == error
+            else:
+                assert prop["status"] == "missing"
+
+
 def main():
     with patch.object(
         socket.socket, "connect", side_effect=AssertionError("network forbidden")
@@ -637,6 +890,7 @@ def main():
         check_config()
         check_scheduler_compare()
         check_glue_catalog_compare()
+        check_s3_replication()
     print(
         "AWS Mapping checks: PASS (Config explicit values, Compare, IMPORT and display 18/18; no AWS connection)"
     )
