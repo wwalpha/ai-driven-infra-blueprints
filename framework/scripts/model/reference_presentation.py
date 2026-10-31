@@ -218,6 +218,13 @@ class Presentation:
             raw, self.root, property_name=prop, scope=self.scope
         )
         marked = project(projected, partial(self.node_value, row_id, field))
+        if any(
+            (pos.row_id, pos.source_field) == (row_id, field)
+            and "/Fn::" in pos.pointer
+            and ref.link
+            for pos, ref in self.references.items()
+        ):
+            return marked
         # Display links are not policy/runtime values and must not enter those validators.
         return json_intrinsics.project_document(
             marked, property_name=prop, model_path=self.scope.path

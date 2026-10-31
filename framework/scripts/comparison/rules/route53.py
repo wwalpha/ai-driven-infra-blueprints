@@ -48,8 +48,12 @@ def stack_property(inputs, service, identity, field):
 def selected_reference(inputs, service, key, symbol):
     """Retain the receiving Resource for a typed DNS extraction operand."""
     number = key.split(".")[2].rpartition("-")[0]
-    if model_property(inputs, service, number, "Type") != "CNAME":
-        raise Blocked("Endpoint DNS valueSelector requires Type=CNAME")
+    row = inputs.model(service).authoritative[key.rsplit(".", 1)[0] + ".property"]
+    expected = (
+        {"A", "AAAA"} if row == "Route53.RecordSet.AliasTarget.DNSName" else {"CNAME"}
+    )
+    if model_property(inputs, service, number, "Type") not in expected:
+        raise Blocked("Endpoint DNS requires a compatible RecordSet Type")
     producer, producer_id = symbol["$resource"]
     if symbol["$attribute"] != "DnsEntries":
         raise Blocked("Endpoint DNS requires the DnsEntries attribute")
@@ -94,6 +98,8 @@ def selected_decision(inputs, left, right, path, *, export_origins):
         if hasattr(ref, "dns_consumer")
     }
     if not consumers:
+        if path == "AliasTarget.DNSName" and expressions.references([left, right]):
+            return None, "Alias Endpoint DNS consumer correspondence is unproven"
         return NotImplemented
     if len(consumers) != 1:
         return None, "Endpoint DNS consumer correspondence is unproven"
@@ -102,11 +108,14 @@ def selected_decision(inputs, left, right, path, *, export_origins):
         left_ref, left_index, left_delimiter, left_field = dns_expression(left)
         right_ref, right_index, right_delimiter, right_field = dns_expression(right)
         record_type, scope = stack_property(inputs, *consumer, "Type")
+        expected = {"A", "AAAA"} if path == "AliasTarget.DNSName" else {"CNAME"}
         if (
-            model_property(inputs, *consumer, "Type") != "CNAME"
-            or record_type != "CNAME"
+            record_type not in expected
+            or model_property(inputs, *consumer, "Type") != record_type
         ):
-            raise Blocked("Endpoint DNS requires Model and IaC Type=CNAME")
+            raise Blocked(
+                "Endpoint DNS requires matching Model and IaC RecordSet Types"
+            )
         origins = export_origins([left, right], inputs.export_provenance)
         direct = export_origins(
             [left, right], getattr(inputs, "select_provenance", {}), direct=True
@@ -154,6 +163,63 @@ def selected_decision(inputs, left, right, path, *, export_origins):
                 raise Blocked(
                     "Endpoint DNS requires same-scope Model and IaC Interface Endpoint"
                 )
+        if path == "AliasTarget.DNSName":
+            rows = [
+                (rid, row)
+                for rid, row in entries(
+                    inputs.model(consumer[0]).authoritative, "desired.row."
+                )
+                if rid.rpartition("-")[0] == consumer[1]
+                and row.get("property") == "Route53.RecordSet.AliasTarget.HostedZoneId"
+            ]
+            if len(rows) != 1:
+                raise Blocked("Alias HostedZoneId correspondence is unproven")
+            rid, row = rows[0]
+            model_zone = inputs.prepare_value(
+                consumer[0], row, "Route53.RecordSet", stack=consumer_stack, row_id=rid
+            ).require_value()
+            _, logical = cfn_resource_identity(
+                inputs.resources[consumer[0]][consumer[1]]["cfn-logicalId"]
+            )
+            unit = next(
+                unit for _, unit in inputs.templates() if unit["name"] == consumer_stack
+            )
+            _, (document, _, _) = inputs.stack(unit)
+            actual_zone = inputs.evaluate_for_comparison(
+                consumer_stack,
+                select(
+                    document["Resources"][logical].get("Properties", {}),
+                    "AliasTarget.HostedZoneId",
+                ),
+            )
+            zone_origins = export_origins(
+                [model_zone, actual_zone], inputs.export_provenance
+            )
+            zone_direct = export_origins(
+                [model_zone, actual_zone],
+                getattr(inputs, "select_provenance", {}),
+                direct=True,
+            )
+            if (
+                any(origin.get("scope") != scope for origin in zone_origins)
+                or any(
+                    origin.get("scope") != scope or origin["stack"] != consumer_stack
+                    for origin in zone_direct
+                )
+                or not (zone_origins or zone_direct)
+            ):
+                raise Blocked("Alias HostedZoneId provenance or scope is unproven")
+            for zone in (model_zone, actual_zone):
+                zone_ref, zone_index, zone_delimiter, zone_field = dns_expression(zone)
+                if (zone_index, zone_delimiter, zone_field) != (left_index, ":", 0):
+                    raise Blocked("Alias HostedZoneId and DNSName selection differs")
+                decision = inputs.reference_decision(
+                    zone_ref, left_ref, "EC2.VPCEndpoint", "DnsEntries"
+                )
+                if decision.equal is not True:
+                    raise Blocked(
+                        "Alias HostedZoneId Producer correspondence is unproven"
+                    )
         producer = inputs.reference_decision(
             left_ref, right_ref, "EC2.VPCEndpoint", "DnsEntries"
         )
@@ -170,7 +236,7 @@ def selected_decision(inputs, left, right, path, *, export_origins):
             True,
             "structurally equal Endpoint DNS extraction; runtime Select bounds remain unproven",
         )
-    except (Blocked, KeyError, ValueError, TypeError, OSError) as error:
+    except (Blocked, KeyError, ValueError, TypeError, OSError, StopIteration) as error:
         return None, str(error)
 
 
@@ -239,4 +305,10 @@ RULES["Route53.RecordSet"]["ResourceRecords"] = replace(
 )
 RULES["Route53.RecordSet"]["ResourceRecords[]"] = replace(
     OBJECT, selected_reference=selected_reference, selected_decision=selected_decision
+)
+
+RULES["Route53.RecordSet"]["AliasTarget.DNSName"] = replace(
+    RULES["Route53.RecordSet"]["AliasTarget.DNSName"],
+    selected_reference=selected_reference,
+    selected_decision=selected_decision,
 )

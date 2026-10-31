@@ -16,7 +16,9 @@ from comparison.methods import compare_values
 from comparison.registry import rules
 from comparison.rules import route53
 from comparison.runner import Settings
+from json_intrinsics import project_document
 from model.core import entries
+from model.projection import document_references, reference_resolver
 from model.references import symbolic
 from model.sources import Scope, load_model
 from support.model_reference_fixtures import (
@@ -29,7 +31,7 @@ from support.model_reference_fixtures import (
 )
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
-from utils.iac_values import Expression
+from utils.iac_values import Expression, ResourceReference
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -63,6 +65,12 @@ def model_selection(entry=0):
     return value
 
 
+def test_model_selection_preserved_before_deploy():
+    expression = model_selection()
+    case = TestCase()
+    case.assertEqual(project_document(expression), expression)
+
+
 @pytest.fixture
 def models(tmp_path):
     with mapping_alias(FRAMEWORK, tmp_path):
@@ -93,6 +101,33 @@ def models(tmp_path):
         )
         save(scope, values)
         yield tmp_path, scope, values
+
+
+@pytest.mark.parametrize(
+    "attribute,valid",
+    [
+        ("DnsEntries", True),
+        ("Id", False),
+        ("NetworkInterfaceIds", False),
+        ("Missing", False),
+    ],
+)
+def test_dns_operand_type_and_attribute(models, attribute, valid):
+    root, scope, values = models
+    document = model_selection()
+    document["Fn::Select"][1]["Fn::Split"][1]["Fn::Select"][1] = reference(
+        "EC2_VPCEndpoint_001", attribute
+    )
+    _, diagnostics = document_references(
+        document,
+        resolver=reference_resolver(values, scope, root),
+        scope=scope,
+        property_name="Route53.RecordSet.ResourceRecords",
+    )
+    problems = [
+        item for item in diagnostics if item.get("category") == "MODEL_NEEDS_FIX"
+    ]
+    TestCase().assertEqual(bool(problems), not valid, diagnostics)
 
 
 def prepare(models, expression=None):
@@ -528,6 +563,56 @@ def test_direct_comparison_setting_failures(models, fault, category):
         root / "synthetic.yaml",
     )
     assert [row["category"] for row in result.records] == [category], result.records
+
+
+@pytest.mark.parametrize("zone_index,expected", [(0, True), (1, None)])
+def test_alias_dns_selection(models, zone_index, expected):
+    root, _, values = models
+    values["desired.row.001-001.value"] = "`A`"
+    values["desired.row.001-002.property"] = "Route53.RecordSet.AliasTarget.DNSName"
+    values["desired.row.001-002.value"] = json.dumps(model_selection())
+    zone = model_selection()
+    zone["Fn::Select"][0] = 0
+    values["desired.row.001-003.property"] = (
+        "Route53.RecordSet.AliasTarget.HostedZoneId"
+    )
+    values["desired.row.001-003.value"] = json.dumps(zone)
+    values["desired.row.001-003.comment"] = "Endpoint zone"
+    endpoint = dict(
+        load_model(root / "model/qa/team/endpoint.properties").authoritative
+    )
+    endpoint["desired.resource.001.cfn-logicalId"] = "consumer-Resource001"
+    save(Scope(root, "qa", "team", "endpoint"), endpoint)
+    inputs, prepared = prepare(models)
+    resources = inputs.stack_inputs["consumer"][0]["Resources"]
+    resources["Resource001"] = {
+        "Type": "AWS::EC2::VPCEndpoint",
+        "Properties": {"VpcEndpointType": "Interface"},
+    }
+    resources["Policy"]["Properties"] = {
+        "Type": "A",
+        "AliasTarget": {
+            "DNSName": extraction(),
+            "HostedZoneId": extraction(entry=zone_index, field=0),
+        },
+    }
+    desired = prepared.require_value()
+    actual = inputs.evaluate_for_comparison("consumer", extraction())
+    result = inputs.reference_decision(
+        desired, actual, "Route53.RecordSet", "AliasTarget.DNSName"
+    )
+    TestCase().assertIs(result.equal, expected, result)
+
+
+def test_alias_without_consumer_proof_is_uncompared():
+    symbol = ResourceReference(
+        {"$resource": ["endpoint", "001"], "$attribute": "DnsEntries"}
+    )
+    value = Expression("Select", [0, symbol])
+    outcome = route53.selected_decision(
+        SimpleNamespace(), value, value, "AliasTarget.DNSName", export_origins=None
+    )
+    TestCase().assertIsNone(outcome[0])
 
 
 def test_direct_cross_stack_is_unproven(models):

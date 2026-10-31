@@ -14,7 +14,8 @@ from model.format import FORMAT
 from model.format import INDEX as INDEX_HEADER
 from model.format import PART as PART_PREFIX
 from model.identity import Resolver
-from model.render import generate_markdown
+from model.projection import validate_json_documents
+from model.render import generate_files, generate_markdown
 from model.sources import scope_for, source_inputs
 from support.model_design_fixtures import (
     ROOT,
@@ -176,6 +177,140 @@ def check_route53_endpoint_dns_roundtrip(root, project):
         dns, configuration={"EC2.VPCEndpoint.VpcEndpointType": "Gateway"}
     )
     path.write_text(valid, encoding="utf-8")
+
+
+def check_route53_typed_expression_roundtrip(root, project):
+    directory = root / "docs/designs/dev/123456789012"
+    endpoint = model(
+        "vpc-endpoint",
+        "EC2.VPCEndpoint",
+        "vpce-example",
+        [
+            ("VpcEndpointType", "`Interface`", "接続方式"),
+            ("Tags[].Key", "`Name`", "タグ"),
+            ("Tags[].Value", "`vpce-example`", "名前"),
+        ],
+        logical_id="Endpoint",
+    )
+    roundtrip(directory / "vpc-endpoint.md", endpoint, root)
+    expression = {
+        "Fn::Select": [
+            1,
+            {
+                "Fn::Split": [
+                    ":",
+                    {"Fn::Select": [0, reference("EC2_VPCEndpoint_001", "DnsEntries")]},
+                ]
+            },
+        ]
+    }
+    encoded = "`" + json.dumps([expression]) + "`"
+    route = model(
+        "route53",
+        "Route53.RecordSet",
+        "example.com",
+        [
+            ("Name", "`example.com`", "レコード名"),
+            ("ResourceRecords", encoded, "接続先"),
+            ("Type", "`CNAME`", "種別"),
+        ],
+    )
+    path = directory / "route53.md"
+    rendered = roundtrip(path, route, root)
+    source = root / "model/dev/123456789012/route53.properties"
+    case = TestCase()
+    validate_json_documents(load_model(source).authoritative, source)
+    case.assertEqual(
+        load_model(source).authoritative["desired.row.001-002.value"], encoded
+    )
+    case.assertIn("vpc-endpoint.md#", rendered)
+    case.assertNotIn(
+        "vpce-", load_model(source).authoritative["desired.row.001-002.value"]
+    )
+
+
+def check_s3_policy_kms_reference_roundtrip(root, project):
+    directory = root / "docs/designs/dev/123456789012"
+    kms = model(
+        "kms",
+        "KMS.Key",
+        "test-key",
+        [("KeyId", "`" + json.dumps(reference("KMS_Key_001", "KeyId")) + "`", "ID")],
+        label="test-key",
+    )
+    kms["observed.row.001-001.value"] = "`12345678-1234-1234-1234-123456789012`"
+    roundtrip(directory / "kms.md", kms, root)
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:PutObject",
+                "Resource": "arn:aws:s3:::example-bucket/*",
+                "Condition": {
+                    "StringNotEquals": {
+                        "s3:x-amz-server-side-encryption-aws-kms-key-id": reference(
+                            "KMS_Key_001", "Arn"
+                        )
+                    }
+                },
+            }
+        ],
+    }
+    values = model(
+        "s3",
+        "S3.BucketPolicy",
+        "example-bucket",
+        [
+            ("Bucket", "`example-bucket`", "対象"),
+            ("PolicyDocument", "[Policy](s3/policy.json)", "ポリシー"),
+        ],
+        label="example-bucket",
+    )
+    values = {key.replace(".001", ".002"): value for key, value in values.items()}
+    values["desired.resource.002.logicalId"] = "S3_BucketPolicy_001"
+    values["desired.resource.002.anchor"] = "s3-example-bucket-policy"
+    values["desired.resource.002.parentReference"] = (
+        "`" + json.dumps(reference("S3_Bucket_001", "BucketName")) + "`"
+    )
+    values["desired.resource.002.parentProperty"] = "S3.BucketPolicy.Bucket"
+    values["desired.row.002-001.value"] = values["desired.resource.002.parentReference"]
+    values["desired.row.002-002.document"] = json.dumps(policy)
+    bucket = model(
+        "s3",
+        "S3.Bucket",
+        "example-bucket",
+        [("BucketName", "`example-bucket`", "名前")],
+    )
+    values.update(
+        {
+            key: value
+            for key, value in bucket.items()
+            if key.startswith(
+                ("desired.resource.", "desired.row.", "display.resource.")
+            )
+        }
+    )
+    values["desired.service.s3.ownedCatalogResourceTypes"] = "S3.Bucket,S3.BucketPolicy"
+    values["desired.service.identity.lastAllocated"] = (
+        '{"S3.Bucket":1,"S3.BucketPolicy":1}'
+    )
+    path = directory / "s3.md"
+    output = roundtrip(path, values, root)
+    source = root / "model/dev/123456789012/s3.properties"
+    case = TestCase()
+    validate_json_documents(load_model(source).authoritative, source)
+    case.assertEqual(
+        json.loads(load_model(source).authoritative["desired.row.002-002.document"]),
+        policy,
+    )
+    case.assertIn("[Policy](s3/policy.json)", output)
+    artifact = generate_files(path, values, root)[directory / "s3/policy.json"]
+    case.assertIn(
+        "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+        artifact,
+    )
 
 
 def check_import_optional_name_label(root, project):

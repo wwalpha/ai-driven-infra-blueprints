@@ -1534,6 +1534,15 @@ def configuration_contract(prop, context=None):
 
 def contract(prop, context=None):
     prop = re.sub(r"\[[0-9]+\]", "[]", prop)
+    if prop in {
+        "S3.BucketPolicy.PolicyDocument.Statement"
+        + statement
+        + ".Condition.StringNotEquals.s3:x-amz-server-side-encryption-aws-kms-key-id"
+        + values
+        for statement in ("", "[]")
+        for values in ("", "[]")
+    }:
+        return {"KMS.Key": ("Arn",)}
     for root, style in POLICY_FORMATS.items():
         if style not in {"statement", "wrapped-statement"}:
             continue

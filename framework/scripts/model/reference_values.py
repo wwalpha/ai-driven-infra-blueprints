@@ -57,6 +57,38 @@ def resolve(node, scope, resolver, *, field=None, property_name=None, context=No
             context=context,
             operand=operand,
         )
+        if operand and node.pointer.endswith("/Fn::Select/1"):
+            kind = resource["resourceType"]
+            if (
+                field
+                in {
+                    "Route53.RecordSet.ResourceRecords",
+                    "Route53.RecordSet.ResourceRecords[]",
+                    "Route53.RecordSet.AliasTarget.DNSName",
+                }
+                and "/Fn::Split/" in node.pointer
+                and (kind, node.attribute) != ("EC2.VPCEndpoint", "DnsEntries")
+            ):
+                raise ModelNeedsFixError(
+                    "Endpoint DNS extraction requires EC2.VPCEndpoint.DnsEntries",
+                    code="MODEL_REF_INVALID_ATTRIBUTE",
+                )
+            try:
+                schema = resolver.catalog.property_schema(
+                    kind, reference_attribute(kind, node.attribute)
+                )
+            except KeyError as error:
+                raise FrameworkUnsupportedError(
+                    "Fn::Select reference array type is unproven"
+                ) from error
+            if schema.get("type") != "array" or (
+                "/Fn::Split/" in node.pointer
+                and schema.get("items", {}).get("type") != "string"
+            ):
+                raise ModelNeedsFixError(
+                    "Fn::Select reference must be an array of the required type",
+                    code="MODEL_REF_TYPE_MISMATCH",
+                )
         if field and not operand:
             resolver.validate_reference_type(
                 resource["resourceType"], node.attribute, field

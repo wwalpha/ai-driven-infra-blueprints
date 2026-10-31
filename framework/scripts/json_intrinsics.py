@@ -112,7 +112,19 @@ def _recursive_project_document_syntax(fail, /, value, pointer=""):
                     continue
                 if name in JSON_INTRINSICS and len(value) != 1:
                     fail(pointer, value, "intrinsic must contain exactly one function")
-                error = intrinsic_shape_error(name, argument)
+                shape_argument = argument
+                if (
+                    name == "Fn::Select"
+                    and isinstance(argument, list)
+                    and len(argument) == 2
+                    and is_reference(argument[1])
+                ):
+                    parse(argument[1], pointer + "/Fn::Select/1")
+                    shape_argument = [
+                        argument[0],
+                        {"Fn::GetAtt": ["Resource", "Attribute"]},
+                    ]
+                error = intrinsic_shape_error(name, shape_argument)
                 if error:
                     fail(pointer, value, f"invalid {name} structure: {error}")
         for key, child in value.items():

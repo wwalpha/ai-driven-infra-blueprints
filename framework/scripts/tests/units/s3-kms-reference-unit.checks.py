@@ -13,10 +13,10 @@ import model.validations.full_inputs as _model_validation_full_inputs
 from comparison import Comparison
 from design.catalog import DesignSchemaCatalog
 from generation_inputs import GenerationInputs
-from model.core import entries
+from model.core import ModelNeedsFixError, entries
 from model.format import parse, serialize
 from model.format import patch as patch_model
-from model.identity import COUNTERS
+from model.identity import COUNTERS, Resolver
 from model.importing.references import Resolver as ImportResolver
 from model.operations import validate_candidates
 from model.projection import reference_display
@@ -27,6 +27,7 @@ from support.model_reference_fixtures import reference
 from support.model_sources import catalog_display, write_model
 from sync_runtime import _compare_generation
 from utils.reference_contracts import S3_KMS_MASTER_KEY_ID as PROP
+from utils.reference_contracts import contract
 from utils.source_reads import FileReads
 from validation.design_links import check_design_links as validate_links
 from validation.design_tables import check_design_tables as validate_tables
@@ -369,6 +370,63 @@ def check_iac_matrix(project_workspace):
         is True
     )
     assert "arn:" not in scope.path.read_text(encoding="utf-8")
+
+
+def check_bucket_policy_kms_condition_contract():
+    base = "S3.BucketPolicy.PolicyDocument.Statement"
+    case = TestCase()
+    for statement in ("", "[]"):
+        for values in ("", "[]"):
+            field = (
+                base
+                + statement
+                + ".Condition.StringNotEquals.s3:x-amz-server-side-encryption-aws-kms-key-id"
+                + values
+            )
+            case.assertEqual(contract(field), {"KMS.Key": ("Arn",)})
+    case.assertEqual(
+        contract(
+            base
+            + ".Condition.StringEquals.s3:x-amz-server-side-encryption-aws-kms-key-id"
+        ),
+        {},
+    )
+
+
+def check_bucket_policy_kms_reference_types(project_workspace):
+    scope, _, _ = fixture(project_workspace)
+    resolver = Resolver(scope.root)
+    case = TestCase()
+    field = (
+        "S3.BucketPolicy.PolicyDocument.Statement[].Condition.StringNotEquals."
+        "s3:x-amz-server-side-encryption-aws-kms-key-id"
+    )
+    resolver.validate_attribute("KMS.Key", "Arn", field=field)
+    with case.assertRaises(ModelNeedsFixError):
+        resolver.validate_attribute("KMS.Key", "KeyId", field=field)
+    with case.assertRaises(ModelNeedsFixError):
+        resolver.validate_attribute("S3.Bucket", "Arn", field=field)
+    with case.assertRaises(ModelNeedsFixError):
+        resolver.validate_attribute("KMS.Key", "Missing", field=field)
+
+
+def check_kms_consumers_obey_attribute_contracts(project_workspace):
+    scope, _, _ = fixture(project_workspace)
+    resolver = Resolver(scope.root)
+    case = TestCase()
+    fields = (
+        "Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey",
+        "MWAA.Environment.KmsKey",
+        PROP,
+    )
+    for field in fields:
+        resolver.validate_attribute("KMS.Key", "Arn", field=field)
+        with case.assertRaises(ModelNeedsFixError):
+            resolver.validate_attribute("S3.Bucket", "Arn", field=field)
+    with case.assertRaises(ModelNeedsFixError):
+        resolver.validate_attribute("KMS.Key", "KeyId", field=fields[0])
+    for field in fields[1:]:
+        resolver.validate_attribute("KMS.Key", "KeyId", field=field)
 
 
 if __name__ == "__main__":

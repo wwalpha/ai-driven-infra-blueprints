@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -71,6 +72,59 @@ def result(scope, logical="S3_Bucket_001", attribute="Arn"):
     return reference_value(
         Resolver(scope.root), scope, parse(reference(logical, attribute))
     )
+
+
+@pytest.mark.parametrize(
+    "statement_array,value_array",
+    [(False, False), (True, False), (False, True), (True, True)],
+)
+@pytest.mark.parametrize(
+    "logical,attribute,valid",
+    [
+        ("KMS_Key_001", "Arn", True),
+        ("KMS_Key_001", "KeyId", False),
+        ("S3_Bucket_001", "Arn", False),
+        ("KMS_Key_999", "Arn", False),
+        ("KMS_Key_001", "Missing", False),
+    ],
+)
+def test_s3_policy_kms_condition_reference(
+    fixture, statement_array, value_array, logical, attribute, valid
+):
+    _, _, scope, values = fixture
+    value = reference(logical, attribute)
+    condition = [value] if value_array else value
+    statement = {
+        "Condition": {
+            "StringNotEquals": {
+                "s3:x-amz-server-side-encryption-aws-kms-key-id": condition
+            }
+        }
+    }
+    document = {"Statement": [statement] if statement_array else statement}
+    _, diagnostics = projection.document_references(
+        document,
+        resolver=reference_resolver(values, scope, scope.root),
+        scope=scope,
+        property_name="S3.BucketPolicy.PolicyDocument",
+    )
+    errors = [item for item in diagnostics if item.get("category") == "MODEL_NEEDS_FIX"]
+    TestCase().assertEqual(bool(errors), not valid, diagnostics)
+
+
+@pytest.mark.parametrize("observed", [None, "12345678-1234-1234-1234-123456789012"])
+def test_kms_self_reference_keyid_uses_only_observed(fixture, observed):
+    _, _, consumer, _ = fixture
+    scope, values = resource(
+        consumer.root, "kms", "KMS.Key", attribute="KeyId", observed=observed
+    )
+    value = reference_value(
+        Resolver(scope.root), scope, parse(reference("KMS_Key_001", "KeyId"))
+    )
+    case = TestCase()
+    case.assertEqual(value.value, observed)
+    case.assertEqual(value.status, "resolved" if observed else "logical_only")
+    case.assertIn("$modelRef", values["desired.row.001-001.value"])
 
 
 def test_desired_s3_and_name_change(fixture):
