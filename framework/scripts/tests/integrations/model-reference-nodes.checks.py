@@ -64,8 +64,10 @@ def main():
                 save_files(files)
                 display = rendered_design(view, definitions_root=FRAMEWORK)
                 assert display == markdown
-                if observed != "PENDING_DEPLOY":
+                if observed is None:
                     assert expected not in display
+                elif observed != "PENDING_DEPLOY":
+                    TestCase().assertIn(f"[{expected}](kms.md#saved-001)", display)
                 document = json.loads(artifact.read_bytes())
                 assert document["Statement"][0]["Resource"] == (
                     json.loads(policy["desired.row.001-002.document"])["Statement"][0][

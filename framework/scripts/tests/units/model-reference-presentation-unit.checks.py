@@ -601,7 +601,7 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     assert json.loads(files[artifact])["Statement"][0]["Resource"] == (
         "arn:aws:s3:::shared-name"
     )
-    assert "[shared-name](s3.md#s3-saved-anchor)" in files[path]
+    assert "[arn:aws:s3:::shared-name](s3.md#s3-saved-anchor)" in files[path]
     assert "](" not in files[artifact] and "$modelRef" not in files[artifact]
     for file, text in files.items():
         file.parent.mkdir(parents=True, exist_ok=True)
@@ -628,7 +628,7 @@ def test_policy_display_artifact_regeneration_and_raw_fallback(models):
             (rid, {"property": policy.property_name, "document": json.dumps(document)})
         ]
     }
-    assert "[shared-name](s3.md#s3-saved-anchor)" in "\n".join(
+    assert "[arn:aws:s3:::shared-name](s3.md#s3-saved-anchor)" in "\n".join(
         policy_lines(path, policy, presentation=presentation, policy_rows=rows)
     )
     artifact.write_text(json.dumps(document), encoding="utf-8")

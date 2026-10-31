@@ -162,13 +162,14 @@ class Presentation:
             displayed = projection._display_document_value(
                 {node: result}, self.resolver, self.scope, self.root, node
             )
-            if isinstance(displayed, str) and not displayed.startswith("arn:"):
+            if isinstance(displayed, str):
                 name = displayed
             if (
                 not name
                 or literal(name).lower()
                 in {"unset", "unresolved", "tbd", "todo", "未確定"}
                 or literal(name).startswith("arn:")
+                and (result is None or result.status != "resolved")
             ):
                 return None
             identity.display_anchor(resource)

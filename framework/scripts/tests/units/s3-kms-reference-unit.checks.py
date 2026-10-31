@@ -41,7 +41,9 @@ if not __debug__:
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 KEY_LINK = "[fixture-key](kms.md#key-one)"
-ALIAS_LINK = "[alias/fixture-key](kms.md#alias-one)"
+ALIAS_LINK = (
+    "[arn:aws:kms:ap-northeast-1:123456789012:alias/fixture-key](kms.md#alias-one)"
+)
 ROW = "desired.row.001-003.value"
 
 
