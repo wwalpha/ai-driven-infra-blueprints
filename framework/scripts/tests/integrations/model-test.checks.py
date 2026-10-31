@@ -597,7 +597,101 @@ def typed_reference_round_trip():
 
 @it_case
 @input_scope
+def codebuild_boolean_standalone():
+    with tempfile.TemporaryDirectory(prefix="audit-codebuild-boolean-") as directory:
+        root = Path(directory)
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "fixture",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "alias": "cde",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        data = fixture(
+            {},
+            "codebuild",
+            [
+                (
+                    "001",
+                    "CodeBuild.Project",
+                    "project",
+                    [
+                        ("Name", "`fixture-project`", None),
+                        ("Environment.PrivilegedMode", "`False`", None),
+                    ],
+                )
+            ],
+        )
+        values = data["models"]["dev/cde/codebuild"]
+        model = root / "model/dev/cde/codebuild.properties"
+        fake = root / "aws"
+        script = root / "tests/dev/cde/codebuild.py"
+        script.parent.mkdir(parents=True)
+        for raw, actual, code, label in [
+            ("False", False, 0, "OK"),
+            ("False", True, 1, "NG"),
+            ("yes", False, 2, "ERROR"),
+        ]:
+            values["desired.row.001-002.value"] = f"`{raw}`"
+            write_model(model, values)
+            source = generator.generate(root, "dev", "cde", "codebuild")[0]
+            script.write_text(source, encoding="utf-8")
+            fake.write_text(
+                "#!"
+                + sys.executable
+                + "\nimport json, sys\nprint(json.dumps("
+                + repr(
+                    {
+                        "projects": [
+                            {
+                                "name": "fixture-project",
+                                "environment": {"privilegedMode": actual},
+                            }
+                        ]
+                    }
+                )
+                + ' if sys.argv[1] == "codebuild" else {"Account":"123456789012", "Arn":"arn:aws:iam::123456789012:user/offline"}))\n',
+                encoding="utf-8",
+            )
+            fake.chmod(0o700)
+            result = subprocess.run(
+                [sys.executable, "-I", "-B", str(script)],
+                cwd=root,
+                env={**os.environ, "PATH": str(root)},
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert result.returncode == code, (result.stdout, result.stderr)
+            assert (
+                f"[{label}] CodeBuild.Project | fixture-project | Environment.PrivilegedMode"
+                in result.stdout
+            )
+            assert (
+                "ModuleNotFoundError" not in result.stderr
+                and "NameError" not in result.stderr
+            )
+            if code != 2:
+                assert "  Design: false" in result.stdout
+                assert f"  AWS:    {json.dumps(actual)}" in result.stdout
+            assert any(
+                log.read_text(encoding="utf-8") == result.stdout
+                for log in (root / "tests/results/dev/cde").glob("codebuild-*.log")
+            )
+
+
 def check():
+    codebuild_boolean_standalone()
     standalone_service_imports()
     typed_reference_round_trip()
     # Generation uses authored authorities; the framework checkout has no consumer data.

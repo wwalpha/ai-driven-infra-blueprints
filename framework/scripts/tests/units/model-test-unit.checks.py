@@ -185,6 +185,34 @@ class ReferenceTests(unittest.TestCase):
             if item["propertiesKey"] == "EC2.FlowLog.LogGroupName"
         ][0]
 
+    def test_boolean_literal_comparisons(self):
+        self.consumer["desired.row.001-002.value"] = "`False`"
+        self.save()
+        snapshot = self.snapshot()
+        prop = "EC2.FlowLog.LogGroupName"
+        snapshot["schemas"][prop] = {"type": "boolean"}
+        for raw, actual, status in [
+            ("False", False, "match"),
+            ("True", True, "match"),
+            ("True", False, "difference"),
+            ("False", True, "difference"),
+            ("yes", False, "design_unresolved"),
+        ]:
+            with self.subTest(raw=raw, actual=actual):
+                snapshot["models"]["dev/cde/vpc"]["desired.row.001-002.value"] = (
+                    f"`{raw}`"
+                )
+                self.actual, self.missing = actual, False
+                item = next(
+                    item
+                    for item in audit.audit(snapshot, cli_runner=self.cli)[2]
+                    if item["propertiesKey"] == prop
+                )
+                self.assertEqual(item["status"], status, item)
+                if status != "design_unresolved":
+                    self.assertIs(item["designValue"], raw == "True")
+                    self.assertIs(item["awsValue"], actual)
+
     def test_resolved_dependency_and_comparison(self):
         snapshot = self.snapshot()
         self.assertNotIn("dev/cde/cloudwatch-logs", snapshot["models"])

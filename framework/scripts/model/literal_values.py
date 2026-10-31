@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from itertools import combinations
 
+from utils.cloudformation.format import boolean_literal
 from utils.json_format import strict_json
 from utils.property_path import definition_path
 
@@ -95,7 +96,7 @@ def typed_value(row, raw, schema):
     if types == "string" or not types:
         return value
     try:
-        return strict_json(value)
+        return boolean_literal(value) if types == "boolean" else strict_json(value)
     except ValueError:
         if isinstance(types, list) and "string" in types:
             return value

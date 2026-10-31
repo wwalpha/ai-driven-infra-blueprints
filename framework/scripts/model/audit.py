@@ -578,6 +578,9 @@ def generate(root, environment, selector, service):
             "policy_json",
         ],
     )
+    engine += definitions(
+        scripts / "utils/cloudformation/format.py", ["boolean_literal"]
+    )
     engine += definitions(scripts / "utils/iac_values.py", ["cfn_resource_identity"])
     engine += definitions(
         scripts / "model/core.py",

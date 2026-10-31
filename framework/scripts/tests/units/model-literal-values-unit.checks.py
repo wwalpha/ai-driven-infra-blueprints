@@ -348,6 +348,49 @@ def test_decoding_is_explicit():
             typed_value(dict(row, valueShape=shape), "A", schema)
 
 
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("True", True),
+        ("False", False),
+        ("true", True),
+        ("false", False),
+        ("TRUE", True),
+        ("FALSE", False),
+        ("tRuE", True),
+    ],
+)
+def test_boolean_leaf(raw, expected):
+    assert (
+        typed_value({"property": "Value"}, f"`{raw}`", {"type": "boolean"}) is expected
+    )
+
+
+@pytest.mark.parametrize("raw", ["yes", "1", "0", "null", '"false"', " true", "false "])
+def test_invalid_boolean_leaf(raw):
+    with pytest.raises(ValueError, match="invalid native type"):
+        typed_value({"property": "Value"}, raw, {"type": "boolean"})
+
+
+def test_non_boolean_and_explicit_shapes():
+    row = {"property": "Items[].Value"}
+    for kind, raw, expected in [
+        ("string", "False", "False"),
+        ("integer", "1", 1),
+        ("array", "[false]", [False]),
+        ("object", '{"a":false}', {"a": False}),
+    ]:
+        assert typed_value(row, raw, {"type": kind}) == expected
+    assert typed_value(
+        dict(row, document="[false]"), "ignored", {"type": "boolean"}
+    ) == [False]
+    assert typed_value(
+        dict(row, valueShape="projection"), "[false]", {"type": "boolean"}
+    ) == [False]
+    with pytest.raises(ValueError):
+        typed_value(dict(row, valueShape="projection"), "[False]", {"type": "boolean"})
+
+
 def test_property_projection_retains_array_leaf_and_rejects_ambiguous_groups():
     prop = "Parents[].Actions"
     assert projection_value(prop, [("leaf", ["A", "B"])]) == [["A", "B"]]
