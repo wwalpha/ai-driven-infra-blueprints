@@ -1339,11 +1339,11 @@ if __name__ == "__main__":
     [
         ([], ACCOUNT, True, "fixture", True),
         ([ACCOUNT], ACCOUNT, True, "fixture", True),
-        (["999999999999"], ACCOUNT, True, "fixture", False),
+        (["999999999999"], ACCOUNT, True, "fixture", True),
         ([ACCOUNT, ACCOUNT], ACCOUNT, True, "fixture", False),
         (["PENDING_DEPLOY"], ACCOUNT, True, "fixture", False),
         (["UNSET"], ACCOUNT, True, "fixture", False),
-        ([], "999999999999", True, "fixture", False),
+        ([], "999999999999", True, "fixture", True),
         ([], ACCOUNT, False, "fixture", False),
         ([], ACCOUNT, True, None, False),
     ],
@@ -1396,7 +1396,7 @@ def test_quicksight_datasource_selector(
                 "describe_data_source"
                 if getter == "base"
                 else "describe_data_source_permissions",
-                AwsAccountId=ACCOUNT,
+                AwsAccountId=accounts[0] if accounts else execution,
                 DataSourceId="fixture",
             )
         else:
@@ -1449,3 +1449,59 @@ def test_quicksight_other_getters_unchanged(tmp_path):
             Namespace="default",
             GroupName="readers",
         )
+
+
+@pytest.mark.parametrize("getter", ["base", "permissions"])
+def test_quicksight_owner_conflict(tmp_path, getter):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    module = m.service_module("quicksight")
+    resource = Mock(kind="QuickSight.DataSource")
+    resource.rows_for.return_value = []
+    resource.value.return_value = "fixture"
+    arn = "arn:aws:quicksight:ap-northeast-1:999999999999:datasource/fixture"
+    response = {"DataSource": {"Arn": arn, "Type": "ATHENA"}, "DataSourceArn": arn}
+    with patch.object(ctx, "call", return_value=response):
+        with pytest.raises(m.Unresolved):
+            module.fetch(ctx, resource, getter)
+
+
+def test_quicksight_account_fallback_and_other_resources(tmp_path):
+    ctx = SchemaOffline(tmp_path)
+    ctx.verified = True
+    ctx.target.pop("awsExecutionAccountId", None)
+    module = m.service_module("quicksight")
+    resource = Mock(kind="QuickSight.VPCConnection")
+    resource.rows_for.return_value = []
+    resource.value.side_effect = lambda prop: {
+        "VPCConnectionId": "vpc-id",
+        "Namespace": "default",
+        "GroupName": "readers",
+    }[prop]
+    with patch.object(
+        ctx,
+        "call",
+        return_value={
+            "VPCConnection": {
+                "Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:vpcConnection/vpc-id"
+            }
+        },
+    ) as call:
+        module.fetch(ctx, resource, "vpc")
+        check(
+            call.call_args.kwargs["AwsAccountId"] == ACCOUNT,
+            "execution account falls back to logical account",
+        )
+    resource.kind = "QuickSight.Group"
+    ctx.target["awsExecutionAccountId"] = "999999999999"
+    with patch.object(
+        ctx,
+        "call",
+        return_value={
+            "Group": {
+                "Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/readers"
+            }
+        },
+    ):
+        with pytest.raises(m.Unresolved):
+            module.fetch_sdk(ctx, resource, "describe_group")

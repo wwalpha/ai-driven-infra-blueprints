@@ -3,7 +3,12 @@
 import re
 from typing import Any
 
-from model.adapters.aws import AcquisitionError, Unresolved
+from model.adapters.aws import (
+    AcquisitionError,
+    IdentityError,
+    Unresolved,
+    execution_account,
+)
 
 APIS = {
     ("quicksight", "describe_group"),
@@ -18,19 +23,33 @@ def sensitive(prop):
 
 
 def datasource_account(ctx, r):
+    if not ctx.verified:
+        raise Unresolved("QuickSight execution account is not verified")
     omitted = not r.rows_for("AwsAccountId")
-    if omitted:
-        account = ctx.target["awsAccountId"]
-        if (
-            not ctx.verified
-            or ctx.target.get("awsExecutionAccountId", account) != account
-        ):
-            raise Unresolved("QuickSight execution account conflicts with target")
-    else:
-        account = r.value("AwsAccountId")
-    if account != ctx.target["awsAccountId"]:
-        raise Unresolved("QuickSight AwsAccountId conflicts with target")
+    try:
+        account = (
+            execution_account(ctx.target)
+            if omitted
+            else execution_account({"awsAccountId": r.value("AwsAccountId")})
+        )
+    except IdentityError as error:
+        raise Unresolved(str(error)) from error
     return account, omitted
+
+
+def verify_owner(result, account, key="Arn"):
+    arn = result.get(key)
+    if arn is not None:
+        parts = arn.split(":") if isinstance(arn, str) else []
+        if (
+            len(parts) < 6
+            or parts[0] != "arn"
+            or parts[2] != "quicksight"
+            or parts[4] != account
+        ):
+            raise Unresolved(
+                "QuickSight resource ARN owner conflicts with requested account"
+            )
 
 
 def fetch(ctx, r, getter):
@@ -55,7 +74,7 @@ def fetch(ctx, r, getter):
             raise Unresolved("QuickSight Group ARN is missing or malformed")
         if (
             parts[3] != ctx.target["awsRegion"]
-            or parts[4] != ctx.target["awsAccountId"]
+            or parts[4] != datasource_account(ctx, r)[0]
         ):
             raise Unresolved(
                 "QuickSight Group ARN account or region conflicts with target"
@@ -71,13 +90,7 @@ def fetch(ctx, r, getter):
         if resource[2] != r.value("GroupName"):
             raise Unresolved("QuickSight Group ARN group name conflicts with target")
         return {"Namespace": resource[1]}
-    if r.kind == "QuickSight.DataSource":
-        account, omitted = datasource_account(ctx, r)
-    else:
-        account = r.value("AwsAccountId")
-        omitted = False
-        if account != ctx.target["awsAccountId"]:
-            raise Unresolved("QuickSight AwsAccountId conflicts with target")
+    account, omitted = datasource_account(ctx, r)
     if getter == "vpc":
         result = ctx.call(
             "quicksight",
@@ -86,12 +99,14 @@ def fetch(ctx, r, getter):
             VPCConnectionId=r.value("VPCConnectionId"),
         )["VPCConnection"]
     elif getter == "permissions":
-        return ctx.call(
+        result = ctx.call(
             "quicksight",
             "describe_data_source_permissions",
             AwsAccountId=account,
             DataSourceId=r.value("DataSourceId"),
         )
+        verify_owner(result, account, "DataSourceArn")
+        return result
     elif r.kind == "QuickSight.DataSource":
         result = ctx.call(
             "quicksight",
@@ -101,6 +116,7 @@ def fetch(ctx, r, getter):
         )["DataSource"]
     else:
         raise Unresolved("QuickSight resource has no matching adapter getter")
+    verify_owner(result, account)
     return result if omitted else dict(result, AwsAccountId=account)
 
 
@@ -108,13 +124,13 @@ SDK_OPERATIONS = {"QuickSight.Group": "describe_group"}
 
 
 def fetch_sdk(ctx: Any, r: Any, operation: str) -> dict[str, Any]:
-    account = r.value("AwsAccountId")
-    if account != ctx.target.get("awsExecutionAccountId", ctx.target["awsAccountId"]):
-        raise Unresolved("QuickSight group account conflicts with target")
-    return ctx.call(
+    account, _ = datasource_account(ctx, r)
+    result = ctx.call(
         "quicksight",
         operation,
         AwsAccountId=account,
         Namespace=r.value("Namespace"),
         GroupName=r.value("GroupName"),
     )
+    verify_owner(result.get("Group", {}), account)
+    return result

@@ -594,9 +594,8 @@ def typed_reference_round_trip():
                     process.stderr,
                 )
                 assert (
-                    ("[NG]" if case == "missing" else "[ERROR]") + " EC2.FlowLog"
-                    in process.stdout
-                )
+                    "[NG]" if case == "missing" else "[ERROR]"
+                ) + " EC2.FlowLog" in process.stdout
                 assert reason in process.stdout
                 assert (
                     "  Design:" in process.stdout and "  Model:" not in process.stdout
@@ -991,7 +990,8 @@ def test_quicksight_group_namespace():
         target = {
             "environment": "dev",
             "alias": "cde",
-            "awsAccountId": "123456789012",
+            "awsAccountId": "111111111111",
+            "awsExecutionAccountId": "123456789012",
             "awsRegion": "ap-northeast-1",
             "iacEngine": "cloudformation",
         }
@@ -1058,14 +1058,14 @@ print(json.dumps(value))
             (good, "OK", None),
             (good.replace("/default/", "/other/"), "NG", None),
             ("MISSING", "ERROR", "missing or malformed"),
-            ("invalid", "ERROR", "missing or malformed"),
+            ("invalid", "ERROR", "owner conflicts"),
             (good.replace("arn:aws:", "arn:invalid:"), "ERROR", "missing or malformed"),
-            (good.replace(":quicksight:", ":s3:"), "ERROR", "missing or malformed"),
+            (good.replace(":quicksight:", ":s3:"), "ERROR", "owner conflicts"),
             (good.replace("/default/", "//"), "ERROR", "namespace is malformed"),
             (
                 good.replace("123456789012", "999999999999"),
                 "ERROR",
-                "account or region",
+                "owner conflicts",
             ),
             (good.replace("ap-northeast-1", "us-east-1"), "ERROR", "account or region"),
             (good.replace("/team", "/wrong"), "ERROR", "group name"),
@@ -1092,7 +1092,12 @@ print(json.dumps(value))
                 case.assertRegex(output, r"\[" + status + r"\].*Namespace", output)
                 if reason:
                     case.assertIn(reason, output)
-                if arn != "FAIL":
+                if arn not in {
+                    "FAIL",
+                    "invalid",
+                    good.replace(":quicksight:", ":s3:"),
+                    good.replace("123456789012", "999999999999"),
+                }:
                     for prop in ("GroupName", "Description", "PrincipalId"):
                         case.assertRegex(output, r"\[OK\].*" + prop, output)
                 case.assertEqual(calls.read_text().count("called"), 1, output)
@@ -2329,7 +2334,8 @@ def test_quicksight_generated_standalone():
         target = {
             "environment": "dev",
             "alias": "cde",
-            "awsAccountId": "123456789012",
+            "awsAccountId": "111111111111",
+            "awsExecutionAccountId": "123456789012",
             "awsRegion": "ap-northeast-1",
             "iacEngine": "cloudformation",
         }
