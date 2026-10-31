@@ -33,8 +33,14 @@ from utils.script_loader import module
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 from model.audit_runtime import observed_identifier
-from model.core import entries
-from model.projection import resource_display_rows
+from model.core import ReferenceDiagnosticError, entries, literal
+from model.projection import (
+    document_references,
+    reference_context_for,
+    reference_resolver,
+    resource_display_rows,
+)
+from model.reference_nodes import nodes, project
 from model.reference_values import confirmed
 from model.render import display_name
 from model.sources import load_model, model_paths, publication_lock
@@ -123,7 +129,7 @@ def _recursive_dependencies_logical_names(value):
     return {name for name in names if not name.startswith("AWS::")}
 
 
-def dependencies(root, target, selected):
+def dependencies(root, target, selected, *, model_references=True):
     """Embed only selected resources and explicitly referenced producer resources."""
     cfn_resource_identity = _imports_iac_values.cfn_resource_identity
 
@@ -166,6 +172,17 @@ def dependencies(root, target, selected):
                 or key == "desired.resource." + number + ".parentReference"
             ]
             for value in values:
+                for node in (
+                    nodes(literal(value), errors=[]) if model_references else ()
+                ):
+                    try:
+                        source, rid, _ = identity_resolver.resolve_logical(
+                            node.logical_id, data.scope
+                        )
+                    except ReferenceDiagnosticError:
+                        # The row snapshot retains the classified resolution error.
+                        continue
+                    pending.append((source.scope.path, {rid}))
                 reference_tokens = _imports_model_identity.reference_tokens
                 resolver = identity_resolver
                 for uri in reference_tokens(value):
@@ -208,6 +225,71 @@ def dependencies(root, target, selected):
             key: value for key, value in data.values.items() if key.startswith(prefixes)
         }
         result[name] = data._replace(values=values)
+    return result
+
+
+def _callback_reference_rows_value(resolutions, /, node):
+    return resolutions[node].value
+
+
+def reference_rows(root, models):
+    """Freeze typed references by service address and stable Model row ID."""
+    result = {}
+    for name, data in sorted(models.items()):
+        resolver = reference_resolver(data.authoritative, data.scope, root)
+        resources = dict(entries(data.values, "desired.resource."))
+        rows = {}
+        for rid, row in entries(data.values, "desired.row."):
+            raw = literal(row.get("document", row["value"]))
+            errors = []
+            references = list(nodes(raw, errors=errors))
+            if not references and not errors:
+                continue
+            document = json.loads(raw)
+            resolutions, diagnostics = document_references(
+                document,
+                resolver=resolver,
+                scope=data.scope,
+                property_name=row["property"],
+                logical_id=resources[rid.rpartition("-")[0]]["logicalId"],
+                model_key="desired.row."
+                + rid
+                + (".document" if "document" in row else ".value"),
+                context=reference_context_for(
+                    data.values, rid, row, document, "", root
+                ),
+            )
+            statuses = sorted({value.status for value in resolutions.values()})
+            resolved = not diagnostics and statuses == ["resolved"]
+            rows[rid] = {
+                "status": "resolved"
+                if resolved
+                else statuses[0]
+                if len(statuses) == 1
+                and not any(
+                    d.get("category") in {"MODEL_NEEDS_FIX", "FRAMEWORK_UNSUPPORTED"}
+                    for d in diagnostics
+                )
+                else "unresolved",
+                "value": project(
+                    document,
+                    _bind_framework_callback(
+                        _callback_reference_rows_value, resolutions
+                    ),
+                )
+                if resolved
+                else None,
+                "diagnostics": diagnostics,
+                "reason": "; ".join(
+                    dict.fromkeys(
+                        (d.get("code", "reference.unresolved") + ": " + d["message"])
+                        for d in diagnostics
+                    )
+                )
+                or ("" if resolved else ", ".join(statuses) or "invalid reference"),
+            }
+        if rows:
+            result[name] = rows
     return result
 
 
@@ -275,12 +357,15 @@ def generate(root, environment, selector, service):
             "cloudformation-stacks has no resource-property Mapping; unsupported"
         )
     models = dependencies(root, target, path)
+    # Typed producers are generation inputs; only legacy references need runtime Models.
+    runtime_models = dependencies(root, target, path, model_references=False)
+    resolved_rows = reference_rows(root, runtime_models)
     catalog = DesignSchemaCatalog(ROOT)
     mappings, schemas, outputs = {}, {}, {}
-    for name in sorted({data.scope.service for data in models.values()}):
+    for name in sorted({data.scope.service for data in runtime_models.values()}):
         selected_rows = [
             row
-            for data in models.values()
+            for data in runtime_models.values()
             if data.scope.service == name
             for _, row in entries(data.values, "desired.row.")
         ]
@@ -424,6 +509,7 @@ def generate(root, environment, selector, service):
     )
     engine += definitions(scripts / "design/layout.py", ["confirmed_display_name"])
     engine += definitions(scripts / "model/reference_values.py", ["confirmed"])
+    engine += definitions(scripts / "model/reference_nodes.py", ["is_reference"])
     engine += definitions(
         scripts / "utils/comparison_rows.py",
         ["Unresolved", "segment", "indexed_array", "select", "project", "put_row"],
@@ -534,7 +620,10 @@ def generate(root, environment, selector, service):
         "target": target,
         "service": service,
         "modelHash": model_hash,
-        "models": {name: dict(data.values) for name, data in sorted(models.items())},
+        "models": {
+            name: dict(data.values) for name, data in sorted(runtime_models.items())
+        },
+        "referenceRows": resolved_rows,
         "schemas": schemas,
         "outputs": outputs,
         "mappings": mappings,

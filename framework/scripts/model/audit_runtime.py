@@ -25,6 +25,10 @@ def _callback_engine_load_model(m, snapshot, /, path):
 
 
 def _callback_engine_resolve_json(self, m, original_resolve, /, value, norm="typed"):
+    if m.is_reference(value):
+        raise m.Unresolved(
+            "Model reference unresolved: missing generated row resolution"
+        )
     if isinstance(value, dict) and "Fn::GetAtt" in value:
         item = value["Fn::GetAtt"]
         attribute = (
@@ -39,6 +43,57 @@ def _callback_engine_resolve_json(self, m, original_resolve, /, value, norm="typ
                 "unsupported GetAtt attribute; only Arn has a confirmed identity mapping"
             )
     return original_resolve(self, value, norm)
+
+
+def contains_reference(value):
+    if isinstance(value, dict):
+        return "$modelRef" in value or any(
+            contains_reference(v) for v in value.values()
+        )
+    if isinstance(value, list):
+        return any(contains_reference(v) for v in value)
+    if isinstance(value, str) and value.strip("`").lstrip().startswith(("{", "[")):
+        try:
+            return contains_reference(json.loads(value.strip("`")))
+        except ValueError:
+            return False
+    return False
+
+
+def row_resolution(snapshot, resource, row):
+    address = (
+        resource.model.path.relative_to(resource.ctx.root / "model")
+        .with_suffix("")
+        .as_posix()
+    )
+    return snapshot["referenceRows"].get(address, {}).get(row.get("auditRowId"))
+
+
+def resolution_error(resolved):
+    if resolved["status"] != "resolved":
+        return resolved["reason"] or resolved["status"]
+    if contains_reference(resolved["value"]):
+        return "generated value still contains a Model reference"
+    return None
+
+
+def _callback_engine_resource_init(self, original_init, /, *args):
+    original_init(self, *args)
+    self.rows = [(rid, {**row, "auditRowId": rid}) for rid, row in self.rows]
+
+
+def _callback_engine_parse(self, snapshot, m, original_parse, /, row, norm="typed"):
+    resolved = row_resolution(snapshot, self, row)
+    if resolved is not None:
+        reason = resolution_error(resolved)
+        if reason:
+            raise m.Unresolved("Model reference unresolved: " + reason)
+        return self.resolve_json(resolved["value"], norm)
+    if contains_reference(row.get("document", row["value"])):
+        raise m.Unresolved(
+            "Model reference unresolved: missing generated row resolution"
+        )
+    return original_parse(self, row, norm)
 
 
 def engine(snapshot):
@@ -68,6 +123,12 @@ def engine(snapshot):
     original_resolve = m.Resource.resolve_json
     m.Resource.resolve_json = partialmethod(
         _callback_engine_resolve_json, m, original_resolve
+    )
+    m.Resource.__init__ = partialmethod(
+        _callback_engine_resource_init, m.Resource.__init__
+    )
+    m.Resource.parse = partialmethod(
+        _callback_engine_parse, snapshot, m, m.Resource.parse
     )
     m.load_model = load_model
     m.DesignSchemaCatalog = lambda root: SimpleNamespace(
@@ -107,6 +168,73 @@ def engine(snapshot):
     sys.modules[mapped.__name__] = mapped
     m._imports_aws_mapping_compare = mapped
     return m
+
+
+def reference_result(m, snapshot, resource, item):
+    rows = resource.rows_for(item["propertiesKey"])
+    resolutions = [row_resolution(snapshot, resource, row) for _, row in rows]
+    if not any(resolutions) and not any(
+        contains_reference(row.get("document", row["value"])) for _, row in rows
+    ):
+        return item
+    reasons = list(
+        dict.fromkeys(
+            resolution_error(resolved)
+            if resolved
+            else "missing generated row resolution"
+            for (_, row), resolved in zip(rows, resolutions, strict=True)
+            if resolved
+            and resolution_error(resolved)
+            or resolved is None
+            and contains_reference(row.get("document", row["value"]))
+        )
+    )
+    if reasons:
+        reason = "Model reference unresolved: " + "; ".join(reasons)
+        if item.get("reason") and reason not in item["reason"]:
+            reason += "; " + item["reason"]
+        return {
+            **item,
+            "status": item["status"]
+            if item["status"] in {"resource_missing", "acquisition_failed"}
+            else "design_unresolved",
+            "designValue": None,
+            "reason": reason,
+        }
+    if item["status"] in {"match", "difference"}:
+        return item
+    # Acquisition failed before parsing: display fixed values without another AWS call.
+    expected = {}
+    prop = item["propertiesKey"]
+    try:
+        for (_, row), resolved in zip(rows, resolutions, strict=True):
+            value = (
+                resolved["value"]
+                if resolved
+                else m.typed_value(row, row["value"], snapshot["schemas"].get(prop, {}))
+            )
+            (m.project if m.value_shape(row) == "projection" else m.put_row)(
+                expected, prop, value
+            )
+        value = m.select(m.canonical(expected), prop)
+    except (m.Unresolved, ValueError, TypeError, KeyError) as error:
+        return {
+            **item,
+            "status": item["status"]
+            if item["status"] in {"resource_missing", "acquisition_failed"}
+            else "design_unresolved",
+            "designValue": None,
+            "reason": "Model reference projection failed: "
+            + str(error)
+            + "; "
+            + item.get("reason", ""),
+        }
+    return {
+        **item,
+        "designValue": "[REDACTED]"
+        if resource.module.sensitive(prop)
+        else m.redacted(value),
+    }
 
 
 SENSITIVE = re.compile(
@@ -245,6 +373,7 @@ def identifier_result(m, ctx, resource, item):
     try:
         observed_row = {**row, "value": raw}
         observed_row.pop("document", None)
+        observed_row.pop("auditRowId", None)
         expected = m.normalize(
             ctx, resource.parse(observed_row, field.norm), field.norm
         )
@@ -308,23 +437,28 @@ def audit(snapshot, profile=None, cli_runner=None):
         for resource in model.resources:
             for prop in dict.fromkeys(row["property"] for _, row in resource.rows):
                 records.append(
-                    identifier_result(
+                    reference_result(
                         m,
-                        ctx,
+                        snapshot,
                         resource,
-                        {
-                            "resource": resource.spec["logicalId"],
-                            "propertiesKey": prop,
-                            "status": "acquisition_failed",
-                            "reason": reason,
-                            "designValue": [
-                                row.get("document", row["value"])
-                                for _, row in resource.rows
-                                if row["property"] == prop
-                            ],
-                            "awsValue": None,
-                            "apis": ctx.trace,
-                        },
+                        identifier_result(
+                            m,
+                            ctx,
+                            resource,
+                            {
+                                "resource": resource.spec["logicalId"],
+                                "propertiesKey": prop,
+                                "status": "acquisition_failed",
+                                "reason": reason,
+                                "designValue": [
+                                    row.get("document", row["value"])
+                                    for _, row in resource.rows
+                                    if row["property"] == prop
+                                ],
+                                "awsValue": None,
+                                "apis": ctx.trace,
+                            },
+                        ),
                     )
                 )
         return m, account, records
@@ -338,30 +472,37 @@ def audit(snapshot, profile=None, cli_runner=None):
     for resource in model.resources:
         try:
             records.extend(
-                identifier_result(m, ctx, resource, item)
+                reference_result(
+                    m, snapshot, resource, identifier_result(m, ctx, resource, item)
+                )
                 for item in attributes(m.compare_resource(ctx, resource))
             )
         except Exception as error:
             # Never turn a new upstream dependency or malformed response into a silent skip.
             for prop in dict.fromkeys(row["property"] for _, row in resource.rows):
                 records.append(
-                    identifier_result(
+                    reference_result(
                         m,
-                        ctx,
+                        snapshot,
                         resource,
-                        {
-                            "resource": resource.spec["logicalId"],
-                            "propertiesKey": prop,
-                            "status": "design_unresolved",
-                            "reason": "comparison failed: " + type(error).__name__,
-                            "designValue": [
-                                row.get("document", row["value"])
-                                for _, row in resource.rows
-                                if row["property"] == prop
-                            ],
-                            "awsValue": None,
-                            "apis": ctx.trace,
-                        },
+                        identifier_result(
+                            m,
+                            ctx,
+                            resource,
+                            {
+                                "resource": resource.spec["logicalId"],
+                                "propertiesKey": prop,
+                                "status": "design_unresolved",
+                                "reason": "comparison failed: " + type(error).__name__,
+                                "designValue": [
+                                    row.get("document", row["value"])
+                                    for _, row in resource.rows
+                                    if row["property"] == prop
+                                ],
+                                "awsValue": None,
+                                "apis": ctx.trace,
+                            },
+                        ),
                     )
                 )
     return m, account, records

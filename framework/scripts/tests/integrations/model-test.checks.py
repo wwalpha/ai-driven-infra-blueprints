@@ -168,9 +168,173 @@ def _callback_check_change(_state_check_106, prompt, /, *args):
     return "changed source", {}, []
 
 
+def typed_reference_round_trip():
+    with tempfile.TemporaryDirectory(prefix="audit-typed-reference-") as directory:
+        root = Path(directory)
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "fixture",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "alias": "cde",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        reference = {
+            "$modelRef": {"logicalId": "Logs_LogGroup_001", "attribute": "LogGroupName"}
+        }
+        arn_reference = {
+            "$modelRef": {"logicalId": "Logs_LogGroup_001", "attribute": "Arn"}
+        }
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "logs:PutLogEvents",
+                    "Resource": [arn_reference],
+                }
+            ],
+        }
+        models = {
+            "vpc": [
+                (
+                    "001",
+                    "EC2.FlowLog",
+                    "flowlog",
+                    [
+                        ("Id", "[FlowLog](#flowlog)", None),
+                        ("LogGroupName", "`" + json.dumps(reference) + "`", None),
+                    ],
+                )
+            ],
+            "cloudwatch-logs": [
+                (
+                    "001",
+                    "Logs.LogGroup",
+                    "group",
+                    [("LogGroupName", "`/aws/vpc/flowlogs/fixture`", None)],
+                ),
+                (
+                    "002",
+                    "Logs.LogGroup",
+                    "unrelated",
+                    [("LogGroupName", "`unrelated-private-value`", None)],
+                ),
+            ],
+            "iam": [
+                (
+                    "001",
+                    "IAM.Role",
+                    "role",
+                    [
+                        ("RoleName", "`fixture-role`", None),
+                        ("AssumeRolePolicyDocument", "[trust](iam/trust.json)", policy),
+                    ],
+                )
+            ],
+        }
+        for service, resources in models.items():
+            values = fixture({}, service, resources)["models"]["dev/cde/" + service]
+            if service == "vpc":
+                values["observed.row.001-001.value"] = "`fl-fixture`"
+            write_model(root / "model/dev/cde" / (service + ".properties"), values)
+        with (
+            patch.object(
+                socket,
+                "create_connection",
+                side_effect=AssertionError("network forbidden"),
+            ),
+            patch.object(
+                socket.socket,
+                "connect",
+                side_effect=AssertionError("network forbidden"),
+            ),
+            patch.object(
+                subprocess,
+                "run",
+                side_effect=_bind_framework_callback(
+                    _callback_check_offline_run, subprocess.run
+                ),
+            ),
+        ):
+            sources = {
+                service: generator.generate(root, "dev", "cde", service)[0]
+                for service in ("vpc", "iam")
+            }
+        fake = root / "aws"
+        actual_policy = copy.deepcopy(policy)
+        actual_policy["Statement"][0]["Resource"] = [
+            "arn:aws:logs:ap-northeast-1:123456789012:log-group:/aws/vpc/flowlogs/fixture:*"
+        ]
+        fake.write_text(
+            "#!" + sys.executable + "\nimport json, os, sys\n"
+            "case=os.environ.get('AUDIT_CASE', 'match')\n"
+            "api=sys.argv[1:3]\n"
+            "if api == ['sts', 'get-caller-identity']:\n"
+            " value={'Account':'123456789012', 'Arn':'arn:aws:iam::123456789012:user/offline'}\n"
+            "elif api == ['ec2', 'describe-flow-logs']:\n"
+            " if case == 'denied':\n"
+            "  sys.stderr.write('An error occurred (AccessDenied) when calling Mock: never-print'); sys.exit(1)\n"
+            " value={'FlowLogs': [] if case == 'missing' else [{'FlowLogId':'fl-fixture', 'LogGroupName':'/different' if case == 'different' else '/aws/vpc/flowlogs/fixture'}]}\n"
+            "elif api == ['iam', 'get-role']:\n"
+            " value={'Role':{'RoleName':'fixture-role', 'AssumeRolePolicyDocument':"
+            + repr(actual_policy)
+            + "}}\n"
+            "else:\n raise RuntimeError('unexpected API: '+str(api))\n"
+            "print(json.dumps(value))\n",
+            encoding="utf-8",
+        )
+        fake.chmod(0o700)
+        for service, source in sources.items():
+            assert "unrelated-private-value" not in source
+            assert "dev/cde/cloudwatch-logs" not in snapshot(source)["models"]
+            script = root / (service + ".py")
+            script.write_text(source, encoding="utf-8")
+            for case, expected in (
+                [("match", 0), ("different", 1), ("missing", 2), ("denied", 2)]
+                if service == "vpc"
+                else [("match", 0)]
+            ):
+                process = subprocess.run(
+                    [sys.executable, "-I", "-B", str(script)],
+                    cwd=root,
+                    env={**os.environ, "PATH": str(root), "AUDIT_CASE": case},
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                assert process.returncode == expected, (
+                    case,
+                    process.stdout,
+                    process.stderr,
+                )
+                assert "NameError" not in process.stdout + process.stderr
+                assert "never-print" not in process.stdout + process.stderr
+                if service == "vpc":
+                    assert 'Model: "/aws/vpc/flowlogs/fixture"' in process.stdout
+                    if case in {"missing", "denied"}:
+                        assert (
+                            "ResourceNotFound" if case == "missing" else "AccessDenied"
+                        ) in process.stdout
+                else:
+                    assert (
+                        actual_policy["Statement"][0]["Resource"][0] in process.stdout
+                    )
+
+
 @it_case
 @input_scope
 def check():
+    typed_reference_round_trip()
     # Generation uses authored authorities; the framework checkout has no consumer data.
     _state_check_106 = _CallbackState()
     real_run = subprocess.run
