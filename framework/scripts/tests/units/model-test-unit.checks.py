@@ -117,7 +117,13 @@ class ReferenceTests(unittest.TestCase):
             value = {
                 "FlowLogs": []
                 if self.missing
-                else [{"FlowLogId": "fl-fixture", "LogGroupName": self.actual}]
+                else [
+                    {
+                        "FlowLogId": "fl-fixture",
+                        "LogGroupName": self.actual,
+                        "Tags": [{"Key": "/aws/vpc/flowlogs/fixture"}],
+                    }
+                ]
             }
         return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
 
@@ -139,6 +145,93 @@ class ReferenceTests(unittest.TestCase):
         item = self.result(snapshot)
         self.assertEqual(item["status"], "match", item)
         self.assertEqual(item["designValue"], "/aws/vpc/flowlogs/fixture")
+
+    def test_invalid_projection_is_rejected_for_reference_and_literal(self):
+        self.consumer["desired.row.001-002.valueShape"] = "projection"
+        for reference in (True, False):
+            with self.subTest(reference=reference):
+                if not reference:
+                    self.consumer["desired.row.001-002.value"] = (
+                        "`/aws/vpc/flowlogs/fixture`"
+                    )
+                self.save()
+                item = self.result(self.snapshot())
+                self.assertEqual(item["status"], "design_unresolved", item)
+
+    def test_resolved_value_obeys_parser_schema(self):
+        for reference in (True, False):
+            with self.subTest(reference=reference):
+                if not reference:
+                    self.consumer["desired.row.001-002.value"] = (
+                        "`/aws/vpc/flowlogs/fixture`"
+                    )
+                    self.save()
+                snapshot = self.snapshot()
+                snapshot["schemas"]["EC2.FlowLog.LogGroupName"] = {"type": "integer"}
+                item = self.result(snapshot)
+                self.assertEqual(item["status"], "design_unresolved", item)
+
+    def test_resolved_scalar_preserves_native_type(self):
+        snapshot = self.snapshot()
+        snapshot["referenceRows"]["dev/cde/vpc"]["001-002"]["value"] = 7
+        item = self.result(snapshot)
+        self.assertEqual(item["status"], "design_unresolved", item)
+
+    def test_boolean_is_not_an_integer(self):
+        for reference in (True, False):
+            with self.subTest(reference=reference):
+                if not reference:
+                    self.consumer["desired.row.001-002.value"] = "`true`"
+                    self.save()
+                snapshot = self.snapshot()
+                snapshot["schemas"]["EC2.FlowLog.LogGroupName"] = {"type": "integer"}
+                if reference:
+                    snapshot["referenceRows"]["dev/cde/vpc"]["001-002"]["value"] = True
+                self.actual, self.missing = True, False
+                item = next(
+                    item
+                    for item in audit.audit(snapshot, cli_runner=self.cli)[2]
+                    if item["propertiesKey"].endswith("LogGroupName")
+                )
+                self.assertEqual(item["status"], "design_unresolved", item)
+
+    def test_projection_reference_matches_literal(self):
+        self.consumer["desired.row.001-002.property"] = "EC2.FlowLog.Tags[].Key"
+        self.consumer["desired.row.001-002.valueShape"] = "projection"
+        self.consumer.update(
+            {
+                "desired.row.001-003.property": "EC2.FlowLog.Tags[].Value",
+                "desired.row.001-003.value": '`["example"]`',
+                "desired.row.001-003.comment": "fixture",
+                "desired.row.001-003.valueShape": "projection",
+            }
+        )
+        for reference in (True, False):
+            with self.subTest(reference=reference):
+                value = (
+                    self.ref("Logs_LogGroup_001", "LogGroupName")
+                    if reference
+                    else "/aws/vpc/flowlogs/fixture"
+                )
+                self.consumer["desired.row.001-002.value"] = (
+                    "`" + json.dumps([value]) + "`"
+                )
+                self.save()
+                self.actual, self.missing = "/aws/vpc/flowlogs/fixture", False
+                snapshot = self.snapshot()
+                for field in ("Key", "Value"):
+                    snapshot["mappings"]["vpc"]["properties"][
+                        "EC2.FlowLog.Tags[]." + field
+                    ]["field"].update(
+                        getter="base", classification="supported", reason=""
+                    )
+                item = next(
+                    item
+                    for item in audit.audit(snapshot, cli_runner=self.cli)[2]
+                    if item["propertiesKey"].endswith("Tags[].Key")
+                )
+                self.assertEqual(item["status"], "match", item)
+                self.assertEqual(item["designValue"], ["/aws/vpc/flowlogs/fixture"])
 
     def test_acquisition_failure_keeps_resolved_scalar(self):
         snapshot = self.snapshot()

@@ -88,12 +88,39 @@ def _callback_engine_parse(self, snapshot, m, original_parse, /, row, norm="type
         reason = resolution_error(resolved)
         if reason:
             raise m.Unresolved("Model reference unresolved: " + reason)
-        return self.resolve_json(resolved["value"], norm)
-    if contains_reference(row.get("document", row["value"])):
+        value = resolved["value"]
+        materialized = dict(row)
+        schema = snapshot["schemas"].get(row["property"])
+        if schema and not isinstance(value, (str, list, dict)):
+            errors = m.native_type_errors(schema, value)
+            if errors:
+                raise m.Unresolved("candidate Property " + errors[0])
+        if "document" in row:
+            materialized["document"] = json.dumps(value, ensure_ascii=False)
+        else:
+            raw = (
+                value
+                if isinstance(value, str)
+                else json.dumps(value, ensure_ascii=False)
+            )
+            materialized["value"] = "`" + raw + "`"
+    elif contains_reference(row.get("document", row["value"])):
         raise m.Unresolved(
             "Model reference unresolved: missing generated row resolution"
         )
-    return original_parse(self, row, norm)
+    else:
+        materialized = row
+    parsed = original_parse(self, materialized, norm)
+    schema = snapshot["schemas"].get(row["property"])
+    if schema:
+        values = m.normalize_literals(
+            row["property"], parsed, m.value_shape(row)
+        ).values
+        for value in values:
+            errors = m.native_type_errors(schema, value)
+            if errors:
+                raise m.Unresolved("candidate Property " + errors[0])
+    return parsed
 
 
 def engine(snapshot):

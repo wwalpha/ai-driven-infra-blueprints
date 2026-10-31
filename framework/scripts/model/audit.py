@@ -511,6 +511,9 @@ def generate(root, environment, selector, service):
     engine += definitions(scripts / "model/reference_values.py", ["confirmed"])
     engine += definitions(scripts / "model/reference_nodes.py", ["is_reference"])
     engine += definitions(
+        scripts / "utils/cloudformation/schema.py", ["native_type_errors"]
+    )
+    engine += definitions(
         scripts / "utils/comparison_rows.py",
         ["Unresolved", "segment", "indexed_array", "select", "project", "put_row"],
     )
