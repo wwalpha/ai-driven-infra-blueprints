@@ -21,6 +21,7 @@ import utils.iac_values as _imports_iac_values
 import utils.input_cache as _imports_input_cache
 from aws_mapping_compare import comparison
 from comparison.rules.cloud_trail import cloudtrail_rows
+from comparison.rules.code_pipeline import prepare_rows as pipeline_rows
 from design.array_display import indexed_rows
 from design.catalog import DesignSchemaCatalog
 from design.layout import confirmed_display_name
@@ -51,6 +52,92 @@ from model.render import display_name
 from model.sources import load_model, model_paths, publication_lock
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def pipeline_indexed_rows(rows):
+    """Accept only complete, consistently delimited Model action sequences."""
+    kind = "CodePipeline.Pipeline"
+    stage_rows = [
+        (rid, row) for rid, row in rows if row["property"].startswith(kind + ".Stages")
+    ]
+    if not stage_rows:
+        return {}
+    if len(dict(stage_rows)) != len(stage_rows) or any(
+        not re.fullmatch(r"\d+-\d+", rid) or value_shape(row) != "leaf"
+        for rid, row in stage_rows
+    ):
+        return {}
+    try:
+        prepared = pipeline_rows(
+            rows, index_rows=_bind_framework_callback(indexed_rows, root=ROOT)
+        )
+    except (ValueError, TypeError, KeyError):
+        return {}
+    original = dict(rows)
+    paths = {}
+    stages, actions, order = {}, {}, {}
+    for rid, row in prepared:
+        if rid not in dict(stage_rows):
+            continue
+        prop = row["property"]
+        if rid in paths or definition_path(prop) != original[rid]["property"]:
+            return {}
+        match = re.fullmatch(
+            r"CodePipeline\.Pipeline\.Stages\[([1-9]\d*)\]\.(?:Actions\[([1-9]\d*)\]\.)?(.+)",
+            prop,
+        )
+        if not match:
+            return {}
+        stage, action, field = match.groups()
+        order.setdefault(stage, []).append(bool(action))
+        if action:
+            actions.setdefault((stage, action), []).append(field)
+        else:
+            stages.setdefault(stage, []).append(field)
+        paths[rid] = prop
+    if paths.keys() != dict(stage_rows).keys() or not actions:
+        return {}
+    if any(fields.count("Name") != 1 for fields in stages.values()) or set(stages) != {
+        stage for stage, _ in actions
+    }:
+        return {}
+    orientations = set()
+    for stage, members in order.items():
+        positions = [i for i, is_action in enumerate(members) if is_action]
+        stage_name = next(
+            i
+            for i, (rid, path) in enumerate(
+                (
+                    item
+                    for item in paths.items()
+                    if item[1].startswith(kind + f".Stages[{stage}].")
+                )
+            )
+            if path == kind + f".Stages[{stage}].Name"
+        )
+        if stage_name < positions[0]:
+            orientations.add("first")
+        elif stage_name > positions[-1]:
+            orientations.add("last")
+        else:
+            return {}
+    if len(orientations) != 1:
+        return {}
+    signatures = list(actions.values())
+    if any(
+        fields.count("Name") != 1 or fields.count("ActionTypeId.Category") != 1
+        for fields in signatures
+    ):
+        return {}
+    if not (
+        all(fields[0] == "Name" for fields in signatures)
+        or all(
+            fields[0] == "ActionTypeId.Category" and fields[-1] == "Name"
+            for fields in signatures
+        )
+    ):
+        return {}
+    return paths
 
 
 def definitions(path, names):
@@ -691,6 +778,7 @@ def generate(root, environment, selector, service):
     selected_model = load_model(path)
     names = {}
     indexed_rows_by_resource = {}
+    pipeline_indexed_rows_by_resource = {}
     identities = {}
     kinds = {}
     primary = {}
@@ -700,6 +788,14 @@ def generate(root, environment, selector, service):
         for _, resource in entries(selected_values, "desired.resource.")
     }
     for number, resource in entries(selected_values, "desired.resource."):
+        if resource["resourceType"] == "CodePipeline.Pipeline":
+            pipeline_indexed_rows_by_resource[number] = pipeline_indexed_rows(
+                [
+                    (rid, row)
+                    for rid, row in entries(selected_values, "desired.row.")
+                    if rid.startswith(number + "-")
+                ]
+            )
         if resource["resourceType"] == "CloudTrail.Trail":
             leaves = [
                 (rid, row)
@@ -771,6 +867,7 @@ def generate(root, environment, selector, service):
         },
         "referenceRows": resolved_rows,
         "cloudtrailIndexedRows": indexed_rows_by_resource,
+        "pipelineIndexedRows": pipeline_indexed_rows_by_resource,
         "schemas": schemas,
         "outputs": outputs,
         "mappings": mappings,

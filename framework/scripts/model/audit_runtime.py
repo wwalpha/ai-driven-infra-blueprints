@@ -248,7 +248,7 @@ def reference_result(m, snapshot, resource, item):
     expected = {}
     prop = item["propertiesKey"]
     try:
-        for (_, row), resolved in zip(rows, resolutions, strict=True):
+        for (rid, row), resolved in zip(rows, resolutions, strict=True):
             value = (
                 resolved["value"]
                 if resolved
@@ -256,7 +256,11 @@ def reference_result(m, snapshot, resource, item):
             )
             validate_design_value(m, snapshot, row, value)
             (m.project if m.value_shape(row) == "projection" else m.put_row)(
-                expected, prop, value
+                expected,
+                snapshot.get("pipelineIndexedRows", {})
+                .get(resource.number, {})
+                .get(rid, prop),
+                value,
             )
         value = m.select(m.canonical(expected), prop)
     except (m.Unresolved, ValueError, TypeError, KeyError) as error:
@@ -525,6 +529,10 @@ def audit(snapshot, profile=None, cli_runner=None):
                             resource.number
                         )
                         if resource.kind == "CloudTrail.Trail"
+                        else snapshot.get("pipelineIndexedRows", {}).get(
+                            resource.number
+                        )
+                        if resource.kind == "CodePipeline.Pipeline"
                         else None,
                     )
                 )

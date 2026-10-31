@@ -3,6 +3,7 @@
 
 import ast
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -1326,6 +1327,225 @@ class DisplayTests(unittest.TestCase):
         rows = resource_display_rows(values, "001", resource, root)
         name, _ = display_name(values, "001", resource, rows, root, projection=True)
         self.assertEqual(name, "app")
+
+
+class PipelineMembershipTests(unittest.TestCase):
+    save = ReferenceTests.save
+    setUp = ReferenceTests.setUp
+    model = staticmethod(ReferenceTests.model)
+    ref = staticmethod(ReferenceTests.ref)
+
+    def build(
+        self, stages=2, actions=2, reference=False, ambiguous=False, varied=False
+    ):
+        values = self.model(
+            "CodePipeline.Pipeline", "CodePipeline_Pipeline_001", {"Name": "fixture"}
+        )
+        rows = []
+        response = []
+        for stage in range(stages):
+            aws_actions = []
+            for action in range(actions):
+                name = f"action-{stage}-{action}"
+                category = "Build" if reference else f"category-{stage}-{action}"
+                project = f"project-{stage}-{action}"
+                config = {
+                    "ProjectName": self.ref("CodeBuild_Project_001", "Name")
+                    if reference and stage == action == 0
+                    else project
+                }
+                if reference and stage == action == 0:
+                    project = "build-project"
+                rows.extend(
+                    [
+                        (
+                            "Stages[].Actions[].ActionTypeId.Category",
+                            category,
+                            "fixture",
+                        ),
+                        ("Stages[].Actions[].ActionTypeId.Owner", "AWS", "fixture"),
+                        (
+                            "Stages[].Actions[].ActionTypeId.Provider",
+                            "CodeBuild",
+                            "fixture",
+                        ),
+                        ("Stages[].Actions[].ActionTypeId.Version", "1", "fixture"),
+                        (
+                            "Stages[].Actions[].Configuration",
+                            json.dumps(config),
+                            "ProjectName: project",
+                        ),
+                        ("Stages[].Actions[].Name", name, "fixture"),
+                    ]
+                )
+                if varied and stage == 1 and action == 1:
+                    rows.insert(
+                        -1, ("Stages[].Actions[].Namespace", "optional", "fixture")
+                    )
+                aws_actions.append(
+                    {
+                        "name": name,
+                        "actionTypeId": {
+                            "category": category,
+                            "owner": "AWS",
+                            "provider": "CodeBuild",
+                            "version": "1",
+                        },
+                        "configuration": {"ProjectName": project},
+                    }
+                )
+            if varied and stage == 1:
+                aws_actions[1]["namespace"] = "optional"
+            rows.append(("Stages[].Name", f"stage-{stage}", "fixture"))
+            response.append({"name": f"stage-{stage}", "actions": aws_actions})
+        if ambiguous:
+            rows.pop(5)
+        for index, (prop, value, comment) in enumerate(rows, 2):
+            prefix = f"desired.row.001-{index:03d}."
+            values.update(
+                {
+                    prefix + "property": "CodePipeline.Pipeline." + prop,
+                    prefix + "value": "`" + value + "`",
+                    prefix + "comment": comment,
+                }
+            )
+        write_model(self.root / "model/dev/cde/codepipeline.properties", values)
+        if reference:
+            producer = self.model(
+                "CodeBuild.Project", "CodeBuild_Project_001", {"Name": "build-project"}
+            )
+            write_model(self.root / "model/dev/cde/codebuild.properties", producer)
+        source = generate(self.root, "dev", "cde", "codepipeline")[0]
+        snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+        return snapshot, response, source
+
+    def records(self, snapshot, stages):
+        cli = Mock(
+            side_effect=[
+                subprocess.CompletedProcess(
+                    [],
+                    0,
+                    json.dumps(
+                        {
+                            "Account": "123456789012",
+                            "Arn": "arn:aws:iam::123456789012:user/offline",
+                        }
+                    ),
+                    "",
+                ),
+                subprocess.CompletedProcess(
+                    [],
+                    0,
+                    json.dumps({"pipeline": {"name": "fixture", "stages": stages}}),
+                    "",
+                ),
+            ]
+        )
+        return audit.audit(snapshot, cli_runner=cli)[2]
+
+    def test_membership_and_difference(self):
+        for stages, actions in [(1, 1), (2, 2)]:
+            with self.subTest(stages=stages, actions=actions):
+                snapshot, response, _ = self.build(stages, actions)
+                records = self.records(snapshot, response)
+                selected = [r for r in records if "Stages[]" in r["propertiesKey"]]
+                self.assertTrue(selected)
+                self.assertTrue(all(r["status"] == "match" for r in selected), selected)
+                response[0]["actions"][0]["configuration"]["ProjectName"] = "wrong"
+                records = self.records(snapshot, response)
+                config = next(
+                    r for r in records if r["propertiesKey"].endswith(".Configuration")
+                )
+                category = next(
+                    r for r in records if r["propertiesKey"].endswith(".Category")
+                )
+                self.assertEqual(config["status"], "difference", config)
+                self.assertEqual(category["status"], "match", category)
+
+    def test_varied_optional_fields(self):
+        snapshot, response, _ = self.build(varied=True)
+        records = self.records(snapshot, response)
+        selected = [
+            r
+            for r in records
+            if "Stages[]" in r["propertiesKey"]
+            and not r["propertiesKey"].endswith(".Namespace")
+        ]
+        self.assertTrue(all(r["status"] == "match" for r in selected), selected)
+
+    def test_ambiguous_membership(self):
+        snapshot, response, _ = self.build(2, 2, ambiguous=True)
+        self.assertFalse(snapshot["pipelineIndexedRows"]["001"])
+        records = self.records(snapshot, response)
+        self.assertTrue(
+            all(
+                r["status"] == "design_unresolved"
+                for r in records
+                if "Stages[]" in r["propertiesKey"]
+            ),
+            records,
+        )
+
+    def test_standalone(self):
+        snapshot, response, source = self.build(reference=True)
+        with tempfile.TemporaryDirectory(prefix="pipeline-standalone-") as directory:
+            folder = Path(directory)
+            script = folder / "audit.py"
+            script.write_text(source, encoding="utf-8")
+            fake = folder / "aws"
+            fake.write_text(
+                "#!"
+                + sys.executable
+                + "\nimport json, sys\nprint(json.dumps("
+                + repr({"pipeline": {"name": "fixture", "stages": response}})
+                + " if sys.argv[1] == 'codepipeline' else "
+                + repr(
+                    {
+                        "Account": "123456789012",
+                        "Arn": "arn:aws:iam::123456789012:user/offline",
+                    }
+                )
+                + "))\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o700)
+            process = subprocess.run(
+                [sys.executable, "-I", "-B", str(script)],
+                cwd=folder,
+                env={**os.environ, "PATH": str(folder)},
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertNotIn("ModuleNotFoundError", process.stderr)
+            self.assertIn("[OK] CodePipeline.Pipeline", process.stdout)
+            self.assertNotIn("Design reference projection failed", process.stdout)
+            self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+
+    def test_reference(self):
+        snapshot, response, _ = self.build(reference=True)
+        records = self.records(snapshot, response)
+        config = next(
+            r for r in records if r["propertiesKey"].endswith(".Configuration")
+        )
+        self.assertEqual(config["status"], "match", config)
+        failure = Mock(return_value=subprocess.CompletedProcess([], 1, "", "denied"))
+        records = audit.audit(snapshot, cli_runner=failure)[2]
+        config = next(
+            r for r in records if r["propertiesKey"].endswith(".Configuration")
+        )
+        self.assertEqual(config["status"], "acquisition_failed", config)
+        self.assertNotIn("Design reference projection failed", config["reason"])
+        resolution = next(
+            iter(snapshot["referenceRows"]["dev/cde/codepipeline"].values())
+        )
+        resolution.update(status="unresolved", reason="missing producer")
+        records = self.records(snapshot, response)
+        config = next(
+            r for r in records if r["propertiesKey"].endswith(".Configuration")
+        )
+        self.assertEqual(config["status"], "design_unresolved", config)
+        self.assertIn("missing producer", config["reason"])
 
 
 if __name__ == "__main__":
