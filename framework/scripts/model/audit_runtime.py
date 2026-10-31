@@ -90,6 +90,11 @@ def validate_design_value(m, snapshot, row, value):
             errors = m.native_type_errors(schema, element)
             if errors:
                 raise m.Unresolved("candidate Property " + errors[0])
+            if isinstance(element, (int, float)) and not isinstance(element, bool):
+                if "minimum" in schema and element < schema["minimum"]:
+                    raise m.Unresolved("candidate Property below minimum")
+                if "maximum" in schema and element > schema["maximum"]:
+                    raise m.Unresolved("candidate Property above maximum")
 
 
 def _callback_engine_parse(self, snapshot, m, original_parse, /, row, norm="typed"):
@@ -451,6 +456,23 @@ def identifier_result(m, ctx, resource, item):
         }
 
 
+def classify_exclusion(m, snapshot, resource, item):
+    prop = item["propertiesKey"]
+    reason = snapshot.get("exclusions", {}).get(prop)
+    if item["status"] != "sdk_unavailable" or not reason:
+        return item
+    try:
+        values = [resource.parse(row) for _, row in resource.rows_for(prop)]
+    except (m.Unresolved, ValueError, TypeError, KeyError) as error:
+        return {**item, "status": "design_unresolved", "reason": str(error)}
+    return {
+        **item,
+        "status": "excluded",
+        "reason": reason,
+        "designValue": m.redacted(values[0] if len(values) == 1 else values),
+    }
+
+
 def audit(snapshot, profile=None, cli_runner=None):
     m = engine(snapshot)
     target = dict(snapshot["target"])
@@ -518,8 +540,13 @@ def audit(snapshot, profile=None, cli_runner=None):
     for resource in model.resources:
         try:
             records.extend(
-                reference_result(
-                    m, snapshot, resource, identifier_result(m, ctx, resource, item)
+                classify_exclusion(
+                    m,
+                    snapshot,
+                    resource,
+                    reference_result(
+                        m, snapshot, resource, identifier_result(m, ctx, resource, item)
+                    ),
                 )
                 for item in attributes(
                     m.compare_resource(
@@ -590,7 +617,9 @@ def report(snapshot, profile, account, records, timestamp):
     line()
     counts = Counter()
     for item in records:
-        state = {"match": "OK", "difference": "NG"}.get(item["status"], "ERROR")
+        state = {"match": "OK", "difference": "NG", "excluded": "EXCLUDED"}.get(
+            item["status"], "ERROR"
+        )
         counts[state] += 1
         prop = item.get("propertiesKey") or "(resource)"
         kind = item.get("resourceType") or ".".join(prop.split(".")[:2])
@@ -600,7 +629,14 @@ def report(snapshot, profile, account, records, timestamp):
         expected = masked(item.get("designValue"), prop)
         actual = masked(item.get("awsValue"), prop)
         line("  Design: " + json.dumps(expected, ensure_ascii=False, sort_keys=True))
-        line("  AWS:    " + json.dumps(actual, ensure_ascii=False, sort_keys=True))
+        line(
+            "  AWS:    "
+            + (
+                "(not observable)"
+                if state == "EXCLUDED"
+                else json.dumps(actual, ensure_ascii=False, sort_keys=True)
+            )
+        )
         if state != "OK":
             line(
                 "  Reason: "
@@ -623,9 +659,15 @@ def report(snapshot, profile, account, records, timestamp):
         line("[ERROR] No selected desired attributes")
     line("--------------------------------")
     line(f"Total: {sum(counts.values())}")
-    for state in ("OK", "NG", "ERROR"):
+    for state in ("OK", "NG", "ERROR", "EXCLUDED"):
         line(f"{state}: {counts[state]}")
-    code = 2 if counts["ERROR"] else 1 if counts["NG"] else 0
+    code = (
+        2
+        if counts["ERROR"] or not counts["OK"] and not counts["NG"]
+        else 1
+        if counts["NG"]
+        else 0
+    )
     line("Result: " + ("FAIL" if code else "PASS"))
     return output.getvalue(), code
 

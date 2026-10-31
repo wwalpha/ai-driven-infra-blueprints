@@ -916,6 +916,167 @@ def check():
                 root / "model/dev/cde" / (service + ".properties"),
                 data["models"]["dev/cde/" + service],
             )
+        kms = fixture(
+            {},
+            "kms",
+            [
+                (
+                    "001",
+                    "KMS.Key",
+                    "key",
+                    [
+                        (
+                            "KeyId",
+                            '`{"$modelRef":{"logicalId":"KMS_Key_001","attribute":"KeyId"}}`',
+                            None,
+                        ),
+                        ("Enabled", "`true`", None),
+                        ("PendingWindowInDays", "`30`", None),
+                    ],
+                )
+            ],
+        )
+        kms_values = kms["models"]["dev/cde/kms"]
+        kms_values["observed.row.001-001.value"] = (
+            "`12345678-1234-1234-1234-123456789012`"
+        )
+        write_model(root / "model/dev/cde/kms.properties", kms_values)
+        kms_source = generator.generate(root, "dev", "cde", "kms")[0]
+        kms_snapshot = snapshot(kms_source)
+        assert "KMS.Key.PendingWindowInDays" in kms_snapshot["exclusions"]
+        kms_runtime = runtime(kms_snapshot)
+        kms_responses = {
+            ("kms", "describe-key"): {
+                "KeyMetadata": {
+                    "KeyId": "12345678-1234-1234-1234-123456789012",
+                    "Enabled": True,
+                }
+            }
+        }
+        records = kms_runtime["audit"](kms_snapshot, None, CLI(kms_responses))[2]
+        assert sorted(item["status"] for item in records) == [
+            "excluded",
+            "match",
+            "match",
+        ], records
+        assert (
+            kms_runtime["report"](
+                kms_snapshot, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1]
+            == 0
+        )
+        bad = copy.deepcopy(kms_responses)
+        bad[("kms", "describe-key")]["KeyMetadata"]["Enabled"] = False
+        records = kms_runtime["audit"](kms_snapshot, None, CLI(bad))[2]
+        assert "difference" in [item["status"] for item in records]
+        assert (
+            kms_runtime["report"](
+                kms_snapshot, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1]
+            == 1
+        )
+        records = kms_runtime["audit"](
+            kms_snapshot, None, CLI(kms_responses, fail=("kms", "describe-key"))
+        )[2]
+        assert (
+            kms_runtime["report"](
+                kms_snapshot, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1]
+            == 2
+        )
+        denied = kms_runtime["audit"](
+            kms_snapshot, None, CLI(kms_responses, account="999999999999")
+        )[2]
+        assert all(item["status"] != "excluded" for item in denied), denied
+        assert (
+            kms_runtime["report"](
+                kms_snapshot, None, "unverified", denied, datetime.now(timezone.utc)
+            )[1]
+            == 2
+        )
+        unconfirmed = copy.deepcopy(kms_snapshot)
+        unconfirmed["exclusions"] = {}
+        records = runtime(unconfirmed)["audit"](unconfirmed, None, CLI(kms_responses))[
+            2
+        ]
+        assert (
+            next(
+                item
+                for item in records
+                if item["propertiesKey"] == "KMS.Key.PendingWindowInDays"
+            )["status"]
+            == "sdk_unavailable"
+        )
+        assert (
+            kms_runtime["report"](
+                unconfirmed, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1]
+            == 2
+        )
+        excluded_only = copy.deepcopy(kms_snapshot)
+        values = excluded_only["models"]["dev/cde/kms"]
+        for key in list(values):
+            if key.startswith(
+                (
+                    "desired.row.001-001.",
+                    "desired.row.001-002.",
+                    "observed.row.001-001.",
+                )
+            ):
+                del values[key]
+        records = runtime(excluded_only)["audit"](
+            excluded_only, None, CLI(kms_responses)
+        )[2]
+        assert [item["status"] for item in records] == ["excluded"], records
+        assert (
+            kms_runtime["report"](
+                excluded_only, None, "123456789012", records, datetime.now(timezone.utc)
+            )[1]
+            == 2
+        )
+        for value in (
+            "`31`",
+            "`not-a-number`",
+            '`{"$modelRef":{"logicalId":"Missing","attribute":"KeyId"}}`',
+        ):
+            changed = copy.deepcopy(kms_snapshot)
+            changed["models"]["dev/cde/kms"]["desired.row.001-003.value"] = value
+            records = runtime(changed)["audit"](changed, None, CLI(kms_responses))[2]
+            assert (
+                next(
+                    item
+                    for item in records
+                    if item["propertiesKey"] == "KMS.Key.PendingWindowInDays"
+                )["status"]
+                == "design_unresolved"
+            ), records
+        with tempfile.TemporaryDirectory(prefix="audit-kms-standalone-") as folder:
+            folder = Path(folder)
+            script = folder / "kms.py"
+            script.write_text(kms_source, encoding="utf-8")
+            fake = folder / "aws"
+            fake.write_text(
+                "#!"
+                + sys.executable
+                + "\nimport json, sys\nprint(json.dumps("
+                + repr(kms_responses[("kms", "describe-key")])
+                + " if sys.argv[1] == 'kms' else {'Account':'123456789012'}))\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o700)
+            result = real_run(
+                [sys.executable, "-I", "-B", str(script)],
+                cwd=folder,
+                env={**os.environ, "PATH": str(folder)},
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert result.returncode == 0, (result.stdout, result.stderr)
+            assert (
+                "[EXCLUDED] KMS.Key" in result.stdout
+                and "Result: PASS" in result.stdout
+            )
         sources = {
             service: generator.generate(root, "dev", "cde", service)[0]
             for service in ("vpc", "iam")

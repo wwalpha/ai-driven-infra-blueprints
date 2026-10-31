@@ -1089,6 +1089,36 @@ class IdentifierTests(unittest.TestCase):
                 if reason:
                     self.assertIn(reason, text)
 
+    def test_excluded_reporting_and_failure_codes(self):
+        snapshot = {
+            "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},
+            "service": "kms",
+            "modelHash": "hash",
+            "names": {},
+        }
+        excluded = {
+            "resource": "key",
+            "propertiesKey": "KMS.Key.PendingWindowInDays",
+            "status": "excluded",
+            "designValue": 30,
+            "reason": "write-only",
+        }
+        ok = {**excluded, "propertiesKey": "KMS.Key.Enabled", "status": "match"}
+        for records, code in [
+            ([excluded, ok], 0),
+            ([excluded], 2),
+            ([excluded, {**ok, "status": "difference"}], 1),
+            ([excluded, {**ok, "status": "sdk_unavailable"}], 2),
+            ([excluded, {**ok, "status": "acquisition_failed"}], 2),
+        ]:
+            text, actual = audit.report(
+                snapshot, None, "account", records, datetime.now(timezone.utc)
+            )
+            self.assertEqual(actual, code)
+            self.assertIn("[EXCLUDED]", text)
+            self.assertIn("AWS:    (not observable)", text)
+            self.assertIn("EXCLUDED: 1", text)
+
     def test_report_translates_fixed_producer_diagnostic_only(self):
         snapshot = {
             "target": {"environment": "dev", "directory": "cde", "awsRegion": "region"},

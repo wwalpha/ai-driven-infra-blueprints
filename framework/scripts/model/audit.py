@@ -542,7 +542,7 @@ def generate(root, environment, selector, service):
     runtime_models = dependencies(root, target, path, model_references=False)
     resolved_rows = reference_rows(root, runtime_models)
     catalog = DesignSchemaCatalog(ROOT)
-    mappings, schemas, outputs = {}, {}, {}
+    mappings, schemas, outputs, exclusions = {}, {}, {}, {}
     for name in sorted({data.scope.service for data in runtime_models.values()}):
         selected_rows = [
             row
@@ -580,6 +580,20 @@ def generate(root, environment, selector, service):
                         reason="",
                     ),
                 )
+        key = "KMS.Key.PendingWindowInDays"
+        if name == "kms" and key in props:
+            prop = props[key]
+            schema = catalog.schema("KMS.Key")
+            if (
+                prop.source == "model"
+                and prop.constraint
+                and prop.field.classification == "sdk_unavailable"
+                and "/properties/PendingWindowInDays"
+                in schema.get("writeOnlyProperties", [])
+            ):
+                exclusions[key] = (
+                    "CloudFormation write-only property; " + prop.constraint
+                )
         Property = _imports_aws_mapping.Property
         for row in selected_rows:
             key = row["property"]
@@ -612,7 +626,13 @@ def generate(root, environment, selector, service):
                     kind, definition_path(prop[len(kind) + 1 :])
                 )
                 schemas[prop] = {
-                    k: schema[k] for k in ("type", "minLength") if k in schema
+                    k: schema[k]
+                    for k in (
+                        ("type", "minLength", "minimum", "maximum")
+                        if prop == "KMS.Key.PendingWindowInDays"
+                        else ("type", "minLength")
+                    )
+                    if k in schema
                 }
             except KeyError:
                 pass  # Existing Resource.parse treats design-only properties as strings.
@@ -869,6 +889,7 @@ def generate(root, environment, selector, service):
         "cloudtrailIndexedRows": indexed_rows_by_resource,
         "pipelineIndexedRows": pipeline_indexed_rows_by_resource,
         "schemas": schemas,
+        "exclusions": exclusions,
         "outputs": outputs,
         "mappings": mappings,
         "adapters": adapters,
