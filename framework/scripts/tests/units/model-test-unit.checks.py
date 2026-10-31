@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from design.layout import confirmed_display_name
+from model.adapters.aws import AcquisitionError, Unresolved, service_module
 from model.audit import (
     definitions,
     dependencies,
@@ -35,6 +36,56 @@ from model import audit_runtime as audit
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
+
+
+class MacieLookupTests(unittest.TestCase):
+    def test_job_lookup(self):
+        adapter = service_module("macie")
+        resource = Mock()
+        resource.value.return_value = "fixture-job"
+        ctx = Mock()
+        ctx.call.return_value = {"name": "fixture-job"}
+        resource.current.return_value = "confirmed-id"
+        adapter.fetch(ctx, resource, "job")
+        ctx.pages.assert_not_called()
+        ctx.call.assert_called_once_with(
+            "macie2", "describe_classification_job", jobId="confirmed-id"
+        )
+
+        resource.current.return_value = None
+        ctx.reset_mock()
+        ctx.pages.return_value = {
+            "items": [{"name": "fixture-job", "jobId": "found-id"}]
+        }
+        adapter.fetch(ctx, resource, "job")
+        ctx.pages.assert_called_once_with(
+            "macie2",
+            "list_classification_jobs",
+            filterCriteria={
+                "includes": [
+                    {"key": "name", "comparator": "EQ", "values": ["fixture-job"]}
+                ]
+            },
+        )
+        ctx.call.assert_called_once_with(
+            "macie2", "describe_classification_job", jobId="found-id"
+        )
+        for items, error in [
+            ([], AcquisitionError),
+            (
+                [
+                    {"name": "fixture-job", "jobId": "a"},
+                    {"name": "fixture-job", "jobId": "b"},
+                ],
+                Unresolved,
+            ),
+        ]:
+            with self.subTest(items=items):
+                ctx.reset_mock()
+                ctx.pages.return_value = {"items": items}
+                with self.assertRaises(error):
+                    adapter.fetch(ctx, resource, "job")
+                ctx.call.assert_not_called()
 
 
 class EmbeddedImportTests(unittest.TestCase):

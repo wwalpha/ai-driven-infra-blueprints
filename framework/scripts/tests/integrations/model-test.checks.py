@@ -595,6 +595,108 @@ def typed_reference_round_trip():
                     assert "Design: null" in process.stdout
 
 
+def macie_job_standalone():
+    with tempfile.TemporaryDirectory(prefix="audit-macie-job-") as directory:
+        root = Path(directory)
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "projectName": "fixture",
+                    "targets": [
+                        {
+                            "environment": "dev",
+                            "alias": "cde",
+                            "awsAccountId": "123456789012",
+                            "awsRegion": "ap-northeast-1",
+                            "iacEngine": "cloudformation",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        data = fixture(
+            {},
+            "macie",
+            [
+                (
+                    "001",
+                    "Macie.ClassificationJob",
+                    "fixture-job",
+                    [
+                        ("name", "`fixture-job`", None),
+                        (
+                            "jobId",
+                            '`{"$modelRef":{"logicalId":"Macie_ClassificationJob_001","attribute":"jobId"}}`',
+                            None,
+                        ),
+                        ("description", "`fixture description`", None),
+                    ],
+                )
+            ],
+        )
+        model = root / "model/dev/cde/macie.properties"
+        data["models"]["dev/cde/macie"]["observed.row.001-002.value"] = (
+            "`PENDING_DEPLOY`"
+        )
+        write_model(model, data["models"]["dev/cde/macie"])
+        before = model.read_bytes()
+        script = root / "tests/dev/cde/macie.py"
+        script.parent.mkdir(parents=True)
+        script.write_text(
+            generator.generate(root, "dev", "cde", "macie")[0], encoding="utf-8"
+        )
+        fake = root / "aws"
+        fake.write_text(
+            "#!" + sys.executable + "\n" + "import json, pathlib, sys\n"
+            "args = sys.argv[1:]\n"
+            "request = json.loads(args[args.index('--cli-input-json') + 1])\n"
+            "with pathlib.Path('calls.jsonl').open('a') as out: out.write(json.dumps([args[:2], request]) + '\\n')\n"
+            "if args[:2] == ['sts', 'get-caller-identity']: result = {'Account': '123456789012', 'Arn': 'arn:aws:iam::123456789012:user/offline'}\n"
+            "elif args[:2] == ['macie2', 'list-classification-jobs']:\n"
+            " assert request == {'filterCriteria': {'includes': [{'key': 'name', 'comparator': 'EQ', 'values': ['fixture-job']}]}}\n"
+            " result = {'items': [{'name': 'fixture-job', 'jobId': 'found-id'}]}\n"
+            "elif args[:2] == ['macie2', 'describe-classification-job']:\n"
+            " assert request == {'jobId': 'found-id'}\n"
+            " result = {'name': 'fixture-job', 'jobId': 'found-id', 'description': 'fixture description'}\n"
+            "else: raise AssertionError(args)\n"
+            "print(json.dumps(result))\n",
+            encoding="utf-8",
+        )
+        fake.chmod(0o700)
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", str(script)],
+            cwd=root,
+            env={**os.environ, "PATH": str(root)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        calls = [
+            json.loads(line)
+            for line in (root / "calls.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        assert any(
+            call[0] == ["macie2", "list-classification-jobs"] for call in calls
+        ), calls
+        assert any(
+            call == [["macie2", "describe-classification-job"], {"jobId": "found-id"}]
+            for call in calls
+        ), calls
+        assert (
+            "[OK] Macie.ClassificationJob | fixture-job | description" in result.stdout
+        ), (result.stdout, result.stderr)
+        assert (
+            "[ERROR] Macie.ClassificationJob | fixture-job | jobId" in result.stdout
+        ), (result.stdout, result.stderr)
+        assert "REFERENCE_PENDING_DEPLOY" in result.stdout, (
+            result.stdout,
+            result.stderr,
+        )
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert model.read_bytes() == before
+
+
 @it_case
 @input_scope
 def codebuild_boolean_standalone():
@@ -691,6 +793,7 @@ def codebuild_boolean_standalone():
 
 
 def check():
+    macie_job_standalone()
     codebuild_boolean_standalone()
     standalone_service_imports()
     typed_reference_round_trip()

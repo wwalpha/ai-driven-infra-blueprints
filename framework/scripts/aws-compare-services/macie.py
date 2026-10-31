@@ -28,7 +28,7 @@ def fetch(ctx, r, getter):
             "list_classification_jobs",
             filterCriteria={
                 "includes": [
-                    {"key": "NAME", "comparator": "EQ", "values": [r.value("name")]}
+                    {"key": "name", "comparator": "EQ", "values": [r.value("name")]}
                 ]
             },
         ).get("items", [])
