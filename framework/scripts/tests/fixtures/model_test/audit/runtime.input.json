@@ -1,0 +1,1107 @@
+{
+  "policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ],
+        "Resource": [
+          "arn:aws:s3:::a",
+          "arn:aws:s3:::a/*"
+        ],
+        "Condition": {
+          "StringEquals": {
+            "aws:PrincipalOrgID": [
+              "o-a",
+              "o-b"
+            ]
+          }
+        }
+      },
+      {
+        "Effect": "Deny",
+        "Action": "s3:DeleteObject",
+        "Resource": "*"
+      }
+    ]
+  },
+  "resources": {
+    "observed-vpc": [
+      [
+        "001",
+        "EC2.VPC",
+        "main-vpc",
+        [
+          [
+            "Name",
+            "`test-vpc`",
+            null
+          ],
+          [
+            "CidrBlock",
+            "`10.10.0.0/23`",
+            null
+          ],
+          [
+            "EnableDnsSupport",
+            "`true`",
+            null
+          ],
+          [
+            "VpcId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_VPC_001\",\"attribute\":\"VpcId\"}}`",
+            null
+          ]
+        ]
+      ]
+    ],
+    "observed-subnet": [
+      [
+        "002",
+        "EC2.Subnet",
+        "subnet",
+        [
+          [
+            "Name",
+            "`test-subnet`",
+            null
+          ],
+          [
+            "SubnetId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_Subnet_002\",\"attribute\":\"SubnetId\"}}`",
+            null
+          ]
+        ]
+      ]
+    ],
+    "parent-membership": [
+      [
+        "001",
+        "EC2.VPC",
+        "main-vpc",
+        [
+          [
+            "Name",
+            "`test-vpc`",
+            null
+          ],
+          [
+            "CidrBlock",
+            "`10.10.0.0/23`",
+            null
+          ]
+        ]
+      ],
+      [
+        "002",
+        "EC2.Subnet",
+        "subnet",
+        [
+          [
+            "Name",
+            "`test-subnet`",
+            null
+          ],
+          [
+            "VpcId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_VPC_001\",\"attribute\":\"VpcId\"}}`",
+            null
+          ]
+        ]
+      ]
+    ],
+    "policy-set": [
+      [
+        "001",
+        "IAM.Role",
+        "role",
+        [
+          [
+            "RoleName",
+            "`test-role`",
+            null
+          ],
+          [
+            "AssumeRolePolicyDocument",
+            "[trust](trust.json)",
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::a",
+                    "arn:aws:s3:::a/*"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:PrincipalOrgID": [
+                        "o-a",
+                        "o-b"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": "s3:DeleteObject",
+                  "Resource": "*"
+                }
+              ]
+            }
+          ],
+          [
+            "Policies[].PolicyName",
+            "`inline`",
+            null
+          ],
+          [
+            "Policies[].PolicyDocument",
+            "[inline](inline.json)",
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::a",
+                    "arn:aws:s3:::a/*"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:PrincipalOrgID": [
+                        "o-a",
+                        "o-b"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": "s3:DeleteObject",
+                  "Resource": "*"
+                }
+              ]
+            }
+          ],
+          [
+            "ManagedPolicyArns",
+            "`[\"arn:aws:iam::123456789012:policy/managed\"]`",
+            null
+          ],
+          [
+            "PermissionsBoundary",
+            "`arn:aws:iam::123456789012:policy/boundary`",
+            null
+          ]
+        ]
+      ],
+      [
+        "002",
+        "IAM.ManagedPolicy",
+        "managed",
+        [
+          [
+            "ManagedPolicyName",
+            "`managed`",
+            null
+          ],
+          [
+            "PolicyDocument",
+            "[managed](managed.json)",
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::a",
+                    "arn:aws:s3:::a/*"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:PrincipalOrgID": [
+                        "o-a",
+                        "o-b"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": "s3:DeleteObject",
+                  "Resource": "*"
+                }
+              ]
+            }
+          ]
+        ]
+      ]
+    ],
+    "base-iam": [
+      [
+        "001",
+        "IAM.Role",
+        "role",
+        [
+          [
+            "RoleName",
+            "`fixture-role`",
+            null
+          ],
+          [
+            "AssumeRolePolicyDocument",
+            "[trust](iam/trust.json)",
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::a",
+                    "arn:aws:s3:::a/*"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:PrincipalOrgID": [
+                        "o-a",
+                        "o-b"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": "s3:DeleteObject",
+                  "Resource": "*"
+                }
+              ]
+            }
+          ],
+          [
+            "Policies[].PolicyName",
+            "`inline`",
+            null
+          ],
+          [
+            "Policies[].PolicyDocument",
+            "[inline](iam/inline.json)",
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::a",
+                    "arn:aws:s3:::a/*"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:PrincipalOrgID": [
+                        "o-a",
+                        "o-b"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": "s3:DeleteObject",
+                  "Resource": "*"
+                }
+              ]
+            }
+          ],
+          [
+            "ManagedPolicyArns",
+            "`[]`",
+            null
+          ],
+          [
+            "PermissionsBoundary",
+            "`arn:aws:iam::123456789012:policy/boundary`",
+            null
+          ]
+        ]
+      ],
+      [
+        "002",
+        "IAM.ManagedPolicy",
+        "managed",
+        [
+          [
+            "ManagedPolicyName",
+            "`managed`",
+            null
+          ],
+          [
+            "PolicyDocument",
+            "[managed](iam/managed.json)",
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::a",
+                    "arn:aws:s3:::a/*"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:PrincipalOrgID": [
+                        "o-a",
+                        "o-b"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": "s3:DeleteObject",
+                  "Resource": "*"
+                }
+              ]
+            }
+          ]
+        ]
+      ]
+    ],
+    "base-vpc": [
+      [
+        "001",
+        "EC2.VPC",
+        "main-vpc",
+        [
+          [
+            "Name",
+            "`fixture-vpc`",
+            null
+          ],
+          [
+            "CidrBlock",
+            "`10.10.0.0/23`",
+            null
+          ],
+          [
+            "EnableDnsSupport",
+            "`true`",
+            null
+          ],
+          [
+            "VpcId",
+            "`vpc-fixture`",
+            null
+          ]
+        ]
+      ],
+      [
+        "002",
+        "EC2.Subnet",
+        "subnet",
+        [
+          [
+            "Name",
+            "`fixture-subnet`",
+            null
+          ],
+          [
+            "VpcId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_VPC_001\",\"attribute\":\"VpcId\"}}`",
+            null
+          ]
+        ]
+      ],
+      [
+        "003",
+        "EC2.FlowLog",
+        "flowlog",
+        [
+          [
+            "DeliverLogsPermissionArn",
+            "`{\"$modelRef\":{\"logicalId\":\"IAM_Role_001\",\"attribute\":\"Arn\"}}`",
+            null
+          ]
+        ]
+      ]
+    ],
+    "kms-write-only": [
+      [
+        "001",
+        "KMS.Key",
+        "key",
+        [
+          [
+            "KeyId",
+            "`{\"$modelRef\":{\"logicalId\":\"KMS_Key_001\",\"attribute\":\"KeyId\"}}`",
+            null
+          ],
+          [
+            "Enabled",
+            "`true`",
+            null
+          ],
+          [
+            "PendingWindowInDays",
+            "`30`",
+            null
+          ]
+        ]
+      ]
+    ],
+    "duplicate-names": [
+      [
+        "001",
+        "EC2.VPC",
+        "vpc-one",
+        [
+          [
+            "Name",
+            "`duplicate`",
+            null
+          ],
+          [
+            "VpcId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_VPC_001\",\"attribute\":\"VpcId\"}}`",
+            null
+          ]
+        ]
+      ],
+      [
+        "002",
+        "EC2.VPC",
+        "vpc-two",
+        [
+          [
+            "Name",
+            "`duplicate`",
+            null
+          ],
+          [
+            "VpcId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_VPC_002\",\"attribute\":\"VpcId\"}}`",
+            null
+          ]
+        ]
+      ],
+      [
+        "007",
+        "EC2.VPC",
+        "vpc-seven",
+        [
+          [
+            "Name",
+            "`duplicate`",
+            null
+          ],
+          [
+            "VpcId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_VPC_007\",\"attribute\":\"VpcId\"}}`",
+            null
+          ]
+        ]
+      ],
+      [
+        "003",
+        "EC2.VPC",
+        "vpc-three",
+        [
+          [
+            "VpcId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_VPC_003\",\"attribute\":\"VpcId\"}}`",
+            null
+          ]
+        ]
+      ],
+      [
+        "004",
+        "EC2.VPC",
+        "vpc-four",
+        [
+          [
+            "VpcId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_VPC_004\",\"attribute\":\"VpcId\"}}`",
+            null
+          ]
+        ]
+      ],
+      [
+        "005",
+        "EC2.EIP",
+        "eip-one",
+        [
+          [
+            "Tags[].Key",
+            "`Name`",
+            null
+          ],
+          [
+            "Tags[].Value",
+            "`duplicate`",
+            null
+          ],
+          [
+            "AllocationId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_EIP_005\",\"attribute\":\"AllocationId\"}}`",
+            null
+          ],
+          [
+            "PublicIp",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_EIP_005\",\"attribute\":\"PublicIp\"}}`",
+            null
+          ]
+        ]
+      ],
+      [
+        "006",
+        "EC2.EIP",
+        "eip-two",
+        [
+          [
+            "Tags[].Key",
+            "`Name`",
+            null
+          ],
+          [
+            "Tags[].Value",
+            "`duplicate`",
+            null
+          ],
+          [
+            "AllocationId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_EIP_006\",\"attribute\":\"AllocationId\"}}`",
+            null
+          ],
+          [
+            "PublicIp",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_EIP_006\",\"attribute\":\"PublicIp\"}}`",
+            null
+          ]
+        ]
+      ],
+      [
+        "008",
+        "EC2.EIP",
+        "eip-three",
+        [
+          [
+            "Tags[].Key",
+            "`Name`",
+            null
+          ],
+          [
+            "Tags[].Value",
+            "`duplicate`",
+            null
+          ],
+          [
+            "AllocationId",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_EIP_008\",\"attribute\":\"AllocationId\"}}`",
+            null
+          ],
+          [
+            "PublicIp",
+            "`{\"$modelRef\":{\"logicalId\":\"EC2_EIP_008\",\"attribute\":\"PublicIp\"}}`",
+            null
+          ]
+        ]
+      ]
+    ],
+    "cross-scope-gateway": [
+      [
+        "001",
+        "EC2.TransitGateway",
+        "gateway",
+        [
+          [
+            "TransitGatewayId",
+            "`tgw-fixture`",
+            null
+          ]
+        ]
+      ]
+    ]
+  },
+  "responses": {
+    "responses": [
+      {
+        "api": [
+          "ec2",
+          "describe-vpcs"
+        ],
+        "response": {
+          "Vpcs": [
+            {
+              "VpcId": "vpc-observed",
+              "CidrBlock": "10.10.0.0/23",
+              "Tags": [
+                {
+                  "Key": "Name",
+                  "Value": "test-vpc"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "api": [
+          "ec2",
+          "describe-vpc-attribute"
+        ],
+        "response": {
+          "EnableDnsSupport": {
+            "Value": false
+          }
+        }
+      }
+    ],
+    "iam_responses": [
+      {
+        "api": [
+          "iam",
+          "get-role"
+        ],
+        "response": {
+          "Role": {
+            "RoleName": "test-role",
+            "AssumeRolePolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Deny",
+                  "Action": "s3:DeleteObject",
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:ListBucket",
+                    "s3:GetObject"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::a/*",
+                    "arn:aws:s3:::a"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:PrincipalOrgID": [
+                        "o-b",
+                        "o-a"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "PermissionsBoundary": {
+              "PermissionsBoundaryArn": "arn:aws:iam::123456789012:policy/boundary"
+            }
+          }
+        }
+      },
+      {
+        "api": [
+          "iam",
+          "list-role-policies"
+        ],
+        "response": {
+          "PolicyNames": [
+            "inline"
+          ]
+        }
+      },
+      {
+        "api": [
+          "iam",
+          "get-role-policy"
+        ],
+        "response": {
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Deny",
+                "Action": "s3:DeleteObject",
+                "Resource": "*"
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "s3:ListBucket",
+                  "s3:GetObject"
+                ],
+                "Resource": [
+                  "arn:aws:s3:::a/*",
+                  "arn:aws:s3:::a"
+                ],
+                "Condition": {
+                  "StringEquals": {
+                    "aws:PrincipalOrgID": [
+                      "o-b",
+                      "o-a"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "api": [
+          "iam",
+          "list-attached-role-policies"
+        ],
+        "response": {
+          "AttachedPolicies": [
+            {
+              "PolicyArn": "arn:aws:iam::123456789012:policy/managed"
+            }
+          ]
+        }
+      },
+      {
+        "api": [
+          "iam",
+          "list-policies"
+        ],
+        "response": {
+          "Policies": [
+            {
+              "PolicyName": "managed",
+              "Arn": "arn:aws:iam::123456789012:policy/managed",
+              "DefaultVersionId": "v1"
+            }
+          ]
+        }
+      },
+      {
+        "api": [
+          "iam",
+          "get-policy-version"
+        ],
+        "response": {
+          "PolicyVersion": {
+            "Document": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Deny",
+                  "Action": "s3:DeleteObject",
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:ListBucket",
+                    "s3:GetObject"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::a/*",
+                    "arn:aws:s3:::a"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:PrincipalOrgID": [
+                        "o-b",
+                        "o-a"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "kms_responses": [
+      {
+        "api": [
+          "kms",
+          "describe-key"
+        ],
+        "response": {
+          "KeyMetadata": {
+            "KeyId": "12345678-1234-1234-1234-123456789012",
+            "Enabled": true
+          }
+        }
+      }
+    ],
+    "subnet_response": [
+      {
+        "api": [
+          "ec2",
+          "describe-subnets"
+        ],
+        "response": {
+          "Subnets": [
+            {
+              "SubnetId": "subnet-01",
+              "Tags": [
+                {
+                  "Key": "Name",
+                  "Value": "test-subnet"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "project": {
+    "projectName": "fixture",
+    "targets": [
+      {
+        "environment": "dev",
+        "alias": "cde",
+        "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+        "iacEngine": "cloudformation"
+      },
+      {
+        "environment": "dev",
+        "alias": "other",
+        "awsAccountId": "210987654321",
+        "awsRegion": "ap-northeast-1",
+        "iacEngine": "cloudformation"
+      }
+    ]
+  },
+  "pipeline": {
+    "model": {
+      "desired.resource.001.resourceType": "CodePipeline.Pipeline",
+      "desired.resource.001.anchor": "pipeline",
+      "desired.resource.001.cfn-logicalId": "fixture-Pipeline",
+      "desired.resource.001.logicalId": "CodePipeline_Pipeline_001",
+      "desired.row.001-001.property": "CodePipeline.Pipeline.Name",
+      "desired.row.001-001.value": "`fixture-pipeline`",
+      "desired.row.001-001.comment": "fixture",
+      "desired.row.001-002.property": "CodePipeline.Pipeline.Stages[].Actions[].ActionTypeId.Category",
+      "desired.row.001-002.value": "`Build`",
+      "desired.row.001-002.comment": "fixture",
+      "desired.row.001-003.property": "CodePipeline.Pipeline.Stages[].Actions[].Configuration",
+      "desired.row.001-003.value": "`{\"ProjectName\": \"action-0-0\", \"Extra0\": \"action-0-0\"}`",
+      "desired.row.001-003.comment": "ProjectName: fixture / Extra0: fixture",
+      "desired.row.001-004.property": "CodePipeline.Pipeline.Stages[].Actions[].Name",
+      "desired.row.001-004.value": "`action-0-0`",
+      "desired.row.001-004.comment": "fixture",
+      "desired.row.001-005.property": "CodePipeline.Pipeline.Stages[].Actions[].RunOrder",
+      "desired.row.001-005.value": "`1`",
+      "desired.row.001-005.comment": "fixture",
+      "desired.row.001-006.property": "CodePipeline.Pipeline.Stages[].Actions[].ActionTypeId.Category",
+      "desired.row.001-006.value": "`Build`",
+      "desired.row.001-006.comment": "fixture",
+      "desired.row.001-007.property": "CodePipeline.Pipeline.Stages[].Actions[].Configuration",
+      "desired.row.001-007.value": "`{\"ProjectName\": \"action-0-1\", \"Extra1\": \"action-0-1\"}`",
+      "desired.row.001-007.comment": "ProjectName: fixture / Extra1: fixture",
+      "desired.row.001-008.property": "CodePipeline.Pipeline.Stages[].Actions[].Name",
+      "desired.row.001-008.value": "`action-0-1`",
+      "desired.row.001-008.comment": "fixture",
+      "desired.row.001-009.property": "CodePipeline.Pipeline.Stages[].Actions[].RunOrder",
+      "desired.row.001-009.value": "`1`",
+      "desired.row.001-009.comment": "fixture",
+      "desired.row.001-010.property": "CodePipeline.Pipeline.Stages[].Actions[].ActionTypeId.Category",
+      "desired.row.001-010.value": "`Build`",
+      "desired.row.001-010.comment": "fixture",
+      "desired.row.001-011.property": "CodePipeline.Pipeline.Stages[].Actions[].Configuration",
+      "desired.row.001-011.value": "`{\"ProjectName\": \"action-0-2\", \"Extra2\": \"action-0-2\"}`",
+      "desired.row.001-011.comment": "ProjectName: fixture / Extra2: fixture",
+      "desired.row.001-012.property": "CodePipeline.Pipeline.Stages[].Actions[].Name",
+      "desired.row.001-012.value": "`action-0-2`",
+      "desired.row.001-012.comment": "fixture",
+      "desired.row.001-013.property": "CodePipeline.Pipeline.Stages[].Actions[].RunOrder",
+      "desired.row.001-013.value": "`1`",
+      "desired.row.001-013.comment": "fixture",
+      "desired.row.001-014.property": "CodePipeline.Pipeline.Stages[].Actions[].ActionTypeId.Category",
+      "desired.row.001-014.value": "`Build`",
+      "desired.row.001-014.comment": "fixture",
+      "desired.row.001-015.property": "CodePipeline.Pipeline.Stages[].Actions[].Configuration",
+      "desired.row.001-015.value": "`{\"ProjectName\": \"action-0-3\", \"Extra3\": \"action-0-3\"}`",
+      "desired.row.001-015.comment": "ProjectName: fixture / Extra3: fixture",
+      "desired.row.001-016.property": "CodePipeline.Pipeline.Stages[].Actions[].Name",
+      "desired.row.001-016.value": "`action-0-3`",
+      "desired.row.001-016.comment": "fixture",
+      "desired.row.001-017.property": "CodePipeline.Pipeline.Stages[].Actions[].RunOrder",
+      "desired.row.001-017.value": "`1`",
+      "desired.row.001-017.comment": "fixture",
+      "desired.row.001-018.property": "CodePipeline.Pipeline.Stages[].Name",
+      "desired.row.001-018.value": "`stage-0`",
+      "desired.row.001-018.comment": "fixture",
+      "desired.row.001-019.property": "CodePipeline.Pipeline.Stages[].Actions[].ActionTypeId.Category",
+      "desired.row.001-019.value": "`Build`",
+      "desired.row.001-019.comment": "fixture",
+      "desired.row.001-020.property": "CodePipeline.Pipeline.Stages[].Actions[].Configuration",
+      "desired.row.001-020.value": "`{\"ProjectName\": \"action-1-0\", \"Extra0\": \"action-1-0\"}`",
+      "desired.row.001-020.comment": "ProjectName: fixture / Extra0: fixture",
+      "desired.row.001-021.property": "CodePipeline.Pipeline.Stages[].Actions[].Name",
+      "desired.row.001-021.value": "`action-1-0`",
+      "desired.row.001-021.comment": "fixture",
+      "desired.row.001-022.property": "CodePipeline.Pipeline.Stages[].Actions[].RunOrder",
+      "desired.row.001-022.value": "`1`",
+      "desired.row.001-022.comment": "fixture",
+      "desired.row.001-023.property": "CodePipeline.Pipeline.Stages[].Actions[].ActionTypeId.Category",
+      "desired.row.001-023.value": "`Build`",
+      "desired.row.001-023.comment": "fixture",
+      "desired.row.001-024.property": "CodePipeline.Pipeline.Stages[].Actions[].Configuration",
+      "desired.row.001-024.value": "`{\"ProjectName\": \"action-1-1\", \"Extra1\": \"action-1-1\"}`",
+      "desired.row.001-024.comment": "ProjectName: fixture / Extra1: fixture",
+      "desired.row.001-025.property": "CodePipeline.Pipeline.Stages[].Actions[].Name",
+      "desired.row.001-025.value": "`action-1-1`",
+      "desired.row.001-025.comment": "fixture",
+      "desired.row.001-026.property": "CodePipeline.Pipeline.Stages[].Actions[].RunOrder",
+      "desired.row.001-026.value": "`1`",
+      "desired.row.001-026.comment": "fixture",
+      "desired.row.001-027.property": "CodePipeline.Pipeline.Stages[].Actions[].ActionTypeId.Category",
+      "desired.row.001-027.value": "`Build`",
+      "desired.row.001-027.comment": "fixture",
+      "desired.row.001-028.property": "CodePipeline.Pipeline.Stages[].Actions[].Name",
+      "desired.row.001-028.value": "`action-1-2`",
+      "desired.row.001-028.comment": "fixture",
+      "desired.row.001-029.property": "CodePipeline.Pipeline.Stages[].Actions[].RunOrder",
+      "desired.row.001-029.value": "`1`",
+      "desired.row.001-029.comment": "fixture",
+      "desired.row.001-030.property": "CodePipeline.Pipeline.Stages[].Actions[].ActionTypeId.Category",
+      "desired.row.001-030.value": "`Build`",
+      "desired.row.001-030.comment": "fixture",
+      "desired.row.001-031.property": "CodePipeline.Pipeline.Stages[].Actions[].Configuration",
+      "desired.row.001-031.value": "`{\"ProjectName\": \"action-1-3\", \"Extra3\": \"action-1-3\"}`",
+      "desired.row.001-031.comment": "ProjectName: fixture / Extra3: fixture",
+      "desired.row.001-032.property": "CodePipeline.Pipeline.Stages[].Actions[].Name",
+      "desired.row.001-032.value": "`action-1-3`",
+      "desired.row.001-032.comment": "fixture",
+      "desired.row.001-033.property": "CodePipeline.Pipeline.Stages[].Actions[].RunOrder",
+      "desired.row.001-033.value": "`1`",
+      "desired.row.001-033.comment": "fixture",
+      "desired.row.001-034.property": "CodePipeline.Pipeline.Stages[].Name",
+      "desired.row.001-034.value": "`stage-1`",
+      "desired.row.001-034.comment": "fixture",
+      "desired.service.identity.lastAllocated": "{\"CodePipeline.Pipeline\": 1}"
+    },
+    "stages": [
+      {
+        "name": "stage-0",
+        "actions": [
+          {
+            "name": "action-0-0",
+            "actionTypeId": {
+              "category": "Build"
+            },
+            "runOrder": 1,
+            "configuration": {
+              "ProjectName": "action-0-0",
+              "Extra0": "action-0-0"
+            }
+          },
+          {
+            "name": "action-0-1",
+            "actionTypeId": {
+              "category": "Build"
+            },
+            "runOrder": 1,
+            "configuration": {
+              "ProjectName": "action-0-1",
+              "Extra1": "action-0-1"
+            }
+          },
+          {
+            "name": "action-0-2",
+            "actionTypeId": {
+              "category": "Build"
+            },
+            "runOrder": 1,
+            "configuration": {
+              "ProjectName": "action-0-2",
+              "Extra2": "action-0-2"
+            }
+          },
+          {
+            "name": "action-0-3",
+            "actionTypeId": {
+              "category": "Build"
+            },
+            "runOrder": 1,
+            "configuration": {
+              "ProjectName": "action-0-3",
+              "Extra3": "action-0-3"
+            }
+          }
+        ]
+      },
+      {
+        "name": "stage-1",
+        "actions": [
+          {
+            "name": "action-1-0",
+            "actionTypeId": {
+              "category": "Build"
+            },
+            "runOrder": 1,
+            "configuration": {
+              "ProjectName": "action-1-0",
+              "Extra0": "action-1-0"
+            }
+          },
+          {
+            "name": "action-1-1",
+            "actionTypeId": {
+              "category": "Build"
+            },
+            "runOrder": 1,
+            "configuration": {
+              "ProjectName": "action-1-1",
+              "Extra1": "action-1-1"
+            }
+          },
+          {
+            "name": "action-1-2",
+            "actionTypeId": {
+              "category": "Build"
+            },
+            "runOrder": 1
+          },
+          {
+            "name": "action-1-3",
+            "actionTypeId": {
+              "category": "Build"
+            },
+            "runOrder": 1,
+            "configuration": {
+              "ProjectName": "action-1-3",
+              "Extra3": "action-1-3"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

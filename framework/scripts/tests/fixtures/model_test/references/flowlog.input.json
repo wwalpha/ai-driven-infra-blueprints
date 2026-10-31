@@ -1,0 +1,56 @@
+{
+  "service": "vpc",
+  "model": {
+    "desired.resource.001.resourceType": "EC2.FlowLog",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "EC2_FlowLog_001",
+    "desired.row.001-001.property": "EC2.FlowLog.Id",
+    "desired.row.001-001.value": "`{\"$modelRef\":{\"logicalId\":\"EC2_FlowLog_001\",\"attribute\":\"Id\"}}`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "EC2.FlowLog.ResourceId",
+    "desired.row.001-002.value": "`vpc-123`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"EC2.FlowLog\": 1}",
+    "observed.row.001-001.value": "`PENDING_DEPLOY`"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          "response": {
+            "FlowLogs": []
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          "response": {
+            "FlowLogs": [
+              {
+                "FlowLogId": "fl-new",
+                "ResourceId": "vpc-123"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "projectFixture": "audit/base"
+}

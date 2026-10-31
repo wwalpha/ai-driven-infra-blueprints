@@ -1,0 +1,185 @@
+{
+  "fields": [
+    "propertiesKey",
+    "status",
+    "designValue",
+    "awsValue"
+  ],
+  "properties": [
+    "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+    "GuardDuty.MalwareProtectionPlan.Tags[].Key",
+    "GuardDuty.MalwareProtectionPlan.Tags[].Value"
+  ],
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {
+              "Environment": "dev",
+              "Name": "example"
+            },
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "a/",
+                  "b/"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {
+              "Environment": "example",
+              "Name": "dev"
+            },
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "a/",
+                  "b/"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-003.value": "`[\"Name\"]`",
+        "desired.row.001-004.value": "`[\"example\"]`"
+      },
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {
+              "Name": "example"
+            },
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "a/",
+                  "b/"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {},
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "a/",
+                  "b/"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "fields": [
+        "propertiesKey",
+        "status"
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": [],
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "a/",
+                  "b/"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "fields": [
+        "propertiesKey",
+        "status"
+      ]
+    }
+  ],
+  "service": "guardduty",
+  "model": {
+    "desired.resource.001.resourceType": "GuardDuty.MalwareProtectionPlan",
+    "desired.resource.001.anchor": "plan",
+    "desired.resource.001.cfn-logicalId": "fixture-Plan",
+    "desired.resource.001.logicalId": "GuardDuty_MalwareProtectionPlan_001",
+    "desired.service.identity.lastAllocated": "{\"GuardDuty.MalwareProtectionPlan\": 1}",
+    "desired.row.001-001.property": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.BucketName",
+    "desired.row.001-001.value": "`bucket`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+    "desired.row.001-002.value": "`[\"a/\",\"b/\"]`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.row.001-002.valueShape": "projection",
+    "desired.row.001-003.property": "GuardDuty.MalwareProtectionPlan.Tags[].Key",
+    "desired.row.001-003.value": "`[\"Name\",\"Environment\"]`",
+    "desired.row.001-003.comment": "fixture",
+    "desired.row.001-003.valueShape": "projection",
+    "desired.row.001-004.property": "GuardDuty.MalwareProtectionPlan.Tags[].Value",
+    "desired.row.001-004.value": "`[\"example\",\"dev\"]`",
+    "desired.row.001-004.comment": "fixture",
+    "desired.row.001-004.valueShape": "projection"
+  },
+  "report": true,
+  "projectFixture": "codebuild/boolean",
+  "responses": [
+    {
+      "api": [
+        "guardduty",
+        "list-malware-protection-plans"
+      ],
+      "response": {
+        "MalwareProtectionPlans": [
+          {
+            "MalwareProtectionPlanId": "plan-1"
+          }
+        ]
+      }
+    }
+  ]
+}

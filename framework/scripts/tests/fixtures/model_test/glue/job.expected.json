@@ -1,0 +1,79 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Job.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Job.Timeout",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-job"
+        ],
+        {
+          "JobName": "fixture-job"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[OK] Glue.Job | fixture-job | Name",
+        "[OK] Glue.Job | fixture-job | Timeout"
+      ],
+      "counts": [
+        [
+          "[OK] Glue.Job | fixture-job |",
+          2
+        ]
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Job.Name",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "Glue.Job.Timeout",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-job"
+        ],
+        {
+          "JobName": "fixture-job"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "absent": [
+        "EntityNotFoundException",
+        "details",
+        "Diff paths:"
+      ],
+      "counts": [
+        [
+          "Reason: AwsCliError",
+          2
+        ],
+        [
+          "[ERROR] Glue.Job | fixture-job |",
+          2
+        ]
+      ]
+    }
+  }
+]

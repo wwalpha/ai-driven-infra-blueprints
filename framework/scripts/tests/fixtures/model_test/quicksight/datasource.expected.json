@@ -1,0 +1,512 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.DataSourceId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Actions",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Principal",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Type",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-data-source"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ],
+      [
+        [
+          "quicksight",
+          "describe-data-source-permissions"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[INFO] QuickSight.DataSource",
+        "Verification: NOT_VERIFIABLE",
+        "ATHENA",
+        "[OK] QuickSight.DataSource | \uff08\u540d\u524d\u672a\u8a2d\u5b9a\uff09 | Permissions[].Actions",
+        "[OK] QuickSight.DataSource | \uff08\u540d\u524d\u672a\u8a2d\u5b9a\uff09 | Permissions[].Principal"
+      ],
+      "absent": [
+        "private-user",
+        "private-password"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.DataSourceId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Actions",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Principal",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Type",
+        "status": "difference"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-data-source"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ],
+      [
+        [
+          "quicksight",
+          "describe-data-source-permissions"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[INFO] QuickSight.DataSource",
+        "Verification: NOT_VERIFIABLE",
+        "REDSHIFT",
+        "[OK] QuickSight.DataSource | \uff08\u540d\u524d\u672a\u8a2d\u5b9a\uff09 | Permissions[].Actions",
+        "[OK] QuickSight.DataSource | \uff08\u540d\u524d\u672a\u8a2d\u5b9a\uff09 | Permissions[].Principal"
+      ],
+      "absent": [
+        "private-user",
+        "private-password"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+        "status": "local_metadata"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "status": "local_metadata"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.DataSourceId",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Actions",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Principal",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Type",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-data-source"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ],
+      [
+        [
+          "quicksight",
+          "describe-data-source-permissions"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "private-user",
+        "private-password",
+        "[INFO] QuickSight.DataSource"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.DataSourceId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Actions",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Principal",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Type",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-data-source"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ],
+      [
+        [
+          "quicksight",
+          "describe-data-source-permissions"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "private-user",
+        "private-password"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.DataSourceId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Actions",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Principal",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Type",
+        "status": "sdk_unavailable"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-data-source"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ],
+      [
+        [
+          "quicksight",
+          "describe-data-source-permissions"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "private-user",
+        "private-password"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.DataSourceId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Actions",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Principal",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Type",
+        "status": "local_metadata"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-data-source"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ],
+      [
+        [
+          "quicksight",
+          "describe-data-source-permissions"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "private-user",
+        "private-password"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.DataSourceId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Actions",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Principal",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Type",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "quicksight",
+          "describe-data-source"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ],
+      [
+        [
+          "quicksight",
+          "describe-data-source-permissions"
+        ],
+        {
+          "AwsAccountId": "123456789012",
+          "DataSourceId": "source-id"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[INFO] QuickSight.DataSource",
+        "Verification: NOT_VERIFIABLE"
+      ],
+      "absent": [
+        "private-user",
+        "private-password"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.DataSourceId",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Actions",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Principal",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Type",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "private-user",
+        "private-password",
+        "[INFO]"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.DataSourceId",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Actions",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Permissions[].Principal",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "QuickSight.DataSource.Type",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "private-user",
+        "private-password",
+        "[INFO]"
+      ]
+    }
+  }
+]

@@ -1,0 +1,300 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.LogGroupName",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "FlowLogIds": [
+            "fl-fixture"
+          ]
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "must be string",
+        "  Design:"
+      ],
+      "absent": [
+        "  Model:",
+        "never-print"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "resource_missing"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.LogGroupName",
+        "status": "resource_missing"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "FlowLogIds": [
+            "fl-fixture"
+          ]
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "must be string",
+        "  Design:",
+        "ResourceNotFound",
+        "Design: null"
+      ],
+      "absent": [
+        "  Model:",
+        "never-print"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.LogGroupName",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "FlowLogIds": [
+            "fl-fixture"
+          ]
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "must be string",
+        "  Design:",
+        "AwsCliError",
+        "Design: null"
+      ],
+      "absent": [
+        "  Model:",
+        "never-print"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.LogGroupName",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "FlowLogIds": [
+            "fl-fixture"
+          ]
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "Design reference unresolved",
+        "  Design:"
+      ],
+      "absent": [
+        "  Model:",
+        "never-print"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "resource_missing"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.LogGroupName",
+        "status": "resource_missing"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "FlowLogIds": [
+            "fl-fixture"
+          ]
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "Design reference unresolved",
+        "  Design:",
+        "ResourceNotFound",
+        "Design: null"
+      ],
+      "absent": [
+        "  Model:",
+        "never-print"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.LogGroupName",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "FlowLogIds": [
+            "fl-fixture"
+          ]
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "Design reference unresolved",
+        "  Design:",
+        "AwsCliError",
+        "Design: null"
+      ],
+      "absent": [
+        "  Model:",
+        "never-print"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "resource_missing"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.LogGroupName",
+        "status": "resource_missing"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "FlowLogIds": [
+            "fl-fixture"
+          ]
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "ResourceNotFound",
+        "Design: \"/aws/vpc/flowlogs/fixture\"",
+        "[NG] EC2.FlowLog | fl-fixture | LogGroupName (resource missing)",
+        "AWS:    null"
+      ],
+      "absent": [
+        "Diff paths:",
+        "never-print"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.LogGroupName",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "FlowLogIds": [
+            "fl-fixture"
+          ]
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "AwsCliError",
+        "Design: \"/aws/vpc/flowlogs/fixture\""
+      ],
+      "absent": [
+        "Diff paths:",
+        "never-print"
+      ]
+    }
+  }
+]

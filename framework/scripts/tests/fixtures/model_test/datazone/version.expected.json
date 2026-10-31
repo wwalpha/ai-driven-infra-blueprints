@@ -1,0 +1,165 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "DataZone.Domain.DomainVersion",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "DataZone.Domain.Id",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "datazone",
+          "get-domain"
+        ],
+        {
+          "identifier": "dzd-confirmed"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[OK] DataZone.Domain | dzd-confirmed | DomainVersion"
+      ],
+      "absent": [
+        "NameError"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "DataZone.Domain.DomainVersion",
+        "status": "difference"
+      },
+      {
+        "propertiesKey": "DataZone.Domain.Id",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "datazone",
+          "get-domain"
+        ],
+        {
+          "identifier": "dzd-confirmed"
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[NG] DataZone.Domain | dzd-confirmed | DomainVersion"
+      ],
+      "absent": [
+        "NameError"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "DataZone.Domain.DomainVersion",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "DataZone.Domain.Id",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "datazone",
+          "get-domain"
+        ],
+        {
+          "identifier": "dzd-confirmed"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR] DataZone.Domain | dzd-confirmed | DomainVersion",
+        "GetDomain response does not confirm domainVersion"
+      ],
+      "absent": [
+        "NameError"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "DataZone.Domain.DomainVersion",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "DataZone.Domain.Id",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "datazone",
+          "get-domain"
+        ],
+        {
+          "identifier": "dzd-confirmed"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR] DataZone.Domain | dzd-confirmed | DomainVersion",
+        "GetDomain response does not confirm domainVersion"
+      ],
+      "absent": [
+        "NameError"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "DataZone.Domain.DomainVersion",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "DataZone.Domain.Id",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "datazone",
+          "get-domain"
+        ],
+        {
+          "identifier": "dzd-confirmed"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR] DataZone.Domain | dzd-confirmed | DomainVersion",
+        "Reason: AwsCliError"
+      ],
+      "absent": [
+        "NameError"
+      ]
+    }
+  }
+]

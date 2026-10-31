@@ -1,0 +1,213 @@
+{
+  "service": "glue",
+  "model": {
+    "desired.resource.001.resourceType": "Glue.Connection",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "Glue_Connection_001",
+    "desired.row.001-001.property": "Glue.Connection.ConnectionInput.Name",
+    "desired.row.001-001.value": "`fixture-connection`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "Glue.Connection.ConnectionInput.ConnectionType",
+    "desired.row.001-002.value": "`JDBC`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.row.001-003.property": "Glue.Connection.CatalogId",
+    "desired.row.001-003.value": "`123456789012`",
+    "desired.row.001-003.comment": "fixture",
+    "desired.row.001-004.property": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+    "desired.row.001-004.value": "`[\"ATHENA\"]`",
+    "desired.row.001-004.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"Glue.Connection\": 1}"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "model": {
+        "desired.row.001-004.value": "`[\"ATHENA\"]`"
+      },
+      "responses": [
+        {
+          "api": [
+            "glue",
+            "get-connection"
+          ],
+          "response": {
+            "Connection": {
+              "Name": "fixture-connection",
+              "ConnectionType": "JDBC",
+              "CompatibleComputeEnvironments": [
+                "SPARK",
+                "ATHENA"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-004.value": "`[\"ATHENA\", \"SPARK\"]`"
+      }
+    },
+    {
+      "model": {
+        "desired.row.001-004.value": "`[\"ATHENA\"]`"
+      },
+      "responses": [
+        {
+          "api": [
+            "glue",
+            "get-connection"
+          ],
+          "response": {
+            "Connection": {
+              "Name": "fixture-connection",
+              "ConnectionType": "JDBC",
+              "CompatibleComputeEnvironments": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-004.value": "`[\"ATHENA\"]`"
+      },
+      "responses": [
+        {
+          "api": [
+            "glue",
+            "get-connection"
+          ],
+          "response": {
+            "Connection": {
+              "Name": "fixture-connection",
+              "ConnectionType": "JDBC",
+              "CompatibleComputeEnvironments": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-004.value": "`[\"ATHENA\"]`"
+      },
+      "responses": [
+        {
+          "api": [
+            "glue",
+            "get-connection"
+          ],
+          "response": {
+            "Connection": {
+              "Name": "fixture-connection",
+              "ConnectionType": "JDBC"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-004.property": null,
+        "desired.row.001-004.value": null,
+        "desired.row.001-004.comment": null
+      },
+      "snapshotValues": {}
+    },
+    {
+      "account": "999999999999"
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "glue",
+            "get-connection"
+          ],
+          "response": {
+            "Connection": {
+              "Name": "fixture-connection",
+              "ConnectionType": "NETWORK",
+              "CompatibleComputeEnvironments": [
+                "ATHENA"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "fail": [
+        "glue",
+        "get-connection"
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-004.value": "`{\"$modelRef\":{\"logicalId\":\"Missing\",\"attribute\":\"Arn\"}}`"
+      }
+    },
+    {
+      "model": {
+        "desired.row.001-004.value": "`[\"INVALID\"]`"
+      }
+    },
+    {
+      "snapshotUpdates": [
+        {
+          "path": [
+            "mappings",
+            "glue",
+            "properties",
+            "Glue.Connection.ConnectionInput.ConnectionType",
+            "field",
+            "classification"
+          ],
+          "value": "sdk_unavailable"
+        },
+        {
+          "path": [
+            "mappings",
+            "glue",
+            "properties",
+            "Glue.Connection.ConnectionInput.ConnectionType",
+            "field",
+            "reason"
+          ],
+          "value": "no confirmed getter"
+        }
+      ]
+    }
+  ],
+  "responses": [
+    {
+      "api": [
+        "glue",
+        "get-connection"
+      ],
+      "response": {
+        "Connection": {
+          "Name": "fixture-connection",
+          "ConnectionType": "JDBC",
+          "CompatibleComputeEnvironments": [
+            "ATHENA"
+          ]
+        }
+      }
+    }
+  ],
+  "snapshotValues": {
+    "items": [
+      "schemas",
+      "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+      "items"
+    ]
+  },
+  "projectFixture": "audit/base"
+}

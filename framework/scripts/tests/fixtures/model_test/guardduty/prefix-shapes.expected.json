@@ -1,0 +1,227 @@
+[
+  {
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "match",
+        "designValue": [
+          "a/"
+        ],
+        "awsValue": [
+          "a/"
+        ]
+      }
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[OK]"
+      ]
+    }
+  },
+  {
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "match",
+        "designValue": [
+          "a/"
+        ],
+        "awsValue": [
+          "a/"
+        ]
+      }
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[OK]"
+      ]
+    }
+  },
+  {
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "match",
+        "designValue": [],
+        "awsValue": []
+      }
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[OK]"
+      ]
+    }
+  },
+  {
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "difference",
+        "designValue": [
+          "[\"a/\"]"
+        ],
+        "awsValue": [
+          "a/"
+        ]
+      }
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[NG]",
+        "Design: [\"[\\\"a/\\\"]\"]",
+        "Diff paths: $[0]"
+      ]
+    }
+  },
+  {
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "difference",
+        "designValue": [
+          "a/"
+        ],
+        "awsValue": [
+          "b/"
+        ]
+      }
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[NG]"
+      ]
+    }
+  },
+  {
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "design_unresolved",
+        "designValue": [
+          "`[\"a/\"]`",
+          "`b/`"
+        ],
+        "awsValue": null
+      }
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ]
+    }
+  }
+]

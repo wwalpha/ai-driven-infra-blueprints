@@ -1,0 +1,137 @@
+{
+  "service": "lambda",
+  "model": {
+    "desired.resource.001.resourceType": "Lambda.Function",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "Lambda_Function_001",
+    "desired.row.001-001.property": "Lambda.Function.FunctionName",
+    "desired.row.001-001.value": "`fixture-function`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "Lambda.Function.Timeout",
+    "desired.row.001-002.value": "`30`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.row.001-003.property": "Lambda.Function.Code.S3Bucket",
+    "desired.row.001-003.value": "`fixture-bucket`",
+    "desired.row.001-003.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"Lambda.Function\": 1}"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {},
+    {
+      "responses": [
+        {
+          "api": [
+            "lambda",
+            "get-function"
+          ],
+          "response": {
+            "Configuration": {
+              "FunctionName": "fixture-function",
+              "Timeout": 30
+            },
+            "Code": {
+              "ResolvedS3Object": {
+                "S3Bucket": "other-bucket"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "lambda",
+            "get-function"
+          ],
+          "response": {
+            "Configuration": {
+              "FunctionName": "fixture-function",
+              "Timeout": 30
+            },
+            "Code": {
+              "Location": "https://example.invalid/package",
+              "CodeSha256": "ignored"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "lambda",
+            "get-function"
+          ],
+          "response": {
+            "Configuration": {
+              "FunctionName": "fixture-function",
+              "Timeout": 30
+            },
+            "Code": {
+              "Error": {
+                "ErrorCode": "AccessDenied"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "lambda",
+            "get-function"
+          ],
+          "response": {
+            "$error": "An error occurred (ResourceNotFoundException) when calling GetFunction: details"
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-001.value": "`PENDING_DEPLOY`"
+      }
+    },
+    {
+      "model": {
+        "desired.row.001-004.property": "Lambda.Function.FunctionName",
+        "desired.row.001-004.value": "`other-function`",
+        "desired.row.001-004.comment": "fixture"
+      }
+    },
+    {
+      "account": "999999999999"
+    }
+  ],
+  "responses": [
+    {
+      "api": [
+        "lambda",
+        "get-function"
+      ],
+      "response": {
+        "Configuration": {
+          "FunctionName": "fixture-function",
+          "Timeout": 30
+        },
+        "Code": {
+          "ResolvedS3Object": {
+            "S3Bucket": "fixture-bucket"
+          }
+        }
+      }
+    }
+  ],
+  "projectFixture": "audit/base"
+}

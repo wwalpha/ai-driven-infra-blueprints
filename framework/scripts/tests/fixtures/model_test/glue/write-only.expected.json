@@ -1,0 +1,568 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "compatibility based on CompatibleComputeEnvironments",
+        "creation request not verified"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "difference"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "compatibility based on CompatibleComputeEnvironments",
+        "creation request not verified"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "difference"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "compatibility based on CompatibleComputeEnvironments",
+        "creation request not verified"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "excluded"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "Verification: NOT_VERIFIABLE"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "excluded"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "Verification: NOT_VERIFIABLE"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {},
+    "snapshotValues": {}
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "difference"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[NG]"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR] Glue.Connection",
+        "[OK] Glue.Connection",
+        "Result: FAIL"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR] Glue.Connection",
+        "[OK] Glue.Connection",
+        "Result: FAIL"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Glue.Connection.CatalogId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ConnectionType",
+        "status": "sdk_unavailable"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Glue.Connection.ConnectionInput.ValidateForComputeEnvironments",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "glue",
+          "get-connection"
+        ],
+        {
+          "CatalogId": "123456789012",
+          "Name": "fixture-connection",
+          "HidePassword": true
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ]
+    },
+    "snapshotValues": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "SPARK",
+          "ATHENA",
+          "PYTHON"
+        ]
+      }
+    }
+  }
+]

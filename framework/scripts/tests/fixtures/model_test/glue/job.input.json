@@ -1,0 +1,53 @@
+{
+  "service": "glue",
+  "model": {
+    "desired.resource.001.resourceType": "Glue.Job",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "Glue_Job_001",
+    "desired.row.001-001.property": "Glue.Job.Name",
+    "desired.row.001-001.value": "`fixture-job`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "Glue.Job.Timeout",
+    "desired.row.001-002.value": "`30`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"Glue.Job\": 1}"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "glue",
+            "get-job"
+          ],
+          "response": {
+            "Job": {
+              "Name": "fixture-job",
+              "Timeout": 30
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "glue",
+            "get-job"
+          ],
+          "response": {
+            "$error": "An error occurred (EntityNotFoundException) when calling GetJob: details"
+          }
+        }
+      ]
+    }
+  ],
+  "projectFixture": "audit/base"
+}

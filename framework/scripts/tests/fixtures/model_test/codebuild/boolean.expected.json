@@ -1,0 +1,69 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "CodeBuild.Project.Environment.PrivilegedMode",
+        "status": "match",
+        "designValue": false,
+        "awsValue": false
+      }
+    ],
+    "calls": [
+      [
+        [
+          "codebuild",
+          "batch-get-projects"
+        ],
+        {
+          "names": [
+            "fixture-project"
+          ]
+        }
+      ]
+    ]
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "CodeBuild.Project.Environment.PrivilegedMode",
+        "status": "difference",
+        "designValue": false,
+        "awsValue": true
+      }
+    ],
+    "calls": [
+      [
+        [
+          "codebuild",
+          "batch-get-projects"
+        ],
+        {
+          "names": [
+            "fixture-project"
+          ]
+        }
+      ]
+    ]
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "CodeBuild.Project.Environment.PrivilegedMode",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "codebuild",
+          "batch-get-projects"
+        ],
+        {
+          "names": [
+            "fixture-project"
+          ]
+        }
+      ]
+    ]
+  }
+]

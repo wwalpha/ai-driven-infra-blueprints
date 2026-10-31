@@ -1,0 +1,153 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "IAM.Role.Policies[].PolicyName",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "IAM.Role.RoleName",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "iam",
+          "get-role"
+        ],
+        {
+          "RoleName": "test-role"
+        }
+      ],
+      [
+        [
+          "iam",
+          "list-role-policies"
+        ],
+        {
+          "RoleName": "test-role"
+        }
+      ],
+      [
+        [
+          "iam",
+          "list-role-policies"
+        ],
+        {
+          "RoleName": "test-role"
+        }
+      ],
+      [
+        [
+          "iam",
+          "get-role-policy"
+        ],
+        {
+          "RoleName": "test-role",
+          "PolicyName": "policy"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[OK] IAM.Role | test-role | "
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "IAM.Role.Policies[].PolicyName",
+        "status": "difference"
+      },
+      {
+        "propertiesKey": "IAM.Role.RoleName",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "iam",
+          "get-role"
+        ],
+        {
+          "RoleName": "test-role"
+        }
+      ],
+      [
+        [
+          "iam",
+          "list-role-policies"
+        ],
+        {
+          "RoleName": "test-role"
+        }
+      ],
+      [
+        [
+          "iam",
+          "list-role-policies"
+        ],
+        {
+          "RoleName": "test-role"
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[NG] IAM.Role | test-role | "
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "IAM.Role.Policies[].PolicyName",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "IAM.Role.RoleName",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "iam",
+          "get-role"
+        ],
+        {
+          "RoleName": "test-role"
+        }
+      ],
+      [
+        [
+          "iam",
+          "list-role-policies"
+        ],
+        {
+          "RoleName": "test-role"
+        }
+      ],
+      [
+        [
+          "iam",
+          "list-role-policies"
+        ],
+        {
+          "RoleName": "test-role"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR] IAM.Role | test-role | "
+      ]
+    }
+  }
+]

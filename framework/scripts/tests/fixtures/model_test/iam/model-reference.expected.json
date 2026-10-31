@@ -1,0 +1,36 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "IAM.Role.AssumeRolePolicyDocument",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "IAM.Role.RoleName",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "iam",
+          "get-role"
+        ],
+        {
+          "RoleName": "fixture-role"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "arn:aws:logs:ap-northeast-1:123456789012:log-group:/aws/vpc/flowlogs/fixture:*"
+      ],
+      "absent": [
+        "  Model:",
+        "Model SHA256:",
+        "unrelated-private-value"
+      ]
+    }
+  }
+]

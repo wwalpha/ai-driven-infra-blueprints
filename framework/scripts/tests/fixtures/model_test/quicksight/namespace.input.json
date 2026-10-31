@@ -1,0 +1,226 @@
+{
+  "service": "quicksight",
+  "model": {
+    "desired.resource.001.resourceType": "QuickSight.Group",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "QuickSight_Group_001",
+    "desired.row.001-001.property": "QuickSight.Group.AwsAccountId",
+    "desired.row.001-001.value": "`123456789012`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "QuickSight.Group.Namespace",
+    "desired.row.001-002.value": "`default`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.row.001-003.property": "QuickSight.Group.GroupName",
+    "desired.row.001-003.value": "`team`",
+    "desired.row.001-003.comment": "fixture",
+    "desired.row.001-004.property": "QuickSight.Group.Description",
+    "desired.row.001-004.value": "`description`",
+    "desired.row.001-004.comment": "fixture",
+    "desired.row.001-005.property": "QuickSight.Group.PrincipalId",
+    "desired.row.001-005.value": "`{\"$modelRef\":{\"logicalId\":\"QuickSight_Group_001\",\"attribute\":\"PrincipalId\"}}`",
+    "desired.row.001-005.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"QuickSight.Group\": 1}",
+    "observed.row.001-005.value": "`principal`"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal",
+              "Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/team"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal",
+              "Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group/other/team"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal",
+              "Arn": "invalid"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal",
+              "Arn": "arn:invalid:quicksight:ap-northeast-1:123456789012:group/default/team"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal",
+              "Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group//team"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal",
+              "Arn": "arn:aws:quicksight:ap-northeast-1:999999999999:group/default/team"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal",
+              "Arn": "arn:aws:quicksight:us-east-1:123456789012:group/default/team"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal",
+              "Arn": "arn:aws-cn:quicksight:ap-northeast-1:123456789012:group/default/team"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "Group": {
+              "GroupName": "team",
+              "Description": "description",
+              "PrincipalId": "principal",
+              "Arn": "arn:aws:quicksight:ap-northeast-1:123456789012:group/default/wrong"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-group"
+          ],
+          "response": {
+            "$error": "An error occurred (ResourceNotFoundException) when calling DescribeGroup: group not found"
+          }
+        }
+      ]
+    }
+  ],
+  "projectFixture": "audit/base"
+}

@@ -1,0 +1,142 @@
+{
+  "service": "iam",
+  "model": {
+    "desired.resource.001.resourceType": "IAM.Role",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "IAM_Role_001",
+    "desired.row.001-001.property": "IAM.Role.RoleName",
+    "desired.row.001-001.value": "`test-role`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "IAM.Role.Policies[].PolicyName",
+    "desired.row.001-002.value": "`policy`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"IAM.Role\": 1}"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "iam",
+            "list-role-policies"
+          ],
+          "response": {
+            "$sequence": [
+              {
+                "inputs": {
+                  "RoleName": "test-role"
+                },
+                "response": {
+                  "PolicyNames": [
+                    "policy"
+                  ]
+                }
+              },
+              {
+                "inputs": {
+                  "RoleName": "test-role"
+                },
+                "response": {
+                  "PolicyNames": [
+                    "policy"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "iam",
+            "list-role-policies"
+          ],
+          "response": {
+            "$sequence": [
+              {
+                "inputs": {
+                  "RoleName": "test-role"
+                },
+                "response": {
+                  "PolicyNames": []
+                }
+              },
+              {
+                "inputs": {
+                  "RoleName": "test-role"
+                },
+                "response": {
+                  "PolicyNames": []
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "iam",
+            "list-role-policies"
+          ],
+          "response": {
+            "$sequence": [
+              {
+                "inputs": {
+                  "RoleName": "test-role"
+                },
+                "response": {
+                  "PolicyNames": [
+                    "policy"
+                  ]
+                }
+              },
+              {
+                "inputs": {
+                  "RoleName": "test-role"
+                },
+                "response": {
+                  "PolicyNames": []
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "responses": [
+    {
+      "api": [
+        "iam",
+        "get-role"
+      ],
+      "response": {
+        "Role": {
+          "RoleName": "test-role"
+        }
+      }
+    },
+    {
+      "api": [
+        "iam",
+        "get-role-policy"
+      ],
+      "response": {
+        "PolicyDocument": {}
+      }
+    }
+  ],
+  "projectFixture": "audit/base"
+}

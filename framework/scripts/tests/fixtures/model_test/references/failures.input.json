@@ -1,0 +1,160 @@
+{
+  "service": "vpc",
+  "model": {
+    "desired.resource.001.resourceType": "EC2.FlowLog",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "EC2_FlowLog_001",
+    "desired.row.001-001.property": "EC2.FlowLog.Id",
+    "desired.row.001-001.value": "`{\"$modelRef\":{\"logicalId\":\"EC2_FlowLog_001\",\"attribute\":\"Id\"}}`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "EC2.FlowLog.LogGroupName",
+    "desired.row.001-002.value": "`{\"$modelRef\": {\"logicalId\": \"Logs_LogGroup_001\", \"attribute\": \"LogGroupName\"}}`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"EC2.FlowLog\": 1}",
+    "observed.row.001-001.value": "`fl-fixture`"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "model": {
+        "desired.row.001-002.value": "`[{\"$modelRef\": {\"logicalId\": \"Logs_LogGroup_001\", \"attribute\": \"LogGroupName\"}}]`"
+      }
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`[{\"$modelRef\": {\"logicalId\": \"Logs_LogGroup_001\", \"attribute\": \"LogGroupName\"}}]`"
+      },
+      "responses": [
+        {
+          "api": [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          "response": {
+            "FlowLogs": []
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`[{\"$modelRef\": {\"logicalId\": \"Logs_LogGroup_001\", \"attribute\": \"LogGroupName\"}}]`"
+      },
+      "responses": [
+        {
+          "api": [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          "response": {
+            "$error": "An error occurred (AccessDenied) when calling Mock: never-print"
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`{\"$modelRef\": {\"logicalId\": \"Missing_001\", \"attribute\": \"LogGroupName\"}}`"
+      }
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`{\"$modelRef\": {\"logicalId\": \"Missing_001\", \"attribute\": \"LogGroupName\"}}`"
+      },
+      "responses": [
+        {
+          "api": [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          "response": {
+            "FlowLogs": []
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`{\"$modelRef\": {\"logicalId\": \"Missing_001\", \"attribute\": \"LogGroupName\"}}`"
+      },
+      "responses": [
+        {
+          "api": [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          "response": {
+            "$error": "An error occurred (AccessDenied) when calling Mock: never-print"
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          "response": {
+            "FlowLogs": []
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          "response": {
+            "$error": "An error occurred (AccessDenied) when calling Mock: never-print"
+          }
+        }
+      ]
+    }
+  ],
+  "models": {
+    "dev/cde/cloudwatch-logs": {
+      "desired.resource.001.resourceType": "Logs.LogGroup",
+      "desired.resource.001.anchor": "group",
+      "desired.resource.001.cfn-logicalId": "fixture-Group",
+      "desired.resource.001.logicalId": "Logs_LogGroup_001",
+      "desired.row.001-001.property": "Logs.LogGroup.LogGroupName",
+      "desired.row.001-001.value": "`/aws/vpc/flowlogs/fixture`",
+      "desired.row.001-001.comment": "fixture",
+      "desired.resource.002.resourceType": "Logs.LogGroup",
+      "desired.resource.002.anchor": "unrelated",
+      "desired.resource.002.cfn-logicalId": "fixture-Unrelated",
+      "desired.resource.002.logicalId": "Logs_LogGroup_002",
+      "desired.row.002-001.property": "Logs.LogGroup.LogGroupName",
+      "desired.row.002-001.value": "`unrelated-private-value`",
+      "desired.row.002-001.comment": "fixture",
+      "desired.service.identity.lastAllocated": "{\"Logs.LogGroup\": 2}"
+    }
+  },
+  "responses": [
+    {
+      "api": [
+        "ec2",
+        "describe-flow-logs"
+      ],
+      "response": {
+        "FlowLogs": [
+          {
+            "FlowLogId": "fl-fixture",
+            "LogGroupName": "/aws/vpc/flowlogs/fixture"
+          }
+        ]
+      }
+    }
+  ],
+  "projectFixture": "audit/base"
+}

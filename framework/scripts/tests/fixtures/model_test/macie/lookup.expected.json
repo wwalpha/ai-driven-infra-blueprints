@@ -1,0 +1,56 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "Macie.ClassificationJob.description",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Macie.ClassificationJob.jobId",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "Macie.ClassificationJob.name",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "macie2",
+          "list-classification-jobs"
+        ],
+        {
+          "filterCriteria": {
+            "includes": [
+              {
+                "key": "name",
+                "comparator": "EQ",
+                "values": [
+                  "fixture-job"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      [
+        [
+          "macie2",
+          "describe-classification-job"
+        ],
+        {
+          "jobId": "found-id"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[OK] Macie.ClassificationJob | fixture-job | description",
+        "[ERROR] Macie.ClassificationJob | fixture-job | jobId",
+        "REFERENCE_PENDING_DEPLOY"
+      ]
+    }
+  }
+]

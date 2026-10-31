@@ -1,0 +1,56 @@
+{
+  "service": "macie",
+  "model": {
+    "desired.resource.001.resourceType": "Macie.ClassificationJob",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "Macie_ClassificationJob_001",
+    "desired.row.001-001.property": "Macie.ClassificationJob.name",
+    "desired.row.001-001.value": "`fixture-job`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "Macie.ClassificationJob.jobId",
+    "desired.row.001-002.value": "`{\"$modelRef\":{\"logicalId\":\"Macie_ClassificationJob_001\",\"attribute\":\"jobId\"}}`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.row.001-003.property": "Macie.ClassificationJob.description",
+    "desired.row.001-003.value": "`fixture description`",
+    "desired.row.001-003.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"Macie.ClassificationJob\": 1}",
+    "observed.row.001-002.value": "`PENDING_DEPLOY`"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {}
+  ],
+  "projectFixture": "audit/base",
+  "responses": [
+    {
+      "api": [
+        "macie2",
+        "list-classification-jobs"
+      ],
+      "response": {
+        "items": [
+          {
+            "name": "fixture-job",
+            "jobId": "found-id"
+          }
+        ]
+      }
+    },
+    {
+      "api": [
+        "macie2",
+        "describe-classification-job"
+      ],
+      "response": {
+        "name": "fixture-job",
+        "jobId": "found-id",
+        "description": "fixture description"
+      }
+    }
+  ]
+}

@@ -1,0 +1,187 @@
+{
+  "fields": [
+    "propertiesKey",
+    "status",
+    "designValue",
+    "awsValue"
+  ],
+  "properties": [
+    "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]"
+  ],
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {},
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "a/"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`[\"a/\"]`",
+        "desired.row.001-002.valueShape": "projection"
+      },
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {},
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "a/"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`[]`",
+        "desired.row.001-002.valueShape": "projection"
+      },
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {},
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`[\"a/\"]`"
+      },
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {},
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "a/"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {},
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "b/"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`[\"a/\"]`",
+        "desired.row.001-002.valueShape": "projection",
+        "desired.row.001-003.property": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "desired.row.001-003.value": "`b/`",
+        "desired.row.001-003.comment": "fixture"
+      },
+      "responses": [
+        {
+          "api": [
+            "guardduty",
+            "get-malware-protection-plan"
+          ],
+          "response": {
+            "Tags": {},
+            "ProtectedResource": {
+              "S3Bucket": {
+                "BucketName": "bucket",
+                "ObjectPrefixes": [
+                  "a/"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "service": "guardduty",
+  "model": {
+    "desired.resource.001.resourceType": "GuardDuty.MalwareProtectionPlan",
+    "desired.resource.001.anchor": "plan",
+    "desired.resource.001.cfn-logicalId": "fixture-Plan",
+    "desired.resource.001.logicalId": "GuardDuty_MalwareProtectionPlan_001",
+    "desired.service.identity.lastAllocated": "{\"GuardDuty.MalwareProtectionPlan\": 1}",
+    "desired.row.001-001.property": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.BucketName",
+    "desired.row.001-001.value": "`bucket`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+    "desired.row.001-002.value": "`a/`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.row.001-002.valueShape": "leaf"
+  },
+  "report": true,
+  "projectFixture": "codebuild/boolean",
+  "responses": [
+    {
+      "api": [
+        "guardduty",
+        "list-malware-protection-plans"
+      ],
+      "response": {
+        "MalwareProtectionPlans": [
+          {
+            "MalwareProtectionPlanId": "plan-1"
+          }
+        ]
+      }
+    }
+  ]
+}

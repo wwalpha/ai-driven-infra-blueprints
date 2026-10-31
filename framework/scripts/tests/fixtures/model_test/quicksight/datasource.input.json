@@ -1,0 +1,161 @@
+{
+  "service": "quicksight",
+  "model": {
+    "desired.resource.001.resourceType": "QuickSight.DataSource",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "QuickSight_DataSource_001",
+    "desired.row.001-001.property": "QuickSight.DataSource.Type",
+    "desired.row.001-001.value": "`ATHENA`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "QuickSight.DataSource.Credentials.CredentialPair.Username",
+    "desired.row.001-002.value": "`private-user`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.row.001-003.property": "QuickSight.DataSource.Credentials.CredentialPair.Password",
+    "desired.row.001-003.value": "`private-password`",
+    "desired.row.001-003.comment": "fixture",
+    "desired.row.001-004.property": "QuickSight.DataSource.DataSourceId",
+    "desired.row.001-004.value": "`source-id`",
+    "desired.row.001-004.comment": "fixture",
+    "desired.row.001-005.property": "QuickSight.DataSource.Permissions[].Principal",
+    "desired.row.001-005.value": "`principal`",
+    "desired.row.001-005.comment": "fixture",
+    "desired.row.001-006.property": "QuickSight.DataSource.Permissions[].Actions",
+    "desired.row.001-006.value": "`[\"ActionA\"]`",
+    "desired.row.001-006.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"QuickSight.DataSource\": 1}"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {},
+    {
+      "responses": [
+        {
+          "api": [
+            "quicksight",
+            "describe-data-source"
+          ],
+          "response": {
+            "DataSource": {
+              "Type": "REDSHIFT",
+              "DataSourceId": "source-id"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "fail": [
+        "quicksight",
+        "describe-data-source"
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`{\"$modelRef\":{\"logicalId\":\"Missing\",\"attribute\":\"Arn\"}}`"
+      }
+    },
+    {
+      "snapshotUpdates": [
+        {
+          "path": [
+            "mappings",
+            "quicksight",
+            "properties",
+            "QuickSight.DataSource.Type",
+            "field",
+            "classification"
+          ],
+          "value": "sdk_unavailable"
+        },
+        {
+          "path": [
+            "mappings",
+            "quicksight",
+            "properties",
+            "QuickSight.DataSource.Type",
+            "field",
+            "reason"
+          ],
+          "value": "unavailable"
+        }
+      ]
+    },
+    {
+      "snapshotUpdates": [
+        {
+          "path": [
+            "mappings",
+            "quicksight",
+            "properties",
+            "QuickSight.DataSource.Type",
+            "field",
+            "classification"
+          ],
+          "value": "local_metadata"
+        },
+        {
+          "path": [
+            "mappings",
+            "quicksight",
+            "properties",
+            "QuickSight.DataSource.Type",
+            "field",
+            "reason"
+          ],
+          "value": "unavailable"
+        }
+      ]
+    },
+    {
+      "reportRecords": [
+        "QuickSight.DataSource.Credentials.CredentialPair.Username",
+        "QuickSight.DataSource.Credentials.CredentialPair.Password"
+      ]
+    },
+    {
+      "fail": [
+        "sts",
+        "get-caller-identity"
+      ]
+    },
+    {
+      "account": "999999999999"
+    }
+  ],
+  "responses": [
+    {
+      "api": [
+        "quicksight",
+        "describe-data-source"
+      ],
+      "response": {
+        "DataSource": {
+          "Type": "ATHENA",
+          "DataSourceId": "source-id"
+        }
+      }
+    },
+    {
+      "api": [
+        "quicksight",
+        "describe-data-source-permissions"
+      ],
+      "response": {
+        "Permissions": [
+          {
+            "Principal": "principal",
+            "Actions": [
+              "ActionA"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "projectFixture": "audit/base"
+}

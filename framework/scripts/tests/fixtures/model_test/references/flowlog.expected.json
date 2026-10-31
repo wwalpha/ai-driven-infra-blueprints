@@ -1,0 +1,76 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "resource_missing"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.ResourceId",
+        "status": "resource_missing"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "Filter": [
+            {
+              "Name": "resource-id",
+              "Values": [
+                "vpc-123"
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "REFERENCE_PENDING_DEPLOY",
+        "ResourceNotFound",
+        "[NG] EC2.FlowLog"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "EC2.FlowLog.Id",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "EC2.FlowLog.ResourceId",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "ec2",
+          "describe-flow-logs"
+        ],
+        {
+          "Filter": [
+            {
+              "Name": "resource-id",
+              "Values": [
+                "vpc-123"
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "REFERENCE_PENDING_DEPLOY"
+      ]
+    }
+  }
+]

@@ -1,0 +1,94 @@
+{
+  "service": "datazone",
+  "model": {
+    "desired.resource.001.resourceType": "DataZone.Domain",
+    "desired.resource.001.anchor": "domain",
+    "desired.resource.001.cfn-logicalId": "fixture-Domain",
+    "desired.resource.001.logicalId": "DataZone_Domain_001",
+    "desired.row.001-001.property": "DataZone.Domain.Id",
+    "desired.row.001-001.value": "`{\"$modelRef\":{\"logicalId\":\"DataZone_Domain_001\",\"attribute\":\"Id\"}}`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "DataZone.Domain.DomainVersion",
+    "desired.row.001-002.value": "`V2`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"DataZone.Domain\": 1}",
+    "observed.row.001-001.value": "`dzd-confirmed`",
+    "observed.row.001-001.property": "DataZone.Domain.Id"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "datazone",
+            "get-domain"
+          ],
+          "response": {
+            "id": "dzd-confirmed",
+            "domainVersion": "V2"
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "datazone",
+            "get-domain"
+          ],
+          "response": {
+            "id": "dzd-confirmed",
+            "domainVersion": "V1"
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "datazone",
+            "get-domain"
+          ],
+          "response": {
+            "id": "dzd-confirmed"
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "datazone",
+            "get-domain"
+          ],
+          "response": {
+            "id": "dzd-confirmed",
+            "domainVersion": null
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "datazone",
+            "get-domain"
+          ],
+          "response": {
+            "$error": "AccessDenied"
+          }
+        }
+      ]
+    }
+  ],
+  "projectFixture": "codebuild/boolean"
+}

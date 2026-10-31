@@ -1,0 +1,138 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "Route53.HostedZone.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Route53.RecordSet.HostedZoneId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Route53.RecordSet.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Route53.RecordSet.TTL",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Route53.RecordSet.Type",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "route53",
+          "list-hosted-zones"
+        ],
+        {}
+      ],
+      [
+        [
+          "route53",
+          "get-hosted-zone"
+        ],
+        {
+          "Id": "/hostedzone/Z123"
+        }
+      ],
+      [
+        [
+          "route53",
+          "list-resource-record-sets"
+        ],
+        {
+          "HostedZoneId": "Z123"
+        }
+      ],
+      [
+        [
+          "route53",
+          "list-resource-record-sets"
+        ],
+        {
+          "HostedZoneId": "Z123",
+          "StartRecordName": "www.example.com.",
+          "StartRecordType": "A"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[OK]"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "Route53.HostedZone.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Route53.RecordSet.HostedZoneId",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Route53.RecordSet.Name",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "Route53.RecordSet.TTL",
+        "status": "difference"
+      },
+      {
+        "propertiesKey": "Route53.RecordSet.Type",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "route53",
+          "list-hosted-zones"
+        ],
+        {}
+      ],
+      [
+        [
+          "route53",
+          "get-hosted-zone"
+        ],
+        {
+          "Id": "/hostedzone/Z123"
+        }
+      ],
+      [
+        [
+          "route53",
+          "list-resource-record-sets"
+        ],
+        {
+          "HostedZoneId": "Z123"
+        }
+      ],
+      [
+        [
+          "route53",
+          "list-resource-record-sets"
+        ],
+        {
+          "HostedZoneId": "Z123",
+          "StartRecordName": "www.example.com.",
+          "StartRecordType": "A"
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[NG]"
+      ]
+    }
+  }
+]

@@ -1,0 +1,364 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "match",
+        "designValue": "arn:aws:s3:::fixture-bucket"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "excluded",
+        "designValue": false
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "match",
+        "designValue": true
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[INFO] LakeFormation.Resource",
+        "Verification: NOT_VERIFIABLE",
+        "| UseServiceLinkedRole"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "match",
+        "designValue": "arn:aws:s3:::fixture-bucket"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "excluded",
+        "designValue": true
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "difference",
+        "designValue": true
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[INFO] LakeFormation.Resource",
+        "Verification: NOT_VERIFIABLE",
+        "| UseServiceLinkedRole"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "match",
+        "designValue": "arn:aws:s3:::fixture-bucket"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "excluded",
+        "designValue": false
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "excluded",
+        "designValue": true
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[INFO] LakeFormation.Resource",
+        "Verification: NOT_VERIFIABLE",
+        "| UseServiceLinkedRole"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "match",
+        "designValue": "arn:aws:s3:::fixture-bucket"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "excluded",
+        "designValue": true
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "match",
+        "designValue": false
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[INFO] LakeFormation.Resource",
+        "Verification: NOT_VERIFIABLE",
+        "| UseServiceLinkedRole"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "sdk_unavailable"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "sdk_unavailable"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "sdk_unavailable"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "[INFO]"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "difference"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "sdk_unavailable"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "sdk_unavailable"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "[INFO]"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "sdk_unavailable"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "[INFO]"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "LakeFormation.Resource.ResourceArn",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.UseServiceLinkedRole",
+        "status": "sdk_unavailable"
+      },
+      {
+        "propertiesKey": "LakeFormation.Resource.WithFederation",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "lakeformation",
+          "describe-resource"
+        ],
+        {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ],
+      "absent": [
+        "[INFO]"
+      ]
+    }
+  }
+]

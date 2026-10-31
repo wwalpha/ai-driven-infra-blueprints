@@ -1,0 +1,70 @@
+{
+  "service": "iam",
+  "model": {
+    "desired.resource.001.resourceType": "IAM.Role",
+    "desired.resource.001.anchor": "role",
+    "desired.resource.001.cfn-logicalId": "fixture-Role",
+    "desired.resource.001.logicalId": "IAM_Role_001",
+    "desired.row.001-001.property": "IAM.Role.RoleName",
+    "desired.row.001-001.value": "`fixture-role`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "IAM.Role.AssumeRolePolicyDocument",
+    "desired.row.001-002.value": "[trust](iam/trust.json)",
+    "desired.row.001-002.comment": "fixture",
+    "desired.row.001-002.document": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"logs:PutLogEvents\", \"Resource\": [{\"$modelRef\": {\"logicalId\": \"Logs_LogGroup_001\", \"attribute\": \"Arn\"}}]}]}",
+    "desired.service.identity.lastAllocated": "{\"IAM.Role\": 1}"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {}
+  ],
+  "models": {
+    "dev/cde/cloudwatch-logs": {
+      "desired.resource.001.resourceType": "Logs.LogGroup",
+      "desired.resource.001.anchor": "group",
+      "desired.resource.001.cfn-logicalId": "fixture-Group",
+      "desired.resource.001.logicalId": "Logs_LogGroup_001",
+      "desired.row.001-001.property": "Logs.LogGroup.LogGroupName",
+      "desired.row.001-001.value": "`/aws/vpc/flowlogs/fixture`",
+      "desired.row.001-001.comment": "fixture",
+      "desired.resource.002.resourceType": "Logs.LogGroup",
+      "desired.resource.002.anchor": "unrelated",
+      "desired.resource.002.cfn-logicalId": "fixture-Unrelated",
+      "desired.resource.002.logicalId": "Logs_LogGroup_002",
+      "desired.row.002-001.property": "Logs.LogGroup.LogGroupName",
+      "desired.row.002-001.value": "`unrelated-private-value`",
+      "desired.row.002-001.comment": "fixture",
+      "desired.service.identity.lastAllocated": "{\"Logs.LogGroup\": 2}"
+    }
+  },
+  "projectFixture": "audit/base",
+  "responses": [
+    {
+      "api": [
+        "iam",
+        "get-role"
+      ],
+      "response": {
+        "Role": {
+          "RoleName": "fixture-role",
+          "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": "logs:PutLogEvents",
+                "Resource": [
+                  "arn:aws:logs:ap-northeast-1:123456789012:log-group:/aws/vpc/flowlogs/fixture:*"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

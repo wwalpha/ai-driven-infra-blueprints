@@ -1,0 +1,106 @@
+{
+  "project": {
+    "projectName": "fixture",
+    "targets": [
+      {
+        "environment": "dev",
+        "alias": "cde",
+        "awsAccountId": "123456789012",
+        "awsRegion": "ap-northeast-1",
+        "iacEngine": "cloudformation"
+      }
+    ]
+  },
+  "service": "codebuild",
+  "properties": [
+    "CodeBuild.Project.Environment.PrivilegedMode"
+  ],
+  "fields": [
+    "propertiesKey",
+    "status",
+    "designValue",
+    "awsValue"
+  ],
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "codebuild",
+            "batch-get-projects"
+          ],
+          "response": {
+            "projects": [
+              {
+                "name": "fixture-project",
+                "environment": {
+                  "privilegedMode": false
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "codebuild",
+            "batch-get-projects"
+          ],
+          "response": {
+            "projects": [
+              {
+                "name": "fixture-project",
+                "environment": {
+                  "privilegedMode": true
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`yes`"
+      },
+      "responses": [
+        {
+          "api": [
+            "codebuild",
+            "batch-get-projects"
+          ],
+          "response": {
+            "projects": [
+              {
+                "name": "fixture-project",
+                "environment": {
+                  "privilegedMode": false
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "fields": [
+        "propertiesKey",
+        "status"
+      ]
+    }
+  ],
+  "model": {
+    "desired.service.identity.lastAllocated": "{\"CodeBuild.Project\":1}",
+    "desired.resource.001.resourceType": "CodeBuild.Project",
+    "desired.resource.001.logicalId": "CodeBuild_Project_001",
+    "desired.resource.001.cfn-logicalId": "fixture-Project",
+    "desired.resource.001.anchor": "project",
+    "desired.row.001-001.property": "CodeBuild.Project.Name",
+    "desired.row.001-001.value": "`fixture-project`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "CodeBuild.Project.Environment.PrivilegedMode",
+    "desired.row.001-002.value": "`False`",
+    "desired.row.001-002.comment": "fixture"
+  }
+}

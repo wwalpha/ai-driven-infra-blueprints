@@ -1,0 +1,14 @@
+{
+  "referenceArn": "arn:aws:iam::123456789012:role/fixture-role",
+  "pipeline": {
+    "match": {
+      "Stages[].Actions[].Configuration": "match",
+      "Stages[].Actions[].RunOrder": "match"
+    },
+    "different": {
+      "Stages[].Actions[].Configuration": "difference",
+      "Stages[].Actions[].RunOrder": "difference"
+    },
+    "missingRow": "001-004"
+  }
+}

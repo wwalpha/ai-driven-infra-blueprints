@@ -1,0 +1,121 @@
+{
+  "referenceValue": "/aws/vpc/flowlogs/fixture",
+  "unrelatedValue": "unrelated-private-value",
+  "returnCode": 0,
+  "contains": [
+    "[OK] EC2.FlowLog | fl-fixture | LogGroupName",
+    "Design: \"/aws/vpc/flowlogs/fixture\"",
+    "Design SHA256:",
+    "  AWS:"
+  ],
+  "absent": [
+    "  Model:",
+    "Model SHA256:",
+    "unrelated-private-value"
+  ],
+  "runs": [
+    {
+      "code": 0,
+      "contains": [
+        "[OK] EC2.FlowLog | fl-fixture | LogGroupName",
+        "Design: \"/aws/vpc/flowlogs/fixture\"",
+        "Design SHA256:",
+        "  AWS:"
+      ],
+      "calls": [
+        [
+          [
+            "sts",
+            "get-caller-identity"
+          ],
+          {}
+        ],
+        [
+          [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          {
+            "FlowLogIds": [
+              "fl-fixture"
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "code": 1,
+      "actualName": "/different",
+      "contains": [
+        "[NG] EC2.FlowLog | fl-fixture | LogGroupName",
+        "Diff paths:"
+      ],
+      "calls": [
+        [
+          [
+            "sts",
+            "get-caller-identity"
+          ],
+          {}
+        ],
+        [
+          [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          {
+            "FlowLogIds": [
+              "fl-fixture"
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "code": 2,
+      "account": "999999999999",
+      "contains": [
+        "[ERROR] EC2.FlowLog"
+      ],
+      "calls": [
+        [
+          [
+            "sts",
+            "get-caller-identity"
+          ],
+          {}
+        ]
+      ]
+    },
+    {
+      "code": 0,
+      "flat": true,
+      "contains": [
+        "[OK] EC2.FlowLog | fl-fixture | LogGroupName",
+        "Design: \"/aws/vpc/flowlogs/fixture\"",
+        "Design SHA256:",
+        "  AWS:"
+      ],
+      "calls": [
+        [
+          [
+            "sts",
+            "get-caller-identity"
+          ],
+          {}
+        ],
+        [
+          [
+            "ec2",
+            "describe-flow-logs"
+          ],
+          {
+            "FlowLogIds": [
+              "fl-fixture"
+            ]
+          }
+        ]
+      ]
+    }
+  ]
+}

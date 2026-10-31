@@ -1,0 +1,208 @@
+{
+  "service": "lake-formation",
+  "model": {
+    "desired.resource.001.resourceType": "LakeFormation.Resource",
+    "desired.resource.001.anchor": "fixture",
+    "desired.resource.001.cfn-logicalId": "fixture-Fixture",
+    "desired.resource.001.logicalId": "LakeFormation_Resource_001",
+    "desired.row.001-001.property": "LakeFormation.Resource.ResourceArn",
+    "desired.row.001-001.value": "`arn:aws:s3:::fixture-bucket`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.row.001-002.property": "LakeFormation.Resource.UseServiceLinkedRole",
+    "desired.row.001-002.value": "`false`",
+    "desired.row.001-002.comment": "fixture",
+    "desired.row.001-003.property": "LakeFormation.Resource.WithFederation",
+    "desired.row.001-003.value": "`true`",
+    "desired.row.001-003.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"LakeFormation.Resource\": 1}"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "model": {
+        "desired.row.001-002.value": "`false`",
+        "desired.row.001-003.value": "`true`"
+      },
+      "responses": [
+        {
+          "api": [
+            "lakeformation",
+            "describe-resource"
+          ],
+          "response": {
+            "ResourceInfo": {
+              "ResourceArn": "arn:aws:s3:::fixture-bucket",
+              "WithFederation": true,
+              "RoleArn": "arn:aws:iam::123456789012:role/aws-service-role/lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess"
+            }
+          }
+        }
+      ],
+      "fields": [
+        "propertiesKey",
+        "status",
+        "designValue"
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`true`",
+        "desired.row.001-003.value": "`true`"
+      },
+      "responses": [
+        {
+          "api": [
+            "lakeformation",
+            "describe-resource"
+          ],
+          "response": {
+            "ResourceInfo": {
+              "ResourceArn": "arn:aws:s3:::fixture-bucket",
+              "WithFederation": false,
+              "RoleArn": "arn:aws:iam::123456789012:role/other"
+            }
+          }
+        }
+      ],
+      "fields": [
+        "propertiesKey",
+        "status",
+        "designValue"
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`false`",
+        "desired.row.001-003.value": "`true`"
+      },
+      "responses": [
+        {
+          "api": [
+            "lakeformation",
+            "describe-resource"
+          ],
+          "response": {
+            "ResourceInfo": {
+              "ResourceArn": "arn:aws:s3:::fixture-bucket",
+              "RoleArn": "arn:aws:iam::123456789012:role/aws-service-role/lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess"
+            }
+          }
+        }
+      ],
+      "fields": [
+        "propertiesKey",
+        "status",
+        "designValue"
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`true`",
+        "desired.row.001-003.value": "`false`"
+      },
+      "responses": [
+        {
+          "api": [
+            "lakeformation",
+            "describe-resource"
+          ],
+          "response": {
+            "ResourceInfo": {
+              "ResourceArn": "arn:aws:s3:::fixture-bucket",
+              "WithFederation": false,
+              "RoleArn": "arn:aws:iam::123456789012:role/other"
+            }
+          }
+        }
+      ],
+      "fields": [
+        "propertiesKey",
+        "status",
+        "designValue"
+      ]
+    },
+    {
+      "model": {
+        "desired.row.001-002.value": "`invalid`"
+      }
+    },
+    {
+      "model": {
+        "desired.row.001-003.value": "`invalid`"
+      }
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "lakeformation",
+            "describe-resource"
+          ],
+          "response": {
+            "ResourceInfo": {}
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "lakeformation",
+            "describe-resource"
+          ],
+          "response": {
+            "ResourceInfo": {
+              "ResourceArn": "arn:aws:s3:::fixture-bucket-other"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "lakeformation",
+            "describe-resource"
+          ],
+          "response": {
+            "$error": "An error occurred (EntityNotFoundException) when calling Mock: details"
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "lakeformation",
+            "describe-resource"
+          ],
+          "response": {
+            "$error": "An error occurred (AccessDeniedException) when calling Mock: details"
+          }
+        }
+      ]
+    }
+  ],
+  "responses": [
+    {
+      "api": [
+        "lakeformation",
+        "describe-resource"
+      ],
+      "response": {
+        "ResourceInfo": {
+          "ResourceArn": "arn:aws:s3:::fixture-bucket",
+          "WithFederation": true
+        }
+      }
+    }
+  ],
+  "projectFixture": "audit/base"
+}

@@ -1,0 +1,255 @@
+{
+  "service": "sqs",
+  "model": {
+    "desired.resource.001.resourceType": "SQS.Queue",
+    "desired.resource.001.anchor": "queue",
+    "desired.resource.001.cfn-logicalId": "fixture-Queue",
+    "desired.resource.001.logicalId": "SQS_Queue_001",
+    "desired.row.001-001.property": "SQS.Queue.QueueName",
+    "desired.row.001-001.value": "`queue-one`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.resource.002.resourceType": "SQS.QueuePolicy",
+    "desired.resource.002.anchor": "policy",
+    "desired.resource.002.cfn-logicalId": "fixture-Policy",
+    "desired.resource.002.logicalId": "SQS_QueuePolicy_002",
+    "desired.row.002-001.property": "SQS.QueuePolicy.Id",
+    "desired.row.002-001.value": "`{\"$modelRef\":{\"logicalId\":\"SQS_QueuePolicy_002\",\"attribute\":\"Id\"}}`",
+    "desired.row.002-001.comment": "fixture",
+    "desired.row.002-002.property": "SQS.QueuePolicy.Queues[]",
+    "desired.row.002-002.value": "`https://queue/one`",
+    "desired.row.002-002.comment": "fixture",
+    "desired.row.002-003.property": "SQS.QueuePolicy.Queues[]",
+    "desired.row.002-003.value": "`https://queue/two`",
+    "desired.row.002-003.comment": "fixture",
+    "desired.row.002-004.property": "SQS.QueuePolicy.PolicyDocument",
+    "desired.row.002-004.value": "[policy](sqs/policy.json)",
+    "desired.row.002-004.comment": "fixture",
+    "desired.row.002-004.document": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"sqs:SendMessage\", \"Resource\": \"*\"}]}",
+    "desired.service.identity.lastAllocated": "{\"SQS.Queue\": 1, \"SQS.QueuePolicy\": 2}"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "sqs",
+            "get-queue-attributes"
+          ],
+          "response": {
+            "$sequence": [
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/one",
+                  "AttributeNames": [
+                    "All"
+                  ]
+                },
+                "response": {
+                  "Attributes": {
+                    "Policy": "{\"Statement\": [{\"Resource\": \"*\", \"Action\": [\"sqs:SendMessage\"], \"Effect\": \"Allow\"}], \"Version\": \"2012-10-17\"}"
+                  }
+                }
+              },
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/one",
+                  "AttributeNames": [
+                    "Policy"
+                  ]
+                },
+                "response": {
+                  "Attributes": {
+                    "Policy": "{\"Statement\": [{\"Resource\": \"*\", \"Action\": [\"sqs:SendMessage\"], \"Effect\": \"Allow\"}], \"Version\": \"2012-10-17\"}"
+                  }
+                }
+              },
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/two",
+                  "AttributeNames": [
+                    "Policy"
+                  ]
+                },
+                "response": {
+                  "Attributes": {
+                    "Policy": "{\"Statement\": [{\"Resource\": \"*\", \"Action\": [\"sqs:SendMessage\"], \"Effect\": \"Allow\"}], \"Version\": \"2012-10-17\"}"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "sqs",
+            "get-queue-attributes"
+          ],
+          "response": {
+            "$sequence": [
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/one",
+                  "AttributeNames": [
+                    "All"
+                  ]
+                },
+                "response": {
+                  "Attributes": {
+                    "Policy": "{\"Statement\": [{\"Resource\": \"*\", \"Action\": [\"sqs:SendMessage\"], \"Effect\": \"Allow\"}], \"Version\": \"2012-10-17\"}"
+                  }
+                }
+              },
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/one",
+                  "AttributeNames": [
+                    "Policy"
+                  ]
+                },
+                "response": {
+                  "Attributes": {
+                    "Policy": "{\"Statement\": [{\"Resource\": \"*\", \"Action\": [\"sqs:SendMessage\"], \"Effect\": \"Allow\"}], \"Version\": \"2012-10-17\"}"
+                  }
+                }
+              },
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/two",
+                  "AttributeNames": [
+                    "Policy"
+                  ]
+                },
+                "response": {
+                  "Attributes": {
+                    "Policy": "{\"Statement\": [{\"Resource\": \"*\", \"Action\": [\"sqs:SendMessage\"], \"Effect\": \"Deny\"}], \"Version\": \"2012-10-17\"}"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "sqs",
+            "get-queue-attributes"
+          ],
+          "response": {
+            "$sequence": [
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/one",
+                  "AttributeNames": [
+                    "All"
+                  ]
+                },
+                "response": {
+                  "Attributes": {
+                    "Policy": "{\"Statement\": [{\"Resource\": \"*\", \"Action\": [\"sqs:SendMessage\"], \"Effect\": \"Deny\"}], \"Version\": \"2012-10-17\"}"
+                  }
+                }
+              },
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/one",
+                  "AttributeNames": [
+                    "Policy"
+                  ]
+                },
+                "response": {
+                  "Attributes": {
+                    "Policy": "{\"Statement\": [{\"Resource\": \"*\", \"Action\": [\"sqs:SendMessage\"], \"Effect\": \"Deny\"}], \"Version\": \"2012-10-17\"}"
+                  }
+                }
+              },
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/two",
+                  "AttributeNames": [
+                    "Policy"
+                  ]
+                },
+                "response": {
+                  "Attributes": {
+                    "Policy": "{\"Statement\": [{\"Resource\": \"*\", \"Action\": [\"sqs:SendMessage\"], \"Effect\": \"Deny\"}], \"Version\": \"2012-10-17\"}"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "sqs",
+            "get-queue-attributes"
+          ],
+          "response": {
+            "$sequence": [
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/one",
+                  "AttributeNames": [
+                    "All"
+                  ]
+                },
+                "response": {
+                  "$error": "An error occurred (AccessDenied) when calling GetQueueAttributes: denied"
+                }
+              },
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/one",
+                  "AttributeNames": [
+                    "Policy"
+                  ]
+                },
+                "response": {
+                  "$error": "An error occurred (AccessDenied) when calling GetQueueAttributes: denied"
+                }
+              },
+              {
+                "inputs": {
+                  "QueueUrl": "https://queue/two",
+                  "AttributeNames": [
+                    "Policy"
+                  ]
+                },
+                "response": {
+                  "$error": "An error occurred (AccessDenied) when calling GetQueueAttributes: denied"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "responses": [
+    {
+      "api": [
+        "sqs",
+        "get-queue-url"
+      ],
+      "response": {
+        "QueueUrl": "https://queue/one"
+      }
+    }
+  ],
+  "projectFixture": "audit/base"
+}

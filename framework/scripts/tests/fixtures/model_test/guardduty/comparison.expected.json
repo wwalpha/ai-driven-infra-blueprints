@@ -1,0 +1,271 @@
+[
+  {
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "match",
+        "designValue": [
+          "a/",
+          "b/"
+        ],
+        "awsValue": [
+          "a/",
+          "b/"
+        ]
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Key",
+        "status": "match",
+        "designValue": [
+          "Environment",
+          "Name"
+        ],
+        "awsValue": [
+          "Environment",
+          "Name"
+        ]
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Value",
+        "status": "match",
+        "designValue": [
+          "dev",
+          "example"
+        ],
+        "awsValue": [
+          "dev",
+          "example"
+        ]
+      }
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[OK]"
+      ]
+    }
+  },
+  {
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "match",
+        "designValue": [
+          "a/",
+          "b/"
+        ],
+        "awsValue": [
+          "a/",
+          "b/"
+        ]
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Key",
+        "status": "match",
+        "designValue": [
+          "Environment",
+          "Name"
+        ],
+        "awsValue": [
+          "Environment",
+          "Name"
+        ]
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Value",
+        "status": "difference",
+        "designValue": [
+          "dev",
+          "example"
+        ],
+        "awsValue": [
+          "example",
+          "dev"
+        ]
+      }
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[NG]",
+        "Diff paths:"
+      ]
+    }
+  },
+  {
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "match",
+        "designValue": [
+          "a/",
+          "b/"
+        ],
+        "awsValue": [
+          "a/",
+          "b/"
+        ]
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Key",
+        "status": "match",
+        "designValue": [
+          "Name"
+        ],
+        "awsValue": [
+          "Name"
+        ]
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Value",
+        "status": "match",
+        "designValue": [
+          "example"
+        ],
+        "awsValue": [
+          "example"
+        ]
+      }
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "[OK]"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Key",
+        "status": "difference"
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Value",
+        "status": "difference"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "[NG]"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.ObjectPrefixes[]",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Key",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "GuardDuty.MalwareProtectionPlan.Tags[].Value",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "guardduty",
+          "list-malware-protection-plans"
+        ],
+        {}
+      ],
+      [
+        [
+          "guardduty",
+          "get-malware-protection-plan"
+        ],
+        {
+          "MalwareProtectionPlanId": "plan-1"
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "[ERROR]"
+      ]
+    }
+  }
+]

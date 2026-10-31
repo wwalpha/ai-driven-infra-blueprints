@@ -1,0 +1,293 @@
+[
+  {
+    "records": [
+      {
+        "propertiesKey": "SQS.Queue.QueueName",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.Id",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.PolicyDocument",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.Queues[]",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "sqs",
+          "get-queue-url"
+        ],
+        {
+          "QueueName": "queue-one",
+          "QueueOwnerAWSAccountId": "123456789012"
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/one",
+          "AttributeNames": [
+            "All"
+          ]
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/one",
+          "AttributeNames": [
+            "Policy"
+          ]
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/two",
+          "AttributeNames": [
+            "Policy"
+          ]
+        }
+      ]
+    ],
+    "code": 0,
+    "report": {
+      "contains": [
+        "Verification: NOT_VERIFIABLE",
+        "[OK] SQS.QueuePolicy"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "SQS.Queue.QueueName",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.Id",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.PolicyDocument",
+        "status": "design_unresolved"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.Queues[]",
+        "status": "design_unresolved"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "sqs",
+          "get-queue-url"
+        ],
+        {
+          "QueueName": "queue-one",
+          "QueueOwnerAWSAccountId": "123456789012"
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/one",
+          "AttributeNames": [
+            "All"
+          ]
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/one",
+          "AttributeNames": [
+            "Policy"
+          ]
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/two",
+          "AttributeNames": [
+            "Policy"
+          ]
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "Verification: NOT_VERIFIABLE",
+        "associated queues have missing or different policies"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "SQS.Queue.QueueName",
+        "status": "match"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.Id",
+        "status": "excluded"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.PolicyDocument",
+        "status": "difference"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.Queues[]",
+        "status": "match"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "sqs",
+          "get-queue-url"
+        ],
+        {
+          "QueueName": "queue-one",
+          "QueueOwnerAWSAccountId": "123456789012"
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/one",
+          "AttributeNames": [
+            "All"
+          ]
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/one",
+          "AttributeNames": [
+            "Policy"
+          ]
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/two",
+          "AttributeNames": [
+            "Policy"
+          ]
+        }
+      ]
+    ],
+    "code": 1,
+    "report": {
+      "contains": [
+        "Verification: NOT_VERIFIABLE",
+        "[NG] SQS.QueuePolicy",
+        "PolicyDocument"
+      ]
+    }
+  },
+  {
+    "records": [
+      {
+        "propertiesKey": "SQS.Queue.QueueName",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.Id",
+        "status": "sdk_unavailable"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.PolicyDocument",
+        "status": "acquisition_failed"
+      },
+      {
+        "propertiesKey": "SQS.QueuePolicy.Queues[]",
+        "status": "acquisition_failed"
+      }
+    ],
+    "calls": [
+      [
+        [
+          "sqs",
+          "get-queue-url"
+        ],
+        {
+          "QueueName": "queue-one",
+          "QueueOwnerAWSAccountId": "123456789012"
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/one",
+          "AttributeNames": [
+            "All"
+          ]
+        }
+      ],
+      [
+        [
+          "sqs",
+          "get-queue-attributes"
+        ],
+        {
+          "QueueUrl": "https://queue/one",
+          "AttributeNames": [
+            "Policy"
+          ]
+        }
+      ]
+    ],
+    "code": 2,
+    "report": {
+      "contains": [
+        "AwsCliError"
+      ],
+      "absent": [
+        "[INFO]"
+      ]
+    }
+  }
+]

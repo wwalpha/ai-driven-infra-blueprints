@@ -1,0 +1,149 @@
+{
+  "service": "route53",
+  "model": {
+    "desired.resource.001.resourceType": "Route53.HostedZone",
+    "desired.resource.001.anchor": "zone",
+    "desired.resource.001.cfn-logicalId": "fixture-Zone",
+    "desired.resource.001.logicalId": "Route53_HostedZone_001",
+    "desired.row.001-001.property": "Route53.HostedZone.Name",
+    "desired.row.001-001.value": "`example.com.`",
+    "desired.row.001-001.comment": "fixture",
+    "desired.resource.002.resourceType": "Route53.RecordSet",
+    "desired.resource.002.anchor": "record",
+    "desired.resource.002.cfn-logicalId": "fixture-Record",
+    "desired.resource.002.logicalId": "Route53_RecordSet_002",
+    "desired.row.002-001.property": "Route53.RecordSet.HostedZoneId",
+    "desired.row.002-001.value": "`Z123`",
+    "desired.row.002-001.comment": "fixture",
+    "desired.row.002-002.property": "Route53.RecordSet.Name",
+    "desired.row.002-002.value": "`www.example.com.`",
+    "desired.row.002-002.comment": "fixture",
+    "desired.row.002-003.property": "Route53.RecordSet.Type",
+    "desired.row.002-003.value": "`A`",
+    "desired.row.002-003.comment": "fixture",
+    "desired.row.002-004.property": "Route53.RecordSet.TTL",
+    "desired.row.002-004.value": "`300`",
+    "desired.row.002-004.comment": "fixture",
+    "desired.service.identity.lastAllocated": "{\"Route53.HostedZone\": 1, \"Route53.RecordSet\": 2}"
+  },
+  "fields": [
+    "propertiesKey",
+    "status"
+  ],
+  "report": true,
+  "scenarios": [
+    {
+      "responses": [
+        {
+          "api": [
+            "route53",
+            "list-resource-record-sets"
+          ],
+          "response": {
+            "$sequence": [
+              {
+                "inputs": {
+                  "HostedZoneId": "Z123"
+                },
+                "response": {
+                  "ResourceRecordSets": [],
+                  "IsTruncated": true,
+                  "NextRecordName": "www.example.com.",
+                  "NextRecordType": "A"
+                }
+              },
+              {
+                "inputs": {
+                  "HostedZoneId": "Z123",
+                  "StartRecordName": "www.example.com.",
+                  "StartRecordType": "A"
+                },
+                "response": {
+                  "ResourceRecordSets": [
+                    {
+                      "Name": "www.example.com.",
+                      "Type": "A",
+                      "TTL": 300
+                    }
+                  ],
+                  "IsTruncated": false
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "responses": [
+        {
+          "api": [
+            "route53",
+            "list-resource-record-sets"
+          ],
+          "response": {
+            "$sequence": [
+              {
+                "inputs": {
+                  "HostedZoneId": "Z123"
+                },
+                "response": {
+                  "ResourceRecordSets": [],
+                  "IsTruncated": true,
+                  "NextRecordName": "www.example.com.",
+                  "NextRecordType": "A"
+                }
+              },
+              {
+                "inputs": {
+                  "HostedZoneId": "Z123",
+                  "StartRecordName": "www.example.com.",
+                  "StartRecordType": "A"
+                },
+                "response": {
+                  "ResourceRecordSets": [
+                    {
+                      "Name": "www.example.com.",
+                      "Type": "A",
+                      "TTL": 301
+                    }
+                  ],
+                  "IsTruncated": false
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "responses": [
+    {
+      "api": [
+        "route53",
+        "list-hosted-zones"
+      ],
+      "response": {
+        "HostedZones": [
+          {
+            "Id": "/hostedzone/Z123",
+            "Name": "example.com."
+          }
+        ]
+      }
+    },
+    {
+      "api": [
+        "route53",
+        "get-hosted-zone"
+      ],
+      "response": {
+        "HostedZone": {
+          "Id": "/hostedzone/Z123",
+          "Name": "example.com."
+        }
+      }
+    }
+  ],
+  "projectFixture": "audit/base"
+}
