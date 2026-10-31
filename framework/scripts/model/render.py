@@ -69,8 +69,22 @@ def stack_markdown(
     display_artifacts = dict(entries(displayed, "desired.artifact."))
     for artifact in display_artifacts.values():
         artifact["bucket"] = (
-            presentation.link(parse(artifact["bucket"]), field="S3.BucketPolicy.Bucket")
+            presentation.link(
+                parse(artifact["bucket"]),
+                position=_reference_presentation.Position("", "value", ""),
+                field="S3.BucketPolicy.Bucket",
+            )
             or artifact["bucket"]
+        )
+    displayed_settings = dict(settings)
+    if settings:
+        displayed_settings["templateBucket"] = (
+            presentation.link(
+                parse(settings["templateBucket"]),
+                position=_reference_presentation.Position("", "value", ""),
+                field="S3.BucketPolicy.Bucket",
+            )
+            or settings["templateBucket"]
         )
     delivery = []
     if artifacts:
@@ -108,7 +122,10 @@ def stack_markdown(
                 "",
                 f"<!-- max-concurrent-stacks: {limit} -->",
                 "",
-                *[f"<!-- {field}: {value} -->" for field, value in settings.items()],
+                *[
+                    f"<!-- {field}: {value} -->"
+                    for field, value in displayed_settings.items()
+                ],
                 "## Stack一覧",
                 "",
                 "| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |",

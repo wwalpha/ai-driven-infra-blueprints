@@ -1,8 +1,8 @@
 """Service-specific reference label selectors."""
 
-from design.services import kms
+from design.services import kms, route53
 
-SELECTORS = (kms.reference_label,)
+SELECTORS = (kms.reference_label, route53.reference_label)
 
 
 def select(
@@ -21,3 +21,9 @@ def select(
             displayed,
         )
     return name
+
+
+def document(values, row_id, field, raw, marked, selected, markers, scope, resolver):
+    return route53.document(
+        values, row_id, field, raw, marked, selected, markers, scope, resolver
+    )

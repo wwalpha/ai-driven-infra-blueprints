@@ -978,7 +978,9 @@ def check_delivery(tmp_path):
         and "| TemplateKeyPrefix |" not in view
     )
     assert (
-        "### 配置ファイル" in view and f"<!-- templateBucket: {reference} -->" in view
+        "### 配置ファイル" in view
+        and "<!-- templateBucket: [app-dev-assets](s3.md#resource-S3_Bucket_001) -->"
+        in view
     )
     source_model = model.with_name("cloudformation-stacks.properties")
     write_model(source_model, values)

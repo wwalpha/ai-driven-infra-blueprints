@@ -263,6 +263,17 @@ class Presentation:
             raw, self.root, property_name=prop, scope=self.scope
         )
         marked = project(projected, partial(self.node_value, row_id, field))
+        marked = reference_labels.document(
+            self.values,
+            row_id,
+            field,
+            raw,
+            marked,
+            selected,
+            self.markers,
+            self.scope,
+            self.resolver,
+        )
         if any(
             (pos.row_id, pos.source_field) == (row_id, field)
             and "/Fn::" in pos.pointer

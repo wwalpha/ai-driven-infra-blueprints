@@ -1071,6 +1071,59 @@ def test_normal_resource_reference_labels(
     assert values == before
 
 
+@pytest.mark.parametrize(
+    ("observed", "index"),
+    [("vpce-03de8390963d671da", 1), (None, 1), ("vpce-03de8390963d671da", 0)],
+)
+def test_route53_endpoint_alias_expression_display(models, observed, index):
+    target, endpoint = resource(
+        models, "vpc-endpoint", "EC2.VPCEndpoint", attribute="Id"
+    )
+    if observed:
+        endpoint["observed.row.001-001.value"] = "`" + observed + "`"
+    add(endpoint, "EC2.VPCEndpoint", "Tags[].Key", "Name", number=2)
+    add(endpoint, "EC2.VPCEndpoint", "Tags[].Value", "endpoint-name", number=3)
+    save(target, endpoint)
+    scope, values, path = consumer(models, "route53", "Route53.RecordSet")
+    values["desired.row.001-001.property"] = "Route53.RecordSet.Name"
+    expression = {
+        "Fn::Select": [
+            index,
+            {
+                "Fn::Split": [
+                    ":",
+                    {"Fn::Select": [0, reference("EC2_VPCEndpoint_001", "DnsEntries")]},
+                ]
+            },
+        ]
+    }
+    rid = add(values, "Route53.RecordSet", "AliasTarget.DNSName", expression)
+    before = copy.deepcopy(values)
+    save(scope, values)
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    if observed and index == 1:
+        assert f"[{observed}](vpc-endpoint.md#saved-001)" in markdown, markdown
+        line = next(
+            line for line in markdown.splitlines() if "AliasTarget.DNSName" in line
+        )
+        assert "Fn::Select" not in line
+    else:
+        assert "Fn::Select" in markdown
+    assert json.loads(literal(values[f"desired.row.{rid}.value"])) == expression
+    assert (
+        generated_document(
+            expression,
+            models,
+            resolver=reference_resolver(values, scope, models),
+            scope=scope,
+            property_name="Route53.RecordSet.AliasTarget.DNSName",
+        )
+        == expression
+    )
+    assert "$modelRef" in restore(path, markdown, values)
+    assert values == before
+
+
 def test_policy_display_artifact_regeneration_and_raw_fallback(models):
     scope, values, path = consumer(models, "iam", "IAM.ManagedPolicy")
     values["desired.row.001-001.property"] = "IAM.ManagedPolicy.ManagedPolicyName"
