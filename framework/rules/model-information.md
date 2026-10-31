@@ -193,8 +193,8 @@ persists no Model, displays, contract or completion receipt; retain its session 
 explicit Human termination. Pre-save failure, incomplete display or display I/O failure
 retains acquisition/review evidence for diagnosis and display-only recovery.
 Never save raw responses. Acquisition/receipt timestamps expire after seven days;
-future timestamps beyond five minutes are rejected. Review version 4 and receipt version 6
-record the conversational responsibility boundary. Version 6 binds Review/selection,
+future timestamps beyond five minutes are rejected. Review version 5 and receipt version 7
+record the conversational responsibility boundary. Version 7 binds Review/selection,
 acquisition/baseline, proposed values, Reference/Selector meaning, Task/Worktree/scope
 and exact saved source hashes. Receipt parsing requires the current version and sealed external location. Local seals and the Review
 binding provide integrity, not Human authentication. Worktree reuse remains rejected.
