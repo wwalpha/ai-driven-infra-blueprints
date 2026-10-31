@@ -781,6 +781,189 @@ class CloudTrailArrayTests(unittest.TestCase):
     ref = staticmethod(ReferenceTests.ref)
     save = ReferenceTests.save
 
+    def test_reference_array_membership(self):
+        arn = "arn:aws:lambda:ap-northeast-1:123456789012:function:fixture"
+        producer = self.model(
+            "Lambda.Function", "Lambda_Function_001", {"FunctionName": "fixture"}
+        )
+        write_model(self.root / "model/dev/cde/lambda.properties", producer)
+        values = self.model("CloudTrail.Trail", "CloudTrail_Trail_001", {})
+        fields = [
+            ("TrailName", "`fixture`"),
+            ("EventSelectors[].IncludeManagementEvents", "`true`"),
+            ("EventSelectors[].ReadWriteType", "`All`"),
+            ("EventSelectors[].DataResources[].Type", "`AWS::Lambda::Function`"),
+            (
+                "EventSelectors[].DataResources[].Values",
+                "`" + json.dumps([self.ref("Lambda_Function_001", "Arn")]) + "`",
+            ),
+            ("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`"),
+            ("EventSelectors[].DataResources[].Values", '`["arn:aws:s3"]`'),
+            ("EventSelectors[].IncludeManagementEvents", "`false`"),
+            ("EventSelectors[].ReadWriteType", "`ReadOnly`"),
+            ("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`"),
+            ("EventSelectors[].DataResources[].Values", '`["arn:aws:s3:::other/"]`'),
+        ]
+        for index, (prop, value) in enumerate(fields, 1):
+            prefix = f"desired.row.001-{index:03d}."
+            values.update(
+                {
+                    prefix + "property": "CloudTrail.Trail." + prop,
+                    prefix + "value": value,
+                    prefix + "comment": "fixture",
+                }
+            )
+        path = self.root / "model/dev/cde/cloudtrail.properties"
+        write_model(path, values)
+        selectors = [
+            {
+                "IncludeManagementEvents": True,
+                "ReadWriteType": "All",
+                "DataResources": [
+                    {"Type": "AWS::Lambda::Function", "Values": [arn]},
+                    {"Type": "AWS::S3::Object", "Values": ["arn:aws:s3"]},
+                ],
+            },
+            {
+                "IncludeManagementEvents": False,
+                "ReadWriteType": "ReadOnly",
+                "DataResources": [
+                    {"Type": "AWS::S3::Object", "Values": ["arn:aws:s3:::other/"]},
+                ],
+            },
+        ]
+        source = generate(self.root, "dev", "cde", "cloudtrail")[0]
+        snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+        self.assertEqual(
+            snapshot["referenceRows"]["dev/cde/cloudtrail"]["001-005"]["status"],
+            "resolved",
+        )
+
+        def records(response):
+            cli = Mock(
+                side_effect=[
+                    subprocess.CompletedProcess(
+                        [],
+                        0,
+                        json.dumps(
+                            {
+                                "Account": "123456789012",
+                                "Arn": "arn:aws:iam::123456789012:user/offline",
+                            }
+                        ),
+                        "",
+                    ),
+                    subprocess.CompletedProcess(
+                        [], 0, json.dumps({"Trail": {"Name": "fixture"}}), ""
+                    ),
+                    subprocess.CompletedProcess(
+                        [], 0, json.dumps({"EventSelectors": response}), ""
+                    ),
+                ]
+            )
+            return audit.audit(snapshot, cli_runner=cli)[2]
+
+        for response, prop, expected in [
+            (selectors, "ReadWriteType", "match"),
+            (
+                [dict(selectors[0], ReadWriteType="WriteOnly"), selectors[1]],
+                "ReadWriteType",
+                "difference",
+            ),
+            (
+                [
+                    dict(
+                        selectors[0],
+                        DataResources=[
+                            dict(
+                                selectors[0]["DataResources"][0],
+                                Values=[arn + "-other"],
+                            ),
+                            selectors[0]["DataResources"][1],
+                        ],
+                    ),
+                    selectors[1],
+                ],
+                "DataResources[].Values",
+                "difference",
+            ),
+            (
+                [
+                    dict(
+                        selectors[0], DataResources=selectors[0]["DataResources"][::-1]
+                    ),
+                    selectors[1],
+                ],
+                "DataResources[].Values",
+                "difference",
+            ),
+        ]:
+            with self.subTest(prop=prop, expected=expected):
+                result = next(
+                    r for r in records(response) if r["propertiesKey"].endswith(prop)
+                )
+                self.assertEqual(result["status"], expected, result)
+        self.assertTrue(
+            all(
+                r["status"] == "match"
+                for r in records(selectors)
+                if "EventSelectors[]" in r["propertiesKey"]
+            )
+        )
+
+        folder = self.root / "standalone"
+        folder.mkdir()
+        script = folder / "audit.py"
+        script.write_text(source, encoding="utf-8")
+        fake = folder / "aws"
+        fake.write_text(
+            "#!"
+            + sys.executable
+            + "\nimport json, sys\napi = sys.argv[1:3]\nprint(json.dumps({ 'Account': '123456789012', 'Arn': 'arn:aws:iam::123456789012:user/offline' } if api[0] == 'sts' else { 'Trail': {'Name': 'fixture'} } if api[1] == 'get-trail' else "
+            + repr({"EventSelectors": selectors})
+            + "))\n",
+            encoding="utf-8",
+        )
+        fake.chmod(0o700)
+        process = subprocess.run(
+            [sys.executable, "-I", "-B", str(script)],
+            cwd=folder,
+            env={**os.environ, "PATH": str(folder)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+
+        for missing in ("004", "005"):
+            incomplete = dict(values)
+            for field in ("property", "value", "comment"):
+                incomplete.pop(f"desired.row.001-{missing}.{field}")
+            write_model(path, incomplete)
+            incomplete_source = generate(self.root, "dev", "cde", "cloudtrail")[0]
+            snapshot = json.loads(
+                ast.literal_eval(ast.parse(incomplete_source).body[1].value.args[0])
+            )
+            result = next(
+                r
+                for r in records(selectors)
+                if r["propertiesKey"].endswith("ReadWriteType")
+            )
+            self.assertEqual(result["status"], "design_unresolved", result)
+
+        values["desired.row.001-005.value"] = (
+            "`" + json.dumps([self.ref("Missing_001", "Arn")]) + "`"
+        )
+        write_model(path, values)
+        source = generate(self.root, "dev", "cde", "cloudtrail")[0]
+        snapshot = json.loads(ast.literal_eval(ast.parse(source).body[1].value.args[0]))
+        result = next(
+            r
+            for r in records(selectors)
+            if r["propertiesKey"].endswith("DataResources[].Values")
+        )
+        self.assertNotEqual(result["status"], "match", result)
+
     def test_event_selector_membership(self):
         fields = [
             ("TrailName", "`fixture`"),

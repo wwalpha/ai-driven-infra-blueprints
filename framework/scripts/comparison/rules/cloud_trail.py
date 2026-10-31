@@ -70,7 +70,24 @@ def cloudtrail_rows(rows, *, index_rows):
             properties[rid] = kind + "." + data[1] + ".Type"
             properties[partners[rid]] = kind + "." + data[1] + ".Values"
         else:
+            values = re.fullmatch(
+                r"(EventSelectors\[[1-9]\d*\]\.DataResources\[[1-9]\d*\]\.Values)\[1\]",
+                prop,
+            )
+            if (
+                values
+                and dict(canonical)[rid]["property"]
+                == prefix + ".DataResources[].Values"
+            ):
+                prop = values[1]
             properties[rid] = kind + "." + prop
+    for rid, partner in partners.items():
+        if properties.get(rid, "").removesuffix(".Type") != properties.get(
+            partner, ""
+        ).removesuffix(".Values"):
+            raise Unresolved(
+                "array membership unresolved: EventSelectors; incomplete Type/Values pair"
+            )
     if properties.keys() != dict(canonical).keys():
         raise Unresolved(
             "array membership unresolved: EventSelectors; incomplete display-to-Model mapping"
