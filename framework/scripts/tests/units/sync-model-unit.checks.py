@@ -33,6 +33,7 @@ from model.identity import COUNTERS
 from model.sources import runtime_values
 from support.issues_scan_fixtures import task as issue_task
 from support.pytest_cli import run
+from support.ut_file_fixtures import load_workspace
 from sync_files import changed_files, markdown_newlines
 from task_contract_core import selected_task
 from utils.aws_mappings import definition_root, mapping_alias
@@ -147,10 +148,7 @@ def check_internal_sync_concurrent_output(tmp_path, capsys):
 )
 def check_internal_sync_arguments(tmp_path, arguments, code, diagnostic, capsys):
     runner = module("sync-model.py", "blueprint_sync_model")
-    (tmp_path / "tasks").mkdir()
-    (tmp_path / "tasks/example.md").write_text(
-        "## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n## Validation scope\n- `all`\n"
-    )
+    load_workspace(__file__, "01_internal_sync_arguments", tmp_path)
     result, text = runner.run(arguments, repository_root=tmp_path)
     assert result == code and diagnostic in text, text
     assert progress._current.get() is None and progress._output.get() is None
